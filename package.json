@@ -3,7 +3,7 @@
   "productName": "EVB Viewer",
   "version": "0.1.7",
   "author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>",
-  "description": "Electron + Nuxt 4 SSR example",
+  "description": "EVB Viewer — a PDF and DjVu document viewer",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
