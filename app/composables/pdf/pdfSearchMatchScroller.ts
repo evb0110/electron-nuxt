@@ -10,7 +10,6 @@ interface IPdfSearchMatchScrollerDeps {
     scrollToCurrentMatch: () => boolean;
     scheduleRenderForSinglePage: (pageNumber: number) => void;
     scrollToPage?: (pageNumber: number) => void;
-    runDeferredScrollToCurrentMatch: () => void;
 }
 
 export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) {
@@ -21,26 +20,71 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
             return;
         }
 
+        let observer: MutationObserver | null = null;
+
+        function disconnectObserver() {
+            observer?.disconnect();
+            observer = null;
+        }
+
         const correctIfNeeded = () => {
             if (requestId !== scrollToMatchRequestId) {
+                disconnectObserver();
                 return;
             }
 
             const containerRoot = deps.getContainer();
             const currentMatch = deps.getCurrentSearchMatch();
             if (!containerRoot || !currentMatch) {
+                disconnectObserver();
                 return;
             }
 
             const targetContainer = getPageContainer(containerRoot, currentMatch.pageIndex);
             if (!targetContainer) {
+                deps.scheduleRenderForSinglePage(currentMatch.pageIndex + 1);
+                if (!observer) {
+                    observer = new MutationObserver(() => {
+                        if (requestId !== scrollToMatchRequestId) {
+                            disconnectObserver();
+                            return;
+                        }
+                        if (getPageContainer(containerRoot, currentMatch.pageIndex)) {
+                            disconnectObserver();
+                            correctIfNeeded();
+                        }
+                    });
+                    observer.observe(containerRoot, {
+                        childList: true,
+                        subtree: false, 
+                    });
+                }
                 return;
             }
 
             const textLayerDiv = targetContainer.querySelector<HTMLElement>('.text-layer');
             if (!textLayerDiv) {
+                deps.scheduleRenderForSinglePage(currentMatch.pageIndex + 1);
+                if (!observer) {
+                    observer = new MutationObserver(() => {
+                        if (requestId !== scrollToMatchRequestId) {
+                            disconnectObserver();
+                            return;
+                        }
+                        if (targetContainer.querySelector('.text-layer')) {
+                            disconnectObserver();
+                            correctIfNeeded();
+                        }
+                    });
+                    observer.observe(targetContainer, {
+                        childList: true,
+                        subtree: true, 
+                    });
+                }
                 return;
             }
+
+            disconnectObserver();
 
             const rect = deps.getCurrentMatchRangeRect(textLayerDiv);
             if (!rect || (rect.width === 0 && rect.height === 0)) {
@@ -67,6 +111,8 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         setTimeout(correctIfNeeded, 120);
         setTimeout(correctIfNeeded, 350);
         setTimeout(correctIfNeeded, 800);
+        setTimeout(correctIfNeeded, 1500);
+        setTimeout(correctIfNeeded, 3000);
     }
 
     function requestScrollToMatch(matchPageIndex: number | null) {
@@ -95,13 +141,8 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
             deps.scheduleRenderForSinglePage(matchPageIndex + 1);
 
             if (attempts >= maxAttempts) {
-                deps.scrollToPage?.(matchPageIndex + 1);
-                requestAnimationFrame(() => {
-                    if (requestId !== scrollToMatchRequestId) {
-                        return;
-                    }
-                    deps.runDeferredScrollToCurrentMatch();
-                });
+                deps.scrollToPage?.(matchPageIndex + 1 + 6);
+                scheduleScrollCorrection(requestId);
                 return;
             }
 

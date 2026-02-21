@@ -281,6 +281,7 @@ const {
     invalidatePages: invalidateRenderedPages,
     applySearchHighlights,
     isPageRendered,
+    requestScrollToCurrentResult,
 } = usePdfPageRenderer({
     container: viewerContainer,
     document: pdfDocumentResult,
@@ -673,6 +674,7 @@ defineExpose({
     invalidatePages,
     captureRegionToClipboard: regionSnip.startCaptureSession,
     isCapturingRegion: regionSnip.isActive,
+    requestScrollToCurrentResult,
 });
 </script>
 
