@@ -1,4 +1,3 @@
-import { app } from 'electron';
 import {
     existsSync,
     readdirSync,
@@ -68,9 +67,10 @@ interface IToolValidationResult {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const isPackaged = __dirname.includes('app.asar');
 
 function getResourcesBase(): string {
-    if (app.isPackaged) {
+    if (isPackaged) {
         return process.resourcesPath;
     }
     return join(__dirname, '..', 'resources');
@@ -111,7 +111,7 @@ function getBinaryPath(dir: string, name: string, optional = false): string {
     }
 
     // Packaged app must rely on bundled binaries only.
-    if (app.isPackaged) {
+    if (isPackaged) {
         return binPath;
     }
 

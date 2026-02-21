@@ -1,5 +1,5 @@
 import { isMainThread } from 'worker_threads';
-import { app } from 'electron';
+import { tmpdir } from 'os';
 import {
     appendFileSync,
     mkdirSync,
@@ -53,7 +53,7 @@ const FILE_LOG_LEVEL = normalizeLogLevel(process.env.ELECTRON_FILE_LOG_LEVEL) ??
 const RENDER_LOG_LEVEL = normalizeLogLevel(process.env.ELECTRON_RENDER_LOG_LEVEL)
     ?? (config.isDev ? 'INFO' : 'WARN');
 
-const LOG_DIR = join(app.getPath('temp'), 'electron-logs');
+const LOG_DIR = join(tmpdir(), 'electron-logs');
 
 try {
     mkdirSync(LOG_DIR, { recursive: true });

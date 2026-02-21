@@ -1,4 +1,3 @@
-import { app } from 'electron';
 import { existsSync } from 'fs';
 import {
     dirname,
@@ -7,6 +6,7 @@ import {
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const isPackaged = __dirname.includes('app.asar');
 
 function parsePositiveInt(raw: string | undefined, fallback: number) {
     if (!raw) {
@@ -22,7 +22,7 @@ function parsePositiveInt(raw: string | undefined, fallback: number) {
 }
 
 export const config = {
-    isDev: !app.isPackaged,
+    isDev: !isPackaged,
     isMac: process.platform === 'darwin',
 
     server: {
@@ -31,7 +31,7 @@ export const config = {
             return `http://localhost:${this.port}`;
         },
         get entryPath() {
-            if (app.isPackaged) {
+            if (isPackaged) {
                 // Keep Nuxt server inside app.asar so Node ESM can resolve
                 // bare package imports from app.asar/node_modules.
                 const asarPath = join(process.resourcesPath, 'app.asar', 'nuxt-output', 'server', 'index.mjs');
