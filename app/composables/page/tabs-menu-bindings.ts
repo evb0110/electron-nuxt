@@ -24,116 +24,119 @@ interface ITabsMenuBindingDeps {
 
 /**
  * Registers menu->renderer event handlers and returns unsubscribe callbacks.
+ * Uses optional chaining on each binding so a stale preload (dev mode version
+ * mismatch) degrades gracefully rather than crashing the renderer.
  */
 export function registerTabsMenuBindings(
     electronApi: IElectronAPI,
     deps: ITabsMenuBindingDeps,
 ) {
+    const api = electronApi as Partial<IElectronAPI>;
     return [
-        electronApi.onMenuOpenPdf(() => {
+        api.onMenuOpenPdf?.(() => {
             void deps.activeWorkspace.value?.handleOpenFileFromUi();
         }),
-        electronApi.onMenuSave(() => {
+        api.onMenuSave?.(() => {
             void deps.activeWorkspace.value?.handleSave();
         }),
-        electronApi.onMenuSaveAs(() => {
+        api.onMenuSaveAs?.(() => {
             void deps.activeWorkspace.value?.handleSaveAs();
         }),
-        electronApi.onMenuExportDocx(() => {
+        api.onMenuExportDocx?.(() => {
             void deps.activeWorkspace.value?.handleExportDocx();
         }),
-        electronApi.onMenuExportImages(() => {
+        api.onMenuExportImages?.(() => {
             void deps.activeWorkspace.value?.handleExportImages();
         }),
-        electronApi.onMenuExportMultiPageTiff(() => {
+        api.onMenuExportMultiPageTiff?.(() => {
             void deps.activeWorkspace.value?.handleExportMultiPageTiff();
         }),
-        electronApi.onMenuUndo(() => {
+        api.onMenuUndo?.(() => {
             deps.activeWorkspace.value?.handleUndo();
         }),
-        electronApi.onMenuRedo(() => {
+        api.onMenuRedo?.(() => {
             deps.activeWorkspace.value?.handleRedo();
         }),
-        electronApi.onMenuZoomIn(() => {
+        api.onMenuZoomIn?.(() => {
             deps.activeWorkspace.value?.handleZoomIn();
         }),
-        electronApi.onMenuZoomOut(() => {
+        api.onMenuZoomOut?.(() => {
             deps.activeWorkspace.value?.handleZoomOut();
         }),
-        electronApi.onMenuActualSize(() => {
+        api.onMenuActualSize?.(() => {
             deps.activeWorkspace.value?.handleActualSize();
         }),
-        electronApi.onMenuFitWidth(() => {
+        api.onMenuFitWidth?.(() => {
             deps.activeWorkspace.value?.handleFitWidth();
         }),
-        electronApi.onMenuFitHeight(() => {
+        api.onMenuFitHeight?.(() => {
             deps.activeWorkspace.value?.handleFitHeight();
         }),
-        electronApi.onMenuViewModeSingle(() => {
+        api.onMenuViewModeSingle?.(() => {
             deps.activeWorkspace.value?.handleViewModeSingle();
         }),
-        electronApi.onMenuViewModeFacing(() => {
+        api.onMenuViewModeFacing?.(() => {
             deps.activeWorkspace.value?.handleViewModeFacing();
         }),
-        electronApi.onMenuViewModeFacingFirstSingle(() => {
+        api.onMenuViewModeFacingFirstSingle?.(() => {
             deps.activeWorkspace.value?.handleViewModeFacingFirstSingle();
         }),
-        electronApi.onMenuOpenRecentFile((path: string) => {
+        api.onMenuOpenRecentFile?.((path: string) => {
             void deps.openPathInAppropriateTab(path);
         }),
-        electronApi.onMenuOpenExternalPaths((paths: string[]) => {
+        api.onMenuOpenExternalPaths?.((paths: string[]) => {
             void deps.openPathsInAppropriateTab(paths);
         }),
-        electronApi.onMenuClearRecentFiles(() => {
+        api.onMenuClearRecentFiles?.(() => {
             void deps.clearRecentFiles();
             void deps.loadRecentFiles();
         }),
-        electronApi.onMenuOpenSettings(() => {
+        api.onMenuOpenSettings?.(() => {
             deps.openSettings();
         }),
-        electronApi.onMenuCheckForUpdates(() => {
+        api.onMenuCheckForUpdates?.(() => {
             void deps.checkForUpdates();
         }),
-        electronApi.onMenuDeletePages(() => {
+        api.onMenuDeletePages?.(() => {
             deps.activeWorkspace.value?.handleDeletePages();
         }),
-        electronApi.onMenuExtractPages(() => {
+        api.onMenuExtractPages?.(() => {
             deps.activeWorkspace.value?.handleExtractPages();
         }),
-        electronApi.onMenuRotateCw(() => {
+        api.onMenuRotateCw?.(() => {
             deps.activeWorkspace.value?.handleRotateCw();
         }),
-        electronApi.onMenuRotateCcw(() => {
+        api.onMenuRotateCcw?.(() => {
             deps.activeWorkspace.value?.handleRotateCcw();
         }),
-        electronApi.onMenuInsertPages(() => {
+        api.onMenuInsertPages?.(() => {
             deps.activeWorkspace.value?.handleInsertPages();
         }),
-        electronApi.onMenuConvertToPdf(() => {
+        api.onMenuConvertToPdf?.(() => {
             deps.activeWorkspace.value?.handleConvertToPdf();
         }),
-        electronApi.onMenuNewTab(() => {
+        api.onMenuNewTab?.(() => {
             deps.createTab();
         }),
-        electronApi.onMenuCloseTab(() => {
+        api.onMenuCloseTab?.(() => {
             if (deps.activeTabId.value) {
                 void deps.handleCloseTab(deps.activeTabId.value);
             }
         }),
-        electronApi.onMenuSplitEditor((direction) => {
+        api.onMenuSplitEditor?.((direction) => {
             void deps.splitEditor(direction);
         }),
-        electronApi.onMenuFocusEditorGroup((direction) => {
+        api.onMenuFocusEditorGroup?.((direction) => {
             deps.focusGroup(direction);
         }),
-        electronApi.onMenuMoveTabToGroup((direction) => {
+        api.onMenuMoveTabToGroup?.((direction) => {
             void deps.moveActiveTab(direction);
         }),
-        electronApi.onMenuCopyTabToGroup((direction) => {
+        api.onMenuCopyTabToGroup?.((direction) => {
             void deps.copyActiveTab(direction);
         }),
-        electronApi.tabs.onWindowAction((action) => {
+        api.tabs?.onWindowAction((action) => {
             void deps.handleWindowTabsAction(action);
         }),
-    ];
+    ].filter((cleanup): cleanup is () => void => typeof cleanup === 'function');
 }

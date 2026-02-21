@@ -88,6 +88,7 @@ export interface IPdfViewerExpose {
     getSelectedShape: () => IShapeAnnotation | null;
     applyStampImage: (file: File) => void;
     invalidatePages: (pages: number[]) => void;
+    requestScrollToCurrentResult: () => void;
 }
 
 export interface IWorkspaceOrchestrationDeps {
@@ -339,7 +340,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleSearch,
         handleSearchNext,
         handleSearchPrevious,
-        handleGoToResult,
+        handleGoToResult: baseHandleGoToResult,
     } = usePageSearch({
         showSidebar,
         sidebarTab,
@@ -352,6 +353,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         setResultIndex,
         clearSearch,
     });
+
+    function handleGoToResult(index: number) {
+        baseHandleGoToResult(index);
+        pdfViewerRef.value?.requestScrollToCurrentResult();
+    }
 
     const {
         handleSave,

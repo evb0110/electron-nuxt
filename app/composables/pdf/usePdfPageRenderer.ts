@@ -211,18 +211,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             });
         },
         scrollToPage: options.scrollToPage,
-        runDeferredScrollToCurrentMatch: () => {
-            runGuardedTask(
-                async () => {
-                    await nextTick();
-                    scrollToCurrentMatch();
-                },
-                {
-                    scope: 'pdf-renderer',
-                    message: 'Failed to retry scroll to current match after page jump',
-                },
-            );
-        },
     });
 
     function cleanupTextLayer(pageNumber: number) {
@@ -807,6 +795,14 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
 
+    function requestScrollToCurrentResult() {
+        const currentMatchValue = toValue(currentSearchMatch);
+        if (!currentMatchValue) {
+            return;
+        }
+        searchMatchScroller.requestScrollToMatch(currentMatchValue.pageIndex);
+    }
+
     return {
         setupPagePlaceholders,
         renderVisiblePages,
@@ -815,5 +811,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         invalidatePages,
         applySearchHighlights,
         isPageRendered: (pageNumber: number) => renderedPages.has(pageNumber),
+        requestScrollToCurrentResult,
     };
 };
