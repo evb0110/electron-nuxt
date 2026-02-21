@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import { homedir } from 'os';
 import {
     copyFileSync,
     existsSync,
@@ -27,6 +27,18 @@ const RETRY_DELAY_MS = 1_500;
 
 const inFlightDownloads = new Map<string, Promise<void>>();
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const isPackaged = __dirname.includes('app.asar');
+
+function getElectronUserDataPath(): string {
+    const appName = 'EVB Viewer';
+    if (process.platform === 'win32') {
+        return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), appName);
+    }
+    if (process.platform === 'darwin') {
+        return join(homedir(), 'Library', 'Application Support', appName);
+    }
+    return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), appName);
+}
 
 function normalizeLanguageCodes(languageCodes: string[]): string[] {
     const deduped = new Set<string>();
@@ -44,7 +56,7 @@ function delay(ms: number) {
 }
 
 function getBundledTessdataDir() {
-    if (app.isPackaged) {
+    if (isPackaged) {
         return join(process.resourcesPath, 'tesseract', 'tessdata');
     }
 
@@ -52,8 +64,8 @@ function getBundledTessdataDir() {
 }
 
 export function getRuntimeTessdataDir() {
-    if (app.isPackaged) {
-        return join(app.getPath('userData'), 'tessdata');
+    if (isPackaged) {
+        return join(getElectronUserDataPath(), 'tessdata');
     }
 
     return getBundledTessdataDir();
@@ -64,7 +76,7 @@ function getModelPath(baseDir: string, languageCode: string) {
 }
 
 function seedBundledModelsSync(runtimeDir: string) {
-    if (!app.isPackaged) {
+    if (!isPackaged) {
         return;
     }
 
@@ -94,7 +106,7 @@ export function ensureRuntimeTessdataSeededSync() {
 }
 
 async function seedBundledModels(runtimeDir: string) {
-    if (!app.isPackaged) {
+    if (!isPackaged) {
         return;
     }
 

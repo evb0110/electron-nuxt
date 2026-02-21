@@ -1,4 +1,7 @@
 import { readFile } from 'fs/promises';
+// Must set up DOM stubs before importing pdfjs — the legacy build still
+// references DOMMatrix at module evaluation time (canvas rendering code).
+import '@electron/search/dom-polyfill';
 // Must use the legacy build — the default build uses DOMMatrix and other
 // browser-only APIs that don't exist in Node.js worker threads.
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
