@@ -81,6 +81,9 @@ const inputRef = ref<{ $el: HTMLElement } | null>(null);
 const searchQuery = computed({
     get: () => props.modelValue,
     set: (value: string) => {
+        if (value === props.modelValue) {
+            return;
+        }
         emit('update:modelValue', value);
         emit('search');
     },

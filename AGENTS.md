@@ -47,6 +47,7 @@ NB! Never create branches or switch to branches unless explicitly asked by user 
 
 After confirming a change works and introduces no regressions:
 
+0. Don't run `lint` or `typecheck` on any code change, only after a task is completed. Running them too often slows you down massively
 1. Run completion checks: `pnpm lint && pnpm typecheck`
 2. Fix any lint or type errors before committing
 3. Stage the files you changed (not `git add -A` — be specific)

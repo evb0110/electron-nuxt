@@ -12,12 +12,14 @@ import { usePdfSearchHighlight } from '@app/composables/usePdfSearchHighlight';
 import { useTextLayerSelection } from '@app/composables/useTextLayerSelection';
 import { usePdfWordBoxes } from '@app/composables/usePdfWordBoxes';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
+import { getPageContainer } from '@app/composables/pdf/pdfPageBufferManager';
 import {
     getHighlightMode,
     isHighlightDebugEnabled as isHighlightDebugEnabledFromStorage,
     isHighlightDebugVerboseEnabled as isHighlightDebugVerboseEnabledFromStorage,
 } from '@app/composables/pdfSearchHighlightCss';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { logPdfNav } from '@app/utils/pdf-nav-log';
 
 interface IHighlightDebugInfo {
     userUnit: number;
@@ -42,7 +44,6 @@ export const usePdfTextLayerRenderer = (deps: {
     const {
         clearHighlights,
         highlightPage,
-        scrollToHighlight,
         getCurrentMatchRanges,
     } = usePdfSearchHighlight();
     const {
@@ -296,8 +297,13 @@ export const usePdfTextLayerRenderer = (deps: {
         const searchMatchesValue = toValue(deps.searchPageMatches);
         const currentMatchValue = toValue(deps.currentSearchMatch);
 
-        pageContainers.forEach((container, index) => {
-            const pageIndex = index;
+        pageContainers.forEach((container) => {
+            const mountedPageNumber = Number.parseInt(container.dataset.page ?? '', 10);
+            if (!Number.isFinite(mountedPageNumber) || mountedPageNumber < 1) {
+                return;
+            }
+
+            const pageIndex = mountedPageNumber - 1;
             const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
 
             if (!textLayerDiv) {
@@ -342,23 +348,59 @@ export const usePdfTextLayerRenderer = (deps: {
         });
     }
 
-    function scrollToCurrentMatch(containerRoot: HTMLElement, behavior: ScrollBehavior = 'auto') {
+    function scrollToCurrentMatch(containerRoot: HTMLElement) {
+        function clampScrollTopToTargetPage(
+            desiredTop: number,
+            targetPageContainer: HTMLElement,
+        ) {
+            const computedStyle = typeof window !== 'undefined'
+                ? window.getComputedStyle(containerRoot)
+                : null;
+            const paddingTop = Number.parseFloat(computedStyle?.paddingTop ?? '0') || 0;
+            const paddingBottom = Number.parseFloat(computedStyle?.paddingBottom ?? '0') || 0;
+
+            const minTop = Math.max(0, targetPageContainer.offsetTop - paddingTop);
+            const pageBottom = targetPageContainer.offsetTop + targetPageContainer.offsetHeight + paddingBottom;
+            const maxTop = Math.max(minTop, pageBottom - containerRoot.clientHeight);
+            const clampedTop = Math.min(maxTop, Math.max(minTop, desiredTop));
+
+            return {
+                clampedTop,
+                minTop,
+                maxTop,
+                paddingTop,
+                paddingBottom,
+            };
+        }
+
         const currentMatchValue = toValue(deps.currentSearchMatch);
         if (!currentMatchValue) {
+            logPdfNav('[PDF-NAV] scrollToCurrentMatch: no current search match');
             return false;
         }
 
         const pageIndex = currentMatchValue.pageIndex;
-        const targetContainer = containerRoot.querySelector<HTMLElement>(`.page_container[data-page="${pageIndex + 1}"]`)
-            ?? containerRoot.querySelectorAll<HTMLElement>('.page_container')[pageIndex]
-            ?? null;
+        const targetContainer = getPageContainer(containerRoot, pageIndex);
 
         if (!targetContainer) {
+            const mountedPages = Array.from(
+                containerRoot.querySelectorAll<HTMLElement>('.page_container'),
+            )
+                .map(page => page.dataset.page ?? '?')
+                .slice(0, 20)
+                .join(',');
+            logPdfNav(
+                `[PDF-NAV] scrollToCurrentMatch: target page=${pageIndex + 1} not mounted`
+                + ` mountedPages=[${mountedPages}]`,
+            );
             return false;
         }
 
         const textLayerDiv = targetContainer.querySelector<HTMLElement>('.text-layer');
         if (!textLayerDiv) {
+            logPdfNav(
+                `[PDF-NAV] scrollToCurrentMatch: page=${pageIndex + 1} has no text-layer`,
+            );
             return false;
         }
 
@@ -367,32 +409,74 @@ export const usePdfTextLayerRenderer = (deps: {
             const currentRanges = getCurrentMatchRanges(textLayerDiv);
             const range = currentRanges.at(0) ?? null;
             if (!range) {
+                logPdfNav(
+                    `[PDF-NAV] scrollToCurrentMatch: page=${pageIndex + 1} no current highlight and no ranges`,
+                );
                 return false;
             }
 
             const rect = range.getBoundingClientRect();
             if (rect.width === 0 && rect.height === 0) {
+                logPdfNav(
+                    `[PDF-NAV] scrollToCurrentMatch: page=${pageIndex + 1} range rect empty`,
+                );
                 return false;
             }
 
             const containerRect = containerRoot.getBoundingClientRect();
             const elementTop = rect.top - containerRect.top + containerRoot.scrollTop;
-            const elementCenter = elementTop - containerRoot.clientHeight / 2 + rect.height / 2;
+            const desiredTop = elementTop - containerRoot.clientHeight / 2 + rect.height / 2;
+            const {
+                clampedTop,
+                minTop,
+                maxTop,
+                paddingTop,
+                paddingBottom,
+            } = clampScrollTopToTargetPage(desiredTop, targetContainer);
 
-            containerRoot.scrollTo({
-                top: Math.max(0, elementCenter),
-                behavior,
-            });
+            logPdfNav(
+                `[PDF-NAV] scrollToCurrentMatch (range): scrollTop=${containerRoot.scrollTop.toFixed(1)}`
+                + ` rect.top=${rect.top.toFixed(1)} containerRect.top=${containerRect.top.toFixed(1)}`
+                + ` elementTop=${elementTop.toFixed(1)} desiredTop=${desiredTop.toFixed(1)}`
+                + ` clampedTop=${clampedTop.toFixed(1)} pageMin=${minTop.toFixed(1)}`
+                + ` pageMax=${maxTop.toFixed(1)} padTop=${paddingTop.toFixed(1)}`
+                + ` padBottom=${paddingBottom.toFixed(1)}`,
+            );
+
+            containerRoot.scrollTop = clampedTop;
 
             return true;
         }
 
         const highlightRect = currentHighlight.getBoundingClientRect();
         if (highlightRect.width === 0 && highlightRect.height === 0) {
+            logPdfNav(
+                `[PDF-NAV] scrollToCurrentMatch: page=${pageIndex + 1} current highlight rect empty`,
+            );
             return false;
         }
 
-        scrollToHighlight(currentHighlight, containerRoot, behavior);
+        const containerRect = containerRoot.getBoundingClientRect();
+        const elementTop = highlightRect.top - containerRect.top + containerRoot.scrollTop;
+        const desiredTop = elementTop - containerRoot.clientHeight / 2 + highlightRect.height / 2;
+        const {
+            clampedTop,
+            minTop,
+            maxTop,
+            paddingTop,
+            paddingBottom,
+        } = clampScrollTopToTargetPage(desiredTop, targetContainer);
+
+        logPdfNav(
+            `[PDF-NAV] scrollToCurrentMatch (mark): scrollTop=${containerRoot.scrollTop.toFixed(1)}`
+            + ` rect.top=${highlightRect.top.toFixed(1)} containerRect.top=${containerRect.top.toFixed(1)}`
+            + ` elementTop=${elementTop.toFixed(1)} desiredTop=${desiredTop.toFixed(1)}`
+            + ` clampedTop=${clampedTop.toFixed(1)} pageMin=${minTop.toFixed(1)}`
+            + ` pageMax=${maxTop.toFixed(1)} padTop=${paddingTop.toFixed(1)}`
+            + ` padBottom=${paddingBottom.toFixed(1)}`,
+        );
+
+        containerRoot.scrollTop = clampedTop;
         return true;
     }
 

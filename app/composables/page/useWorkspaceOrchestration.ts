@@ -356,7 +356,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     function handleGoToResult(index: number) {
         baseHandleGoToResult(index);
-        pdfViewerRef.value?.requestScrollToCurrentResult();
     }
 
     const {
