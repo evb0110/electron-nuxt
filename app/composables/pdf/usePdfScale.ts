@@ -25,15 +25,13 @@ export const usePdfScale = (
     const effectiveScale = computed(() => toValue(zoom) * fitWidthScale.value);
 
     const containerStyle = computed(() => {
-        const scale = effectiveScale.value;
-        const margin = Math.floor(BASE_MARGIN * scale);
         return {
-            padding: `${margin}px`,
-            gap: `${margin}px`,
+            padding: `${BASE_MARGIN}px`,
+            gap: `${BASE_MARGIN}px`,
         };
     });
 
-    const scaledMargin = computed(() => Math.floor(BASE_MARGIN * effectiveScale.value));
+    const scaledMargin = computed(() => BASE_MARGIN);
 
     function computeFitWidthScale(container: HTMLElement | null): boolean {
         const width = toValue(basePageWidth);
@@ -54,9 +52,15 @@ export const usePdfScale = (
         const columns = mode === 'height'
             ? 1
             : getViewColumnCount(toValue(viewMode), toValue(numPages));
+        const availableSize = mode === 'height'
+            ? rawSize - BASE_MARGIN * 2
+            : rawSize - BASE_MARGIN * (columns + 1);
+        if (availableSize <= 0) {
+            return false;
+        }
         const baseDimension = mode === 'height'
-            ? height + BASE_MARGIN * 2
-            : width * columns + BASE_MARGIN * (columns + 1);
+            ? height
+            : width * columns;
 
         if (
             lastContainerSize.value !== null
@@ -70,7 +74,7 @@ export const usePdfScale = (
         lastContainerSize.value = rawSize;
         lastBaseDimension.value = baseDimension;
 
-        const newScale = rawSize / baseDimension;
+        const newScale = availableSize / baseDimension;
 
         if (Math.abs(newScale - fitWidthScale.value) < 0.001) {
             return false;
