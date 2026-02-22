@@ -786,6 +786,7 @@ function deleteSelectedShape() {
 }
 
 defineExpose({
+    getViewerContainer: () => viewerContainer.value,
     scrollToPage: (pageNumber: number) => {
         cancelPendingSearchScroll();
         singlePageScroll.scrollToPage(pageNumber);

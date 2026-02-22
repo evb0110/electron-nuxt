@@ -284,6 +284,8 @@
         <WorkspaceAnnotationOverlays
             :sorted-annotation-note-windows="sortedAnnotationNoteWindows"
             :annotation-note-positions="annotationNotePositions"
+            :annotation-viewport-root="pdfViewerRef?.getViewerContainer?.() ?? null"
+            :annotation-zoom="zoom"
             :annotation-context-menu="annotationContextMenu"
             :annotation-context-menu-style="annotationContextMenuStyle"
             :annotation-context-menu-can-copy="annotationContextMenuCanCopy"

@@ -136,6 +136,28 @@ const windowStyle = computed(() => ({
     zIndex: String(zIndex),
 }));
 
+async function focusTextInput() {
+    await nextTick();
+    const input = noteInputRef.value;
+    if (!input) {
+        return;
+    }
+    input.focus();
+    const end = input.value.length;
+    input.setSelectionRange(end, end);
+    if (typeof window !== 'undefined') {
+        window.requestAnimationFrame(() => {
+            const nextInput = noteInputRef.value;
+            if (!nextInput) {
+                return;
+            }
+            nextInput.focus();
+            const nextEnd = nextInput.value.length;
+            nextInput.setSelectionRange(nextEnd, nextEnd);
+        });
+    }
+}
+
 function applyPosition(position: IAnnotationNotePosition | null) {
     const nextSize = clampSize(
         position?.width ?? width.value ?? NOTE_WINDOW.DEFAULT_WIDTH,
@@ -291,8 +313,7 @@ onMounted(async () => {
             resizeObserver.observe(noteWindowRef.value);
         }
     }
-    await nextTick();
-    noteInputRef.value?.focus();
+    await focusTextInput();
 });
 
 onBeforeUnmount(() => {
@@ -318,9 +339,17 @@ watch(
     () => comment.stableKey,
     () => {
         applyPosition(position);
-        void nextTick(() => {
-            noteInputRef.value?.focus();
-        });
+        void focusTextInput();
+    },
+);
+
+watch(
+    () => zIndex,
+    (nextZIndex, previousZIndex) => {
+        if (nextZIndex === previousZIndex) {
+            return;
+        }
+        void focusTextInput();
     },
 );
 </script>
