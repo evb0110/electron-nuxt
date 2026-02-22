@@ -58,6 +58,7 @@ import type { TSplitPayload } from '@app/types/split-payload';
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
 export interface IPdfViewerExpose {
+    getViewerContainer: () => HTMLElement | null;
     scrollToPage: (page: number) => void;
     captureRegionToClipboard: () => Promise<boolean>;
     isCapturingRegion: { value: boolean };

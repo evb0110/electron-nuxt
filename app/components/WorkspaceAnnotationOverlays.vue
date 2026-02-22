@@ -14,22 +14,31 @@
         @delete="$emit('delete-comment', note.comment)"
         @focus="$emit('focus-note', note.comment.stableKey)"
     />
-    <UTooltip
+    <template
         v-for="note in minimizedAnnotationNoteWindows"
         :key="`minimized-${note.comment.stableKey}`"
-        :text="getMinimizedNotePreview(note)"
-        :delay-duration="250"
     >
-        <button
-            type="button"
-            class="pdf-note-minimized-indicator"
-            :style="getMinimizedIndicatorStyle(note)"
-            :aria-label="t('annotations.openNote')"
-            @click="$emit('restore-note', note.comment.stableKey)"
+        <Teleport
+            v-if="minimizedIndicatorTargets[note.comment.stableKey]"
+            :to="minimizedIndicatorTargets[note.comment.stableKey]"
         >
-            <UIcon name="i-lucide-sticky-note" class="size-3" />
-        </button>
-    </UTooltip>
+            <UTooltip
+                :text="getMinimizedNotePreview(note)"
+                :delay-duration="250"
+            >
+                <button
+                    type="button"
+                    class="pdf-note-minimized-indicator"
+                    :style="getMinimizedIndicatorStyle(note)"
+                    :aria-label="t('annotations.openNote')"
+                    @mousedown.prevent
+                    @click="$emit('restore-note', note.comment.stableKey)"
+                >
+                    <UIcon name="i-lucide-sticky-note" class="size-3" />
+                </button>
+            </UTooltip>
+        </Teleport>
+    </template>
     <PdfAnnotationContextMenu
         :menu="annotationContextMenu"
         :style="annotationContextMenuStyle"
@@ -71,12 +80,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import {
+    computed,
+    onBeforeUnmount,
+    onMounted,
+    ref,
+    watch,
+} from 'vue';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
+import { normalizeMarkerRect } from '@app/composables/pdf/pdfAnnotationUtils';
 import type { IAnnotationNotePosition } from '@app/composables/pdf/useAnnotationNoteWindows';
 
 interface IAnnotationNoteWindowEntry {
@@ -110,6 +126,8 @@ interface IPageContextMenuState {
 const props = defineProps<{
     sortedAnnotationNoteWindows: IAnnotationNoteWindowEntry[];
     annotationNotePositions: Record<string, IAnnotationNotePosition>;
+    annotationViewportRoot?: HTMLElement | null;
+    annotationZoom?: number;
     annotationContextMenu: IContextMenuState;
     annotationContextMenuStyle: Record<string, string>;
     annotationContextMenuCanCopy: boolean;
@@ -134,15 +152,69 @@ const visibleAnnotationNoteWindows = computed(() =>
 const minimizedAnnotationNoteWindows = computed(() =>
     props.sortedAnnotationNoteWindows.filter((note) => note.isMinimized),
 );
+const indicatorDomTick = ref(0);
+let refreshBurstFrameId: number | null = null;
+let refreshBurstFramesRemaining = 0;
+let viewportMutationObserver: MutationObserver | null = null;
+
+function refreshIndicatorDom() {
+    indicatorDomTick.value += 1;
+}
+
+function runRefreshBurstFrame() {
+    refreshBurstFrameId = null;
+    refreshIndicatorDom();
+    refreshBurstFramesRemaining = Math.max(0, refreshBurstFramesRemaining - 1);
+    if (refreshBurstFramesRemaining > 0 && typeof window !== 'undefined') {
+        refreshBurstFrameId = window.requestAnimationFrame(runRefreshBurstFrame);
+    }
+}
+
+function scheduleIndicatorRefreshBurst(frames = 6) {
+    if (typeof window === 'undefined') {
+        refreshIndicatorDom();
+        return;
+    }
+    refreshBurstFramesRemaining = Math.max(refreshBurstFramesRemaining, Math.max(1, Math.round(frames)));
+    if (refreshBurstFrameId !== null) {
+        return;
+    }
+    refreshBurstFrameId = window.requestAnimationFrame(runRefreshBurstFrame);
+}
+
+const minimizedIndicatorTargets = computed<Record<string, HTMLElement>>(() => {
+    void indicatorDomTick.value;
+    const viewportRoot = props.annotationViewportRoot;
+    if (!viewportRoot) {
+        return {};
+    }
+
+    const targets: Record<string, HTMLElement> = {};
+    minimizedAnnotationNoteWindows.value.forEach((note) => {
+        const pageContainer = viewportRoot.querySelector<HTMLElement>(`.page_container[data-page="${note.comment.pageNumber}"]`);
+        if (pageContainer) {
+            targets[note.comment.stableKey] = pageContainer;
+        }
+    });
+    return targets;
+});
 
 function getMinimizedIndicatorStyle(note: IAnnotationNoteWindowEntry) {
-    const position = props.annotationNotePositions[note.comment.stableKey];
-    const x = position?.x ?? 14;
-    const y = position?.y ?? 72;
+    void indicatorDomTick.value;
+    void props.annotationZoom;
+
+    const markerRect = normalizeMarkerRect(note.comment.markerRect);
+    const leftPercent = markerRect
+        ? Math.max(1, Math.min(99, (markerRect.left + markerRect.width) * 100))
+        : 3;
+    const topPercent = markerRect
+        ? Math.max(1, Math.min(99, markerRect.top * 100))
+        : 3;
+
     return {
-        left: `${x}px`,
-        top: `${y}px`,
-        zIndex: String(90 + note.order),
+        left: `${leftPercent}%`,
+        top: `${topPercent}%`,
+        zIndex: String(20 + note.order),
     };
 }
 
@@ -156,6 +228,69 @@ function getMinimizedNotePreview(note: IAnnotationNoteWindowEntry) {
     }
     return `${text.slice(0, 177)}...`;
 }
+
+function reconnectViewportObservers() {
+    viewportMutationObserver?.disconnect();
+    viewportMutationObserver = null;
+
+    const viewportRoot = props.annotationViewportRoot;
+    if (!viewportRoot) {
+        return;
+    }
+
+    if (typeof MutationObserver !== 'undefined') {
+        viewportMutationObserver = new MutationObserver(() => {
+            scheduleIndicatorRefreshBurst(4);
+        });
+        viewportMutationObserver.observe(viewportRoot, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: [
+                'style',
+                'class',
+            ],
+        });
+    }
+}
+
+onMounted(() => {
+    reconnectViewportObservers();
+    scheduleIndicatorRefreshBurst(10);
+});
+
+onBeforeUnmount(() => {
+    if (typeof window !== 'undefined') {
+        if (refreshBurstFrameId !== null) {
+            window.cancelAnimationFrame(refreshBurstFrameId);
+            refreshBurstFrameId = null;
+        }
+    }
+    viewportMutationObserver?.disconnect();
+    viewportMutationObserver = null;
+});
+
+watch(
+    () => props.annotationViewportRoot,
+    () => {
+        reconnectViewportObservers();
+        scheduleIndicatorRefreshBurst(12);
+    },
+);
+
+watch(
+    () => props.annotationZoom,
+    () => {
+        scheduleIndicatorRefreshBurst(12);
+    },
+);
+
+watch(
+    () => minimizedAnnotationNoteWindows.value.map((note) => `${note.comment.stableKey}:${note.comment.pageNumber}`),
+    () => {
+        scheduleIndicatorRefreshBurst(6);
+    },
+);
 
 defineEmits<{
     'update-note-text': [stableKey: string, text: string];
@@ -187,7 +322,7 @@ defineEmits<{
 
 <style scoped>
 .pdf-note-minimized-indicator {
-    position: fixed;
+    position: absolute;
     width: 1.6rem;
     height: 1.6rem;
     display: inline-flex;
@@ -198,13 +333,14 @@ defineEmits<{
     background: color-mix(in srgb, var(--ui-warning) 26%, var(--ui-bg) 74%);
     color: color-mix(in srgb, var(--ui-warning) 58%, var(--ui-text) 42%);
     cursor: pointer;
+    transform: translate(-50%, -50%);
     transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 
 .pdf-note-minimized-indicator:hover {
     background: color-mix(in srgb, var(--ui-warning) 38%, var(--ui-bg) 62%);
     border-color: color-mix(in srgb, var(--ui-warning) 75%, var(--ui-border) 25%);
-    transform: translateY(-1px);
+    transform: translate(-50%, calc(-50% - 1px));
 }
 
 .pdf-note-minimized-indicator:focus-visible {
