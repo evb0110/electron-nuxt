@@ -44,6 +44,7 @@
                 :page="page"
                 :show-skeleton="shouldShowSkeleton(page)"
                 :spread-single="isSpreadSingle(page)"
+                :placeholder-style="pagePlaceholderStyle"
             />
             <div
                 v-if="bottomVirtualSpacerStyle"
@@ -72,6 +73,7 @@ import {
     onBeforeUnmount,
     ref,
     shallowRef,
+    watch,
     watchEffect,
 } from 'vue';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
@@ -109,6 +111,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/pdfAnnotationUtils';
+import { logPdfNav } from '@app/utils/pdf-nav-log';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
@@ -282,6 +285,7 @@ const {
     applySearchHighlights,
     isPageRendered,
     requestScrollToCurrentResult,
+    cancelPendingSearchScroll,
 } = usePdfPageRenderer({
     container: viewerContainer,
     document: pdfDocumentResult,
@@ -291,7 +295,13 @@ const {
     showAnnotations,
     annotationUiManager,
     annotationL10n,
-    scrollToPage: (pageNumber: number) => singlePageScroll.scrollToPage(pageNumber),
+    scrollToPage: (
+        pageNumber: number,
+        options?: { preferExactDom?: boolean; },
+    ) => singlePageScroll.scrollToPage(pageNumber, options),
+    suppressSnap: () => singlePageScroll.suppressSnapFor(220),
+    beginSearchNavigation: (pageNumber: number) => singlePageScroll.beginSearchNavigation(pageNumber),
+    endSearchNavigation: (settleMs?: number) => singlePageScroll.endSearchNavigation(settleMs),
     searchPageMatches,
     currentSearchMatch,
     workingCopyPath,
@@ -400,6 +410,7 @@ const {
 });
 
 const VIRTUAL_MOUNT_BUFFER_MIN = 6;
+const SEARCH_NAV_VIRTUAL_BUFFER_MIN = 18;
 const pageHeightEstimate = computed(() => {
     const baseHeight = basePageHeight.value;
     if (!baseHeight) {
@@ -408,6 +419,18 @@ const pageHeightEstimate = computed(() => {
     return baseHeight * effectiveScale.value;
 });
 const pageGapEstimate = computed(() => scaledMargin.value);
+const pagePlaceholderStyle = computed<Record<string, string> | null>(() => {
+    const baseWidth = basePageWidth.value;
+    const baseHeight = basePageHeight.value;
+    if (!baseWidth || !baseHeight) {
+        return null;
+    }
+
+    return {
+        width: `${baseWidth * effectiveScale.value}px`,
+        height: `${baseHeight * effectiveScale.value}px`,
+    };
+});
 
 const virtualizedContinuousMode = computed(() =>
     continuousScroll.value
@@ -415,20 +438,59 @@ const virtualizedContinuousMode = computed(() =>
     && numPages.value > 0
     && pageHeightEstimate.value > 0,
 );
-const virtualMountBuffer = computed(() =>
-    Math.max(VIRTUAL_MOUNT_BUFFER_MIN, bufferPages.value + 2),
+const isSearchNavigationActive = computed(() =>
+    singlePageScroll.searchNavigationTargetPage.value !== null,
 );
-const virtualWindowStart = computed(() => {
+const virtualMountBuffer = computed(() =>
+    isSearchNavigationActive.value
+        ? Math.max(SEARCH_NAV_VIRTUAL_BUFFER_MIN, VIRTUAL_MOUNT_BUFFER_MIN, bufferPages.value + 2)
+        : Math.max(VIRTUAL_MOUNT_BUFFER_MIN, bufferPages.value + 2),
+);
+const baseVirtualWindowStart = computed(() => {
     if (!virtualizedContinuousMode.value) {
         return 1;
     }
     return Math.max(1, visibleRange.value.start - virtualMountBuffer.value);
 });
-const virtualWindowEnd = computed(() => {
+const baseVirtualWindowEnd = computed(() => {
     if (!virtualizedContinuousMode.value) {
         return numPages.value;
     }
     return Math.min(numPages.value, visibleRange.value.end + virtualMountBuffer.value);
+});
+const searchNavigationWindow = computed<{
+    start: number;
+    end: number;
+} | null>(() => {
+    const anchorPage = singlePageScroll.searchNavigationTargetPage.value;
+    if (!virtualizedContinuousMode.value || numPages.value <= 0 || anchorPage === null) {
+        return null;
+    }
+
+    return {
+        start: Math.max(1, anchorPage - virtualMountBuffer.value),
+        end: Math.min(numPages.value, anchorPage + virtualMountBuffer.value),
+    };
+});
+const virtualWindowStart = computed(() => {
+    if (!virtualizedContinuousMode.value) {
+        return 1;
+    }
+
+    if (searchNavigationWindow.value) {
+        return searchNavigationWindow.value.start;
+    }
+    return baseVirtualWindowStart.value;
+});
+const virtualWindowEnd = computed(() => {
+    if (!virtualizedContinuousMode.value) {
+        return numPages.value;
+    }
+
+    if (searchNavigationWindow.value) {
+        return searchNavigationWindow.value.end;
+    }
+    return baseVirtualWindowEnd.value;
 });
 
 function computeVirtualSpacerHeight(hiddenPages: number) {
@@ -479,6 +541,44 @@ const pagesToRender = computed(() => {
     return range(virtualWindowStart.value, virtualWindowEnd.value + 1);
 });
 
+watch(
+    () => [
+        !!searchNavigationWindow.value,
+        virtualWindowStart.value,
+        virtualWindowEnd.value,
+        currentPage.value,
+        visibleRange.value.start,
+        visibleRange.value.end,
+        singlePageScroll.searchNavigationTargetPage.value,
+        singlePageScroll.searchNavigationState.value,
+    ] as const,
+    ([
+        anchored,
+        start,
+        end,
+        page,
+        visibleStart,
+        visibleEnd,
+        navigationAnchorPage,
+        searchNavigationState,
+    ]) => {
+        if (!virtualizedContinuousMode.value) {
+            return;
+        }
+        if (searchNavigationState === 'idle') {
+            return;
+        }
+
+        logPdfNav(
+            `[PDF-NAV] virtualWindow anchored=${anchored}`
+            + ` start=${start} end=${end} currentPage=${page}`
+            + ` visibleRange=${visibleStart}-${visibleEnd}`
+            + ` searchAnchor=${navigationAnchorPage ?? 'none'}`
+            + ` searchState=${searchNavigationState}`,
+        );
+    },
+);
+
 watchEffect(() => {
     const totalPages = numPages.value;
     const pageHeight = pageHeightEstimate.value;
@@ -514,6 +614,7 @@ function handleViewerWheel(event: WheelEvent) {
         event.preventDefault();
         return;
     }
+    cancelPendingSearchScroll();
     singlePageScroll.handleWheel(event);
 }
 
@@ -521,6 +622,7 @@ function handleViewerMouseDown(event: MouseEvent) {
     if (isSnipActive()) {
         return;
     }
+    cancelPendingSearchScroll();
     handleDragStart(event);
 }
 
@@ -649,7 +751,10 @@ function deleteSelectedShape() {
 }
 
 defineExpose({
-    scrollToPage: (pageNumber: number) => singlePageScroll.scrollToPage(pageNumber),
+    scrollToPage: (pageNumber: number) => {
+        cancelPendingSearchScroll();
+        singlePageScroll.scrollToPage(pageNumber);
+    },
     saveDocument,
     highlightSelection: highlightComposable.highlightSelection,
     commentSelection: highlightComposable.commentSelection,
@@ -685,15 +790,9 @@ defineExpose({
     position: relative;
     margin: 0 auto;
     flex-shrink: 0;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 800px;
 
     --scale-round-x: 1px;
     --scale-round-y: 1px;
-
-    &.page_container--scroll-target {
-        content-visibility: visible;
-    }
 
     canvas {
         background: transparent;
@@ -833,6 +932,8 @@ defineExpose({
     width: 100%;
     height: 100%;
     overflow: auto;
+    scroll-behavior: auto;
+    overflow-anchor: none;
     background: var(--app-pdf-viewer-bg);
     display: flex;
     flex-direction: column;

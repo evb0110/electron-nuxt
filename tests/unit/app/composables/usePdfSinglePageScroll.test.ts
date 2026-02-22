@@ -32,6 +32,7 @@ interface ITestPageGeometry {
 interface IScrollHarnessOptions {
     viewMode?: TPdfViewMode;
     pageGeometries?: ITestPageGeometry[];
+    mountedPageNumbers?: number[];
     getMostVisiblePage?: (viewer: HTMLElement | null) => number;
     clientHeight?: number;
     scrollHeight?: number;
@@ -70,14 +71,30 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         },
     ];
 
-    const pageElements = pageGeometries.map((page) => cast<HTMLElement>(page));
     const clientHeight = options?.clientHeight ?? 100;
     const scrollHeight = options?.scrollHeight ?? 440;
     const maxScrollTop = Math.max(0, scrollHeight - clientHeight);
     let scrollTop = 0;
+    const mountedPageNumbers = options?.mountedPageNumbers
+        ?? pageGeometries.map((_, index) => index + 1);
+    const pageElements = pageGeometries.map((page, index) => cast<HTMLElement>({
+        ...page,
+        dataset: {page: String(mountedPageNumbers[index] ?? index + 1)},
+    }));
     const container = cast<HTMLElement>({
         clientHeight,
         scrollHeight,
+        querySelector: vi.fn((selector: string) => {
+            const match = selector.match(/\.page_container\[data-page="(\d+)"\]/);
+            if (!match?.[1]) {
+                return null;
+            }
+            const pageNumber = Number.parseInt(match[1], 10);
+            return pageElements.find((pageElement) => {
+                const mountedPage = Number.parseInt(pageElement.dataset?.page ?? '', 10);
+                return mountedPage === pageNumber;
+            }) ?? null;
+        }),
         querySelectorAll: vi.fn(() => pageElements),
     });
     Object.defineProperty(container, 'scrollTop', {
@@ -92,6 +109,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         start: 1,
         end: 1,
     });
+    const scrollToPageInternal = vi.fn();
     const emitCurrentPage = vi.fn((page: number) => {
         currentPage.value = page;
     });
@@ -120,7 +138,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         isLoading: ref(false),
         pdfDocument: shallowRef({} as PDFDocumentProxy),
         getMostVisiblePage,
-        scrollToPageInternal: vi.fn(),
+        scrollToPageInternal,
         updateVisibleRange: vi.fn(),
         updateCurrentPage: vi.fn((viewer: HTMLElement | null) => getMostVisiblePage(viewer)),
         renderVisiblePages: vi.fn(async () => {}),
@@ -131,6 +149,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
     return {
         container,
         currentPage,
+        scrollToPageInternal,
         singlePageScroll,
     };
 }
@@ -437,5 +456,22 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         singlePageScroll.handleWheel(createWheelEvent(120, 10));
         expect(currentPage.value).toBe(3);
         expect(container.scrollTop).toBe(500);
+    });
+
+    it('falls back to internal page scrolling when target page is not mounted', () => {
+        const {
+            currentPage,
+            scrollToPageInternal,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({mountedPageNumbers: [
+            10,
+            11,
+            12,
+        ]});
+
+        singlePageScroll.scrollToPage(1);
+
+        expect(scrollToPageInternal).toHaveBeenCalledOnce();
+        expect(currentPage.value).toBe(1);
     });
 });

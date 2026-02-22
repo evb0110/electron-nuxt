@@ -152,6 +152,9 @@ watch(
         }
 
         await nextTick();
+        if (virtualResults.value.some(entry => entry.index === nextIndex)) {
+            return;
+        }
         scrollTo(nextIndex);
     },
     { flush: 'post' },

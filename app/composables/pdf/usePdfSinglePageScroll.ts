@@ -1,4 +1,5 @@
 import {
+    computed,
     ref,
     type Ref,
     type ShallowRef,
@@ -8,6 +9,7 @@ import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { TPdfViewMode } from '@app/types/shared';
 import { runGuardedTask } from '@app/utils/async-guard';
 import { stepBySpread } from '@app/utils/pdf-view-mode';
+import { logPdfNav } from '@app/utils/pdf-nav-log';
 
 const WHEEL_LINE_DELTA_PX = 16;
 const PAGE_FLIP_STEP_DELTA_PX = 120;
@@ -118,6 +120,22 @@ function hasPageGeometry(value: unknown): value is HTMLElement {
     return typeof candidate.offsetTop === 'number' && typeof candidate.offsetHeight === 'number';
 }
 
+function getPageNumberFromDataset(value: unknown): number | null {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+
+    const candidate = value as {dataset?: {page?: unknown;};};
+
+    const pageValue = candidate.dataset?.page;
+    if (typeof pageValue !== 'string') {
+        return null;
+    }
+
+    const pageNumber = Number.parseInt(pageValue, 10);
+    return Number.isFinite(pageNumber) ? pageNumber : null;
+}
+
 function getPageElementByNumber(container: HTMLElement, pageNumber: number) {
     const selector = `.page_container[data-page="${pageNumber}"]`;
     const querySelector = (
@@ -139,11 +157,20 @@ function getPageElementByNumber(container: HTMLElement, pageNumber: number) {
     }
 
     const allPages = querySelectorAll.call(container, '.page_container') as ArrayLike<unknown> & {item?: (index: number) => unknown;};
-    const indexedMatch = typeof allPages.item === 'function'
-        ? allPages.item(pageNumber - 1)
-        : allPages[pageNumber - 1];
+    for (let index = 0; index < allPages.length; index += 1) {
+        const candidate = typeof allPages.item === 'function'
+            ? allPages.item(index)
+            : allPages[index];
+        if (!hasPageGeometry(candidate)) {
+            continue;
+        }
 
-    return hasPageGeometry(indexedMatch) ? indexedMatch : null;
+        if (getPageNumberFromDataset(candidate) === pageNumber) {
+            return candidate;
+        }
+    }
+
+    return null;
 }
 
 interface IUsePdfSinglePageScrollOptions {
@@ -164,6 +191,7 @@ interface IUsePdfSinglePageScrollOptions {
         page: number,
         total: number,
         margin: number,
+        options?: {preferExactDom?: boolean;},
     ) => void;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     updateCurrentPage: (
@@ -203,6 +231,76 @@ export function usePdfSinglePageScroll(
     } = options;
 
     const isSnapping = ref(false);
+    const snapSuppressUntil = ref(0);
+    const isProgrammaticNavigationActive = ref(false);
+    const searchNavigationTargetPage = ref<number | null>(null);
+    const searchNavigationState = ref<'idle' | 'navigating' | 'settling'>('idle');
+    const isSearchNavigationLocked = computed(
+        () => searchNavigationState.value !== 'idle',
+    );
+    let searchNavigationSettleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function clearSearchNavigationSettleTimer() {
+        if (searchNavigationSettleTimer !== null) {
+            clearTimeout(searchNavigationSettleTimer);
+            searchNavigationSettleTimer = null;
+        }
+    }
+
+    function markProgrammaticNavigation(ms: number) {
+        const now = Date.now();
+        snapSuppressUntil.value = Math.max(snapSuppressUntil.value, now + ms);
+        isProgrammaticNavigationActive.value = true;
+    }
+
+    function maybeReleaseProgrammaticNavigation() {
+        if (
+            searchNavigationState.value === 'idle'
+            && Date.now() >= snapSuppressUntil.value
+        ) {
+            isProgrammaticNavigationActive.value = false;
+        }
+    }
+
+    function suppressSnapFor(ms: number) {
+        markProgrammaticNavigation(ms);
+    }
+
+    function beginSearchNavigation(pageNumber: number, holdMs = 400) {
+        clearSearchNavigationSettleTimer();
+        if (numPages.value > 0) {
+            searchNavigationTargetPage.value = Math.max(
+                1,
+                Math.min(pageNumber, numPages.value),
+            );
+        } else {
+            searchNavigationTargetPage.value = pageNumber;
+        }
+        searchNavigationState.value = 'navigating';
+        markProgrammaticNavigation(Math.max(100, holdMs));
+    }
+
+    function endSearchNavigation(settleMs = 80) {
+        clearSearchNavigationSettleTimer();
+
+        if (settleMs <= 0) {
+            searchNavigationState.value = 'idle';
+            searchNavigationTargetPage.value = null;
+            snapSuppressUntil.value = 0;
+            isProgrammaticNavigationActive.value = false;
+            return;
+        }
+
+        searchNavigationState.value = 'settling';
+        markProgrammaticNavigation(Math.max(80, settleMs + 40));
+        searchNavigationSettleTimer = setTimeout(() => {
+            searchNavigationSettleTimer = null;
+            searchNavigationState.value = 'idle';
+            searchNavigationTargetPage.value = null;
+            maybeReleaseProgrammaticNavigation();
+        }, settleMs);
+    }
+
     const wheelAccumulator = ref<IWheelPageAccumulatorState>({
         delta: 0,
         direction: 0,
@@ -303,6 +401,11 @@ export function usePdfSinglePageScroll(
         const targetPage = Math.max(1, Math.min(pageNumber, numPages.value));
         const targetEl = getPageElementByNumber(viewerContainer.value, targetPage);
         if (!targetEl) {
+            isSnapping.value = true;
+            scrollToPageInternal(viewerContainer.value, targetPage, numPages.value, scaledMargin.value);
+            currentPage.value = targetPage;
+            emitCurrentPage(targetPage);
+            requestAnimationFrame(() => { isSnapping.value = false; });
             return;
         }
 
@@ -334,12 +437,8 @@ export function usePdfSinglePageScroll(
     }
 
     const debouncedSnapToPage = useDebounceFn(() => {
-        if (
-            isLoading.value ||
-      !pdfDocument.value ||
-      continuousScroll.value ||
-      isSnapping.value
-        ) {
+        const suppressed = isLoading.value || !pdfDocument.value || continuousScroll.value || isSnapping.value || Date.now() < snapSuppressUntil.value;
+        if (suppressed) {
             return;
         }
         const page = getMostVisiblePage(viewerContainer.value, numPages.value);
@@ -440,30 +539,59 @@ export function usePdfSinglePageScroll(
         updateVisibleRange(viewerContainer.value, numPages.value);
         debouncedRenderOnScroll();
 
-        const previous = currentPage.value;
-        const page = updateCurrentPage(viewerContainer.value, numPages.value);
-        if (page !== previous) {
-            emitCurrentPage(page);
+        const suppressPageTracking =
+            isSearchNavigationLocked.value || Date.now() < snapSuppressUntil.value;
+        if (!suppressPageTracking) {
+            const previous = currentPage.value;
+            const page = updateCurrentPage(viewerContainer.value, numPages.value);
+            if (page !== previous) {
+                const top = viewerContainer.value?.scrollTop ?? 0;
+                logPdfNav(
+                    `[PDF-NAV] handleScroll: currentPage ${previous} -> ${page}`
+                    + ` scrollTop=${Math.round(top)}`,
+                );
+                emitCurrentPage(page);
+            }
         }
+        maybeReleaseProgrammaticNavigation();
 
         if (!continuousScroll.value && !isSnapping.value) {
             debouncedSnapToPage();
         }
     }
 
-    function scrollToPage(pageNumber: number) {
+    function scrollToPage(
+        pageNumber: number,
+        options?: {preferExactDom?: boolean;},
+    ) {
         if (!viewerContainer.value || numPages.value === 0) {
             return;
         }
 
+        logPdfNav(
+            `[PDF-NAV] singlePageScroll.scrollToPage requested=${pageNumber}`
+            + ` continuous=${continuousScroll.value}`
+            + ` preferExactDom=${options?.preferExactDom === true}`
+            + ` currentPage(before)=${currentPage.value}`
+            + ` scrollTop(before)=${Math.round(viewerContainer.value.scrollTop)}`,
+        );
+
         if (continuousScroll.value) {
+            markProgrammaticNavigation(220);
+            const hasTargetPageInDom = !!getPageElementByNumber(
+                viewerContainer.value,
+                pageNumber,
+            );
             scrollToPageInternal(
                 viewerContainer.value,
                 pageNumber,
                 numPages.value,
                 scaledMargin.value,
+                options,
             );
-            emitCurrentPage(currentPage.value);
+            if (!options?.preferExactDom || hasTargetPageInDom) {
+                emitCurrentPage(currentPage.value);
+            }
         } else {
             snapToPage(pageNumber, 'center');
         }
@@ -482,6 +610,11 @@ export function usePdfSinglePageScroll(
 
     function resetContinuousScrollState() {
         clearWheelAccumulator();
+        clearSearchNavigationSettleTimer();
+        searchNavigationState.value = 'idle';
+        isProgrammaticNavigationActive.value = false;
+        searchNavigationTargetPage.value = null;
+        snapSuppressUntil.value = 0;
     }
 
     return {
@@ -490,6 +623,13 @@ export function usePdfSinglePageScroll(
         handleScroll,
         scrollToPage,
         snapToPage,
+        suppressSnapFor,
+        beginSearchNavigation,
+        endSearchNavigation,
+        isProgrammaticNavigationActive,
+        isSearchNavigationLocked,
+        searchNavigationState,
+        searchNavigationTargetPage,
         resetContinuousScrollState,
     };
 }

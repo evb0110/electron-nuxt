@@ -1,161 +1,174 @@
 import { nextTick } from 'vue';
 import { getPageContainer } from '@app/composables/pdf/pdfPageBufferManager';
+import { logPdfNav } from '@app/utils/pdf-nav-log';
 
 interface ICurrentSearchMatch {pageIndex: number;}
 
 interface IPdfSearchMatchScrollerDeps {
     getContainer: () => HTMLElement | null;
     getCurrentSearchMatch: () => ICurrentSearchMatch | null;
-    getCurrentMatchRangeRect: (textLayerDiv: HTMLElement) => DOMRect | null;
     scrollToCurrentMatch: () => boolean;
     scheduleRenderForSinglePage: (pageNumber: number) => void;
-    scrollToPage?: (pageNumber: number) => void;
+    scrollToPage?: (
+        pageNumber: number,
+        options?: { preferExactDom?: boolean; },
+    ) => void;
+    suppressSnap?: () => void;
+    beginSearchNavigation?: (pageNumber: number) => void;
+    endSearchNavigation?: (settleMs?: number) => void;
+}
+
+interface IPendingRequestToken {
+    id: number;
+    canceled: boolean;
+}
+
+const SEARCH_SCROLL_RETRY_DELAY_MS = 40;
+const SEARCH_SCROLL_WAIT_TIMEOUT_MS = 1500;
+const SEARCH_SCROLL_SETTLE_MS = 120;
+
+function delay(ms: number) {
+    return new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+    });
 }
 
 export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) {
-    let scrollToMatchRequestId = 0;
+    let requestCounter = 0;
+    let activeToken: IPendingRequestToken | null = null;
 
-    function scheduleScrollCorrection(requestId: number) {
-        if (typeof window === 'undefined') {
-            return;
+    function cancelActiveRequest(settleMs = 0) {
+        if (activeToken) {
+            activeToken.canceled = true;
+            activeToken = null;
         }
+        deps.endSearchNavigation?.(settleMs);
+    }
 
-        let observer: MutationObserver | null = null;
+    function isTokenActive(token: IPendingRequestToken) {
+        return !token.canceled && activeToken?.id === token.id;
+    }
 
-        function disconnectObserver() {
-            observer?.disconnect();
-            observer = null;
-        }
+    function isStillTargetingPage(targetPageIndex: number) {
+        const currentMatch = deps.getCurrentSearchMatch();
+        return !!currentMatch && currentMatch.pageIndex === targetPageIndex;
+    }
 
-        const correctIfNeeded = () => {
-            if (requestId !== scrollToMatchRequestId) {
-                disconnectObserver();
-                return;
+    async function waitForMatchAndScroll(
+        token: IPendingRequestToken,
+        targetPageIndex: number,
+    ) {
+        const deadline = Date.now() + SEARCH_SCROLL_WAIT_TIMEOUT_MS;
+        let attempt = 0;
+
+        while (Date.now() < deadline) {
+            if (!isTokenActive(token)) {
+                return false;
             }
 
+            if (!isStillTargetingPage(targetPageIndex)) {
+                logPdfNav(
+                    `[PDF-NAV] requestScrollToMatch aborting: match changed from pageIndex=${targetPageIndex} to ${deps.getCurrentSearchMatch()?.pageIndex ?? 'null'}`,
+                );
+                return false;
+            }
+
+            attempt += 1;
+            const matchScrolled = deps.scrollToCurrentMatch();
+            logPdfNav(
+                `[PDF-NAV] tryScrollNow attempt=${attempt} scrollToCurrentMatch=${matchScrolled}`,
+            );
+            if (matchScrolled) {
+                return true;
+            }
+
+            deps.scheduleRenderForSinglePage(targetPageIndex + 1);
             const containerRoot = deps.getContainer();
-            const currentMatch = deps.getCurrentSearchMatch();
-            if (!containerRoot || !currentMatch) {
-                disconnectObserver();
-                return;
-            }
+            const pageContainer = containerRoot
+                ? getPageContainer(containerRoot, targetPageIndex)
+                : null;
 
-            const targetContainer = getPageContainer(containerRoot, currentMatch.pageIndex);
-            if (!targetContainer) {
-                deps.scheduleRenderForSinglePage(currentMatch.pageIndex + 1);
-                if (!observer) {
-                    observer = new MutationObserver(() => {
-                        if (requestId !== scrollToMatchRequestId) {
-                            disconnectObserver();
-                            return;
-                        }
-                        if (getPageContainer(containerRoot, currentMatch.pageIndex)) {
-                            disconnectObserver();
-                            correctIfNeeded();
-                        }
-                    });
-                    observer.observe(containerRoot, {
-                        childList: true,
-                        subtree: false, 
-                    });
-                }
-                return;
-            }
+            logPdfNav(
+                `[PDF-NAV] waitForTextLayerAndScroll: pageIndex=${targetPageIndex} containerInDOM=${!!pageContainer}`,
+            );
 
-            const textLayerDiv = targetContainer.querySelector<HTMLElement>('.text-layer');
-            if (!textLayerDiv) {
-                deps.scheduleRenderForSinglePage(currentMatch.pageIndex + 1);
-                if (!observer) {
-                    observer = new MutationObserver(() => {
-                        if (requestId !== scrollToMatchRequestId) {
-                            disconnectObserver();
-                            return;
-                        }
-                        if (targetContainer.querySelector('.text-layer')) {
-                            disconnectObserver();
-                            correctIfNeeded();
-                        }
-                    });
-                    observer.observe(targetContainer, {
-                        childList: true,
-                        subtree: true, 
-                    });
-                }
-                return;
-            }
+            await delay(SEARCH_SCROLL_RETRY_DELAY_MS);
+        }
 
-            disconnectObserver();
-
-            const rect = deps.getCurrentMatchRangeRect(textLayerDiv);
-            if (!rect || (rect.width === 0 && rect.height === 0)) {
-                return;
-            }
-
-            const containerRect = containerRoot.getBoundingClientRect();
-            const centerDelta = (rect.top + rect.height / 2) - (containerRect.top + containerRect.height / 2);
-            const isVisible = rect.bottom > containerRect.top + 16 && rect.top < containerRect.bottom - 16;
-            const isCentered = Math.abs(centerDelta) < 8;
-            if (isVisible && isCentered) {
-                return;
-            }
-
-            deps.scrollToCurrentMatch();
-        };
-
-        requestAnimationFrame(() => {
-            correctIfNeeded();
-            requestAnimationFrame(() => {
-                correctIfNeeded();
-            });
-        });
-        setTimeout(correctIfNeeded, 120);
-        setTimeout(correctIfNeeded, 350);
-        setTimeout(correctIfNeeded, 800);
-        setTimeout(correctIfNeeded, 1500);
-        setTimeout(correctIfNeeded, 3000);
+        return false;
     }
 
     function requestScrollToMatch(matchPageIndex: number | null) {
-        const requestId = ++scrollToMatchRequestId;
+        const requestId = ++requestCounter;
+        cancelActiveRequest(0);
+
+        logPdfNav(
+            `[PDF-NAV] requestScrollToMatch pageIndex=${matchPageIndex} requestId=${requestId}`,
+        );
 
         if (matchPageIndex === null || typeof window === 'undefined') {
             return;
         }
 
-        const maxAttempts = 8;
-        let attempts = 0;
+        const token: IPendingRequestToken = {
+            id: requestId,
+            canceled: false,
+        };
+        activeToken = token;
 
-        const tryScroll = () => {
-            if (requestId !== scrollToMatchRequestId) {
+        deps.beginSearchNavigation?.(matchPageIndex + 1);
+
+        void nextTick(async () => {
+            if (!isTokenActive(token)) {
                 return;
             }
 
-            const didScroll = deps.scrollToCurrentMatch();
-            if (didScroll) {
-                scheduleScrollCorrection(requestId);
+            const currentMatch = deps.getCurrentSearchMatch();
+            if (!currentMatch || currentMatch.pageIndex !== matchPageIndex) {
+                logPdfNav(
+                    `[PDF-NAV] requestScrollToMatch stale requestId=${requestId} currentMatch=${currentMatch?.pageIndex ?? 'null'}`,
+                );
+                cancelActiveRequest(0);
                 return;
             }
 
-            attempts += 1;
+            if (deps.scrollToCurrentMatch()) {
+                logPdfNav('[PDF-NAV] fast-path: scrollToCurrentMatch succeeded immediately');
+                deps.suppressSnap?.();
+                cancelActiveRequest(SEARCH_SCROLL_SETTLE_MS);
+                return;
+            }
 
+            logPdfNav(`[PDF-NAV] scrollToPage(${matchPageIndex + 1}) via deps`);
+            deps.suppressSnap?.();
+            deps.scrollToPage?.(matchPageIndex + 1, { preferExactDom: true });
             deps.scheduleRenderForSinglePage(matchPageIndex + 1);
 
-            if (attempts >= maxAttempts) {
-                deps.scrollToPage?.(matchPageIndex + 1 + 6);
-                scheduleScrollCorrection(requestId);
+            const didScroll = await waitForMatchAndScroll(token, matchPageIndex);
+            if (!isTokenActive(token)) {
                 return;
             }
 
-            requestAnimationFrame(tryScroll);
-        };
+            if (!didScroll) {
+                logPdfNav(
+                    `[PDF-NAV] requestScrollToMatch timed out pageIndex=${matchPageIndex} requestId=${requestId}`,
+                );
+                // Fallback keeps navigation deterministic even when highlight mapping is unavailable.
+                deps.suppressSnap?.();
+                deps.scrollToPage?.(matchPageIndex + 1, { preferExactDom: true });
+                cancelActiveRequest(0);
+                return;
+            }
 
-        void nextTick(tryScroll);
+            deps.suppressSnap?.();
+            cancelActiveRequest(SEARCH_SCROLL_SETTLE_MS);
+        });
     }
 
     return {
         requestScrollToMatch,
         invalidatePendingRequests: () => {
-            scrollToMatchRequestId += 1;
+            cancelActiveRequest(0);
         },
     };
 }

@@ -4,10 +4,27 @@ const placeholderSizeCache = new WeakMap<HTMLElement, {
 }>();
 
 export function getPageContainer(containerRoot: HTMLElement, pageIndex: number) {
+    if (pageIndex < 0) {
+        return null;
+    }
+
     const pageNumber = pageIndex + 1;
-    return containerRoot.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`)
-        ?? containerRoot.querySelectorAll<HTMLElement>('.page_container')[pageIndex]
-        ?? null;
+    const directMatch = containerRoot.querySelector<HTMLElement>(
+        `.page_container[data-page="${pageNumber}"]`,
+    );
+    if (directMatch) {
+        return directMatch;
+    }
+
+    const mountedPages = containerRoot.querySelectorAll<HTMLElement>('.page_container');
+    for (const pageContainer of mountedPages) {
+        const mountedPageNumber = Number.parseInt(pageContainer.dataset.page ?? '', 10);
+        if (mountedPageNumber === pageNumber) {
+            return pageContainer;
+        }
+    }
+
+    return null;
 }
 
 export function setupPagePlaceholderSizes(

@@ -3,6 +3,7 @@
         class="page_container"
         :class="{ 'page_container--spread-single': spreadSingle }"
         :data-page="page"
+        :style="placeholderStyle ?? undefined"
     >
         <div class="page_canvas canvasWrapper"></div>
         <div class="text-layer textLayer"></div>
@@ -45,6 +46,7 @@ interface IProps {
     page: number;
     showSkeleton: boolean;
     spreadSingle?: boolean;
+    placeholderStyle?: Record<string, string> | null;
 }
 
 const props = defineProps<IProps>();

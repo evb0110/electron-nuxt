@@ -162,7 +162,6 @@ export function clearDomHighlights(container: HTMLElement, highlightClass: strin
 export function scrollToHighlight(
     element: HTMLElement,
     container: HTMLElement,
-    behavior: ScrollBehavior = 'auto',
 ) {
     const containerRect = container.getBoundingClientRect();
     const elementRect = element.getBoundingClientRect();
@@ -170,8 +169,5 @@ export function scrollToHighlight(
     const elementTop = elementRect.top - containerRect.top + container.scrollTop;
     const elementCenter = elementTop - container.clientHeight / 2 + elementRect.height / 2;
 
-    container.scrollTo({
-        top: Math.max(0, elementCenter),
-        behavior,
-    });
+    container.scrollTop = Math.max(0, elementCenter);
 }
