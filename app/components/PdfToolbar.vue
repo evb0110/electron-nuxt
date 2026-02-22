@@ -73,7 +73,7 @@
                 @click="emit('capture-region')"
             />
             <ToolbarButton
-                icon="lucide:sticker"
+                icon="lucide:message-square"
                 :active="isPlacingPageNote"
                 :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
                 :disabled="!hasPdf || isDjvuMode"
