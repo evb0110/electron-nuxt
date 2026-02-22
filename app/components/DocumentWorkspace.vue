@@ -19,6 +19,7 @@
                 :continuous-scroll="continuousScroll"
                 :is-djvu-mode="isDjvuMode"
                 :is-capturing-region="isCapturingRegion"
+                :is-placing-page-note="annotationPlacingPageNote"
                 @open-file="handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
                 @save="handleSave(); closeAllDropdowns()"
@@ -33,6 +34,7 @@
                 @enable-drag="enableDragMode(); closeAllDropdowns()"
                 @disable-drag="handleAnnotationToolChange('none'); closeAllDropdowns()"
                 @capture-region="handleCaptureRegion(); closeAllDropdowns()"
+                @quick-note="void handleQuickNoteAction(); closeAllDropdowns()"
             >
                 <template #ocr="{ isCollapsed }">
                     <OcrPopup
@@ -169,7 +171,6 @@
                     :annotation-settings="annotationSettings"
                     :annotation-comments="annotationComments"
                     :annotation-active-comment-stable-key="annotationActiveCommentStableKey"
-                    :annotation-placing-page-note="annotationPlacingPageNote"
                     :bookmark-edit-mode="bookmarkEditMode"
                     :is-page-operation-in-progress="isPageOperationInProgress"
                     :is-djvu-mode="isDjvuMode"
@@ -185,8 +186,6 @@
                     @update:annotation-keep-active="annotationKeepActive = $event"
                     @annotation-setting="handleAnnotationSettingChange"
                     @update:selected-thumbnail-pages="handleSelectedThumbnailPagesUpdate"
-                    @annotation-comment-selection="handleCommentSelection"
-                    @annotation-start-place-note="handleStartPlaceNote"
                     @annotation-focus-comment="handleAnnotationFocusComment"
                     @annotation-open-note="handleOpenAnnotationNote"
                     @annotation-copy-comment="handleCopyAnnotationComment"
@@ -301,7 +300,8 @@
             :shape-properties-y="shapePropertiesPopover.y"
             @update-note-text="updateAnnotationNoteText"
             @update-note-position="updateAnnotationNotePosition"
-            @close-note="closeAnnotationNote"
+            @minimize-note="minimizeAnnotationNote"
+            @restore-note="restoreAnnotationNote"
             @delete-comment="handleDeleteAnnotationComment"
             @focus-note="bringAnnotationNoteToFront"
             @context-open-note="openContextMenuNote"
@@ -360,6 +360,12 @@ import {
     toRef,
     watch,
 } from 'vue';
+import '@app/assets/css/pdfjs-overrides.css';
+import '@app/assets/css/pdf-comment-markers.css';
+import '@app/assets/css/pdf-comment-ui.css';
+import '@app/assets/css/pdf-search-highlights.css';
+import '@app/assets/css/pdf-animations.css';
+import '@app/assets/css/pdf-debug-overlays.css';
 import { createWorkspaceExpose } from '@app/composables/page/createWorkspaceExpose';
 import { useWorkspaceOrchestration } from '@app/composables/page/useWorkspaceOrchestration';
 import { useWorkspaceRestoreTracker } from '@app/composables/useWorkspaceRestoreTracker';
@@ -526,12 +532,12 @@ const {
     sortedAnnotationNoteWindows,
     updateAnnotationNoteText,
     updateAnnotationNotePosition,
-    closeAnnotationNote,
+    minimizeAnnotationNote,
+    restoreAnnotationNote,
     bringAnnotationNoteToFront,
     shapePropertiesPopover,
     selectedShapeForProperties,
-    handleCommentSelection,
-    handleStartPlaceNote,
+    handleQuickNoteAction,
     handleAnnotationFocusComment,
     handleAnnotationCommentClick,
     handleOpenAnnotationNote,

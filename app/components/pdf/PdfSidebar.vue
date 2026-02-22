@@ -27,14 +27,11 @@
                 :settings="annotationSettings"
                 :comments="annotationComments"
                 :active-comment-stable-key="annotationActiveCommentStableKey"
-                :placing-page-note="annotationPlacingPageNote"
                 :current-page="currentPage"
                 :keep-active="annotationKeepActive"
                 @set-tool="emit('update:annotation-tool', $event)"
                 @update:keep-active="emit('update:annotation-keep-active', $event)"
                 @update-setting="emit('annotation-setting', $event)"
-                @comment-selection="emit('annotation-comment-selection')"
-                @start-place-note="emit('annotation-start-place-note')"
                 @focus-comment="emit('annotation-focus-comment', $event)"
                 @open-note="emit('annotation-open-note', $event)"
                 @copy-comment="emit('annotation-copy-comment', $event)"
@@ -169,7 +166,6 @@ interface IProps {
     annotationSettings: IAnnotationSettings;
     annotationComments: IAnnotationCommentSummary[];
     annotationActiveCommentStableKey?: string | null;
-    annotationPlacingPageNote?: boolean;
     bookmarkEditMode: boolean;
     isPageOperationInProgress?: boolean;
     isDjvuMode?: boolean;
@@ -188,7 +184,6 @@ const {
     annotationKeepActive,
     annotationSettings,
     annotationComments,
-    annotationPlacingPageNote,
 } = toRefs(props);
 const annotationActiveCommentStableKey = computed(() => props.annotationActiveCommentStableKey ?? null);
 
@@ -208,8 +203,6 @@ const emit = defineEmits<{
         key: keyof IAnnotationSettings;
         value: IAnnotationSettings[keyof IAnnotationSettings]
     }): void;
-    (e: 'annotation-comment-selection'): void;
-    (e: 'annotation-start-place-note'): void;
     (e: 'annotation-focus-comment', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-copy-comment', comment: IAnnotationCommentSummary): void;

@@ -46,9 +46,22 @@ app.setPath('userData', join(app.getPath('appData'), app.name));
 
 const logger = createLogger('main');
 const startupStartedAt = Date.now();
+const startupSessionId = `${startupStartedAt}-${Math.random().toString(36).slice(2, 8)}`;
+const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 
 function logStartupPhase(phase: string) {
-    logger.info(`[startup] ${phase} (+${Date.now() - startupStartedAt}ms)`);
+    if (!STARTUP_TRACE_ENABLED) {
+        return;
+    }
+
+    const now = Date.now();
+    const elapsedMs = now - startupStartedAt;
+    const message = `[startup] ${phase} (+${elapsedMs}ms)`;
+    logger.info(message);
+    console.info(`[${new Date(now).toISOString()}] [main] ${message}`, {
+        startupSessionId,
+        elapsedMs,
+    });
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -73,6 +86,7 @@ const SUPPORTED_EXTENSIONS = new Set([
 const pendingOpenRequests: string[][] = [];
 const readyWindowIds = new Set<number>();
 let defaultViewerPromptShown = false;
+let defaultViewerPromptTimer: NodeJS.Timeout | null = null;
 let flushPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
 let batchWindowStartTime: number | null = null;
 let externalOpenBootstrapReady = false;
@@ -319,7 +333,13 @@ function maybePromptForDefaultViewer() {
         return;
     }
     defaultViewerPromptShown = true;
-    void promptSetDefaultViewer(window);
+    defaultViewerPromptTimer = setTimeout(() => {
+        defaultViewerPromptTimer = null;
+        if (window.isDestroyed()) {
+            return;
+        }
+        void promptSetDefaultViewer(window);
+    }, 1_500);
 }
 
 function broadcastUpdateStatus(status: IAppUpdateStatus) {
@@ -377,8 +397,6 @@ async function init() {
 
     registerIpcHandlers();
     logStartupPhase('IPC handlers registered');
-    initializeUpdates(broadcastUpdateStatus);
-    logStartupPhase('Update service initialized');
 
     ipcMain.on('app:rendererReady', (event) => {
         const window = BrowserWindow.fromWebContents(event.sender);
@@ -412,6 +430,10 @@ async function init() {
     });
 
     app.on('before-quit', () => {
+        if (defaultViewerPromptTimer) {
+            clearTimeout(defaultViewerPromptTimer);
+            defaultViewerPromptTimer = null;
+        }
         stopServer();
         clearAllWorkingCopies();
     });
@@ -433,6 +455,13 @@ async function init() {
     logStartupPhase('Main window creation requested');
 
     void (async () => {
+        try {
+            initializeUpdates(broadcastUpdateStatus);
+            logStartupPhase('Update service initialized');
+        } catch (error) {
+            logger.error(`Failed to initialize updates: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
         try {
             await initRecentFilesCache();
             logStartupPhase('Recent files cache initialized');

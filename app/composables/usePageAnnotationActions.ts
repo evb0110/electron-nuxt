@@ -133,6 +133,37 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         await pdfViewerRef.value.commentSelection();
     }
 
+    async function handleQuickNoteAction() {
+        const viewer = pdfViewerRef.value;
+        if (!viewer) {
+            return;
+        }
+
+        const previousSidebarVisibility = showSidebar.value;
+        const previousSidebarTab = sidebarTab.value;
+        try {
+            const didAddToSelection = await viewer.commentSelection();
+            if (didAddToSelection) {
+                if (annotationPlacingPageNote.value) {
+                    viewer.cancelCommentPlacement();
+                    annotationPlacingPageNote.value = false;
+                }
+                return;
+            }
+
+            dragMode.value = false;
+            annotationTool.value = 'none';
+            if (!annotationPlacingPageNote.value) {
+                viewer.startCommentPlacement();
+                annotationPlacingPageNote.value = true;
+            }
+        } finally {
+            await nextTick();
+            showSidebar.value = previousSidebarVisibility;
+            sidebarTab.value = previousSidebarTab;
+        }
+    }
+
     function handleStartPlaceNote() {
         if (!pdfViewerRef.value) {
             return;
@@ -434,6 +465,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         shapePropertiesPopover,
         selectedShapeForProperties,
         handleCommentSelection,
+        handleQuickNoteAction,
         handleStartPlaceNote,
         handleAnnotationFocusComment,
         handleAnnotationCommentClick,

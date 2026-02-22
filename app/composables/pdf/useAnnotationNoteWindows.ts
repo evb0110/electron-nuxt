@@ -36,6 +36,7 @@ export interface IAnnotationNoteWindowState {
     error: string | null;
     order: number;
     saveMode: 'auto' | 'embedded';
+    isMinimized: boolean;
 }
 
 export interface IAnnotationNoteWindowDeps {
@@ -158,6 +159,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 comment,
             );
             existing.error = null;
+            existing.isMinimized = false;
             if (!hasUnsavedLocalChanges) {
                 const nextText = comment.text || '';
                 existing.text = nextText;
@@ -179,9 +181,32 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 error: null,
                 order: annotationNoteOrderCounter,
                 saveMode: 'auto',
+                isMinimized: false,
             },
         ];
         ensureAnnotationNoteDefaultPosition(key);
+    }
+
+    function minimizeAnnotationNote(stableKey: string) {
+        const note = findAnnotationNoteWindow(stableKey);
+        if (!note) {
+            return;
+        }
+        note.isMinimized = true;
+        note.error = null;
+        if (note.text !== note.lastSavedText) {
+            schedulePersistAnnotationNote(stableKey);
+        }
+    }
+
+    function restoreAnnotationNote(stableKey: string) {
+        const note = findAnnotationNoteWindow(stableKey);
+        if (!note) {
+            return;
+        }
+        note.isMinimized = false;
+        note.error = null;
+        bringAnnotationNoteToFront(stableKey);
     }
 
     function removeAnnotationNoteWindow(stableKey: string) {
@@ -285,7 +310,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         note.saving = true;
         note.error = null;
         try {
-            let saved = updateAnnotationCommentInViewer(current, nextText);
+            const savedInViewer = updateAnnotationCommentInViewer(current, nextText);
+            let saved = savedInViewer;
             if (!saved && !force) {
                 note.saveMode = 'embedded';
                 return true;
@@ -317,6 +343,13 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                         await restorePromise;
                         saved = true;
                     }
+                }
+            }
+            if (savedInViewer && force) {
+                const materialized = await serializeCurrentPdfForEmbeddedFallback();
+                if (!materialized) {
+                    note.error = t('errors.annotation.updateNote');
+                    return false;
                 }
             }
             if (!saved) {
@@ -532,6 +565,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         isAnyAnnotationNoteSaving,
         findAnnotationNoteWindow,
         upsertAnnotationNoteWindow,
+        minimizeAnnotationNote,
+        restoreAnnotationNote,
         updateAnnotationNoteText,
         updateAnnotationNotePosition,
         persistAnnotationNote,

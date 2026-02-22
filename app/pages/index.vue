@@ -125,6 +125,7 @@ import {
     getElectronAPI,
     hasElectronAPI,
 } from '@app/utils/electron';
+import { traceRendererStartup } from '@app/utils/startup-trace';
 import { useExternalFileDrop } from '@app/composables/page/useExternalFileDrop';
 import { useTabsShellBindings } from '@app/composables/page/useTabsShellBindings';
 import { useAppUpdates } from '@app/composables/useAppUpdates';
@@ -151,6 +152,8 @@ import type {
     TWindowTabTransferTarget,
     TWindowTabsAction,
 } from '@app/types/window-tab-transfer';
+
+traceRendererStartup('index.vue script setup start');
 
 const {
     groups,
@@ -1230,8 +1233,13 @@ useTabsShellBindings({
     handleWindowTabsAction,
 });
 
+traceRendererStartup('index.vue setup wiring complete');
+
 onMounted(() => {
+    const start = performance.now();
+    traceRendererStartup('index.vue onMounted start');
     chromeHostsReady.value = true;
+    traceRendererStartup('index.vue chrome hosts marked ready');
     cleanupEmptyGroups();
     void ensureUpdatesInitialized();
 
@@ -1240,6 +1248,7 @@ onMounted(() => {
             void handleIncomingTabTransfer(transfer);
         });
     }
+    traceRendererStartup('index.vue onMounted finished', {durationMs: Math.round(performance.now() - start)});
 });
 
 onUnmounted(() => {

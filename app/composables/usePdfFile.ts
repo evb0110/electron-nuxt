@@ -20,6 +20,8 @@ interface IOpenBatchProgressState {
     estimatedRemainingMs: number | null;
 }
 
+const RECENT_OPEN_LOG_SECTION = 'recent-open';
+
 export const usePdfFile = () => {
     const { t } = useTypedI18n();
 
@@ -74,22 +76,51 @@ export const usePdfFile = () => {
         error.value = null;
         pendingDjvu.value = null;
         openBatchProgress.value = null;
+        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'openFileDirect started', { path });
         try {
             const api = getElectronAPI();
             const result = await api.openPdfDirect(path);
             if (!result) {
                 error.value = t('errors.file.invalid');
+                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'openPdfDirect returned null', { path });
                 return;
             }
+
+            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'openPdfDirect returned result', {
+                path,
+                kind: result.kind,
+                isGenerated: result.kind === 'pdf' ? Boolean(result.isGenerated) : undefined,
+                workingPath: result.kind === 'pdf' ? result.workingPath : undefined,
+            });
+
             if (result.kind === 'djvu') {
                 pendingDjvu.value = result.originalPath;
+                BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'openFileDirect entered DjVu mode', {
+                    path,
+                    djvuPath: result.originalPath,
+                });
                 return;
             }
+
+            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Loading PDF from working path', {
+                path,
+                workingPath: result.workingPath,
+            });
             await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
+            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'openFileDirect completed', {
+                path,
+                workingPath: result.workingPath,
+                originalPath: result.originalPath,
+                requiresSaveAsOnFirstSave: requiresSaveAsOnFirstSave.value,
+            });
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
+            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'openFileDirect failed', {
+                path,
+                error: e instanceof Error ? e.message : String(e),
+            });
         }
     }
 

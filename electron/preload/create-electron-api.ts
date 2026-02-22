@@ -7,6 +7,7 @@ import type { ISettingsData } from '@app/types/shared';
 import type {
     IAppUpdateStatus,
     IElectronAPI,
+    IRendererLogEntry,
 } from '@app/types/electron-api';
 import type {
     IWindowTabIncomingTransfer,
@@ -19,6 +20,50 @@ import type {
     IMenuEventUnsubscribe,
 } from 'electron/ipc-types';
 import { getDebugLogMessages } from '@electron/preload/debug-log-buffer';
+
+const preloadStartupStart = Date.now();
+const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+
+function stringifyDetails(details?: Record<string, unknown>) {
+    if (!details) {
+        return '';
+    }
+
+    try {
+        return ` details=${JSON.stringify(details)}`;
+    } catch {
+        return ' details=<unserializable>';
+    }
+}
+
+function tracePreloadStartup(stage: string, details?: Record<string, unknown>) {
+    if (!STARTUP_TRACE_ENABLED) {
+        return;
+    }
+
+    const now = Date.now();
+    const iso = new Date(now).toISOString();
+    console.info(
+        `[${iso}] [startup][preload] ${stage} (+${now - preloadStartupStart}ms from preload-api-init)`
+        + stringifyDetails(details),
+    );
+}
+
+async function invokeWithStartupTrace<T>(label: string, invoke: () => Promise<T>) {
+    const startedAt = Date.now();
+    tracePreloadStartup(`${label}:start`);
+    try {
+        const result = await invoke();
+        tracePreloadStartup(`${label}:ok`, {durationMs: Date.now() - startedAt});
+        return result;
+    } catch (error) {
+        tracePreloadStartup(`${label}:error`, {
+            durationMs: Date.now() - startedAt,
+            error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+    }
+}
 
 function onNoArgEvent(ipcRenderer: IpcRenderer, channel: string, callback: IMenuEventCallback): IMenuEventUnsubscribe {
     const handler = (_event: IpcRendererEvent) => callback();
@@ -65,8 +110,12 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         setMenuDocumentState: (hasDocument: boolean) => ipcRenderer.invoke('menu:setDocumentState', hasDocument),
         setMenuTabCount: (tabCount: number) => ipcRenderer.invoke('menu:setTabCount', tabCount),
         closeCurrentWindow: () => ipcRenderer.invoke('window:closeCurrent'),
-        notifyRendererReady: () => ipcRenderer.send('app:rendererReady'),
+        notifyRendererReady: () => {
+            tracePreloadStartup('app:rendererReady dispatched');
+            ipcRenderer.send('app:rendererReady');
+        },
         getDebugLogs: () => Promise.resolve(getDebugLogMessages()),
+        rendererLog: (entry: IRendererLogEntry) => ipcRenderer.send('renderer:log', entry),
 
         onMenuOpenPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:openPdf', callback),
         onMenuSave: (callback: IMenuEventCallback): IMenuEventUnsubscribe => onNoArgEvent(ipcRenderer, 'menu:save', callback),
@@ -187,7 +236,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         },
 
         recentFiles: {
-            get: () => ipcRenderer.invoke('recent-files:get'),
+            get: () => invokeWithStartupTrace('recent-files:get', () => ipcRenderer.invoke('recent-files:get')),
             add: (path: string) => ipcRenderer.invoke('recent-files:add', path),
             remove: (path: string) => ipcRenderer.invoke('recent-files:remove', path),
             clear: () => ipcRenderer.invoke('recent-files:clear'),
@@ -213,7 +262,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         ),
 
         settings: {
-            get: () => ipcRenderer.invoke('settings:get'),
+            get: () => invokeWithStartupTrace('settings:get', () => ipcRenderer.invoke('settings:get')),
             save: (settings: ISettingsData) => ipcRenderer.invoke('settings:save', settings),
         },
 

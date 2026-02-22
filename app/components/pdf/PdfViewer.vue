@@ -5,7 +5,10 @@
         :class="{ 'pdf-viewer-container--dark': invertColors }"
     >
         <div v-if="src && isLoading" class="absolute inset-0 z-[1] flex items-center justify-center bg-[var(--ui-bg-muted)]">
-            <USkeleton class="size-16 rounded-lg" />
+            <div class="flex flex-col items-center gap-2">
+                <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-[var(--ui-text-muted)]" />
+                <span class="text-sm text-[var(--ui-text-muted)]">{{ t('common.loading') }}</span>
+            </div>
         </div>
         <div
             id="pdf-viewer"
@@ -112,6 +115,7 @@ import type {
 } from '@app/types/annotations';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/pdfAnnotationUtils';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
@@ -193,6 +197,7 @@ const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
 const activeCommentStableKey = ref<string | null>(null);
 const regionSnip = usePdfRegionSnip({ viewerContainer });
+const PDF_VIEWER_LOADER_ICON_SIZE_PX = 20;
 
 const pdfDocumentResult = usePdfDocument();
 const {
@@ -213,6 +218,36 @@ const {
     updateVisibleRange,
     setUniformLayoutMetrics,
 } = usePdfScroll();
+
+watch(
+    [
+        () => Boolean(src.value),
+        isLoading,
+    ],
+    ([
+        hasSrc,
+        loading,
+    ], [
+        prevHasSrc,
+        prevLoading,
+    ]) => {
+        if (hasSrc === prevHasSrc && loading === prevLoading) {
+            return;
+        }
+
+        const hostRect = viewerHost.value?.getBoundingClientRect();
+        BrowserLogger.info('loader', 'PDF viewer loader state changed', {
+            hasSrc,
+            loading,
+            overlayVisible: hasSrc && loading,
+            iconSizePx: PDF_VIEWER_LOADER_ICON_SIZE_PX,
+            label: t('common.loading'),
+            hostWidth: hostRect ? Math.round(hostRect.width) : null,
+            hostHeight: hostRect ? Math.round(hostRect.height) : null,
+        });
+    },
+    { immediate: true },
+);
 const {
     isDragging,
     startDrag,

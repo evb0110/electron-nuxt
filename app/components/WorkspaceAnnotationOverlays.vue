@@ -1,6 +1,6 @@
 <template>
     <PdfAnnotationNoteWindow
-        v-for="note in sortedAnnotationNoteWindows"
+        v-for="note in visibleAnnotationNoteWindows"
         :key="note.comment.stableKey"
         :comment="note.comment"
         :text="note.text"
@@ -10,10 +10,26 @@
         :z-index="90 + note.order"
         @update:text="$emit('update-note-text', note.comment.stableKey, $event)"
         @update:position="$emit('update-note-position', note.comment.stableKey, $event)"
-        @close="$emit('close-note', note.comment.stableKey)"
+        @minimize="$emit('minimize-note', note.comment.stableKey)"
         @delete="$emit('delete-comment', note.comment)"
         @focus="$emit('focus-note', note.comment.stableKey)"
     />
+    <UTooltip
+        v-for="note in minimizedAnnotationNoteWindows"
+        :key="`minimized-${note.comment.stableKey}`"
+        :text="getMinimizedNotePreview(note)"
+        :delay-duration="250"
+    >
+        <button
+            type="button"
+            class="pdf-note-minimized-indicator"
+            :style="getMinimizedIndicatorStyle(note)"
+            :aria-label="t('annotations.openNote')"
+            @click="$emit('restore-note', note.comment.stableKey)"
+        >
+            <UIcon name="i-lucide-sticky-note" class="size-3" />
+        </button>
+    </UTooltip>
     <PdfAnnotationContextMenu
         :menu="annotationContextMenu"
         :style="annotationContextMenuStyle"
@@ -55,6 +71,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
@@ -68,6 +85,7 @@ interface IAnnotationNoteWindowEntry {
     saving: boolean;
     error: string | null;
     order: number;
+    isMinimized: boolean;
 }
 
 interface IContextMenuState {
@@ -89,7 +107,7 @@ interface IPageContextMenuState {
     pages: number[];
 }
 
-defineProps<{
+const props = defineProps<{
     sortedAnnotationNoteWindows: IAnnotationNoteWindowEntry[];
     annotationNotePositions: Record<string, IAnnotationNotePosition>;
     annotationContextMenu: IContextMenuState;
@@ -108,10 +126,42 @@ defineProps<{
     shapePropertiesY: number;
 }>();
 
+const { t } = useTypedI18n();
+
+const visibleAnnotationNoteWindows = computed(() =>
+    props.sortedAnnotationNoteWindows.filter((note) => !note.isMinimized),
+);
+const minimizedAnnotationNoteWindows = computed(() =>
+    props.sortedAnnotationNoteWindows.filter((note) => note.isMinimized),
+);
+
+function getMinimizedIndicatorStyle(note: IAnnotationNoteWindowEntry) {
+    const position = props.annotationNotePositions[note.comment.stableKey];
+    const x = position?.x ?? 14;
+    const y = position?.y ?? 72;
+    return {
+        left: `${x}px`,
+        top: `${y}px`,
+        zIndex: String(90 + note.order),
+    };
+}
+
+function getMinimizedNotePreview(note: IAnnotationNoteWindowEntry) {
+    const text = (note.text || note.comment.text || '').trim();
+    if (!text) {
+        return t('annotations.emptyNote');
+    }
+    if (text.length <= 180) {
+        return text;
+    }
+    return `${text.slice(0, 177)}...`;
+}
+
 defineEmits<{
     'update-note-text': [stableKey: string, text: string];
     'update-note-position': [stableKey: string, position: IAnnotationNotePosition];
-    'close-note': [stableKey: string];
+    'minimize-note': [stableKey: string];
+    'restore-note': [stableKey: string];
     'delete-comment': [comment: IAnnotationCommentSummary];
     'focus-note': [stableKey: string];
     'context-open-note': [];
@@ -134,3 +184,31 @@ defineEmits<{
     'shape-close': [];
 }>();
 </script>
+
+<style scoped>
+.pdf-note-minimized-indicator {
+    position: fixed;
+    width: 1.6rem;
+    height: 1.6rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    border: 1px solid color-mix(in srgb, var(--ui-warning) 62%, var(--ui-border) 38%);
+    background: color-mix(in srgb, var(--ui-warning) 26%, var(--ui-bg) 74%);
+    color: color-mix(in srgb, var(--ui-warning) 58%, var(--ui-text) 42%);
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.pdf-note-minimized-indicator:hover {
+    background: color-mix(in srgb, var(--ui-warning) 38%, var(--ui-bg) 62%);
+    border-color: color-mix(in srgb, var(--ui-warning) 75%, var(--ui-border) 25%);
+    transform: translateY(-1px);
+}
+
+.pdf-note-minimized-indicator:focus-visible {
+    outline: 1px solid var(--ui-primary);
+    outline-offset: 1px;
+}
+</style>

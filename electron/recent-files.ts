@@ -16,6 +16,7 @@ import {
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('recent-files');
+const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 
 // In-memory cache for synchronous access (needed for menu building)
 let recentFilesCache: IRecentFile[] = [];
@@ -125,10 +126,15 @@ export async function addRecentFile(originalPath: string): Promise<void> {
 }
 
 export async function getRecentFiles(): Promise<IRecentFile[]> {
+    const startedAt = Date.now();
     // Use cache if fresh
     if (Date.now() - cacheTimestamp < CACHE_TTL_MS) {
         // Still validate existence
-        return filterExistingFiles(recentFilesCache);
+        const validCachedFiles = await filterExistingFiles(recentFilesCache);
+        if (STARTUP_TRACE_ENABLED) {
+            logger.info(`[startup] recent-files:get cache hit (${validCachedFiles.length} file(s), +${Date.now() - startedAt}ms)`);
+        }
+        return validCachedFiles;
     }
 
     // Refresh cache from disk
@@ -145,6 +151,9 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
         await saveRecentFilesData(data);
     }
 
+    if (STARTUP_TRACE_ENABLED) {
+        logger.info(`[startup] recent-files:get disk refresh (${validFiles.length} file(s), +${Date.now() - startedAt}ms)`);
+    }
     return validFiles;
 }
 

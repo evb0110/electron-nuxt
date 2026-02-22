@@ -3,6 +3,12 @@ import type { IAnnotationNoteWindowState } from '@app/composables/pdf/useAnnotat
 import type { TOpenFileResult } from '@app/types/electron-api';
 import type { ICloseFileFromUiOptions } from '@app/types/workspace-expose';
 import { waitUntilIdle } from '@app/utils/async-helpers';
+import { BrowserLogger } from '@app/utils/browser-logger';
+
+const DJVU_PATH_REGEX = /\.djvu?$/i;
+const OPEN_SETTLE_DELAY_MS = 25;
+const OPEN_SETTLE_MAX_ATTEMPTS = 160;
+const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
 export interface IPageFileOperationsDeps {
     pdfSrc: Ref<unknown>;
@@ -57,19 +63,51 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         );
     }
 
+    function getBusyState() {
+        return {
+            isAnySaving: isAnySaving.value,
+            isHistoryBusy: isHistoryBusy.value,
+            isExportingDocx: isExportingDocx.value,
+            isAnyAnnotationNoteSaving: isAnyAnnotationNoteSaving.value,
+        };
+    }
+
+    async function waitForDocumentSource() {
+        await waitUntilIdle(
+            () => !pdfSrc.value,
+            {
+                delayMs: OPEN_SETTLE_DELAY_MS,
+                maxAttempts: OPEN_SETTLE_MAX_ATTEMPTS,
+            },
+        );
+        return Boolean(pdfSrc.value);
+    }
+
     async function ensureCurrentDocumentPersistedBeforeSwitch() {
         if (!pdfSrc.value) {
+            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Switch allowed: no current document loaded');
             return true;
         }
 
+        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Ensuring document is persisted before switch', {
+            busyState: getBusyState(),
+            annotationNoteWindows: annotationNoteWindows.value.length,
+            annotationDirty: annotationDirty.value,
+            isDirty: isDirty.value,
+            pageLabelsDirty: pageLabelsDirty.value,
+            bookmarksDirty: bookmarksDirty.value,
+        });
+
         await waitUntilAllIdle();
         if (isAnySaving.value || isHistoryBusy.value || isExportingDocx.value || isAnyAnnotationNoteSaving.value) {
+            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: workspace remained busy after idle wait', {busyState: getBusyState()});
             return false;
         }
 
         if (annotationNoteWindows.value.length > 0) {
             const savedAllNotes = await persistAllAnnotationNotes(true);
             if (!savedAllNotes) {
+                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: failed to persist annotation note windows');
                 return false;
             }
         }
@@ -82,18 +120,29 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             || bookmarksDirty.value
         );
         if (!hasPendingChanges) {
+            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Switch allowed: no pending changes');
             return true;
         }
 
+        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Pending changes detected, triggering save before switch');
         await handleSave();
 
-        return !(
+        const canProceed = !(
             annotationDirty.value
             || isDirty.value
             || hasAnnotationChanges()
             || pageLabelsDirty.value
             || bookmarksDirty.value
         );
+        if (!canProceed) {
+            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: pending changes remain after save attempt', {
+                annotationDirty: annotationDirty.value,
+                isDirty: isDirty.value,
+                pageLabelsDirty: pageLabelsDirty.value,
+                bookmarksDirty: bookmarksDirty.value,
+            });
+        }
+        return canProceed;
     }
 
     async function handleOpenFileFromUi() {
@@ -118,11 +167,42 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function handleOpenFileDirectWithPersist(path: string) {
+        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'handleOpenFileDirectWithPersist called', {
+            path,
+            hadDocumentBeforeOpen: Boolean(pdfSrc.value),
+            busyState: getBusyState(),
+        });
+
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
+            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Open path aborted by persistence gate', { path });
             return;
         }
         await openFileDirect(path);
+        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'openFileDirect resolved', {
+            path,
+            hasDocumentAfterDirectOpen: Boolean(pdfSrc.value),
+        });
+
+        if (!pdfSrc.value && !DJVU_PATH_REGEX.test(path)) {
+            const settled = await waitForDocumentSource();
+            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Post-open settle wait finished', {
+                path,
+                settled,
+                hasDocumentAfterSettle: Boolean(pdfSrc.value),
+            });
+
+            if (!settled) {
+                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Document still missing after first open, retrying once', {path});
+                await openFileDirect(path);
+                const settledAfterRetry = await waitForDocumentSource();
+                BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Retry settle finished', {
+                    path,
+                    settledAfterRetry,
+                    hasDocumentAfterRetry: Boolean(pdfSrc.value),
+                });
+            }
+        }
         closeAllDropdowns();
     }
 
@@ -164,6 +244,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function openRecentFile(file: { originalPath: string }) {
+        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'openRecentFile invoked', {path: file.originalPath});
         await handleOpenFileDirectWithPersist(file.originalPath);
     }
 

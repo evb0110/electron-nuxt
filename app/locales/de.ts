@@ -60,8 +60,8 @@ export default {
         'styleDescription': 'Farbe und Größe für das aktuell ausgewählte Werkzeug.',
         'color': 'Farbe',
         'keepActive': 'Ausgewähltes Werkzeug aktiv halten',
-        'exitModeHint': 'Drücken Sie Esc, um den Anmerkungsmodus zu verlassen.',
-        'cursor': 'Zeiger',
+        'exitModeHint': 'Drücken Sie Esc, um das aktive Werkzeug zu deaktivieren.',
+        'cursor': 'Auswahl',
         'draw': 'Zeichnen',
         'text': 'Text',
         'highlight': 'Hervorheben',
@@ -181,6 +181,7 @@ export default {
         },
     },
     'common': {
+        'loading': 'Wird geladen...',
         'cancel': 'Abbrechen',
         'convert': 'Konvertieren',
         'unitDpi': 'DPI',
@@ -289,6 +290,7 @@ export default {
         'saving': 'Wird gespeichert…',
         'deleteNote': 'Notiz löschen',
         'closeNote': 'Notiz schließen',
+        'minimizeNote': 'Notiz minimieren',
     },
     'search': {
         'placeholder': 'Suchen...',

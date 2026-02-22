@@ -12,6 +12,7 @@ import {
     getElectronAPI,
     hasElectronAPI,
 } from '@app/utils/electron';
+import { traceRendererStartup } from '@app/utils/startup-trace';
 import { registerTabsMenuBindings } from '@app/composables/page/tabs-menu-bindings';
 
 interface IUseTabsShellBindingsOptions {
@@ -111,7 +112,10 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
     }
 
     onMounted(() => {
+        const onMountedStart = performance.now();
+        traceRendererStartup('tabs shell onMounted start');
         ensureAtLeastOneTab();
+        traceRendererStartup('tabs shell ensured at least one tab', {tabCount: tabs.value.length});
         windowListenerCleanups.push(useEventListener(window, 'keydown', handleTabKeyboardShortcut, {capture: true}));
 
         if (typeof window !== 'undefined') {
@@ -139,10 +143,14 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
                 copyActiveTab,
                 handleWindowTabsAction,
             }));
+            traceRendererStartup('tabs shell menu bindings registered');
             void nextTick(() => {
+                traceRendererStartup('tabs shell dispatching app:rendererReady');
                 electronApi.notifyRendererReady();
             });
         }
+
+        traceRendererStartup('tabs shell onMounted finished', {durationMs: Math.round(performance.now() - onMountedStart)});
     });
 
     onUnmounted(() => {

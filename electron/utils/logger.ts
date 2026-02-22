@@ -23,6 +23,8 @@ interface ILogger {
     error(msg: string): void;
 }
 
+interface ILoggerOptions {broadcastToRenderers?: boolean;}
+
 type TLogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
 
 const LOG_LEVELS: Record<TLogLevel, number> = {
@@ -79,8 +81,9 @@ async function broadcastToRenderers(data: ILogMessage) {
     }
 }
 
-export function createLogger(source: string): ILogger {
+export function createLogger(source: string, options: ILoggerOptions = {}): ILogger {
     const logFile = join(LOG_DIR, `${source}.log`);
+    const broadcastToRenderersEnabled = options.broadcastToRenderers ?? true;
 
     try {
         mkdirSync(dirname(logFile), { recursive: true });
@@ -100,7 +103,7 @@ export function createLogger(source: string): ILogger {
             }
         }
 
-        if (shouldLog(level, RENDER_LOG_LEVEL)) {
+        if (broadcastToRenderersEnabled && shouldLog(level, RENDER_LOG_LEVEL)) {
             void broadcastToRenderers({
                 source,
                 message: `[${level}] ${msg}`,

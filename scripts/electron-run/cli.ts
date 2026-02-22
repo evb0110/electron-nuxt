@@ -132,8 +132,8 @@ export async function runCli() {
     try {
         switch (command) {
             case 'start':
-                console.log(`Starting session '${getCurrentSessionName()}' (with fresh Nuxt and cleared cache)...`);
-                await startSession(true);
+                console.log(`Starting session '${getCurrentSessionName()}'...`);
+                await startSession(false);
                 break;
 
             case 'cleanstart':
@@ -176,10 +176,10 @@ export async function runCli() {
             }
 
             case 'restart':
-                console.log(`Restarting session '${getCurrentSessionName()}' (with fresh Nuxt)...`);
+                console.log(`Restarting session '${getCurrentSessionName()}'...`);
                 await stopSingleSession(getCurrentSessionName());
                 await delay(1000);
-                await startSession(true);
+                await startSession(false);
                 break;
 
             case 'list': {

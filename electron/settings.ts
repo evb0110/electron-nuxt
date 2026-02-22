@@ -17,6 +17,7 @@ import type { ISettingsData } from '@app/types/shared';
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('settings');
+const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 
 type TSupportedLocale = TLocale;
 
@@ -66,20 +67,34 @@ function cacheSettings(raw: Partial<ISettingsData> | null | undefined): ISetting
 }
 
 export async function loadSettings(): Promise<ISettingsData> {
+    const startedAt = Date.now();
     if (settingsCache) {
+        if (STARTUP_TRACE_ENABLED) {
+            logger.info(`[startup] loadSettings cache hit (+${Date.now() - startedAt}ms)`);
+        }
         return cloneSettings(settingsCache);
     }
 
     const storagePath = getStoragePath();
     if (!existsSync(storagePath)) {
+        if (STARTUP_TRACE_ENABLED) {
+            logger.info(`[startup] loadSettings no file, using defaults (+${Date.now() - startedAt}ms)`);
+        }
         return cacheSettings(DEFAULT_SETTINGS);
     }
 
     try {
         const content = await readFile(storagePath, 'utf-8');
-        return cacheSettings(JSON.parse(content) as Partial<ISettingsData>);
+        const parsed = cacheSettings(JSON.parse(content) as Partial<ISettingsData>);
+        if (STARTUP_TRACE_ENABLED) {
+            logger.info(`[startup] loadSettings file read complete (+${Date.now() - startedAt}ms)`);
+        }
+        return parsed;
     } catch (err) {
         logger.error(`Failed to load settings: ${err instanceof Error ? err.message : String(err)}`);
+        if (STARTUP_TRACE_ENABLED) {
+            logger.info(`[startup] loadSettings failed, using defaults (+${Date.now() - startedAt}ms)`);
+        }
         return cacheSettings(DEFAULT_SETTINGS);
     }
 }
