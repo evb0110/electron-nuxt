@@ -14,37 +14,6 @@
             @update-setting="emit('update-setting', $event)"
         />
 
-        <section class="notes-section notes-sticky">
-            <header class="notes-section-header">
-                <h3 class="notes-section-title">{{ t('annotations.stickyNotes') }}</h3>
-                <p class="notes-section-description">{{ t('annotations.stickyDescription') }}</p>
-            </header>
-
-            <div class="sticky-actions">
-                <button
-                    type="button"
-                    class="sticky-action"
-                    @click="emit('comment-selection')"
-                >
-                    <UIcon name="i-lucide-message-circle" class="sticky-action-icon" />
-                    <span>{{ t('annotations.addNoteToSelection') }}</span>
-                </button>
-                <button
-                    type="button"
-                    class="sticky-action"
-                    :class="{ 'is-active': placingPageNote }"
-                    @click="emit('start-place-note')"
-                >
-                    <UIcon name="i-lucide-plus" class="sticky-action-icon" />
-                    <span>{{ placingPageNote ? t('annotations.cancelPlaceMode') : t('annotations.placeNoteOnPage') }}</span>
-                </button>
-            </div>
-
-            <p class="sticky-hint">
-                {{ placingPageNote ? t('annotations.placeHint') : t('annotations.defaultHint') }}
-            </p>
-        </section>
-
         <section v-if="pagesWithNotes.length > 0" class="notes-section notes-pages">
             <header class="notes-section-header">
                 <h3 class="notes-section-title">{{ t('annotations.whereNotes') }}</h3>
@@ -95,7 +64,6 @@ interface IProps {
     comments: IAnnotationCommentSummary[];
     currentPage: number;
     activeCommentStableKey?: string | null;
-    placingPageNote?: boolean;
 }
 
 interface IPageAnnotationOverview {
@@ -115,16 +83,13 @@ const emit = defineEmits<{
         key: keyof IAnnotationSettings;
         value: IAnnotationSettings[keyof IAnnotationSettings];
     }): void;
-    (e: 'comment-selection'): void;
     (e: 'focus-comment', comment: IAnnotationCommentSummary): void;
     (e: 'open-note', comment: IAnnotationCommentSummary): void;
     (e: 'copy-comment', comment: IAnnotationCommentSummary): void;
     (e: 'delete-comment', comment: IAnnotationCommentSummary): void;
-    (e: 'start-place-note'): void;
 }>();
 
 const currentPage = computed(() => props.currentPage);
-const placingPageNote = computed(() => props.placingPageNote ?? false);
 const noteComments = computed(() => props.comments.filter(isTextNoteComment));
 
 function focusFirstCommentOnPage(pageNumber: number) {
@@ -200,46 +165,6 @@ const pagesWithNotes = computed<IPageAnnotationOverview[]>(() => {
     font-size: 0.8rem;
     line-height: 1.35;
     color: var(--ui-text-muted);
-}
-
-.sticky-actions {
-    display: grid;
-    grid-template-columns: repeat(1, minmax(0, 1fr));
-    gap: 0.45rem;
-}
-
-.sticky-action {
-    border: 1px solid var(--ui-border);
-    border-radius: 0.5rem;
-    background: var(--ui-bg);
-    color: var(--ui-text-highlighted);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.35rem;
-    min-height: 2.1rem;
-    font-size: 0.82rem;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.sticky-action:hover {
-    border-color: color-mix(in srgb, var(--ui-primary) 40%, var(--ui-border) 60%);
-}
-
-.sticky-action.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
-    background: color-mix(in srgb, var(--ui-primary) 12%, var(--ui-bg) 88%);
-}
-
-.sticky-action-icon {
-    font-size: 0.9rem;
-}
-
-.sticky-hint {
-    margin: 0;
-    font-size: 0.78rem;
-    color: var(--ui-text-toned);
 }
 
 .page-chip-list {

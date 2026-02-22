@@ -60,8 +60,8 @@ export default {
         'styleDescription': 'Kleur en grootte voor het geselecteerde gereedschap.',
         'color': 'Kleur',
         'keepActive': 'Geselecteerd gereedschap actief houden',
-        'exitModeHint': 'Druk op Esc om de annotatiemodus te verlaten.',
-        'cursor': 'Cursor',
+        'exitModeHint': 'Druk op Esc om het actieve gereedschap uit te schakelen.',
+        'cursor': 'Selecteren',
         'draw': 'Tekenen',
         'text': 'Tekst',
         'highlight': 'Markering',
@@ -181,6 +181,7 @@ export default {
         },
     },
     'common': {
+        'loading': 'Laden...',
         'cancel': 'Annuleren',
         'convert': 'Converteren',
         'unitDpi': 'DPI',
@@ -289,6 +290,7 @@ export default {
         'saving': 'Opslaan…',
         'deleteNote': 'Notitie verwijderen',
         'closeNote': 'Notitie sluiten',
+        'minimizeNote': 'Notitie minimaliseren',
     },
     'search': {
         'placeholder': 'Zoeken...',

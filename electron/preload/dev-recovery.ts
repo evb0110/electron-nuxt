@@ -4,6 +4,8 @@ interface IReloadEvent {
     blocked: boolean;
     blockReason?: string;
     reloadId: string;
+    href?: string;
+    timeSincePageLoadMs?: number;
 }
 
 interface IReloadDecision {
@@ -12,12 +14,25 @@ interface IReloadDecision {
 }
 
 interface IWindowWithReloadHistory extends Window {__reloadHistory?: IReloadEvent[];}
+interface IDevReloadEventMarker {
+    timestamp: number;
+    event?: string;
+    payload?: unknown;
+}
+
+type TDevRecoveryLogger = (
+    level: 'debug' | 'info' | 'warn' | 'error',
+    message: string,
+    data?: Record<string, unknown>,
+) => void;
+
+interface IInstallDevRecoveryOptions { log?: TDevRecoveryLogger; }
 
 /**
  * In development, Vite can transiently fail module fetches after dependency optimize changes.
  * This recovery logic does a bounded auto-reload with guardrails to avoid loops.
  */
-export function installViteOutdatedOptimizeDepRecovery() {
+export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecoveryOptions = {}) {
     if (!process.defaultApp) {
         return;
     }
@@ -30,17 +45,139 @@ export function installViteOutdatedOptimizeDepRecovery() {
     const INITIAL_LOAD_GRACE_MS = 1_000;
     const MAX_RELOADS_KEY = 'evb-viewer:dev:reload-count';
     const MAX_RELOADS_PER_SESSION = 3;
+    const RELOAD_HISTORY_KEY = 'evb-viewer:dev:reload-history:pending';
+    const DEV_RELOAD_EVENT_KEY = 'evb-viewer:dev:last-vite-reload-event';
+    const MAX_RELOAD_HISTORY = 20;
+    const VITE_FULL_RELOAD_EVENT_MAX_AGE_MS = 15_000;
+    const log = options.log ?? ((level, message, data) => {
+        if (level === 'debug') {
+            if (data) {
+                console.debug(message, data);
+            } else {
+                console.debug(message);
+            }
+            return;
+        }
+        if (level === 'info') {
+            if (data) {
+                console.info(message, data);
+            } else {
+                console.info(message);
+            }
+            return;
+        }
+        if (level === 'warn') {
+            if (data) {
+                console.warn(message, data);
+            } else {
+                console.warn(message);
+            }
+            return;
+        }
+        if (data) {
+            console.error(message, data);
+        } else {
+            console.error(message);
+        }
+    });
 
     const reloadHistory: IReloadEvent[] = [];
     (window as IWindowWithReloadHistory).__reloadHistory = reloadHistory;
 
     const pageLoadTime = Date.now();
 
-    function isViteOptimizeDepError(message: string) {
-        if (message.includes('Outdated Optimize Dep')) {
-            return true;
+    function readPersistedReloadHistory() {
+        try {
+            const raw = window.sessionStorage.getItem(RELOAD_HISTORY_KEY);
+            if (!raw) {
+                return [];
+            }
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) {
+                return [];
+            }
+            return parsed
+                .filter((entry): entry is IReloadEvent => (
+                    !!entry
+                    && typeof entry === 'object'
+                    && typeof (entry as IReloadEvent).timestamp === 'number'
+                    && typeof (entry as IReloadEvent).reason === 'string'
+                    && typeof (entry as IReloadEvent).reloadId === 'string'
+                    && typeof (entry as IReloadEvent).blocked === 'boolean'
+                ))
+                .slice(-MAX_RELOAD_HISTORY);
+        } catch {
+            return [];
         }
-        return message.includes('Failed to fetch dynamically imported module') && message.includes('localhost:');
+    }
+
+    function persistReloadHistory() {
+        try {
+            window.sessionStorage.setItem(
+                RELOAD_HISTORY_KEY,
+                JSON.stringify(reloadHistory.slice(-MAX_RELOAD_HISTORY)),
+            );
+        } catch {
+            // sessionStorage may be unavailable
+        }
+    }
+
+    function appendReloadHistory(event: IReloadEvent) {
+        reloadHistory.push(event);
+        if (reloadHistory.length > MAX_RELOAD_HISTORY) {
+            reloadHistory.splice(0, reloadHistory.length - MAX_RELOAD_HISTORY);
+        }
+        persistReloadHistory();
+    }
+
+    const previousReloadHistory = readPersistedReloadHistory();
+    if (previousReloadHistory.length > 0) {
+        log('warn', '[Dev] Previous renderer session reload history (persisted)', {previousReloadHistory});
+    }
+
+    function readRecentViteFullReloadEvent() {
+        try {
+            const raw = window.sessionStorage.getItem(DEV_RELOAD_EVENT_KEY);
+            if (!raw) {
+                return null;
+            }
+
+            const parsed = JSON.parse(raw) as IDevReloadEventMarker;
+            if (!parsed || typeof parsed.timestamp !== 'number') {
+                return null;
+            }
+
+            const ageMs = Date.now() - parsed.timestamp;
+            if (ageMs < 0 || ageMs > VITE_FULL_RELOAD_EVENT_MAX_AGE_MS) {
+                return null;
+            }
+
+            const payloadType = (
+                parsed.payload
+                && typeof parsed.payload === 'object'
+                && 'type' in parsed.payload
+            )
+                ? (parsed.payload as {type?: unknown;}).type
+                : undefined;
+            const isFullReload = parsed.event === 'vite:beforeFullReload'
+                && (payloadType === 'full-reload' || payloadType === undefined);
+
+            if (!isFullReload) {
+                return null;
+            }
+
+            return {
+                timestamp: parsed.timestamp,
+                ageMs,
+                event: parsed.event ?? 'vite:beforeFullReload',
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    function isViteOptimizeDepError(message: string) {
+        return message.includes('Outdated Optimize Dep');
     }
 
     function shouldReloadNow(): IReloadDecision {
@@ -79,41 +216,70 @@ export function installViteOutdatedOptimizeDepRecovery() {
 
     function scheduleReload(reason: string) {
         const reloadId = `reload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const baseEvent = {
+            timestamp: Date.now(),
+            reason,
+            reloadId,
+            href: window.location?.href ?? '',
+            timeSincePageLoadMs: Date.now() - pageLoadTime,
+        } satisfies Omit<IReloadEvent, 'blocked'>;
 
         if (!window.location?.href?.includes('localhost:')) {
-            reloadHistory.push({
-                timestamp: Date.now(),
-                reason,
+            appendReloadHistory({
+                ...baseEvent,
                 blocked: true,
                 blockReason: 'Not running on localhost',
+            });
+            log('debug', '[Dev] Reload blocked: not running on localhost', {
                 reloadId,
+                href: window.location?.href ?? '',
+            });
+            return;
+        }
+
+        const recentViteReloadEvent = readRecentViteFullReloadEvent();
+        if (recentViteReloadEvent) {
+            appendReloadHistory({
+                ...baseEvent,
+                blocked: true,
+                blockReason: `Vite full reload already announced ${recentViteReloadEvent.ageMs}ms ago`,
+            });
+            log('info', '[Dev] Reload skipped because Vite already announced full reload', {
+                reloadId,
+                reason,
+                recentViteReloadEvent,
             });
             return;
         }
 
         const decision = shouldReloadNow();
         if (!decision.allowed) {
-            reloadHistory.push({
-                timestamp: Date.now(),
-                reason,
+            appendReloadHistory({
+                ...baseEvent,
                 blocked: true,
                 blockReason: decision.blockReason,
-                reloadId,
             });
-            console.debug(`[Dev] Reload blocked: ${decision.blockReason} [${reloadId}]`);
+            log('debug', '[Dev] Reload blocked by guardrails', {
+                reloadId,
+                reason,
+                blockReason: decision.blockReason,
+            });
             return;
         }
 
-        reloadHistory.push({
-            timestamp: Date.now(),
-            reason,
+        appendReloadHistory({
+            ...baseEvent,
             blocked: false,
-            reloadId,
         });
 
-        console.warn(`[Dev] Recovering from Vite optimize-deps error (${reason}); reloading... [${reloadId}]`);
+        log('warn', '[Dev] Recovering from Vite optimize-deps error; scheduling reload', {
+            reloadId,
+            reason,
+        });
         try {
-            console.warn(`[Dev] Reload scheduled at ${new Date().toISOString()}, cooldown state:`, {
+            log('debug', '[Dev] Reload scheduled cooldown state', {
+                reloadId,
+                scheduledAt: new Date().toISOString(),
                 lastReload: window.sessionStorage.getItem(RELOAD_KEY),
                 timeSinceLastReload: Date.now() - Number(window.sessionStorage.getItem(RELOAD_KEY) ?? '0'),
                 reloadCount: window.sessionStorage.getItem(MAX_RELOADS_KEY),
@@ -122,12 +288,20 @@ export function installViteOutdatedOptimizeDepRecovery() {
             // sessionStorage may be unavailable
         }
 
-        setTimeout(() => window.location.reload(), 250);
+        setTimeout(() => {
+            persistReloadHistory();
+            window.location.reload();
+        }, 250);
     }
 
     window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
         const message = event?.reason instanceof Error ? event.reason.message : String(event?.reason ?? '');
         if (isViteOptimizeDepError(message)) {
+            log('warn', '[Dev] Matched optimize-deps unhandled rejection', {
+                message,
+                stack: event?.reason instanceof Error ? event.reason.stack : undefined,
+                href: window.location?.href,
+            });
             scheduleReload(message);
         }
     });

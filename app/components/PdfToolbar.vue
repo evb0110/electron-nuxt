@@ -72,6 +72,13 @@
                 :disabled="!hasPdf"
                 @click="emit('capture-region')"
             />
+            <ToolbarButton
+                icon="lucide:sticker"
+                :active="isPlacingPageNote"
+                :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
+                :disabled="!hasPdf || isDjvuMode"
+                @click="emit('quick-note')"
+            />
 
             <div class="toolbar-separator" />
         </div>
@@ -195,6 +202,7 @@ defineProps<{
     showSidebar: boolean;
     dragMode: boolean;
     isCapturingRegion: boolean;
+    isPlacingPageNote: boolean;
     continuousScroll: boolean;
     isDjvuMode?: boolean;
 }>();
@@ -214,6 +222,7 @@ const emit = defineEmits<{
     'enable-drag': [];
     'disable-drag': [];
     'capture-region': [];
+    'quick-note': [];
 }>();
 
 const { t } = useTypedI18n();

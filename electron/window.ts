@@ -8,7 +8,6 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
-import { delay } from 'es-toolkit/promise';
 import { config } from '@electron/config';
 import {
     startServer,
@@ -24,6 +23,23 @@ const windowIconPath = !app.isPackaged && !config.isMac
     : undefined;
 
 const logger = createLogger('window');
+const windowStartupStartedAt = Date.now();
+const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+
+function logWindowStartup(phase: string, details?: Record<string, unknown>) {
+    if (!STARTUP_TRACE_ENABLED) {
+        return;
+    }
+
+    const now = Date.now();
+    const elapsedMs = now - windowStartupStartedAt;
+    const message = `[startup] ${phase} (+${elapsedMs}ms)`;
+    logger.info(message);
+    console.info(`[${new Date(now).toISOString()}] [window] ${message}`, {
+        elapsedMs,
+        ...details,
+    });
+}
 
 const appWindows = new Map<number, BrowserWindow>();
 let mainWindowId: number | null = null;
@@ -73,16 +89,79 @@ async function ensureWindowRuntimeReady() {
     if (!serverReadyPromise) {
         serverReadyPromise = (async () => {
             const serverBootStart = Date.now();
-            logger.info('[startup] Ensuring Nuxt runtime server is ready');
+            logWindowStartup('Ensuring Nuxt runtime server is ready');
             await startServer();
-            logger.info(`[startup] Nuxt runtime process ensured (+${Date.now() - serverBootStart}ms)`);
+            logWindowStartup(`Nuxt runtime process ensured (step +${Date.now() - serverBootStart}ms)`);
             await waitForServer();
-            logger.info(`[startup] Nuxt runtime server is healthy (+${Date.now() - serverBootStart}ms)`);
+            logWindowStartup(`Nuxt runtime server is healthy (step +${Date.now() - serverBootStart}ms)`);
         })();
     }
 
     await serverReadyPromise;
-    logger.info(`[startup] Window runtime ready (+${Date.now() - runtimeStart}ms)`);
+    logWindowStartup(`Window runtime ready (step +${Date.now() - runtimeStart}ms)`);
+}
+
+function attachRendererDiagnostics(window: BrowserWindow) {
+    if (!config.isDev) {
+        return;
+    }
+
+    const webContents = window.webContents;
+    const windowId = window.id;
+
+    webContents.on('render-process-gone', (_event, details) => {
+        logger.error(`[renderer] render-process-gone (windowId=${windowId}, reason=${details.reason}, exitCode=${details.exitCode})`);
+    });
+
+    webContents.on('did-start-loading', () => {
+        logger.info(`[renderer] did-start-loading (windowId=${windowId})`);
+    });
+
+    webContents.on('did-stop-loading', () => {
+        logger.info(`[renderer] did-stop-loading (windowId=${windowId})`);
+    });
+
+    webContents.on('did-start-navigation', (
+        _event,
+        url,
+        isInPlace,
+        isMainFrame,
+    ) => {
+        if (!isMainFrame) {
+            return;
+        }
+
+        logger.info(`[renderer] did-start-navigation (windowId=${windowId}, inPlace=${String(isInPlace)}, url=${url})`);
+    });
+
+    webContents.on('did-navigate', (_event, url) => {
+        logger.info(`[renderer] did-navigate (windowId=${windowId}, url=${url})`);
+    });
+
+    webContents.on('did-finish-load', () => {
+        logger.info(`[renderer] did-finish-load (windowId=${windowId}, url=${webContents.getURL()})`);
+    });
+
+    webContents.on('did-fail-load', (
+        _event,
+        errorCode,
+        errorDescription,
+        validatedURL,
+        isMainFrame,
+    ) => {
+        logger.error(
+            `[renderer] did-fail-load (windowId=${windowId}, mainFrame=${String(isMainFrame)}, `
+            + `code=${errorCode}, desc=${errorDescription}, url=${validatedURL})`,
+        );
+    });
+
+    window.on('unresponsive', () => {
+        logger.error(`[renderer] window unresponsive (windowId=${windowId})`);
+    });
+
+    window.on('responsive', () => {
+        logger.info(`[renderer] window responsive (windowId=${windowId})`);
+    });
 }
 
 function attachShowLifecycle(window: BrowserWindow) {
@@ -93,9 +172,9 @@ function attachShowLifecycle(window: BrowserWindow) {
     let pendingShowTimeout: NodeJS.Timeout | null = null;
     let forceShowTimeout: NodeJS.Timeout | null = null;
 
-    const SHOW_DEBOUNCE_MS = config.isDev ? 750 : 0;
+    const SHOW_DEBOUNCE_MS = 0;
     const FORCE_SHOW_MS = config.isDev ? 5_000 : 15_000;
-    const STABILITY_WINDOW_MS = 500;
+    const STABILITY_WINDOW_MS = config.isDev ? 200 : 500;
     let lastNavigationTime = 0;
     let stabilityCheckTimeout: NodeJS.Timeout | null = null;
 
@@ -112,25 +191,6 @@ function attachShowLifecycle(window: BrowserWindow) {
             logger.debug(`${event} ${JSON.stringify(info)}`);
         }
     };
-
-    async function waitForAppReady(timeoutMs: number): Promise<boolean> {
-        const start = Date.now();
-        while (Date.now() - start < timeoutMs) {
-            try {
-                const isReady = await window.webContents.executeJavaScript(
-                    'Boolean(window.__appReady)',
-                    true,
-                );
-                if (isReady) {
-                    return true;
-                }
-            } catch {
-                // Page navigating
-            }
-            await delay(100);
-        }
-        return false;
-    }
 
     const cleanupShowHandlers = () => {
         if (window.isDestroyed()) {
@@ -179,15 +239,8 @@ function attachShowLifecycle(window: BrowserWindow) {
         }
 
         if (config.isDev) {
-            logNavEvent('waiting-for-app-ready');
-            const isReady = await waitForAppReady(3000);
-            logNavEvent('app-ready-result', { isReady });
-
-            if (window.isDestroyed()) {
-                return;
-            }
-
             showAndFocusMaximizedWindow();
+            logNavEvent('window-shown-early-for-dev');
 
             try {
                 await window.webContents.executeJavaScript(`
@@ -202,8 +255,9 @@ function attachShowLifecycle(window: BrowserWindow) {
             }
         } else {
             showAndFocusMaximizedWindow();
-            logger.info(`[startup] Window shown (windowId=${window.id})`);
         }
+
+        logWindowStartup(`Window shown (windowId=${window.id})`, {hasShownWindow});
 
         cleanupShowHandlers();
     };
@@ -355,9 +409,13 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         window.maximize();
     }
 
+    attachRendererDiagnostics(window);
     attachShowLifecycle(window);
     void window.loadURL(config.server.url);
-    logger.info(`[startup] BrowserWindow created and loadURL dispatched (+${Date.now() - createStart}ms)`);
+    logWindowStartup(`BrowserWindow created and loadURL dispatched (step +${Date.now() - createStart}ms)`, {
+        windowId: window.id,
+        url: config.server.url,
+    });
 
     return window;
 }

@@ -6,7 +6,7 @@ import {
     DEFAULT_LOCALE,
     LOCALE_CODES,
     type TLocale,
-} from '@app/i18n/locales';
+} from '@app/i18n/locale-codes';
 import type { ISettingsData } from '@app/types/shared';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {

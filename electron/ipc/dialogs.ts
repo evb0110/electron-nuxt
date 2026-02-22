@@ -96,6 +96,7 @@ async function openInputPaths(
     options: IOpenInputPathsOptions = {},
 ): Promise<IOpenFileResult | null> {
     const normalizedPaths = normalizeInputPaths(paths);
+    logger.info(`openInputPaths normalized ${normalizedPaths.length} path(s): ${normalizedPaths.join(' | ')}`);
     if (normalizedPaths.length === 0) {
         return null;
     }
@@ -115,6 +116,7 @@ async function openInputPaths(
         }
 
         const djvuPath = djvuPaths[0]!;
+        logger.info(`openInputPaths resolved DjVu path: ${djvuPath}`);
         await addRecentInputs([djvuPath]);
         return {
             kind: 'djvu',
@@ -125,6 +127,7 @@ async function openInputPaths(
 
     if (normalizedPaths.length === 1 && isPdfPath(normalizedPaths[0]!)) {
         const originalPath = normalizedPaths[0]!;
+        logger.info(`openInputPaths creating working copy for PDF: ${originalPath}`);
         const workingPath = await createWorkingCopy(originalPath);
         await addRecentInputs([originalPath]);
         return {
@@ -136,6 +139,7 @@ async function openInputPaths(
 
     const mergedPdf = await createPdfFromInputPaths(normalizedPaths, {onProgress: options.onCombineProgress});
     const outputPath = buildCombinedPdfOutputPath(normalizedPaths);
+    logger.info(`openInputPaths created combined PDF for batch; output: ${outputPath}`);
     const workingPath = await createWorkingCopyFromData(
         basename(outputPath),
         mergedPdf,
@@ -160,11 +164,15 @@ export async function handleOpenPdfDirect(
     filePath: string,
 ): Promise<IOpenFileResult | null> {
     if (!filePath || filePath.trim() === '') {
+        logger.warn('openPdfDirect received empty path');
         return null;
     }
 
+    logger.info(`openPdfDirect request: ${filePath}`);
     try {
-        return await openInputPaths([filePath]);
+        const result = await openInputPaths([filePath]);
+        logger.info(`openPdfDirect result for ${filePath}: ${result?.kind ?? 'null'}`);
+        return result;
     } catch (err) {
         logger.error(`Failed to create working copy: ${err instanceof Error ? err.message : String(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);

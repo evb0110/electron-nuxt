@@ -57,6 +57,14 @@ export interface IDebugLogEntry {
     timestamp: string;
 }
 
+export interface IRendererLogEntry {
+    level: 'debug' | 'info' | 'warn' | 'error';
+    section: string;
+    message: string;
+    timestamp: string;
+    data?: unknown;
+}
+
 interface IPdfSearchExcerpt {
     prefix: boolean;
     suffix: boolean;
@@ -271,6 +279,7 @@ export interface IElectronAPI {
     closeCurrentWindow: () => Promise<boolean>;
     notifyRendererReady: () => void;
     getDebugLogs: () => Promise<IDebugLogEntry[]>;
+    rendererLog: (entry: IRendererLogEntry) => void;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;

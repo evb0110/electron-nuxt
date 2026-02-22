@@ -3,6 +3,7 @@
  * Logs to console and can be easily grepped in browser devtools
  */
 import { STORAGE_KEYS } from '@app/constants/storage-keys';
+import type { IRendererLogEntry } from '@app/types/electron-api';
 
 type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TLazyValue = unknown | (() => unknown);
@@ -62,6 +63,48 @@ function shouldLog(level: TBrowserLogLevel) {
     return LOG_LEVELS[level] >= LOG_LEVELS[configuredLogLevel];
 }
 
+function serializeForRendererLog(value: unknown): unknown {
+    if (value === undefined) {
+        return undefined;
+    }
+
+    try {
+        return JSON.parse(JSON.stringify(value, (_key, currentValue) => {
+            if (currentValue instanceof Error) {
+                return {
+                    name: currentValue.name,
+                    message: currentValue.message,
+                    stack: currentValue.stack,
+                };
+            }
+
+            if (typeof currentValue === 'bigint') {
+                return currentValue.toString();
+            }
+
+            return currentValue;
+        }));
+    } catch {
+        return String(value);
+    }
+}
+
+function forwardToMain(entry: IRendererLogEntry) {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    try {
+        const electronAPI = (window as Window & {electronAPI?: {rendererLog?: (payload: IRendererLogEntry) => void;};}).electronAPI;
+
+        if (typeof electronAPI?.rendererLog === 'function') {
+            electronAPI.rendererLog(entry);
+        }
+    } catch {
+        // Ignore IPC bridge failures in browser logger
+    }
+}
+
 export const BrowserLogger = {
     debug: (section: string, message: string, data?: TLazyValue) => {
         if (!shouldLog('debug')) {
@@ -78,6 +121,14 @@ export const BrowserLogger = {
         } else {
             console.log(`${prefix} ${message}`);
         }
+
+        forwardToMain({
+            level: 'debug',
+            section,
+            message,
+            timestamp,
+            data: serializeForRendererLog(resolved),
+        });
     },
 
     info: (section: string, message: string, data?: TLazyValue) => {
@@ -95,6 +146,14 @@ export const BrowserLogger = {
         } else {
             console.info(`${prefix} ${message}`);
         }
+
+        forwardToMain({
+            level: 'info',
+            section,
+            message,
+            timestamp,
+            data: serializeForRendererLog(resolved),
+        });
     },
 
     warn: (section: string, message: string, data?: TLazyValue) => {
@@ -112,6 +171,14 @@ export const BrowserLogger = {
         } else {
             console.warn(`${prefix} ${message}`);
         }
+
+        forwardToMain({
+            level: 'warn',
+            section,
+            message,
+            timestamp,
+            data: serializeForRendererLog(resolved),
+        });
     },
 
     error: (section: string, message: string, error?: TLazyValue) => {
@@ -129,5 +196,13 @@ export const BrowserLogger = {
         } else {
             console.error(`${prefix} ${message}`);
         }
+
+        forwardToMain({
+            level: 'error',
+            section,
+            message,
+            timestamp,
+            data: serializeForRendererLog(resolved),
+        });
     },
 };

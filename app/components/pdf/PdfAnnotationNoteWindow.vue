@@ -28,10 +28,10 @@
                     <button
                         type="button"
                         class="note-window__close"
-                        :aria-label="t('noteWindow.closeNote')"
-                        @click="emit('close')"
+                        :aria-label="t('noteWindow.minimizeNote')"
+                        @click="emit('minimize')"
                     >
-                        <UIcon name="i-lucide-x" class="size-3.5" />
+                        <UIcon name="i-lucide-minus" class="size-3.5" />
                     </button>
                 </div>
             </div>
@@ -43,7 +43,7 @@
             :value="text"
             rows="8"
             :placeholder="t('noteWindow.writeNote')"
-            @keydown.esc.stop.prevent="emit('close')"
+            @keydown.esc.stop.prevent="emit('minimize')"
             @input="emit('update:text', ($event.target as HTMLTextAreaElement).value)"
         ></textarea>
 
@@ -92,7 +92,7 @@ const {
 const emit = defineEmits<{
     (e: 'update:text', value: string): void;
     (e: 'update:position', value: IAnnotationNotePosition): void;
-    (e: 'close'): void;
+    (e: 'minimize'): void;
     (e: 'delete'): void;
     (e: 'focus'): void;
 }>();

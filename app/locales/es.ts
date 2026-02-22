@@ -60,8 +60,8 @@ export default {
         'styleDescription': 'Color y tamaño de la herramienta seleccionada.',
         'color': 'Color',
         'keepActive': 'Mantener herramienta activa',
-        'exitModeHint': 'Pulsa Esc para salir del modo de anotación.',
-        'cursor': 'Cursor',
+        'exitModeHint': 'Pulsa Esc para desactivar la herramienta activa.',
+        'cursor': 'Seleccionar',
         'draw': 'Dibujar',
         'text': 'Texto',
         'highlight': 'Resaltado',
@@ -181,6 +181,7 @@ export default {
         },
     },
     'common': {
+        'loading': 'Cargando...',
         'cancel': 'Cancelar',
         'convert': 'Convertir',
         'unitDpi': 'DPI',
@@ -289,6 +290,7 @@ export default {
         'saving': 'Guardando…',
         'deleteNote': 'Eliminar nota',
         'closeNote': 'Cerrar nota',
+        'minimizeNote': 'Minimizar nota',
     },
     'search': {
         'placeholder': 'Buscar...',

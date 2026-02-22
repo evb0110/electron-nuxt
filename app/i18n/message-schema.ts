@@ -60,8 +60,8 @@ export const EN_MESSAGE_SCHEMA = {
         'styleDescription': 'Color and size for the currently selected tool.',
         'color': 'Color',
         'keepActive': 'Keep selected tool active',
-        'exitModeHint': 'Press Esc to exit annotation mode.',
-        'cursor': 'Cursor',
+        'exitModeHint': 'Press Esc to clear the active tool.',
+        'cursor': 'Select',
         'draw': 'Draw',
         'text': 'Text',
         'highlight': 'Highlight',
@@ -181,6 +181,7 @@ export const EN_MESSAGE_SCHEMA = {
         },
     },
     'common': {
+        'loading': 'Loading...',
         'cancel': 'Cancel',
         'convert': 'Convert',
         'unitDpi': 'DPI',
@@ -289,6 +290,7 @@ export const EN_MESSAGE_SCHEMA = {
         'saving': 'Saving…',
         'deleteNote': 'Delete note',
         'closeNote': 'Close note',
+        'minimizeNote': 'Minimize note',
     },
     'search': {
         'placeholder': 'Search...',

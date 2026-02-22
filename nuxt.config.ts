@@ -14,12 +14,6 @@ export default defineNuxtConfig({
 
     css: [
         '~/assets/css/main.css',
-        '~/assets/css/pdfjs-overrides.css',
-        '~/assets/css/pdf-comment-markers.css',
-        '~/assets/css/pdf-comment-ui.css',
-        '~/assets/css/pdf-search-highlights.css',
-        '~/assets/css/pdf-animations.css',
-        '~/assets/css/pdf-debug-overlays.css',
     ],
 
     ssr: false,
@@ -42,9 +36,10 @@ export default defineNuxtConfig({
         restructureDir: 'app',
         locales: LOCALE_DEFINITIONS,
         defaultLocale: DEFAULT_LOCALE,
-        lazy: false,
+        lazy: true,
         langDir: 'locales/',
         strategy: 'no_prefix',
+        detectBrowserLanguage: false,
     },
 
     icon: {
@@ -138,6 +133,7 @@ export default defineNuxtConfig({
             'lucide:stamp',
             'lucide:settings',
             'lucide:sticky-note',
+            'lucide:sticker',
             'lucide:languages',
             'circle-flags:gb',
             'circle-flags:ru',
@@ -186,7 +182,18 @@ export default defineNuxtConfig({
             ],
             exclude: ['pdfjs-dist'],
         },
-        server: {watch: {usePolling: false}},
+        server: {
+            watch: {usePolling: false},
+            warmup: {
+                // Pre-transform the initial route/module graph to reduce Electron cold-start blank time in dev.
+                clientFiles: [
+                    './app/app.vue',
+                    './app/pages/index.vue',
+                    './app/composables/useSettings.ts',
+                    './app/composables/useTypedI18n.ts',
+                ],
+            },
+        },
     },
 
     nitro: {

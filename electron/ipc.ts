@@ -2,6 +2,7 @@ import {
     BrowserWindow,
     ipcMain,
 } from 'electron';
+import type { IRendererLogEntry } from '@app/types/electron-api';
 import type { ISettingsData } from '@app/types/shared';
 import type {
     IWindowTabTransferAck,
@@ -70,8 +71,53 @@ import {
     skipUpdateVersion,
     triggerManualUpdateCheck,
 } from '@electron/updates';
+import { createLogger } from '@electron/utils/logger';
 
 export { clearAllWorkingCopies } from '@electron/ipc/workingCopy';
+
+const logger = createLogger('ipc');
+const rendererLogger = createLogger('renderer-bridge', { broadcastToRenderers: false });
+const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+
+function stringifyRendererLogData(data: unknown) {
+    if (data === undefined) {
+        return '';
+    }
+
+    try {
+        return ` data=${JSON.stringify(data)}`;
+    } catch {
+        return ` data=${String(data)}`;
+    }
+}
+
+function handleRendererLog(event: Electron.IpcMainEvent, payload: IRendererLogEntry) {
+    const section = typeof payload?.section === 'string' ? payload.section : 'unknown';
+    const message = typeof payload?.message === 'string' ? payload.message : '<empty>';
+    const level = typeof payload?.level === 'string' ? payload.level : 'info';
+    const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : new Date().toISOString();
+    const webContentsId = event.sender.id;
+
+    const baseMessage = `[renderer:${webContentsId}] [${timestamp}] [${section}] ${message}`
+        + stringifyRendererLogData(payload?.data);
+
+    if (level === 'debug') {
+        rendererLogger.debug(baseMessage);
+        return;
+    }
+
+    if (level === 'warn') {
+        rendererLogger.warn(baseMessage);
+        return;
+    }
+
+    if (level === 'error') {
+        rendererLogger.error(baseMessage);
+        return;
+    }
+
+    rendererLogger.info(baseMessage);
+}
 
 function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetWindow[] {
     const otherWindows = getAllAppWindows()
@@ -95,6 +141,8 @@ function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetW
 }
 
 export function registerIpcHandlers() {
+    ipcMain.on('renderer:log', handleRendererLog);
+
     ipcMain.handle('dialog:openPdf', handleOpenPdfDialog);
     ipcMain.handle('dialog:openPdfDirect', handleOpenPdfDirect);
     ipcMain.handle('dialog:openPdfDirectBatch', handleOpenPdfDirectBatch);
@@ -187,7 +235,14 @@ export function registerIpcHandlers() {
         return true;
     });
 
-    ipcMain.handle('recent-files:get', () => getRecentFiles());
+    ipcMain.handle('recent-files:get', async () => {
+        const startedAt = Date.now();
+        const files = await getRecentFiles();
+        if (STARTUP_TRACE_ENABLED) {
+            logger.info(`[startup] IPC recent-files:get resolved (${files.length} file(s), +${Date.now() - startedAt}ms)`);
+        }
+        return files;
+    });
     ipcMain.handle('recent-files:add', async (_event, originalPath: string) => {
         await addRecentFile(originalPath);
         updateRecentFilesMenu();
@@ -201,7 +256,14 @@ export function registerIpcHandlers() {
         updateRecentFilesMenu();
     });
 
-    ipcMain.handle('settings:get', () => loadSettings());
+    ipcMain.handle('settings:get', async () => {
+        const startedAt = Date.now();
+        const settings = await loadSettings();
+        if (STARTUP_TRACE_ENABLED) {
+            logger.info(`[startup] IPC settings:get resolved (+${Date.now() - startedAt}ms)`);
+        }
+        return settings;
+    });
     ipcMain.handle('settings:save', async (_event, settings: ISettingsData) => {
         await saveSettings(settings);
         updateRecentFilesMenu();

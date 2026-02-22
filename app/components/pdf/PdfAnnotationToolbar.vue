@@ -12,7 +12,7 @@
             @click="emit('set-tool', 'none')"
         >
             <UIcon name="i-lucide-mouse-pointer" class="tool-button-icon" />
-            <span class="tool-button-label">{{ t('zoom.textSelect') }}</span>
+            <span class="tool-button-label">{{ t('annotations.cursor') }}</span>
         </button>
 
         <div class="grid grid-cols-2 gap-1.5">

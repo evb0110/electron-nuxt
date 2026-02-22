@@ -60,8 +60,8 @@ export default {
         'styleDescription': 'Цвет и размер для выбранного инструмента.',
         'color': 'Цвет',
         'keepActive': 'Оставить инструмент активным',
-        'exitModeHint': 'Нажмите Esc, чтобы выйти из режима аннотаций.',
-        'cursor': 'Курсор',
+        'exitModeHint': 'Нажмите Esc, чтобы снять активный инструмент.',
+        'cursor': 'Выбор',
         'draw': 'Рисование',
         'text': 'Текст',
         'highlight': 'Выделение',
@@ -181,6 +181,7 @@ export default {
         },
     },
     'common': {
+        'loading': 'Загрузка...',
         'cancel': 'Отмена',
         'convert': 'Конвертировать',
         'unitDpi': 'DPI',
@@ -289,6 +290,7 @@ export default {
         'saving': 'Сохранение…',
         'deleteNote': 'Удалить заметку',
         'closeNote': 'Закрыть заметку',
+        'minimizeNote': 'Свернуть заметку',
     },
     'search': {
         'placeholder': 'Поиск...',
