@@ -34,7 +34,7 @@
                     @mousedown.prevent
                     @click="$emit('restore-note', note.comment.stableKey)"
                 >
-                    <UIcon name="i-lucide-sticky-note" class="size-3" />
+                    <UIcon name="i-lucide-message-square" class="size-3" />
                 </button>
             </UTooltip>
         </Teleport>
