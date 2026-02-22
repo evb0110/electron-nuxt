@@ -139,9 +139,9 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
                 return;
             }
 
-            logPdfNav(`[PDF-NAV] scrollToPage(${matchPageIndex + 1}) via deps`);
-            deps.suppressSnap?.();
-            deps.scrollToPage?.(matchPageIndex + 1, { preferExactDom: true });
+            logPdfNav(
+                `[PDF-NAV] deferring page jump; waiting for match-ready scroll on page=${matchPageIndex + 1}`,
+            );
             deps.scheduleRenderForSinglePage(matchPageIndex + 1);
 
             const didScroll = await waitForMatchAndScroll(token, matchPageIndex);
