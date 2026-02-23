@@ -596,10 +596,12 @@ export async function startSession(forceClean = false) {
 
         let nuxtProcess = await startNuxtServer(forceClean);
 
-        try {
-            rmSync(electronUserDataPath(), { recursive: true, force: true });
-            console.log(`[Cache] Cleared ${electronUserDataPath().replace(projectRoot + '/', '')}`);
-        } catch {}
+        if (forceClean) {
+            try {
+                rmSync(electronUserDataPath(), { recursive: true, force: true });
+                console.log(`[Cache] Cleared ${electronUserDataPath().replace(projectRoot + '/', '')}`);
+            } catch {}
+        }
 
         const staleInfo = getSessionInfo();
         if (staleInfo?.electronPid && isProcessAlive(staleInfo.electronPid)) {

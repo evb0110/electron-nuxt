@@ -76,7 +76,7 @@ export const usePdfFile = () => {
         error.value = null;
         pendingDjvu.value = null;
         openBatchProgress.value = null;
-        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'openFileDirect started', { path });
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect started', { path });
         try {
             const api = getElectronAPI();
             const result = await api.openPdfDirect(path);
@@ -86,7 +86,7 @@ export const usePdfFile = () => {
                 return;
             }
 
-            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'openPdfDirect returned result', {
+            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openPdfDirect returned result', {
                 path,
                 kind: result.kind,
                 isGenerated: result.kind === 'pdf' ? Boolean(result.isGenerated) : undefined,
@@ -95,21 +95,21 @@ export const usePdfFile = () => {
 
             if (result.kind === 'djvu') {
                 pendingDjvu.value = result.originalPath;
-                BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'openFileDirect entered DjVu mode', {
+                BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect entered DjVu mode', {
                     path,
                     djvuPath: result.originalPath,
                 });
                 return;
             }
 
-            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Loading PDF from working path', {
+            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Loading PDF from working path', {
                 path,
                 workingPath: result.workingPath,
             });
             await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
-            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'openFileDirect completed', {
+            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect completed', {
                 path,
                 workingPath: result.workingPath,
                 originalPath: result.originalPath,

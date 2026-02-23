@@ -225,7 +225,7 @@ watch(loaderVariant, (nextVariant, previousVariant) => {
         return;
     }
 
-    BrowserLogger.info(LOADER_LOG_SECTION, 'Workspace host loader variant changed', {
+    BrowserLogger.debug(LOADER_LOG_SECTION, 'Workspace host loader variant changed', {
         tabId: props.tabId,
         previousVariant,
         nextVariant,
@@ -261,14 +261,14 @@ async function preloadWorkspaceComponent(reason: string) {
         return workspacePreloadPromise;
     }
 
-    BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Preloading DocumentWorkspace chunk', {
+    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Preloading DocumentWorkspace chunk', {
         tabId: props.tabId,
         reason,
     });
 
     workspacePreloadPromise = loadDocumentWorkspace()
         .then(() => {
-            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'DocumentWorkspace chunk preloaded', {
+            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'DocumentWorkspace chunk preloaded', {
                 tabId: props.tabId,
                 reason,
             });
@@ -315,7 +315,7 @@ async function ensureWorkspaceLoaded(reason: string) {
         });
     }
 
-    BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Requesting workspace mount', {
+    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Requesting workspace mount', {
         tabId: props.tabId,
         reason,
         workspaceRequested: workspaceRequested.value,
@@ -335,7 +335,7 @@ async function ensureWorkspaceLoaded(reason: string) {
             reason,
         });
     } else {
-        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Workspace mount ready', {
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace mount ready', {
             tabId: props.tabId,
             reason,
         });
@@ -360,7 +360,7 @@ async function withLoadedWorkspace(action: string, run: (workspace: IWorkspaceEx
 }
 
 async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) => Promise<void> | void) {
-    BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'withWorkspace start', {
+    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'withWorkspace start', {
         tabId: props.tabId,
         action,
         hasMountedWorkspace: hasMountedWorkspace.value,
@@ -381,7 +381,7 @@ async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) 
 
     try {
         await run(workspace);
-        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'withWorkspace completed', {
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'withWorkspace completed', {
             tabId: props.tabId,
             action,
             hasPdf: workspaceHasPdf(workspace),
@@ -395,7 +395,7 @@ async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) 
 }
 
 async function openPath(path: string, action: string) {
-    BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Attempting open path', {
+    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Attempting open path', {
         tabId: props.tabId,
         action,
         path,
@@ -404,7 +404,7 @@ async function openPath(path: string, action: string) {
 }
 
 async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
-    BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Recent item clicked from placeholder', {
+    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Recent item clicked from placeholder', {
         tabId: props.tabId,
         path: file.originalPath,
         workspaceRequested: workspaceRequested.value,
@@ -442,9 +442,9 @@ async function handleOpenFileFromUi() {
 onMounted(() => {
     void preloadWorkspaceComponent('workspace-host-mounted');
 
-    BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Workspace host mounted; loading recent files', {tabId: props.tabId});
+    BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace host mounted; loading recent files', {tabId: props.tabId});
     void loadRecentFiles().finally(() => {
-        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Workspace host recent files load settled', {
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace host recent files load settled', {
             tabId: props.tabId,
             count: recentFiles.value.length,
         });

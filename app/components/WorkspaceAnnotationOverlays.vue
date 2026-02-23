@@ -271,6 +271,9 @@ function handleAnchorPointerEvent(
     eventName: 'mouseenter' | 'mouseleave' | 'focus' | 'blur',
     note: IAnnotationNoteWindowEntry,
 ) {
+    if (eventName !== 'mouseenter' && eventName !== 'focus') {
+        return;
+    }
     const target = minimizedIndicatorTargets.value[note.comment.stableKey] ?? null;
     const targetRect = target?.getBoundingClientRect() ?? null;
     logAnchor('anchor pointer event', {

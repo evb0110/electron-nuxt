@@ -44,6 +44,15 @@ export function selectPreferredAnnotationComment(
     left: IAnnotationCommentSummary,
     right: IAnnotationCommentSummary,
 ) {
+    // When one side has a stable PDF annotation reference and the other does not,
+    // always prefer the stable reference to avoid keeping stale editor-only ids.
+    if (left.annotationId && !right.annotationId) {
+        return left;
+    }
+    if (right.annotationId && !left.annotationId) {
+        return right;
+    }
+
     const leftScore = annotationCommentEditScore(left);
     const rightScore = annotationCommentEditScore(right);
     if (leftScore !== rightScore) {

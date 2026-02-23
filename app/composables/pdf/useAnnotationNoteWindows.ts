@@ -13,6 +13,10 @@ import {
     annotationCommentsMatch,
     selectPreferredAnnotationComment,
 } from '@app/composables/pdf/annotationNoteWindowHelpers';
+import {
+    markerRectIoU,
+    normalizeMarkerRect,
+} from '@app/composables/pdf/pdfAnnotationUtils';
 import { runGuardedTask } from '@app/utils/async-guard';
 
 export {
@@ -137,9 +141,13 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     function findMatchingAnnotationComment(comment: IAnnotationCommentSummary) {
-        return annotationComments.value.find((candidate) =>
+        const strictMatch = annotationComments.value.find((candidate) =>
             annotationCommentsMatch(candidate, comment),
         );
+        if (strictMatch) {
+            return strictMatch;
+        }
+        return findFuzzyMatchingAnnotationComment(comment, annotationComments.value);
     }
 
     function isSameAnnotationComment(
@@ -147,6 +155,103 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         right: IAnnotationCommentSummary,
     ) {
         return annotationCommentsMatch(left, right);
+    }
+
+    function findFuzzyMatchingAnnotationComment(
+        comment: IAnnotationCommentSummary,
+        candidates: IAnnotationCommentSummary[],
+    ) {
+        const pageCandidates = candidates.filter(
+            candidate => candidate.pageIndex === comment.pageIndex,
+        );
+        if (pageCandidates.length === 0) {
+            return null;
+        }
+
+        const targetText = comment.text.trim().toLowerCase();
+        const targetSubtype = (comment.subtype ?? '').trim().toLowerCase();
+        const targetRect = normalizeMarkerRect(comment.markerRect);
+
+        const scored = pageCandidates.map((candidate) => {
+            const candidateText = candidate.text.trim().toLowerCase();
+            const candidateSubtype = (candidate.subtype ?? '').trim().toLowerCase();
+            const candidateRect = normalizeMarkerRect(candidate.markerRect);
+            const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
+            const textExact = (
+                targetText.length > 0
+                && candidateText.length > 0
+                && targetText === candidateText
+            );
+
+            let score = 0;
+            if (textExact) {
+                score += 5;
+            } else if (
+                targetText.length > 0
+                && candidateText.length > 0
+                && (
+                    targetText.includes(candidateText)
+                    || candidateText.includes(targetText)
+                )
+            ) {
+                score += 1.5;
+            }
+
+            if (targetSubtype && candidateSubtype && targetSubtype === candidateSubtype) {
+                score += 1;
+            }
+            if (candidate.source === comment.source) {
+                score += 0.35;
+            }
+            if (comment.hasNote === candidate.hasNote) {
+                score += 0.3;
+            }
+
+            if (iou > 0) {
+                score += iou * 8;
+            }
+
+            if (targetRect && candidateRect) {
+                const targetCenterX = targetRect.left + targetRect.width / 2;
+                const targetCenterY = targetRect.top + targetRect.height / 2;
+                const candidateCenterX = candidateRect.left + candidateRect.width / 2;
+                const candidateCenterY = candidateRect.top + candidateRect.height / 2;
+                const centerDistance = Math.hypot(
+                    targetCenterX - candidateCenterX,
+                    targetCenterY - candidateCenterY,
+                );
+                score += Math.max(0, 1.8 - (centerDistance * 9));
+            }
+
+            return {
+                candidate,
+                score,
+                iou,
+                textExact,
+            };
+        }).sort((left, right) => right.score - left.score);
+
+        const best = scored[0];
+        if (!best) {
+            return null;
+        }
+        const second = scored[1];
+        const clearlyBetter = (
+            !second
+            || (best.score - second.score >= 0.55)
+            || (best.textExact && !second.textExact)
+            || ((best.iou - (second.iou ?? 0)) >= 0.08)
+        );
+        const acceptable = (
+            best.score >= 2.2
+            || best.textExact
+            || best.iou >= 0.15
+        );
+        if (!acceptable || !clearlyBetter) {
+            return null;
+        }
+
+        return best.candidate;
     }
 
     function upsertAnnotationNoteWindow(comment: IAnnotationCommentSummary) {
@@ -194,9 +299,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
         note.isMinimized = true;
         note.error = null;
-        if (note.text !== note.lastSavedText) {
-            schedulePersistAnnotationNote(stableKey);
-        }
     }
 
     function restoreAnnotationNote(stableKey: string) {
@@ -206,6 +308,10 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
         note.isMinimized = false;
         note.error = null;
+        const matched = findMatchingAnnotationComment(note.comment);
+        if (matched) {
+            note.comment = selectPreferredAnnotationComment(note.comment, matched);
+        }
         bringAnnotationNoteToFront(stableKey);
     }
 
@@ -523,7 +629,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
 
         annotationNoteWindows.value.forEach((note) => {
-            const updated = findUpdatedComment(note.comment);
+            const updated =
+                findUpdatedComment(note.comment)
+                ?? findFuzzyMatchingAnnotationComment(note.comment, comments);
             if (!updated) {
                 return;
             }

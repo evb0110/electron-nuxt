@@ -236,7 +236,7 @@ watch(
         }
 
         const hostRect = viewerHost.value?.getBoundingClientRect();
-        BrowserLogger.info('loader', 'PDF viewer loader state changed', {
+        BrowserLogger.debug('loader', 'PDF viewer loader state changed', {
             hasSrc,
             loading,
             overlayVisible: hasSrc && loading,
