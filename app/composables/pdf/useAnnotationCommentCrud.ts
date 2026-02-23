@@ -604,15 +604,14 @@ export function useAnnotationCommentCrud(
         if (!uiManager) {
             return false;
         }
-        const resolvedComment =
-            identity.resolveCommentFromCache(comment) ?? comment;
+        let resolvedComment = resolveCommentForDelete(comment) ?? comment;
 
-        const pageNumber = Math.max(
+        let pageNumber = Math.max(
             1,
             Math.min(resolvedComment.pageNumber, numPages.value),
         );
-        const pageIndex = Math.max(0, pageNumber - 1);
-        const candidateIds = getCommentCandidateIds(resolvedComment);
+        let pageIndex = Math.max(0, pageNumber - 1);
+        let candidateIds = getCommentCandidateIds(resolvedComment);
         const managerWithCommentSelection =
             uiManager as AnnotationEditorUIManager & {
                 selectComment?: (candidatePageIndex: number, uid: string) => void;
@@ -631,11 +630,41 @@ export function useAnnotationCommentCrud(
             candidateIds,
         });
 
+        const shouldAttemptPopupMode = () => (
+            resolvedComment.source === 'pdf' || Boolean(resolvedComment.annotationId)
+        );
+        const refreshDeleteTargetFromSync = async () => {
+            await commentSync.syncAnnotationComments();
+            const syncedMatch =
+                resolveCommentForDelete(resolvedComment) ??
+                resolveCommentForDelete(comment);
+            if (!syncedMatch) {
+                return;
+            }
+            resolvedComment = syncedMatch;
+            pageNumber = Math.max(
+                1,
+                Math.min(resolvedComment.pageNumber, numPages.value),
+            );
+            pageIndex = Math.max(0, pageNumber - 1);
+            candidateIds = getCommentCandidateIds(resolvedComment);
+        };
+
         let editor = findEditorForComment(resolvedComment);
         let switchedToPopupMode = false;
         const previousMode = uiManager.getMode();
 
-        if (!editor && previousMode === AnnotationEditorType.NONE) {
+        if (!editor) {
+            await refreshDeleteTargetFromSync();
+            editor =
+                findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
+        }
+
+        if (
+            !editor
+            && shouldAttemptPopupMode()
+            && previousMode !== AnnotationEditorType.POPUP
+        ) {
             const switchError = await toolManager.updateModeWithRetry(
                 uiManager,
                 AnnotationEditorType.POPUP,
@@ -685,19 +714,22 @@ export function useAnnotationCommentCrud(
             }
         }
 
+        let attemptedCommentSelection = false;
         if (
             !editor &&
-      candidateIds.length > 0 &&
-      typeof managerWithCommentSelection.selectComment === 'function'
+            candidateIds.length > 0 &&
+            typeof managerWithCommentSelection.selectComment === 'function'
         ) {
             for (const id of candidateIds) {
                 managerWithCommentSelection.selectComment(pageIndex, id);
+                attemptedCommentSelection = true;
             }
             await nextTick();
-            editor = findEditorForComment(comment);
+            editor =
+                findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
         }
 
-        if (!editor && resolvedComment.annotationId) {
+        if (!editor && shouldAttemptPopupMode() && resolvedComment.annotationId) {
             const annotationStorage = pdfDocument.value?.annotationStorage as
         | { getEditor?: (annotationElementId: string) => IPdfjsEditor | null }
         | undefined;
@@ -705,7 +737,7 @@ export function useAnnotationCommentCrud(
                 annotationStorage?.getEditor?.(resolvedComment.annotationId) ?? null;
         }
 
-        if (!editor && resolvedComment.annotationId) {
+        if (!editor && shouldAttemptPopupMode() && resolvedComment.annotationId) {
             editor = findEditorByAnnotationElementId(
                 pageIndex,
                 resolvedComment.annotationId,
@@ -716,7 +748,20 @@ export function useAnnotationCommentCrud(
             editor = findEditorByMarkerRect(resolvedComment, pageIndex);
         }
 
-        if (!editor) {
+        let deletedViaSelectionFallback = false;
+        if (!editor && attemptedCommentSelection) {
+            try {
+                uiManager.delete();
+                deletedViaSelectionFallback = true;
+            } catch (selectionDeleteError) {
+                logCrudDebug(
+                    'uiManager.delete failed for selected comment fallback',
+                    selectionDeleteError,
+                );
+            }
+        }
+
+        if (!editor && !deletedViaSelectionFallback) {
             BrowserLogger.warn('annotations', 'deleteAnnotationComment: unable to resolve editor for comment', {
                 stableKey: resolvedComment.stableKey,
                 source: resolvedComment.source,
@@ -725,6 +770,8 @@ export function useAnnotationCommentCrud(
                 id: resolvedComment.id,
                 pageNumber,
                 candidateIds,
+                previousMode,
+                currentMode: uiManager.getMode(),
             });
             if (switchedToPopupMode) {
                 await toolManager.updateModeWithRetry(
@@ -736,25 +783,29 @@ export function useAnnotationCommentCrud(
             return false;
         }
 
-        const pendingKey = identity.getEditorPendingKey(
-            editor,
-            Number.isFinite(editor.parentPageIndex)
-                ? (editor.parentPageIndex as number)
-                : resolvedComment.pageIndex,
-        );
-        let deleted = false;
+        const pendingKey = editor
+            ? identity.getEditorPendingKey(
+                editor,
+                Number.isFinite(editor.parentPageIndex)
+                    ? (editor.parentPageIndex as number)
+                    : resolvedComment.pageIndex,
+            )
+            : null;
+        let deleted = deletedViaSelectionFallback;
 
         try {
-            uiManager.setSelected(editor as TUiManagerSelectedEditor);
-            uiManager.delete();
-            deleted = true;
+            if (!deleted && editor) {
+                uiManager.setSelected(editor as TUiManagerSelectedEditor);
+                uiManager.delete();
+                deleted = true;
+            }
         } catch (deleteError) {
             logCrudDebug(
                 'uiManager.delete failed for annotation comment',
                 deleteError,
             );
             try {
-                editor.remove?.();
+                editor?.remove?.();
                 deleted = true;
             } catch (removeError) {
                 logCrudDebug(
@@ -762,7 +813,7 @@ export function useAnnotationCommentCrud(
                     removeError,
                 );
                 try {
-                    editor.delete?.();
+                    editor?.delete?.();
                     deleted = true;
                 } catch (legacyDeleteError) {
                     logCrudDebug(
@@ -793,8 +844,17 @@ export function useAnnotationCommentCrud(
             return false;
         }
 
-        commentSync.pendingCommentEditorKeys.delete(pendingKey);
+        if (pendingKey) {
+            commentSync.pendingCommentEditorKeys.delete(pendingKey);
+        } else if (candidateIds.length > 0) {
+            for (const key of Array.from(commentSync.pendingCommentEditorKeys)) {
+                if (candidateIds.some(candidate => key.endsWith(`:${candidate}`))) {
+                    commentSync.pendingCommentEditorKeys.delete(key);
+                }
+            }
+        }
         identity.forgetSummaryText(resolvedComment);
+        identity.forgetSummaryText(comment);
         emitAnnotationModified();
         commentSync.scheduleAnnotationCommentsSync(true);
         inlineIndicators.debouncedSyncInlineCommentIndicators();

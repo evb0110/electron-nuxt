@@ -23,6 +23,7 @@ const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 // In-memory cache for synchronous access (needed for menu building)
 let recentFilesCache: IRecentFile[] = [];
 let cacheTimestamp = 0;
+let mutationQueue: Promise<void> = Promise.resolve();
 
 interface IRecentFilesData {
     version: number;
@@ -141,54 +142,63 @@ async function saveRecentFilesData(data: IRecentFilesData): Promise<void> {
     }
 }
 
+function enqueueMutation(task: () => Promise<void>) {
+    const run = mutationQueue.then(task, task);
+    mutationQueue = run.then(() => undefined, () => undefined);
+    return run;
+}
+
 export async function addRecentFile(originalPath: string): Promise<void> {
-    // Invalidate cache before mutation
-    cacheTimestamp = 0;
+    await enqueueMutation(async () => {
+        // Invalidate cache before mutation
+        cacheTimestamp = 0;
 
-    if (!originalPath) {
-        return;
-    }
+        if (!originalPath) {
+            return;
+        }
 
-    // Get file info with race-safe stat
-    let fileSize: number;
-    try {
-        const st = await stat(originalPath);
-        fileSize = st.size;
-    } catch {
-        // File doesn't exist or became unreadable
-        return;
-    }
+        // Get file info with race-safe stat
+        let fileSize: number;
+        try {
+            const st = await stat(originalPath);
+            fileSize = st.size;
+        } catch {
+            // File doesn't exist or became unreadable
+            return;
+        }
 
-    const data = await loadRecentFilesData();
+        const data = await loadRecentFilesData();
 
-    // Remove if already exists (to update timestamp)
-    data.files = data.files.filter(f => f.originalPath !== originalPath);
+        // Remove if already exists (to update timestamp)
+        data.files = data.files.filter(f => f.originalPath !== originalPath);
 
-    // Get file info
-    const fileName = basename(originalPath);
+        // Get file info
+        const fileName = basename(originalPath);
 
-    // Add to front
-    data.files.unshift({
-        originalPath,
-        fileName,
-        timestamp: Date.now(),
-        fileSize,
+        // Add to front
+        data.files.unshift({
+            originalPath,
+            fileName,
+            timestamp: Date.now(),
+            fileSize,
+        });
+
+        // Enforce limit
+        if (data.files.length > MAX_RECENT_FILES) {
+            data.files = data.files.slice(0, MAX_RECENT_FILES);
+        }
+
+        await saveRecentFilesData(data);
+
+        // Update cache
+        recentFilesCache = data.files;
+        cacheTimestamp = Date.now();
     });
-
-    // Enforce limit
-    if (data.files.length > MAX_RECENT_FILES) {
-        data.files = data.files.slice(0, MAX_RECENT_FILES);
-    }
-
-    await saveRecentFilesData(data);
-
-    // Update cache
-    recentFilesCache = data.files;
-    cacheTimestamp = Date.now();
 }
 
 export async function getRecentFiles(): Promise<IRecentFile[]> {
     const startedAt = Date.now();
+    await mutationQueue;
     // Use cache if fresh
     if (Date.now() - cacheTimestamp < CACHE_TTL_MS) {
         // Still validate existence
@@ -208,12 +218,6 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
     recentFilesCache = validFiles;
     cacheTimestamp = Date.now();
 
-    // If files were removed, save updated list
-    if (filtered.removedMissingCount > 0 && validFiles.length !== data.files.length) {
-        data.files = validFiles;
-        await saveRecentFilesData(data);
-    }
-
     if (STARTUP_TRACE_ENABLED) {
         logger.info(`[startup] recent-files:get disk refresh (${validFiles.length} file(s), removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount}, +${Date.now() - startedAt}ms)`);
     }
@@ -221,28 +225,32 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
 }
 
 export async function removeRecentFile(originalPath: string): Promise<void> {
-    // Invalidate cache before mutation
-    cacheTimestamp = 0;
+    await enqueueMutation(async () => {
+        // Invalidate cache before mutation
+        cacheTimestamp = 0;
 
-    const data = await loadRecentFilesData();
-    data.files = data.files.filter(f => f.originalPath !== originalPath);
-    await saveRecentFilesData(data);
+        const data = await loadRecentFilesData();
+        data.files = data.files.filter(f => f.originalPath !== originalPath);
+        await saveRecentFilesData(data);
 
-    // Update cache
-    recentFilesCache = data.files;
-    cacheTimestamp = Date.now();
+        // Update cache
+        recentFilesCache = data.files;
+        cacheTimestamp = Date.now();
+    });
 }
 
 export async function clearRecentFiles(): Promise<void> {
-    // Invalidate cache before mutation
-    cacheTimestamp = 0;
-    recentFilesCache = [];
+    await enqueueMutation(async () => {
+        // Invalidate cache before mutation
+        cacheTimestamp = 0;
+        recentFilesCache = [];
 
-    await saveRecentFilesData({
-        version: 1,
-        files: [],
+        await saveRecentFilesData({
+            version: 1,
+            files: [],
+        });
+        cacheTimestamp = Date.now();
     });
-    cacheTimestamp = Date.now();
 }
 
 /**
@@ -258,6 +266,7 @@ export function getRecentFilesSync(): string[] {
  * Call this during app startup before menu is built
  */
 export async function initRecentFilesCache(): Promise<void> {
+    await mutationQueue;
     const files = await getRecentFiles();
     recentFilesCache = files;
 }

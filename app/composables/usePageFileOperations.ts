@@ -85,11 +85,11 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     async function ensureCurrentDocumentPersistedBeforeSwitch() {
         if (!pdfSrc.value) {
-            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Switch allowed: no current document loaded');
+            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Switch allowed: no current document loaded');
             return true;
         }
 
-        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Ensuring document is persisted before switch', {
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Ensuring document is persisted before switch', {
             busyState: getBusyState(),
             annotationNoteWindows: annotationNoteWindows.value.length,
             annotationDirty: annotationDirty.value,
@@ -120,11 +120,11 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             || bookmarksDirty.value
         );
         if (!hasPendingChanges) {
-            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Switch allowed: no pending changes');
+            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Switch allowed: no pending changes');
             return true;
         }
 
-        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Pending changes detected, triggering save before switch');
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Pending changes detected, triggering save before switch');
         await handleSave();
 
         const canProceed = !(
@@ -167,7 +167,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function handleOpenFileDirectWithPersist(path: string) {
-        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'handleOpenFileDirectWithPersist called', {
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'handleOpenFileDirectWithPersist called', {
             path,
             hadDocumentBeforeOpen: Boolean(pdfSrc.value),
             busyState: getBusyState(),
@@ -179,14 +179,14 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             return;
         }
         await openFileDirect(path);
-        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'openFileDirect resolved', {
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect resolved', {
             path,
             hasDocumentAfterDirectOpen: Boolean(pdfSrc.value),
         });
 
         if (!pdfSrc.value && !DJVU_PATH_REGEX.test(path)) {
             const settled = await waitForDocumentSource();
-            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Post-open settle wait finished', {
+            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Post-open settle wait finished', {
                 path,
                 settled,
                 hasDocumentAfterSettle: Boolean(pdfSrc.value),
@@ -196,7 +196,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
                 BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Document still missing after first open, retrying once', {path});
                 await openFileDirect(path);
                 const settledAfterRetry = await waitForDocumentSource();
-                BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Retry settle finished', {
+                BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Retry settle finished', {
                     path,
                     settledAfterRetry,
                     hasDocumentAfterRetry: Boolean(pdfSrc.value),
@@ -244,7 +244,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function openRecentFile(file: { originalPath: string }) {
-        BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'openRecentFile invoked', {path: file.originalPath});
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openRecentFile invoked', {path: file.originalPath});
         await handleOpenFileDirectWithPersist(file.originalPath);
     }
 

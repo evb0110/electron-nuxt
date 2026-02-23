@@ -157,7 +157,7 @@ export function useAnnotationCommentSync(
         const markerRect = shouldUsePendingAnchor
             ? pendingAnchorRect
             : markerRectFromEditor;
-        if (pendingAnchorRect || shouldUsePendingAnchor) {
+        if (shouldUsePendingAnchor) {
             BrowserLogger.debug('note-anchor', 'toEditorSummary', {
                 pageIndex,
                 pageNumber: pageIndex + 1,
