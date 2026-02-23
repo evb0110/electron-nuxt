@@ -60,12 +60,12 @@ describe('workspace host mount request state', () => {
         })).toBe(true);
     });
 
-    it('requests mount when the tab is active', () => {
+    it('does not request mount for an empty active tab', () => {
         expect(shouldAutoRequestWorkspace({
             hasQueuedSplitRestore: false,
             hasDocumentHint: false,
             isActive: true,
-        })).toBe(true);
+        })).toBe(false);
     });
 
     it('keeps request latched after signals clear', () => {
