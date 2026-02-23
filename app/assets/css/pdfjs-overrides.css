@@ -67,6 +67,108 @@
     --comment-edit-button-icon: url('/pdfjs/comment-editButton.svg') !important;
 }
 
+/* Native PDF.js note/comment triggers conflict with the app's custom inline
+   note anchors and create a duplicate marker. Keep only one trigger source. */
+.pdfViewer .annotationLayer .annotationCommentButton,
+.pdfViewer .annotation-layer .annotationCommentButton,
+.pdfViewer .annotationEditorLayer .annotationCommentButton,
+.pdfViewer .annotation-editor-layer .annotationCommentButton,
+.pdf-viewer-container .annotationLayer .annotationCommentButton,
+.pdf-viewer-container .annotation-layer .annotationCommentButton,
+.pdf-viewer-container .annotationEditorLayer .annotationCommentButton,
+.pdf-viewer-container .annotation-editor-layer .annotationCommentButton {
+    display: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* Hide native text-note icons rendered by PDF.js. The app renders a single
+   custom marker system for both text-linked notes and detached notes. */
+.pdfViewer .annotationLayer .textAnnotation img,
+.pdfViewer .annotation-layer .textAnnotation img,
+.pdf-viewer-container .annotationLayer .textAnnotation img,
+.pdf-viewer-container .annotation-layer .textAnnotation img {
+    display: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+.pdfViewer .annotationLayer .textAnnotation,
+.pdfViewer .annotation-layer .textAnnotation,
+.pdf-viewer-container .annotationLayer .textAnnotation,
+.pdf-viewer-container .annotation-layer .textAnnotation {
+    pointer-events: none !important;
+}
+
+/* Keep highlight note interactions without a persistent blue selected frame.
+   The note marker already communicates focus and this avoids obscuring text. */
+.pdfViewer .annotationEditorLayer .highlightEditor.selectedEditor .internal,
+.pdfViewer .annotation-editor-layer .highlightEditor.selectedEditor .internal,
+.pdfViewer .annotationEditorLayer .highlightEditor.selected .internal,
+.pdfViewer .annotation-editor-layer .highlightEditor.selected .internal,
+.pdf-viewer-container .annotationEditorLayer .highlightEditor.selectedEditor .internal,
+.pdf-viewer-container .annotation-editor-layer .highlightEditor.selectedEditor .internal,
+.pdf-viewer-container .annotationEditorLayer .highlightEditor.selected .internal,
+.pdf-viewer-container .annotation-editor-layer .highlightEditor.selected .internal {
+    border-color: transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.pdfViewer .annotationEditorLayer .highlightEditor.selectedEditor,
+.pdfViewer .annotation-editor-layer .highlightEditor.selectedEditor,
+.pdfViewer .annotationEditorLayer .highlightEditor.selected,
+.pdfViewer .annotation-editor-layer .highlightEditor.selected,
+.pdf-viewer-container .annotationEditorLayer .highlightEditor.selectedEditor,
+.pdf-viewer-container .annotation-editor-layer .highlightEditor.selectedEditor,
+.pdf-viewer-container .annotationEditorLayer .highlightEditor.selected,
+.pdf-viewer-container .annotation-editor-layer .highlightEditor.selected {
+    border-color: transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.pdfViewer .textLayer .highlight.selected,
+.pdfViewer .text-layer .highlight.selected,
+.pdf-viewer-container .textLayer .highlight.selected,
+.pdf-viewer-container .text-layer .highlight.selected {
+    background-color: var(--highlight-bg-color) !important;
+    -webkit-backdrop-filter: var(--highlight-backdrop-filter) !important;
+    backdrop-filter: var(--highlight-backdrop-filter) !important;
+    outline: none !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.pdfViewer .highlightOutline.selected:is(.canvasWrapper svg),
+.pdf-viewer-container .highlightOutline.selected:is(.canvasWrapper svg) {
+    stroke: transparent !important;
+    stroke-width: 0 !important;
+}
+
+.pdfViewer .highlightOutline.selected:is(.canvasWrapper svg):not(.free) .mainOutline,
+.pdfViewer .highlightOutline.selected:is(.canvasWrapper svg):not(.free) .secondaryOutline,
+.pdfViewer .highlightOutline.free.selected:is(.canvasWrapper svg) .mainOutline,
+.pdfViewer .highlightOutline.free.selected:is(.canvasWrapper svg) .secondaryOutline,
+.pdf-viewer-container .highlightOutline.selected:is(.canvasWrapper svg):not(.free) .mainOutline,
+.pdf-viewer-container .highlightOutline.selected:is(.canvasWrapper svg):not(.free) .secondaryOutline,
+.pdf-viewer-container .highlightOutline.free.selected:is(.canvasWrapper svg) .mainOutline,
+.pdf-viewer-container .highlightOutline.free.selected:is(.canvasWrapper svg) .secondaryOutline {
+    stroke: transparent !important;
+    stroke-width: 0 !important;
+}
+
+/* Hide native PDF.js popup trigger bubbles; custom inline note anchors
+   provide the single source of truth for note interaction. */
+.pdfViewer .annotationLayer .popupTriggerArea,
+.pdfViewer .annotation-layer .popupTriggerArea,
+.pdf-viewer-container .annotationLayer .popupTriggerArea,
+.pdf-viewer-container .annotation-layer .popupTriggerArea {
+    display: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
 .pdfViewer .commentPopup,
 .pdf-viewer-container .commentPopup {
     --comment-popup-edit-button-icon: url('/pdfjs/comment-popup-editButton.svg') !important;

@@ -657,6 +657,14 @@ function handleViewerMouseDown(event: MouseEvent) {
     if (isSnipActive()) {
         return;
     }
+    if (
+        event.target instanceof HTMLElement &&
+        event.target.closest(
+            '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-annotation-has-note-target, .pdf-annotation-has-comment, .annotationLayer .popupTriggerArea, .annotation-layer .popupTriggerArea',
+        )
+    ) {
+        event.preventDefault();
+    }
     cancelPendingSearchScroll();
     handleDragStart(event);
 }
@@ -1003,6 +1011,7 @@ defineExpose({
     /* stylelint-disable selector-id-pattern -- pdf.js internal element ID */
     .editToolbar,
     .annotationCommentButton,
+    .popupTriggerArea,
     .commentPopup,
     #commentManagerDialog {
         display: none !important;

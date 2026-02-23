@@ -18,15 +18,38 @@ declare global {
 const recentFiles = ref<IRecentFile[]>([]);
 const isLoading = ref(false);
 const error = ref<string | null>(null);
+const ELECTRON_API_WAIT_TIMEOUT_MS = 2400;
+const ELECTRON_API_POLL_INTERVAL_MS = 80;
 
 // Deduplication: track in-flight load promise
 let loadPromise: Promise<void> | null = null;
+
+async function waitForElectronApiReady(timeoutMs = ELECTRON_API_WAIT_TIMEOUT_MS) {
+    if (hasElectronAPI()) {
+        return true;
+    }
+    if (typeof window === 'undefined') {
+        return false;
+    }
+
+    const startedAt = Date.now();
+    while ((Date.now() - startedAt) < timeoutMs) {
+        await new Promise((resolve) => {
+            setTimeout(resolve, ELECTRON_API_POLL_INTERVAL_MS);
+        });
+        if (hasElectronAPI()) {
+            return true;
+        }
+    }
+    return hasElectronAPI();
+}
 
 export const useRecentFiles = () => {
     const { t } = useTypedI18n();
 
     async function loadRecentFiles() {
-        if (!hasElectronAPI()) {
+        const electronApiReady = await waitForElectronApiReady();
+        if (!electronApiReady) {
             return;
         }
 

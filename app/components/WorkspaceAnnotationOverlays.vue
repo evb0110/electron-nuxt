@@ -39,7 +39,7 @@
                     @blur="handleAnchorPointerEvent('blur', note)"
                     @click="handleAnchorClick(note)"
                 >
-                    <UIcon name="i-lucide-message-square" class="size-3" />
+                    <UIcon name="i-lucide-message-square" class="size-2.5" />
                 </button>
             </UTooltip>
         </Teleport>
@@ -97,7 +97,10 @@ import type {
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
-import { normalizeMarkerRect } from '@app/composables/pdf/pdfAnnotationUtils';
+import {
+    normalizeMarkerRect,
+    isTextMarkupSubtype,
+} from '@app/composables/pdf/pdfAnnotationUtils';
 import type { IAnnotationNotePosition } from '@app/composables/pdf/useAnnotationNoteWindows';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -155,9 +158,18 @@ const { t } = useTypedI18n();
 const visibleAnnotationNoteWindows = computed(() =>
     props.sortedAnnotationNoteWindows.filter((note) => !note.isMinimized),
 );
-const anchoredAnnotationNoteWindows = computed(() =>
-    props.sortedAnnotationNoteWindows.filter((note) => Boolean(getNoteMarkerRect(note))),
-);
+const anchoredAnnotationNoteWindows = computed(() => {
+    void indicatorDomTick.value;
+    const viewportRoot = props.annotationViewportRoot;
+    const inlineIdentity = collectInlineTriggerIdentity(viewportRoot);
+    return props.sortedAnnotationNoteWindows.filter((note) => (
+        note.isMinimized
+        && isFloatingIndicatorEligible(note.comment)
+        && Boolean(getNoteMarkerRect(note))
+        && !isTextMarkupSubtype(note.comment.subtype)
+        && !inlineIdentityMatchesNote(inlineIdentity, note)
+    ));
+});
 const indicatorDomTick = ref(0);
 let refreshBurstFrameId: number | null = null;
 let refreshBurstFramesRemaining = 0;
@@ -190,6 +202,210 @@ function scheduleIndicatorRefreshBurst(frames = 6) {
         return;
     }
     refreshBurstFrameId = window.requestAnimationFrame(runRefreshBurstFrame);
+}
+
+function parseStableKeysAttr(value: string | null | undefined) {
+    if (!value) {
+        return [];
+    }
+    return value
+        .split('|')
+        .map(entry => entry.trim())
+        .filter(Boolean);
+}
+
+interface IInlineTriggerIdentity {
+    stableKeys: Set<string>;
+    annotationIds: Set<string>;
+    uids: Set<string>;
+    markerPoints: Array<{
+        pageNumber: number;
+        x: number;
+        y: number;
+    }>;
+}
+
+function parseStableKeyIdentity(stableKey: string) {
+    const [
+        kind,
+        pagePart,
+        ...rest
+    ] = stableKey.split(':');
+    const id = rest.join(':').trim();
+    const pageIndex = Number.isFinite(Number(pagePart)) ? Number(pagePart) : null;
+    return {
+        kind: kind?.trim().toLowerCase() ?? '',
+        id,
+        pageIndex,
+    };
+}
+
+function clampUnit(value: number) {
+    return Math.max(0, Math.min(1, value));
+}
+
+function isFloatingIndicatorEligible(comment: IAnnotationCommentSummary) {
+    const subtype = (comment.subtype ?? '').trim().toLowerCase();
+    if (isTextMarkupSubtype(comment.subtype)) {
+        return false;
+    }
+    if (subtype === 'link') {
+        return false;
+    }
+    // Text-selection notes already have inline anchors and should not also show
+    // a detached floating indicator.
+    if (
+        subtype === 'text'
+        || subtype === 'note-linked'
+        || subtype === 'note-inline'
+    ) {
+        return false;
+    }
+    if (subtype === 'freetext' || subtype === 'typewriter') {
+        return true;
+    }
+    return comment.source === 'editor' && !comment.annotationId;
+}
+
+function toPageNormalizedPoint(element: HTMLElement) {
+    const pageContainer = element.closest<HTMLElement>('.page_container');
+    if (!pageContainer) {
+        return null;
+    }
+    const pageNumberRaw = Number(pageContainer.dataset.page ?? '');
+    if (!Number.isFinite(pageNumberRaw) || pageNumberRaw <= 0) {
+        return null;
+    }
+    const pageRect = pageContainer.getBoundingClientRect();
+    if (pageRect.width <= 0 || pageRect.height <= 0) {
+        return null;
+    }
+    const rect = element.getBoundingClientRect();
+    return {
+        pageNumber: pageNumberRaw,
+        x: clampUnit(((rect.left + (rect.width / 2)) - pageRect.left) / pageRect.width),
+        y: clampUnit(((rect.top + (rect.height / 2)) - pageRect.top) / pageRect.height),
+    };
+}
+
+function collectInlineTriggerIdentity(viewportRoot: HTMLElement | null | undefined): IInlineTriggerIdentity {
+    const identity: IInlineTriggerIdentity = {
+        stableKeys: new Set<string>(),
+        annotationIds: new Set<string>(),
+        uids: new Set<string>(),
+        markerPoints: [],
+    };
+    if (!viewportRoot) {
+        return identity;
+    }
+
+    const markers = viewportRoot.querySelectorAll<HTMLElement>(
+        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, [data-comment-stable-keys], [data-comment-stable-key]',
+    );
+    markers.forEach((marker) => {
+        const directStableKey = marker.dataset.commentStableKey?.trim();
+        if (directStableKey) {
+            identity.stableKeys.add(directStableKey);
+        }
+        parseStableKeysAttr(marker.getAttribute('data-comment-stable-keys')).forEach((stableKey) => {
+            identity.stableKeys.add(stableKey);
+        });
+
+        const annotationId = marker.dataset.annotationId?.trim()
+            ?? marker.getAttribute('data-annotation-id')?.trim()
+            ?? marker.closest<HTMLElement>('[data-annotation-id]')?.getAttribute('data-annotation-id')?.trim()
+            ?? '';
+        if (annotationId) {
+            identity.annotationIds.add(annotationId);
+        }
+    });
+
+    viewportRoot.querySelectorAll<HTMLElement>(
+        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .annotationCommentButton, .popupTriggerArea',
+    ).forEach((marker) => {
+        const point = toPageNormalizedPoint(marker);
+        if (point) {
+            identity.markerPoints.push(point);
+        }
+
+        const fromTarget = marker.closest<HTMLElement>('[data-comment-stable-keys], [data-comment-stable-key]');
+        if (fromTarget) {
+            const stableKey = fromTarget.dataset.commentStableKey?.trim();
+            if (stableKey) {
+                identity.stableKeys.add(stableKey);
+            }
+            parseStableKeysAttr(fromTarget.getAttribute('data-comment-stable-keys')).forEach((nextStableKey) => {
+                identity.stableKeys.add(nextStableKey);
+            });
+        }
+    });
+
+    identity.stableKeys.forEach((stableKey) => {
+        const parsed = parseStableKeyIdentity(stableKey);
+        if (!parsed.id) {
+            return;
+        }
+        if (parsed.kind === 'ann') {
+            identity.annotationIds.add(parsed.id);
+            return;
+        }
+        if (parsed.kind === 'uid') {
+            identity.uids.add(parsed.id);
+        }
+    });
+
+    return identity;
+}
+
+function inlineIdentityMatchesNote(
+    inlineIdentity: IInlineTriggerIdentity,
+    note: IAnnotationNoteWindowEntry,
+) {
+    const stableKey = note.comment.stableKey;
+    if (stableKey && inlineIdentity.stableKeys.has(stableKey)) {
+        return true;
+    }
+
+    const annotationId = note.comment.annotationId?.trim() ?? '';
+    if (annotationId && inlineIdentity.annotationIds.has(annotationId)) {
+        return true;
+    }
+
+    const uid = note.comment.uid?.trim() ?? '';
+    if (uid && inlineIdentity.uids.has(uid)) {
+        return true;
+    }
+
+    const pageIndex = note.comment.pageIndex;
+    if (annotationId && Number.isFinite(pageIndex)) {
+        const annStableKey = `ann:${pageIndex}:${annotationId}`;
+        if (inlineIdentity.stableKeys.has(annStableKey)) {
+            return true;
+        }
+    }
+    if (uid && Number.isFinite(pageIndex)) {
+        const uidStableKey = `uid:${pageIndex}:${uid}`;
+        if (inlineIdentity.stableKeys.has(uidStableKey)) {
+            return true;
+        }
+    }
+
+    const markerRect = getNoteMarkerRect(note);
+    if (markerRect) {
+        const noteAnchorX = clampUnit(markerRect.left + markerRect.width);
+        const noteAnchorY = clampUnit(markerRect.top);
+        const hasNearbyInlineMarker = inlineIdentity.markerPoints.some((point) => {
+            if (point.pageNumber !== note.comment.pageNumber) {
+                return false;
+            }
+            return Math.hypot(point.x - noteAnchorX, point.y - noteAnchorY) <= 0.08;
+        });
+        if (hasNearbyInlineMarker) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 const minimizedIndicatorTargets = computed<Record<string, HTMLElement>>(() => {
@@ -271,11 +487,9 @@ function handleAnchorPointerEvent(
     eventName: 'mouseenter' | 'mouseleave' | 'focus' | 'blur',
     note: IAnnotationNoteWindowEntry,
 ) {
-    if (eventName !== 'mouseenter' && eventName !== 'focus') {
+    if (eventName !== 'focus') {
         return;
     }
-    const target = minimizedIndicatorTargets.value[note.comment.stableKey] ?? null;
-    const targetRect = target?.getBoundingClientRect() ?? null;
     logAnchor('anchor pointer event', {
         eventName,
         stableKey: note.comment.stableKey,
@@ -283,14 +497,6 @@ function handleAnchorPointerEvent(
         markerRect: getNoteMarkerRect(note),
         preview: getMinimizedNotePreview(note),
         isMinimized: note.isMinimized,
-        targetRect: targetRect
-            ? {
-                left: Math.round(targetRect.left),
-                top: Math.round(targetRect.top),
-                width: Math.round(targetRect.width),
-                height: Math.round(targetRect.height),
-            }
-            : null,
     });
 }
 
@@ -373,24 +579,26 @@ const emit = defineEmits<{
 <style scoped>
 .pdf-note-minimized-indicator {
     position: absolute;
-    width: 1.6rem;
-    height: 1.6rem;
+    width: 1.3rem;
+    height: 1.3rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     border-radius: 9999px;
     border: 1px solid color-mix(in srgb, var(--ui-warning) 62%, var(--ui-border) 38%);
-    background: color-mix(in srgb, var(--ui-warning) 26%, var(--ui-bg) 74%);
+    background: color-mix(in srgb, var(--ui-warning) 20%, var(--ui-bg) 80%);
     color: color-mix(in srgb, var(--ui-warning) 58%, var(--ui-text) 42%);
     cursor: pointer;
     transform: translate(-50%, -50%);
-    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    opacity: 0.82;
+    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
 }
 
 .pdf-note-minimized-indicator:hover {
-    background: color-mix(in srgb, var(--ui-warning) 38%, var(--ui-bg) 62%);
+    background: color-mix(in srgb, var(--ui-warning) 30%, var(--ui-bg) 70%);
     border-color: color-mix(in srgb, var(--ui-warning) 75%, var(--ui-border) 25%);
     transform: translate(-50%, calc(-50% - 1px));
+    opacity: 0.95;
 }
 
 .pdf-note-minimized-indicator:focus-visible {

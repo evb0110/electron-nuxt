@@ -141,6 +141,35 @@ export function useAnnotationCommentCrud(
         return Math.hypot(ax - bx, ay - by);
     }
 
+    function isNoteWindowSubtype(subtype: string | null | undefined) {
+        const normalized = (subtype ?? '').trim().toLowerCase();
+        return (
+            normalized === 'text'
+            || normalized === 'note-linked'
+            || normalized === 'freetext'
+            || normalized === 'typewriter'
+            || normalized === 'note-inline'
+        );
+    }
+
+    function canOpenAnnotationNoteWindow(
+        comment: IAnnotationCommentSummary | null | undefined,
+    ) {
+        if (!comment) {
+            return false;
+        }
+        if (comment.hasNote === true) {
+            return true;
+        }
+        if (isNoteWindowSubtype(comment.subtype)) {
+            return true;
+        }
+        return (
+            comment.source === 'editor'
+            && comment.text.trim().length > 0
+        );
+    }
+
     function findEditorByMarkerRect(
         comment: IAnnotationCommentSummary,
         preferredPageIndex: number,
@@ -260,7 +289,10 @@ export function useAnnotationCommentCrud(
             }
             return null;
         }
-        if (best.distance > 0.16 && best.textScore === 0) {
+        const bestDistance = Number.isFinite(best.distance)
+            ? best.distance
+            : Number.POSITIVE_INFINITY;
+        if (bestDistance > 0.16 && best.textScore === 0) {
             const exactMatch = pickBestExactTextMatch();
             if (exactMatch) {
                 BrowserLogger.debug('annotations', 'Resolved editor for delete by exact text fallback after distance gate', {
@@ -272,12 +304,14 @@ export function useAnnotationCommentCrud(
                 });
                 return exactMatch.editor;
             }
-            return null;
+            if (bestDistance > 0.42) {
+                return null;
+            }
         }
         BrowserLogger.debug('annotations', 'Resolved editor for delete by marker proximity', {
             stableKey: comment.stableKey,
             pageIndex: best.pageIndex,
-            distance: best.distance,
+            distance: bestDistance,
             textScore: best.textScore,
             editorUid: best.editor.uid ?? null,
             editorId: best.editor.id ?? null,
@@ -319,6 +353,36 @@ export function useAnnotationCommentCrud(
         }
 
         const targetText = comment.text.trim().toLowerCase();
+        const directStableRefMatch = targetText
+            ? candidates
+                .filter((candidate) => {
+                    const candidateText = candidate.text.trim().toLowerCase();
+                    return (
+                        candidateText.length > 0
+                        && candidateText === targetText
+                        && Boolean(candidate.annotationId || candidate.uid)
+                    );
+                })
+                .sort((left, right) => {
+                    const leftIou = markerRectIoU(comment.markerRect, left.markerRect);
+                    const rightIou = markerRectIoU(comment.markerRect, right.markerRect);
+                    if (leftIou !== rightIou) {
+                        return rightIou - leftIou;
+                    }
+                    const leftDistance = markerRectCenterDistance(comment.markerRect, left.markerRect);
+                    const rightDistance = markerRectCenterDistance(comment.markerRect, right.markerRect);
+                    if (leftDistance !== rightDistance) {
+                        return leftDistance - rightDistance;
+                    }
+                    const leftPriority = identity.commentMergePriority(left);
+                    const rightPriority = identity.commentMergePriority(right);
+                    return rightPriority - leftPriority;
+                })[0] ?? null
+            : null;
+        if (directStableRefMatch) {
+            return directStableRefMatch;
+        }
+
         const targetSubtype = (comment.subtype ?? '').trim().toLowerCase();
 
         const scored = candidates.map((candidate) => {
@@ -356,11 +420,34 @@ export function useAnnotationCommentCrud(
             if (candidate.source === comment.source) {
                 score += 0.5;
             }
+            if (!comment.annotationId && candidate.annotationId) {
+                score += 2.1;
+            }
+            if (!comment.uid && candidate.uid) {
+                score += 1.4;
+            }
+            if (
+                comment.source === 'editor'
+                && candidate.source === 'pdf'
+                && Boolean(candidate.annotationId || candidate.uid)
+            ) {
+                score += 0.75;
+            }
+            if (
+                textExact
+                && Boolean(candidate.annotationId || candidate.uid)
+            ) {
+                score += 0.9;
+            }
 
             const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
             if (iou > 0) {
                 score += iou * 6;
-            } else if (normalizeMarkerRect(comment.markerRect) && normalizeMarkerRect(candidate.markerRect)) {
+            } else if (
+                normalizeMarkerRect(comment.markerRect)
+                && normalizeMarkerRect(candidate.markerRect)
+                && !textExact
+            ) {
                 score -= 0.5;
             }
 
@@ -433,6 +520,73 @@ export function useAnnotationCommentCrud(
             textExact: best.textExact,
         });
 
+        return best.candidate;
+    }
+
+    function resolveStablePdfDeleteFallback(comment: IAnnotationCommentSummary) {
+        const targetText = comment.text.trim().toLowerCase();
+        const candidates = commentSync.annotationCommentsCache.value
+            .filter(candidate => (
+                candidate.pageIndex === comment.pageIndex
+                && Boolean(candidate.annotationId)
+            ))
+            .map((candidate) => {
+                const candidateText = candidate.text.trim().toLowerCase();
+                if (
+                    targetText.length > 0
+                    && candidateText.length > 0
+                    && targetText !== candidateText
+                ) {
+                    return null;
+                }
+                const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
+                const distance = markerRectCenterDistance(comment.markerRect, candidate.markerRect);
+                return {
+                    candidate,
+                    iou,
+                    distance,
+                    score: (
+                        (candidateText && targetText && candidateText === targetText ? 8 : 0)
+                        + (iou * 10)
+                        + Math.max(0, 3 - (distance * 8))
+                        + identity.commentMergePriority(candidate)
+                    ),
+                };
+            })
+            .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+            .sort((left, right) => {
+                if (left.score !== right.score) {
+                    return right.score - left.score;
+                }
+                if (left.iou !== right.iou) {
+                    return right.iou - left.iou;
+                }
+                if (left.distance !== right.distance) {
+                    return left.distance - right.distance;
+                }
+                return right.candidate.stableKey.localeCompare(left.candidate.stableKey);
+            });
+        const best = candidates[0] ?? null;
+        if (!best) {
+            return null;
+        }
+        const second = candidates[1] ?? null;
+        const clearlyBetter = (
+            !second
+            || (best.score - second.score >= 0.9)
+            || ((best.iou - second.iou) >= 0.1)
+        );
+        const acceptable = (
+            best.iou >= 0.01
+            || best.distance <= 0.42
+            || (
+                targetText.length > 0
+                && best.candidate.text.trim().toLowerCase() === targetText
+            )
+        );
+        if (!clearlyBetter || !acceptable) {
+            return null;
+        }
         return best.candidate;
     }
 
@@ -748,6 +902,34 @@ export function useAnnotationCommentCrud(
             editor = findEditorByMarkerRect(resolvedComment, pageIndex);
         }
 
+        if (!editor) {
+            const stablePdfFallback = resolveStablePdfDeleteFallback(resolvedComment);
+            if (stablePdfFallback) {
+                resolvedComment = stablePdfFallback;
+                pageNumber = Math.max(
+                    1,
+                    Math.min(resolvedComment.pageNumber, numPages.value),
+                );
+                pageIndex = Math.max(0, pageNumber - 1);
+                candidateIds = getCommentCandidateIds(resolvedComment);
+                editor =
+                    findEditorForComment(resolvedComment)
+                    ?? (resolvedComment.annotationId
+                        ? findEditorByAnnotationElementId(
+                            pageIndex,
+                            resolvedComment.annotationId,
+                        )
+                        : null)
+                    ?? findEditorByMarkerRect(resolvedComment, pageIndex);
+                BrowserLogger.debug('annotations', 'deleteAnnotationComment: remapped stale editor-only comment to stable PDF ref', {
+                    requestedStableKey: comment.stableKey,
+                    resolvedStableKey: resolvedComment.stableKey,
+                    annotationId: resolvedComment.annotationId ?? null,
+                    candidateIds,
+                });
+            }
+        }
+
         let deletedViaSelectionFallback = false;
         if (!editor && attemptedCommentSelection) {
             try {
@@ -1007,6 +1189,40 @@ export function useAnnotationCommentCrud(
         return true;
     }
 
+    function clearStickyHighlightSelectionState(editor: IPdfjsEditor | null = null) {
+        const uiManager = annotationUiManager.value as
+            | (AnnotationEditorUIManager & {unselectAll?: () => void;})
+            | null;
+        if (uiManager) {
+            uiManager.unselectAll?.();
+        }
+
+        const clearSelectionVisuals = () => {
+            const root = viewerContainer.value ?? document;
+            root.querySelectorAll<HTMLElement>(
+                '.annotationEditorLayer .highlightEditor.selectedEditor, .annotation-editor-layer .highlightEditor.selectedEditor, .annotationEditorLayer .highlightEditor.selected, .annotation-editor-layer .highlightEditor.selected',
+            ).forEach((element) => {
+                element.classList.remove('selectedEditor', 'selected');
+            });
+            root.querySelectorAll<HTMLElement>(
+                '.textLayer .highlight.selected, .text-layer .highlight.selected, .highlightOutline.selected',
+            ).forEach((element) => {
+                element.classList.remove('selected');
+            });
+            editor?.div?.classList.remove('selectedEditor', 'selected');
+            document.getSelection()?.removeAllRanges();
+        };
+
+        clearSelectionVisuals();
+        if (typeof window !== 'undefined') {
+            window.requestAnimationFrame(() => {
+                clearSelectionVisuals();
+            });
+            window.setTimeout(clearSelectionVisuals, 0);
+            window.setTimeout(clearSelectionVisuals, 60);
+        }
+    }
+
     function resolveCommentFromIndicatorClickTarget(
         target: HTMLElement,
         clientX: number,
@@ -1063,7 +1279,12 @@ export function useAnnotationCommentCrud(
       );
         if (summary) {
             setActiveCommentAndSync(summary.stableKey);
-            emitAnnotationOpenNote(summary);
+            if (canOpenAnnotationNoteWindow(summary)) {
+                emitAnnotationOpenNote(summary);
+            } else {
+                emitAnnotationCommentClick(summary);
+            }
+            clearStickyHighlightSelectionState(findEditorForComment(summary));
         }
     }
 
@@ -1089,9 +1310,16 @@ export function useAnnotationCommentCrud(
             event.clientY,
         );
         if (indicatorSummary) {
+            event.preventDefault();
+            event.stopPropagation();
             setActiveCommentAndSync(indicatorSummary.stableKey);
             inlineIndicators.pulseCommentIndicator(indicatorSummary.stableKey);
-            emitAnnotationOpenNote(indicatorSummary);
+            if (canOpenAnnotationNoteWindow(indicatorSummary)) {
+                emitAnnotationOpenNote(indicatorSummary);
+            } else {
+                emitAnnotationCommentClick(indicatorSummary);
+            }
+            clearStickyHighlightSelectionState(findEditorForComment(indicatorSummary));
             return;
         }
 
@@ -1109,26 +1337,41 @@ export function useAnnotationCommentCrud(
             return;
         }
 
+        const inlineTarget = event.target.closest<HTMLElement>(
+            '.pdf-annotation-has-note-target, .pdf-annotation-has-comment',
+        );
+        if (inlineTarget) {
+            event.preventDefault();
+            event.stopPropagation();
+            const summary =
+                inlineIndicators.findCommentFromInlineTarget(inlineTarget)
+                ?? findAnnotationSummaryFromTarget(inlineTarget)
+                ?? findAnnotationSummaryFromPoint(
+                    inlineTarget,
+                    event.clientX,
+                    event.clientY,
+                );
+            if (summary) {
+                setActiveCommentAndSync(summary.stableKey);
+                inlineIndicators.pulseCommentIndicator(summary.stableKey);
+                if (canOpenAnnotationNoteWindow(summary)) {
+                    emitAnnotationOpenNote(summary);
+                } else {
+                    emitAnnotationCommentClick(summary);
+                }
+                clearStickyHighlightSelectionState(findEditorForComment(summary));
+            } else {
+                clearStickyHighlightSelectionState();
+            }
+            return;
+        }
+
         const selection = document.getSelection();
         if (selection && !selection.isCollapsed) {
             return;
         }
 
         await ensureEditorInteractionModeFromTarget(event.target);
-
-        const inlineTarget = event.target.closest<HTMLElement>(
-            '.pdf-annotation-has-note-target, .pdf-annotation-has-comment',
-        );
-        if (inlineTarget) {
-            const summary =
-                inlineIndicators.findCommentFromInlineTarget(inlineTarget);
-            if (summary) {
-                setActiveCommentAndSync(summary.stableKey);
-                inlineIndicators.pulseCommentIndicator(summary.stableKey);
-                emitAnnotationCommentClick(summary);
-                return;
-            }
-        }
 
         const summary =
             findAnnotationSummaryFromTarget(event.target) ??
@@ -1143,6 +1386,7 @@ export function useAnnotationCommentCrud(
         setActiveCommentAndSync(summary.stableKey);
         inlineIndicators.pulseCommentIndicator(summary.stableKey);
         emitAnnotationCommentClick(summary);
+        clearStickyHighlightSelectionState(findEditorForComment(summary));
     }
 
     function handleAnnotationCommentContextMenu(event: MouseEvent) {
