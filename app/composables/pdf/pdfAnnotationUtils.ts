@@ -39,6 +39,7 @@ export interface IPdfjsEditor {
     setDims?: () => void;
     fixAndSetPosition?: () => void;
     parent?: { div?: HTMLElement };
+    __evbPendingAnchorRect?: IAnnotationMarkerRect | null;
     getData?: () => {
         modificationDate?: string | null;
         creationDate?: string | null;
@@ -120,26 +121,77 @@ export function parsePdfDateTimestamp(value: string | null | undefined) {
 }
 
 export function toMarkerRectFromEditor(editor: IPdfjsEditor): IAnnotationMarkerRect | null {
-    const editorDiv = editor.div;
-    if (!editorDiv) {
-        return null;
-    }
-    const pageContainer = editorDiv.closest<HTMLElement>('.page_container');
-    if (!pageContainer) {
-        return null;
-    }
-    const pageRect = pageContainer.getBoundingClientRect();
-    const editorRect = editorDiv.getBoundingClientRect();
-    if (pageRect.width <= 0 || pageRect.height <= 0 || editorRect.width <= 0 || editorRect.height <= 0) {
-        return null;
+    const editorDiv = editor.div ?? null;
+    const pageContainer = editorDiv?.closest<HTMLElement>('.page_container') ?? null;
+    const editorLayer = (
+        editorDiv?.closest<HTMLElement>('.annotationEditorLayer')
+        ?? editorDiv?.closest<HTMLElement>('.annotation-editor-layer')
+        ?? editor.parent?.div
+        ?? null
+    );
+
+    const normalizedDirect = normalizeMarkerRect({
+        left: editor.x ?? Number.NaN,
+        top: editor.y ?? Number.NaN,
+        width: editor.width ?? Number.NaN,
+        height: editor.height ?? Number.NaN,
+    });
+
+    const pageRect = pageContainer?.getBoundingClientRect() ?? null;
+    const layerRect = editorLayer?.getBoundingClientRect() ?? null;
+    const hasValidRects = Boolean(
+        pageRect
+        && layerRect
+        && pageRect.width > 0
+        && pageRect.height > 0
+        && layerRect.width > 0
+        && layerRect.height > 0,
+    );
+    const shouldConvertFromLayerSpace = Boolean(
+        hasValidRects
+        && (
+            Math.abs((layerRect?.left ?? 0) - (pageRect?.left ?? 0)) > 0.5
+            || Math.abs((layerRect?.top ?? 0) - (pageRect?.top ?? 0)) > 0.5
+            || Math.abs((layerRect?.width ?? 0) - (pageRect?.width ?? 0)) > 0.5
+            || Math.abs((layerRect?.height ?? 0) - (pageRect?.height ?? 0)) > 0.5
+        ),
+    );
+    if (shouldConvertFromLayerSpace) {
+        const normalizedFromLayerDims = normalizeMarkerRect({
+            left: ((layerRect!.left - pageRect!.left) / pageRect!.width) + ((editor.x ?? Number.NaN) * (layerRect!.width / pageRect!.width)),
+            top: ((layerRect!.top - pageRect!.top) / pageRect!.height) + ((editor.y ?? Number.NaN) * (layerRect!.height / pageRect!.height)),
+            width: (editor.width ?? Number.NaN) * (layerRect!.width / pageRect!.width),
+            height: (editor.height ?? Number.NaN) * (layerRect!.height / pageRect!.height),
+        });
+        if (normalizedFromLayerDims) {
+            return normalizedFromLayerDims;
+        }
     }
 
-    return normalizeMarkerRect({
+    if (normalizedDirect) {
+        return normalizedDirect;
+    }
+
+    if (!editorDiv || !pageContainer) {
+        return null;
+    }
+    const editorRect = editorDiv.getBoundingClientRect();
+    if (
+        !pageRect
+        || pageRect.width <= 0
+        || pageRect.height <= 0
+        || editorRect.width <= 0
+        || editorRect.height <= 0
+    ) {
+        return null;
+    }
+    const markerRectFromDom = normalizeMarkerRect({
         left: (editorRect.left - pageRect.left) / pageRect.width,
         top: (editorRect.top - pageRect.top) / pageRect.height,
         width: editorRect.width / pageRect.width,
         height: editorRect.height / pageRect.height,
     });
+    return markerRectFromDom;
 }
 
 export function getAnnotationCommentText(annotation: {

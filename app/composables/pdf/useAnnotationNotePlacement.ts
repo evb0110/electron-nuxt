@@ -14,10 +14,13 @@ import type {IPdfjsEditor} from '@app/composables/pdf/pdfAnnotationUtils';
 import {
     getCommentText,
     clamp01,
+    normalizeMarkerRect,
+    toMarkerRectFromEditor,
 } from '@app/composables/pdf/pdfAnnotationUtils';
 import type { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnotationCommentIdentity';
 import type { useAnnotationCommentSync } from '@app/composables/pdf/useAnnotationCommentSync';
 import type { useAnnotationToolManager } from '@app/composables/pdf/useAnnotationToolManager';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 type TIdentity = ReturnType<typeof useAnnotationCommentIdentity>;
 type TCommentSync = ReturnType<typeof useAnnotationCommentSync>;
@@ -36,6 +39,22 @@ interface IClosestTextSpan {
     rect: DOMRect;
 }
 
+function markerRectCenterDistance(
+    left: IAnnotationCommentSummary['markerRect'] | null | undefined,
+    right: IAnnotationCommentSummary['markerRect'] | null | undefined,
+) {
+    const normalizedLeft = normalizeMarkerRect(left);
+    const normalizedRight = normalizeMarkerRect(right);
+    if (!normalizedLeft || !normalizedRight) {
+        return Number.POSITIVE_INFINITY;
+    }
+    const leftCx = normalizedLeft.left + normalizedLeft.width / 2;
+    const leftCy = normalizedLeft.top + normalizedLeft.height / 2;
+    const rightCx = normalizedRight.left + normalizedRight.width / 2;
+    const rightCy = normalizedRight.top + normalizedRight.height / 2;
+    return Math.hypot(leftCx - rightCx, leftCy - rightCy);
+}
+
 export const useAnnotationNotePlacement = (deps: {
     viewerContainer: Ref<HTMLElement | null>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
@@ -48,6 +67,16 @@ export const useAnnotationNotePlacement = (deps: {
     highlightSelectionInternal: (withComment: boolean, explicitRange: Range | null) => Promise<boolean>;
 }) => {
     const isPlacingComment = ref(false);
+    const DEFAULT_POINT_MARKER_SIZE = 0.0016;
+
+    function markerRectFromPoint(pageX: number, pageY: number) {
+        return normalizeMarkerRect({
+            left: clamp01(pageX) - DEFAULT_POINT_MARKER_SIZE / 2,
+            top: clamp01(pageY) - DEFAULT_POINT_MARKER_SIZE / 2,
+            width: DEFAULT_POINT_MARKER_SIZE,
+            height: DEFAULT_POINT_MARKER_SIZE,
+        });
+    }
 
     function findPageContainerFromClientPoint(clientX: number, clientY: number) {
         const container = deps.viewerContainer.value;
@@ -101,24 +130,59 @@ export const useAnnotationNotePlacement = (deps: {
     function resolvePagePointTarget(clientX: number, clientY: number): IPagePointTarget | null {
         const pageContainer = findPageContainerFromClientPoint(clientX, clientY);
         if (!pageContainer) {
+            BrowserLogger.debug('note-anchor', 'resolvePagePointTarget: no page container for client point', {
+                clientX,
+                clientY,
+            });
             return null;
         }
         const rect = pageContainer.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) {
+            BrowserLogger.debug('note-anchor', 'resolvePagePointTarget: invalid page container rect', {
+                clientX,
+                clientY,
+                rect: {
+                    left: Math.round(rect.left),
+                    top: Math.round(rect.top),
+                    width: Math.round(rect.width),
+                    height: Math.round(rect.height),
+                },
+            });
             return null;
         }
         const pageNumber = pageContainer.dataset.page
             ? Number(pageContainer.dataset.page)
             : deps.currentPage.value;
         if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
+            BrowserLogger.debug('note-anchor', 'resolvePagePointTarget: invalid page number', {
+                clientX,
+                clientY,
+                pageNumber,
+                datasetPage: pageContainer.dataset.page ?? null,
+                currentPage: deps.currentPage.value,
+            });
             return null;
         }
-        return {
+        const resolved = {
             pageContainer,
             pageNumber,
             pageX: clamp01((clientX - rect.left) / rect.width),
             pageY: clamp01((clientY - rect.top) / rect.height),
         };
+        BrowserLogger.debug('note-anchor', 'resolvePagePointTarget: resolved', {
+            clientX,
+            clientY,
+            pageNumber: resolved.pageNumber,
+            pageX: resolved.pageX,
+            pageY: resolved.pageY,
+            pageRect: {
+                left: Math.round(rect.left),
+                top: Math.round(rect.top),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+            },
+        });
+        return resolved;
     }
 
     function findClosestTextSpanInPage(
@@ -249,16 +313,43 @@ export const useAnnotationNotePlacement = (deps: {
         pageY: number,
         pointOptions: { preferTextAnchor?: boolean } = {},
     ) {
+        BrowserLogger.debug('note-anchor', 'commentAtPoint request', {
+            pageNumber,
+            pageX,
+            pageY,
+            preferTextAnchor: pointOptions.preferTextAnchor ?? true,
+        });
         const container = deps.viewerContainer.value;
         const uiManager = deps.annotationUiManager.value;
         if (!container || !uiManager) {
+            BrowserLogger.debug('note-anchor', 'commentAtPoint aborted: missing container or uiManager', {
+                hasContainer: Boolean(container),
+                hasUiManager: Boolean(uiManager),
+            });
             return false;
         }
 
         const pageContainer = container.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
         if (!pageContainer) {
+            BrowserLogger.debug('note-anchor', 'commentAtPoint aborted: pageContainer not found', {pageNumber});
             return false;
         }
+        const pageRect = pageContainer.getBoundingClientRect();
+        const pageClientX = pageRect.left + clamp01(pageX) * pageRect.width;
+        const pageClientY = pageRect.top + clamp01(pageY) * pageRect.height;
+        BrowserLogger.debug('note-anchor', 'commentAtPoint page-frame target', {
+            pageNumber,
+            pageX,
+            pageY,
+            pageClientX,
+            pageClientY,
+            pageRect: {
+                left: Math.round(pageRect.left),
+                top: Math.round(pageRect.top),
+                width: Math.round(pageRect.width),
+                height: Math.round(pageRect.height),
+            },
+        });
 
         if (pointOptions.preferTextAnchor ?? true) {
             const range = buildRangeFromPagePoint({
@@ -324,8 +415,25 @@ export const useAnnotationNotePlacement = (deps: {
             }
 
             const layerRect = layer.div.getBoundingClientRect();
-            const clientX = layerRect.left + clamp01(pageX) * layerRect.width;
-            const clientY = layerRect.top + clamp01(pageY) * layerRect.height;
+            const clientX = pageClientX;
+            const clientY = pageClientY;
+            BrowserLogger.debug('note-anchor', 'dispatching freetext placement events', {
+                pageNumber,
+                pageX,
+                pageY,
+                clientX,
+                clientY,
+                layerFrameFromRatios: {
+                    x: layerRect.left + clamp01(pageX) * layerRect.width,
+                    y: layerRect.top + clamp01(pageY) * layerRect.height,
+                },
+                layerRect: {
+                    left: Math.round(layerRect.left),
+                    top: Math.round(layerRect.top),
+                    width: Math.round(layerRect.width),
+                    height: Math.round(layerRect.height),
+                },
+            });
             const eventInit: PointerEventInit = {
                 clientX,
                 clientY,
@@ -340,16 +448,88 @@ export const useAnnotationNotePlacement = (deps: {
 
             const resolvedEditor = await resolveCreatedEditor(null);
             if (!resolvedEditor) {
+                BrowserLogger.debug('note-anchor', 'no created editor resolved after placement', {
+                    pageNumber,
+                    pageIndex,
+                });
                 return false;
             }
+            for (let attempt = 0; attempt < 12; attempt += 1) {
+                const markerRect = toMarkerRectFromEditor(resolvedEditor);
+                if (markerRect) {
+                    BrowserLogger.debug('note-anchor', 'resolved editor markerRect after placement', {
+                        pageNumber,
+                        pageIndex,
+                        attempt,
+                        markerRect,
+                        editorDims: {
+                            x: resolvedEditor.x ?? null,
+                            y: resolvedEditor.y ?? null,
+                            width: resolvedEditor.width ?? null,
+                            height: resolvedEditor.height ?? null,
+                        },
+                    });
+                    break;
+                }
+                BrowserLogger.debug('note-anchor', 'markerRect not ready yet for created editor', {
+                    pageNumber,
+                    pageIndex,
+                    attempt,
+                    editorDims: {
+                        x: resolvedEditor.x ?? null,
+                        y: resolvedEditor.y ?? null,
+                        width: resolvedEditor.width ?? null,
+                        height: resolvedEditor.height ?? null,
+                    },
+                    editorStyle: {
+                        left: resolvedEditor.div?.style.left ?? null,
+                        top: resolvedEditor.div?.style.top ?? null,
+                        width: resolvedEditor.div?.style.width ?? null,
+                        height: resolvedEditor.div?.style.height ?? null,
+                    },
+                });
+                await delay(16);
+                await nextTick();
+            }
 
+            const clickMarkerRect = markerRectFromPoint(pageX, pageY);
+            resolvedEditor.__evbPendingAnchorRect = clickMarkerRect;
             deps.commentSync.pendingCommentEditorKeys.add(deps.identity.getEditorPendingKey(resolvedEditor, pageIndex));
             const resolvedEditorWithComment = resolvedEditor as IPdfjsEditor & { editComment?: () => void };
             if (typeof resolvedEditorWithComment.editComment === 'function') {
+                BrowserLogger.debug('note-anchor', 'editor supports editComment; storing click anchor on editor', {
+                    pageNumber,
+                    pageIndex,
+                    clickMarkerRect,
+                });
                 resolvedEditorWithComment.editComment();
             } else {
                 const summary = deps.commentSync.toEditorSummary(resolvedEditor, pageIndex, getCommentText(resolvedEditor));
-                deps.emitAnnotationOpenNote(summary);
+                let finalMarkerRect = summary.markerRect ?? clickMarkerRect;
+                const centerDistance = markerRectCenterDistance(summary.markerRect, clickMarkerRect);
+                const shouldUseClickAnchor = Boolean(
+                    clickMarkerRect
+                    && (
+                        !summary.markerRect
+                        || centerDistance > 0.14
+                    ),
+                );
+                if (shouldUseClickAnchor) {
+                    finalMarkerRect = clickMarkerRect;
+                }
+                BrowserLogger.debug('note-anchor', 'open note summary markerRect resolution', {
+                    pageNumber,
+                    pageIndex,
+                    summaryMarkerRect: summary.markerRect ?? null,
+                    clickMarkerRect,
+                    centerDistance,
+                    shouldUseClickAnchor,
+                    finalMarkerRect,
+                });
+                deps.emitAnnotationOpenNote({
+                    ...summary,
+                    markerRect: finalMarkerRect,
+                });
             }
             return true;
         } finally {
@@ -378,8 +558,19 @@ export const useAnnotationNotePlacement = (deps: {
     async function placeCommentAtClientPoint(clientX: number, clientY: number) {
         const target = resolvePagePointTarget(clientX, clientY);
         if (!target) {
+            BrowserLogger.debug('note-anchor', 'placeCommentAtClientPoint aborted: target unresolved', {
+                clientX,
+                clientY,
+            });
             return false;
         }
+        BrowserLogger.debug('note-anchor', 'placeCommentAtClientPoint target resolved', {
+            clientX,
+            clientY,
+            pageNumber: target.pageNumber,
+            pageX: target.pageX,
+            pageY: target.pageY,
+        });
 
         const created = await commentAtPoint(
             target.pageNumber,

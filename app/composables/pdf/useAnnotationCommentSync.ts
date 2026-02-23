@@ -23,6 +23,7 @@ import {
     isPopupSubtype,
     detectEditorSubtype,
     isTextMarkupSubtype,
+    normalizeMarkerRect,
 } from '@app/composables/pdf/pdfAnnotationUtils';
 import type { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnotationCommentIdentity';
 import type { useAnnotationMarkupSubtype } from '@app/composables/pdf/useAnnotationMarkupSubtype';
@@ -31,6 +32,22 @@ import { runGuardedTask } from '@app/utils/async-guard';
 
 type TIdentity = ReturnType<typeof useAnnotationCommentIdentity>;
 type TMarkupSubtypeComposable = ReturnType<typeof useAnnotationMarkupSubtype>;
+
+function markerRectCenterDistance(
+    left: IAnnotationCommentSummary['markerRect'] | null | undefined,
+    right: IAnnotationCommentSummary['markerRect'] | null | undefined,
+) {
+    const normalizedLeft = normalizeMarkerRect(left);
+    const normalizedRight = normalizeMarkerRect(right);
+    if (!normalizedLeft || !normalizedRight) {
+        return Number.POSITIVE_INFINITY;
+    }
+    const leftCx = normalizedLeft.left + normalizedLeft.width / 2;
+    const leftCy = normalizedLeft.top + normalizedLeft.height / 2;
+    const rightCx = normalizedRight.left + normalizedRight.width / 2;
+    const rightCy = normalizedRight.top + normalizedRight.height / 2;
+    return Math.hypot(leftCx - rightCx, leftCy - rightCy);
+}
 
 function isMarkupSubtype(value: unknown): value is TMarkupSubtype {
     return (
@@ -127,6 +144,36 @@ export function useAnnotationCommentSync(
         const hasNote =
             hasEditorCommentPayload(editor) ||
       pendingCommentEditorKeys.has(pendingKey);
+        const markerRectFromEditor = toMarkerRectFromEditor(editor);
+        const pendingAnchorRect = normalizeMarkerRect(editor.__evbPendingAnchorRect ?? null);
+        const markerDistanceFromPending = markerRectCenterDistance(markerRectFromEditor, pendingAnchorRect);
+        const shouldUsePendingAnchor = Boolean(
+            pendingAnchorRect
+            && (
+                !markerRectFromEditor
+                || markerDistanceFromPending > 0.14
+            ),
+        );
+        const markerRect = shouldUsePendingAnchor
+            ? pendingAnchorRect
+            : markerRectFromEditor;
+        if (pendingAnchorRect || shouldUsePendingAnchor) {
+            BrowserLogger.debug('note-anchor', 'toEditorSummary', {
+                pageIndex,
+                pageNumber: pageIndex + 1,
+                id,
+                uid,
+                annotationId,
+                subtype: resolvedSubtype ?? null,
+                hasNote,
+                textLength: text.length,
+                markerRectFromEditor,
+                pendingAnchorRect,
+                markerDistanceFromPending,
+                shouldUsePendingAnchor,
+                markerRect,
+            });
+        }
 
         return {
             id,
@@ -155,7 +202,7 @@ export function useAnnotationCommentSync(
             annotationId,
             source: 'editor',
             hasNote,
-            markerRect: toMarkerRectFromEditor(editor),
+            markerRect,
         };
     }
 

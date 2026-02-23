@@ -1,6 +1,8 @@
 import {
     readFile,
+    rename,
     stat,
+    unlink,
     writeFile,
 } from 'fs/promises';
 import {
@@ -27,33 +29,86 @@ interface IRecentFilesData {
     files: IRecentFile[];
 }
 
+interface IFilteredRecentFiles {
+    files: IRecentFile[];
+    removedMissingCount: number;
+    unreadableCount: number;
+}
+
 function getStoragePath(): string {
     return join(app.getPath('userData'), 'recent-files.json');
 }
 
-async function pathExists(filePath: string) {
+function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
+    if (!raw || typeof raw !== 'object') {
+        return {
+            version: 1,
+            files: [],
+        };
+    }
+
+    const parsed = raw as {
+        version?: unknown;
+        files?: unknown;
+    };
+    const files = Array.isArray(parsed.files)
+        ? parsed.files.filter((candidate): candidate is IRecentFile => (
+            Boolean(candidate)
+            && typeof candidate === 'object'
+            && typeof (candidate as IRecentFile).originalPath === 'string'
+            && typeof (candidate as IRecentFile).fileName === 'string'
+            && typeof (candidate as IRecentFile).timestamp === 'number'
+            && typeof (candidate as IRecentFile).fileSize === 'number'
+        ))
+        : [];
+
+    return {
+        version: typeof parsed.version === 'number' ? parsed.version : 1,
+        files,
+    };
+}
+
+async function inspectPath(filePath: string): Promise<'exists' | 'missing' | 'unreadable'> {
     try {
         await stat(filePath);
-        return true;
-    } catch {
-        return false;
+        return 'exists';
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        if (code === 'ENOENT' || code === 'ENOTDIR') {
+            return 'missing';
+        }
+        logger.warn(`Recent file path unreadable; preserving entry (${filePath}): ${error instanceof Error ? error.message : String(error)}`);
+        return 'unreadable';
     }
 }
 
-async function filterExistingFiles(files: IRecentFile[]) {
+async function filterExistingFiles(files: IRecentFile[]): Promise<IFilteredRecentFiles> {
+    let removedMissingCount = 0;
+    let unreadableCount = 0;
     const checks = await Promise.all(files.map(async (file) => {
-        const exists = await pathExists(file.originalPath);
-        return exists ? file : null;
+        const status = await inspectPath(file.originalPath);
+        if (status === 'missing') {
+            removedMissingCount += 1;
+            return null;
+        }
+        if (status === 'unreadable') {
+            unreadableCount += 1;
+        }
+        return file;
     }));
 
-    return checks.filter((file): file is IRecentFile => file !== null);
+    return {
+        files: checks.filter((file): file is IRecentFile => file !== null),
+        removedMissingCount,
+        unreadableCount,
+    };
 }
 
 async function loadRecentFilesData(): Promise<IRecentFilesData> {
     const storagePath = getStoragePath();
     try {
         const content = await readFile(storagePath, 'utf-8');
-        return JSON.parse(content);
+        return normalizeRecentFilesData(JSON.parse(content));
     } catch (err) {
         if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
             return {
@@ -71,10 +126,17 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
 
 async function saveRecentFilesData(data: IRecentFilesData): Promise<void> {
     const storagePath = getStoragePath();
+    const tempPath = `${storagePath}.tmp-${process.pid}-${Date.now()}`;
     try {
-        await writeFile(storagePath, JSON.stringify(data, null, 2), 'utf-8');
+        await writeFile(tempPath, JSON.stringify(data, null, 2), 'utf-8');
+        await rename(tempPath, storagePath);
     } catch (err) {
         logger.error(`Failed to save recent files: ${err instanceof Error ? err.message : String(err)}`);
+        try {
+            await unlink(tempPath);
+        } catch {
+            // Best-effort temp file cleanup.
+        }
         throw err;
     }
 }
@@ -130,29 +192,30 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
     // Use cache if fresh
     if (Date.now() - cacheTimestamp < CACHE_TTL_MS) {
         // Still validate existence
-        const validCachedFiles = await filterExistingFiles(recentFilesCache);
+        const filtered = await filterExistingFiles(recentFilesCache);
         if (STARTUP_TRACE_ENABLED) {
-            logger.info(`[startup] recent-files:get cache hit (${validCachedFiles.length} file(s), +${Date.now() - startedAt}ms)`);
+            logger.info(`[startup] recent-files:get cache hit (${filtered.files.length} file(s), removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount}, +${Date.now() - startedAt}ms)`);
         }
-        return validCachedFiles;
+        return filtered.files;
     }
 
     // Refresh cache from disk
     const data = await loadRecentFilesData();
-    const validFiles = await filterExistingFiles(data.files);
+    const filtered = await filterExistingFiles(data.files);
+    const validFiles = filtered.files;
 
     // Update cache
     recentFilesCache = validFiles;
     cacheTimestamp = Date.now();
 
     // If files were removed, save updated list
-    if (validFiles.length !== data.files.length) {
+    if (filtered.removedMissingCount > 0 && validFiles.length !== data.files.length) {
         data.files = validFiles;
         await saveRecentFilesData(data);
     }
 
     if (STARTUP_TRACE_ENABLED) {
-        logger.info(`[startup] recent-files:get disk refresh (${validFiles.length} file(s), +${Date.now() - startedAt}ms)`);
+        logger.info(`[startup] recent-files:get disk refresh (${validFiles.length} file(s), removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount}, +${Date.now() - startedAt}ms)`);
     }
     return validFiles;
 }

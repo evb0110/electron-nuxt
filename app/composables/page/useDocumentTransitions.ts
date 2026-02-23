@@ -113,7 +113,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             bookmarkEditMode.value = false;
             closeAnnotationContextMenu();
             closePageContextMenu();
-            void closeAllAnnotationNotes({ saveIfDirty: false });
         }
         if (!newSrc) {
             resetSearchCache();

@@ -178,6 +178,72 @@ export function commentMergePriority(comment: IAnnotationCommentSummary) {
     return score;
 }
 
+function markerRectConfidenceScore(
+    comment: Pick<IAnnotationCommentSummary, 'source' | 'modifiedAt'>,
+    rect: {
+        width: number;
+        height: number 
+    },
+) {
+    let score = 0;
+    if (comment.source === 'editor') {
+        score += 4;
+    }
+    if (typeof comment.modifiedAt === 'number' && comment.modifiedAt > 0) {
+        score += 2;
+    }
+    const area = rect.width * rect.height;
+    if (area > 0.00001) {
+        score += 1;
+    }
+    return score;
+}
+
+function pickPreferredMarkerRect(
+    left: Pick<IAnnotationCommentSummary, 'markerRect' | 'source' | 'modifiedAt'>,
+    right: Pick<IAnnotationCommentSummary, 'markerRect' | 'source' | 'modifiedAt'>,
+) {
+    const leftRect = normalizeMarkerRect(left.markerRect);
+    const rightRect = normalizeMarkerRect(right.markerRect);
+    if (!leftRect) {
+        return rightRect ?? null;
+    }
+    if (!rightRect) {
+        return leftRect;
+    }
+
+    const leftScore = markerRectConfidenceScore(left, leftRect);
+    const rightScore = markerRectConfidenceScore(right, rightRect);
+    if (leftScore !== rightScore) {
+        return rightScore > leftScore
+            ? rightRect
+            : leftRect;
+    }
+
+    const leftTs = left.modifiedAt ?? 0;
+    const rightTs = right.modifiedAt ?? 0;
+    if (leftTs !== rightTs) {
+        return rightTs > leftTs
+            ? rightRect
+            : leftRect;
+    }
+
+    if (left.source !== right.source) {
+        return right.source === 'editor'
+            ? rightRect
+            : leftRect;
+    }
+
+    const leftArea = leftRect.width * leftRect.height;
+    const rightArea = rightRect.width * rightRect.height;
+    if (leftArea === rightArea) {
+        return leftRect;
+    }
+    return rightArea > leftArea
+        ? rightRect
+        : leftRect;
+}
+
 export function mergeCommentSummaries(
     existing: IAnnotationCommentSummary,
     incoming: IAnnotationCommentSummary,
@@ -248,7 +314,7 @@ export function mergeCommentSummaries(
         color: existing.color ?? incoming.color,
         source,
         hasNote,
-        markerRect: existing.markerRect ?? incoming.markerRect ?? null,
+        markerRect: pickPreferredMarkerRect(existing, incoming),
     };
 }
 
@@ -259,9 +325,7 @@ export function mergeDuplicateCommentSummary(
     const merged = mergeCommentSummaries(primary, secondary);
     const annotationId = primary.annotationId ?? secondary.annotationId ?? null;
     const uid = primary.uid ?? secondary.uid ?? null;
-    const markerRect = normalizeMarkerRect(primary.markerRect)
-        ?? normalizeMarkerRect(secondary.markerRect)
-        ?? null;
+    const markerRect = pickPreferredMarkerRect(primary, secondary);
     const source: IAnnotationCommentSummary['source'] = (
         primary.source === 'editor' || secondary.source === 'editor'
             ? 'editor'

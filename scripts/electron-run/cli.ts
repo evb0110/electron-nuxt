@@ -71,24 +71,40 @@ Session:
   stop                Stop session (or --all to stop every session)
   status              Check session health (shows connection status)
   restart             Stop and restart the session (useful for recovery)
+  restartd            Stop and restart in detached mode
   list                List all sessions and their status
 
 Commands (require running session):
   health              Check app health status (loaded, API availability)
-  screenshot [name]   Take screenshot -> .devkit/sessions/<name>/screenshots/<name>.png
-  console [level]     Get console messages (all|log|warn|error)
+  screenshot [name] [fullPage]
+                     Take screenshot -> .devkit/sessions/<name>/screenshots/<name>.png
+  screenshots <baseName> [count] [intervalMs] [fullPage]
+                     Capture multiple screenshots at intervals in one command
+  console [level] [limit]
+                     Get console messages (all|log|warn|error|info|debug)
+  devtools [section] [limit]
+                     DevTools diagnostics (summary|console|network|errors|metrics|all)
   run <code>          Run Puppeteer code (access: page, screenshot, sleep/wait)
   run-file <path>     Run Puppeteer code from a JS file
   eval <code>         Evaluate JS in page
-  click <selector>    Click element
+  click <selector> [timeoutMs]
+                     Click element and return captured click-event metadata
   type <sel> <text>   Type into element
   content <selector>  Get text content
+  waitfor <selector> [timeoutMs]
+                     Wait until selector appears (useful for scripted flows)
+  resize <w> <h>      Resize viewport (Puppeteer viewport)
+  viewport            Print current viewport dimensions
   openPdf <path>      Open PDF file by absolute path
 
 Examples:
   pnpm electron:run startd                        # Start default session
   pnpm electron:run -s test startd                 # Start "test" session
   pnpm electron:run -s test screenshot "home"      # Screenshot in "test" session
+  pnpm electron:run screenshots "progress" 12 500  # 12 shots every 500ms
+  pnpm electron:run devtools network 200           # Recent network diagnostics
+  pnpm electron:run viewport                       # Read current viewport/window size
+  pnpm electron:run resize 1280 820               # Set viewport for deterministic screenshots
   pnpm electron:run list                           # Show all running sessions
   pnpm electron:run stop --all                     # Stop everything
   pnpm electron:run -s test openPdf "/path/to.pdf"
@@ -158,8 +174,20 @@ export async function runCli() {
                 try {
                     const pingResult = await sendCommand('ping') as { uptime: number };
                     try {
-                        await sendCommand('health');
-                        console.log(`Session '${getCurrentSessionName()}' running (port: ${info.port}, uptime: ${Math.round(pingResult.uptime)}s) - Electron connected \u2713`);
+                        const healthResult = await sendCommand('health') as {
+                            ready?: boolean;
+                            health?: {
+                                openFileDirect?: string;
+                                electronAPI?: string;
+                            };
+                        };
+                        if (healthResult.ready) {
+                            console.log(`Session '${getCurrentSessionName()}' running (port: ${info.port}, uptime: ${Math.round(pingResult.uptime)}s) - App ready \u2713`);
+                        } else {
+                            const openFileDirect = healthResult.health?.openFileDirect ?? 'unknown';
+                            const electronAPI = healthResult.health?.electronAPI ?? 'unknown';
+                            console.log(`Session '${getCurrentSessionName()}' running (port: ${info.port}, uptime: ${Math.round(pingResult.uptime)}s) - \u26a0\ufe0f  App not ready (openFileDirect=${openFileDirect}, electronAPI=${electronAPI})`);
+                        }
                     } catch {
                         console.log(`Session '${getCurrentSessionName()}' running (port: ${info.port}, uptime: ${Math.round(pingResult.uptime)}s) - \u26a0\ufe0f  Electron DISCONNECTED`);
                         console.log(`  Use \`pnpm electron:run --session=${getCurrentSessionName()} restart\` to recover.`);
@@ -180,6 +208,13 @@ export async function runCli() {
                 await stopSingleSession(getCurrentSessionName());
                 await delay(1000);
                 await startSession(false);
+                break;
+
+            case 'restartd':
+                console.log(`Restarting session '${getCurrentSessionName()}' in background...`);
+                await stopSingleSession(getCurrentSessionName());
+                await delay(1000);
+                await startSessionDetached();
                 break;
 
             case 'list': {
@@ -224,8 +259,20 @@ export async function runCli() {
                 break;
             }
 
+            case 'screenshots': {
+                const result = await sendCommand('screenshots', args, 600_000);
+                console.log(JSON.stringify(result, null, 2));
+                break;
+            }
+
             case 'console': {
                 const result = await sendCommand('console', args);
+                console.log(JSON.stringify(result, null, 2));
+                break;
+            }
+
+            case 'devtools': {
+                const result = await sendCommand('devtools', args);
                 console.log(JSON.stringify(result, null, 2));
                 break;
             }
@@ -245,6 +292,24 @@ export async function runCli() {
             case 'content': {
                 const result = await sendCommand('content', args);
                 console.log(result);
+                break;
+            }
+
+            case 'waitfor': {
+                const result = await sendCommand('waitfor', args, COMMAND_EXECUTION_TIMEOUT_MS);
+                console.log(JSON.stringify(result, null, 2));
+                break;
+            }
+
+            case 'resize': {
+                const result = await sendCommand('resize', args);
+                console.log(JSON.stringify(result, null, 2));
+                break;
+            }
+
+            case 'viewport': {
+                const result = await sendCommand('viewport', args);
+                console.log(JSON.stringify(result, null, 2));
                 break;
             }
 

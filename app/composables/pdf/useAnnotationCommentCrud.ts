@@ -19,6 +19,9 @@ import type {
 import {
     getCommentText,
     hasEditorCommentPayload,
+    normalizeMarkerRect,
+    markerRectIoU,
+    toMarkerRectFromEditor,
     escapeCssAttr,
     errorToLogText,
 } from '@app/composables/pdf/pdfAnnotationUtils';
@@ -120,6 +123,317 @@ export function useAnnotationCommentCrud(
 
     function logCrudDebug(message: string, error: unknown) {
         BrowserLogger.debug('annotations', `${message}: ${errorToLogText(error)}`);
+    }
+
+    function markerRectCenterDistance(
+        left: IAnnotationCommentSummary['markerRect'] | null | undefined,
+        right: IAnnotationCommentSummary['markerRect'] | null | undefined,
+    ) {
+        const a = normalizeMarkerRect(left);
+        const b = normalizeMarkerRect(right);
+        if (!a || !b) {
+            return Number.POSITIVE_INFINITY;
+        }
+        const ax = a.left + a.width / 2;
+        const ay = a.top + a.height / 2;
+        const bx = b.left + b.width / 2;
+        const by = b.top + b.height / 2;
+        return Math.hypot(ax - bx, ay - by);
+    }
+
+    function findEditorByMarkerRect(
+        comment: IAnnotationCommentSummary,
+        preferredPageIndex: number,
+    ) {
+        const uiManager = annotationUiManager.value;
+        if (!uiManager || numPages.value <= 0) {
+            return null;
+        }
+        const pages = [
+            Math.max(0, Math.min(preferredPageIndex, numPages.value - 1)),
+            ...Array.from({ length: numPages.value }, (_, index) => index).filter(index => index !== preferredPageIndex),
+        ];
+        let best: {
+            editor: IPdfjsEditor;
+            pageIndex: number;
+            distance: number;
+            textScore: number;
+        } | null = null;
+        const exactTextMatches: Array<{
+            editor: IPdfjsEditor;
+            pageIndex: number;
+            distance: number;
+        }> = [];
+        const targetText = comment.text.trim();
+
+        for (const pageIndex of pages) {
+            for (const editor of uiManager.getEditors(pageIndex)) {
+                const normalizedEditor = editor as IPdfjsEditor;
+                const distance = markerRectCenterDistance(
+                    comment.markerRect,
+                    toMarkerRectFromEditor(normalizedEditor),
+                );
+                const editorText = getCommentText(normalizedEditor).trim();
+                const textScore = (
+                    targetText.length > 0
+                    && editorText.length > 0
+                    && targetText === editorText
+                )
+                    ? 1
+                    : 0;
+                if (textScore === 1) {
+                    exactTextMatches.push({
+                        editor: normalizedEditor,
+                        pageIndex,
+                        distance,
+                    });
+                }
+
+                if (
+                    !best
+                    || distance < best.distance
+                    || (Math.abs(distance - best.distance) <= 0.01 && textScore > best.textScore)
+                ) {
+                    best = {
+                        editor: normalizedEditor,
+                        pageIndex,
+                        distance,
+                        textScore,
+                    };
+                }
+            }
+        }
+
+        const pickBestExactTextMatch = () => {
+            if (exactTextMatches.length === 0) {
+                return null;
+            }
+            const ordered = [...exactTextMatches].sort((left, right) => {
+                const leftDistance = Number.isFinite(left.distance)
+                    ? left.distance
+                    : Number.POSITIVE_INFINITY;
+                const rightDistance = Number.isFinite(right.distance)
+                    ? right.distance
+                    : Number.POSITIVE_INFINITY;
+                if (leftDistance !== rightDistance) {
+                    return leftDistance - rightDistance;
+                }
+                return left.pageIndex - right.pageIndex;
+            });
+            const bestMatch = ordered[0] ?? null;
+            if (!bestMatch) {
+                return null;
+            }
+            if (ordered.length === 1) {
+                return bestMatch;
+            }
+            const secondBest = ordered[1];
+            if (!secondBest) {
+                return bestMatch;
+            }
+            const bestDistance = Number.isFinite(bestMatch.distance)
+                ? bestMatch.distance
+                : Number.POSITIVE_INFINITY;
+            const secondDistance = Number.isFinite(secondBest.distance)
+                ? secondBest.distance
+                : Number.POSITIVE_INFINITY;
+            if (!Number.isFinite(bestDistance) && !Number.isFinite(secondDistance)) {
+                return null;
+            }
+            if (Math.abs(bestDistance - secondDistance) <= 0.005) {
+                return null;
+            }
+            return bestMatch;
+        };
+
+        if (!best) {
+            const exactMatch = pickBestExactTextMatch();
+            if (exactMatch) {
+                BrowserLogger.debug('annotations', 'Resolved editor for delete by exact text fallback', {
+                    stableKey: comment.stableKey,
+                    pageIndex: exactMatch.pageIndex,
+                    distance: exactMatch.distance,
+                    editorUid: exactMatch.editor.uid ?? null,
+                    editorId: exactMatch.editor.id ?? null,
+                });
+                return exactMatch.editor;
+            }
+            return null;
+        }
+        if (best.distance > 0.16 && best.textScore === 0) {
+            const exactMatch = pickBestExactTextMatch();
+            if (exactMatch) {
+                BrowserLogger.debug('annotations', 'Resolved editor for delete by exact text fallback after distance gate', {
+                    stableKey: comment.stableKey,
+                    pageIndex: exactMatch.pageIndex,
+                    distance: exactMatch.distance,
+                    editorUid: exactMatch.editor.uid ?? null,
+                    editorId: exactMatch.editor.id ?? null,
+                });
+                return exactMatch.editor;
+            }
+            return null;
+        }
+        BrowserLogger.debug('annotations', 'Resolved editor for delete by marker proximity', {
+            stableKey: comment.stableKey,
+            pageIndex: best.pageIndex,
+            distance: best.distance,
+            textScore: best.textScore,
+            editorUid: best.editor.uid ?? null,
+            editorId: best.editor.id ?? null,
+        });
+        return best.editor;
+    }
+
+    function resolveCommentForDelete(comment: IAnnotationCommentSummary) {
+        const strictResolved = identity.resolveCommentFromCache(comment);
+        if (strictResolved) {
+            const hasStablePdfRef = Boolean(strictResolved.annotationId);
+            const strictEditor = findEditorForComment(strictResolved);
+            if (hasStablePdfRef || strictEditor) {
+                return strictResolved;
+            }
+            BrowserLogger.debug('annotations', 'Strict delete comment match looked stale; continuing with fuzzy remap', {
+                requestedStableKey: comment.stableKey,
+                strictStableKey: strictResolved.stableKey,
+                requestedId: comment.id,
+                strictId: strictResolved.id,
+                requestedUid: comment.uid ?? null,
+                strictUid: strictResolved.uid ?? null,
+                pageIndex: comment.pageIndex,
+            });
+        }
+
+        const candidates = commentSync.annotationCommentsCache.value.filter((candidate) => (
+            candidate.pageIndex === comment.pageIndex
+        ));
+        if (candidates.length === 0) {
+            BrowserLogger.debug('annotations', 'No cache candidates available for fuzzy delete remap', {
+                requestedStableKey: comment.stableKey,
+                requestedId: comment.id,
+                requestedUid: comment.uid ?? null,
+                requestedSource: comment.source,
+                pageIndex: comment.pageIndex,
+            });
+            return null;
+        }
+
+        const targetText = comment.text.trim().toLowerCase();
+        const targetSubtype = (comment.subtype ?? '').trim().toLowerCase();
+
+        const scored = candidates.map((candidate) => {
+            const candidateText = candidate.text.trim().toLowerCase();
+            const candidateSubtype = (candidate.subtype ?? '').trim().toLowerCase();
+            const textExact = (
+                targetText.length > 0
+                && candidateText.length > 0
+                && targetText === candidateText
+            );
+            let score = 0;
+            if (textExact) {
+                score += 6;
+            } else if (
+                targetText.length > 0
+                && candidateText.length > 0
+                && (
+                    candidateText.includes(targetText)
+                    || targetText.includes(candidateText)
+                )
+            ) {
+                score += 2;
+            } else if (targetText.length > 0 && candidateText.length > 0) {
+                score -= 1;
+            } else if (targetText.length === 0 && candidateText.length === 0) {
+                score += 0.5;
+            }
+
+            if (targetSubtype && candidateSubtype && targetSubtype === candidateSubtype) {
+                score += 1.5;
+            }
+            if (comment.hasNote === candidate.hasNote) {
+                score += 0.5;
+            }
+            if (candidate.source === comment.source) {
+                score += 0.5;
+            }
+
+            const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
+            if (iou > 0) {
+                score += iou * 6;
+            } else if (normalizeMarkerRect(comment.markerRect) && normalizeMarkerRect(candidate.markerRect)) {
+                score -= 0.5;
+            }
+
+            return {
+                candidate,
+                score,
+                textExact,
+                iou,
+            };
+        }).sort((left, right) => right.score - left.score);
+
+        const best = scored[0];
+        if (!best) {
+            return null;
+        }
+        const second = scored[1];
+        const isClearlyBetter = (
+            !second
+            || (best.score - second.score >= 0.6)
+            || (best.textExact && !second.textExact)
+            || ((best.iou - (second.iou ?? 0)) >= 0.08)
+        );
+        const acceptable = (
+            best.score >= 2.5
+            || best.textExact
+            || best.iou >= 0.12
+        );
+        if (!acceptable || !isClearlyBetter) {
+            BrowserLogger.debug('annotations', 'Fuzzy delete remap rejected due low confidence', {
+                requestedStableKey: comment.stableKey,
+                requestedId: comment.id,
+                requestedUid: comment.uid ?? null,
+                pageIndex: comment.pageIndex,
+                candidateCount: scored.length,
+                best: best
+                    ? {
+                        stableKey: best.candidate.stableKey,
+                        id: best.candidate.id,
+                        uid: best.candidate.uid ?? null,
+                        source: best.candidate.source,
+                        score: best.score,
+                        iou: best.iou,
+                        textExact: best.textExact,
+                    }
+                    : null,
+                second: second
+                    ? {
+                        stableKey: second.candidate.stableKey,
+                        id: second.candidate.id,
+                        uid: second.candidate.uid ?? null,
+                        source: second.candidate.source,
+                        score: second.score,
+                        iou: second.iou,
+                        textExact: second.textExact,
+                    }
+                    : null,
+            });
+            return null;
+        }
+
+        BrowserLogger.debug('annotations', 'Resolved stale delete comment via fuzzy cache match', {
+            requestedStableKey: comment.stableKey,
+            resolvedStableKey: best.candidate.stableKey,
+            requestedId: comment.id,
+            resolvedId: best.candidate.id,
+            requestedUid: comment.uid ?? null,
+            resolvedUid: best.candidate.uid ?? null,
+            score: best.score,
+            iou: best.iou,
+            textExact: best.textExact,
+        });
+
+        return best.candidate;
     }
 
     function setActiveCommentAndSync(stableKey: string | null) {
@@ -234,8 +548,7 @@ export function useAnnotationCommentCrud(
         comment: IAnnotationCommentSummary,
         text: string,
     ) {
-        const resolvedComment =
-            identity.resolveCommentFromCache(comment) ?? comment;
+        const resolvedComment = resolveCommentForDelete(comment) ?? comment;
         const editor =
             findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
         if (!editor) {
@@ -303,10 +616,20 @@ export function useAnnotationCommentCrud(
         const managerWithCommentSelection =
             uiManager as AnnotationEditorUIManager & {
                 selectComment?: (candidatePageIndex: number, uid: string) => void;
+                getEditor?: (id: string) => IPdfjsEditor | null;
                 getLayer?: (
                     candidatePageIndex: number,
                 ) => { getEditorByUID?: (uid: string) => IPdfjsEditor | null } | null;
             };
+        BrowserLogger.debug('annotations', 'deleteAnnotationComment: start', {
+            stableKey: resolvedComment.stableKey,
+            source: resolvedComment.source,
+            annotationId: resolvedComment.annotationId ?? null,
+            uid: resolvedComment.uid ?? null,
+            id: resolvedComment.id,
+            pageNumber,
+            candidateIds,
+        });
 
         let editor = findEditorForComment(resolvedComment);
         let switchedToPopupMode = false;
@@ -334,6 +657,20 @@ export function useAnnotationCommentCrud(
             }
             editor =
                 findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
+        }
+
+        if (
+            !editor
+            && candidateIds.length > 0
+            && typeof managerWithCommentSelection.getEditor === 'function'
+        ) {
+            for (const id of candidateIds) {
+                const byGlobalId = managerWithCommentSelection.getEditor(id);
+                if (byGlobalId) {
+                    editor = byGlobalId as IPdfjsEditor;
+                    break;
+                }
+            }
         }
 
         if (!editor && candidateIds.length > 0) {
@@ -376,6 +713,19 @@ export function useAnnotationCommentCrud(
         }
 
         if (!editor) {
+            editor = findEditorByMarkerRect(resolvedComment, pageIndex);
+        }
+
+        if (!editor) {
+            BrowserLogger.warn('annotations', 'deleteAnnotationComment: unable to resolve editor for comment', {
+                stableKey: resolvedComment.stableKey,
+                source: resolvedComment.source,
+                annotationId: resolvedComment.annotationId ?? null,
+                uid: resolvedComment.uid ?? null,
+                id: resolvedComment.id,
+                pageNumber,
+                candidateIds,
+            });
             if (switchedToPopupMode) {
                 await toolManager.updateModeWithRetry(
                     uiManager,
@@ -433,6 +783,13 @@ export function useAnnotationCommentCrud(
         }
 
         if (!deleted) {
+            BrowserLogger.warn('annotations', 'deleteAnnotationComment: editor delete failed', {
+                stableKey: resolvedComment.stableKey,
+                source: resolvedComment.source,
+                annotationId: resolvedComment.annotationId ?? null,
+                uid: resolvedComment.uid ?? null,
+                id: resolvedComment.id,
+            });
             return false;
         }
 
