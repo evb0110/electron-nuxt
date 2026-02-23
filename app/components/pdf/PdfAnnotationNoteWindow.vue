@@ -353,7 +353,7 @@ function measureObservedWindowSize(entry: ResizeObserverEntry) {
     };
 }
 
-onMounted(async () => {
+onMounted(() => {
     applyPosition(position);
     if (typeof window !== 'undefined') {
         window.addEventListener('resize', handleViewportResize);
