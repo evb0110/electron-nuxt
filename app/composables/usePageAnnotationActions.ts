@@ -105,7 +105,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         setAnnotationNoteWindowError,
         isSameAnnotationComment,
         annotationNoteWindows,
-        deleteEmbeddedByRef,
         loadPdfFromData,
         waitForPdfReload,
     } = deps;
@@ -412,38 +411,27 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         if (!pdfViewerRef.value) {
             return;
         }
+        BrowserLogger.debug('annotations', 'Delete annotation comment requested', {
+            stableKey: comment.stableKey,
+            source: comment.source,
+            annotationId: comment.annotationId ?? null,
+            uid: comment.uid ?? null,
+            pageNumber: comment.pageNumber,
+        });
         setAnnotationNoteWindowError(comment.stableKey, null);
-        let deleted = await pdfViewerRef.value.deleteAnnotationComment(comment);
+        const deleted = await pdfViewerRef.value.deleteAnnotationComment(comment);
+        BrowserLogger.debug('annotations', 'Delete annotation comment viewer result', {
+            stableKey: comment.stableKey,
+            deleted,
+        });
         if (!deleted) {
-            const result = await deleteEmbeddedByRef(comment);
-            if (result instanceof Uint8Array) {
-                const pageToRestore = currentPage.value;
-                const restorePromise = waitForPdfReload(pageToRestore);
-                await loadPdfFromData(result, {
-                    pushHistory: true,
-                    persistWorkingCopy: !!workingCopyPath.value,
-                });
-                await restorePromise;
-                deleted = true;
-            }
-        }
-        if (!deleted) {
-            const materialized = await serializeCurrentPdfForEmbeddedFallback();
-            if (materialized) {
-                const result = await deleteEmbeddedByRef(comment);
-                if (result instanceof Uint8Array) {
-                    const pageToRestore = currentPage.value;
-                    const restorePromise = waitForPdfReload(pageToRestore);
-                    await loadPdfFromData(result, {
-                        pushHistory: true,
-                        persistWorkingCopy: !!workingCopyPath.value,
-                    });
-                    await restorePromise;
-                    deleted = true;
-                }
-            }
-        }
-        if (!deleted) {
+            BrowserLogger.warn('annotations', 'Delete annotation comment failed in viewer without reload fallback', {
+                stableKey: comment.stableKey,
+                source: comment.source,
+                annotationId: comment.annotationId ?? null,
+                uid: comment.uid ?? null,
+                id: comment.id,
+            });
             setAnnotationNoteWindowError(comment.stableKey, t('errors.annotation.delete'));
             return;
         }

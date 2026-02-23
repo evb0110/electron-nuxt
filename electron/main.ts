@@ -42,7 +42,12 @@ if (process.platform === 'win32') {
 
 // Explicitly set userData path to ensure it uses our app name
 // This fixes a race condition where imports above may cache the default "Electron" path
-app.setPath('userData', join(app.getPath('appData'), app.name));
+const automationUserDataDir = process.env.EVB_AUTOMATION_USER_DATA_DIR?.trim();
+if (automationUserDataDir) {
+    app.setPath('userData', automationUserDataDir);
+} else {
+    app.setPath('userData', join(app.getPath('appData'), app.name));
+}
 
 const logger = createLogger('main');
 const startupStartedAt = Date.now();
@@ -348,10 +353,16 @@ function broadcastUpdateStatus(status: IAppUpdateStatus) {
     }
 }
 
-const singleInstanceLock = app.requestSingleInstanceLock();
-if (!singleInstanceLock) {
-    app.quit();
-    process.exit(0);
+const allowMultipleAutomationSessions = process.env.EVB_ALLOW_MULTI_AUTOMATION_SESSIONS === '1';
+
+if (!allowMultipleAutomationSessions) {
+    const singleInstanceLock = app.requestSingleInstanceLock();
+    if (!singleInstanceLock) {
+        app.quit();
+        process.exit(0);
+    }
+} else {
+    logger.info('Automation harness mode: bypassing single-instance lock to allow multiple sessions');
 }
 
 // macOS: open-file fires when a file is double-clicked while the app is running or launching.

@@ -10,7 +10,11 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import puppeteer, { type Browser, type Page } from 'puppeteer-core';
+import puppeteer, {
+    type Browser,
+    type HTTPResponse,
+    type Page,
+} from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
 import { createCommandHandler } from './commands';
 import {
@@ -44,6 +48,39 @@ import {
 let sessionState: ISessionState | null = null;
 
 const handleCommand = createCommandHandler(() => sessionState);
+const MAX_CONSOLE_MESSAGES = 400;
+const MAX_DEVTOOLS_EVENTS = 1200;
+const RENDERER_READY_TIMEOUT_MS = 15_000;
+const VITE_OPTIMIZE_DEP_ERROR_MARKER = 'VITE_OPTIMIZE_DEP_504';
+const ELECTRON_START_TIMEOUT_MS = 45_000;
+const ELECTRON_STARTUP_LOG_MAX_LINES = 300;
+const ELECTRON_STARTUP_LOG_TAIL_LINES = 60;
+
+function pushBounded<T>(collection: T[], item: T, maxSize: number) {
+    collection.push(item);
+    if (collection.length > maxSize) {
+        collection.splice(0, collection.length - maxSize);
+    }
+}
+
+function createViteOptimizeDepError(details = '') {
+    const message = details
+        ? `${VITE_OPTIMIZE_DEP_ERROR_MARKER}: ${details}`
+        : VITE_OPTIMIZE_DEP_ERROR_MARKER;
+    const error = new Error(message);
+    error.name = 'ViteOptimizeDepError';
+    return error;
+}
+
+function isViteOptimizeDepError(error: unknown) {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+    return error.name === 'ViteOptimizeDepError'
+        || error.message.includes(VITE_OPTIMIZE_DEP_ERROR_MARKER)
+        || error.message.includes('Outdated Optimize Dep')
+        || error.message.includes('optimize-dep');
+}
 
 async function killProcessTreeForPids(pids: number[], graceMs = 1200) {
     for (const pid of Array.from(new Set(pids))) {
@@ -198,27 +235,85 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
     console.log('[Electron] Starting with CDP on port', cdpPort);
     mkdirSync(sessionDir(), { recursive: true });
 
+    const startupLogLines: string[] = [];
+    const pushStartupLogChunk = (stream: 'stdout' | 'stderr', chunk: string) => {
+        if (!chunk) {
+            return;
+        }
+
+        const lines = chunk
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(Boolean);
+        for (const line of lines) {
+            startupLogLines.push(`[${stream}] ${line}`);
+        }
+        if (startupLogLines.length > ELECTRON_STARTUP_LOG_MAX_LINES) {
+            startupLogLines.splice(0, startupLogLines.length - ELECTRON_STARTUP_LOG_MAX_LINES);
+        }
+    };
+
+    const formatStartupFailure = (reason: string, details: { code: number | null; signal: NodeJS.Signals | null }) => {
+        const tail = startupLogLines
+            .slice(-ELECTRON_STARTUP_LOG_TAIL_LINES)
+            .join('\n')
+            .trim();
+        const exitInfo = `code=${details.code ?? 'null'}, signal=${details.signal ?? 'null'}`;
+        return tail
+            ? `${reason} (${exitInfo})\n--- Electron output tail ---\n${tail}`
+            : `${reason} (${exitInfo})`;
+    };
+
+    const automationUserDataDir = electronUserDataPath();
     const electronPath = join(projectRoot, 'node_modules/.bin/electron');
     const electron = spawn(electronPath, [
         `--remote-debugging-port=${cdpPort}`,
-        `--user-data-dir=${electronUserDataPath()}`,
+        `--user-data-dir=${automationUserDataDir}`,
         '--disable-http-cache',
         mainJs,
     ], {
         cwd: projectRoot,
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+            ...process.env,
+            EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
+            EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
+            EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),
+            ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
+            ELECTRON_ENABLE_STACK_DUMPING: process.env.ELECTRON_ENABLE_STACK_DUMPING ?? '1',
+        },
     });
 
-    electron.stderr?.on('data', (data: Buffer) => {
+    let exitCode: number | null = null;
+    let exitSignal: NodeJS.Signals | null = null;
+    electron.on('exit', (code, signal) => {
+        exitCode = code;
+        exitSignal = signal;
+    });
+
+    const onElectronOutput = (stream: 'stdout' | 'stderr', data: Buffer) => {
         const text = data.toString();
+        pushStartupLogChunk(stream, text);
         if (text.includes('DevTools listening')) {
             console.log('[Electron] CDP ready');
         }
-    });
+    };
+    electron.stdout?.on('data', (data: Buffer) => onElectronOutput('stdout', data));
+    electron.stderr?.on('data', (data: Buffer) => onElectronOutput('stderr', data));
 
-    const timeout = 30_000;
+    const timeout = ELECTRON_START_TIMEOUT_MS;
     const start = Date.now();
     while (Date.now() - start < timeout) {
+        const electronPid = electron.pid ?? null;
+        const hasKnownPid = typeof electronPid === 'number' && electronPid > 0;
+        const exited = exitCode !== null || exitSignal !== null || (hasKnownPid && !isProcessAlive(electronPid));
+        if (exited) {
+            throw new Error(formatStartupFailure('Electron exited before CDP became ready', {
+                code: exitCode,
+                signal: exitSignal,
+            }));
+        }
+
         try {
             const res = await fetch(`http://localhost:${cdpPort}/json/version`);
             if (res.ok) {
@@ -234,7 +329,10 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
     } else {
         electron.kill();
     }
-    throw new Error('Electron failed to start CDP');
+    throw new Error(formatStartupFailure('Electron failed to start CDP before timeout', {
+        code: exitCode,
+        signal: exitSignal,
+    }));
 }
 
 async function checkHydration(page: Page): Promise<boolean> {
@@ -249,6 +347,49 @@ async function checkHydration(page: Page): Promise<boolean> {
     } catch {
         return false;
     }
+}
+
+interface IRendererState {
+    bodyExists: boolean;
+    openFileDirect: string;
+    electronAPI: string;
+    nuxtRootChildren: number;
+    bodyTextLength: number;
+    url: string;
+}
+
+async function readRendererState(page: Page): Promise<IRendererState> {
+    return await page.evaluate(() => {
+        const nuxtEl = document.querySelector('#__nuxt');
+        return {
+            bodyExists: document.body !== null,
+            openFileDirect: typeof (window as any).__openFileDirect,
+            electronAPI: typeof (window as any).electronAPI,
+            nuxtRootChildren: nuxtEl?.children.length ?? 0,
+            bodyTextLength: (document.body?.innerText ?? '').trim().length,
+            url: window.location.href,
+        };
+    });
+}
+
+function isRendererReady(state: IRendererState) {
+    return state.bodyExists
+        && state.openFileDirect === 'function'
+        && state.electronAPI === 'object'
+        && state.nuxtRootChildren > 0;
+}
+
+async function waitForRendererBindings(page: Page, timeoutMs = RENDERER_READY_TIMEOUT_MS): Promise<IRendererState> {
+    const start = Date.now();
+    let lastState = await readRendererState(page);
+    while (Date.now() - start < timeoutMs) {
+        lastState = await readRendererState(page);
+        if (isRendererReady(lastState)) {
+            return lastState;
+        }
+        await delay(250);
+    }
+    return lastState;
 }
 
 async function findAppPage(browser: Browser): Promise<Page | null> {
@@ -305,82 +446,126 @@ async function connectToBrowser(cdpPort: number): Promise<{ browser: Browser; pa
         }
     }
 
+    let trackedPage: Page | null = null;
+    let responseListener: ((response: HTTPResponse) => void) | null = null;
     let sawOutdatedOptimizeDep = false;
-    page.on('response', (res) => {
-        if (res.status() === 504 && res.url().includes(`localhost:${NUXT_PORT}`)) {
-            sawOutdatedOptimizeDep = true;
+    let optimizeDepUrl: string | null = null;
+    const attachOptimizeDepWatcher = (nextPage: Page) => {
+        if (trackedPage && responseListener) {
+            trackedPage.off('response', responseListener);
         }
-    });
+        trackedPage = nextPage;
+        responseListener = (response) => {
+            if (response.status() === 504 && response.url().includes(`localhost:${NUXT_PORT}`)) {
+                sawOutdatedOptimizeDep = true;
+                optimizeDepUrl = response.url();
+            }
+        };
+        trackedPage.on('response', responseListener);
+    };
+    attachOptimizeDepWatcher(page);
 
     try {
-        await page.waitForSelector('body', { timeout: 30000 });
-    } catch {
-        console.log('[Puppeteer] Page navigated during initial load, re-finding...');
-        await delay(2000);
-        page = await findAppPage(browser);
-        if (!page) {
-            throw new Error('Lost app page after navigation');
-        }
-        await page.waitForSelector('body', { timeout: 15000 });
-    }
-
-    console.log('[Puppeteer] Waiting for Vue to hydrate...');
-    let hydrated = false;
-    let navigationCount = 0;
-    const MAX_NAVIGATIONS = 3;
-
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-        if (sawOutdatedOptimizeDep) {
-            console.log('[Puppeteer] Detected Vite 504 (Outdated Optimize Dep), reloading...');
-            break;
+        try {
+            await page.waitForSelector('body', { timeout: 30000 });
+        } catch {
+            console.log('[Puppeteer] Page navigated during initial load, re-finding...');
+            await delay(2000);
+            page = await findAppPage(browser);
+            if (!page) {
+                throw new Error('Lost app page after navigation');
+            }
+            attachOptimizeDepWatcher(page);
+            await page.waitForSelector('body', { timeout: 15000 });
         }
 
-        const isReady = await checkHydration(page);
+        console.log('[Puppeteer] Waiting for Vue to hydrate...');
+        let hydrated = false;
+        let navigationCount = 0;
+        const MAX_NAVIGATIONS = 3;
 
-        if (isReady) {
-            hydrated = true;
-            break;
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+            if (sawOutdatedOptimizeDep) {
+                console.log('[Puppeteer] Detected Vite 504 (Outdated Optimize Dep), reloading...');
+                break;
+            }
+
+            const isReady = await checkHydration(page);
+            if (isReady) {
+                hydrated = true;
+                break;
+            }
+
+            if (attempt > 0 && attempt % 5 === 0) {
+                const freshPage = await findAppPage(browser);
+                if (freshPage && freshPage !== page) {
+                    navigationCount += 1;
+                    console.log(`[Puppeteer] Page navigated (${navigationCount}/${MAX_NAVIGATIONS}), re-attaching...`);
+                    if (navigationCount > MAX_NAVIGATIONS) {
+                        console.log('[Puppeteer] Too many navigations, proceeding with current page');
+                        break;
+                    }
+                    page = freshPage;
+                    attachOptimizeDepWatcher(page);
+                }
+            }
+
+            await delay(500);
         }
 
-        if (attempt > 0 && attempt % 5 === 0) {
-            const freshPage = await findAppPage(browser);
-            if (freshPage && freshPage !== page) {
-                navigationCount += 1;
-                console.log(`[Puppeteer] Page navigated (${navigationCount}/${MAX_NAVIGATIONS}), re-attaching...`);
-                if (navigationCount > MAX_NAVIGATIONS) {
-                    console.log('[Puppeteer] Too many navigations, proceeding with current page');
+        if (!hydrated || sawOutdatedOptimizeDep) {
+            if (!hydrated) {
+                console.log('[Puppeteer] Vue not ready, reloading page...');
+            }
+            sawOutdatedOptimizeDep = false;
+            optimizeDepUrl = null;
+            try {
+                await page.reload({ waitUntil: 'networkidle2' });
+            } catch {
+                await delay(2000);
+                page = await findAppPage(browser) ?? page;
+                attachOptimizeDepWatcher(page);
+            }
+
+            await delay(1500);
+            let hydratedAfterReload = false;
+            for (let attempt = 0; attempt < 30; attempt += 1) {
+                if (sawOutdatedOptimizeDep) {
                     break;
                 }
-                page = freshPage;
+                if (await checkHydration(page)) {
+                    hydratedAfterReload = true;
+                    break;
+                }
+                await delay(350);
+            }
+
+            if (sawOutdatedOptimizeDep) {
+                throw createViteOptimizeDepError(optimizeDepUrl ?? 'Outdated Optimize Dep after reload');
+            }
+            if (!hydratedAfterReload) {
+                console.log('[Puppeteer] Warning: Vue may not be fully hydrated after reload');
             }
         }
 
-        await delay(500);
-    }
-
-    if (!hydrated) {
-        console.log('[Puppeteer] Vue not ready, reloading page...');
-        sawOutdatedOptimizeDep = false;
-        try {
-            await page.reload({ waitUntil: 'networkidle2' });
-        } catch {
-            await delay(2000);
-            page = await findAppPage(browser) ?? page;
+        const rendererState = await waitForRendererBindings(page, RENDERER_READY_TIMEOUT_MS);
+        if (!isRendererReady(rendererState)) {
+            if (sawOutdatedOptimizeDep) {
+                throw createViteOptimizeDepError(optimizeDepUrl ?? 'Outdated Optimize Dep while waiting for renderer bindings');
+            }
+            throw new Error(`Renderer readiness timeout (openFileDirect=${rendererState.openFileDirect}, electronAPI=${rendererState.electronAPI}, nuxtChildren=${rendererState.nuxtRootChildren}, text=${rendererState.bodyTextLength}, url=${rendererState.url})`);
         }
-        await delay(3000);
 
-        const isReadyAfterReload = await checkHydration(page);
-
-        if (!isReadyAfterReload) {
-            console.log('[Puppeteer] Warning: Vue may not be fully hydrated');
+        console.log('[Puppeteer] Connected to app');
+        return {
+            browser,
+            page,
+        };
+    } finally {
+        if (trackedPage && responseListener) {
+            trackedPage.off('response', responseListener);
         }
     }
-
-    console.log('[Puppeteer] Connected to app');
-    return {
-        browser,
-        page,
-    };
 }
 
 export async function startSession(forceClean = false) {
@@ -409,7 +594,7 @@ export async function startSession(forceClean = false) {
             forceClean = false;
         }
 
-        const nuxtProcess = await startNuxtServer(forceClean);
+        let nuxtProcess = await startNuxtServer(forceClean);
 
         try {
             rmSync(electronUserDataPath(), { recursive: true, force: true });
@@ -423,50 +608,134 @@ export async function startSession(forceClean = false) {
             await delay(500);
         }
 
-        const cdpPort = await findFreePort();
         const serverPort = await findFreePort();
+        let cdpPort = await findFreePort();
         console.log(`[Ports] CDP: ${cdpPort}, HTTP server: ${serverPort}`);
 
-        const electronProcess = await startElectron(cdpPort);
+        let electronProcess: ChildProcess | null = null;
+        let browser: Browser | null = null;
+        let page: Page | null = null;
+        let launchError: unknown = null;
 
-        let browser: Browser;
-        let page: Page;
-        try {
-            ({
-                browser,
-                page,
-            } = await connectToBrowser(cdpPort));
-        } catch (error) {
-            console.error('[Session] Failed to connect to browser, cleaning up...');
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            if (attempt > 0) {
+                cdpPort = await findFreePort();
+                console.log(`[Recovery] Retrying launch (attempt ${attempt + 1}/2) with CDP port ${cdpPort}`);
+            }
+
+            electronProcess = await startElectron(cdpPort);
+
             try {
-                if (electronProcess.pid && isProcessAlive(electronProcess.pid)) {
-                    await killProcessTree(electronProcess.pid, 800);
-                } else {
-                    electronProcess.kill();
+                ({
+                    browser,
+                    page,
+                } = await connectToBrowser(cdpPort));
+                launchError = null;
+                break;
+            } catch (error) {
+                launchError = error;
+                const message = error instanceof Error ? error.message : String(error);
+                console.error(`[Session] Failed to connect to browser: ${message}`);
+
+                try {
+                    if (electronProcess.pid && isProcessAlive(electronProcess.pid)) {
+                        await killProcessTree(electronProcess.pid, 800);
+                    } else {
+                        electronProcess.kill();
+                    }
+                } catch {}
+                electronProcess = null;
+                browser = null;
+                page = null;
+
+                if (attempt === 0 && isViteOptimizeDepError(error)) {
+                    if (otherRunning.length > 0) {
+                        launchError = new Error(`Detected Vite optimize-dep failure, but other sessions are active (${otherRunning.join(', ')}). Stop them and run cleanstart.`);
+                        break;
+                    }
+                    console.log('[Recovery] Detected Vite optimize-dep issue. Restarting Nuxt with cleared cache...');
+                    nuxtProcess = await startNuxtServer(true);
+                    continue;
                 }
-            } catch {}
+
+                break;
+            }
+        }
+
+        if (!electronProcess || !browser || !page) {
+            console.error('[Session] Failed to initialize app session, cleaning up...');
             try {
                 if (nuxtProcess?.pid && isProcessAlive(nuxtProcess.pid)) {
-                    await killProcessTree(nuxtProcess.pid, 800);
+                    await killProcessTree(nuxtProcess.pid, 1200);
                 } else {
                     nuxtProcess?.kill();
                 }
             } catch {}
-            throw error;
+            if (launchError instanceof Error) {
+                throw launchError;
+            }
+            throw new Error('Failed to initialize Electron session');
         }
 
         const consoleMessages: ISessionState['consoleMessages'] = [];
+        const devtoolsEvents: ISessionState['devtoolsEvents'] = [];
+        const pushConsoleMessage = (entry: ISessionState['consoleMessages'][number]) => {
+            pushBounded(consoleMessages, entry, MAX_CONSOLE_MESSAGES);
+            pushBounded(devtoolsEvents, {
+                kind: 'console',
+                timestamp: entry.timestamp,
+                level: entry.type,
+                text: entry.text,
+            }, MAX_DEVTOOLS_EVENTS);
+        };
+        const pushDevtoolsEvent = (entry: ISessionState['devtoolsEvents'][number]) => {
+            pushBounded(devtoolsEvents, entry, MAX_DEVTOOLS_EVENTS);
+        };
+
         page.on('console', (msg) => {
             const entry = {
                 type: msg.type(),
                 text: msg.text(),
                 timestamp: Date.now(),
             };
-            consoleMessages.push(entry);
+            pushConsoleMessage(entry);
             console.log(`[${entry.type.toUpperCase()}] ${entry.text}`);
-            if (consoleMessages.length > 100) {
-                consoleMessages.shift();
-            }
+        });
+
+        page.on('request', (request) => {
+            pushDevtoolsEvent({
+                kind: 'request',
+                timestamp: Date.now(),
+                url: request.url(),
+                method: request.method(),
+                resourceType: request.resourceType(),
+                isNavigationRequest: request.isNavigationRequest(),
+            });
+        });
+
+        page.on('response', (response) => {
+            pushDevtoolsEvent({
+                kind: 'response',
+                timestamp: Date.now(),
+                url: response.url(),
+                status: response.status(),
+                ok: response.ok(),
+                fromCache: response.fromCache(),
+                fromServiceWorker: response.fromServiceWorker(),
+                resourceType: response.request().resourceType(),
+                method: response.request().method(),
+            });
+        });
+
+        page.on('requestfailed', (request) => {
+            pushDevtoolsEvent({
+                kind: 'requestfailed',
+                timestamp: Date.now(),
+                url: request.url(),
+                method: request.method(),
+                resourceType: request.resourceType(),
+                failureText: request.failure()?.errorText ?? 'unknown request failure',
+            });
         });
 
         page.on('error', (error) => {
@@ -475,11 +744,13 @@ export async function startSession(forceClean = false) {
                 text: `[PAGE ERROR] ${error.message}`,
                 timestamp: Date.now(),
             };
-            consoleMessages.push(entry);
+            pushConsoleMessage(entry);
+            pushDevtoolsEvent({
+                kind: 'error',
+                timestamp: entry.timestamp,
+                text: entry.text,
+            });
             console.log(`[ERROR] ${error.message}`);
-            if (consoleMessages.length > 100) {
-                consoleMessages.shift();
-            }
         });
 
         page.on('pageerror', (error) => {
@@ -489,11 +760,13 @@ export async function startSession(forceClean = false) {
                 text: `[PAGE CRASH] ${message}`,
                 timestamp: Date.now(),
             };
-            consoleMessages.push(entry);
+            pushConsoleMessage(entry);
+            pushDevtoolsEvent({
+                kind: 'pageerror',
+                timestamp: entry.timestamp,
+                text: message,
+            });
             console.log(`[ERROR] ${message}`);
-            if (consoleMessages.length > 100) {
-                consoleMessages.shift();
-            }
         });
 
         sessionState = {
@@ -502,6 +775,7 @@ export async function startSession(forceClean = false) {
             electronProcess,
             nuxtProcess,
             consoleMessages,
+            devtoolsEvents,
         };
 
         let isShuttingDown = false;
@@ -548,6 +822,7 @@ export async function startSession(forceClean = false) {
                 }
             }
 
+            sessionState = null;
             process.exit(exitCode);
         };
 

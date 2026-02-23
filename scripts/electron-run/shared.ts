@@ -60,12 +60,36 @@ export function screenshotDirPath(name = getCurrentSessionName()) {
     return join(sessionDir(name), 'screenshots');
 }
 
+export interface IConsoleMessage {
+    type: string;
+    text: string;
+    timestamp: number;
+}
+
+export interface IDevtoolsEvent {
+    kind: 'console' | 'request' | 'response' | 'requestfailed' | 'pageerror' | 'error';
+    timestamp: number;
+    type?: string;
+    text?: string;
+    level?: string;
+    url?: string;
+    method?: string;
+    status?: number;
+    ok?: boolean;
+    resourceType?: string;
+    isNavigationRequest?: boolean;
+    fromCache?: boolean;
+    fromServiceWorker?: boolean;
+    failureText?: string;
+}
+
 export interface ISessionState {
     browser: Browser;
     page: Page;
     electronProcess: ChildProcess;
     nuxtProcess: ChildProcess | null;
-    consoleMessages: Array<{ type: string; text: string; timestamp: number }>;
+    consoleMessages: IConsoleMessage[];
+    devtoolsEvents: IDevtoolsEvent[];
 }
 
 export interface ISessionInfo {

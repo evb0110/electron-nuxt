@@ -15,8 +15,8 @@
         @focus="$emit('focus-note', note.comment.stableKey)"
     />
     <template
-        v-for="note in minimizedAnnotationNoteWindows"
-        :key="`minimized-${note.comment.stableKey}`"
+        v-for="note in anchoredAnnotationNoteWindows"
+        :key="`anchor-${note.comment.stableKey}`"
     >
         <Teleport
             v-if="minimizedIndicatorTargets[note.comment.stableKey]"
@@ -31,8 +31,13 @@
                     class="pdf-note-minimized-indicator"
                     :style="getMinimizedIndicatorStyle(note)"
                     :aria-label="t('annotations.openNote')"
+                    :title="getMinimizedNotePreview(note)"
                     @mousedown.prevent
-                    @click="$emit('restore-note', note.comment.stableKey)"
+                    @mouseenter="handleAnchorPointerEvent('mouseenter', note)"
+                    @mouseleave="handleAnchorPointerEvent('mouseleave', note)"
+                    @focus="handleAnchorPointerEvent('focus', note)"
+                    @blur="handleAnchorPointerEvent('blur', note)"
+                    @click="handleAnchorClick(note)"
                 >
                     <UIcon name="i-lucide-message-square" class="size-3" />
                 </button>
@@ -94,6 +99,7 @@ import type {
 } from '@app/types/annotations';
 import { normalizeMarkerRect } from '@app/composables/pdf/pdfAnnotationUtils';
 import type { IAnnotationNotePosition } from '@app/composables/pdf/useAnnotationNoteWindows';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface IAnnotationNoteWindowEntry {
     comment: IAnnotationCommentSummary;
@@ -149,13 +155,17 @@ const { t } = useTypedI18n();
 const visibleAnnotationNoteWindows = computed(() =>
     props.sortedAnnotationNoteWindows.filter((note) => !note.isMinimized),
 );
-const minimizedAnnotationNoteWindows = computed(() =>
-    props.sortedAnnotationNoteWindows.filter((note) => note.isMinimized),
+const anchoredAnnotationNoteWindows = computed(() =>
+    props.sortedAnnotationNoteWindows.filter((note) => Boolean(getNoteMarkerRect(note))),
 );
 const indicatorDomTick = ref(0);
 let refreshBurstFrameId: number | null = null;
 let refreshBurstFramesRemaining = 0;
 let viewportMutationObserver: MutationObserver | null = null;
+
+function logAnchor(message: string, payload: Record<string, unknown>) {
+    BrowserLogger.debug('note-anchor', message, payload);
+}
 
 function refreshIndicatorDom() {
     indicatorDomTick.value += 1;
@@ -190,7 +200,7 @@ const minimizedIndicatorTargets = computed<Record<string, HTMLElement>>(() => {
     }
 
     const targets: Record<string, HTMLElement> = {};
-    minimizedAnnotationNoteWindows.value.forEach((note) => {
+    anchoredAnnotationNoteWindows.value.forEach((note) => {
         const pageContainer = viewportRoot.querySelector<HTMLElement>(`.page_container[data-page="${note.comment.pageNumber}"]`);
         if (pageContainer) {
             targets[note.comment.stableKey] = pageContainer;
@@ -199,22 +209,25 @@ const minimizedIndicatorTargets = computed<Record<string, HTMLElement>>(() => {
     return targets;
 });
 
+function getNoteMarkerRect(note: IAnnotationNoteWindowEntry) {
+    return normalizeMarkerRect(note.comment.markerRect);
+}
+
 function getMinimizedIndicatorStyle(note: IAnnotationNoteWindowEntry) {
     void indicatorDomTick.value;
     void props.annotationZoom;
 
-    const markerRect = normalizeMarkerRect(note.comment.markerRect);
-    const leftPercent = markerRect
-        ? Math.max(1, Math.min(99, (markerRect.left + markerRect.width) * 100))
-        : 3;
-    const topPercent = markerRect
-        ? Math.max(1, Math.min(99, markerRect.top * 100))
-        : 3;
+    const markerRect = getNoteMarkerRect(note);
+    if (!markerRect) {
+        return {display: 'none'};
+    }
+    const leftPercent = Math.max(1, Math.min(99, (markerRect.left + markerRect.width) * 100));
+    const topPercent = Math.max(1, Math.min(99, markerRect.top * 100));
 
     return {
         left: `${leftPercent}%`,
         top: `${topPercent}%`,
-        zIndex: String(20 + note.order),
+        zIndex: String(25 + note.order),
     };
 }
 
@@ -254,6 +267,40 @@ function reconnectViewportObservers() {
     }
 }
 
+function handleAnchorPointerEvent(
+    eventName: 'mouseenter' | 'mouseleave' | 'focus' | 'blur',
+    note: IAnnotationNoteWindowEntry,
+) {
+    const target = minimizedIndicatorTargets.value[note.comment.stableKey] ?? null;
+    const targetRect = target?.getBoundingClientRect() ?? null;
+    logAnchor('anchor pointer event', {
+        eventName,
+        stableKey: note.comment.stableKey,
+        pageNumber: note.comment.pageNumber,
+        markerRect: getNoteMarkerRect(note),
+        preview: getMinimizedNotePreview(note),
+        isMinimized: note.isMinimized,
+        targetRect: targetRect
+            ? {
+                left: Math.round(targetRect.left),
+                top: Math.round(targetRect.top),
+                width: Math.round(targetRect.width),
+                height: Math.round(targetRect.height),
+            }
+            : null,
+    });
+}
+
+function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
+    logAnchor('anchor clicked', {
+        stableKey: note.comment.stableKey,
+        pageNumber: note.comment.pageNumber,
+        markerRect: getNoteMarkerRect(note),
+        isMinimized: note.isMinimized,
+    });
+    emit('restore-note', note.comment.stableKey);
+}
+
 onMounted(() => {
     reconnectViewportObservers();
     scheduleIndicatorRefreshBurst(10);
@@ -286,13 +333,13 @@ watch(
 );
 
 watch(
-    () => minimizedAnnotationNoteWindows.value.map((note) => `${note.comment.stableKey}:${note.comment.pageNumber}`),
+    () => anchoredAnnotationNoteWindows.value.map((note) => `${note.comment.stableKey}:${note.comment.pageNumber}`),
     () => {
         scheduleIndicatorRefreshBurst(6);
     },
 );
 
-defineEmits<{
+const emit = defineEmits<{
     'update-note-text': [stableKey: string, text: string];
     'update-note-position': [stableKey: string, position: IAnnotationNotePosition];
     'minimize-note': [stableKey: string];
