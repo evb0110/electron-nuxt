@@ -227,6 +227,44 @@ export const useSelectionHighlight = (deps: {
             return true;
         };
 
+        const clearEditorSelectionVisuals = (editor: IPdfjsEditor | null) => {
+            const managerWithSelection = uiManager as AnnotationEditorUIManager & {
+                unselectAll?: () => void;
+                setSelected?: (editor: unknown) => void;
+            };
+            managerWithSelection.unselectAll?.();
+            try {
+                managerWithSelection.setSelected?.(null);
+            } catch (error) {
+                BrowserLogger.debug('annotations', `Failed to clear selected editor via uiManager: ${errorToLogText(error)}`);
+            }
+
+            const clearSelectionClasses = () => {
+                if (typeof document === 'undefined') {
+                    return;
+                }
+                document.querySelectorAll<HTMLElement>(
+                    '.annotationEditorLayer .selectedEditor, .annotationEditorLayer .selected, .annotation-editor-layer .selectedEditor, .annotation-editor-layer .selected',
+                ).forEach((element) => {
+                    element.classList.remove('selectedEditor', 'selected');
+                });
+                document.querySelectorAll<HTMLElement>(
+                    '.textLayer .highlight.selected, .text-layer .highlight.selected, .highlightOutline.selected',
+                ).forEach((element) => {
+                    element.classList.remove('selected');
+                });
+                document.getSelection()?.removeAllRanges();
+                editor?.div?.classList.remove('selectedEditor', 'selected');
+            };
+
+            clearSelectionClasses();
+            if (typeof window !== 'undefined') {
+                window.requestAnimationFrame(clearSelectionClasses);
+                window.setTimeout(clearSelectionClasses, 0);
+                window.setTimeout(clearSelectionClasses, 80);
+            }
+        };
+
         try {
             const highlightModeError = await deps.toolManager.updateModeWithRetry(uiManager, AnnotationEditorType.HIGHLIGHT, pageNumber);
             if (highlightModeError) {
@@ -272,6 +310,7 @@ export const useSelectionHighlight = (deps: {
                     deps.commentSync.pendingCommentEditorKeys.add(deps.identity.getEditorPendingKey(targetEditor, pageIndex));
                     const summary = deps.commentSync.toEditorSummary(targetEditor, pageIndex, getCommentText(targetEditor));
                     deps.emitAnnotationOpenNote(summary);
+                    clearEditorSelectionVisuals(targetEditor);
                 } else {
                     let attempts = 0;
                     const tryEmitLater = () => {
@@ -287,6 +326,7 @@ export const useSelectionHighlight = (deps: {
                         deps.commentSync.pendingCommentEditorKeys.add(deps.identity.getEditorPendingKey(lateEditor, pageIndex));
                         const summary = deps.commentSync.toEditorSummary(lateEditor, pageIndex, getCommentText(lateEditor));
                         deps.emitAnnotationOpenNote(summary);
+                        clearEditorSelectionVisuals(lateEditor);
                     };
                     setTimeout(tryEmitLater, 80);
                 }

@@ -70,12 +70,36 @@ export function useInlineCommentIndicators(options: IUseInlineCommentIndicatorsO
         parseStableKeysAttr: rendering.parseStableKeysAttr,
         serializeStableKeysAttr: rendering.serializeStableKeysAttr,
         pickBestCommentFromStableKeys: rendering.pickBestCommentFromStableKeys,
+        getAnnotationComments: () => annotationCommentsCache.value,
         getInlineTargetStableKeys: rendering.getInlineTargetStableKeys,
         markerIncludesStableKey: rendering.markerIncludesStableKey,
         isCommentActive: rendering.isCommentActive,
     });
 
     let inlineCommentMarkerObserver: MutationObserver | null = null;
+
+    function commentsLikelySameIndicator(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
+        if (identity.commentsAreSameLogicalAnnotation(left, right)) {
+            return true;
+        }
+        if (left.pageIndex !== right.pageIndex) {
+            return false;
+        }
+        if (!(left.hasNote && right.hasNote)) {
+            return false;
+        }
+
+        if (left.source === right.source) {
+            return false;
+        }
+        if (left.annotationId && right.annotationId && left.annotationId === right.annotationId) {
+            return true;
+        }
+        if (left.uid && right.uid && left.uid === right.uid) {
+            return true;
+        }
+        return false;
+    }
 
     function clearInlineCommentIndicators() {
         const container = viewerContainer.value;
@@ -152,8 +176,23 @@ export function useInlineCommentIndicators(options: IUseInlineCommentIndicatorsO
                 return left.stableKey.localeCompare(right.stableKey);
             });
 
+        const reconciledComments: IAnnotationCommentSummary[] = [];
+        dedupedComments.forEach((candidate) => {
+            const existingIndex = reconciledComments.findIndex(existing => commentsLikelySameIndicator(existing, candidate));
+            if (existingIndex === -1) {
+                reconciledComments.push(candidate);
+                return;
+            }
+            const existing = reconciledComments[existingIndex];
+            if (!existing) {
+                reconciledComments.push(candidate);
+                return;
+            }
+            reconciledComments[existingIndex] = identity.mergeDuplicateCommentSummary(existing, candidate);
+        });
+
         const commentsByAnnotationId = new Map<string, IAnnotationCommentSummary>();
-        dedupedComments.forEach((comment) => {
+        reconciledComments.forEach((comment) => {
             if (comment.annotationId) {
                 commentsByAnnotationId.set(comment.annotationId, comment);
             }
@@ -171,21 +210,34 @@ export function useInlineCommentIndicators(options: IUseInlineCommentIndicatorsO
                     const summary = identity.hydrateSummaryFromMemory(
                         commentSync.toEditorSummary(normalizedEditor, pageIndex, getCommentText(normalizedEditor).trim()),
                     );
-                    if (!summary.hasNote) {
+                    const matchedLogicalSummary = reconciledComments.find(candidate =>
+                        identity.commentsAreSameLogicalAnnotation(candidate, summary),
+                    );
+                    const resolvedSummary = matchedLogicalSummary
+                        ? identity.mergeDuplicateCommentSummary(matchedLogicalSummary, summary)
+                        : summary;
+                    if (!resolvedSummary.hasNote) {
                         continue;
                     }
                     if (normalizedEditor.div) {
                         rendering.markInlineCommentTargetWithKey(
                             normalizedEditor.div,
-                            summary.text,
-                            summary.stableKey,
+                            resolvedSummary.text,
+                            resolvedSummary.stableKey,
                             { anchor: true },
                             interaction.upsertInlineCommentAnchorMarker,
                         );
-                        handledLogicalCommentKeys.add(rendering.commentLogicalIndicatorKey(summary));
+                        const handledKeys = new Set<string>([
+                            rendering.commentLogicalIndicatorKey(resolvedSummary),
+                            rendering.commentLogicalIndicatorKey(summary),
+                        ]);
+                        if (matchedLogicalSummary) {
+                            handledKeys.add(rendering.commentLogicalIndicatorKey(matchedLogicalSummary));
+                        }
+                        handledKeys.forEach(logicalKey => handledLogicalCommentKeys.add(logicalKey));
                     }
-                    if (summary.annotationId) {
-                        commentsByAnnotationId.delete(summary.annotationId);
+                    if (resolvedSummary.annotationId) {
+                        commentsByAnnotationId.delete(resolvedSummary.annotationId);
                     }
                 }
             }
@@ -211,11 +263,35 @@ export function useInlineCommentIndicators(options: IUseInlineCommentIndicatorsO
             }
         });
 
+        const inlineRepresentedStableKeys = new Set<string>();
+        container.querySelectorAll<HTMLElement>('[data-comment-stable-key], [data-comment-stable-keys]').forEach((target) => {
+            const preferred = target.getAttribute('data-comment-stable-key');
+            if (preferred) {
+                inlineRepresentedStableKeys.add(preferred);
+            }
+            rendering.getInlineTargetStableKeys(target).forEach((stableKey) => {
+                inlineRepresentedStableKeys.add(stableKey);
+            });
+        });
+        const inlineRepresentedComments = Array
+            .from(inlineRepresentedStableKeys)
+            .map(stableKey => identity.findCommentByStableKey(stableKey))
+            .filter((comment): comment is IAnnotationCommentSummary => Boolean(comment));
+        const isAlreadyRepresentedInline = (comment: IAnnotationCommentSummary) =>
+            inlineRepresentedComments.some((inlineComment) => (
+                identity.commentsAreSameLogicalAnnotation(inlineComment, comment)
+                || commentsLikelySameIndicator(inlineComment, comment)
+            ));
+
         const detachedCommentsByPage = new Map<number, IAnnotationCommentSummary[]>();
         const detachedGroupSeen = new Set<string>();
-        dedupedComments.forEach((comment) => {
+        reconciledComments.forEach((comment) => {
             const logicalKey = rendering.commentLogicalIndicatorKey(comment);
             if (handledLogicalCommentKeys.has(logicalKey)) {
+                return;
+            }
+            if (isAlreadyRepresentedInline(comment)) {
+                handledLogicalCommentKeys.add(logicalKey);
                 return;
             }
 
@@ -229,6 +305,7 @@ export function useInlineCommentIndicators(options: IUseInlineCommentIndicatorsO
                 interaction.upsertInlineCommentAnchorMarker,
             )) {
                 handledLogicalCommentKeys.add(logicalKey);
+                inlineRepresentedComments.push(comment);
                 return;
             }
 

@@ -186,7 +186,10 @@ function shouldReclaimFocus(activeElement: HTMLElement | null) {
         return false;
     }
     if (isTextEntryElement(activeElement)) {
-        return false;
+        const insidePdfViewer = Boolean(
+            activeElement.closest('.annotationEditorLayer, .annotation-editor-layer, .pdfViewer, .pdf-viewer'),
+        );
+        return insidePdfViewer;
     }
     return true;
 }
@@ -382,6 +385,7 @@ onMounted(() => {
             resizeObserver.observe(noteWindowRef.value);
         }
     }
+    void focusTextInput();
     startFocusGuard();
 });
 
@@ -410,6 +414,7 @@ watch(
     () => comment.stableKey,
     () => {
         applyPosition(position);
+        void focusTextInput();
         startFocusGuard();
     },
 );
@@ -420,6 +425,7 @@ watch(
         if (nextZIndex === previousZIndex) {
             return;
         }
+        void focusTextInput();
         startFocusGuard();
     },
 );

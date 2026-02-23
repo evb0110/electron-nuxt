@@ -102,6 +102,183 @@ export function areTextMarkupCommentsLikelySame(
     return centerDistance <= 0.045 && areaRatio <= 2.8;
 }
 
+function isTextLikeNoteSubtype(subtype: IAnnotationCommentSummary['subtype']) {
+    const normalized = (subtype ?? '').trim().toLowerCase();
+    if (!normalized) {
+        return false;
+    }
+    return (
+        normalized.includes('text')
+        || normalized.includes('popup')
+        || normalized.includes('note')
+        || isTextMarkupSubtype(subtype)
+    );
+}
+
+function markerRectCenterDistance(
+    left: IAnnotationCommentSummary['markerRect'],
+    right: IAnnotationCommentSummary['markerRect'],
+) {
+    const normalizedLeft = normalizeMarkerRect(left);
+    const normalizedRight = normalizeMarkerRect(right);
+    if (!normalizedLeft || !normalizedRight) {
+        return Number.POSITIVE_INFINITY;
+    }
+    const leftCenterX = normalizedLeft.left + normalizedLeft.width / 2;
+    const leftCenterY = normalizedLeft.top + normalizedLeft.height / 2;
+    const rightCenterX = normalizedRight.left + normalizedRight.width / 2;
+    const rightCenterY = normalizedRight.top + normalizedRight.height / 2;
+    return Math.hypot(leftCenterX - rightCenterX, leftCenterY - rightCenterY);
+}
+
+function intervalOverlap(
+    leftStart: number,
+    leftEnd: number,
+    rightStart: number,
+    rightEnd: number,
+) {
+    return Math.max(0, Math.min(leftEnd, rightEnd) - Math.max(leftStart, rightStart));
+}
+
+function rectContainsPoint(
+    rect: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+    },
+    x: number,
+    y: number,
+) {
+    return (
+        x >= rect.left
+        && x <= (rect.left + rect.width)
+        && y >= rect.top
+        && y <= (rect.top + rect.height)
+    );
+}
+
+function markerRectLineMirrorSignal(
+    left: IAnnotationCommentSummary['markerRect'],
+    right: IAnnotationCommentSummary['markerRect'],
+) {
+    const normalizedLeft = normalizeMarkerRect(left);
+    const normalizedRight = normalizeMarkerRect(right);
+    if (!normalizedLeft || !normalizedRight) {
+        return false;
+    }
+
+    const minHeight = Math.max(1e-6, Math.min(normalizedLeft.height, normalizedRight.height));
+    const minWidth = Math.max(1e-6, Math.min(normalizedLeft.width, normalizedRight.width));
+    const maxWidth = Math.max(normalizedLeft.width, normalizedRight.width);
+    const widthRatio = maxWidth / minWidth;
+
+    const yOverlap = intervalOverlap(
+        normalizedLeft.top,
+        normalizedLeft.top + normalizedLeft.height,
+        normalizedRight.top,
+        normalizedRight.top + normalizedRight.height,
+    ) / minHeight;
+    const xOverlap = intervalOverlap(
+        normalizedLeft.left,
+        normalizedLeft.left + normalizedLeft.width,
+        normalizedRight.left,
+        normalizedRight.left + normalizedRight.width,
+    ) / minWidth;
+
+    const leftCenterX = normalizedLeft.left + (normalizedLeft.width / 2);
+    const leftCenterY = normalizedLeft.top + (normalizedLeft.height / 2);
+    const rightCenterX = normalizedRight.left + (normalizedRight.width / 2);
+    const rightCenterY = normalizedRight.top + (normalizedRight.height / 2);
+    const centerContainment = rectContainsPoint(normalizedLeft, rightCenterX, rightCenterY)
+        || rectContainsPoint(normalizedRight, leftCenterX, leftCenterY);
+
+    return (
+        yOverlap >= 0.72
+        && (
+            centerContainment
+            || xOverlap >= 0.18
+            || (widthRatio >= 3.2 && xOverlap >= 0.08)
+        )
+    );
+}
+
+function likelyEditorPdfMirror(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    if (left.pageIndex !== right.pageIndex) {
+        return false;
+    }
+    if (left.source === right.source) {
+        return false;
+    }
+    if (!(left.hasNote && right.hasNote)) {
+        return false;
+    }
+
+    const leftText = left.text.trim();
+    const rightText = right.text.trim();
+    const hasLeftText = leftText.length > 0;
+    const hasRightText = rightText.length > 0;
+    if (hasLeftText && hasRightText && leftText !== rightText) {
+        return false;
+    }
+
+    if (!isTextLikeNoteSubtype(left.subtype) || !isTextLikeNoteSubtype(right.subtype)) {
+        return false;
+    }
+
+    if (left.annotationId && right.annotationId && left.annotationId === right.annotationId) {
+        return true;
+    }
+    if (left.uid && right.uid && left.uid === right.uid) {
+        return true;
+    }
+
+    const hasLeftStableRef = Boolean(left.annotationId || left.uid);
+    const hasRightStableRef = Boolean(right.annotationId || right.uid);
+    const stableRefCount = Number(hasLeftStableRef) + Number(hasRightStableRef);
+    if (stableRefCount === 0) {
+        return false;
+    }
+
+    const iou = markerRectIoU(left.markerRect, right.markerRect);
+    const centerDistance = markerRectCenterDistance(left.markerRect, right.markerRect);
+    const lineMirror = markerRectLineMirrorSignal(left.markerRect, right.markerRect);
+    const leftTs = left.modifiedAt ?? 0;
+    const rightTs = right.modifiedAt ?? 0;
+    const modifiedClose = Boolean(leftTs && rightTs && Math.abs(leftTs - rightTs) <= 3 * 1000);
+
+    // Both sides already carry stable refs: allow moderate geometric reconciliation.
+    if (hasLeftStableRef && hasRightStableRef) {
+        if (hasLeftText && hasRightText) {
+            return lineMirror || iou >= 0.18 || centerDistance <= 0.08 || modifiedClose;
+        }
+        return modifiedClose && (iou >= 0.28 || centerDistance <= 0.04);
+    }
+
+    // Exactly one side is stable (typically editor->pdf transition). Use a much
+    // stronger geometry gate to avoid collapsing independent notes.
+    const strongGeometry = (
+        iou >= 0.45
+        || centerDistance <= 0.028
+        || (lineMirror && centerDistance <= 0.038)
+    );
+    if (!strongGeometry) {
+        return false;
+    }
+
+    if (hasLeftText && hasRightText) {
+        if (leftText !== rightText) {
+            return false;
+        }
+        return modifiedClose || iou >= 0.62 || centerDistance <= 0.018;
+    }
+
+    return modifiedClose || iou >= 0.62 || centerDistance <= 0.018;
+}
+
 export function commentsAreSameLogicalAnnotation(
     left: IAnnotationCommentSummary,
     right: IAnnotationCommentSummary,
@@ -118,38 +295,27 @@ export function commentsAreSameLogicalAnnotation(
         return left.uid === right.uid;
     }
 
-    if (left.annotationId && right.annotationId === null) {
-        const rightHasText = right.text.trim().length > 0;
-        const leftHasText = left.text.trim().length > 0;
-        const textCompatible = !leftHasText || !rightHasText || left.text.trim() === right.text.trim();
-        return textCompatible && areTextMarkupCommentsLikelySame(left, right);
-    }
-
-    if (right.annotationId && left.annotationId === null) {
-        const rightHasText = right.text.trim().length > 0;
-        const leftHasText = left.text.trim().length > 0;
-        const textCompatible = !leftHasText || !rightHasText || left.text.trim() === right.text.trim();
-        return textCompatible && areTextMarkupCommentsLikelySame(left, right);
-    }
-
-    if (left.uid && !right.uid) {
-        const rightHasText = right.text.trim().length > 0;
-        const leftHasText = left.text.trim().length > 0;
-        const textCompatible = !leftHasText || !rightHasText || left.text.trim() === right.text.trim();
-        return textCompatible && areTextMarkupCommentsLikelySame(left, right);
-    }
-
-    if (right.uid && !left.uid) {
-        const rightHasText = right.text.trim().length > 0;
-        const leftHasText = left.text.trim().length > 0;
-        const textCompatible = !leftHasText || !rightHasText || left.text.trim() === right.text.trim();
-        return textCompatible && areTextMarkupCommentsLikelySame(left, right);
-    }
-
-    return (
+    if (
         left.id === right.id
         && left.source === right.source
-    ) || areTextMarkupCommentsLikelySame(left, right);
+    ) {
+        return true;
+    }
+
+    if (likelyEditorPdfMirror(left, right)) {
+        return true;
+    }
+
+    // Keep geometry fallback only for pure text-markup duplicates.
+    if (
+        !left.hasNote
+        && !right.hasNote
+        && areTextMarkupCommentsLikelySame(left, right)
+    ) {
+        return true;
+    }
+
+    return false;
 }
 
 export function commentMergePriority(comment: IAnnotationCommentSummary) {

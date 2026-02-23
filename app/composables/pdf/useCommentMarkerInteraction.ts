@@ -5,6 +5,7 @@ import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import {
     escapeCssAttr,
     commentPreviewText,
+    normalizeMarkerRect,
 } from '@app/composables/pdf/pdfAnnotationUtils';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/pdfAnnotationUtils';
 import type { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnotationCommentIdentity';
@@ -23,6 +24,7 @@ interface ICommentMarkerInteractionDeps {
     parseStableKeysAttr: (value: string | null | undefined) => string[];
     serializeStableKeysAttr: (keys: string[]) => string;
     pickBestCommentFromStableKeys: (stableKeys: string[]) => IAnnotationCommentSummary | null;
+    getAnnotationComments: () => IAnnotationCommentSummary[];
     getInlineTargetStableKeys: (target: HTMLElement) => string[];
     markerIncludesStableKey: (marker: HTMLElement, stableKey: string) => boolean;
     isCommentActive: (stableKey: string) => boolean;
@@ -43,13 +45,92 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
         });
     }, FOCUS_PULSE_MS, { immediate: false });
 
-    function resolveCommentFromIndicatorElement(indicator: HTMLElement) {
-        const stableKeys = deps.parseStableKeysAttr(indicator.getAttribute('data-comment-stable-keys'));
-        const fromStableKeys = deps.pickBestCommentFromStableKeys(stableKeys);
-        if (fromStableKeys) {
-            return fromStableKeys;
+    function clearTransientSelectionVisuals() {
+        const root = deps.viewerContainer.value ?? document;
+        root.querySelectorAll<HTMLElement>(
+            '.annotationEditorLayer .highlightEditor.selectedEditor, .annotation-editor-layer .highlightEditor.selectedEditor, .annotationEditorLayer .highlightEditor.selected, .annotation-editor-layer .highlightEditor.selected',
+        ).forEach((element) => {
+            element.classList.remove('selectedEditor', 'selected');
+        });
+        root.querySelectorAll<HTMLElement>(
+            '.textLayer .highlight.selected, .text-layer .highlight.selected, .highlightOutline.selected',
+        ).forEach((element) => {
+            element.classList.remove('selected');
+        });
+        document.getSelection()?.removeAllRanges();
+    }
+
+    function resolveMarkerPageNumber(marker: HTMLElement) {
+        const rawPage = marker.dataset.pageNumber ?? marker.getAttribute('data-page-number');
+        const parsed = Number(rawPage ?? '');
+        if (Number.isFinite(parsed) && parsed > 0) {
+            return parsed;
+        }
+        const pageContainer = marker.closest<HTMLElement>('.page_container[data-page]');
+        if (!pageContainer) {
+            return null;
+        }
+        const fromAttr = Number(pageContainer.getAttribute('data-page') ?? '');
+        return Number.isFinite(fromAttr) && fromAttr > 0
+            ? fromAttr
+            : null;
+    }
+
+    function resolveCommentByMarkerGeometry(marker: HTMLElement) {
+        const pageNumber = resolveMarkerPageNumber(marker);
+        if (!pageNumber) {
+            return null;
         }
 
+        const pageContainer = marker.closest<HTMLElement>('.page_container[data-page]')
+            ?? deps.viewerContainer.value?.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`)
+            ?? null;
+        if (!pageContainer) {
+            return null;
+        }
+        const pageRect = pageContainer.getBoundingClientRect();
+        if (pageRect.width <= 0 || pageRect.height <= 0) {
+            return null;
+        }
+
+        const markerRect = marker.getBoundingClientRect();
+        const markerCenterX = markerRect.left + markerRect.width / 2;
+        const markerCenterY = markerRect.top + markerRect.height / 2;
+        const maxDistance = marker.classList.contains('pdf-inline-comment-anchor-marker')
+            ? 36
+            : 92;
+
+        let best: {
+            comment: IAnnotationCommentSummary;
+            distance: number;
+        } | null = null;
+        const candidates = deps.getAnnotationComments().filter(comment => (
+            comment.pageNumber === pageNumber
+            && comment.hasNote
+            && Boolean(normalizeMarkerRect(comment.markerRect))
+        ));
+        for (const candidate of candidates) {
+            const normalized = normalizeMarkerRect(candidate.markerRect);
+            if (!normalized) {
+                continue;
+            }
+            const candidateX = pageRect.left + ((normalized.left + normalized.width) * pageRect.width);
+            const candidateY = pageRect.top + (normalized.top * pageRect.height);
+            const distance = Math.hypot(candidateX - markerCenterX, candidateY - markerCenterY);
+            if (!Number.isFinite(distance) || distance > maxDistance) {
+                continue;
+            }
+            if (!best || distance < best.distance) {
+                best = {
+                    comment: candidate,
+                    distance,
+                };
+            }
+        }
+        return best?.comment ?? null;
+    }
+
+    function resolveCommentFromIndicatorElement(indicator: HTMLElement) {
         const directStableKey = indicator.dataset.commentStableKey ?? indicator.getAttribute('data-comment-stable-key');
         if (directStableKey) {
             const byStableKey = deps.identity.findCommentByStableKey(directStableKey);
@@ -58,15 +139,25 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
             }
         }
 
+        const stableKeys = deps.parseStableKeysAttr(indicator.getAttribute('data-comment-stable-keys'));
+        const fromStableKeys = deps.pickBestCommentFromStableKeys(stableKeys);
+        if (fromStableKeys) {
+            return fromStableKeys;
+        }
+
         const pageNumberRaw = indicator.dataset.pageNumber ?? null;
         const pageNumber = pageNumberRaw && Number.isFinite(Number(pageNumberRaw))
             ? Number(pageNumberRaw)
             : null;
 
-        return deps.identity.findCommentByAnnotationId(
+        const byAnnotationId = deps.identity.findCommentByAnnotationId(
             indicator.dataset.annotationId ?? indicator.getAttribute('data-annotation-id'),
             pageNumber,
         );
+        if (byAnnotationId) {
+            return byAnnotationId;
+        }
+        return resolveCommentByMarkerGeometry(indicator);
     }
 
     function resolveCommentFromIndicatorClickTarget(target: HTMLElement) {
@@ -134,6 +225,41 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
         startInlineCommentFocusPulseTimeout();
     }
 
+    function resolveCommentFromMarkerWithFallback(marker: HTMLElement) {
+        const resolved = resolveCommentFromIndicatorElement(marker);
+        if (resolved) {
+            return resolved;
+        }
+
+        const directStableKey = marker.dataset.commentStableKey?.trim() ?? '';
+        if (directStableKey) {
+            const byStableKey = deps.identity.findCommentByStableKey(directStableKey);
+            if (byStableKey) {
+                return byStableKey;
+            }
+        }
+
+        const stableKeys = deps.parseStableKeysAttr(marker.getAttribute('data-comment-stable-keys'));
+        for (const stableKey of stableKeys) {
+            const byStableKey = deps.identity.findCommentByStableKey(stableKey);
+            if (byStableKey) {
+                return byStableKey;
+            }
+        }
+
+        const annotationId = marker.dataset.annotationId?.trim() ?? '';
+        if (annotationId) {
+            const pageNumberRaw = Number(marker.dataset.pageNumber ?? '');
+            const pageNumber = Number.isFinite(pageNumberRaw) ? pageNumberRaw : null;
+            const byAnnotationId = deps.identity.findCommentByAnnotationId(annotationId, pageNumber);
+            if (byAnnotationId) {
+                return byAnnotationId;
+            }
+        }
+
+        return resolveCommentByMarkerGeometry(marker);
+    }
+
     function upsertInlineCommentAnchorMarker(target: HTMLElement, stableKeys: string[], fallbackText: string) {
         if (stableKeys.length === 0) {
             target.querySelectorAll('.pdf-inline-comment-anchor-marker').forEach((marker) => {
@@ -145,7 +271,7 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
         const best = deps.pickBestCommentFromStableKeys(stableKeys);
         const base = best
             ? commentPreviewText(best, t('annotations.emptyNote'))
-            : fallbackText;
+            : (fallbackText.trim() || t('annotations.emptyNote'));
         const preview = stableKeys.length > 1
             ? `${base} (${t('annotations.moreNotes', { count: stableKeys.length - 1 })})`
             : base;
@@ -158,26 +284,28 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
             marker.type = 'button';
             marker.className = 'pdf-inline-comment-anchor-marker';
             marker.addEventListener('click', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                const selected = resolveCommentFromIndicatorElement(marker);
+                const selected = resolveCommentFromMarkerWithFallback(marker);
                 if (!selected) {
                     return;
                 }
+                event.preventDefault();
+                event.stopPropagation();
                 deps.setActiveCommentStableKey(selected.stableKey);
                 pulseCommentIndicator(selected.stableKey);
                 deps.emitAnnotationOpenNote(selected);
+                clearTransientSelectionVisuals();
             });
             marker.addEventListener('contextmenu', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                const selected = resolveCommentFromIndicatorElement(marker);
+                const selected = resolveCommentFromMarkerWithFallback(marker);
                 if (!selected) {
                     return;
                 }
+                event.preventDefault();
+                event.stopPropagation();
                 deps.setActiveCommentStableKey(selected.stableKey);
                 pulseCommentIndicator(selected.stableKey);
                 deps.emitAnnotationContextMenu(deps.buildAnnotationContextMenuPayload(selected, event.clientX, event.clientY));
+                clearTransientSelectionVisuals();
             });
             target.append(marker);
         }
@@ -187,6 +315,7 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
         marker.dataset.annotationId = summary?.annotationId ?? '';
         marker.dataset.pageNumber = summary ? String(summary.pageNumber) : '';
         marker.dataset.commentCount = String(stableKeys.length);
+        marker.dataset.commentPreview = preview;
         marker.classList.toggle('is-active', stableKeys.some(stableKey => deps.isCommentActive(stableKey)));
         marker.classList.toggle('is-cluster', stableKeys.length > 1);
         marker.setAttribute(
@@ -241,23 +370,25 @@ export const useCommentMarkerInteraction = (deps: ICommentMarkerInteractionDeps)
                 : t('annotations.openPopUpNote'),
         );
         marker.addEventListener('click', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            const resolved = resolveCommentFromIndicatorElement(marker);
+            const resolved = resolveCommentFromMarkerWithFallback(marker);
             if (resolved) {
+                event.preventDefault();
+                event.stopPropagation();
                 deps.setActiveCommentStableKey(resolved.stableKey);
                 pulseCommentIndicator(resolved.stableKey);
                 deps.emitAnnotationOpenNote(resolved);
+                clearTransientSelectionVisuals();
             }
         });
         marker.addEventListener('contextmenu', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            const resolved = resolveCommentFromIndicatorElement(marker);
+            const resolved = resolveCommentFromMarkerWithFallback(marker);
             if (resolved) {
+                event.preventDefault();
+                event.stopPropagation();
                 deps.setActiveCommentStableKey(resolved.stableKey);
                 pulseCommentIndicator(resolved.stableKey);
                 deps.emitAnnotationContextMenu(deps.buildAnnotationContextMenuPayload(resolved, event.clientX, event.clientY));
+                clearTransientSelectionVisuals();
             }
         });
         return marker;

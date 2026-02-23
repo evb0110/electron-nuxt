@@ -13,10 +13,6 @@ import {
     annotationCommentsMatch,
     selectPreferredAnnotationComment,
 } from '@app/composables/pdf/annotationNoteWindowHelpers';
-import {
-    markerRectIoU,
-    normalizeMarkerRect,
-} from '@app/composables/pdf/pdfAnnotationUtils';
 import { runGuardedTask } from '@app/utils/async-guard';
 
 export {
@@ -116,6 +112,94 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         return annotationNoteWindows.value[index] ?? null;
     }
 
+    function isNoteWindowSubtype(subtype: string | null | undefined) {
+        const normalized = (subtype ?? '').trim().toLowerCase();
+        return (
+            normalized === 'text'
+            || normalized === 'note-linked'
+            || normalized === 'freetext'
+            || normalized === 'typewriter'
+            || normalized === 'note-inline'
+        );
+    }
+
+    function isCommentEligibleForNoteWindow(comment: IAnnotationCommentSummary | null | undefined) {
+        if (!comment) {
+            return false;
+        }
+        if (comment.hasNote === true) {
+            return true;
+        }
+        if (isNoteWindowSubtype(comment.subtype)) {
+            return true;
+        }
+        return comment.source === 'editor' && comment.text.trim().length > 0;
+    }
+
+    function commentsLikelyReferToSameNote(
+        left: IAnnotationCommentSummary,
+        right: IAnnotationCommentSummary,
+    ) {
+        if (annotationCommentsMatch(left, right)) {
+            return true;
+        }
+        if (
+            !isCommentEligibleForNoteWindow(left)
+            || !isCommentEligibleForNoteWindow(right)
+        ) {
+            return false;
+        }
+        if (left.pageIndex !== right.pageIndex) {
+            return false;
+        }
+        if (left.annotationId && right.annotationId && left.annotationId === right.annotationId) {
+            return true;
+        }
+        if (left.uid && right.uid && left.uid === right.uid) {
+            return true;
+        }
+        if (
+            left.id === right.id
+            && left.source === right.source
+        ) {
+            return true;
+        }
+
+        return false;
+    }
+
+    function findAnnotationNoteWindowByComment(comment: IAnnotationCommentSummary) {
+        return annotationNoteWindows.value.find(note => commentsLikelyReferToSameNote(note.comment, comment)) ?? null;
+    }
+
+    function migrateAnnotationNoteWindowKey(previousKey: string, nextKey: string) {
+        if (!previousKey || !nextKey || previousKey === nextKey) {
+            return;
+        }
+
+        const previousPosition = annotationNotePositions.value[previousKey];
+        if (previousPosition) {
+            const nextPosition = annotationNotePositions.value[nextKey];
+            const nextPositions = {
+                ...annotationNotePositions.value,
+                [nextKey]: nextPosition ?? previousPosition,
+            };
+            const {
+                [previousKey]: _discarded,
+                ...remainingPositions
+            } = nextPositions;
+            annotationNotePositions.value = remainingPositions;
+        }
+
+        const previousDebouncer = annotationNoteDebouncers.get(previousKey);
+        if (previousDebouncer && !annotationNoteDebouncers.has(nextKey)) {
+            annotationNoteDebouncers.set(nextKey, previousDebouncer);
+        }
+        if (annotationNoteDebouncers.has(previousKey)) {
+            annotationNoteDebouncers.delete(previousKey);
+        }
+    }
+
     function bringAnnotationNoteToFront(stableKey: string) {
         const note = findAnnotationNoteWindow(stableKey);
         if (!note) {
@@ -141,13 +225,12 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     function findMatchingAnnotationComment(comment: IAnnotationCommentSummary) {
-        const strictMatch = annotationComments.value.find((candidate) =>
-            annotationCommentsMatch(candidate, comment),
+        const noteCandidates = annotationComments.value.filter(candidate =>
+            isCommentEligibleForNoteWindow(candidate),
         );
-        if (strictMatch) {
-            return strictMatch;
-        }
-        return findFuzzyMatchingAnnotationComment(comment, annotationComments.value);
+        return noteCandidates.find((candidate) =>
+            annotationCommentsMatch(candidate, comment),
+        ) ?? null;
     }
 
     function isSameAnnotationComment(
@@ -157,112 +240,19 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         return annotationCommentsMatch(left, right);
     }
 
-    function findFuzzyMatchingAnnotationComment(
-        comment: IAnnotationCommentSummary,
-        candidates: IAnnotationCommentSummary[],
-    ) {
-        const pageCandidates = candidates.filter(
-            candidate => candidate.pageIndex === comment.pageIndex,
-        );
-        if (pageCandidates.length === 0) {
-            return null;
-        }
-
-        const targetText = comment.text.trim().toLowerCase();
-        const targetSubtype = (comment.subtype ?? '').trim().toLowerCase();
-        const targetRect = normalizeMarkerRect(comment.markerRect);
-
-        const scored = pageCandidates.map((candidate) => {
-            const candidateText = candidate.text.trim().toLowerCase();
-            const candidateSubtype = (candidate.subtype ?? '').trim().toLowerCase();
-            const candidateRect = normalizeMarkerRect(candidate.markerRect);
-            const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
-            const textExact = (
-                targetText.length > 0
-                && candidateText.length > 0
-                && targetText === candidateText
-            );
-
-            let score = 0;
-            if (textExact) {
-                score += 5;
-            } else if (
-                targetText.length > 0
-                && candidateText.length > 0
-                && (
-                    targetText.includes(candidateText)
-                    || candidateText.includes(targetText)
-                )
-            ) {
-                score += 1.5;
-            }
-
-            if (targetSubtype && candidateSubtype && targetSubtype === candidateSubtype) {
-                score += 1;
-            }
-            if (candidate.source === comment.source) {
-                score += 0.35;
-            }
-            if (comment.hasNote === candidate.hasNote) {
-                score += 0.3;
-            }
-
-            if (iou > 0) {
-                score += iou * 8;
-            }
-
-            if (targetRect && candidateRect) {
-                const targetCenterX = targetRect.left + targetRect.width / 2;
-                const targetCenterY = targetRect.top + targetRect.height / 2;
-                const candidateCenterX = candidateRect.left + candidateRect.width / 2;
-                const candidateCenterY = candidateRect.top + candidateRect.height / 2;
-                const centerDistance = Math.hypot(
-                    targetCenterX - candidateCenterX,
-                    targetCenterY - candidateCenterY,
-                );
-                score += Math.max(0, 1.8 - (centerDistance * 9));
-            }
-
-            return {
-                candidate,
-                score,
-                iou,
-                textExact,
-            };
-        }).sort((left, right) => right.score - left.score);
-
-        const best = scored[0];
-        if (!best) {
-            return null;
-        }
-        const second = scored[1];
-        const clearlyBetter = (
-            !second
-            || (best.score - second.score >= 0.55)
-            || (best.textExact && !second.textExact)
-            || ((best.iou - (second.iou ?? 0)) >= 0.08)
-        );
-        const acceptable = (
-            best.score >= 2.2
-            || best.textExact
-            || best.iou >= 0.15
-        );
-        if (!acceptable || !clearlyBetter) {
-            return null;
-        }
-
-        return best.candidate;
-    }
-
     function upsertAnnotationNoteWindow(comment: IAnnotationCommentSummary) {
         const key = comment.stableKey;
-        const existing = findAnnotationNoteWindow(key);
+        const existing = findAnnotationNoteWindow(key)
+            ?? findAnnotationNoteWindowByComment(comment);
         if (existing) {
+            const previousKey = existing.comment.stableKey;
             const hasUnsavedLocalChanges = existing.text !== existing.lastSavedText;
             existing.comment = selectPreferredAnnotationComment(
                 existing.comment,
                 comment,
             );
+            const nextKey = existing.comment.stableKey;
+            migrateAnnotationNoteWindowKey(previousKey, nextKey);
             existing.error = null;
             existing.isMinimized = false;
             if (!hasUnsavedLocalChanges) {
@@ -270,7 +260,11 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 existing.text = nextText;
                 existing.lastSavedText = nextText;
             }
-            bringAnnotationNoteToFront(key);
+            annotationNoteWindows.value = annotationNoteWindows.value.filter(note => (
+                note === existing
+                || !commentsLikelyReferToSameNote(note.comment, existing.comment)
+            ));
+            bringAnnotationNoteToFront(existing.comment.stableKey);
             return;
         }
 
@@ -559,13 +553,17 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     function handleOpenAnnotationNote(comment: IAnnotationCommentSummary) {
-        const matched = findMatchingAnnotationComment(comment);
+        if (!isCommentEligibleForNoteWindow(comment)) {
+            return;
+        }
+        const noteComment = comment;
+        const matched = findMatchingAnnotationComment(noteComment);
         if (matched) {
             upsertAnnotationNoteWindow(
-                selectPreferredAnnotationComment(comment, matched),
+                selectPreferredAnnotationComment(noteComment, matched),
             );
         } else {
-            upsertAnnotationNoteWindow(comment);
+            upsertAnnotationNoteWindow(noteComment);
         }
     }
 
@@ -574,12 +572,16 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return;
         }
 
+        const noteComments = comments.filter(comment =>
+            isCommentEligibleForNoteWindow(comment),
+        );
+
         const byStableKey = new Map<string, IAnnotationCommentSummary>();
         const byAnnotationIdPage = new Map<string, IAnnotationCommentSummary>();
         const byUidPage = new Map<string, IAnnotationCommentSummary>();
         const byIdPageSource = new Map<string, IAnnotationCommentSummary>();
 
-        for (const comment of comments) {
+        for (const comment of noteComments) {
             if (comment.stableKey) {
                 byStableKey.set(comment.stableKey, comment);
             }
@@ -628,10 +630,38 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             );
         }
 
+        function findLogicalFallback(noteComment: IAnnotationCommentSummary) {
+            const exactText = noteComment.text.trim().toLowerCase();
+            const pageMatches = noteComments.filter(candidate => candidate.pageIndex === noteComment.pageIndex);
+            if (pageMatches.length === 0) {
+                return null;
+            }
+
+            const logical = pageMatches.find(candidate => commentsLikelyReferToSameNote(noteComment, candidate));
+            if (logical) {
+                return logical;
+            }
+
+            if (!exactText) {
+                return null;
+            }
+
+            const textMatches = pageMatches.filter((candidate) => {
+                const candidateText = candidate.text.trim().toLowerCase();
+                return candidateText.length > 0 && candidateText === exactText;
+            });
+            if (textMatches.length === 1) {
+                return textMatches[0] ?? null;
+            }
+
+            return null;
+        }
+
         annotationNoteWindows.value.forEach((note) => {
+            const previousStableKey = note.comment.stableKey;
             const updated =
                 findUpdatedComment(note.comment)
-                ?? findFuzzyMatchingAnnotationComment(note.comment, comments);
+                ?? findLogicalFallback(note.comment);
             if (!updated) {
                 return;
             }
@@ -657,6 +687,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             }
 
             note.comment = preferred;
+            migrateAnnotationNoteWindowKey(previousStableKey, note.comment.stableKey);
             const hasUnsavedLocalChanges = note.text !== note.lastSavedText;
             if (!note.saving && !hasUnsavedLocalChanges) {
                 const nextText = updated.text || '';
