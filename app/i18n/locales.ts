@@ -10,13 +10,11 @@ import ru from '../locales/ru';
 import type { EN_MESSAGE_SCHEMA } from './message-schema';
 import {
     DEFAULT_LOCALE,
-    LOCALE_CODES,
     type TLocale,
 } from './locale-codes';
 
 export {
     DEFAULT_LOCALE,
-    LOCALE_CODES,
     type TLocale,
 };
 
