@@ -111,6 +111,8 @@ const frameStartX = ref(0);
 const frameStartY = ref(0);
 const isDragging = ref(false);
 let resizeObserver: ResizeObserver | null = null;
+let focusGuardTimer: ReturnType<typeof setTimeout> | null = null;
+let focusGuardToken = 0;
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
@@ -142,7 +144,7 @@ async function focusTextInput() {
     if (!input) {
         return;
     }
-    input.focus();
+    input.focus({ preventScroll: true });
     const end = input.value.length;
     input.setSelectionRange(end, end);
     if (typeof window !== 'undefined') {
@@ -151,11 +153,78 @@ async function focusTextInput() {
             if (!nextInput) {
                 return;
             }
-            nextInput.focus();
+            nextInput.focus({ preventScroll: true });
             const nextEnd = nextInput.value.length;
             nextInput.setSelectionRange(nextEnd, nextEnd);
         });
     }
+}
+
+function clearFocusGuard() {
+    if (focusGuardTimer) {
+        clearTimeout(focusGuardTimer);
+        focusGuardTimer = null;
+    }
+}
+
+function isTextEntryElement(element: HTMLElement) {
+    if (element.isContentEditable) {
+        return true;
+    }
+    const tagName = element.tagName;
+    return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
+}
+
+function shouldReclaimFocus(activeElement: HTMLElement | null) {
+    if (!activeElement || activeElement === document.body) {
+        return true;
+    }
+    if (activeElement === noteInputRef.value) {
+        return false;
+    }
+    if (noteWindowRef.value?.contains(activeElement)) {
+        return false;
+    }
+    if (isTextEntryElement(activeElement)) {
+        return false;
+    }
+    return true;
+}
+
+function startFocusGuard(durationMs = 1200, intervalMs = 60) {
+    if (typeof window === 'undefined') {
+        return;
+    }
+    clearFocusGuard();
+    const token = ++focusGuardToken;
+    const deadline = window.performance.now() + durationMs;
+
+    const tick = async () => {
+        if (token !== focusGuardToken) {
+            return;
+        }
+        const input = noteInputRef.value;
+        if (!input) {
+            return;
+        }
+        const activeElement = document.activeElement as HTMLElement | null;
+        if (shouldReclaimFocus(activeElement)) {
+            await focusTextInput();
+        }
+
+        if (token !== focusGuardToken) {
+            return;
+        }
+        if (window.performance.now() >= deadline) {
+            focusGuardTimer = null;
+            return;
+        }
+        focusGuardTimer = setTimeout(() => {
+            void tick();
+        }, intervalMs);
+    };
+
+    void tick();
 }
 
 function applyPosition(position: IAnnotationNotePosition | null) {
@@ -313,7 +382,7 @@ onMounted(async () => {
             resizeObserver.observe(noteWindowRef.value);
         }
     }
-    await focusTextInput();
+    startFocusGuard();
 });
 
 onBeforeUnmount(() => {
@@ -322,6 +391,8 @@ onBeforeUnmount(() => {
     }
     resizeObserver?.disconnect();
     resizeObserver = null;
+    clearFocusGuard();
+    focusGuardToken += 1;
     stopDrag();
 });
 
@@ -339,7 +410,7 @@ watch(
     () => comment.stableKey,
     () => {
         applyPosition(position);
-        void focusTextInput();
+        startFocusGuard();
     },
 );
 
@@ -349,7 +420,7 @@ watch(
         if (nextZIndex === previousZIndex) {
             return;
         }
-        void focusTextInput();
+        startFocusGuard();
     },
 );
 </script>
