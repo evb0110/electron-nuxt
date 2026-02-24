@@ -44,6 +44,45 @@
             </UTooltip>
         </Teleport>
     </template>
+    <template
+        v-for="note in openNoteAnchors"
+        :key="`open-anchor-${note.comment.stableKey}`"
+    >
+        <Teleport
+            v-if="openNoteAnchorTargets[note.comment.stableKey]"
+            :to="openNoteAnchorTargets[note.comment.stableKey]"
+        >
+            <button
+                type="button"
+                class="pdf-note-open-anchor"
+                :style="getMinimizedIndicatorStyle(note)"
+                :aria-label="t('annotations.openNote')"
+                @mousedown.prevent
+            >
+                <UIcon name="i-lucide-message-square" class="size-2.5" />
+            </button>
+        </Teleport>
+    </template>
+    <svg
+        v-if="connectorLines.length > 0"
+        class="pdf-note-connector-svg"
+        :style="{ pointerEvents: 'none' }"
+    >
+        <path
+            v-for="line in connectorLines"
+            :key="`connector-${line.stableKey}`"
+            :d="line.path"
+            class="pdf-note-connector-path"
+        />
+        <circle
+            v-for="line in connectorLines"
+            :key="`dot-${line.stableKey}`"
+            :cx="line.markerX"
+            :cy="line.markerY"
+            r="3"
+            class="pdf-note-connector-dot"
+        />
+    </svg>
     <PdfAnnotationContextMenu
         :menu="annotationContextMenu"
         :style="annotationContextMenuStyle"
@@ -90,6 +129,7 @@ import {
     onBeforeUnmount,
     onMounted,
     ref,
+    shallowRef,
     watch,
 } from 'vue';
 import type {
@@ -158,6 +198,13 @@ const { t } = useTypedI18n();
 const visibleAnnotationNoteWindows = computed(() =>
     props.sortedAnnotationNoteWindows.filter((note) => !note.isMinimized),
 );
+const openNoteAnchors = computed(() => {
+    void indicatorDomTick.value;
+    return visibleAnnotationNoteWindows.value.filter((note) =>
+        isFloatingIndicatorEligible(note.comment)
+        && Boolean(getNoteMarkerRect(note)),
+    );
+});
 const anchoredAnnotationNoteWindows = computed(() => {
     void indicatorDomTick.value;
     const viewportRoot = props.annotationViewportRoot;
@@ -422,6 +469,106 @@ const minimizedIndicatorTargets = computed<Record<string, HTMLElement>>(() => {
     return targets;
 });
 
+const openNoteAnchorTargets = computed<Record<string, HTMLElement>>(() => {
+    void indicatorDomTick.value;
+    const viewportRoot = props.annotationViewportRoot;
+    if (!viewportRoot) {
+        return {};
+    }
+    const targets: Record<string, HTMLElement> = {};
+    openNoteAnchors.value.forEach((note) => {
+        const pageContainer = viewportRoot.querySelector<HTMLElement>(`.page_container[data-page="${note.comment.pageNumber}"]`);
+        if (pageContainer) {
+            targets[note.comment.stableKey] = pageContainer;
+        }
+    });
+    return targets;
+});
+
+interface IConnectorLine {
+    stableKey: string;
+    markerX: number;
+    markerY: number;
+    noteX: number;
+    noteY: number;
+    path: string;
+}
+
+const connectorLines = shallowRef<IConnectorLine[]>([]);
+let connectorRafId: number | null = null;
+
+function computeConnectorLines(): IConnectorLine[] {
+    const targets = openNoteAnchorTargets.value;
+    const lines: IConnectorLine[] = [];
+    for (const note of openNoteAnchors.value) {
+        const markerRect = getNoteMarkerRect(note);
+        if (!markerRect) {
+            continue;
+        }
+        const position = props.annotationNotePositions[note.comment.stableKey];
+        if (!position) {
+            continue;
+        }
+
+        const pageContainer = targets[note.comment.stableKey];
+        if (!pageContainer) {
+            continue;
+        }
+
+        const pageRect = pageContainer.getBoundingClientRect();
+        if (pageRect.width <= 0 || pageRect.height <= 0) {
+            continue;
+        }
+
+        const markerX = pageRect.left + ((markerRect.left + markerRect.width) * pageRect.width);
+        const markerY = pageRect.top + (markerRect.top * pageRect.height);
+
+        const noteX = position.x;
+        const noteY = position.y + ((position.height ?? 360) / 2);
+
+        const dx = noteX - markerX;
+        const cpOffset = Math.min(80, Math.abs(dx) * 0.4);
+        const cp1x = markerX + cpOffset;
+        const cp2x = noteX - cpOffset;
+
+        lines.push({
+            stableKey: note.comment.stableKey,
+            markerX,
+            markerY,
+            noteX,
+            noteY,
+            path: `M ${markerX} ${markerY} C ${cp1x} ${markerY}, ${cp2x} ${noteY}, ${noteX} ${noteY}`,
+        });
+    }
+    return lines;
+}
+
+function connectorRafLoop() {
+    connectorLines.value = computeConnectorLines();
+    if (openNoteAnchors.value.length > 0) {
+        connectorRafId = requestAnimationFrame(connectorRafLoop);
+    } else {
+        connectorRafId = null;
+    }
+}
+
+function startConnectorLoop() {
+    if (connectorRafId !== null) {
+        return;
+    }
+    if (openNoteAnchors.value.length > 0) {
+        connectorRafId = requestAnimationFrame(connectorRafLoop);
+    }
+}
+
+function stopConnectorLoop() {
+    if (connectorRafId !== null) {
+        cancelAnimationFrame(connectorRafId);
+        connectorRafId = null;
+    }
+    connectorLines.value = [];
+}
+
 function getNoteMarkerRect(note: IAnnotationNoteWindowEntry) {
     return normalizeMarkerRect(note.comment.markerRect);
 }
@@ -513,6 +660,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+    stopConnectorLoop();
     if (typeof window !== 'undefined') {
         if (refreshBurstFrameId !== null) {
             window.cancelAnimationFrame(refreshBurstFrameId);
@@ -543,6 +691,32 @@ watch(
     () => {
         scheduleIndicatorRefreshBurst(6);
     },
+);
+
+watch(
+    () => visibleAnnotationNoteWindows.value.map((note) => note.comment.stableKey),
+    () => {
+        scheduleIndicatorRefreshBurst(6);
+    },
+);
+
+watch(
+    () => props.annotationNotePositions,
+    () => {
+        scheduleIndicatorRefreshBurst(3);
+    },
+);
+
+watch(
+    () => openNoteAnchors.value.length,
+    (count) => {
+        if (count > 0) {
+            startConnectorLoop();
+        } else {
+            stopConnectorLoop();
+        }
+    },
+    { immediate: true },
 );
 
 const emit = defineEmits<{
@@ -601,5 +775,45 @@ const emit = defineEmits<{
 .pdf-note-minimized-indicator:focus-visible {
     outline: 1px solid var(--ui-primary);
     outline-offset: 1px;
+}
+
+.pdf-note-open-anchor {
+    position: absolute;
+    width: 1.3rem;
+    height: 1.3rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    border: 1.5px solid color-mix(in srgb, var(--ui-warning) 75%, var(--ui-border) 25%);
+    background: color-mix(in srgb, var(--ui-warning) 30%, var(--ui-bg) 70%);
+    color: color-mix(in srgb, var(--ui-warning) 65%, var(--ui-text) 35%);
+    cursor: default;
+    transform: translate(-50%, -50%);
+    opacity: 0.92;
+    pointer-events: none;
+    z-index: 25;
+}
+
+.pdf-note-connector-svg {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 89;
+    overflow: visible;
+}
+
+.pdf-note-connector-path {
+    fill: none;
+    stroke: color-mix(in srgb, var(--ui-warning) 55%, var(--ui-border) 45%);
+    stroke-width: 1.5;
+    stroke-dasharray: 5 3;
+    opacity: 0.65;
+}
+
+.pdf-note-connector-dot {
+    fill: color-mix(in srgb, var(--ui-warning) 65%, var(--ui-border) 35%);
+    opacity: 0.75;
 }
 </style>

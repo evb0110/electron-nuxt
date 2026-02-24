@@ -435,8 +435,9 @@ watch(
         if (nextZIndex === previousZIndex) {
             return;
         }
-        void focusTextInput();
-        startFocusGuard();
+        if (focusGuardTimer !== null) {
+            void focusTextInput();
+        }
     },
 );
 </script>
