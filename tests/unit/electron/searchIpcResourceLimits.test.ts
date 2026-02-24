@@ -21,7 +21,10 @@ const mocks = vi.hoisted(() => ({
     resolveAllowedReadPath: vi.fn(),
     findWorkingCopyPathByOriginalPath: vi.fn(),
     appOn: vi.fn(),
-    webContentsById: new Map<number, {isDestroyed: () => boolean; send: ReturnType<typeof vi.fn>}>(),
+    webContentsById: new Map<number, {
+        isDestroyed: () => boolean;
+        send: ReturnType<typeof vi.fn>
+    }>(),
     logger: {
         debug: vi.fn(),
         info: vi.fn(),
@@ -105,14 +108,10 @@ vi.mock('electron', () => ({
         isPackaged: false,
         on: (...args: unknown[]) => mocks.appOn(...args),
     },
-    ipcMain: {
-        handle: (channel: string, handler: TRegisteredHandler) => {
-            mocks.handlers.set(channel, handler);
-        },
-    },
-    webContents: {
-        fromId: (senderId: number) => mocks.webContentsById.get(senderId) ?? null,
-    },
+    ipcMain: {handle: (channel: string, handler: TRegisteredHandler) => {
+        mocks.handlers.set(channel, handler);
+    }},
+    webContents: {fromId: (senderId: number) => mocks.webContentsById.get(senderId) ?? null},
 }));
 
 vi.mock('@electron/utils/path-validator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
@@ -171,7 +170,10 @@ describe('search IPC worker resource limits', () => {
                 query: 'first',
                 requestId: 'req-1',
             },
-        ) as Promise<{ results: unknown[]; truncated: boolean }>;
+        ) as Promise<{
+            results: unknown[];
+            truncated: boolean 
+        }>;
 
         await vi.waitFor(() => {
             expect(mocks.workerRecords).toHaveLength(1);
@@ -184,7 +186,10 @@ describe('search IPC worker resource limits', () => {
                 query: 'second',
                 requestId: 'req-2',
             },
-        ) as Promise<{ results: unknown[]; truncated: boolean }>;
+        ) as Promise<{
+            results: unknown[];
+            truncated: boolean 
+        }>;
 
         await expect(secondRequest).rejects.toThrow('Search worker limit reached (1 active senders)');
         expect(mocks.workerRecords).toHaveLength(1);

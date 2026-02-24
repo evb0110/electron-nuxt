@@ -2,10 +2,10 @@ import { vi } from 'vitest';
 import enMessages from '@app/locales/en';
 import type { TLocale } from '@app/i18n/locales';
 
-type TMessageNode = Record<string, TMessageNode | string>;
+interface IMessageNode {[key: string]: IMessageNode | string;}
 
 const collectMessageKeys = (
-    node: TMessageNode,
+    node: IMessageNode,
     prefix = '',
     keys: Set<string> = new Set(),
 ) => {
@@ -23,7 +23,7 @@ const collectMessageKeys = (
     return keys;
 };
 
-const EN_TRANSLATION_KEYS = collectMessageKeys(enMessages as TMessageNode);
+const EN_TRANSLATION_KEYS = collectMessageKeys(enMessages as IMessageNode);
 
 const translate = (key: string) => {
     if (!EN_TRANSLATION_KEYS.has(key)) {

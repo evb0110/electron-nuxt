@@ -33,7 +33,7 @@ export interface ICreateCombinedPdfProgress {
     estimatedRemainingMs: number | null;
 }
 
-export interface ICreateCombinedPdfOptions {
+interface ICreateCombinedPdfOptions {
     onProgress?: (progress: ICreateCombinedPdfProgress) => void;
     unsupportedFileError: (sourcePath: string) => string;
 }
@@ -77,7 +77,7 @@ function appendEmbeddedImagePage(
     return 1;
 }
 
-export function normalizeCombineInputPaths(inputPaths: string[]): string[] {
+function normalizeCombineInputPaths(inputPaths: string[]): string[] {
     return inputPaths
         .map((path) => path.trim())
         .filter((path) => path.length > 0);
@@ -87,7 +87,7 @@ export function isImagePath(filePath: string): boolean {
     return SUPPORTED_IMAGE_EXTENSION_SET.has(extname(filePath).toLowerCase());
 }
 
-export function estimateRemainingMs(elapsedMs: number, processed: number, total: number): number {
+function estimateRemainingMs(elapsedMs: number, processed: number, total: number): number {
     if (processed <= 0 || total <= processed) {
         return 0;
     }
@@ -96,7 +96,7 @@ export function estimateRemainingMs(elapsedMs: number, processed: number, total:
     return Math.max(0, Math.round(averagePerItem * remainingItems));
 }
 
-export function createCombineProgress(
+function createCombineProgress(
     startedAt: number,
     processed: number,
     total: number,
@@ -111,7 +111,7 @@ export function createCombineProgress(
     };
 }
 
-export async function appendPdfPages(
+async function appendPdfPages(
     targetPdf: PDFDocument,
     sourcePath: string,
 ): Promise<number> {
@@ -197,7 +197,7 @@ async function appendTiffPages(
     return addedPages;
 }
 
-export async function appendImagePages(
+async function appendImagePages(
     targetPdf: PDFDocument,
     sourcePath: string,
 ): Promise<number> {

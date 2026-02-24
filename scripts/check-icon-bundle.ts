@@ -236,10 +236,11 @@ function addUsage(
 
 function parseBabelScriptAst(content: string): IBabelNodeLike | null {
     try {
-        return parseBabel(content, {
+        const parsed = parseBabel(content, {
             sourceType: 'unambiguous',
             plugins: BABEL_PARSER_PLUGINS,
-        }) as unknown as IBabelNodeLike;
+        });
+        return isBabelNodeLike(parsed) ? parsed : null;
     } catch {
         return null;
     }
@@ -247,9 +248,8 @@ function parseBabelScriptAst(content: string): IBabelNodeLike | null {
 
 function parseBabelExpressionAst(expression: string): IBabelNodeLike | null {
     try {
-        return parseExpression(expression, {
-            plugins: BABEL_PARSER_PLUGINS,
-        }) as unknown as IBabelNodeLike;
+        const parsed = parseExpression(expression, {plugins: BABEL_PARSER_PLUGINS});
+        return isBabelNodeLike(parsed) ? parsed : null;
     } catch {
         return null;
     }
@@ -518,8 +518,12 @@ function extractTemplateTokenCandidates(content: string): ITokenCandidate[] {
     let parsedTemplate: IVueNodeLike | null = null;
 
     try {
-        parsedTemplate = parseVueTemplate(content, { comments: false }) as unknown as IVueNodeLike;
+        const parsed = parseVueTemplate(content, { comments: false });
+        parsedTemplate = isVueNodeLike(parsed) ? parsed : null;
     } catch {
+        return extractTemplateTokenCandidatesWithRegex(content);
+    }
+    if (!parsedTemplate) {
         return extractTemplateTokenCandidatesWithRegex(content);
     }
 
@@ -574,11 +578,7 @@ function extractTemplateTokenCandidates(content: string): ITokenCandidate[] {
     return candidates;
 }
 
-function parseVueSfcBlocks(content: string, filename: string): IVueSfcBlocks | null {
-    if (!filename.endsWith('.vue')) {
-        return null;
-    }
-
+function parseVueSfcBlocks(content: string): IVueSfcBlocks {
     return {
         scriptBlocks: extractVueBlocks(content, 'script'),
         templateBlocks: extractVueBlocks(content, 'template'),
@@ -633,25 +633,11 @@ function collectVueSfcUsages(
     usageByIcon: Map<string, Set<string>>,
     collectionHints: ICollectionHints,
 ) {
-    const parsedBlocks = parseVueSfcBlocks(sourceContent, filePath);
-    if (parsedBlocks) {
-        for (const scriptBlock of parsedBlocks.scriptBlocks) {
-            collectScriptUsages(scriptBlock, filePath, usageByIcon, collectionHints);
-        }
-        for (const templateBlock of parsedBlocks.templateBlocks) {
-            collectTemplateUsages(templateBlock, filePath, usageByIcon, collectionHints);
-        }
-        return;
-    }
-
-    // Regex fallback for malformed SFCs.
-    const fallbackScriptBlocks = extractVueBlocks(sourceContent, 'script');
-    for (const scriptBlock of fallbackScriptBlocks) {
+    const parsedBlocks = parseVueSfcBlocks(sourceContent);
+    for (const scriptBlock of parsedBlocks.scriptBlocks) {
         collectScriptUsages(scriptBlock, filePath, usageByIcon, collectionHints);
     }
-
-    const fallbackTemplateBlocks = extractVueBlocks(sourceContent, 'template');
-    for (const templateBlock of fallbackTemplateBlocks) {
+    for (const templateBlock of parsedBlocks.templateBlocks) {
         collectTemplateUsages(templateBlock, filePath, usageByIcon, collectionHints);
     }
 }
