@@ -225,6 +225,7 @@
                         :current-search-match="currentResult"
                         :working-copy-path="workingCopyPath"
                         :author-name="appSettings.authorName"
+                        @update:zoom="zoom = $event"
                         @update:current-page="handleViewerCurrentPageUpdate"
                         @update:total-pages="totalPages = $event"
                         @update:document="pdfDocument = $event"

@@ -99,6 +99,7 @@ import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useA
 import { usePdfViewerCore } from '@app/composables/pdf/usePdfViewerCore';
 import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
+import { ZOOM } from '@app/constants/pdf-layout';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -201,6 +202,8 @@ const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
 const activeCommentStableKey = ref<string | null>(null);
 const regionSnip = usePdfRegionSnip({ viewerContainer });
 const PDF_VIEWER_LOADER_ICON_SIZE_PX = 20;
+const WHEEL_ZOOM_SENSITIVITY = 0.0016;
+const WHEEL_LINE_DELTA_PX = 16;
 
 const pdfDocumentResult = usePdfDocument();
 const {
@@ -738,11 +741,62 @@ function isSnipActive() {
     return regionSnip.isActive.value;
 }
 
+function normalizeWheelZoomDelta(event: WheelEvent, container: HTMLElement) {
+    if (event.deltaMode === 1) {
+        return event.deltaY * WHEEL_LINE_DELTA_PX;
+    }
+    if (event.deltaMode === 2) {
+        return event.deltaY * Math.max(container.clientHeight, 1);
+    }
+    return event.deltaY;
+}
+
+function clampZoomLevel(level: number) {
+    return Math.min(ZOOM.MAX, Math.max(ZOOM.MIN, level));
+}
+
+function handleViewerModifierWheelZoom(event: WheelEvent) {
+    if (!event.ctrlKey && !event.metaKey) {
+        return false;
+    }
+
+    event.preventDefault();
+    const container = viewerContainer.value;
+    if (!container || !src.value || isLoading.value) {
+        return true;
+    }
+    const delta = normalizeWheelZoomDelta(event, container);
+    if (Math.abs(delta) < Number.EPSILON) {
+        return true;
+    }
+
+    // Match browser feel: wheel up zooms in, wheel down zooms out with
+    // exponential scaling for smooth touchpad pinch and Ctrl/Cmd+wheel.
+    const zoomFactor = Math.exp(-delta * WHEEL_ZOOM_SENSITIVITY);
+    if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
+        return true;
+    }
+
+    const nextZoom = clampZoomLevel(zoom.value * zoomFactor);
+    if (Math.abs(nextZoom - zoom.value) < 0.001) {
+        return true;
+    }
+
+    emit('update:zoom', nextZoom);
+    return true;
+}
+
 function handleViewerWheel(event: WheelEvent) {
     if (isSnipActive()) {
         event.preventDefault();
         return;
     }
+
+    if (handleViewerModifierWheelZoom(event)) {
+        cancelPendingSearchScroll();
+        return;
+    }
+
     cancelPendingSearchScroll();
     singlePageScroll.handleWheel(event);
 }
