@@ -40,6 +40,7 @@ import {
 } from '@app/utils/async-guard';
 import { createPdfSearchMatchScroller } from '@app/composables/pdf/pdfSearchMatchScroller';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
+import { getMostVisiblePageFromDom } from '@app/composables/pdf/pdfScrollVisibility';
 
 export {
     isRenderingCancelledError,
@@ -599,7 +600,28 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
     async function reRenderAllVisiblePages(getVisibleRange: () => IPageRange) {
         const version = bumpRenderVersion();
-        const snapshot = captureScrollSnapshot(options.container.value);
+        const containerAtCapture = options.container.value;
+        const snapshot = captureScrollSnapshot(containerAtCapture);
+        if (snapshot) {
+            BrowserLogger.warn('pdf-nav', `[re-render-snapshot] captured version=${version}`, {
+                version,
+                currentPage: options.currentPage.value,
+                numPages: numPages.value,
+                snapshot,
+                scrollTop: containerAtCapture ? Math.round(containerAtCapture.scrollTop) : null,
+                clientHeight: containerAtCapture ? Math.round(containerAtCapture.clientHeight) : null,
+                mostVisiblePage: containerAtCapture
+                    ? getMostVisiblePageFromDom(containerAtCapture, numPages.value)
+                    : null,
+            });
+        } else {
+            BrowserLogger.warn('pdf-nav', `[re-render-snapshot] missing version=${version}`, {
+                version,
+                currentPage: options.currentPage.value,
+                numPages: numPages.value,
+                hasContainer: Boolean(containerAtCapture),
+            });
+        }
 
         await renderMutex.acquire();
 
@@ -620,6 +642,20 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
             if (renderVersion === version) {
                 restoreScrollFromSnapshot(options.container.value, snapshot);
+                const containerAfterRestore = options.container.value;
+                BrowserLogger.warn('pdf-nav', `[re-render-snapshot] restored version=${version}`, {
+                    version,
+                    currentPage: options.currentPage.value,
+                    numPages: numPages.value,
+                    snapshot,
+                    scrollTop: containerAfterRestore ? Math.round(containerAfterRestore.scrollTop) : null,
+                    clientHeight: containerAfterRestore
+                        ? Math.round(containerAfterRestore.clientHeight)
+                        : null,
+                    mostVisiblePage: containerAfterRestore
+                        ? getMostVisiblePageFromDom(containerAfterRestore, numPages.value)
+                        : null,
+                });
             }
 
             if (renderVersion !== version) {
