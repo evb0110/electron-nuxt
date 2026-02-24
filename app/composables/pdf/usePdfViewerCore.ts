@@ -103,6 +103,7 @@ interface IUsePdfViewerCoreOptions {
     startDrag: (e: MouseEvent, container: HTMLElement | null) => void;
     onDrag: (e: MouseEvent, container: HTMLElement | null) => void;
     stopDrag: () => void;
+    setResizeTransitionVisible?: (payload: IResizeTransitionSignal) => void;
     emit: {
         (e: 'update:zoom', value: number): void;
         (e: 'update:currentPage', page: number): void;
@@ -115,6 +116,13 @@ interface IUsePdfViewerCoreOptions {
     };
 }
 
+interface IResizeTransitionSignal {
+    active: boolean;
+    source: string;
+    token: number;
+    anchorPage: number | null;
+}
+
 interface ICurrentPageSyncOptions {
     source?: string;
     stabilize?: boolean;
@@ -124,6 +132,7 @@ interface ICurrentPageSyncOptions {
 interface IResizeAnchorContext {
     capturedAtMs: number;
     page: number;
+    transitionToken: number;
     snapshot: IScrollSnapshot | null;
     visibleRange: {
         start: number;
@@ -190,6 +199,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         resetContinuousScrollState,
         startDrag,
         onDrag,
+        setResizeTransitionVisible,
         emit,
     } = options;
 
@@ -215,6 +225,50 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     let reRenderSyncRunId = 0;
     let currentPageSyncRunId = 0;
     let currentPageEmitEventId = 0;
+    let resizeTransitionToken = 0;
+    let pendingResizeTransitionHideTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function emitResizeTransitionSignal(
+        active: boolean,
+        source: string,
+        token: number,
+        anchorPage: number | null,
+    ) {
+        setResizeTransitionVisible?.({
+            active,
+            source,
+            token,
+            anchorPage,
+        });
+    }
+
+    function beginResizeTransition(source: string, anchorPage: number | null) {
+        resizeTransitionToken += 1;
+        const token = resizeTransitionToken;
+        if (pendingResizeTransitionHideTimer !== null) {
+            clearTimeout(pendingResizeTransitionHideTimer);
+            pendingResizeTransitionHideTimer = null;
+        }
+        emitResizeTransitionSignal(true, source, token, anchorPage);
+        return token;
+    }
+
+    function scheduleEndResizeTransition(
+        token: number,
+        source: string,
+        anchorPage: number | null,
+    ) {
+        if (pendingResizeTransitionHideTimer !== null) {
+            clearTimeout(pendingResizeTransitionHideTimer);
+        }
+        pendingResizeTransitionHideTimer = setTimeout(() => {
+            if (token !== resizeTransitionToken) {
+                return;
+            }
+            emitResizeTransitionSignal(false, source, token, anchorPage);
+            pendingResizeTransitionHideTimer = null;
+        }, 90);
+    }
 
     function isPageNearVisible(page: number) {
         const start = Math.max(1, visibleRange.value.start - SKELETON_BUFFER);
@@ -481,43 +535,35 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         }
 
         const source = options.source ?? 'default';
+        if (options.resizeAnchor && isResizeSource(source)) {
+            BrowserLogger.warn(
+                'pdf-nav',
+                `[resize-anchor] fixed current-page sync source=${source}`
+                + ` page=${options.resizeAnchor.page}`
+                + ` token=${options.resizeAnchor.transitionToken}`,
+                {
+                    source,
+                    page: options.resizeAnchor.page,
+                    transitionToken: options.resizeAnchor.transitionToken,
+                    capturedAtMs: options.resizeAnchor.capturedAtMs,
+                    capturedVisibleRange: options.resizeAnchor.visibleRange,
+                    capturedViewerMetrics: options.resizeAnchor.viewerMetrics,
+                    viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+                    visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
+                },
+            );
+            emitCurrentPageIfChanged(
+                options.resizeAnchor.page,
+                `${source}:anchor-fixed`,
+                null,
+                false,
+            );
+            return;
+        }
         const syncRunId = ++currentPageSyncRunId;
         if (options.stabilize) {
             const stablePage = await resolveStableCurrentPageFromViewport(syncRunId, source);
             if (!stablePage || syncRunId !== currentPageSyncRunId) {
-                return;
-            }
-
-            if (
-                options.resizeAnchor
-                && isResizeSource(source)
-                && Math.abs(stablePage.page - options.resizeAnchor.page) > 1
-            ) {
-                BrowserLogger.warn(
-                    'pdf-nav',
-                    `[resize-anchor] suppressing unstable resize sync run=${syncRunId}`
-                    + ` expectedPage=${options.resizeAnchor.page}`
-                    + ` sampledPage=${stablePage.page}`,
-                    {
-                        source,
-                        syncRunId,
-                        sampledPage: stablePage.page,
-                        expectedPage: options.resizeAnchor.page,
-                        samples: stablePage.samples,
-                        fallbackToCurrent: stablePage.fallbackToCurrent,
-                        capturedAtMs: options.resizeAnchor.capturedAtMs,
-                        capturedVisibleRange: options.resizeAnchor.visibleRange,
-                        capturedViewerMetrics: options.resizeAnchor.viewerMetrics,
-                        viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-                        visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
-                    },
-                );
-                emitCurrentPageIfChanged(
-                    options.resizeAnchor.page,
-                    `${source}:anchor-override`,
-                    stablePage.samples,
-                    false,
-                );
                 return;
             }
 
@@ -555,18 +601,27 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
                 activeRunId: reRenderSyncRunId,
                 source: syncOptions.source ?? 're-render',
             });
+            if (syncOptions.resizeAnchor) {
+                scheduleEndResizeTransition(
+                    syncOptions.resizeAnchor.transitionToken,
+                    'stale-rerender',
+                    syncOptions.resizeAnchor.page,
+                );
+            }
             return;
         }
 
         if (syncOptions.resizeAnchor) {
             restoreScrollFromSnapshot(viewerContainer.value, syncOptions.resizeAnchor.snapshot);
-            let restoredMostVisiblePage = getMostVisiblePage(viewerContainer.value, numPages.value);
+            const restoredMostVisiblePage = getMostVisiblePage(viewerContainer.value, numPages.value);
             BrowserLogger.warn('pdf-nav', `[resize-anchor] restored run=${runId}`
                 + ` expectedPage=${syncOptions.resizeAnchor.page}`
-                + ` restoredMostVisible=${restoredMostVisiblePage}`, {
+                + ` restoredMostVisible=${restoredMostVisiblePage}`
+                + ` token=${syncOptions.resizeAnchor.transitionToken}`, {
                 runId,
                 source: syncOptions.source ?? 're-render',
                 expectedPage: syncOptions.resizeAnchor.page,
+                transitionToken: syncOptions.resizeAnchor.transitionToken,
                 capturedAtMs: syncOptions.resizeAnchor.capturedAtMs,
                 capturedVisibleRange: syncOptions.resizeAnchor.visibleRange,
                 capturedViewerMetrics: syncOptions.resizeAnchor.viewerMetrics,
@@ -575,28 +630,12 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             });
 
             if (Math.abs(restoredMostVisiblePage - syncOptions.resizeAnchor.page) > 1) {
-                await nextTick();
-                await waitForAnimationFrame();
-                restoreScrollFromSnapshot(viewerContainer.value, syncOptions.resizeAnchor.snapshot);
-                restoredMostVisiblePage = getMostVisiblePage(viewerContainer.value, numPages.value);
-                BrowserLogger.warn('pdf-nav', `[resize-anchor] retry restore run=${runId}`
-                    + ` expectedPage=${syncOptions.resizeAnchor.page}`
-                    + ` restoredMostVisible=${restoredMostVisiblePage}`, {
-                    runId,
-                    source: syncOptions.source ?? 're-render',
-                    expectedPage: syncOptions.resizeAnchor.page,
-                    capturedAtMs: syncOptions.resizeAnchor.capturedAtMs,
-                    capturedVisibleRange: syncOptions.resizeAnchor.visibleRange,
-                    capturedViewerMetrics: syncOptions.resizeAnchor.viewerMetrics,
-                    restoredViewerMetrics: summarizeViewerMetricsForLog(viewerContainer.value),
-                    restoredVisiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
-                });
-
-                BrowserLogger.warn('pdf-nav', '[resize-anchor] drift persists after retry; skipping hard scroll fallback', {
+                BrowserLogger.warn('pdf-nav', '[resize-anchor] drift detected after restore; locking page sync to anchor', {
                     runId,
                     source: syncOptions.source ?? 're-render',
                     restoredMostVisiblePage,
                     expectedPage: syncOptions.resizeAnchor.page,
+                    transitionToken: syncOptions.resizeAnchor.transitionToken,
                     viewer: summarizeViewerMetricsForLog(viewerContainer.value),
                     visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
                 });
@@ -615,6 +654,13 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
         });
         await syncCurrentPageFromViewport(syncOptions);
+        if (syncOptions.resizeAnchor) {
+            scheduleEndResizeTransition(
+                syncOptions.resizeAnchor.transitionToken,
+                'resize-rerender-complete',
+                syncOptions.resizeAnchor.page,
+            );
+        }
     }
 
     async function recoverInitialRenderIfNeeded() {
@@ -789,6 +835,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         return {
             capturedAtMs: Date.now(),
             page: mostVisiblePage,
+            transitionToken: 0,
             snapshot: captureScrollSnapshot(viewerContainer.value),
             visibleRange: {
                 start: visibleRange.value.start,
@@ -802,6 +849,13 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     const debouncedRenderOnResizeWithAnchor = useDebounceFn(() => {
         if (isLoading.value || !pdfDocument.value) {
+            if (pendingResizeAnchor) {
+                scheduleEndResizeTransition(
+                    pendingResizeAnchor.transitionToken,
+                    'resize-cancelled',
+                    pendingResizeAnchor.page,
+                );
+            }
             pendingResizeAnchor = null;
             return;
         }
@@ -824,40 +878,48 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         const resizeAnchor = buildResizeAnchorContext();
         const updated = computeFitWidthScale(viewerContainer.value);
         if (updated && pdfDocument.value) {
+            const transitionToken = beginResizeTransition(
+                'resize-observer',
+                resizeAnchor.page,
+            );
+            const anchoredResizeContext: IResizeAnchorContext = {
+                ...resizeAnchor,
+                transitionToken,
+            };
             // Update placeholder geometry immediately so anchor restoration occurs
             // in the same resize phase instead of a later rerender stage.
             setupPagePlaceholders();
-            restoreScrollFromSnapshot(viewerContainer.value, resizeAnchor.snapshot);
+            restoreScrollFromSnapshot(viewerContainer.value, anchoredResizeContext.snapshot);
             const restoredAfterScalePage = getMostVisiblePage(
                 viewerContainer.value,
                 numPages.value,
             );
-            if (!pendingResizeAnchor) {
-                pendingResizeAnchor = resizeAnchor;
-            }
+            pendingResizeAnchor = anchoredResizeContext;
             BrowserLogger.warn('pdf-nav', 'Resize observer requested re-render'
-                + ` anchorPage=${resizeAnchor.page}`
-                + ` anchorRange=${resizeAnchor.visibleRange.start}-${resizeAnchor.visibleRange.end}`
-                + ` restoredAfterScalePage=${restoredAfterScalePage}`, {
+                + ` anchorPage=${anchoredResizeContext.page}`
+                + ` anchorRange=${anchoredResizeContext.visibleRange.start}-${anchoredResizeContext.visibleRange.end}`
+                + ` restoredAfterScalePage=${restoredAfterScalePage}`
+                + ` token=${anchoredResizeContext.transitionToken}`, {
                 currentPage: currentPage.value,
                 visibleRange: {
                     start: visibleRange.value.start,
                     end: visibleRange.value.end,
                 },
-                anchorSnapshot: resizeAnchor.snapshot,
-                anchorViewerMetrics: resizeAnchor.viewerMetrics,
+                anchorSnapshot: anchoredResizeContext.snapshot,
+                anchorViewerMetrics: anchoredResizeContext.viewerMetrics,
                 pendingAnchorPage: pendingResizeAnchor.page,
                 pendingAnchorAgeMs: Date.now() - pendingResizeAnchor.capturedAtMs,
                 viewer: summarizeViewerMetricsForLog(viewerContainer.value),
                 visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
             });
-            if (Math.abs(restoredAfterScalePage - resizeAnchor.page) > 1) {
+            if (Math.abs(restoredAfterScalePage - anchoredResizeContext.page) > 1) {
                 BrowserLogger.warn('pdf-nav', '[resize-anchor] immediate post-scale drift detected', {
-                    expectedPage: resizeAnchor.page,
+                    expectedPage: anchoredResizeContext.page,
                     restoredAfterScalePage,
-                    anchorCapturedAtMs: resizeAnchor.capturedAtMs,
-                    anchorVisibleRange: resizeAnchor.visibleRange,
-                    anchorViewerMetrics: resizeAnchor.viewerMetrics,
+                    transitionToken: anchoredResizeContext.transitionToken,
+                    anchorCapturedAtMs: anchoredResizeContext.capturedAtMs,
+                    anchorVisibleRange: anchoredResizeContext.visibleRange,
+                    anchorViewerMetrics: anchoredResizeContext.viewerMetrics,
                     viewer: summarizeViewerMetricsForLog(viewerContainer.value),
                     visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
                 });
@@ -890,6 +952,11 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     });
 
     onUnmounted(() => {
+        if (pendingResizeTransitionHideTimer !== null) {
+            clearTimeout(pendingResizeTransitionHideTimer);
+            pendingResizeTransitionHideTimer = null;
+        }
+        emitResizeTransitionSignal(false, 'unmount', resizeTransitionToken, currentPage.value);
         inlineIndicators.cleanup();
         highlight.clearSelectionCache();
         cleanupRenderedPages();

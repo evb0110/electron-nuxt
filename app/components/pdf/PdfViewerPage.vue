@@ -25,7 +25,7 @@
             @shape-contextmenu="shapeContext.handleShapeContextMenu($event)"
         />
         <PdfPageSkeleton
-            v-if="showSkeleton"
+            v-if="showSkeleton || forceSkeleton"
             :padding="scaledSkeletonPadding"
             :content-height="scaledPageHeight"
         />
@@ -45,6 +45,7 @@ import type { IShapeContextProvide } from '@app/composables/pdf/useAnnotationSha
 interface IProps {
     page: number;
     showSkeleton: boolean;
+    forceSkeleton?: boolean;
     spreadSingle?: boolean;
     placeholderStyle?: Record<string, string> | null;
 }
