@@ -58,7 +58,7 @@ vi.mock('@app/utils/electron', () => ({getElectronAPI: () => electronApi}));
 
 const { usePdfDocument } = await import('@app/composables/pdf/usePdfDocument');
 
-describe('usePdfDocument failure handling', () => {
+describe('usePdfDocument range loading', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         pdfjsState.PDFDataRangeTransport = MockPdfDataRangeTransport;
@@ -73,6 +73,45 @@ describe('usePdfDocument failure handling', () => {
             }),
             destroy: vi.fn(),
         } as ILoadingTask);
+    });
+
+    it('loads a PDF through range transport and populates document state', async () => {
+        const size = (1024 * 1024 * 2) + 13;
+        electronApi.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = usePdfDocument();
+        const result = await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/success.pdf',
+            size,
+        });
+
+        expect(result).not.toBeNull();
+        expect(documentState.pdfDocument.value).not.toBeNull();
+        expect(documentState.pdfDocument.value).toBe(result?.document ?? null);
+        expect(documentState.numPages.value).toBe(1);
+        expect(documentState.basePageWidth.value).toBe(100);
+        expect(documentState.basePageHeight.value).toBe(200);
+        expect(documentState.isLoading.value).toBe(false);
+
+        expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        expect(pdfjsState.getDocument).toHaveBeenCalledWith(expect.objectContaining({
+            range: expect.any(MockPdfDataRangeTransport),
+            length: size,
+            rangeChunkSize: 1024 * 1024,
+            verbosity: pdfjsState.VerbosityLevel.ERRORS,
+            standardFontDataUrl: '/pdf/standard_fonts/',
+            cMapUrl: '/pdf/cmaps/',
+            cMapPacked: true,
+            wasmUrl: '/pdf/wasm/',
+            iccUrl: '/pdf/iccs/',
+            useSystemFonts: false,
+        }));
     });
 
     it('returns null and clears loading when PDF.js range transport API is unavailable', async () => {

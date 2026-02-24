@@ -1,0 +1,274 @@
+import {
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+
+type TRegisteredHandler = (...args: unknown[]) => unknown;
+
+interface IMockWorkerRecord {
+    onHandlers: Map<string, Array<(arg: unknown) => void>>;
+    postMessageCalls: Array<Record<string, unknown>>;
+    terminate: ReturnType<typeof vi.fn<() => Promise<number>>>;
+}
+
+const mocks = vi.hoisted(() => ({
+    handlers: new Map<string, TRegisteredHandler>(),
+    workerRecords: [] as IMockWorkerRecord[],
+    workerCtor: vi.fn(),
+    resolveAllowedReadPath: vi.fn(),
+    findWorkingCopyPathByOriginalPath: vi.fn(),
+    appOn: vi.fn(),
+    webContentsById: new Map<number, {isDestroyed: () => boolean; send: ReturnType<typeof vi.fn>}>(),
+    logger: {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+    },
+    autoCompleteSearch: true,
+}));
+
+function emitWorkerEvent(
+    workerIndex: number,
+    event: string,
+    payload: unknown,
+) {
+    const record = mocks.workerRecords[workerIndex];
+    if (!record) {
+        throw new Error(`Worker record ${workerIndex} not found`);
+    }
+
+    const handlers = record.onHandlers.get(event) ?? [];
+    for (const handler of handlers) {
+        handler(payload);
+    }
+}
+
+function emitWorkerComplete(
+    workerIndex: number,
+    requestId: string,
+) {
+    emitWorkerEvent(workerIndex, 'message', {
+        type: 'complete',
+        requestId,
+        response: {
+            results: [],
+            truncated: false,
+        },
+    });
+}
+
+vi.mock('worker_threads', () => ({Worker: class {
+    private record: IMockWorkerRecord;
+
+    constructor(workerPath: string) {
+        this.record = {
+            onHandlers: new Map(),
+            postMessageCalls: [],
+            terminate: vi.fn(async () => 0),
+        };
+        mocks.workerCtor(workerPath);
+        mocks.workerRecords.push(this.record);
+    }
+
+    on(event: string, handler: (arg: unknown) => void) {
+        const handlers = this.record.onHandlers.get(event) ?? [];
+        handlers.push(handler);
+        this.record.onHandlers.set(event, handlers);
+        return this;
+    }
+
+    postMessage(message: Record<string, unknown>) {
+        this.record.postMessageCalls.push(message);
+
+        if (mocks.autoCompleteSearch && message.type === 'search') {
+            const payload = message.payload as { requestId?: string } | undefined;
+            const requestId = payload?.requestId;
+            if (typeof requestId === 'string' && requestId.length > 0) {
+                Promise.resolve().then(() => {
+                    emitWorkerComplete(mocks.workerRecords.indexOf(this.record), requestId);
+                });
+            }
+        }
+    }
+
+    terminate() {
+        return this.record.terminate();
+    }
+}}));
+
+vi.mock('electron', () => ({
+    app: {
+        isPackaged: false,
+        on: (...args: unknown[]) => mocks.appOn(...args),
+    },
+    ipcMain: {
+        handle: (channel: string, handler: TRegisteredHandler) => {
+            mocks.handlers.set(channel, handler);
+        },
+    },
+    webContents: {
+        fromId: (senderId: number) => mocks.webContentsById.get(senderId) ?? null,
+    },
+}));
+
+vi.mock('@electron/utils/path-validator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
+vi.mock('@electron/ipc/workingCopy', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
+vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+
+function createInvokeEvent(senderId: number) {
+    const sender = {
+        id: senderId,
+        once: vi.fn(),
+    };
+    mocks.webContentsById.set(senderId, {
+        isDestroyed: () => false,
+        send: vi.fn(),
+    });
+    return {sender};
+}
+
+function getSearchHandler() {
+    const handler = mocks.handlers.get('pdf:search');
+    if (!handler) {
+        throw new Error('pdf:search handler is not registered');
+    }
+    return handler;
+}
+
+describe('search IPC worker resource limits', () => {
+    beforeEach(() => {
+        vi.resetModules();
+        vi.clearAllMocks();
+        mocks.handlers.clear();
+        mocks.workerRecords.length = 0;
+        mocks.webContentsById.clear();
+        mocks.autoCompleteSearch = true;
+
+        delete process.env.EVB_SEARCH_WORKER_MAX_ACTIVE;
+        delete process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS;
+        delete process.env.EVB_SEARCH_REQUEST_TIMEOUT_MS;
+
+        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/allowed.pdf');
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
+    });
+
+    it('fails fast when cap is reached and no idle worker can be reused', async () => {
+        process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '1';
+        mocks.autoCompleteSearch = false;
+
+        const { registerSearchHandlers } = await import('@electron/search/ipc');
+        registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+
+        const firstRequest = searchHandler(
+            createInvokeEvent(10),
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: 'first',
+                requestId: 'req-1',
+            },
+        ) as Promise<{ results: unknown[]; truncated: boolean }>;
+
+        await vi.waitFor(() => {
+            expect(mocks.workerRecords).toHaveLength(1);
+        });
+
+        const secondRequest = searchHandler(
+            createInvokeEvent(20),
+            {
+                pdfPath: '/tmp/two.pdf',
+                query: 'second',
+                requestId: 'req-2',
+            },
+        ) as Promise<{ results: unknown[]; truncated: boolean }>;
+
+        await expect(secondRequest).rejects.toThrow('Search worker limit reached (1 active senders)');
+        expect(mocks.workerRecords).toHaveLength(1);
+
+        emitWorkerComplete(0, 'req-1');
+        await expect(firstRequest).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+    });
+
+    it('reuses an idle worker under cap pressure instead of spawning a new one', async () => {
+        process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '1';
+
+        const { registerSearchHandlers } = await import('@electron/search/ipc');
+        registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+
+        await expect(searchHandler(
+            createInvokeEvent(31),
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: 'alpha',
+                requestId: 'req-a',
+            },
+        )).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+
+        await expect(searchHandler(
+            createInvokeEvent(32),
+            {
+                pdfPath: '/tmp/two.pdf',
+                query: 'beta',
+                requestId: 'req-b',
+            },
+        )).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+
+        expect(mocks.workerRecords).toHaveLength(1);
+        const searchRequestIds = mocks.workerRecords[0]?.postMessageCalls
+            .filter(message => message.type === 'search')
+            .map(message => (message.payload as { requestId?: string }).requestId);
+        expect(searchRequestIds).toEqual([
+            'req-a',
+            'req-b',
+        ]);
+    });
+
+    it('keeps normal per-sender search flow unchanged', async () => {
+        process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '4';
+
+        const { registerSearchHandlers } = await import('@electron/search/ipc');
+        registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+
+        const firstResponse = await searchHandler(
+            createInvokeEvent(77),
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: 'needle',
+                requestId: 'req-1',
+            },
+        );
+        const secondResponse = await searchHandler(
+            createInvokeEvent(77),
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: 'needle',
+                requestId: 'req-2',
+            },
+        );
+
+        expect(firstResponse).toEqual({
+            results: [],
+            truncated: false,
+        });
+        expect(secondResponse).toEqual({
+            results: [],
+            truncated: false,
+        });
+        expect(mocks.workerRecords).toHaveLength(1);
+    });
+});
