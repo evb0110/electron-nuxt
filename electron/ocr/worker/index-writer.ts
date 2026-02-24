@@ -1,15 +1,86 @@
 import {
+    lstat,
     mkdir,
+    realpath,
     rename,
     writeFile,
 } from 'fs/promises';
-import { join } from 'path';
+import {
+    dirname,
+    isAbsolute,
+    join,
+    relative,
+    resolve,
+    sep,
+} from 'path';
 import type {
     IOcrIndexV2Manifest,
     IOcrIndexV2Page,
     IOcrPageWithWords,
     TWorkerLog,
 } from '@electron/ocr/worker/types';
+
+function isPathInsideBaseDir(baseDir: string, candidatePath: string) {
+    const relativePath = relative(baseDir, candidatePath);
+    return (
+        relativePath !== ''
+        && relativePath !== '.'
+        && relativePath !== '..'
+        && !relativePath.startsWith(`..${sep}`)
+        && !isAbsolute(relativePath)
+    );
+}
+
+function isPathInsideAnyBaseDir(baseDirs: string[], candidatePath: string) {
+    return baseDirs.some(baseDir => isPathInsideBaseDir(baseDir, candidatePath));
+}
+
+export async function resolveSafeOcrIndexBasePath(
+    indexPath: string,
+    tempDirPath: string,
+): Promise<string> {
+    const normalizedPath = indexPath.trim();
+    if (!normalizedPath) {
+        throw new Error('OCR index path must not be empty');
+    }
+
+    const absoluteIndexPath = resolve(normalizedPath);
+    const absoluteTempDir = resolve(tempDirPath);
+    const tempBaseDirs = [absoluteTempDir];
+    try {
+        const canonicalTempDir = await realpath(absoluteTempDir);
+        if (canonicalTempDir !== absoluteTempDir) {
+            tempBaseDirs.push(canonicalTempDir);
+        }
+    } catch {
+        // Keep the non-canonical temp directory as the fallback base.
+    }
+
+    if (!isPathInsideAnyBaseDir(tempBaseDirs, absoluteIndexPath)) {
+        throw new Error('OCR index path is outside the allowed temp directory');
+    }
+
+    const indexStat = await lstat(absoluteIndexPath).catch(() => null);
+    if (!indexStat) {
+        throw new Error('OCR index path does not exist');
+    }
+    if (indexStat.isSymbolicLink()) {
+        throw new Error('OCR index path cannot be a symbolic link');
+    }
+
+    const resolvedIndexPath = await realpath(absoluteIndexPath);
+    if (!isPathInsideAnyBaseDir(tempBaseDirs, resolvedIndexPath)) {
+        throw new Error('OCR index path resolves outside the allowed temp directory');
+    }
+
+    const resolvedParentDir = await realpath(dirname(resolvedIndexPath));
+    const isInsideTempDir = isPathInsideAnyBaseDir(tempBaseDirs, resolvedParentDir) || tempBaseDirs.includes(resolvedParentDir);
+    if (!isInsideTempDir) {
+        throw new Error('OCR index path parent directory is outside the allowed temp directory');
+    }
+
+    return resolvedIndexPath;
+}
 
 export async function writeOcrIndexV2(
     workingCopyPath: string,

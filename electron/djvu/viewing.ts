@@ -5,10 +5,15 @@ import {
 import type { IpcMainInvokeEvent } from 'electron';
 import {
     readFile,
+    readdir,
+    stat,
     unlink,
     writeFile,
 } from 'fs/promises';
-import { join } from 'path';
+import {
+    join,
+    resolve,
+} from 'path';
 import {
     PDFDocument,
     rgb,
@@ -26,17 +31,139 @@ import { parseDjvuOutline } from '@electron/djvu/bookmarks';
 import { createLogger } from '@electron/utils/logger';
 import { safeSendToWindow } from '@electron/djvu/ipc-shared';
 import { embedBookmarksIntoPdf } from '@electron/djvu/pdf-bookmarks';
+import { isAllowedDjvuTempPdfPath } from '@electron/djvu/temp-path';
 
 const logger = createLogger('djvu-ipc');
 
 let activeViewingJobId: string | null = null;
+let activeViewingJobWindowId: number | null = null;
+const trackedTempPdfs = new Set<string>();
+const trackedWindowTempPdfs = new Map<number, Set<string>>();
+const hookedWindowIds = new Set<number>();
+const DJVU_SETTLED_CLEANUP_DELAY_MS = 60_000;
+const DJVU_STALE_SWEEP_MAX_AGE_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_TEMP_STALE_MAX_AGE_MS ?? `${24 * 60 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 60_000) {
+        return 24 * 60 * 60 * 1000;
+    }
+    return parsed;
+})();
 
-export function cancelActiveViewingJob() {
+function normalizeTempPdfPath(tempPdfPath: string): string | null {
+    if (!tempPdfPath || tempPdfPath.trim() === '') {
+        return null;
+    }
+
+    try {
+        return resolve(tempPdfPath.trim());
+    } catch {
+        return null;
+    }
+}
+
+function canManageDjvuTempPdfPath(tempPdfPath: string) {
+    return isAllowedDjvuTempPdfPath(tempPdfPath, app.getPath('temp'));
+}
+
+function trackDjvuTempPdfPath(windowId: number, tempPdfPath: string) {
+    const normalizedPath = normalizeTempPdfPath(tempPdfPath);
+    if (!normalizedPath || !canManageDjvuTempPdfPath(normalizedPath)) {
+        return;
+    }
+
+    trackedTempPdfs.add(normalizedPath);
+    const windowPaths = trackedWindowTempPdfs.get(windowId) ?? new Set<string>();
+    windowPaths.add(normalizedPath);
+    trackedWindowTempPdfs.set(windowId, windowPaths);
+}
+
+function untrackDjvuTempPdfPath(tempPdfPath: string) {
+    const normalizedPath = normalizeTempPdfPath(tempPdfPath);
+    if (!normalizedPath) {
+        return;
+    }
+
+    trackedTempPdfs.delete(normalizedPath);
+
+    for (const [
+        windowId,
+        trackedPaths,
+    ] of trackedWindowTempPdfs.entries()) {
+        trackedPaths.delete(normalizedPath);
+        if (trackedPaths.size === 0) {
+            trackedWindowTempPdfs.delete(windowId);
+        }
+    }
+}
+
+async function safeDeleteDjvuTempPdf(tempPdfPath: string) {
+    const normalizedPath = normalizeTempPdfPath(tempPdfPath);
+    if (!normalizedPath || !canManageDjvuTempPdfPath(normalizedPath)) {
+        return;
+    }
+
+    untrackDjvuTempPdfPath(normalizedPath);
+
+    try {
+        await unlink(normalizedPath);
+    } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (err.code !== 'ENOENT') {
+            logger.warn(`Failed to remove DjVu temp PDF "${normalizedPath}": ${String(error)}`);
+        }
+    }
+}
+
+export async function cleanupDjvuTempPdfPath(tempPdfPath: string) {
+    await safeDeleteDjvuTempPdf(tempPdfPath);
+}
+
+async function cleanupDjvuTempPdfsForWindow(windowId: number) {
+    const windowPaths = trackedWindowTempPdfs.get(windowId);
+    if (!windowPaths || windowPaths.size === 0) {
+        return;
+    }
+
+    trackedWindowTempPdfs.delete(windowId);
+    for (const path of windowPaths) {
+        await safeDeleteDjvuTempPdf(path);
+    }
+}
+
+function scheduleDjvuTempCleanup(tempPdfPath: string, delayMs = DJVU_SETTLED_CLEANUP_DELAY_MS) {
+    const normalizedPath = normalizeTempPdfPath(tempPdfPath);
+    if (!normalizedPath) {
+        return;
+    }
+
+    const timer = setTimeout(() => {
+        void safeDeleteDjvuTempPdf(normalizedPath);
+    }, delayMs);
+    timer.unref?.();
+}
+
+function attachWindowCleanup(window: BrowserWindow) {
+    if (hookedWindowIds.has(window.id)) {
+        return;
+    }
+
+    hookedWindowIds.add(window.id);
+    window.on('closed', () => {
+        hookedWindowIds.delete(window.id);
+        if (activeViewingJobWindowId === window.id) {
+            cancelActiveViewingJob();
+        }
+        void cleanupDjvuTempPdfsForWindow(window.id);
+    });
+}
+
+function cancelActiveViewingJob() {
     if (!activeViewingJobId) {
         return;
     }
     cancelConversion(activeViewingJobId);
     activeViewingJobId = null;
+    activeViewingJobWindowId = null;
 }
 
 async function backgroundEmbedBookmarksAndSignal(
@@ -169,8 +296,10 @@ async function backgroundConvertAll(
     djvuPath: string,
     pageCount: number,
     jobId: string,
+    previousPdfPath?: string,
 ) {
     logger.info(`[${jobId}] Background conversion starting: ${pageCount} pages`);
+    let fullPdfPath: string | null = null;
 
     try {
         safeSendToWindow(window, 'djvu:progress', {
@@ -185,7 +314,11 @@ async function backgroundConvertAll(
             .then(sexp => parseDjvuOutline(sexp))
             .catch(() => [] as IPdfBookmarkEntry[]);
 
-        const fullPdfPath = join(app.getPath('temp'), `djvu-full-${Date.now()}.pdf`);
+        fullPdfPath = join(app.getPath('temp'), `djvu-full-${Date.now()}.pdf`);
+        const windowId = window?.id;
+        if (typeof windowId === 'number') {
+            trackDjvuTempPdfPath(windowId, fullPdfPath);
+        }
         const convertResult = await convertDjvuToPdf(
             djvuPath,
             fullPdfPath,
@@ -211,6 +344,7 @@ async function backgroundConvertAll(
                 jobId,
                 error: convertResult.error ?? 'Conversion failed',
             });
+            await safeDeleteDjvuTempPdf(fullPdfPath);
             return;
         }
 
@@ -243,7 +377,14 @@ async function backgroundConvertAll(
             isPartial: false,
             jobId,
         });
+
+        if (previousPdfPath && previousPdfPath !== fullPdfPath) {
+            scheduleDjvuTempCleanup(previousPdfPath);
+        }
     } catch (error) {
+        if (fullPdfPath) {
+            await safeDeleteDjvuTempPdf(fullPdfPath);
+        }
         logger.error(`[${jobId}] Background conversion failed: ${error instanceof Error ? error.message : String(error)}`);
         safeSendToWindow(window, 'djvu:viewingError', {
             jobId,
@@ -252,8 +393,61 @@ async function backgroundConvertAll(
     } finally {
         if (activeViewingJobId === jobId) {
             activeViewingJobId = null;
+            activeViewingJobWindowId = null;
         }
     }
+}
+
+export async function sweepStaleDjvuTempPdfs(
+    maxAgeMs = DJVU_STALE_SWEEP_MAX_AGE_MS,
+): Promise<number> {
+    const tempDir = app.getPath('temp');
+    const now = Date.now();
+    let deletedCount = 0;
+
+    let entries: string[] = [];
+    try {
+        entries = await readdir(tempDir);
+    } catch (error) {
+        logger.warn(`Failed to enumerate DjVu temp directory for stale cleanup: ${String(error)}`);
+        return 0;
+    }
+
+    for (const entry of entries) {
+        const normalizedEntry = entry.toLowerCase();
+        if (!normalizedEntry.startsWith('djvu-') || !normalizedEntry.endsWith('.pdf')) {
+            continue;
+        }
+
+        const candidatePath = join(tempDir, entry);
+        const normalizedPath = normalizeTempPdfPath(candidatePath);
+        if (!normalizedPath || !canManageDjvuTempPdfPath(normalizedPath) || trackedTempPdfs.has(normalizedPath)) {
+            continue;
+        }
+
+        try {
+            const fileStat = await stat(normalizedPath);
+            if (!fileStat.isFile()) {
+                continue;
+            }
+
+            const lastTouchedAt = Math.max(fileStat.mtimeMs, fileStat.ctimeMs);
+            if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs) {
+                continue;
+            }
+        } catch {
+            continue;
+        }
+
+        await safeDeleteDjvuTempPdf(normalizedPath);
+        deletedCount += 1;
+    }
+
+    if (deletedCount > 0) {
+        logger.info(`Cleaned up ${deletedCount} stale DjVu temp PDF(s)`);
+    }
+
+    return deletedCount;
 }
 
 export async function handleDjvuOpenForViewing(
@@ -267,43 +461,56 @@ export async function handleDjvuOpenForViewing(
     error?: string;
 }> {
     const window = BrowserWindow.fromWebContents(event.sender);
+    if (window && !window.isDestroyed()) {
+        attachWindowCleanup(window);
+    }
+    const windowId = window?.id;
 
     cancelActiveViewingJob();
 
     const jobId = `djvu-view-${Date.now()}`;
     logger.info(`[${jobId}] Opening DjVu for viewing: ${djvuPath}`);
+    let tempPage1Path: string | null = null;
+    let initialPdfPath: string | null = null;
 
     try {
         const pageCount = await getDjvuPageCount(djvuPath);
 
-        const tempPage1Path = join(
+        tempPage1Path = join(
             app.getPath('temp'),
             `djvu-page1-${Date.now()}.pdf`,
         );
+        const page1PdfPath = tempPage1Path;
+        if (typeof windowId === 'number') {
+            trackDjvuTempPdfPath(windowId, page1PdfPath);
+        }
 
-        const page1Result = await convertDjvuToPdf(djvuPath, tempPage1Path, jobId, { pages: '1' });
+        const page1Result = await convertDjvuToPdf(djvuPath, page1PdfPath, jobId, { pages: '1' });
 
         if (!page1Result.success) {
+            await safeDeleteDjvuTempPdf(page1PdfPath);
             return {
                 success: false,
                 error: page1Result.error,
             };
         }
 
-        let initialPdfPath: string;
-
         if (pageCount > 1) {
-            initialPdfPath = await buildSkeletonPdf(tempPage1Path, pageCount);
+            initialPdfPath = await buildSkeletonPdf(page1PdfPath, pageCount);
+            if (typeof windowId === 'number') {
+                trackDjvuTempPdfPath(windowId, initialPdfPath);
+            }
 
-            unlink(tempPage1Path).catch(() => {});
+            await safeDeleteDjvuTempPdf(page1PdfPath);
 
             activeViewingJobId = jobId;
-            backgroundConvertAll(window, djvuPath, pageCount, jobId).catch(() => {
+            activeViewingJobWindowId = typeof windowId === 'number' ? windowId : null;
+            backgroundConvertAll(window, djvuPath, pageCount, jobId, initialPdfPath).catch(() => {
                 // Error handling is done inside backgroundConvertAll via viewingError event
             });
         } else {
-            initialPdfPath = tempPage1Path;
-            backgroundEmbedBookmarksAndSignal(window, djvuPath, tempPage1Path, jobId).catch(() => {
+            initialPdfPath = page1PdfPath;
+            backgroundEmbedBookmarksAndSignal(window, djvuPath, page1PdfPath, jobId).catch(() => {
                 // Best effort for single-page files
             });
         }
@@ -311,11 +518,18 @@ export async function handleDjvuOpenForViewing(
         logger.info(`[${jobId}] Viewing ready: pageCount=${pageCount}, pdfPath=${initialPdfPath}`);
         return {
             success: true,
-            pdfPath: initialPdfPath,
+            pdfPath: initialPdfPath ?? undefined,
             pageCount,
             jobId,
         };
     } catch (error) {
+        if (initialPdfPath && initialPdfPath !== tempPage1Path) {
+            await safeDeleteDjvuTempPdf(initialPdfPath);
+        }
+        if (tempPage1Path) {
+            await safeDeleteDjvuTempPdf(tempPage1Path);
+        }
+
         logger.error(`[${jobId}] Open failed: ${error instanceof Error ? error.message : String(error)}`);
         return {
             success: false,

@@ -29,11 +29,17 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Build Electron bundles
-        run: pnpm run build:electron
+      - name: Locale parity check
+        run: pnpm run check:locales
 
       - name: Test
         run: pnpm test
+
+      - name: Build app and Electron bundles
+        run: pnpm run build
+
+      - name: Resource matrix check
+        run: pnpm run check:resources:matrix
 
       - name: Dead code check
         run: pnpm run knip

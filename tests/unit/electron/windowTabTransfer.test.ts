@@ -63,6 +63,12 @@ function createWindow(windowId: number): ITestWindow {
     return window;
 }
 
+async function flushTransferTasks(cycles = 2) {
+    for (let cycle = 0; cycle < cycles; cycle += 1) {
+        await vi.advanceTimersByTimeAsync(0);
+    }
+}
+
 describe('WindowTabTransferBroker', () => {
     const windowsById = new Map<number, ITestWindow>();
     let nextCreatedWindowId = 100;
@@ -101,7 +107,7 @@ describe('WindowTabTransferBroker', () => {
 
         const transferPromise = broker.requestTransfer(1, createTransferRequest(targetWindow.id));
 
-        await Promise.resolve();
+        await flushTransferTasks();
 
         expect(targetWindow.sentTransfers).toHaveLength(1);
         const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
@@ -126,12 +132,12 @@ describe('WindowTabTransferBroker', () => {
 
         const transferPromise = broker.requestTransfer(1, createTransferRequest(targetWindow.id));
 
-        await Promise.resolve();
+        await flushTransferTasks();
         expect(targetWindow.sentTransfers).toHaveLength(0);
 
         broker.markWindowReady(targetWindow.id);
 
-        await Promise.resolve();
+        await flushTransferTasks();
         expect(targetWindow.sentTransfers).toHaveLength(1);
 
         const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
@@ -154,7 +160,7 @@ describe('WindowTabTransferBroker', () => {
             timeoutMs: 250,
         });
 
-        await Promise.resolve();
+        await flushTransferTasks();
         expect(targetWindow.sentTransfers).toHaveLength(1);
 
         await vi.advanceTimersByTimeAsync(251);
@@ -171,7 +177,7 @@ describe('WindowTabTransferBroker', () => {
 
         const transferPromise = broker.requestTransfer(1, createTransferRequest(targetWindow.id));
 
-        await Promise.resolve();
+        await flushTransferTasks();
         expect(targetWindow.sentTransfers).toHaveLength(1);
 
         targetWindow.destroyed = true;
@@ -195,8 +201,7 @@ describe('WindowTabTransferBroker', () => {
             payload: {kind: 'empty'},
         });
 
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushTransferTasks();
         const createdWindow = windowsById.get(100);
         expect(createdWindow).toBeDefined();
         if (!createdWindow) {
@@ -206,8 +211,7 @@ describe('WindowTabTransferBroker', () => {
         expect(createdWindow.sentTransfers).toHaveLength(0);
 
         broker.markWindowReady(createdWindow.id);
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushTransferTasks();
 
         expect(createdWindow.sentTransfers).toHaveLength(1);
         const sentPayload = createdWindow.sentTransfers[0] as { transferId: string };

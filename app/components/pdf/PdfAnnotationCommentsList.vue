@@ -334,23 +334,23 @@ function deleteContextComment() {
 
 <style scoped>
 .notes-section {
-    border: 1px solid var(--ui-border-muted);
-    border-radius: 0.7rem;
-    background: var(--ui-bg);
-    padding: 0.75rem;
+    border: 1px solid var(--app-notes-section-border);
+    border-radius: var(--app-notes-section-radius);
+    background: var(--app-notes-section-bg);
+    padding: var(--app-notes-section-padding);
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+    gap: var(--app-notes-section-gap);
+    box-shadow: var(--app-notes-section-shadow);
 }
 
 .notes-section-title {
     margin: 0;
-    font-size: 0.82rem;
-    line-height: 1.2;
-    letter-spacing: 0.08em;
+    font-size: var(--app-notes-section-title-size);
+    line-height: var(--app-notes-section-title-line-height);
+    letter-spacing: var(--app-notes-section-title-letter-spacing);
     text-transform: uppercase;
-    color: var(--ui-text-highlighted);
+    color: var(--app-notes-section-title-color);
 }
 
 .notes-list-trigger {
@@ -427,7 +427,7 @@ function deleteContextComment() {
 
 .note-item.is-selected {
     border-color: color-mix(in srgb, var(--ui-primary) 75%, var(--ui-border) 25%);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-primary) 30%, transparent 70%);
+    box-shadow: var(--app-notes-item-selected-ring);
 }
 
 .note-item-top {

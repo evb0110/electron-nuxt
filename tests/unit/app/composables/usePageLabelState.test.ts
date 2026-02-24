@@ -26,25 +26,21 @@ function createPdfDocumentRef(
     }));
 }
 
-async function flushAsyncWork() {
-    await Promise.resolve();
-    await Promise.resolve();
-}
-
 describe('usePageLabelState', () => {
     it('loads labels from document when available', async () => {
         const markDirty = vi.fn();
+        const pdfDocument = createPdfDocumentRef(3, async () => [
+            'i',
+            'ii',
+            'iii',
+        ]);
         const state = usePageLabelState({
-            pdfDocument: createPdfDocumentRef(3, async () => [
-                'i',
-                'ii',
-                'iii',
-            ]),
+            pdfDocument,
             totalPages: ref(3),
             markDirty,
         });
 
-        await flushAsyncWork();
+        await state.syncPageLabelsFromDocument(pdfDocument.value);
 
         expect(state.pageLabels.value).toEqual([
             'i',
@@ -56,15 +52,16 @@ describe('usePageLabelState', () => {
 
     it('falls back to default labels when document labels throw', async () => {
         const markDirty = vi.fn();
+        const pdfDocument = createPdfDocumentRef(2, async () => {
+            throw new Error('bad labels');
+        });
         const state = usePageLabelState({
-            pdfDocument: createPdfDocumentRef(2, async () => {
-                throw new Error('bad labels');
-            }),
+            pdfDocument,
             totalPages: ref(2),
             markDirty,
         });
 
-        await flushAsyncWork();
+        await state.syncPageLabelsFromDocument(pdfDocument.value);
 
         expect(state.pageLabels.value).toBeNull();
         expect(state.pageLabelRanges.value).toEqual([{

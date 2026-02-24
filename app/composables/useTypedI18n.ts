@@ -1,19 +1,14 @@
 import type {
     TLocale,
-    TTranslationKey,
+    TTranslateFn,
 } from '@app/i18n/locales';
-
-type TTypedTranslate = <TKey extends TTranslationKey>(
-    key: TKey,
-    params?: Record<string, string | number | undefined> | number,
-) => string;
 
 interface ILocaleComposerMethods {
     setLocale: (locale: TLocale) => Promise<void>;
     loadLocaleMessages: (locale: TLocale) => Promise<void>;
 }
 
-interface ITypedI18nComposer extends ILocaleComposerMethods {t: TTypedTranslate;}
+interface ITypedI18nComposer extends ILocaleComposerMethods {t: TTranslateFn;}
 
 export function useTypedI18n(): ITypedI18nComposer {
     const composer = useI18n();
@@ -26,7 +21,7 @@ export function useTypedI18n(): ITypedI18nComposer {
     };
     return {
         ...composer,
-        t: composer.t as TTypedTranslate,
+        t: composer.t as TTranslateFn,
         setLocale,
         loadLocaleMessages,
     };

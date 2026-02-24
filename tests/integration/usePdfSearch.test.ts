@@ -102,7 +102,7 @@ describe('usePdfSearch', () => {
         const search = usePdfSearch();
 
         const promise = search.search('term', '/tmp/doc.pdf', 20);
-        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
         expect(search.isSearching.value).toBe(true);
 
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);

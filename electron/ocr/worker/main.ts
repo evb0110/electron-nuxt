@@ -48,6 +48,7 @@ import {
     getPageCount,
 } from '@electron/ocr/worker/pdf-assembler';
 import {
+    resolveSafeOcrIndexBasePath,
     writeOcrIndexV1,
     writeOcrIndexV2,
 } from '@electron/ocr/worker/index-writer';
@@ -374,11 +375,21 @@ async function processOcrJob(
 
         const mergedPdfBuffer = await readFile(mergedPdfPath);
         const allLanguages = uniq(targetPages.flatMap(p => p.languages));
+        let validatedWorkingCopyPath: string | undefined;
 
         if (workingCopyPath) {
             try {
+                validatedWorkingCopyPath = await resolveSafeOcrIndexBasePath(workingCopyPath, paths.tempDir);
+            } catch (pathErr) {
+                const pathErrMsg = pathErr instanceof Error ? pathErr.message : String(pathErr);
+                log('warn', `Rejected OCR index path "${workingCopyPath}": ${pathErrMsg}`);
+            }
+        }
+
+        if (validatedWorkingCopyPath) {
+            try {
                 await writeOcrIndexV2(
-                    workingCopyPath,
+                    validatedWorkingCopyPath,
                     ocrPageData,
                     pageCount,
                     allLanguages,
@@ -391,14 +402,18 @@ async function processOcrJob(
             }
         }
 
-        const indexPath = workingCopyPath || originalPdfPath;
-        try {
-            await writeOcrIndexV1(indexPath, ocrPageData, pageCount);
-            if (!workingCopyPath) {
-                trackTempFile(`${indexPath}.index.json`);
+        if (validatedWorkingCopyPath || !workingCopyPath) {
+            const indexPath = validatedWorkingCopyPath || originalPdfPath;
+            try {
+                await writeOcrIndexV1(indexPath, ocrPageData, pageCount);
+                if (!workingCopyPath) {
+                    trackTempFile(`${indexPath}.index.json`);
+                }
+            } catch {
+                // Non-blocking - don't fail OCR if index save fails
             }
-        } catch {
-            // Non-blocking - don't fail OCR if index save fails
+        } else {
+            log('warn', 'Skipping OCR index writes due to invalid working copy path');
         }
 
         if (mergedPdfBuffer.length > 50 * 1024 * 1024) {

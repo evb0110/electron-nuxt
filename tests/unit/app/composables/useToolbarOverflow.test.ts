@@ -36,9 +36,12 @@ class FakeElement {
 
     public scrollWidth = 0;
 
-    constructor(width: number, scrollWidth: number) {
+    public rectLeft = 0;
+
+    constructor(width: number, scrollWidth: number, rectLeft = 0) {
         this.clientWidth = width;
         this.scrollWidth = scrollWidth;
+        this.rectLeft = rectLeft;
     }
 
     querySelector<T = FakeElement>(_selector: string): T | null {
@@ -46,9 +49,11 @@ class FakeElement {
     }
 
     getBoundingClientRect() {
+        const left = this.rectLeft;
+        const right = left + this.clientWidth;
         return {
-            left: 0,
-            right: this.clientWidth,
+            left,
+            right,
             width: this.clientWidth,
         };
     }
@@ -151,5 +156,20 @@ describe('useToolbarOverflow', () => {
         expect(overflow.collapseTier.value).toBe(0);
         expect(overflow.hasOverflowItems.value).toBe(false);
         expect(overflow.isCollapsed(1)).toBe(false);
+    });
+
+    it('detects overflow from out-of-bounds child layout', async () => {
+        const { useToolbarOverflow } = await import('@app/composables/useToolbarOverflow');
+        const overflow = useToolbarOverflow();
+        const toolbar = new FakeElement(100, 100);
+        const child = new FakeElement(30, 30, 85);
+
+        toolbar.children = [child];
+        overflow.toolbarRef.value = cast<HTMLElement>(toolbar);
+        await nextTick();
+        await vi.runAllTimersAsync();
+
+        expect(overflow.collapseTier.value).toBe(5);
+        expect(overflow.hasOverflowItems.value).toBe(true);
     });
 });

@@ -253,7 +253,7 @@ const {
     gap: 0.25rem;
     padding: 0.5rem;
     border-bottom: 1px solid var(--ui-border);
-    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+    box-shadow: var(--app-toolbar-shadow);
     background: var(--app-chrome);
     white-space: nowrap;
     overflow: hidden;
