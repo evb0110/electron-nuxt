@@ -541,6 +541,10 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         target.classList.add('annotation-focus-pulse');
         const timer = useTimeoutFn(() => {
             target.classList.remove('annotation-focus-pulse');
+            const index = focusPulseTimers.indexOf(timer);
+            if (index !== -1) {
+                focusPulseTimers.splice(index, 1);
+            }
         }, FOCUS_PULSE_MS);
         focusPulseTimers.push(timer);
     }

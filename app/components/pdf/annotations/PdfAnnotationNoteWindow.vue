@@ -140,6 +140,7 @@ const windowStyle = computed(() => ({
 
 async function focusTextInput() {
     await nextTick();
+    await nextTick();
     const input = noteInputRef.value;
     if (!input) {
         return;

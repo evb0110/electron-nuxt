@@ -248,6 +248,9 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         const previousMode = uiManager.getMode();
         const markupSubtypeOverride = markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
         let createdAnnotation = false;
+        let deferredNoteSummary: IAnnotationCommentSummary | null = null;
+        let modeRestoredResolve: () => void = () => {};
+        const modeRestoredPromise = new Promise<void>((resolve) => { modeRestoredResolve = resolve; });
 
         const pickCreatedEditorCandidate = () => {
             const editorsAfter = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
@@ -299,6 +302,16 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 managerWithSelection.setSelected?.(null);
             } catch (error) {
                 BrowserLogger.debug('annotations', `Failed to clear selected editor via uiManager: ${errorToLogText(error)}`);
+            }
+
+            const activeElement = document.activeElement as HTMLElement | null;
+            if (activeElement && activeElement !== document.body) {
+                const insidePdfViewer = activeElement.closest(
+                    '.annotationEditorLayer, .annotation-editor-layer, .pdfViewer, .pdf-viewer',
+                );
+                if (insidePdfViewer) {
+                    activeElement.blur();
+                }
             }
 
             const clearSelectionClasses = () => {
@@ -372,8 +385,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             if (withComment) {
                 if (targetEditor) {
                     commentSync.pendingCommentEditorKeys.add(identity.getEditorPendingKey(targetEditor, pageIndex));
-                    const summary = commentSync.toEditorSummary(targetEditor, pageIndex, getCommentText(targetEditor));
-                    emitAnnotationOpenNote(summary);
+                    deferredNoteSummary = commentSync.toEditorSummary(targetEditor, pageIndex, getCommentText(targetEditor));
                     clearEditorSelectionVisuals(targetEditor);
                 } else {
                     let attempts = 0;
@@ -390,8 +402,10 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                         applySubtypeOverrideToEditor(lateEditor);
                         commentSync.pendingCommentEditorKeys.add(identity.getEditorPendingKey(lateEditor, pageIndex));
                         const summary = commentSync.toEditorSummary(lateEditor, pageIndex, getCommentText(lateEditor));
-                        emitAnnotationOpenNote(summary);
                         clearEditorSelectionVisuals(lateEditor);
+                        void modeRestoredPromise.then(() => {
+                            emitAnnotationOpenNote(summary);
+                        });
                     };
                     const { start } = useTimeoutFn(tryEmitLater, 80, { immediate: false });
                     start();
@@ -399,6 +413,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             }
         } catch (error) {
             BrowserLogger.warn('annotations', `Failed to highlight selection: ${errorToLogText(error)}`);
+            modeRestoredResolve();
         }
 
         if (createdAnnotation) {
@@ -408,6 +423,12 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         const restoreModeError = await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
         if (restoreModeError) {
             BrowserLogger.warn('annotations', 'Failed to restore annotation mode', restoreModeError);
+        }
+
+        modeRestoredResolve();
+
+        if (deferredNoteSummary) {
+            emitAnnotationOpenNote(deferredNoteSummary);
         }
 
         return createdAnnotation;

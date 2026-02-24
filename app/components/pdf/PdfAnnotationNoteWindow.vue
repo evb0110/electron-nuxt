@@ -140,6 +140,7 @@ const windowStyle = computed(() => ({
 
 async function focusTextInput() {
     await nextTick();
+    await nextTick();
     const input = noteInputRef.value;
     if (!input) {
         return;
@@ -149,13 +150,16 @@ async function focusTextInput() {
     input.setSelectionRange(end, end);
     if (typeof window !== 'undefined') {
         window.requestAnimationFrame(() => {
-            const nextInput = noteInputRef.value;
-            if (!nextInput) {
-                return;
-            }
-            nextInput.focus({ preventScroll: true });
-            const nextEnd = nextInput.value.length;
-            nextInput.setSelectionRange(nextEnd, nextEnd);
+            window.requestAnimationFrame(() => {
+                const postPaintInput = noteInputRef.value;
+                if (!postPaintInput) {
+                    return;
+                }
+                postPaintInput.blur();
+                postPaintInput.focus({ preventScroll: true });
+                const postEnd = postPaintInput.value.length;
+                postPaintInput.setSelectionRange(postEnd, postEnd);
+            });
         });
     }
 }
@@ -194,13 +198,16 @@ function shouldReclaimFocus(activeElement: HTMLElement | null) {
     return true;
 }
 
-function startFocusGuard(durationMs = 1200, intervalMs = 60) {
+function startFocusGuard(durationMs = 1200) {
     if (typeof window === 'undefined') {
         return;
     }
     clearFocusGuard();
     const token = ++focusGuardToken;
     const deadline = window.performance.now() + durationMs;
+    const FAST_INTERVAL = 16;
+    const FAST_DURATION = 400;
+    const SLOW_INTERVAL = 60;
 
     const tick = async () => {
         if (token !== focusGuardToken) {
@@ -218,13 +225,16 @@ function startFocusGuard(durationMs = 1200, intervalMs = 60) {
         if (token !== focusGuardToken) {
             return;
         }
-        if (window.performance.now() >= deadline) {
+        const now = window.performance.now();
+        if (now >= deadline) {
             focusGuardTimer = null;
             return;
         }
+        const elapsed = durationMs - (deadline - now);
+        const interval = elapsed < FAST_DURATION ? FAST_INTERVAL : SLOW_INTERVAL;
         focusGuardTimer = setTimeout(() => {
             void tick();
-        }, intervalMs);
+        }, interval);
     };
 
     void tick();
