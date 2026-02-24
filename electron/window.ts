@@ -50,6 +50,18 @@ let isCspConfigured = false;
 
 interface ICreateAppWindowOptions {setAsMain?: boolean;}
 
+async function lockRendererZoom(window: BrowserWindow) {
+    try {
+        await window.webContents.setVisualZoomLevelLimits(1, 1);
+        window.webContents.setZoomFactor(1);
+        window.webContents.setZoomLevel(0);
+    } catch (error) {
+        logger.warn(
+            `Failed to lock renderer zoom: ${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
+}
+
 function syncWindowRegistry() {
     const allWindows = BrowserWindow.getAllWindows().filter(window => !window.isDestroyed());
     const activeIds = new Set(allWindows.map(window => window.id));
@@ -416,6 +428,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
 
     attachRendererDiagnostics(window);
     attachShowLifecycle(window);
+    await lockRendererZoom(window);
     void window.loadURL(config.server.url);
     logWindowStartup(`BrowserWindow created and loadURL dispatched (step +${Date.now() - createStart}ms)`, {
         windowId: window.id,

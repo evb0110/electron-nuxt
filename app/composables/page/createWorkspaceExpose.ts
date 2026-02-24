@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { TOpenFileResult } from '@app/types/electron-api';
+import { ZOOM } from '@app/constants/pdf-layout';
 import type {
     TFitMode,
     TPdfViewMode,
@@ -63,10 +64,10 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleExportMultiPageTiff: deps.handleExportMultiPageTiff,
         hasPdf: deps.hasPdf,
         handleZoomIn: () => {
-            deps.zoom.value = Math.min(deps.zoom.value + 0.25, 5);
+            deps.zoom.value = Math.min(deps.zoom.value + ZOOM.STEP, ZOOM.MAX);
         },
         handleZoomOut: () => {
-            deps.zoom.value = Math.max(deps.zoom.value - 0.25, 0.25);
+            deps.zoom.value = Math.max(deps.zoom.value - ZOOM.STEP, ZOOM.MIN);
         },
         handleFitWidth: () => {
             deps.handleFitMode('width');

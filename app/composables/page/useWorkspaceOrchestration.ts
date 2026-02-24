@@ -8,6 +8,7 @@ import {
     useStorage,
 } from '@vueuse/core';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
+import { ZOOM } from '@app/constants/pdf-layout';
 import { STORAGE_KEYS } from '@app/constants/storage-keys';
 import { useAnnotationContextMenu } from '@app/composables/pdf/useAnnotationContextMenu';
 import { BrowserLogger } from '@app/utils/browser-logger';
@@ -575,6 +576,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openSearch,
         openAnnotations,
         handleAnnotationToolChange,
+        handleZoomIn: () => {
+            zoom.value = Math.min(zoom.value + ZOOM.STEP, ZOOM.MAX);
+        },
+        handleZoomOut: () => {
+            zoom.value = Math.max(zoom.value - ZOOM.STEP, ZOOM.MIN);
+        },
+        handleActualSize: () => {
+            zoom.value = 1;
+        },
     });
 
     setupWorkspaceUiSyncWatchers({

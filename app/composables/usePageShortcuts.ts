@@ -1,5 +1,6 @@
 import type {Ref} from 'vue';
 import { useEventListener } from '@vueuse/core';
+import { hasElectronAPI } from '@app/utils/electron';
 import type { TAnnotationTool } from '@app/types/annotations';
 
 interface IPdfViewerForShortcuts {
@@ -23,6 +24,9 @@ export interface IPageShortcutsDeps {
     openSearch: () => void;
     openAnnotations: () => void;
     handleAnnotationToolChange: (tool: TAnnotationTool) => void;
+    handleZoomIn: () => void;
+    handleZoomOut: () => void;
+    handleActualSize: () => void;
 }
 
 export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
@@ -56,6 +60,18 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         return target;
     }
 
+    function isZoomInShortcut(event: KeyboardEvent) {
+        return event.key === '=' || event.key === '+' || event.code === 'NumpadAdd';
+    }
+
+    function isZoomOutShortcut(event: KeyboardEvent) {
+        return event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract';
+    }
+
+    function isActualSizeShortcut(event: KeyboardEvent) {
+        return event.key === '0' || event.code === 'Digit0' || event.code === 'Numpad0';
+    }
+
     function handleGlobalShortcut(event: KeyboardEvent) {
         if (!isActive.value) {
             return;
@@ -69,6 +85,31 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         );
         if (isEditingText) {
             return;
+        }
+
+        const hasZoomModifier = event.metaKey || event.ctrlKey;
+        if (hasZoomModifier && event.altKey) {
+            return;
+        }
+
+        if (hasZoomModifier && pdfSrc.value && !hasElectronAPI()) {
+            if (isZoomInShortcut(event)) {
+                event.preventDefault();
+                deps.handleZoomIn();
+                return;
+            }
+
+            if (isZoomOutShortcut(event)) {
+                event.preventDefault();
+                deps.handleZoomOut();
+                return;
+            }
+
+            if (isActualSizeShortcut(event)) {
+                event.preventDefault();
+                deps.handleActualSize();
+                return;
+            }
         }
 
         if (event.key === 'Escape') {
@@ -87,7 +128,7 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
             return;
         }
 
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && pdfSrc.value) {
+        if (hasZoomModifier && event.key.toLowerCase() === 'f' && pdfSrc.value) {
             event.preventDefault();
             openSearch();
         }

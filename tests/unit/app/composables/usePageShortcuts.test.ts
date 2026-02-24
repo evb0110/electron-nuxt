@@ -8,9 +8,17 @@ import {
 import { ref } from 'vue';
 import type { TAnnotationTool } from '@app/types/annotations';
 
-const mocks = vi.hoisted(() => ({useEventListener: vi.fn()}));
+const mocks = vi.hoisted(() => ({
+    useEventListener: vi.fn(),
+    hasElectronAPI: vi.fn(),
+}));
 
 vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
+vi.mock('@app/utils/electron', () => ({hasElectronAPI: mocks.hasElectronAPI}));
+
+function cast<T>(obj: unknown): T {
+    return obj as T;
+}
 
 function createDeps() {
     return {
@@ -29,6 +37,9 @@ function createDeps() {
         openSearch: vi.fn(),
         openAnnotations: vi.fn(),
         handleAnnotationToolChange: vi.fn(),
+        handleZoomIn: vi.fn(),
+        handleZoomOut: vi.fn(),
+        handleActualSize: vi.fn(),
     };
 }
 
@@ -37,6 +48,7 @@ describe('usePageShortcuts', () => {
         vi.resetModules();
         vi.clearAllMocks();
         vi.stubGlobal('window', {} as Window);
+        mocks.hasElectronAPI.mockReturnValue(true);
     });
 
     it('registers listeners once and cleans up idempotently', async () => {
@@ -69,5 +81,65 @@ describe('usePageShortcuts', () => {
         shortcuts.setupShortcuts();
 
         expect(mocks.useEventListener).not.toHaveBeenCalled();
+    });
+
+    it('handles browser zoom shortcuts when Electron API is unavailable', async () => {
+        const handlers = new Map<string, (event: unknown) => void>();
+        const cleanup = vi.fn();
+        mocks.useEventListener.mockImplementation((_target, event, handler) => {
+            handlers.set(String(event), handler as (event: unknown) => void);
+            return cleanup;
+        });
+        mocks.hasElectronAPI.mockReturnValue(false);
+
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/composables/usePageShortcuts');
+        const shortcuts = usePageShortcuts(deps);
+
+        shortcuts.setupShortcuts();
+        const keydown = handlers.get('keydown');
+        expect(keydown).toBeTypeOf('function');
+
+        const preventZoomIn = vi.fn();
+        keydown?.(cast<KeyboardEvent>({
+            key: '=',
+            code: 'Equal',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            target: null,
+            preventDefault: preventZoomIn,
+        }));
+        expect(preventZoomIn).toHaveBeenCalledOnce();
+        expect(deps.handleZoomIn).toHaveBeenCalledOnce();
+
+        const preventZoomOut = vi.fn();
+        keydown?.(cast<KeyboardEvent>({
+            key: '-',
+            code: 'Minus',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            target: null,
+            preventDefault: preventZoomOut,
+        }));
+        expect(preventZoomOut).toHaveBeenCalledOnce();
+        expect(deps.handleZoomOut).toHaveBeenCalledOnce();
+
+        const preventActualSize = vi.fn();
+        keydown?.(cast<KeyboardEvent>({
+            key: '0',
+            code: 'Digit0',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            target: null,
+            preventDefault: preventActualSize,
+        }));
+        expect(preventActualSize).toHaveBeenCalledOnce();
+        expect(deps.handleActualSize).toHaveBeenCalledOnce();
+
+        shortcuts.cleanupShortcuts();
+        expect(cleanup).toHaveBeenCalledTimes(2);
     });
 });

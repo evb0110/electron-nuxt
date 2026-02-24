@@ -1043,11 +1043,13 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     watch(zoom, () => {
         if (pdfDocument.value) {
+            const zoomAnchor = buildResizeAnchorContext();
             scheduleReRenderVisiblePages(
                 're-render visible pages after zoom change',
                 {
                     source: 'zoom-change',
                     stabilize: true,
+                    resizeAnchor: zoomAnchor,
                 },
             );
         }
