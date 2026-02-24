@@ -24,6 +24,7 @@
                 'pdfViewer--mode-facing-first-single': viewMode === 'facing-first-single',
                 'pdfViewer--hidden': src && isLoading,
                 'pdfViewer--fit-height': fitMode === 'height',
+                'pdfViewer--resize-transition': isResizeTransitionVisible,
             }"
             :style="containerStyle"
             @scroll.passive="singlePageScroll.handleScroll"
@@ -46,6 +47,7 @@
                 :key="page"
                 :page="page"
                 :show-skeleton="shouldShowSkeleton(page)"
+                :force-skeleton="isResizeTransitionVisible"
                 :spread-single="isSpreadSingle(page)"
                 :placeholder-style="pagePlaceholderStyle"
             />
@@ -192,6 +194,7 @@ const emit = defineEmits<{
 
 const viewerHost = ref<HTMLElement | null>(null);
 const viewerContainer = ref<HTMLElement | null>(null);
+const isResizeTransitionVisible = ref(false);
 const annotationUiManager = shallowRef<AnnotationEditorUIManager | null>(null);
 const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
@@ -232,6 +235,27 @@ function summarizeViewerStateForLog() {
         scrollWidth: Math.round(container.scrollWidth),
         scrollHeight: Math.round(container.scrollHeight),
     };
+}
+
+function handleResizeTransitionSignal(payload: {
+    active: boolean;
+    source: string;
+    token: number;
+    anchorPage: number | null;
+}) {
+    if (isResizeTransitionVisible.value === payload.active) {
+        return;
+    }
+    isResizeTransitionVisible.value = payload.active;
+    BrowserLogger.warn('pdf-nav', `[resize-transition-ui] active=${payload.active}`, {
+        ...payload,
+        viewer: summarizeViewerStateForLog(),
+        currentPage: currentPage.value,
+        visibleRange: {
+            start: visibleRange.value.start,
+            end: visibleRange.value.end,
+        },
+    });
 }
 
 watch(
@@ -457,6 +481,7 @@ const {
     startDrag,
     onDrag,
     stopDrag,
+    setResizeTransitionVisible: handleResizeTransitionSignal,
     emit,
 });
 
@@ -702,6 +727,7 @@ watchEffect(() => {
 
 onBeforeUnmount(() => {
     setUniformLayoutMetrics(null);
+    isResizeTransitionVisible.value = false;
 });
 
 function isSpreadSingle(page: number) {
@@ -1035,6 +1061,19 @@ defineExpose({
     position: absolute;
     inset: 0;
     z-index: 3;
+}
+
+.pdfViewer.pdfViewer--resize-transition .page_container .pdf-page-skeleton {
+    display: flex !important;
+}
+
+.pdfViewer.pdfViewer--resize-transition .page_canvas,
+.pdfViewer.pdfViewer--resize-transition .text-layer,
+.pdfViewer.pdfViewer--resize-transition .annotation-layer,
+.pdfViewer.pdfViewer--resize-transition .annotation-editor-layer,
+.pdfViewer.pdfViewer--resize-transition .pdf-shape-overlay {
+    opacity: 0;
+    pointer-events: none;
 }
 
 /* ── Container & Viewer ────────────────────────────────────────────── */
