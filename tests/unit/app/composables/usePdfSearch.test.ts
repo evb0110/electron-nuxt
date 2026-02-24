@@ -106,7 +106,7 @@ describe('usePdfSearch', () => {
         const search = usePdfSearch();
 
         const promise = search.search('term', '/tmp/work.pdf', 10);
-        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
         expect(search.isSearching.value).toBe(true);
 
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
@@ -171,7 +171,6 @@ describe('usePdfSearch', () => {
         expect(requestId).toContain('search-');
 
         search.clearSearch();
-        await Promise.resolve();
 
         expect(mockElectronAPI.pdfSearchCancel).toHaveBeenCalledWith(requestId);
         expect(search.searchQuery.value).toBe('');

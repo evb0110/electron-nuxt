@@ -58,13 +58,11 @@ function handleContextMenu(event: MouseEvent) {
     top: calc(v-bind('topPercent + "%"'));
     width: 14px;
     height: 14px;
-    border: 1px solid rgb(145 120 24 / 0.78);
+    border: 1px solid var(--app-pdf-comment-marker-border);
     border-radius: 3px;
     transform: translate(-50%, -50%);
-    background: linear-gradient(180deg, rgb(252 246 198 / 0.82) 0%, rgb(238 221 120 / 0.78) 100%);
-    box-shadow:
-        0 1px 3px rgb(0 0 0 / 0.16),
-        inset 0 0 0 1px rgb(255 255 255 / 0.46);
+    background: var(--app-pdf-comment-marker-bg);
+    box-shadow: var(--app-pdf-comment-marker-shadow);
     cursor: pointer;
     pointer-events: auto;
     opacity: 0.88;
@@ -80,18 +78,17 @@ function handleContextMenu(event: MouseEvent) {
 }
 
 .pdf-comment-marker-button.is-active {
-    border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgb(165 145 41));
+    border-color: var(--app-pdf-comment-marker-active-border);
     box-shadow:
-        0 0 0 1.5px color-mix(in oklab, var(--ui-primary, #3b82f6) 22%, transparent),
-        0 1px 4px rgb(0 0 0 / 0.2),
-        inset 0 0 0 1px rgb(255 255 255 / 0.62);
+        0 0 0 1.5px var(--app-pdf-comment-marker-active-ring),
+        var(--app-pdf-comment-marker-active-shadow);
     opacity: 0.9;
 }
 
 .pdf-comment-marker-icon {
     position: absolute;
     inset: 2px;
-    background-color: rgb(110 96 23 / 0.84);
+    background-color: var(--app-pdf-comment-marker-icon);
     mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 5V5z'/%3E%3C/svg%3E");
     mask-repeat: no-repeat;
     mask-position: center;
@@ -105,9 +102,9 @@ function handleContextMenu(event: MouseEvent) {
     min-width: 12px;
     height: 12px;
     border-radius: 999px;
-    border: 1.5px solid rgb(120 80 10 / 0.75);
-    background: linear-gradient(180deg, #fff 0%, #fde68a 100%);
-    color: rgb(60 40 5);
+    border: 1.5px solid var(--app-pdf-comment-marker-badge-border);
+    background: var(--app-pdf-comment-marker-badge-bg);
+    color: var(--app-pdf-comment-marker-badge-fg);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -116,13 +113,13 @@ function handleContextMenu(event: MouseEvent) {
     line-height: 1;
     padding: 0 3px;
     font-variant-numeric: tabular-nums;
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+    box-shadow: var(--app-pdf-comment-marker-badge-shadow);
     pointer-events: none;
 }
 
 .pdf-comment-marker-button.is-cluster:hover .pdf-comment-marker-badge,
 .pdf-comment-marker-button.is-cluster.is-active .pdf-comment-marker-badge {
-    border-color: rgb(100 65 5 / 0.9);
-    box-shadow: 0 1px 4px rgb(0 0 0 / 0.32);
+    border-color: var(--app-pdf-comment-marker-badge-border-active);
+    box-shadow: var(--app-pdf-comment-marker-badge-shadow-active);
 }
 </style>

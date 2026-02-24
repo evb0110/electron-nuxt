@@ -12,6 +12,7 @@
                 <button
                     type="button"
                     class="page-selection-bar-button"
+                    :aria-label="t('pageOps.rotateCcw')"
                     :disabled="isOperationInProgress"
                     @click="emit('rotate-ccw')"
                 >
@@ -23,6 +24,7 @@
                 <button
                     type="button"
                     class="page-selection-bar-button"
+                    :aria-label="t('pageOps.rotateCw')"
                     :disabled="isOperationInProgress"
                     @click="emit('rotate-cw')"
                 >
@@ -34,10 +36,14 @@
                 <button
                     type="button"
                     class="page-selection-bar-button"
+                    :aria-label="t('pageOps.extractPages')"
                     :disabled="isOperationInProgress"
                     @click="emit('extract-pages')"
                 >
-                    <UIcon name="i-lucide-file-output" class="page-selection-bar-icon" style="transform: scaleX(-1)" />
+                    <UIcon
+                        name="i-lucide-file-output"
+                        class="page-selection-bar-icon page-selection-bar-icon-mirrored"
+                    />
                 </button>
             </UTooltip>
 
@@ -45,6 +51,7 @@
                 <button
                     type="button"
                     class="page-selection-bar-button"
+                    :aria-label="t('pageOps.exportPages')"
                     :disabled="isOperationInProgress"
                     @click="emit('export-pages')"
                 >
@@ -56,6 +63,7 @@
                 <button
                     type="button"
                     class="page-selection-bar-button page-selection-bar-button-danger"
+                    :aria-label="t('pageOps.deletePages')"
                     :disabled="isOperationInProgress"
                     @click="emit('delete-pages')"
                 >
@@ -151,6 +159,10 @@ const { t } = useTypedI18n();
 .page-selection-bar-icon {
     width: 1rem;
     height: 1rem;
+}
+
+.page-selection-bar-icon-mirrored {
+    transform: scaleX(-1);
 }
 
 .page-selection-bar-deselect {

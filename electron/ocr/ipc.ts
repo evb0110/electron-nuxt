@@ -3,6 +3,8 @@ import {
     BrowserWindow,
     ipcMain,
 } from 'electron';
+import { existsSync } from 'fs';
+import { extname } from 'path';
 import { runOcr } from '@electron/ocr/tesseract';
 import {
     getOcrToolPaths,
@@ -28,12 +30,14 @@ import {
 import {
     buildOcrErrorEnvelope,
     mapStartFailureCode,
+    OcrPayloadValidationError,
     toOcrErrorEnvelope,
     validateCancelRequestId,
     validateCreateSearchablePdfPayload,
     validateRecognizeBatchPayload,
     validateRecognizeRequest,
 } from '@electron/ocr/contracts';
+import { resolveAllowedWritePath } from '@electron/utils/path-validator';
 
 const log = createLogger('ocr-ipc');
 
@@ -238,6 +242,23 @@ async function handleOcrValidateTools() {
     }
 }
 
+async function validateOcrWorkingCopyPath(workingCopyPath: string): Promise<string> {
+    const resolvedPath = await resolveAllowedWritePath(workingCopyPath);
+    if (!resolvedPath) {
+        throw new OcrPayloadValidationError('workingCopyPath must be inside the temporary working directory');
+    }
+
+    if (extname(resolvedPath).toLowerCase() !== '.pdf') {
+        throw new OcrPayloadValidationError('workingCopyPath must point to a PDF file');
+    }
+
+    if (!existsSync(resolvedPath)) {
+        throw new OcrPayloadValidationError(`workingCopyPath not found: ${resolvedPath}`);
+    }
+
+    return resolvedPath;
+}
+
 async function handleOcrCreateSearchablePdf(
     event: IpcMainInvokeEvent,
     originalPdfDataPayload: unknown,
@@ -263,12 +284,15 @@ async function handleOcrCreateSearchablePdf(
         );
 
         jobId = payload.requestId;
+        const validatedWorkingCopyPath = payload.workingCopyPath
+            ? await validateOcrWorkingCopyPath(payload.workingCopyPath)
+            : undefined;
         const result = await handleOcrCreateSearchablePdfAsync(
             event,
             payload.originalPdfData,
             payload.pages,
             payload.requestId,
-            payload.workingCopyPath,
+            validatedWorkingCopyPath,
             payload.renderDpi,
         );
 

@@ -6,6 +6,9 @@ import { getElectronAPI } from '@app/utils/electron';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 type TPageOpsRotation = 90 | 180 | 270;
+type TPageOpsResult = { success: boolean };
+type TPageOperationRunner<TResult extends TPageOpsResult> = (path: string) => Promise<TResult>;
+type TPageOperationSuccess<TResult extends TPageOpsResult> = (result: TResult) => boolean;
 
 export const usePageOperations = (deps: {
     workingCopyPath: Ref<string | null>;
@@ -32,9 +35,45 @@ export const usePageOperations = (deps: {
         resetSearchCache();
     }
 
-    async function deletePages(pages: number[], totalPages: number) {
+    async function runOperation<TResult extends TPageOpsResult>(options: {
+        operationName: string;
+        errorKey: Parameters<typeof t>[0];
+        run: TPageOperationRunner<TResult>;
+        shouldReload?: boolean;
+        isSuccessful?: TPageOperationSuccess<TResult>;
+    }) {
         const path = workingCopyPath.value;
-        if (!path || pages.length === 0) {
+        if (!path) {
+            return false;
+        }
+
+        isOperationInProgress.value = true;
+        error.value = null;
+
+        try {
+            const result = await options.run(path);
+            const isSuccessful = options.isSuccessful ?? ((apiResult) => apiResult.success);
+            if (!isSuccessful(result)) {
+                return false;
+            }
+
+            if (options.shouldReload) {
+                invalidateCaches();
+                await loadPdfFromPath(path, { markDirty: true });
+            }
+
+            return true;
+        } catch (e) {
+            BrowserLogger.error('page-ops', `${options.operationName} failed`, e);
+            error.value = e instanceof Error ? e.message : t(options.errorKey);
+            return false;
+        } finally {
+            isOperationInProgress.value = false;
+        }
+    }
+
+    async function deletePages(pages: number[], totalPages: number) {
+        if (pages.length === 0) {
             return false;
         }
         if (pages.length >= totalPages) {
@@ -42,149 +81,87 @@ export const usePageOperations = (deps: {
             return false;
         }
 
-        isOperationInProgress.value = true;
-        error.value = null;
-        try {
-            const api = getElectronAPI();
-            const result = await api.pageOps.delete(path, [...pages], totalPages);
-            if (result.success) {
-                invalidateCaches();
-                await loadPdfFromPath(path, { markDirty: true });
-                return true;
-            }
-            return false;
-        } catch (e) {
-            BrowserLogger.error('page-ops', 'deletePages failed', e);
-            error.value = e instanceof Error ? e.message : t('errors.pageOps.delete');
-            return false;
-        } finally {
-            isOperationInProgress.value = false;
-        }
+        return runOperation({
+            operationName: 'deletePages',
+            errorKey: 'errors.pageOps.delete',
+            shouldReload: true,
+            run: async (path) => {
+                const api = getElectronAPI();
+                return api.pageOps.delete(path, [...pages], totalPages);
+            },
+        });
     }
 
     async function extractPages(pages: number[]) {
-        const path = workingCopyPath.value;
-        if (!path || pages.length === 0) {
+        if (pages.length === 0) {
             return false;
         }
 
-        isOperationInProgress.value = true;
-        error.value = null;
-        try {
-            const api = getElectronAPI();
-            const result = await api.pageOps.extract(path, [...pages]);
-            return result.success && !result.canceled;
-        } catch (e) {
-            BrowserLogger.error('page-ops', 'extractPages failed', e);
-            error.value = e instanceof Error ? e.message : t('errors.pageOps.extract');
-            return false;
-        } finally {
-            isOperationInProgress.value = false;
-        }
+        return runOperation({
+            operationName: 'extractPages',
+            errorKey: 'errors.pageOps.extract',
+            run: async (path) => {
+                const api = getElectronAPI();
+                return api.pageOps.extract(path, [...pages]);
+            },
+            isSuccessful: result => result.success && !result.canceled,
+        });
     }
 
     async function rotatePages(pages: number[], angle: TPageOpsRotation) {
-        const path = workingCopyPath.value;
-        if (!path || pages.length === 0) {
+        if (pages.length === 0) {
             return false;
         }
 
-        isOperationInProgress.value = true;
-        error.value = null;
-        try {
-            const api = getElectronAPI();
-            const result = await api.pageOps.rotate(path, [...pages], angle);
-            if (result.success) {
-                invalidateCaches();
-                await loadPdfFromPath(path, { markDirty: true });
-                return true;
-            }
-            return false;
-        } catch (e) {
-            BrowserLogger.error('page-ops', 'rotatePages failed', e);
-            error.value = e instanceof Error ? e.message : t('errors.pageOps.rotate');
-            return false;
-        } finally {
-            isOperationInProgress.value = false;
-        }
+        return runOperation({
+            operationName: 'rotatePages',
+            errorKey: 'errors.pageOps.rotate',
+            shouldReload: true,
+            run: async (path) => {
+                const api = getElectronAPI();
+                return api.pageOps.rotate(path, [...pages], angle);
+            },
+        });
     }
 
     async function insertPages(totalPages: number, afterPage: number) {
-        const path = workingCopyPath.value;
-        if (!path) {
-            return false;
-        }
-
-        isOperationInProgress.value = true;
-        error.value = null;
-        try {
-            const api = getElectronAPI();
-            const result = await api.pageOps.insert(path, totalPages, afterPage);
-            if (result.success) {
-                invalidateCaches();
-                await loadPdfFromPath(path, { markDirty: true });
-                return true;
-            }
-            return false;
-        } catch (e) {
-            BrowserLogger.error('page-ops', 'insertPages failed', e);
-            error.value = e instanceof Error ? e.message : t('errors.pageOps.insert');
-            return false;
-        } finally {
-            isOperationInProgress.value = false;
-        }
+        return runOperation({
+            operationName: 'insertPages',
+            errorKey: 'errors.pageOps.insert',
+            shouldReload: true,
+            run: async (path) => {
+                const api = getElectronAPI();
+                return api.pageOps.insert(path, totalPages, afterPage);
+            },
+        });
     }
 
     async function insertFile(totalPages: number, afterPage: number, sourcePaths: string[]) {
-        const path = workingCopyPath.value;
-        if (!path) {
-            return false;
-        }
-
-        isOperationInProgress.value = true;
-        error.value = null;
-        try {
-            const api = getElectronAPI();
-            const result = await api.pageOps.insertFile(path, totalPages, afterPage, sourcePaths);
-            if (result.success) {
-                invalidateCaches();
-                await loadPdfFromPath(path, { markDirty: true });
-                return true;
-            }
-            return false;
-        } catch (e) {
-            BrowserLogger.error('page-ops', 'insertFile failed', e);
-            error.value = e instanceof Error ? e.message : t('errors.pageOps.insertFile');
-            return false;
-        } finally {
-            isOperationInProgress.value = false;
-        }
+        return runOperation({
+            operationName: 'insertFile',
+            errorKey: 'errors.pageOps.insertFile',
+            shouldReload: true,
+            run: async (path) => {
+                const api = getElectronAPI();
+                return api.pageOps.insertFile(path, totalPages, afterPage, sourcePaths);
+            },
+        });
     }
 
     async function reorderPages(newOrder: number[]) {
-        const path = workingCopyPath.value;
-        if (!path || newOrder.length === 0) {
+        if (newOrder.length === 0) {
             return false;
         }
 
-        isOperationInProgress.value = true;
-        error.value = null;
-        try {
-            const api = getElectronAPI();
-            const result = await api.pageOps.reorder(path, [...newOrder]);
-            if (result.success) {
-                invalidateCaches();
-                await loadPdfFromPath(path, { markDirty: true });
-                return true;
-            }
-            return false;
-        } catch (e) {
-            BrowserLogger.error('page-ops', 'reorderPages failed', e);
-            error.value = e instanceof Error ? e.message : t('errors.pageOps.reorder');
-            return false;
-        } finally {
-            isOperationInProgress.value = false;
-        }
+        return runOperation({
+            operationName: 'reorderPages',
+            errorKey: 'errors.pageOps.reorder',
+            shouldReload: true,
+            run: async (path) => {
+                const api = getElectronAPI();
+                return api.pageOps.reorder(path, [...newOrder]);
+            },
+        });
     }
 
     return {

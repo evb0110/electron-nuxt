@@ -1,13 +1,8 @@
 import type { Ref } from 'vue';
 import type {
     TLocale,
-    TTranslationKey,
+    TTranslateFn,
 } from '~/i18n/locales';
-
-type TTypedTranslate = <TKey extends TTranslationKey>(
-    key: TKey,
-    params?: Record<string, string | number | undefined> | number,
-) => string;
 
 interface ILocaleComposerMethods {
     setLocale: (locale: TLocale) => Promise<void>;
@@ -15,7 +10,7 @@ interface ILocaleComposerMethods {
 }
 
 interface ITypedI18nComposer extends ILocaleComposerMethods {
-    t: TTypedTranslate;
+    t: TTranslateFn;
     locale: Ref<string>;
 }
 
@@ -30,7 +25,7 @@ export function useTypedI18n(): ITypedI18nComposer {
     };
     return {
         ...composer,
-        t: composer.t as TTypedTranslate,
+        t: composer.t as TTranslateFn,
         locale: composer.locale,
         setLocale,
         loadLocaleMessages,

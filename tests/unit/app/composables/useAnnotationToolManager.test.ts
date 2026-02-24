@@ -39,6 +39,7 @@ type TUiManagerLike = {
     updateMode: ReturnType<typeof vi.fn>;
     waitForEditorsRendered: ReturnType<typeof vi.fn>;
     updateParams: ReturnType<typeof vi.fn>;
+    getEditors: ReturnType<typeof vi.fn>;
 };
 
 function createAnnotationSettings(): IAnnotationSettings {
@@ -71,6 +72,7 @@ function createUiManager(overrides: Partial<TUiManagerLike> = {}) {
         updateMode: vi.fn(async (_mode: number) => {}),
         waitForEditorsRendered: vi.fn(async (_pageNumber: number) => {}),
         updateParams: vi.fn(),
+        getEditors: vi.fn(() => []),
         ...overrides,
     };
 }

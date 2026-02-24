@@ -121,14 +121,14 @@ const toolItems = computed<IToolItem[]>(() => [
 
 <style scoped>
 .notes-section {
-    border: 1px solid var(--ui-border-muted);
-    border-radius: 0.7rem;
-    background: var(--ui-bg);
-    padding: 0.75rem;
+    border: 1px solid var(--app-notes-section-border);
+    border-radius: var(--app-notes-section-radius);
+    background: var(--app-notes-section-bg);
+    padding: var(--app-notes-section-padding);
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+    gap: var(--app-notes-section-gap);
+    box-shadow: var(--app-notes-section-shadow);
 }
 
 .notes-section-header {
@@ -139,18 +139,18 @@ const toolItems = computed<IToolItem[]>(() => [
 
 .notes-section-title {
     margin: 0;
-    font-size: 0.82rem;
-    line-height: 1.2;
-    letter-spacing: 0.08em;
+    font-size: var(--app-notes-section-title-size);
+    line-height: var(--app-notes-section-title-line-height);
+    letter-spacing: var(--app-notes-section-title-letter-spacing);
     text-transform: uppercase;
-    color: var(--ui-text-highlighted);
+    color: var(--app-notes-section-title-color);
 }
 
 .notes-section-description {
     margin: 0;
-    font-size: 0.8rem;
-    line-height: 1.35;
-    color: var(--ui-text-muted);
+    font-size: var(--app-notes-section-description-size);
+    line-height: var(--app-notes-section-description-line-height);
+    color: var(--app-notes-section-description-color);
 }
 
 .tool-button {

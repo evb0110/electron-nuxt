@@ -40,4 +40,16 @@ describe('useTypedI18n', () => {
         expect(setLocale).toHaveBeenCalledWith('fr');
         expect(loadLocaleMessages).toHaveBeenCalledWith('fr');
     });
+
+    it('types translation keys from schema', async () => {
+        vi.stubGlobal('useI18n', () => ({ t: (key: string) => key }));
+
+        const { useTypedI18n } = await import('@app/composables/useTypedI18n');
+        const i18n = useTypedI18n();
+
+        expect(i18n.t('contextMenu.copySelectionToClipboard')).toBe('contextMenu.copySelectionToClipboard');
+
+        // @ts-expect-error invalid translation key should be rejected
+        i18n.t('contextMenu.copySelectionClipboard');
+    });
 });

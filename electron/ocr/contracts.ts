@@ -45,7 +45,7 @@ const MAX_BATCH_PAGES = 5_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
 
-class OcrPayloadValidationError extends Error {
+export class OcrPayloadValidationError extends Error {
     readonly code: TOcrErrorCode;
 
     constructor(message: string, code: TOcrErrorCode = 'OCR_INVALID_PAYLOAD') {

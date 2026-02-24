@@ -11,6 +11,7 @@ type TRegisteredHandler = (...args: unknown[]) => unknown;
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
     ipcHandle: vi.fn<(channel: string, handler: TRegisteredHandler) => void>(),
+    existsSync: vi.fn<(path: string) => boolean>(),
     runOcr: vi.fn(),
     handleOcrCreateSearchablePdfAsync: vi.fn(),
     handleOcrCancel: vi.fn(),
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
     getOcrConcurrency: vi.fn(),
     getTesseractThreadLimit: vi.fn(),
     getSequentialProgressPage: vi.fn(),
+    resolveAllowedWritePath: vi.fn<(path: string) => Promise<string | null>>(),
 }));
 
 vi.mock('electron', () => ({
@@ -32,6 +34,7 @@ vi.mock('electron', () => ({
         mocks.handlers.set(channel, handler);
     } },
 }));
+vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
 
 vi.mock('@electron/ocr/tesseract', () => ({runOcr: mocks.runOcr}));
 
@@ -53,6 +56,7 @@ vi.mock('@electron/utils/concurrency', () => ({
     getTesseractThreadLimit: mocks.getTesseractThreadLimit,
     getSequentialProgressPage: mocks.getSequentialProgressPage,
 }));
+vi.mock('@electron/utils/path-validator', () => ({resolveAllowedWritePath: mocks.resolveAllowedWritePath}));
 
 vi.mock('@electron/ocr/jobManager', () => ({
     handleOcrCreateSearchablePdfAsync: mocks.handleOcrCreateSearchablePdfAsync,
@@ -79,6 +83,8 @@ describe('registerOcrHandlers', () => {
     beforeEach(() => {
         mocks.handlers.clear();
         vi.clearAllMocks();
+        mocks.existsSync.mockReturnValue(true);
+        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/working-copy.pdf');
 
         mocks.getOcrToolPaths.mockReturnValue({
             tesseract: '/mock/tesseract',
@@ -242,5 +248,36 @@ describe('registerOcrHandlers', () => {
             code: 'OCR_QUEUE_BACKPRESSURE',
             retryable: true,
         });
+    });
+
+    it('rejects disallowed workingCopyPath before queuing OCR worker job', async () => {
+        mocks.resolveAllowedWritePath.mockResolvedValue(null);
+
+        const handler = getHandler('ocr:createSearchablePdf');
+        const result = await handler(
+            {sender: {id: 14}},
+            new Uint8Array([1]),
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'job-invalid-working-copy-path',
+            '/tmp/outside.pdf',
+        ) as {
+            started: boolean;
+            errorEnvelope?: {
+                code: string;
+                retryable: boolean;
+            };
+            error?: string;
+        };
+
+        expect(result.started).toBe(false);
+        expect(result.error).toContain('workingCopyPath');
+        expect(result.errorEnvelope).toMatchObject({
+            code: 'OCR_INVALID_PAYLOAD',
+            retryable: false,
+        });
+        expect(mocks.handleOcrCreateSearchablePdfAsync).not.toHaveBeenCalled();
     });
 });

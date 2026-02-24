@@ -539,4 +539,4 @@ export default {
         'summaryRangeHint': 'Enter a full range like 3-12 or a single page like 7.',
         'inProgress': 'Export in progress...',
     },
-};
+} as const;

@@ -580,7 +580,7 @@ useEventListener(window, 'pointerdown', (event) => {
 .tab.is-dragging {
     z-index: 10;
     opacity: 0.85;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    box-shadow: var(--app-tab-drag-shadow);
 }
 
 .tab-context-menu {
@@ -592,9 +592,7 @@ useEventListener(window, 'pointerdown', (event) => {
     gap: 1px;
     border: 1px solid var(--ui-border);
     background: var(--ui-border);
-    box-shadow:
-        0 10px 24px rgb(0 0 0 / 15%),
-        0 3px 8px rgb(0 0 0 / 10%);
+    box-shadow: var(--app-tab-context-menu-shadow);
 }
 
 .tab-context-menu-divider {
