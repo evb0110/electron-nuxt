@@ -401,6 +401,10 @@ const { t } = useTypedI18n();
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const isRestoringSplitPayload = ref(false);
+const currentPageTransitionHistory = ref<Array<{
+    page: number;
+    at: number 
+}>>([]);
 
 const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(props.tabId));
 const isExternallyRestoring = computed(() => workspaceRestoreTracker.has(props.tabId));
@@ -659,6 +663,39 @@ function handleToolbarToggleSidebar() {
             pageAfterToggleWrite: currentPage.value,
         });
     });
+
+    const checkpointSchedule = [
+        0,
+        50,
+        150,
+        350,
+        700,
+        1200,
+    ];
+    checkpointSchedule.forEach((delayMs) => {
+        setTimeout(() => {
+            const checkpointViewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
+            BrowserLogger.warn(
+                'pdf-nav',
+                `[sidebar-toggle-checkpoint] attempt=${attemptId} t+${delayMs}ms page=${currentPage.value} sidebar=${showSidebar.value}`,
+                {
+                    attemptId,
+                    delayMs,
+                    page: currentPage.value,
+                    sidebarOpen: showSidebar.value,
+                    sidebarTab: sidebarTab.value,
+                    isResizingSidebar: isResizingSidebar.value,
+                    fitMode: fitMode.value,
+                    viewMode: viewMode.value,
+                    continuousScroll: continuousScroll.value,
+                    zoom: zoom.value,
+                    viewerScrollTop: checkpointViewer ? Math.round(checkpointViewer.scrollTop) : null,
+                    viewerScrollLeft: checkpointViewer ? Math.round(checkpointViewer.scrollLeft) : null,
+                    viewerClientHeight: checkpointViewer ? Math.round(checkpointViewer.clientHeight) : null,
+                },
+            );
+        }, delayMs);
+    });
 }
 
 function handleToolbarFitWidth() {
@@ -700,7 +737,7 @@ function handleToolbarQuickNote() {
 function handleViewerCurrentPageUpdate(page: number) {
     const previousPage = currentPage.value;
     const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
-    BrowserLogger.warn('pdf-nav', 'DocumentWorkspace received viewer current-page update', {
+    BrowserLogger.warn('pdf-nav', `[workspace-page-update] viewer->workspace ${previousPage}->${page}`, {
         previousPage,
         nextPage: page,
         changed: page !== previousPage,
@@ -802,7 +839,7 @@ watch(showSidebar, (next, previous) => {
         return;
     }
     const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
-    BrowserLogger.warn('pdf-nav', 'DocumentWorkspace showSidebar changed', {
+    BrowserLogger.warn('pdf-nav', `[workspace-sidebar] ${previous ? 'open' : 'closed'} -> ${next ? 'open' : 'closed'}`, {
         previous,
         next,
         currentPage: currentPage.value,
@@ -819,7 +856,7 @@ watch(currentPage, (next, previous) => {
         return;
     }
     const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
-    BrowserLogger.warn('pdf-nav', 'DocumentWorkspace currentPage ref changed', {
+    BrowserLogger.warn('pdf-nav', `[workspace-page-ref] ${previous}->${next}`, {
         previous,
         next,
         sidebarOpen: showSidebar.value,
@@ -832,6 +869,38 @@ watch(currentPage, (next, previous) => {
         viewerScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
         viewerScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
     });
+
+    const now = Date.now();
+    currentPageTransitionHistory.value = [
+        ...currentPageTransitionHistory.value,
+        {
+            page: next,
+            at: now,
+        },
+    ].filter((entry) => now - entry.at <= 2000).slice(-8);
+
+    const history = currentPageTransitionHistory.value;
+    if (history.length >= 3) {
+        const last = history[history.length - 1]!;
+        const mid = history[history.length - 2]!;
+        const first = history[history.length - 3]!;
+        const isBounce = first.page === last.page && first.page !== mid.page;
+        if (isBounce) {
+            BrowserLogger.warn('pdf-nav', `[workspace-page-bounce] detected ${first.page}->${mid.page}->${last.page}`, {
+                history: history.map((entry) => ({
+                    page: entry.page,
+                    dtMs: now - entry.at,
+                })),
+                sidebarOpen: showSidebar.value,
+                sidebarTab: sidebarTab.value,
+                isResizingSidebar: isResizingSidebar.value,
+                fitMode: fitMode.value,
+                viewMode: viewMode.value,
+                continuousScroll: continuousScroll.value,
+                zoom: zoom.value,
+            });
+        }
+    }
 });
 
 watch(

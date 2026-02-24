@@ -32,6 +32,7 @@ import type {
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { runGuardedTask } from '@app/utils/async-guard';
+import { getVisiblePageDebugSnapshot } from '@app/composables/pdf/pdfScrollVisibility';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
 type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;
@@ -178,6 +179,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     const CURRENT_PAGE_SYNC_SAMPLE_COUNT = 3;
     let reRenderSyncRunId = 0;
     let currentPageSyncRunId = 0;
+    let currentPageEmitEventId = 0;
 
     function isPageNearVisible(page: number) {
         const start = Math.max(1, visibleRange.value.start - SKELETON_BUFFER);
@@ -285,6 +287,36 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         };
     }
 
+    function summarizeVisiblePageSnapshotForLog(container: HTMLElement | null) {
+        if (!container || numPages.value <= 0) {
+            return null;
+        }
+        return getVisiblePageDebugSnapshot(container, numPages.value, 8).map((entry) => ({
+            pageNumber: entry.pageNumber,
+            visibleHeight: Math.round(entry.visibleHeight),
+            pageTop: Math.round(entry.pageTop),
+            pageBottom: Math.round(entry.pageBottom),
+            pageHeight: Math.round(entry.pageHeight),
+        }));
+    }
+
+    function buildSyncSummaryLine(
+        source: string,
+        previous: number,
+        next: number,
+        changed: boolean,
+        fallbackToCurrent: boolean,
+        samples: number[] | null,
+    ) {
+        const sampleText = samples && samples.length > 0
+            ? samples.join(',')
+            : 'none';
+        return `[sync] source=${source} prev=${previous} next=${next}`
+            + ` changed=${changed} fallback=${fallbackToCurrent}`
+            + ` samples=${sampleText}`
+            + ` range=${visibleRange.value.start}-${visibleRange.value.end}`;
+    }
+
     function pickMostFrequentPage(pages: number[]) {
         const counts = new Map<number, number>();
         for (const page of pages) {
@@ -315,21 +347,38 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         const changed = page !== previous;
         const hasSampleDrift = Boolean(samples && new Set(samples).size > 1);
         const shouldLog = changed || hasSampleDrift || fallbackToCurrent || source.includes('resize');
+        const eventId = ++currentPageEmitEventId;
 
         if (shouldLog) {
-            BrowserLogger.warn('pdf-nav', 'Viewport current-page sync', {
-                source,
-                previousPage: previous,
-                nextPage: page,
-                changed,
-                fallbackToCurrent,
-                samples,
-                currentVisibleRange: {
-                    start: visibleRange.value.start,
-                    end: visibleRange.value.end,
-                },
-                viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-            });
+            BrowserLogger.warn(
+                'pdf-nav',
+                `${buildSyncSummaryLine(source, previous, page, changed, fallbackToCurrent, samples)} eventId=${eventId}`,
+                {
+                    source,
+                    eventId,
+                    previousPage: previous,
+                    nextPage: page,
+                    changed,
+                    fallbackToCurrent,
+                    samples,
+                    currentVisibleRange: {
+                        start: visibleRange.value.start,
+                        end: visibleRange.value.end,
+                    },
+                    viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+                    visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
+                    stack: (() => {
+                        try {
+                            return (new Error('viewport-current-page-sync'))
+                                .stack
+                                ?.split('\n')
+                                .slice(1, 5)
+                                .map(entry => entry.trim());
+                        } catch {
+                            return null;
+                        }
+                    })(),
+                });
         }
 
         if (!changed) {
@@ -339,7 +388,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         emit('update:currentPage', page);
     }
 
-    async function resolveStableCurrentPageFromViewport(syncRunId: number) {
+    async function resolveStableCurrentPageFromViewport(syncRunId: number, source: string) {
         const container = viewerContainer.value;
         if (!container || numPages.value <= 0) {
             return null;
@@ -354,7 +403,27 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             if (syncRunId !== currentPageSyncRunId) {
                 return null;
             }
-            samples.push(getMostVisiblePage(container, numPages.value));
+            const sampledPage = getMostVisiblePage(container, numPages.value);
+            samples.push(sampledPage);
+            BrowserLogger.warn(
+                'pdf-nav',
+                `[sync-sample] source=${source} run=${syncRunId}`
+                + ` sample=${sampleIndex + 1}/${CURRENT_PAGE_SYNC_SAMPLE_COUNT}`
+                + ` page=${sampledPage}`,
+                {
+                    source,
+                    syncRunId,
+                    sampleIndex,
+                    sampledPage,
+                    currentPage: currentPage.value,
+                    visibleRange: {
+                        start: visibleRange.value.start,
+                        end: visibleRange.value.end,
+                    },
+                    viewer: summarizeViewerMetricsForLog(container),
+                    visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(container),
+                },
+            );
             if (sampleIndex + 1 < CURRENT_PAGE_SYNC_SAMPLE_COUNT) {
                 await nextTick();
                 await waitForAnimationFrame();
@@ -389,7 +458,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         const source = options.source ?? 'default';
         const syncRunId = ++currentPageSyncRunId;
         if (options.stabilize) {
-            const stablePage = await resolveStableCurrentPageFromViewport(syncRunId);
+            const stablePage = await resolveStableCurrentPageFromViewport(syncRunId, source);
             if (!stablePage || syncRunId !== currentPageSyncRunId) {
                 return;
             }
@@ -410,6 +479,16 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         syncOptions: ICurrentPageSyncOptions = {},
     ) {
         const runId = ++reRenderSyncRunId;
+        BrowserLogger.warn('pdf-nav', `[re-render-sync] begin run=${runId} source=${syncOptions.source ?? 're-render'}`, {
+            runId,
+            source: syncOptions.source ?? 're-render',
+            currentPage: currentPage.value,
+            visibleRange: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+            viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+        });
         await reRenderAllVisiblePages(getVisibleRange);
         if (runId !== reRenderSyncRunId) {
             BrowserLogger.warn('pdf-nav', 'Skipped stale re-render current-page sync run', {
@@ -419,6 +498,17 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             });
             return;
         }
+        BrowserLogger.warn('pdf-nav', `[re-render-sync] end run=${runId} source=${syncOptions.source ?? 're-render'}`, {
+            runId,
+            source: syncOptions.source ?? 're-render',
+            currentPage: currentPage.value,
+            visibleRange: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+            viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+            visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
+        });
         await syncCurrentPageFromViewport(syncOptions);
     }
 

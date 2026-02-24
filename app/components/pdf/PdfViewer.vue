@@ -219,6 +219,21 @@ const {
     setUniformLayoutMetrics,
 } = usePdfScroll();
 
+function summarizeViewerStateForLog() {
+    const container = viewerContainer.value;
+    if (!container) {
+        return null;
+    }
+    return {
+        scrollTop: Math.round(container.scrollTop),
+        scrollLeft: Math.round(container.scrollLeft),
+        clientWidth: Math.round(container.clientWidth),
+        clientHeight: Math.round(container.clientHeight),
+        scrollWidth: Math.round(container.scrollWidth),
+        scrollHeight: Math.round(container.scrollHeight),
+    };
+}
+
 watch(
     [
         () => Boolean(src.value),
@@ -612,6 +627,58 @@ watch(
             + ` searchAnchor=${navigationAnchorPage ?? 'none'}`
             + ` searchState=${searchNavigationState}`,
         );
+    },
+);
+
+watch(currentPage, (next, previous) => {
+    if (next === previous) {
+        return;
+    }
+    BrowserLogger.warn('pdf-nav', `[viewer-current-page-ref] ${previous}->${next}`, {
+        previous,
+        next,
+        isLoading: isLoading.value,
+        continuousScroll: continuousScroll.value,
+        fitMode: fitMode.value,
+        viewMode: viewMode.value,
+        zoom: zoom.value,
+        visibleRange: {
+            start: visibleRange.value.start,
+            end: visibleRange.value.end,
+        },
+        viewer: summarizeViewerStateForLog(),
+    });
+});
+
+watch(
+    () => [
+        visibleRange.value.start,
+        visibleRange.value.end,
+    ] as const,
+    ([
+        nextStart,
+        nextEnd,
+    ], [
+        prevStart,
+        prevEnd,
+    ]) => {
+        if (nextStart === prevStart && nextEnd === prevEnd) {
+            return;
+        }
+        BrowserLogger.warn('pdf-nav', `[viewer-visible-range] ${prevStart}-${prevEnd} -> ${nextStart}-${nextEnd}`, {
+            previous: {
+                start: prevStart,
+                end: prevEnd, 
+            },
+            next: {
+                start: nextStart,
+                end: nextEnd, 
+            },
+            currentPage: currentPage.value,
+            isLoading: isLoading.value,
+            continuousScroll: continuousScroll.value,
+            viewer: summarizeViewerStateForLog(),
+        });
     },
 );
 
