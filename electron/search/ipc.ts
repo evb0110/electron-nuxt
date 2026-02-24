@@ -588,7 +588,7 @@ function handlePdfSearchCancel(
 
 export function registerSearchHandlers() {
     log.info(
-        `Registering search IPC handlers `
+        'Registering search IPC handlers '
         + `(requestTimeoutMs=${SEARCH_REQUEST_TIMEOUT_MS}, idleTtlMs=${SEARCH_WORKER_IDLE_TTL_MS}, maxActive=${SEARCH_WORKER_MAX_ACTIVE})`,
     );
     ipcMain.handle('pdf:search', handlePdfSearch);
