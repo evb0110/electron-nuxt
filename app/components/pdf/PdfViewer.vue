@@ -24,7 +24,7 @@
                 'pdfViewer--mode-facing-first-single': viewMode === 'facing-first-single',
                 'pdfViewer--hidden': src && isLoading,
                 'pdfViewer--fit-height': fitMode === 'height',
-                'pdfViewer--resize-transition': isResizeTransitionVisible,
+                'pdfViewer--resize-transition': resizeTransitionVisible,
             }"
             :style="containerStyle"
             @scroll.passive="singlePageScroll.handleScroll"
@@ -47,7 +47,7 @@
                 :key="page"
                 :page="page"
                 :show-skeleton="shouldShowSkeleton(page)"
-                :force-skeleton="isResizeTransitionVisible"
+                :force-skeleton="resizeTransitionVisible"
                 :spread-single="isSpreadSingle(page)"
                 :placeholder-style="pagePlaceholderStyle"
             />
@@ -194,7 +194,7 @@ const emit = defineEmits<{
 
 const viewerHost = ref<HTMLElement | null>(null);
 const viewerContainer = ref<HTMLElement | null>(null);
-const isResizeTransitionVisible = ref(false);
+const resizeTransitionVisible = ref(false);
 const annotationUiManager = shallowRef<AnnotationEditorUIManager | null>(null);
 const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
@@ -243,10 +243,10 @@ function handleResizeTransitionSignal(payload: {
     token: number;
     anchorPage: number | null;
 }) {
-    if (isResizeTransitionVisible.value === payload.active) {
+    if (resizeTransitionVisible.value === payload.active) {
         return;
     }
-    isResizeTransitionVisible.value = payload.active;
+    resizeTransitionVisible.value = payload.active;
     BrowserLogger.warn('pdf-nav', `[resize-transition-ui] active=${payload.active}`, {
         ...payload,
         viewer: summarizeViewerStateForLog(),
@@ -727,7 +727,7 @@ watchEffect(() => {
 
 onBeforeUnmount(() => {
     setUniformLayoutMetrics(null);
-    isResizeTransitionVisible.value = false;
+    resizeTransitionVisible.value = false;
 });
 
 function isSpreadSingle(page: number) {
