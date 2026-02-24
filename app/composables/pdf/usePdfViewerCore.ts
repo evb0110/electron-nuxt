@@ -560,7 +560,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
         if (syncOptions.resizeAnchor) {
             restoreScrollFromSnapshot(viewerContainer.value, syncOptions.resizeAnchor.snapshot);
-            const restoredMostVisiblePage = getMostVisiblePage(viewerContainer.value, numPages.value);
+            let restoredMostVisiblePage = getMostVisiblePage(viewerContainer.value, numPages.value);
             BrowserLogger.warn('pdf-nav', `[resize-anchor] restored run=${runId}`
                 + ` expectedPage=${syncOptions.resizeAnchor.page}`
                 + ` restoredMostVisible=${restoredMostVisiblePage}`, {
@@ -574,19 +574,31 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
                 restoredVisiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
             });
 
-            // If snapshot restoration still drifts after resize/layout reflow,
-            // force-scroll back to the page the user was on before resize.
             if (Math.abs(restoredMostVisiblePage - syncOptions.resizeAnchor.page) > 1) {
-                scrollToPage(syncOptions.resizeAnchor.page);
                 await nextTick();
-                BrowserLogger.warn('pdf-nav', `[resize-anchor] forced scrollToPage=${syncOptions.resizeAnchor.page}`
-                    + ' after restore drift', {
+                await waitForAnimationFrame();
+                restoreScrollFromSnapshot(viewerContainer.value, syncOptions.resizeAnchor.snapshot);
+                restoredMostVisiblePage = getMostVisiblePage(viewerContainer.value, numPages.value);
+                BrowserLogger.warn('pdf-nav', `[resize-anchor] retry restore run=${runId}`
+                    + ` expectedPage=${syncOptions.resizeAnchor.page}`
+                    + ` restoredMostVisible=${restoredMostVisiblePage}`, {
+                    runId,
+                    source: syncOptions.source ?? 're-render',
+                    expectedPage: syncOptions.resizeAnchor.page,
+                    capturedAtMs: syncOptions.resizeAnchor.capturedAtMs,
+                    capturedVisibleRange: syncOptions.resizeAnchor.visibleRange,
+                    capturedViewerMetrics: syncOptions.resizeAnchor.viewerMetrics,
+                    restoredViewerMetrics: summarizeViewerMetricsForLog(viewerContainer.value),
+                    restoredVisiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
+                });
+
+                BrowserLogger.warn('pdf-nav', '[resize-anchor] drift persists after retry; skipping hard scroll fallback', {
                     runId,
                     source: syncOptions.source ?? 're-render',
                     restoredMostVisiblePage,
                     expectedPage: syncOptions.resizeAnchor.page,
-                    viewerAfterForceScroll: summarizeViewerMetricsForLog(viewerContainer.value),
-                    visibleAfterForceScroll: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
+                    viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+                    visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
                 });
             }
         }
@@ -812,6 +824,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         const resizeAnchor = buildResizeAnchorContext();
         const updated = computeFitWidthScale(viewerContainer.value);
         if (updated && pdfDocument.value) {
+            // Update placeholder geometry immediately so anchor restoration occurs
+            // in the same resize phase instead of a later rerender stage.
+            setupPagePlaceholders();
             restoreScrollFromSnapshot(viewerContainer.value, resizeAnchor.snapshot);
             const restoredAfterScalePage = getMostVisiblePage(
                 viewerContainer.value,
