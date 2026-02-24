@@ -36,6 +36,12 @@ function normalizeLogLevel(value: unknown): TBrowserLogLevel | null {
 }
 
 const DEFAULT_LOG_LEVEL: TBrowserLogLevel = import.meta.dev ? 'info' : 'warn';
+const DIAGNOSTIC_WARNING_SECTIONS = new Set([
+    'pdf-nav',
+    'pdf-thumbnails',
+    'note-placement',
+    'loader',
+]);
 
 const configuredLogLevel: TBrowserLogLevel = (() => {
     if (typeof window === 'undefined') {
@@ -61,6 +67,16 @@ const configuredLogLevel: TBrowserLogLevel = (() => {
 
 function shouldLog(level: TBrowserLogLevel) {
     return LOG_LEVELS[level] >= LOG_LEVELS[configuredLogLevel];
+}
+
+function shouldDemoteWarning(section: string) {
+    if (typeof window !== 'undefined') {
+        const forceWarningMode = (window as Window & {__diagnosticWarnAsWarn?: boolean;}).__diagnosticWarnAsWarn;
+        if (forceWarningMode === true) {
+            return false;
+        }
+    }
+    return DIAGNOSTIC_WARNING_SECTIONS.has(section);
 }
 
 function serializeForRendererLog(value: unknown): unknown {
@@ -157,6 +173,11 @@ export const BrowserLogger = {
     },
 
     warn: (section: string, message: string, data?: TLazyValue) => {
+        if (shouldDemoteWarning(section)) {
+            BrowserLogger.debug(section, message, data);
+            return;
+        }
+
         if (!shouldLog('warn')) {
             return;
         }
