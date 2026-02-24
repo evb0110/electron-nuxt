@@ -2,6 +2,7 @@ import {
     computed,
     type Ref,
 } from 'vue';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import type { TFitMode } from '@app/types/shared';
 import type {
     IAnnotationEditorState,
@@ -77,6 +78,15 @@ export function useWorkspaceViewState(deps: IWorkspaceViewStateDeps) {
     }
 
     function handleGoToPage(page: number) {
+        BrowserLogger.warn('pdf-nav', 'Workspace requested go-to-page', {
+            requestedPage: page,
+            hasViewer: Boolean(deps.pdfViewerRef.value),
+            sidebarOpen: deps.showSidebar.value,
+            sidebarTab: deps.sidebarTab.value,
+            dragMode: deps.dragMode.value,
+            annotationTool: deps.annotationTool.value,
+            isPlacingNote: deps.annotationPlacingPageNote.value,
+        });
         deps.pdfViewerRef.value?.scrollToPage(page);
     }
 

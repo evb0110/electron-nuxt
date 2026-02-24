@@ -1,6 +1,7 @@
 import {
     ref,
     shallowRef,
+    watch,
     type Ref,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -12,6 +13,7 @@ import { useDropdownManager } from '@app/composables/useDropdownManager';
 import { usePdfSearch } from '@app/composables/usePdfSearch';
 import { usePageSearch } from '@app/composables/usePageSearch';
 import { useSidebarResize } from '@app/composables/useSidebarResize';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import type {
     IPdfViewerExpose,
     TPdfSidebarTab,
@@ -129,6 +131,68 @@ export const useWorkspaceSidebarSearchSyncController = (
         startSidebarResize,
         cleanupSidebarResizeListeners,
     } = useSidebarResize({ showSidebar });
+
+    watch(currentPage, (next, previous) => {
+        if (next === previous) {
+            return;
+        }
+        BrowserLogger.warn('pdf-nav', 'Workspace sync controller currentPage changed', {
+            previous,
+            next,
+            showSidebar: showSidebar.value,
+            sidebarTab: sidebarTab.value,
+            totalPages: totalPages.value,
+            isLoading: isLoading.value,
+        });
+    });
+
+    watch(
+        () => [
+            showSidebar.value,
+            sidebarTab.value,
+            totalPages.value,
+            isLoading.value,
+        ] as const,
+        ([
+            nextShowSidebar,
+            nextSidebarTab,
+            nextTotalPages,
+            nextLoading,
+        ], [
+            prevShowSidebar,
+            prevSidebarTab,
+            prevTotalPages,
+            prevLoading,
+        ]) => {
+            if (
+                nextShowSidebar === prevShowSidebar
+                && nextSidebarTab === prevSidebarTab
+                && nextTotalPages === prevTotalPages
+                && nextLoading === prevLoading
+            ) {
+                return;
+            }
+            BrowserLogger.warn('pdf-nav', 'Workspace sync controller state changed', {
+                showSidebar: {
+                    previous: prevShowSidebar,
+                    next: nextShowSidebar, 
+                },
+                sidebarTab: {
+                    previous: prevSidebarTab,
+                    next: nextSidebarTab, 
+                },
+                totalPages: {
+                    previous: prevTotalPages,
+                    next: nextTotalPages, 
+                },
+                isLoading: {
+                    previous: prevLoading,
+                    next: nextLoading, 
+                },
+                currentPage: currentPage.value,
+            });
+        },
+    );
 
     return {
         pdfViewerRef,
