@@ -12,6 +12,7 @@ const mockElectronAPI = {
     ocrCreateSearchablePdf: vi.fn(),
     ocrCancel: vi.fn(),
     ocrGetLanguages: vi.fn(),
+    ocrAcknowledgeResultFile: vi.fn(),
     saveDocxAs: vi.fn(),
     writeDocxFile: vi.fn(),
     readFile: vi.fn(),

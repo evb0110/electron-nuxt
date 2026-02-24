@@ -45,6 +45,7 @@ export const usePdfFile = () => {
 
     const pendingDjvu = ref<string | null>(null);
     const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
+    let latestLoadRequestId = 0;
 
     async function pickFileToOpen() {
         const api = getElectronAPI();
@@ -65,6 +66,9 @@ export const usePdfFile = () => {
                 return;
             }
             await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
+            if (workingCopyPath.value !== result.workingPath) {
+                return;
+            }
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
         } catch (e) {
@@ -107,6 +111,13 @@ export const usePdfFile = () => {
                 workingPath: result.workingPath,
             });
             await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
+            if (workingCopyPath.value !== result.workingPath) {
+                BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect skipped stale load result', {
+                    path,
+                    workingPath: result.workingPath,
+                });
+                return;
+            }
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
             BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect completed', {
@@ -182,6 +193,10 @@ export const usePdfFile = () => {
                 return;
             }
             await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
+            if (workingCopyPath.value !== result.workingPath) {
+                openBatchProgress.value = null;
+                return;
+            }
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
             openBatchProgress.value = null;
@@ -219,10 +234,7 @@ export const usePdfFile = () => {
 
     async function loadPdfFromPath(path: string, opts?: { markDirty?: boolean }) {
         const api = getElectronAPI();
-
-        // Keep the previous working copy until the new file is fully validated and loaded.
-        // This avoids dropping recoverable state when opening the next file fails midway.
-        const prevPath = workingCopyPath.value;
+        const requestId = ++latestLoadRequestId;
 
         // Verify and read file BEFORE committing any reactive state.
         // This prevents an inconsistent UI where the tab shows metadata
@@ -238,7 +250,7 @@ export const usePdfFile = () => {
             newPdfSrc = {
                 kind: 'path',
                 path,
-                size, 
+                size,
             };
         } else {
             const buffer = await api.readFile(path);
@@ -246,6 +258,19 @@ export const usePdfFile = () => {
             newPdfData = data;
             newPdfSrc = new Blob([data], { type: 'application/pdf' });
         }
+
+        if (requestId !== latestLoadRequestId) {
+            BrowserLogger.debug('pdf-file', 'Skipped stale PDF load result', {
+                path,
+                requestId,
+                latestLoadRequestId,
+            });
+            return;
+        }
+
+        // Keep the previous working copy until the new file is fully validated and loaded.
+        // This avoids dropping recoverable state when opening the next file fails midway.
+        const prevPath = workingCopyPath.value;
 
         // All async operations succeeded — commit state atomically
         workingCopyPath.value = path;
@@ -408,6 +433,7 @@ export const usePdfFile = () => {
     }
 
     async function closeFile() {
+        latestLoadRequestId += 1;
         const pathToCleanup = workingCopyPath.value;
 
         // M4.3: Clear OCR cache for the current file before closing

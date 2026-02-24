@@ -31,6 +31,11 @@ export default {
         'preparingBatch': 'Vorbereitung {processed}/{total}',
         'confirmCloseDirtyTitle': 'Tab mit ungespeicherten Änderungen schließen?',
         'confirmCloseDirtyDescription': '"{name}" enthält ungespeicherte Änderungen. Änderungen werden beim Schließen verworfen.',
+        'transferErrors': {
+            'noTargetGroup': 'Im Zielfenster ist keine Zielgruppe verfügbar.',
+            'noTargetTab': 'Im Zielfenster ist kein Ziel-Tab verfügbar.',
+            'restoreFailed': 'Der Zustand des übertragenen Tabs konnte nicht wiederhergestellt werden.',
+        },
     },
     'zoom': {
         'fitWidth': 'Breite anpassen',

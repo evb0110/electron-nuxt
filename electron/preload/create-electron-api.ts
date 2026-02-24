@@ -23,6 +23,9 @@ import { getDebugLogMessages } from '@electron/preload/debug-log-buffer';
 
 const preloadStartupStart = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+const MAX_IPC_PATH_LENGTH = 4_096;
+const MAX_IPC_FILE_NAME_LENGTH = 255;
+const MAX_IPC_WRITE_BYTES = 512 * 1024 * 1024;
 
 function stringifyDetails(details?: Record<string, unknown>) {
     if (!details) {
@@ -81,6 +84,83 @@ function onSingleArgEvent<T>(
     return () => ipcRenderer.removeListener(channel, handler);
 }
 
+function assertNonEmptyString(value: unknown, fieldName: string, maxLength = MAX_IPC_PATH_LENGTH) {
+    if (typeof value !== 'string') {
+        throw new Error(`${fieldName} must be a string`);
+    }
+
+    const normalized = value.trim();
+    if (!normalized) {
+        throw new Error(`${fieldName} must not be empty`);
+    }
+    if (normalized.length > maxLength) {
+        throw new Error(`${fieldName} exceeds maximum length (${maxLength})`);
+    }
+    if (normalized.includes('\0')) {
+        throw new Error(`${fieldName} must not contain NUL bytes`);
+    }
+
+    return normalized;
+}
+
+function isLikelyAbsolutePath(path: string) {
+    return path.startsWith('/')
+        || path.startsWith('\\\\')
+        || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+function assertAbsolutePath(value: unknown, fieldName: string) {
+    const normalized = assertNonEmptyString(value, fieldName);
+    if (!isLikelyAbsolutePath(normalized)) {
+        throw new Error(`${fieldName} must be an absolute path`);
+    }
+    return normalized;
+}
+
+function assertWriteData(value: unknown, fieldName: string) {
+    if (!(value instanceof Uint8Array)) {
+        throw new Error(`${fieldName} must be a Uint8Array`);
+    }
+    if (value.byteLength === 0) {
+        throw new Error(`${fieldName} must not be empty`);
+    }
+    if (value.byteLength > MAX_IPC_WRITE_BYTES) {
+        throw new Error(`${fieldName} exceeds maximum size (${MAX_IPC_WRITE_BYTES} bytes)`);
+    }
+    return value;
+}
+
+function assertWorkingCopyFileName(value: unknown, fieldName: string) {
+    const normalized = assertNonEmptyString(value, fieldName, MAX_IPC_FILE_NAME_LENGTH);
+    if (normalized.includes('/') || normalized.includes('\\')) {
+        throw new Error(`${fieldName} must be a file name, not a path`);
+    }
+    if (normalized === '.' || normalized === '..') {
+        throw new Error(`${fieldName} is invalid`);
+    }
+    return normalized;
+}
+
+function assertRequestId(value: unknown, fieldName: string) {
+    return assertNonEmptyString(value, fieldName, 128);
+}
+
+function assertOptionalAbsolutePath(value: unknown, fieldName: string) {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+
+    if (typeof value === 'string' && value.trim().length === 0) {
+        return undefined;
+    }
+
+    const normalized = assertNonEmptyString(value, fieldName);
+    if (!isLikelyAbsolutePath(normalized)) {
+        throw new Error(`${fieldName} must be an absolute path`);
+    }
+    return normalized;
+}
+
 export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: typeof webUtils): IElectronAPI {
     const api = {
         openPdfDialog: () => ipcRenderer.invoke('dialog:openPdf'),
@@ -98,10 +178,23 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         readFileRange: (path: string, offset: number, length: number) => ipcRenderer.invoke('file:readRange', path, offset, length),
         readTextFile: (path: string) => ipcRenderer.invoke('file:readText', path),
         fileExists: (path: string) => ipcRenderer.invoke('file:exists', path),
-        writeFile: (path: string, data: Uint8Array) => ipcRenderer.invoke('file:write', path, data),
-        writeDocxFile: (path: string, data: Uint8Array) => ipcRenderer.invoke('file:writeDocx', path, data),
+        writeFile: (path: string, data: Uint8Array) => ipcRenderer.invoke(
+            'file:write',
+            assertAbsolutePath(path, 'writeFile.path'),
+            assertWriteData(data, 'writeFile.data'),
+        ),
+        writeDocxFile: (path: string, data: Uint8Array) => ipcRenderer.invoke(
+            'file:writeDocx',
+            assertAbsolutePath(path, 'writeDocxFile.path'),
+            assertWriteData(data, 'writeDocxFile.data'),
+        ),
         createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: string) =>
-            ipcRenderer.invoke('working-copy:createFromData', fileName, data, originalPath),
+            ipcRenderer.invoke(
+                'working-copy:createFromData',
+                assertWorkingCopyFileName(fileName, 'createWorkingCopyFromData.fileName'),
+                assertWriteData(data, 'createWorkingCopyFromData.data'),
+                assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromData.originalPath'),
+            ),
         saveFile: (path: string) => ipcRenderer.invoke('file:save', path),
         cleanupFile: (path: string) => ipcRenderer.invoke('file:cleanup', path),
         cleanupOcrTemp: (path: string) => ipcRenderer.invoke('file:cleanupOcrTemp', path),
@@ -152,6 +245,11 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         ocrCancel: (requestId: string) => ipcRenderer.invoke('ocr:cancel', requestId),
 
         ocrGetLanguages: () => ipcRenderer.invoke('ocr:getLanguages'),
+        ocrAcknowledgeResultFile: (requestId: string, pdfPath?: string) => ipcRenderer.invoke(
+            'ocr:ackResultFile',
+            assertRequestId(requestId, 'ocrAcknowledgeResultFile.requestId'),
+            assertOptionalAbsolutePath(pdfPath, 'ocrAcknowledgeResultFile.pdfPath'),
+        ),
 
         ocrCreateSearchablePdf: (
             originalPdfData: Uint8Array,
@@ -185,6 +283,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             success: boolean;
             pdfData: Uint8Array | null;
             pdfPath?: string;
+            requiresCleanupAck?: boolean;
             errors: string[];
         }) => void): (() => void) => {
             const handler = (_event: IpcRendererEvent, result: {
@@ -192,6 +291,7 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 success: boolean;
                 pdfData: Uint8Array | null;
                 pdfPath?: string;
+                requiresCleanupAck?: boolean;
                 errors: string[];
             }) => callback(result);
             ipcRenderer.on('ocr:complete', handler);

@@ -31,6 +31,11 @@ export default {
         'preparingBatch': 'A preparar {processed}/{total}',
         'confirmCloseDirtyTitle': 'Fechar separador com alterações por guardar?',
         'confirmCloseDirtyDescription': '"{name}" tem alterações por guardar. As alterações serão descartadas ao fechar.',
+        'transferErrors': {
+            'noTargetGroup': 'Nenhum grupo de destino está disponível na janela de destino.',
+            'noTargetTab': 'Nenhum separador de destino está disponível na janela de destino.',
+            'restoreFailed': 'Falha ao restaurar o estado do separador transferido.',
+        },
     },
     'zoom': {
         'fitWidth': 'Ajustar à Largura',

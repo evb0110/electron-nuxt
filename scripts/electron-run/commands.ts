@@ -1,4 +1,7 @@
-import { basename, join } from 'node:path';
+import {
+    basename,
+    join,
+} from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { delay } from 'es-toolkit/promise';
 import {
@@ -97,13 +100,19 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
         const takeScreenshot = async (name: string, fullPage = false) => {
             mkdirSync(ssDirPath, { recursive: true });
             const filepath = join(ssDirPath, `${sanitizeSnapshotName(name)}.png`);
-            await page.screenshot({ path: filepath, fullPage });
+            await page.screenshot({
+                path: filepath,
+                fullPage, 
+            });
             return filepath;
         };
 
         switch (command) {
             case 'ping':
-                return { status: 'ok', uptime: process.uptime() };
+                return {
+                    status: 'ok',
+                    uptime: process.uptime(), 
+                };
 
             case 'screenshot': {
                 const name = (args[0] as string) ?? `screenshot-${Date.now()}`;
@@ -121,7 +130,11 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                 const intervalMs = parseNonNegativeInt(args[2], DEFAULT_SCREENSHOT_INTERVAL_MS, 60_000);
                 const fullPage = parseBooleanArg(args[3]);
 
-                const captures: Array<{ index: number; path: string; timestamp: number }> = [];
+                const captures: Array<{
+                    index: number;
+                    path: string;
+                    timestamp: number 
+                }> = [];
                 for (let index = 0; index < count; index += 1) {
                     const ordinal = String(index + 1).padStart(3, '0');
                     const filepath = await takeScreenshot(`${baseName}-${ordinal}`, fullPage);
@@ -353,7 +366,10 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                             timestamp: Date.now(),
                         };
                     };
-                    window.addEventListener('click', (window as any).__electronRunClickCaptureListener, { capture: true, once: true });
+                    window.addEventListener('click', (window as any).__electronRunClickCaptureListener, {
+                        capture: true,
+                        once: true, 
+                    });
                 });
 
                 await page.waitForSelector(selector, { timeout: timeoutMs });
@@ -380,7 +396,10 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                     throw new Error('Selector and text required');
                 }
                 await page.type(selector, text);
-                return { typed: text, into: selector };
+                return {
+                    typed: text,
+                    into: selector, 
+                };
             }
 
             case 'content': {
@@ -415,9 +434,15 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                 if (!width || !height) {
                     throw new Error('Width and height required');
                 }
-                await page.setViewport({ width, height });
+                await page.setViewport({
+                    width,
+                    height, 
+                });
                 return {
-                    resized: { width, height },
+                    resized: {
+                        width,
+                        height, 
+                    },
                     viewport: page.viewport(),
                 };
             }
@@ -512,16 +537,12 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                 };
 
                 const readViewerState = async (token?: string) => await page.evaluate((requestedPathBasename: string, requestedToken?: string) => {
-                    const hosts = Array.from(document.querySelectorAll('#pdf-viewer')) as Array<HTMLElement & {
-                        __vueParentComponent?: {
-                            setupState?: {
-                                numPages?: number;
-                                currentPage?: number;
-                                isLoading?: boolean;
-                                workingCopyPath?: string | null;
-                            };
-                        };
-                    }>;
+                    const hosts = Array.from(document.querySelectorAll('#pdf-viewer')) as Array<HTMLElement & {__vueParentComponent?: {setupState?: {
+                        numPages?: number;
+                        currentPage?: number;
+                        isLoading?: boolean;
+                        workingCopyPath?: string | null;
+                    };};}>;
                     const viewers = hosts.map((host, viewerIndex) => {
                         const setupState = host.__vueParentComponent?.setupState;
                         const pageContainers = host.querySelectorAll('.page_container');

@@ -40,7 +40,6 @@ const stylisticRules = {
 export default withNuxt(
     {ignores: [
         '**/.devkit/**',
-        'scripts/**',
         '*.config.*',
     ]},
     {
@@ -95,11 +94,11 @@ export default withNuxt(
             'landing/*.config.ts',
             'electron/**',
             'tests/**',
+            'scripts/**/*.ts',
             '**/*.d.ts',
         ],
         languageOptions: {parserOptions: {projectService: true}},
         rules: {
-            '@typescript-eslint/require-await': 'error',
             '@typescript-eslint/array-type': [
                 'error',
                 {
@@ -126,6 +125,47 @@ export default withNuxt(
                     },
                 },
             ],
+            '@typescript-eslint/require-await': 'error',
+        },
+    },
+    {
+        files: ['scripts/**/*.ts'],
+        languageOptions: {parserOptions: {
+            project: ['./tsconfig.scripts.json'],
+            tsconfigRootDir: import.meta.dirname,
+        }},
+        rules: {
+            '@typescript-eslint/array-type': [
+                'error',
+                {
+                    default: 'array-simple',
+                    readonly: 'array-simple',
+                },
+            ],
+            '@typescript-eslint/naming-convention': [
+                'error',
+                {
+                    selector: 'typeAlias',
+                    format: ['PascalCase'],
+                    custom: {
+                        regex: '^T[A-Z]',
+                        match: true,
+                    },
+                },
+                {
+                    selector: 'interface',
+                    format: ['PascalCase'],
+                    custom: {
+                        regex: '^I[A-Z]',
+                        match: true,
+                    },
+                },
+            ],
+            '@typescript-eslint/require-await': 'off',
+            '@typescript-eslint/no-explicit-any': 'off',
+            'no-return-await': 'off',
+            'no-empty': 'off',
+            'no-restricted-imports': 'off',
         },
     },
     {

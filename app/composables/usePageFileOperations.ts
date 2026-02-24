@@ -72,6 +72,13 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         };
     }
 
+    function stringifyError(error: unknown) {
+        if (error instanceof Error) {
+            return error.message;
+        }
+        return String(error);
+    }
+
     async function waitForDocumentSource() {
         await waitUntilIdle(
             () => !pdfSrc.value,
@@ -98,51 +105,61 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             bookmarksDirty: bookmarksDirty.value,
         });
 
-        await waitUntilAllIdle();
-        if (isAnySaving.value || isHistoryBusy.value || isExportingDocx.value || isAnyAnnotationNoteSaving.value) {
-            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: workspace remained busy after idle wait', {busyState: getBusyState()});
-            return false;
-        }
-
-        if (annotationNoteWindows.value.length > 0) {
-            const savedAllNotes = await persistAllAnnotationNotes(true);
-            if (!savedAllNotes) {
-                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: failed to persist annotation note windows');
+        try {
+            await waitUntilAllIdle();
+            if (isAnySaving.value || isHistoryBusy.value || isExportingDocx.value || isAnyAnnotationNoteSaving.value) {
+                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: workspace remained busy after idle wait', {busyState: getBusyState()});
                 return false;
             }
-        }
 
-        const hasPendingChanges = (
-            annotationDirty.value
-            || isDirty.value
-            || hasAnnotationChanges()
-            || pageLabelsDirty.value
-            || bookmarksDirty.value
-        );
-        if (!hasPendingChanges) {
-            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Switch allowed: no pending changes');
-            return true;
-        }
+            if (annotationNoteWindows.value.length > 0) {
+                const savedAllNotes = await persistAllAnnotationNotes(true);
+                if (!savedAllNotes) {
+                    BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: failed to persist annotation note windows');
+                    return false;
+                }
+            }
 
-        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Pending changes detected, triggering save before switch');
-        await handleSave();
+            const hasPendingChanges = (
+                annotationDirty.value
+                || isDirty.value
+                || hasAnnotationChanges()
+                || pageLabelsDirty.value
+                || bookmarksDirty.value
+            );
+            if (!hasPendingChanges) {
+                BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Switch allowed: no pending changes');
+                return true;
+            }
 
-        const canProceed = !(
-            annotationDirty.value
-            || isDirty.value
-            || hasAnnotationChanges()
-            || pageLabelsDirty.value
-            || bookmarksDirty.value
-        );
-        if (!canProceed) {
-            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: pending changes remain after save attempt', {
-                annotationDirty: annotationDirty.value,
-                isDirty: isDirty.value,
-                pageLabelsDirty: pageLabelsDirty.value,
-                bookmarksDirty: bookmarksDirty.value,
-            });
+            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Pending changes detected, triggering save before switch');
+            try {
+                await handleSave();
+            } catch (saveError) {
+                BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: save before switch threw', {error: stringifyError(saveError)});
+                return false;
+            }
+
+            const canProceed = !(
+                annotationDirty.value
+                || isDirty.value
+                || hasAnnotationChanges()
+                || pageLabelsDirty.value
+                || bookmarksDirty.value
+            );
+            if (!canProceed) {
+                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: pending changes remain after save attempt', {
+                    annotationDirty: annotationDirty.value,
+                    isDirty: isDirty.value,
+                    pageLabelsDirty: pageLabelsDirty.value,
+                    bookmarksDirty: bookmarksDirty.value,
+                });
+            }
+            return canProceed;
+        } catch (persistError) {
+            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: persistence gate threw unexpectedly', {error: stringifyError(persistError)});
+            return false;
         }
-        return canProceed;
     }
 
     async function handleOpenFileFromUi() {

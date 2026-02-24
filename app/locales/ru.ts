@@ -31,6 +31,11 @@ export default {
         'preparingBatch': 'Подготовка {processed}/{total}',
         'confirmCloseDirtyTitle': 'Закрыть вкладку с несохранёнными изменениями?',
         'confirmCloseDirtyDescription': 'В "{name}" есть несохранённые изменения. При закрытии изменения будут отброшены.',
+        'transferErrors': {
+            'noTargetGroup': 'В окне назначения нет доступной целевой группы.',
+            'noTargetTab': 'В окне назначения нет доступной целевой вкладки.',
+            'restoreFailed': 'Не удалось восстановить состояние перенесённой вкладки.',
+        },
     },
     'zoom': {
         'fitWidth': 'По ширине',

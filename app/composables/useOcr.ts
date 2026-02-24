@@ -163,6 +163,7 @@ export const useOcr = () => {
                 success: boolean;
                 pdfData: Uint8Array | null;
                 pdfPath?: string;
+                requiresCleanupAck?: boolean;
                 errors: string[];
             }>((resolve, reject) => {
                 let didResolve = false;
@@ -244,21 +245,47 @@ export const useOcr = () => {
                         requestId,
                         path: response.pdfPath, 
                     });
-                    const fileData = await api.readFile(response.pdfPath);
-                    pdfBytes = new Uint8Array(fileData);
-                    BrowserLogger.debug('ocr', 'Loaded OCR PDF', {
-                        requestId,
-                        bytes: pdfBytes.length, 
-                    });
+                    let didCleanupViaAck = false;
 
                     try {
-                        await api.cleanupOcrTemp(response.pdfPath);
-                    } catch (cleanupErr) {
-                        BrowserLogger.warn('ocr', 'Failed to cleanup temp file', {
+                        const fileData = await api.readFile(response.pdfPath);
+                        pdfBytes = new Uint8Array(fileData);
+                        BrowserLogger.debug('ocr', 'Loaded OCR PDF', {
                             requestId,
-                            path: response.pdfPath,
-                            error: cleanupErr, 
+                            bytes: pdfBytes.length, 
                         });
+                    } finally {
+                        if (response.requiresCleanupAck) {
+                            try {
+                                const ackResult = await api.ocrAcknowledgeResultFile(requestId, response.pdfPath);
+                                didCleanupViaAck = ackResult.cleaned;
+                                if (!ackResult.cleaned && ackResult.error) {
+                                    BrowserLogger.warn('ocr', 'OCR cleanup acknowledgement was rejected', {
+                                        requestId,
+                                        path: response.pdfPath,
+                                        error: ackResult.error,
+                                    });
+                                }
+                            } catch (ackErr) {
+                                BrowserLogger.warn('ocr', 'Failed to acknowledge OCR temp result file', {
+                                    requestId,
+                                    path: response.pdfPath,
+                                    error: ackErr, 
+                                });
+                            }
+                        }
+
+                        if (!didCleanupViaAck) {
+                            try {
+                                await api.cleanupOcrTemp(response.pdfPath);
+                            } catch (cleanupErr) {
+                                BrowserLogger.warn('ocr', 'Failed to cleanup temp file', {
+                                    requestId,
+                                    path: response.pdfPath,
+                                    error: cleanupErr, 
+                                });
+                            }
+                        }
                     }
                 } else if (response.pdfData) {
                     BrowserLogger.debug('ocr', 'OCR PDF ready in response', {

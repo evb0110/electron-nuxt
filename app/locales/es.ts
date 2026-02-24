@@ -31,6 +31,11 @@ export default {
         'preparingBatch': 'Preparando {processed}/{total}',
         'confirmCloseDirtyTitle': '¿Cerrar pestaña con cambios sin guardar?',
         'confirmCloseDirtyDescription': '"{name}" tiene cambios sin guardar. Los cambios se descartarán al cerrar.',
+        'transferErrors': {
+            'noTargetGroup': 'No hay ningún grupo de destino disponible en la ventana de destino.',
+            'noTargetTab': 'No hay ninguna pestaña de destino disponible en la ventana de destino.',
+            'restoreFailed': 'No se pudo restaurar el estado de la pestaña transferida.',
+        },
     },
     'zoom': {
         'fitWidth': 'Ajustar al ancho',

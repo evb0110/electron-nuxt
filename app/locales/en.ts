@@ -31,6 +31,11 @@ export default {
         'preparingBatch': 'Preparing {processed}/{total}',
         'confirmCloseDirtyTitle': 'Close tab with unsaved changes?',
         'confirmCloseDirtyDescription': '"{name}" has unsaved changes. Changes will be discarded when closing.',
+        'transferErrors': {
+            'noTargetGroup': 'No target group is available in the destination window.',
+            'noTargetTab': 'No target tab is available in the destination window.',
+            'restoreFailed': 'Failed to restore transferred tab state.',
+        },
     },
     'zoom': {
         'fitWidth': 'Fit Width',

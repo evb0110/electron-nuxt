@@ -1,4 +1,5 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -6,6 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { usePageFileOperations } from '@app/composables/usePageFileOperations';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 function cast<T>(obj: unknown): T {
     return obj as T;
@@ -38,6 +40,10 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
 }
 
 describe('usePageFileOperations', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it('persists unsaved changes before closing by default', async () => {
         const isDirty = ref(true);
         const deps = createDeps({
@@ -64,5 +70,47 @@ describe('usePageFileOperations', () => {
         expect(deps.handleSave).not.toHaveBeenCalled();
         expect(deps.closeFile).toHaveBeenCalledOnce();
         expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
+    });
+
+    it('handles save rejection deterministically before opening another file', async () => {
+        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(() => {});
+        const deps = createDeps({
+            isDirty: ref(true),
+            handleSave: vi.fn(async () => {
+                throw new Error('disk full');
+            }),
+        });
+        const { handleOpenFileFromUi } = usePageFileOperations(deps);
+
+        await expect(handleOpenFileFromUi()).resolves.toBeUndefined();
+
+        expect(deps.pickFileToOpen).not.toHaveBeenCalled();
+        expect(deps.openFile).not.toHaveBeenCalled();
+        expect(errorSpy).toHaveBeenCalledWith(
+            'recent-open',
+            'Switch blocked: save before switch threw',
+            { error: 'disk full' },
+        );
+    });
+
+    it('blocks close when save throws instead of bubbling an uncaught rejection', async () => {
+        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(() => {});
+        const deps = createDeps({
+            isDirty: ref(true),
+            handleSave: vi.fn(async () => {
+                throw new Error('cannot save');
+            }),
+        });
+        const { handleCloseFileFromUi } = usePageFileOperations(deps);
+
+        await expect(handleCloseFileFromUi()).resolves.toBeUndefined();
+
+        expect(deps.closeFile).not.toHaveBeenCalled();
+        expect(deps.closeAllDropdowns).not.toHaveBeenCalled();
+        expect(errorSpy).toHaveBeenCalledWith(
+            'recent-open',
+            'Switch blocked: save before switch threw',
+            { error: 'cannot save' },
+        );
     });
 });

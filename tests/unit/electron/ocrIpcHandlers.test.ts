@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     runOcr: vi.fn(),
     handleOcrCreateSearchablePdfAsync: vi.fn(),
     handleOcrCancel: vi.fn(),
+    handleOcrAcknowledgeResultFile: vi.fn(),
     safeSendToWindow: vi.fn(),
     validateOcrTools: vi.fn(),
     getOcrToolPaths: vi.fn(),
@@ -61,6 +62,7 @@ vi.mock('@electron/utils/path-validator', () => ({resolveAllowedWritePath: mocks
 vi.mock('@electron/ocr/jobManager', () => ({
     handleOcrCreateSearchablePdfAsync: mocks.handleOcrCreateSearchablePdfAsync,
     handleOcrCancel: mocks.handleOcrCancel,
+    handleOcrAcknowledgeResultFile: mocks.handleOcrAcknowledgeResultFile,
     safeSendToWindow: mocks.safeSendToWindow,
 }));
 
@@ -115,6 +117,7 @@ describe('registerOcrHandlers', () => {
             jobId: 'default-job-id',
         });
         mocks.handleOcrCancel.mockReturnValue({ canceled: true });
+        mocks.handleOcrAcknowledgeResultFile.mockResolvedValue({ cleaned: true });
         registerOcrHandlers();
     });
 

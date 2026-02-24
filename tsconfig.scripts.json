@@ -1,0 +1,16 @@
+{
+    "extends": "./electron/tsconfig.json",
+    "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+            "@app/*": ["app/*"],
+            "@electron/*": ["electron/*"]
+        }
+    },
+    "include": [
+        "scripts/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules"
+    ]
+}

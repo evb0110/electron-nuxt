@@ -35,6 +35,17 @@ vi.stubGlobal('window', {
 
 const { usePdfFile } = await import('@app/composables/usePdfFile');
 
+function deferred<T>() {
+    let resolve: ((value: T | PromiseLike<T>) => void) | null = null;
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return {
+        promise,
+        resolve: (value: T) => resolve?.(value),
+    };
+}
+
 describe('usePdfFile', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -174,6 +185,58 @@ describe('usePdfFile', () => {
 
             expect(file.workingCopyPath.value).toBe('/tmp/old.pdf');
             expect(mockElectronAPI.cleanupFile).not.toHaveBeenCalled();
+        });
+
+        it('ignores stale concurrent loads and only keeps the latest committed file', async () => {
+            const oldPdf = new Uint8Array([1]);
+            const firstPdf = new Uint8Array([2]);
+            const secondPdf = new Uint8Array([3]);
+
+            mockElectronAPI.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/old.pdf',
+                workingPath: '/tmp/old.pdf',
+            });
+            mockElectronAPI.statFile.mockResolvedValueOnce({ size: oldPdf.length });
+            mockElectronAPI.readFile.mockResolvedValueOnce(oldPdf.buffer);
+            mockElectronAPI.cleanupFile.mockResolvedValue(undefined);
+
+            const file = usePdfFile();
+            await file.openFile();
+
+            const firstReadGate = deferred<ArrayBuffer>();
+            mockElectronAPI.statFile.mockImplementation(async (path: string) => {
+                if (path === '/tmp/first.pdf') {
+                    return { size: firstPdf.length };
+                }
+                if (path === '/tmp/second.pdf') {
+                    return { size: secondPdf.length };
+                }
+                throw new Error(`unexpected path ${path}`);
+            });
+            mockElectronAPI.readFile.mockImplementation(async (path: string) => {
+                if (path === '/tmp/first.pdf') {
+                    return firstReadGate.promise;
+                }
+                if (path === '/tmp/second.pdf') {
+                    return secondPdf.buffer;
+                }
+                throw new Error(`unexpected path ${path}`);
+            });
+
+            const firstLoad = file.loadPdfFromPath('/tmp/first.pdf');
+            const secondLoad = file.loadPdfFromPath('/tmp/second.pdf');
+
+            await expect(secondLoad).resolves.toBeUndefined();
+            expect(file.workingCopyPath.value).toBe('/tmp/second.pdf');
+
+            firstReadGate.resolve(firstPdf.buffer.slice(0));
+            await expect(firstLoad).resolves.toBeUndefined();
+
+            expect(file.workingCopyPath.value).toBe('/tmp/second.pdf');
+            expect(file.pdfData.value).toEqual(secondPdf);
+            expect(mockElectronAPI.cleanupFile).toHaveBeenCalledTimes(1);
+            expect(mockElectronAPI.cleanupFile).toHaveBeenCalledWith('/tmp/old.pdf');
         });
     });
 

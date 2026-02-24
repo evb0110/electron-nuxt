@@ -1,4 +1,8 @@
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import {
+    existsSync,
+    readFileSync,
+    unlinkSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { delay } from 'es-toolkit/promise';
 import { sendCommand } from './client';

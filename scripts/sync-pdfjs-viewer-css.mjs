@@ -215,7 +215,10 @@ async function syncImages(imageNames) {
 }
 
 async function main() {
-    const [sourceCss, sourceImages] = await Promise.all([
+    const [
+        sourceCss,
+        sourceImages,
+    ] = await Promise.all([
         readFile(sourceCssPath, 'utf8'),
         readdir(sourceImagesDir),
     ]);

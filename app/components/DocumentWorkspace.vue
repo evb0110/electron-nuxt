@@ -22,19 +22,19 @@
                 :is-placing-page-note="annotationPlacingPageNote"
                 @open-file="handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
-                @save="handleSave(); closeAllDropdowns()"
-                @save-as="handleSaveAs(); closeAllDropdowns()"
-                @export-docx="handleExportDocx(); closeAllDropdowns()"
-                @undo="handleUndo(); closeAllDropdowns()"
-                @redo="handleRedo(); closeAllDropdowns()"
-                @toggle-sidebar="showSidebar = !showSidebar; closeAllDropdowns()"
-                @fit-width="handleFitMode('width'); closeAllDropdowns()"
-                @fit-height="handleFitMode('height'); closeAllDropdowns()"
-                @toggle-continuous-scroll="continuousScroll = !continuousScroll; closeAllDropdowns()"
-                @enable-drag="enableDragMode(); closeAllDropdowns()"
-                @disable-drag="handleAnnotationToolChange('none'); closeAllDropdowns()"
-                @capture-region="handleCaptureRegion(); closeAllDropdowns()"
-                @quick-note="void handleQuickNoteAction(); closeAllDropdowns()"
+                @save="handleToolbarSave"
+                @save-as="handleToolbarSaveAs"
+                @export-docx="handleToolbarExportDocx"
+                @undo="handleToolbarUndo"
+                @redo="handleToolbarRedo"
+                @toggle-sidebar="handleToolbarToggleSidebar"
+                @fit-width="handleToolbarFitWidth"
+                @fit-height="handleToolbarFitHeight"
+                @toggle-continuous-scroll="handleToolbarToggleContinuousScroll"
+                @enable-drag="handleToolbarEnableDrag"
+                @disable-drag="handleToolbarDisableDrag"
+                @capture-region="handleToolbarCaptureRegion"
+                @quick-note="handleToolbarQuickNote"
             >
                 <template #ocr="{ isCollapsed }">
                     <OcrPopup
@@ -96,19 +96,19 @@
                         :is-fit-width-active="isFitWidthActive"
                         :is-fit-height-active="isFitHeightActive"
                         @update:open="handleDropdownOpen('overflow', $event)"
-                        @save="handleSave(); closeAllDropdowns()"
-                        @save-as="handleSaveAs(); closeAllDropdowns()"
-                        @export-docx="handleExportDocx(); closeAllDropdowns()"
+                        @save="handleToolbarSave"
+                        @save-as="handleToolbarSaveAs"
+                        @export-docx="handleToolbarExportDocx"
                         @open-ocr="handleDropdownOpen('ocr', true)"
-                        @undo="handleUndo(); closeAllDropdowns()"
-                        @redo="handleRedo(); closeAllDropdowns()"
-                        @fit-width="handleFitMode('width'); closeAllDropdowns()"
-                        @fit-height="handleFitMode('height'); closeAllDropdowns()"
-                        @enable-drag="enableDragMode(); closeAllDropdowns()"
-                        @disable-drag="handleAnnotationToolChange('none'); closeAllDropdowns()"
-                        @set-view-mode="viewMode = $event; closeAllDropdowns()"
-                        @toggle-continuous-scroll="continuousScroll = !continuousScroll; closeAllDropdowns()"
-                        @open-settings="emit('open-settings'); closeAllDropdowns()"
+                        @undo="handleToolbarUndo"
+                        @redo="handleToolbarRedo"
+                        @fit-width="handleToolbarFitWidth"
+                        @fit-height="handleToolbarFitHeight"
+                        @enable-drag="handleToolbarEnableDrag"
+                        @disable-drag="handleToolbarDisableDrag"
+                        @set-view-mode="handleOverflowSetViewMode"
+                        @toggle-continuous-scroll="handleToolbarToggleContinuousScroll"
+                        @open-settings="handleOverflowOpenSettings"
                     />
                 </template>
             </PdfToolbar>
@@ -603,6 +603,88 @@ const {
     initFromStorage,
     hasPdf,
 } = w;
+
+function runToolbarAction(action: () => unknown) {
+    const result = action();
+    if (result instanceof Promise) {
+        void result;
+    }
+    closeAllDropdowns();
+}
+
+function handleToolbarSave() {
+    runToolbarAction(handleSave);
+}
+
+function handleToolbarSaveAs() {
+    runToolbarAction(handleSaveAs);
+}
+
+function handleToolbarExportDocx() {
+    runToolbarAction(handleExportDocx);
+}
+
+function handleToolbarUndo() {
+    runToolbarAction(handleUndo);
+}
+
+function handleToolbarRedo() {
+    runToolbarAction(handleRedo);
+}
+
+function handleToolbarToggleSidebar() {
+    runToolbarAction(() => {
+        showSidebar.value = !showSidebar.value;
+    });
+}
+
+function handleToolbarFitWidth() {
+    runToolbarAction(() => {
+        handleFitMode('width');
+    });
+}
+
+function handleToolbarFitHeight() {
+    runToolbarAction(() => {
+        handleFitMode('height');
+    });
+}
+
+function handleToolbarToggleContinuousScroll() {
+    runToolbarAction(() => {
+        continuousScroll.value = !continuousScroll.value;
+    });
+}
+
+function handleToolbarEnableDrag() {
+    runToolbarAction(enableDragMode);
+}
+
+function handleToolbarDisableDrag() {
+    runToolbarAction(() => {
+        handleAnnotationToolChange('none');
+    });
+}
+
+function handleToolbarCaptureRegion() {
+    runToolbarAction(handleCaptureRegion);
+}
+
+function handleToolbarQuickNote() {
+    runToolbarAction(handleQuickNoteAction);
+}
+
+function handleOverflowSetViewMode(mode: typeof viewMode.value) {
+    runToolbarAction(() => {
+        viewMode.value = mode;
+    });
+}
+
+function handleOverflowOpenSettings() {
+    runToolbarAction(() => {
+        emit('open-settings');
+    });
+}
 
 async function restoreCachedSplitPayloadIfNeeded() {
     if (!workspaceSplitCache.has(props.tabId) || hasPdf.value) {
