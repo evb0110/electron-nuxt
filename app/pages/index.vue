@@ -200,8 +200,8 @@ const {
 } = useAppUpdates();
 
 const workspaceRefs = shallowRef<Map<string, IWorkspaceExpose>>(new Map());
+const pendingWorkspaceWaiters = new Map<string, Set<(workspace: IWorkspaceExpose) => void>>();
 const WORKSPACE_REF_WAIT_TIMEOUT_MS = 4000;
-const WORKSPACE_REF_POLL_MS = 16;
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
 const DIRECTION_ORDER: TGroupDirection[] = [
     'left',
@@ -250,6 +250,13 @@ function setWorkspaceRef(tabId: string, el: unknown) {
             return;
         }
         workspaceRefs.value.set(tabId, el);
+        const waiters = pendingWorkspaceWaiters.get(tabId);
+        if (waiters && waiters.size > 0) {
+            pendingWorkspaceWaiters.delete(tabId);
+            for (const waiter of waiters) {
+                waiter(el);
+            }
+        }
         triggerRef(workspaceRefs);
         return;
     }
@@ -275,28 +282,58 @@ function updateTab(tabId: string, updates: Partial<ITab>) {
     Object.assign(tab, updates);
 }
 
-function sleep(ms: number) {
-    return new Promise<void>((resolve) => {
-        setTimeout(resolve, ms);
-    });
-}
-
 async function waitForWorkspace(tabId: string, timeoutMs = WORKSPACE_REF_WAIT_TIMEOUT_MS) {
-    const started = Date.now();
-    while (Date.now() - started <= timeoutMs) {
-        const workspace = workspaceRefs.value.get(tabId) ?? null;
-        if (workspace) {
-            return workspace;
-        }
-        await nextTick();
-        await sleep(WORKSPACE_REF_POLL_MS);
+    const existingWorkspace = workspaceRefs.value.get(tabId) ?? null;
+    if (existingWorkspace) {
+        return existingWorkspace;
     }
 
-    BrowserLogger.warn('tabs', 'Workspace did not mount in time', {
-        tabId,
-        timeoutMs,
+    return new Promise<IWorkspaceExpose | null>((resolve) => {
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+        const finish = (workspace: IWorkspaceExpose | null) => {
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+            resolve(workspace);
+        };
+
+        const waiter = (workspace: IWorkspaceExpose) => {
+            finish(workspace);
+        };
+
+        const waiters = pendingWorkspaceWaiters.get(tabId);
+        if (waiters) {
+            waiters.add(waiter);
+        } else {
+            pendingWorkspaceWaiters.set(tabId, new Set([waiter]));
+        }
+
+        const currentWorkspace = workspaceRefs.value.get(tabId) ?? null;
+        if (currentWorkspace) {
+            const currentWaiters = pendingWorkspaceWaiters.get(tabId);
+            currentWaiters?.delete(waiter);
+            if (currentWaiters && currentWaiters.size === 0) {
+                pendingWorkspaceWaiters.delete(tabId);
+            }
+            finish(currentWorkspace);
+            return;
+        }
+
+        timeoutId = setTimeout(() => {
+            const activeWaiters = pendingWorkspaceWaiters.get(tabId);
+            activeWaiters?.delete(waiter);
+            if (activeWaiters && activeWaiters.size === 0) {
+                pendingWorkspaceWaiters.delete(tabId);
+            }
+            BrowserLogger.warn('tabs', 'Workspace did not mount in time', {
+                tabId,
+                timeoutMs,
+            });
+            finish(null);
+        }, timeoutMs);
     });
-    return null;
 }
 
 function removeTabFromState(tabId: string) {

@@ -87,7 +87,7 @@ async function ensureWindowRuntimeReady() {
     }
 
     if (!serverReadyPromise) {
-        serverReadyPromise = (async () => {
+        const pendingServerReady = (async () => {
             const serverBootStart = Date.now();
             logWindowStartup('Ensuring Nuxt runtime server is ready');
             await startServer();
@@ -95,6 +95,11 @@ async function ensureWindowRuntimeReady() {
             await waitForServer();
             logWindowStartup(`Nuxt runtime server is healthy (step +${Date.now() - serverBootStart}ms)`);
         })();
+        serverReadyPromise = pendingServerReady.catch((error) => {
+            // Allow the next window creation attempt to retry runtime boot.
+            serverReadyPromise = null;
+            throw error;
+        });
     }
 
     await serverReadyPromise;

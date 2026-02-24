@@ -74,14 +74,6 @@
             :d="line.path"
             class="pdf-note-connector-path"
         />
-        <circle
-            v-for="line in connectorLines"
-            :key="`dot-${line.stableKey}`"
-            :cx="line.markerX"
-            :cy="line.markerY"
-            r="3"
-            class="pdf-note-connector-dot"
-        />
     </svg>
     <PdfAnnotationContextMenu
         :menu="annotationContextMenu"
@@ -142,6 +134,7 @@ import {
     isTextMarkupSubtype,
 } from '@app/composables/pdf/pdfAnnotationUtils';
 import type { IAnnotationNotePosition } from '@app/composables/pdf/annotations/types';
+import { NOTE_WINDOW } from '@app/constants/pdf-layout';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface IAnnotationNoteWindowEntry {
@@ -487,10 +480,6 @@ const openNoteAnchorTargets = computed<Record<string, HTMLElement>>(() => {
 
 interface IConnectorLine {
     stableKey: string;
-    markerX: number;
-    markerY: number;
-    noteX: number;
-    noteY: number;
     path: string;
 }
 
@@ -520,24 +509,17 @@ function computeConnectorLines(): IConnectorLine[] {
             continue;
         }
 
-        const markerX = pageRect.left + ((markerRect.left + markerRect.width) * pageRect.width);
-        const markerY = pageRect.top + (markerRect.top * pageRect.height);
+        const markerCx = pageRect.left + ((markerRect.left + markerRect.width / 2) * pageRect.width);
+        const markerCy = pageRect.top + ((markerRect.top + markerRect.height / 2) * pageRect.height);
 
-        const noteX = position.x;
-        const noteY = position.y + ((position.height ?? 360) / 2);
-
-        const dx = noteX - markerX;
-        const cpOffset = Math.min(80, Math.abs(dx) * 0.4);
-        const cp1x = markerX + cpOffset;
-        const cp2x = noteX - cpOffset;
+        const noteW = position.width ?? NOTE_WINDOW.DEFAULT_WIDTH;
+        const noteH = position.height ?? NOTE_WINDOW.DEFAULT_HEIGHT;
+        const noteCx = position.x + noteW / 2;
+        const noteCy = position.y + noteH / 2;
 
         lines.push({
             stableKey: note.comment.stableKey,
-            markerX,
-            markerY,
-            noteX,
-            noteY,
-            path: `M ${markerX} ${markerY} C ${cp1x} ${markerY}, ${cp2x} ${noteY}, ${noteX} ${noteY}`,
+            path: `M ${markerCx} ${markerCy} L ${noteCx} ${noteCy}`,
         });
     }
     return lines;
@@ -812,8 +794,4 @@ const emit = defineEmits<{
     opacity: 0.65;
 }
 
-.pdf-note-connector-dot {
-    fill: color-mix(in srgb, var(--ui-warning) 65%, var(--ui-border) 35%);
-    opacity: 0.75;
-}
 </style>
