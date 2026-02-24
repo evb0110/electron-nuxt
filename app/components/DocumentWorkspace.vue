@@ -225,7 +225,7 @@
                         :current-search-match="currentResult"
                         :working-copy-path="workingCopyPath"
                         :author-name="appSettings.authorName"
-                        @update:current-page="currentPage = $event"
+                        @update:current-page="handleViewerCurrentPageUpdate"
                         @update:total-pages="totalPages = $event"
                         @update:document="pdfDocument = $event"
                         @loading="isLoading = $event"
@@ -633,8 +633,31 @@ function handleToolbarRedo() {
 }
 
 function handleToolbarToggleSidebar() {
+    const attemptId = `sidebar-toggle-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const beforePage = currentPage.value;
+    const beforeSidebar = showSidebar.value;
+    const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
+    const beforeViewerScrollTop = viewer ? Math.round(viewer.scrollTop) : null;
+    BrowserLogger.warn('pdf-nav', 'Toolbar sidebar toggle requested', {
+        attemptId,
+        beforeSidebar,
+        beforePage,
+        sidebarTab: sidebarTab.value,
+        totalPages: totalPages.value,
+        isLoading: isLoading.value,
+        continuousScroll: continuousScroll.value,
+        fitMode: fitMode.value,
+        viewMode: viewMode.value,
+        zoom: zoom.value,
+        viewerScrollTop: beforeViewerScrollTop,
+    });
     runToolbarAction(() => {
         showSidebar.value = !showSidebar.value;
+        BrowserLogger.warn('pdf-nav', 'Toolbar sidebar toggle applied', {
+            attemptId,
+            afterSidebar: showSidebar.value,
+            pageAfterToggleWrite: currentPage.value,
+        });
     });
 }
 
@@ -672,6 +695,27 @@ function handleToolbarCaptureRegion() {
 
 function handleToolbarQuickNote() {
     runToolbarAction(handleQuickNoteAction);
+}
+
+function handleViewerCurrentPageUpdate(page: number) {
+    const previousPage = currentPage.value;
+    const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
+    BrowserLogger.warn('pdf-nav', 'DocumentWorkspace received viewer current-page update', {
+        previousPage,
+        nextPage: page,
+        changed: page !== previousPage,
+        sidebarOpen: showSidebar.value,
+        sidebarTab: sidebarTab.value,
+        totalPages: totalPages.value,
+        isLoading: isLoading.value,
+        continuousScroll: continuousScroll.value,
+        fitMode: fitMode.value,
+        viewMode: viewMode.value,
+        zoom: zoom.value,
+        viewerScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
+        viewerScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
+    });
+    currentPage.value = page;
 }
 
 function handleOverflowSetViewMode(mode: typeof viewMode.value) {
@@ -752,6 +796,92 @@ watch(
 onBeforeUnmount(() => {
     void cacheSplitPayloadForRemount();
 });
+
+watch(showSidebar, (next, previous) => {
+    if (next === previous) {
+        return;
+    }
+    const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
+    BrowserLogger.warn('pdf-nav', 'DocumentWorkspace showSidebar changed', {
+        previous,
+        next,
+        currentPage: currentPage.value,
+        sidebarTab: sidebarTab.value,
+        isResizingSidebar: isResizingSidebar.value,
+        totalPages: totalPages.value,
+        isLoading: isLoading.value,
+        viewerScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
+    });
+});
+
+watch(currentPage, (next, previous) => {
+    if (next === previous) {
+        return;
+    }
+    const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
+    BrowserLogger.warn('pdf-nav', 'DocumentWorkspace currentPage ref changed', {
+        previous,
+        next,
+        sidebarOpen: showSidebar.value,
+        sidebarTab: sidebarTab.value,
+        isLoading: isLoading.value,
+        continuousScroll: continuousScroll.value,
+        fitMode: fitMode.value,
+        viewMode: viewMode.value,
+        zoom: zoom.value,
+        viewerScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
+        viewerScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
+    });
+});
+
+watch(
+    () => [
+        fitMode.value,
+        viewMode.value,
+        continuousScroll.value,
+        zoom.value,
+    ] as const,
+    ([
+        nextFit,
+        nextViewMode,
+        nextContinuous,
+        nextZoom,
+    ], [
+        prevFit,
+        prevViewMode,
+        prevContinuous,
+        prevZoom,
+    ]) => {
+        if (
+            nextFit === prevFit
+            && nextViewMode === prevViewMode
+            && nextContinuous === prevContinuous
+            && nextZoom === prevZoom
+        ) {
+            return;
+        }
+        BrowserLogger.warn('pdf-nav', 'DocumentWorkspace view controls changed', {
+            fitMode: {
+                previous: prevFit,
+                next: nextFit, 
+            },
+            viewMode: {
+                previous: prevViewMode,
+                next: nextViewMode, 
+            },
+            continuousScroll: {
+                previous: prevContinuous,
+                next: nextContinuous, 
+            },
+            zoom: {
+                previous: prevZoom,
+                next: nextZoom, 
+            },
+            currentPage: currentPage.value,
+            sidebarOpen: showSidebar.value,
+        });
+    },
+);
 
 onUnmounted(() => {
     cleanupSidebarResizeListeners();

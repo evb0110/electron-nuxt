@@ -6,6 +6,7 @@ import {
 } from 'vue';
 import { useEventListener } from '@vueuse/core';
 import { SIDEBAR } from '@app/constants/pdf-layout';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
     const { showSidebar } = deps;
@@ -39,6 +40,12 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         const nextWidth = resizeStartWidth + deltaX;
 
         if (nextWidth < SIDEBAR.COLLAPSE_WIDTH) {
+            BrowserLogger.warn('pdf-nav', 'Sidebar resize triggered collapse threshold', {
+                nextWidth: Math.round(nextWidth),
+                collapseWidth: SIDEBAR.COLLAPSE_WIDTH,
+                resizeStartWidth: Math.round(resizeStartWidth),
+                deltaX: Math.round(deltaX),
+            });
             isResizingSidebar.value = false;
             cleanupSidebarResizeListeners();
             lastOpenSidebarWidth.value = SIDEBAR.MIN_WIDTH;
@@ -52,6 +59,14 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
             SIDEBAR.MAX_WIDTH,
         );
 
+        if (Math.round(clampedWidth) !== Math.round(sidebarWidth.value)) {
+            BrowserLogger.warn('pdf-nav', 'Sidebar width changed during resize', {
+                previousWidth: Math.round(sidebarWidth.value),
+                nextWidth: Math.round(clampedWidth),
+                deltaX: Math.round(deltaX),
+                pointerX: Math.round(event.clientX),
+            });
+        }
         sidebarWidth.value = clampedWidth;
         lastOpenSidebarWidth.value = clampedWidth;
     }
@@ -75,6 +90,10 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         isResizingSidebar.value = true;
         resizeStartX = event.clientX;
         resizeStartWidth = sidebarWidth.value;
+        BrowserLogger.warn('pdf-nav', 'Sidebar resize started', {
+            pointerX: Math.round(event.clientX),
+            startWidth: Math.round(resizeStartWidth),
+        });
 
         cleanupSidebarResizeListeners();
         stopResizeMoveListener = useEventListener(window, 'pointermove', handleSidebarResize);
@@ -83,6 +102,12 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
     }
 
     watch(showSidebar, (isOpen) => {
+        BrowserLogger.warn('pdf-nav', 'Sidebar open state changed in resize controller', {
+            isOpen,
+            sidebarWidth: Math.round(sidebarWidth.value),
+            lastOpenSidebarWidth: Math.round(lastOpenSidebarWidth.value),
+            isResizingSidebar: isResizingSidebar.value,
+        });
         if (isOpen) {
             const width = Math.min(
                 Math.max(lastOpenSidebarWidth.value, SIDEBAR.DEFAULT_WIDTH),
@@ -94,6 +119,18 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         }
 
         stopSidebarResize();
+    });
+
+    watch(sidebarWidth, (next, previous) => {
+        if (Math.round(next) === Math.round(previous)) {
+            return;
+        }
+        BrowserLogger.warn('pdf-nav', 'Sidebar width ref changed', {
+            previous: Math.round(previous),
+            next: Math.round(next),
+            open: showSidebar.value,
+            isResizingSidebar: isResizingSidebar.value,
+        });
     });
 
     return {
