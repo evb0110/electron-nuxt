@@ -4,7 +4,19 @@ import {
     readFile,
 } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {
+    fileURLToPath,
+    pathToFileURL,
+} from 'node:url';
+import {
+    parse as parseBabel,
+    parseExpression,
+    type ParserPlugin,
+} from '@babel/parser';
+import {
+    NodeTypes,
+    parse as parseVueTemplate,
+} from '@vue/compiler-dom';
 
 interface IProjectTarget {
     label: string;
@@ -17,9 +29,29 @@ interface IQuotedTokenMatch {
     tokenStartIndex: number;
 }
 
-interface ICollectionHints {
+export interface ICollectionHints {
     knownCollections: Set<string>;
     orderedCollections: string[];
+}
+
+interface ITokenCandidate {
+    token: string;
+    allowUnknownCollection: boolean;
+}
+
+interface IBabelNodeLike {
+    type: string;
+    [key: string]: unknown;
+}
+
+interface IVueNodeLike {
+    type: number;
+    [key: string]: unknown;
+}
+
+interface IVueSfcBlocks {
+    scriptBlocks: string[];
+    templateBlocks: string[];
 }
 
 const SOURCE_FILE_EXTENSIONS = new Set([
@@ -33,9 +65,21 @@ const SOURCE_FILE_EXTENSIONS = new Set([
 ]);
 
 const QUOTED_TOKEN_PATTERN = /['"`]([a-z0-9:-]+)['"`]/giu;
-const TEMPLATE_ICON_ATTRIBUTE_PATTERN = /(^|[\s<])(:)?(icon|name|leading-icon|trailing-icon)\s*=\s*(["'])([\s\S]*?)\4/giu;
+const TEMPLATE_ICON_ATTRIBUTE_PATTERN = /(^|[\s<])(:)?(icon|name|leading-icon|trailing-icon|leadingIcon|trailingIcon)\s*=\s*(["'])([\s\S]*?)\4/giu;
 const ICON_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const ICON_CLASS_PATTERN = /^i-[a-z0-9]+(?:-[a-z0-9]+)+$/u;
+const ICON_CONTEXT_NAMES = new Set([
+    'icon',
+    'name',
+    'leading-icon',
+    'trailing-icon',
+    'leadingicon',
+    'trailingicon',
+]);
+const BABEL_PARSER_PLUGINS: ParserPlugin[] = [
+    'typescript',
+    'jsx',
+];
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, '..');
@@ -59,6 +103,31 @@ function toRelative(filePath: string): string {
 
 function uniqueSorted(values: Iterable<string>): string[] {
     return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right));
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    if (typeof value !== 'object' || value === null) {
+        return null;
+    }
+    return value as Record<string, unknown>;
+}
+
+function isBabelNodeLike(value: unknown): value is IBabelNodeLike {
+    const record = asRecord(value);
+    return record !== null && typeof record.type === 'string';
+}
+
+function isVueNodeLike(value: unknown): value is IVueNodeLike {
+    const record = asRecord(value);
+    return record !== null && typeof record.type === 'number';
+}
+
+function normalizeContextName(name: string): string {
+    return name.trim().toLowerCase();
+}
+
+function isIconContextName(name: string): boolean {
+    return ICON_CONTEXT_NAMES.has(normalizeContextName(name));
 }
 
 function extractQuotedTokenMatches(content: string): IQuotedTokenMatch[] {
@@ -140,7 +209,7 @@ function normalizeIconToken(
         return null;
     }
 
-    // Handle popular collections like "simple-icons" when not present in local iconify-json deps.
+    // Handle collections like "simple-icons" even when not present in local deps.
     if (segments.length >= 3 && segments[1] === 'icons') {
         return `${segments[0]}-${segments[1]}:${segments.slice(2).join('-')}`;
     }
@@ -165,19 +234,370 @@ function addUsage(
     usageByIcon.set(normalized, locations);
 }
 
+function parseBabelScriptAst(content: string): IBabelNodeLike | null {
+    try {
+        return parseBabel(content, {
+            sourceType: 'unambiguous',
+            plugins: BABEL_PARSER_PLUGINS,
+        }) as unknown as IBabelNodeLike;
+    } catch {
+        return null;
+    }
+}
+
+function parseBabelExpressionAst(expression: string): IBabelNodeLike | null {
+    try {
+        return parseExpression(expression, {
+            plugins: BABEL_PARSER_PLUGINS,
+        }) as unknown as IBabelNodeLike;
+    } catch {
+        return null;
+    }
+}
+
+function getStaticObjectPropertyName(node: IBabelNodeLike): string | null {
+    const key = node.key;
+    const computed = node.computed === true;
+
+    if (!isBabelNodeLike(key)) {
+        return null;
+    }
+
+    if (!computed && key.type === 'Identifier' && typeof key.name === 'string') {
+        return key.name;
+    }
+
+    if (key.type === 'StringLiteral' && typeof key.value === 'string') {
+        return key.value;
+    }
+
+    return null;
+}
+
+function getVariableDeclaratorName(node: IBabelNodeLike): string | null {
+    const idNode = node.id;
+    if (!isBabelNodeLike(idNode) || idNode.type !== 'Identifier' || typeof idNode.name !== 'string') {
+        return null;
+    }
+    return idNode.name;
+}
+
+function getStaticMemberExpressionPropertyName(node: IBabelNodeLike): string | null {
+    if (node.type !== 'MemberExpression' && node.type !== 'OptionalMemberExpression') {
+        return null;
+    }
+
+    const propertyNode = node.property;
+    const computed = node.computed === true;
+
+    if (!isBabelNodeLike(propertyNode)) {
+        return null;
+    }
+
+    if (!computed && propertyNode.type === 'Identifier' && typeof propertyNode.name === 'string') {
+        return propertyNode.name;
+    }
+
+    if (computed && propertyNode.type === 'StringLiteral' && typeof propertyNode.value === 'string') {
+        return propertyNode.value;
+    }
+
+    return null;
+}
+
+function isIconContextAssignmentTarget(node: unknown): boolean {
+    if (!isBabelNodeLike(node)) {
+        return false;
+    }
+
+    if (node.type === 'Identifier' && typeof node.name === 'string') {
+        return isIconContextName(node.name);
+    }
+
+    const staticPropertyName = getStaticMemberExpressionPropertyName(node);
+    return staticPropertyName !== null && isIconContextName(staticPropertyName);
+}
+
+function getJsxAttributeName(node: IBabelNodeLike): string | null {
+    if (node.type !== 'JSXAttribute') {
+        return null;
+    }
+
+    const nameNode = node.name;
+    if (isBabelNodeLike(nameNode) && nameNode.type === 'JSXIdentifier' && typeof nameNode.name === 'string') {
+        return nameNode.name;
+    }
+
+    return null;
+}
+
+function appendTokenCandidate(
+    candidates: ITokenCandidate[],
+    token: string,
+    allowUnknownCollection: boolean,
+) {
+    candidates.push({
+        token,
+        allowUnknownCollection,
+    });
+}
+
+function collectTokenCandidatesFromBabelNode(
+    node: unknown,
+    allowUnknownCollection: boolean,
+    candidates: ITokenCandidate[],
+) {
+    if (!isBabelNodeLike(node)) {
+        return;
+    }
+
+    if (node.type === 'StringLiteral' && typeof node.value === 'string') {
+        appendTokenCandidate(candidates, node.value, allowUnknownCollection);
+        return;
+    }
+
+    if (node.type === 'TemplateLiteral') {
+        const quasis = Array.isArray(node.quasis) ? node.quasis : [];
+        const expressions = Array.isArray(node.expressions) ? node.expressions : [];
+        if (expressions.length === 0 && quasis.length === 1) {
+            const templateElement = asRecord(quasis[0]);
+            const valueRecord = templateElement ? asRecord(templateElement.value) : null;
+            const cookedValue = valueRecord?.cooked;
+            const rawValue = valueRecord?.raw;
+            const stringValue = typeof cookedValue === 'string'
+                ? cookedValue
+                : typeof rawValue === 'string'
+                    ? rawValue
+                    : null;
+            if (stringValue !== null) {
+                appendTokenCandidate(candidates, stringValue, allowUnknownCollection);
+            }
+        }
+    }
+
+    if (node.type === 'ObjectProperty') {
+        const propertyName = getStaticObjectPropertyName(node);
+        const isIconProperty = propertyName !== null && isIconContextName(propertyName);
+        collectTokenCandidatesFromBabelNode(node.value, allowUnknownCollection || isIconProperty, candidates);
+
+        if (node.computed === true) {
+            collectTokenCandidatesFromBabelNode(node.key, allowUnknownCollection, candidates);
+        }
+        return;
+    }
+
+    if (node.type === 'VariableDeclarator') {
+        const variableName = getVariableDeclaratorName(node);
+        const isIconVariable = variableName !== null && isIconContextName(variableName);
+        collectTokenCandidatesFromBabelNode(node.init, allowUnknownCollection || isIconVariable, candidates);
+        return;
+    }
+
+    if (node.type === 'AssignmentExpression') {
+        const isIconAssignment = isIconContextAssignmentTarget(node.left);
+        collectTokenCandidatesFromBabelNode(node.left, allowUnknownCollection, candidates);
+        collectTokenCandidatesFromBabelNode(node.right, allowUnknownCollection || isIconAssignment, candidates);
+        return;
+    }
+
+    if (node.type === 'JSXAttribute') {
+        const attributeName = getJsxAttributeName(node);
+        const isIconAttribute = attributeName !== null && isIconContextName(attributeName);
+        collectTokenCandidatesFromBabelNode(node.value, allowUnknownCollection || isIconAttribute, candidates);
+        return;
+    }
+
+    const values = Object.values(node);
+    for (const value of values) {
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                collectTokenCandidatesFromBabelNode(item, allowUnknownCollection, candidates);
+            }
+            continue;
+        }
+
+        collectTokenCandidatesFromBabelNode(value, allowUnknownCollection, candidates);
+    }
+}
+
+function extractScriptTokenCandidatesWithRegex(content: string): ITokenCandidate[] {
+    return extractQuotedTokenMatches(content).map(match => ({
+        token: match.token,
+        allowUnknownCollection: isLikelyScriptIconContext(content, match.tokenStartIndex),
+    }));
+}
+
+function extractScriptTokenCandidates(content: string): ITokenCandidate[] {
+    const parsedAst = parseBabelScriptAst(content);
+    if (!parsedAst) {
+        return extractScriptTokenCandidatesWithRegex(content);
+    }
+
+    const candidates: ITokenCandidate[] = [];
+    collectTokenCandidatesFromBabelNode(parsedAst, false, candidates);
+    return candidates;
+}
+
+function getTemplateDirectiveArgumentName(node: IVueNodeLike): string | null {
+    const argNode = node.arg;
+    if (!isVueNodeLike(argNode)) {
+        return null;
+    }
+
+    if (argNode.type !== NodeTypes.SIMPLE_EXPRESSION || argNode.isStatic !== true || typeof argNode.content !== 'string') {
+        return null;
+    }
+
+    return argNode.content;
+}
+
+function extractExpressionTokenCandidates(
+    expressionContent: string,
+    allowUnknownCollection: boolean,
+): ITokenCandidate[] {
+    const parsedExpression = parseBabelExpressionAst(expressionContent);
+    if (!parsedExpression) {
+        return extractQuotedTokenMatches(expressionContent).map((match) => ({
+            token: match.token,
+            allowUnknownCollection,
+        }));
+    }
+
+    const candidates: ITokenCandidate[] = [];
+    collectTokenCandidatesFromBabelNode(parsedExpression, allowUnknownCollection, candidates);
+    return candidates;
+}
+
+function isTemplateIconAttributeName(attributeName: string): boolean {
+    return isIconContextName(attributeName);
+}
+
+function extractTemplateTokenCandidatesWithRegex(content: string): ITokenCandidate[] {
+    const candidates: ITokenCandidate[] = [];
+    const matcher = new RegExp(TEMPLATE_ICON_ATTRIBUTE_PATTERN);
+    let match: RegExpExecArray | null = matcher.exec(content);
+
+    while (match !== null) {
+        const isBoundAttribute = match[2] === ':';
+        const attributeValue = match[5] ?? '';
+
+        if (isBoundAttribute) {
+            for (const tokenMatch of extractQuotedTokenMatches(attributeValue)) {
+                appendTokenCandidate(candidates, tokenMatch.token, true);
+            }
+        } else {
+            appendTokenCandidate(candidates, attributeValue, true);
+        }
+
+        match = matcher.exec(content);
+    }
+
+    return candidates;
+}
+
+function walkVueNodes(node: unknown, visit: (currentNode: IVueNodeLike) => void) {
+    if (!isVueNodeLike(node)) {
+        return;
+    }
+
+    visit(node);
+
+    for (const value of Object.values(node)) {
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                walkVueNodes(item, visit);
+            }
+            continue;
+        }
+
+        walkVueNodes(value, visit);
+    }
+}
+
+function extractTemplateTokenCandidates(content: string): ITokenCandidate[] {
+    let parsedTemplate: IVueNodeLike | null = null;
+
+    try {
+        parsedTemplate = parseVueTemplate(content, { comments: false }) as unknown as IVueNodeLike;
+    } catch {
+        return extractTemplateTokenCandidatesWithRegex(content);
+    }
+
+    const candidates: ITokenCandidate[] = [];
+
+    walkVueNodes(parsedTemplate, (node) => {
+        if (node.type !== NodeTypes.ELEMENT) {
+            return;
+        }
+
+        const props = Array.isArray(node.props) ? node.props : [];
+        for (const rawProp of props) {
+            if (!isVueNodeLike(rawProp)) {
+                continue;
+            }
+
+            if (rawProp.type === NodeTypes.ATTRIBUTE) {
+                const attributeName = typeof rawProp.name === 'string' ? rawProp.name : '';
+                const attributeValueNode = isVueNodeLike(rawProp.value) ? rawProp.value : null;
+                const attributeValue = attributeValueNode && typeof attributeValueNode.content === 'string'
+                    ? attributeValueNode.content
+                    : null;
+
+                if (isTemplateIconAttributeName(attributeName) && attributeValue !== null) {
+                    appendTokenCandidate(candidates, attributeValue, true);
+                }
+                continue;
+            }
+
+            if (rawProp.type !== NodeTypes.DIRECTIVE || rawProp.name !== 'bind') {
+                continue;
+            }
+
+            const expressionNode = isVueNodeLike(rawProp.exp) ? rawProp.exp : null;
+            if (!expressionNode || typeof expressionNode.content !== 'string') {
+                continue;
+            }
+
+            const attributeName = getTemplateDirectiveArgumentName(rawProp);
+            if (attributeName !== null) {
+                if (!isTemplateIconAttributeName(attributeName)) {
+                    continue;
+                }
+            }
+
+            for (const tokenCandidate of extractExpressionTokenCandidates(expressionNode.content, true)) {
+                appendTokenCandidate(candidates, tokenCandidate.token, tokenCandidate.allowUnknownCollection);
+            }
+        }
+    });
+
+    return candidates;
+}
+
+function parseVueSfcBlocks(content: string, filename: string): IVueSfcBlocks | null {
+    if (!filename.endsWith('.vue')) {
+        return null;
+    }
+
+    return {
+        scriptBlocks: extractVueBlocks(content, 'script'),
+        templateBlocks: extractVueBlocks(content, 'template'),
+    };
+}
+
 function collectScriptUsages(
     content: string,
     filePath: string,
     usageByIcon: Map<string, Set<string>>,
     collectionHints: ICollectionHints,
 ) {
-    for (const match of extractQuotedTokenMatches(content)) {
+    for (const tokenCandidate of extractScriptTokenCandidates(content)) {
         addUsage(
             usageByIcon,
-            match.token,
+            tokenCandidate.token,
             filePath,
             collectionHints,
-            isLikelyScriptIconContext(content, match.tokenStartIndex),
+            tokenCandidate.allowUnknownCollection,
         );
     }
 }
@@ -188,23 +608,79 @@ function collectTemplateUsages(
     usageByIcon: Map<string, Set<string>>,
     collectionHints: ICollectionHints,
 ) {
-    const matcher = new RegExp(TEMPLATE_ICON_ATTRIBUTE_PATTERN);
-    let match: RegExpExecArray | null = matcher.exec(content);
-
-    while (match !== null) {
-        const isBoundAttribute = match[2] === ':';
-        const attributeValue = match[5] ?? '';
-
-        if (isBoundAttribute) {
-            for (const tokenMatch of extractQuotedTokenMatches(attributeValue)) {
-                addUsage(usageByIcon, tokenMatch.token, filePath, collectionHints, true);
-            }
-        } else {
-            addUsage(usageByIcon, attributeValue, filePath, collectionHints, true);
-        }
-
-        match = matcher.exec(content);
+    for (const tokenCandidate of extractTemplateTokenCandidates(content)) {
+        addUsage(
+            usageByIcon,
+            tokenCandidate.token,
+            filePath,
+            collectionHints,
+            tokenCandidate.allowUnknownCollection,
+        );
     }
+}
+
+export function createCollectionHints(collections: Iterable<string>): ICollectionHints {
+    const orderedCollections = uniqueSorted(collections).sort((left, right) => right.length - left.length);
+    return {
+        knownCollections: new Set<string>(orderedCollections),
+        orderedCollections,
+    };
+}
+
+function collectVueSfcUsages(
+    sourceContent: string,
+    filePath: string,
+    usageByIcon: Map<string, Set<string>>,
+    collectionHints: ICollectionHints,
+) {
+    const parsedBlocks = parseVueSfcBlocks(sourceContent, filePath);
+    if (parsedBlocks) {
+        for (const scriptBlock of parsedBlocks.scriptBlocks) {
+            collectScriptUsages(scriptBlock, filePath, usageByIcon, collectionHints);
+        }
+        for (const templateBlock of parsedBlocks.templateBlocks) {
+            collectTemplateUsages(templateBlock, filePath, usageByIcon, collectionHints);
+        }
+        return;
+    }
+
+    // Regex fallback for malformed SFCs.
+    const fallbackScriptBlocks = extractVueBlocks(sourceContent, 'script');
+    for (const scriptBlock of fallbackScriptBlocks) {
+        collectScriptUsages(scriptBlock, filePath, usageByIcon, collectionHints);
+    }
+
+    const fallbackTemplateBlocks = extractVueBlocks(sourceContent, 'template');
+    for (const templateBlock of fallbackTemplateBlocks) {
+        collectTemplateUsages(templateBlock, filePath, usageByIcon, collectionHints);
+    }
+}
+
+export function extractIconsFromScriptContent(
+    content: string,
+    collectionHints: ICollectionHints,
+): string[] {
+    const usageByIcon = new Map<string, Set<string>>();
+    collectScriptUsages(content, '__inline-script__', usageByIcon, collectionHints);
+    return uniqueSorted(usageByIcon.keys());
+}
+
+export function extractIconsFromTemplateContent(
+    content: string,
+    collectionHints: ICollectionHints,
+): string[] {
+    const usageByIcon = new Map<string, Set<string>>();
+    collectTemplateUsages(content, '__inline-template__', usageByIcon, collectionHints);
+    return uniqueSorted(usageByIcon.keys());
+}
+
+export function extractIconsFromVueSfcContent(
+    content: string,
+    collectionHints: ICollectionHints,
+): string[] {
+    const usageByIcon = new Map<string, Set<string>>();
+    collectVueSfcUsages(content, '__inline-sfc__.vue', usageByIcon, collectionHints);
+    return uniqueSorted(usageByIcon.keys());
 }
 
 async function collectFilesRecursively(directoryPath: string): Promise<string[]> {
@@ -292,14 +768,10 @@ async function checkTarget(target: IProjectTarget, installedCollections: Set<str
     const configContent = await readFile(target.configPath, 'utf8');
     const bundledIcons = extractBundledIconsFromConfig(configContent);
     const bundledCollections = extractCollections(bundledIcons);
-    const orderedCollections = uniqueSorted([
+    const collectionHints = createCollectionHints([
         ...installedCollections,
         ...bundledCollections,
-    ]).sort((left, right) => right.length - left.length);
-    const collectionHints: ICollectionHints = {
-        knownCollections: new Set<string>(orderedCollections),
-        orderedCollections,
-    };
+    ]);
 
     const usageByIcon = new Map<string, Set<string>>();
 
@@ -312,15 +784,7 @@ async function checkTarget(target: IProjectTarget, installedCollections: Set<str
             const extension = path.extname(sourceFile).toLowerCase();
 
             if (extension === '.vue') {
-                const scriptBlocks = extractVueBlocks(sourceContent, 'script');
-                for (const scriptBlock of scriptBlocks) {
-                    collectScriptUsages(scriptBlock, relativePath, usageByIcon, collectionHints);
-                }
-
-                const templateBlocks = extractVueBlocks(sourceContent, 'template');
-                for (const templateBlock of templateBlocks) {
-                    collectTemplateUsages(templateBlock, relativePath, usageByIcon, collectionHints);
-                }
+                collectVueSfcUsages(sourceContent, relativePath, usageByIcon, collectionHints);
                 continue;
             }
 
@@ -373,7 +837,17 @@ async function main() {
     console.log('Icon bundle coverage check passed for app and landing.');
 }
 
-main().catch((error) => {
-    console.error('Failed to check icon bundle coverage:', error);
-    process.exit(1);
-});
+function isDirectExecution(): boolean {
+    const entryFilePath = process.argv[1];
+    if (!entryFilePath) {
+        return false;
+    }
+    return pathToFileURL(path.resolve(entryFilePath)).href === import.meta.url;
+}
+
+if (isDirectExecution()) {
+    main().catch((error) => {
+        console.error('Failed to check icon bundle coverage:', error);
+        process.exit(1);
+    });
+}

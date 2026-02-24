@@ -52,6 +52,116 @@ const tabGroupLookup = computed(() => {
     return map;
 });
 
+function arraysEqual<T>(left: T[], right: T[]) {
+    if (left === right) {
+        return true;
+    }
+    if (left.length !== right.length) {
+        return false;
+    }
+    for (let index = 0; index < left.length; index += 1) {
+        if (left[index] !== right[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function buildNormalizedGroupMru(
+    currentActiveGroupId: string | null,
+    currentMru: string[],
+    groupsOrder: string[],
+    validGroupIds: Set<string>,
+) {
+    const nextMru: string[] = [];
+    const mruSeen = new Set<string>();
+    const preferredGroupIds = [
+        currentActiveGroupId,
+        ...currentMru,
+        ...groupsOrder,
+    ];
+    for (const groupId of preferredGroupIds) {
+        if (!groupId || !validGroupIds.has(groupId) || mruSeen.has(groupId)) {
+            continue;
+        }
+        mruSeen.add(groupId);
+        nextMru.push(groupId);
+    }
+    return nextMru;
+}
+
+function isManagerStateNormalized() {
+    const validTabIds = new Set<string>();
+    for (const tab of tabs.value) {
+        if (!tab.id || validTabIds.has(tab.id)) {
+            return false;
+        }
+        validTabIds.add(tab.id);
+    }
+
+    if (groups.value.length === 0) {
+        return false;
+    }
+
+    const validGroupIds = new Set<string>();
+    const groupsOrder: string[] = [];
+    const assignedTabIds = new Set<string>();
+    for (const group of groups.value) {
+        if (!group.id || validGroupIds.has(group.id)) {
+            return false;
+        }
+        validGroupIds.add(group.id);
+        groupsOrder.push(group.id);
+
+        for (const tabId of group.tabIds) {
+            if (!validTabIds.has(tabId) || assignedTabIds.has(tabId)) {
+                return false;
+            }
+            assignedTabIds.add(tabId);
+        }
+
+        const expectedActiveTabId = group.activeTabId && group.tabIds.includes(group.activeTabId)
+            ? group.activeTabId
+            : (group.tabIds[0] ?? null);
+        if (group.activeTabId !== expectedActiveTabId) {
+            return false;
+        }
+    }
+
+    if (assignedTabIds.size !== validTabIds.size) {
+        return false;
+    }
+
+    if (!layout.value) {
+        return false;
+    }
+
+    const layoutGroupIds = new Set<string>();
+    collectLayoutGroupIds(layout.value, layoutGroupIds);
+    for (const groupId of layoutGroupIds) {
+        if (!validGroupIds.has(groupId)) {
+            return false;
+        }
+    }
+    for (const groupId of validGroupIds) {
+        if (!layoutGroupIds.has(groupId)) {
+            return false;
+        }
+    }
+
+    if (!activeGroupId.value || !validGroupIds.has(activeGroupId.value)) {
+        return false;
+    }
+
+    const nextMru = buildNormalizedGroupMru(
+        activeGroupId.value,
+        groupMru.value,
+        groupsOrder,
+        validGroupIds,
+    );
+    return arraysEqual(groupMru.value, nextMru);
+}
+
 function collectLayoutGroupIds(node: TEditorLayoutNode, target: Set<string>) {
     if (node.type === 'leaf') {
         target.add(node.groupId);
@@ -81,6 +191,10 @@ function pruneLayoutToExistingGroups(
     }
     if (!nextSecond) {
         return nextFirst;
+    }
+
+    if (nextFirst === node.first && nextSecond === node.second) {
+        return node;
     }
 
     return {
@@ -113,29 +227,41 @@ function appendGroupToLayout(
 }
 
 function normalizeManagerState() {
+    if (isManagerStateNormalized()) {
+        return;
+    }
+
     const uniqueTabs: ITab[] = [];
     const validTabIds = new Set<string>();
+    let tabsChanged = false;
     for (const tab of tabs.value) {
         if (!tab.id || validTabIds.has(tab.id)) {
+            tabsChanged = true;
             continue;
         }
         validTabIds.add(tab.id);
         uniqueTabs.push(tab);
     }
-    tabs.value = uniqueTabs;
+    if (tabsChanged) {
+        tabs.value = uniqueTabs;
+    }
 
     const normalizedGroups: IEditorGroupState[] = [];
     const validGroupIds = new Set<string>();
     const assignedTabIds = new Set<string>();
+    let groupsArrayChanged = false;
     for (const group of groups.value) {
         if (!group.id || validGroupIds.has(group.id)) {
+            groupsArrayChanged = true;
             continue;
         }
         validGroupIds.add(group.id);
 
         const nextTabIds: string[] = [];
+        let groupTabsChanged = false;
         for (const tabId of group.tabIds) {
             if (!validTabIds.has(tabId) || assignedTabIds.has(tabId)) {
+                groupTabsChanged = true;
                 continue;
             }
             assignedTabIds.add(tabId);
@@ -145,20 +271,30 @@ function normalizeManagerState() {
         const nextActiveTabId = group.activeTabId && nextTabIds.includes(group.activeTabId)
             ? group.activeTabId
             : (nextTabIds[0] ?? null);
-        normalizedGroups.push({
-            id: group.id,
-            tabIds: nextTabIds,
-            activeTabId: nextActiveTabId,
-        });
+        if (groupTabsChanged || nextActiveTabId !== group.activeTabId) {
+            groupsArrayChanged = true;
+            normalizedGroups.push({
+                id: group.id,
+                tabIds: nextTabIds,
+                activeTabId: nextActiveTabId,
+            });
+            continue;
+        }
+
+        normalizedGroups.push(group);
     }
 
     if (normalizedGroups.length === 0) {
         const fallback = createGroup();
         normalizedGroups.push(fallback);
         validGroupIds.add(fallback.id);
+        groupsArrayChanged = true;
     }
 
-    groups.value = normalizedGroups;
+    if (groupsArrayChanged) {
+        groups.value = normalizedGroups;
+    }
+
     const fallbackGroup = groups.value[0]!;
 
     for (const tab of tabs.value) {
@@ -170,51 +306,52 @@ function normalizeManagerState() {
     }
 
     for (const group of groups.value) {
-        if (!group.activeTabId || !group.tabIds.includes(group.activeTabId)) {
-            group.activeTabId = group.tabIds[0] ?? null;
+        const nextActiveTabId = group.activeTabId && group.tabIds.includes(group.activeTabId)
+            ? group.activeTabId
+            : (group.tabIds[0] ?? null);
+        if (group.activeTabId !== nextActiveTabId) {
+            group.activeTabId = nextActiveTabId;
         }
     }
 
     const freshGroupIds = new Set(groups.value.map(group => group.id));
+    let nextLayout = layout.value;
     if (layout.value) {
-        layout.value = pruneLayoutToExistingGroups(layout.value, freshGroupIds);
+        nextLayout = pruneLayoutToExistingGroups(layout.value, freshGroupIds);
     }
-    if (!layout.value) {
-        layout.value = {
+    if (!nextLayout) {
+        nextLayout = {
             type: 'leaf',
             groupId: groups.value[0]!.id,
         };
     }
 
     const layoutGroupIds = new Set<string>();
-    collectLayoutGroupIds(layout.value, layoutGroupIds);
+    collectLayoutGroupIds(nextLayout, layoutGroupIds);
     for (const group of groups.value) {
         if (layoutGroupIds.has(group.id)) {
             continue;
         }
-        layout.value = appendGroupToLayout(layout.value, group.id);
+        nextLayout = appendGroupToLayout(nextLayout, group.id);
         layoutGroupIds.add(group.id);
+    }
+    if (layout.value !== nextLayout) {
+        layout.value = nextLayout;
     }
 
     if (!activeGroupId.value || !freshGroupIds.has(activeGroupId.value)) {
         activeGroupId.value = groups.value[0]?.id ?? null;
     }
 
-    const nextMru: string[] = [];
-    const mruSeen = new Set<string>();
-    const preferredGroupIds = [
+    const nextMru = buildNormalizedGroupMru(
         activeGroupId.value,
-        ...groupMru.value,
-        ...groups.value.map(group => group.id),
-    ];
-    for (const groupId of preferredGroupIds) {
-        if (!groupId || !freshGroupIds.has(groupId) || mruSeen.has(groupId)) {
-            continue;
-        }
-        mruSeen.add(groupId);
-        nextMru.push(groupId);
+        groupMru.value,
+        groups.value.map(group => group.id),
+        freshGroupIds,
+    );
+    if (!arraysEqual(groupMru.value, nextMru)) {
+        groupMru.value = nextMru;
     }
-    groupMru.value = nextMru;
 }
 
 function createGroup(): IEditorGroupState {
@@ -236,9 +373,17 @@ function createEmptyTab(initial?: ICreateTabOptions['initial']): ITab {
 }
 
 function touchGroupMru(groupId: string) {
+    if (
+        groupMru.value[0] === groupId
+        && groupMru.value.indexOf(groupId, 1) === -1
+    ) {
+        return;
+    }
     const next = groupMru.value.filter(candidate => candidate !== groupId);
     next.unshift(groupId);
-    groupMru.value = next;
+    if (!arraysEqual(groupMru.value, next)) {
+        groupMru.value = next;
+    }
 }
 
 function getGroupById(id: string | null | undefined) {

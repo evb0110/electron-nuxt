@@ -90,6 +90,7 @@ interface IPendingSearchRequest {
 }
 
 interface ISenderSearchState {
+    senderId: number;
     worker: Worker;
     activeRequestId: string | null;
     pendingByRequestId: Map<string, IPendingSearchRequest>;
@@ -111,10 +112,17 @@ const SEARCH_REQUEST_TIMEOUT_MS = (() => {
     }
     return parsed;
 })();
+const SEARCH_WORKER_MAX_ACTIVE = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_MAX_ACTIVE ?? '8', 10);
+    if (!Number.isFinite(parsed)) {
+        return 8;
+    }
+    return Math.min(Math.max(parsed, 1), 256);
+})();
 const SEARCH_WORKER_IDLE_TTL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS ?? `${3 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 30_000) {
-        return 3 * 60 * 1000;
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS ?? `${60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 10_000) {
+        return 60 * 1000;
     }
     return parsed;
 })();
@@ -157,6 +165,10 @@ function markStateActivity(state: ISenderSearchState) {
     state.lastActivityAtMs = Date.now();
 }
 
+function isStateIdle(state: ISenderSearchState) {
+    return !state.activeRequestId && state.pendingByRequestId.size === 0;
+}
+
 function clearIdleCleanupTimer(state: ISenderSearchState) {
     if (!state.idleCleanupTimer) {
         return;
@@ -180,32 +192,33 @@ function clearRequestTimeout(
 }
 
 function scheduleIdleCleanup(
-    senderId: number,
     state: ISenderSearchState,
 ) {
     clearIdleCleanupTimer(state);
-    if (state.activeRequestId || state.pendingByRequestId.size > 0) {
+    if (!isStateIdle(state)) {
         return;
     }
 
     state.idleCleanupTimer = setTimeout(() => {
+        const senderId = state.senderId;
         const currentState = senderSearchStates.get(senderId);
-        if (!currentState) {
+        if (currentState !== state) {
             return;
         }
-        if (currentState.activeRequestId || currentState.pendingByRequestId.size > 0) {
+        if (!isStateIdle(currentState)) {
             return;
         }
+        log.info(`Search worker lifecycle: sender ${senderId} idle TTL elapsed; terminating worker`);
         cleanupSenderState(senderId, {
             terminateWorker: true,
             reason: 'Search worker idle timeout',
         });
     }, SEARCH_WORKER_IDLE_TTL_MS);
     state.idleCleanupTimer.unref?.();
+    log.debug(`Search worker lifecycle: sender ${state.senderId} scheduled idle cleanup in ${SEARCH_WORKER_IDLE_TTL_MS}ms`);
 }
 
 function resolvePendingRequest(
-    senderId: number,
     state: ISenderSearchState,
     requestId: string,
     response: ISearchResponse,
@@ -219,11 +232,10 @@ function resolvePendingRequest(
     markStateActivity(state);
     state.pendingByRequestId.delete(requestId);
     pending.resolve(response);
-    scheduleIdleCleanup(senderId, state);
+    scheduleIdleCleanup(state);
 }
 
 function rejectPendingRequest(
-    senderId: number,
     state: ISenderSearchState,
     requestId: string,
     error: Error,
@@ -237,7 +249,7 @@ function rejectPendingRequest(
     markStateActivity(state);
     state.pendingByRequestId.delete(requestId);
     pending.reject(error);
-    scheduleIdleCleanup(senderId, state);
+    scheduleIdleCleanup(state);
 }
 
 function cleanupSenderState(
@@ -252,6 +264,7 @@ function cleanupSenderState(
         return;
     }
 
+    log.info(`Search worker lifecycle: cleaning sender ${senderId} state (${options?.reason ?? 'Search worker stopped'})`);
     senderSearchStates.delete(senderId);
     clearIdleCleanupTimer(state);
     for (const timeout of state.requestTimeouts.values()) {
@@ -274,7 +287,6 @@ function cleanupSenderState(
 }
 
 function cancelRequest(
-    senderId: number,
     state: ISenderSearchState,
     requestId: string,
 ) {
@@ -287,7 +299,7 @@ function cancelRequest(
         // Ignore send errors while cancelling
     }
 
-    resolvePendingRequest(senderId, state, requestId, {
+    resolvePendingRequest(state, requestId, {
         results: [],
         truncated: false,
     });
@@ -314,9 +326,12 @@ function registerSenderCleanup(event: IpcMainInvokeEvent, senderId: number) {
     event.sender.once('render-process-gone', handleCleanup);
 }
 
-function handleWorkerMessage(senderId: number, message: TSearchWorkerOutboundMessage) {
-    const state = senderSearchStates.get(senderId);
-    if (!state) {
+function handleWorkerMessage(
+    state: ISenderSearchState,
+    message: TSearchWorkerOutboundMessage,
+) {
+    const senderId = state.senderId;
+    if (senderSearchStates.get(senderId) !== state) {
         return;
     }
     markStateActivity(state);
@@ -334,7 +349,7 @@ function handleWorkerMessage(senderId: number, message: TSearchWorkerOutboundMes
         if (state.activeRequestId === message.requestId) {
             state.activeRequestId = null;
         }
-        resolvePendingRequest(senderId, state, message.requestId, message.response);
+        resolvePendingRequest(state, message.requestId, message.response);
         return;
     }
 
@@ -342,7 +357,7 @@ function handleWorkerMessage(senderId: number, message: TSearchWorkerOutboundMes
         if (state.activeRequestId === message.requestId) {
             state.activeRequestId = null;
         }
-        resolvePendingRequest(senderId, state, message.requestId, {
+        resolvePendingRequest(state, message.requestId, {
             results: [],
             truncated: false,
         });
@@ -353,13 +368,14 @@ function handleWorkerMessage(senderId: number, message: TSearchWorkerOutboundMes
         state.activeRequestId = null;
     }
 
-    rejectPendingRequest(senderId, state, message.requestId, new Error(message.error));
+    rejectPendingRequest(state, message.requestId, new Error(message.error));
 }
 
 function createSenderSearchState(senderId: number): ISenderSearchState {
     const workerPath = getWorkerPath();
     const worker = new Worker(workerPath);
     const state: ISenderSearchState = {
+        senderId,
         worker,
         activeRequestId: null,
         pendingByRequestId: new Map(),
@@ -367,31 +383,41 @@ function createSenderSearchState(senderId: number): ISenderSearchState {
         idleCleanupTimer: null,
         lastActivityAtMs: Date.now(),
     };
+    log.info(`Search worker lifecycle: created worker for sender ${senderId}`);
 
     worker.on('message', (message: TSearchWorkerOutboundMessage) => {
-        handleWorkerMessage(senderId, message);
+        handleWorkerMessage(state, message);
     });
 
     worker.on('error', (error: Error) => {
-        log.error(`Search worker error for sender ${senderId}: ${error.message}`);
-        cleanupSenderState(senderId, {
+        const currentSenderId = state.senderId;
+        log.error(`Search worker error for sender ${currentSenderId}: ${error.message}`);
+        cleanupSenderState(currentSenderId, {
             terminateWorker: true,
             reason: `Search worker error: ${error.message}`,
         });
     });
 
     worker.on('exit', (code) => {
+        const currentSenderId = state.senderId;
         const reason = code === 0
             ? 'Search worker exited'
             : `Search worker exited unexpectedly with code ${code}`;
-        cleanupSenderState(senderId, {
+        cleanupSenderState(currentSenderId, {
             terminateWorker: false,
             reason,
         });
     });
 
-    scheduleIdleCleanup(senderId, state);
+    scheduleIdleCleanup(state);
     return state;
+}
+
+function findReusableIdleState() {
+    const idleStates = Array.from(senderSearchStates.values())
+        .filter(state => isStateIdle(state))
+        .sort((left, right) => left.lastActivityAtMs - right.lastActivityAtMs);
+    return idleStates[0] ?? null;
 }
 
 function ensureSenderState(event: IpcMainInvokeEvent, senderId: number) {
@@ -404,8 +430,38 @@ function ensureSenderState(event: IpcMainInvokeEvent, senderId: number) {
         return state;
     }
 
+    if (senderSearchStates.size >= SEARCH_WORKER_MAX_ACTIVE) {
+        const reusableState = findReusableIdleState();
+        if (reusableState) {
+            const previousSenderId = reusableState.senderId;
+            senderSearchStates.delete(previousSenderId);
+            reusableState.senderId = senderId;
+            markStateActivity(reusableState);
+            clearIdleCleanupTimer(reusableState);
+            senderSearchStates.set(senderId, reusableState);
+            log.warn(
+                `Search worker cap pressure: reusing idle worker from sender ${previousSenderId} for sender ${senderId} `
+                + `(max active: ${SEARCH_WORKER_MAX_ACTIVE})`,
+            );
+            return reusableState;
+        }
+
+        log.warn(
+            `Search worker cap pressure: rejecting sender ${senderId}; no idle workers available `
+            + `(max active: ${SEARCH_WORKER_MAX_ACTIVE})`,
+        );
+        throw new Error(
+            `Search worker limit reached (${SEARCH_WORKER_MAX_ACTIVE} active senders). `
+            + 'Please retry shortly.',
+        );
+    }
+
     state = createSenderSearchState(senderId);
     senderSearchStates.set(senderId, state);
+    log.info(
+        `Search worker lifecycle: sender ${senderId} worker active `
+        + `(${senderSearchStates.size}/${SEARCH_WORKER_MAX_ACTIVE})`,
+    );
     return state;
 }
 
@@ -456,7 +512,7 @@ async function handlePdfSearch(
         || `search-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     if (state.activeRequestId && state.activeRequestId !== requestId) {
-        cancelRequest(senderId, state, state.activeRequestId);
+        cancelRequest(state, state.activeRequestId);
     }
 
     state.activeRequestId = requestId;
@@ -481,7 +537,6 @@ async function handlePdfSearch(
                 state.activeRequestId = null;
             }
             rejectPendingRequest(
-                senderId,
                 state,
                 requestId,
                 new Error(`Search request timed out after ${SEARCH_REQUEST_TIMEOUT_MS}ms`),
@@ -507,7 +562,7 @@ async function handlePdfSearch(
                 state.activeRequestId = null;
             }
             reject(new Error(error instanceof Error ? error.message : String(error)));
-            scheduleIdleCleanup(senderId, state);
+            scheduleIdleCleanup(state);
         }
     });
 }
@@ -527,11 +582,15 @@ function handlePdfSearchCancel(
         return { canceled: false };
     }
 
-    cancelRequest(senderId, state, targetRequestId);
+    cancelRequest(state, targetRequestId);
     return { canceled: true };
 }
 
 export function registerSearchHandlers() {
+    log.info(
+        `Registering search IPC handlers `
+        + `(requestTimeoutMs=${SEARCH_REQUEST_TIMEOUT_MS}, idleTtlMs=${SEARCH_WORKER_IDLE_TTL_MS}, maxActive=${SEARCH_WORKER_MAX_ACTIVE})`,
+    );
     ipcMain.handle('pdf:search', handlePdfSearch);
     ipcMain.handle('pdf:search:cancel', handlePdfSearchCancel);
     ipcMain.handle('pdf:search:resetCache', () => {
