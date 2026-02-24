@@ -44,6 +44,7 @@ type TCachedIndex = {
     mtimeMs: number;
     index: IPdfSearchIndex;
     lowerTexts: string[];
+    accessedAt: number;
 };
 
 type TWorkerInboundMessage =
@@ -80,6 +81,20 @@ type TWorkerOutboundMessage =
     };
 
 const PROGRESS_THROTTLE_MS = 60;
+const SEARCH_INDEX_CACHE_MAX_ENTRIES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_INDEX_CACHE_MAX_ENTRIES ?? '8', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 8;
+    }
+    return Math.min(parsed, 128);
+})();
+const SEARCH_INDEX_CACHE_TTL_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_INDEX_CACHE_TTL_MS ?? `${10 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 30_000) {
+        return 10 * 60 * 1000;
+    }
+    return parsed;
+})();
 const indexCache = new Map<string, TCachedIndex>();
 const cancelledRequests = new Set<string>();
 const progressSentAt = new Map<string, number>();
@@ -100,6 +115,32 @@ async function fileExists(filePath: string) {
 
 function getIndexPath(pdfPath: string) {
     return `${pdfPath}.index.json`;
+}
+
+function pruneIndexCache(now = Date.now()) {
+    for (const [
+        pdfPath,
+        entry,
+    ] of indexCache.entries()) {
+        if (now - entry.accessedAt > SEARCH_INDEX_CACHE_TTL_MS) {
+            indexCache.delete(pdfPath);
+        }
+    }
+
+    if (indexCache.size <= SEARCH_INDEX_CACHE_MAX_ENTRIES) {
+        return;
+    }
+
+    const sortedByLeastRecentlyUsed = Array.from(indexCache.entries())
+        .sort((left, right) => left[1].accessedAt - right[1].accessedAt);
+    const overflowCount = indexCache.size - SEARCH_INDEX_CACHE_MAX_ENTRIES;
+    for (let index = 0; index < overflowCount; index += 1) {
+        const entry = sortedByLeastRecentlyUsed[index];
+        if (!entry) {
+            break;
+        }
+        indexCache.delete(entry[0]);
+    }
 }
 
 function buildExcerpt(
@@ -157,6 +198,8 @@ function sendProgress(
 }
 
 async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
+    const now = Date.now();
+    pruneIndexCache(now);
     const indexPath = getIndexPath(pdfPath);
 
     let mtimeMs: number;
@@ -169,6 +212,7 @@ async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
 
     const cached = indexCache.get(pdfPath);
     if (cached && cached.mtimeMs === mtimeMs) {
+        cached.accessedAt = now;
         return cached;
     }
 
@@ -182,8 +226,10 @@ async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
         mtimeMs,
         index,
         lowerTexts: index.pages.map(page => (page.text ?? '').toLowerCase()),
+        accessedAt: now,
     };
     indexCache.set(pdfPath, entry);
+    pruneIndexCache(now);
     return entry;
 }
 
@@ -191,6 +237,8 @@ async function cacheBuiltIndex(
     pdfPath: string,
     index: IPdfSearchIndex,
 ): Promise<TCachedIndex> {
+    const now = Date.now();
+    pruneIndexCache(now);
     const indexPath = getIndexPath(pdfPath);
     let mtimeMs: number;
     try {
@@ -203,8 +251,10 @@ async function cacheBuiltIndex(
         mtimeMs,
         index,
         lowerTexts: index.pages.map(page => (page.text ?? '').toLowerCase()),
+        accessedAt: now,
     };
     indexCache.set(pdfPath, entry);
+    pruneIndexCache(now);
     return entry;
 }
 

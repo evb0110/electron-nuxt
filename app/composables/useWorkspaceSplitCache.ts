@@ -15,6 +15,10 @@ function bumpCacheRevision() {
     splitPayloadCacheRevision.value += 1;
 }
 
+function isEntryExpired(entry: IWorkspaceSplitCacheEntry, now = Date.now()) {
+    return now - entry.createdAt > CACHE_TTL_MS;
+}
+
 function clonePayload(payload: TSplitPayload): TSplitPayload {
     if (payload.kind === 'empty') {
         return { kind: 'empty' };
@@ -43,7 +47,7 @@ function pruneCache(now = Date.now()) {
         tabId,
         entry,
     ] of splitPayloadCache) {
-        if (now - entry.createdAt > CACHE_TTL_MS) {
+        if (isEntryExpired(entry, now)) {
             splitPayloadCache.delete(tabId);
             changed = true;
         }
@@ -111,8 +115,18 @@ export function useWorkspaceSplitCache() {
 
     function has(tabId: string) {
         void splitPayloadCacheRevision.value;
-        pruneCache();
-        return splitPayloadCache.has(tabId);
+        const entry = splitPayloadCache.get(tabId);
+        if (!entry) {
+            return false;
+        }
+
+        if (!isEntryExpired(entry)) {
+            return true;
+        }
+
+        splitPayloadCache.delete(tabId);
+        bumpCacheRevision();
+        return false;
     }
 
     function clear(tabId: string) {
