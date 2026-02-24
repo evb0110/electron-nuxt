@@ -435,6 +435,7 @@ const {
     applySearchHighlights,
     isPageRendered,
     getMostVisiblePage,
+    updateCurrentPage,
     updateVisibleRange,
     scrollToPage: (pageNumber) => singlePageScroll.scrollToPage(pageNumber),
     resetContinuousScrollState: () => singlePageScroll.resetContinuousScrollState(),
