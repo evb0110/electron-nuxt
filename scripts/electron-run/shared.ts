@@ -11,7 +11,10 @@ import {
 } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import type { Browser, Page } from 'puppeteer-core';
+import type {
+    Browser,
+    Page,
+} from 'puppeteer-core';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -233,6 +236,9 @@ export function findPidsByCommandSubstring(substring: string): number[] {
             if (!Number.isFinite(pid) || pid <= 0) {
                 continue;
             }
+            if (!command) {
+                continue;
+            }
             if (command.includes(needle)) {
                 pids.push(pid);
             }
@@ -377,7 +383,10 @@ export async function isSessionRunning(name = getCurrentSessionName()): Promise<
         const res = await fetch(`http://localhost:${info.port}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ command: 'ping', args: [] }),
+            body: JSON.stringify({
+                command: 'ping',
+                args: [], 
+            }),
         });
         return res.ok;
     } catch {

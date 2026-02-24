@@ -31,6 +31,11 @@ export default {
         'preparingBatch': 'Préparation {processed}/{total}',
         'confirmCloseDirtyTitle': 'Fermer l’onglet avec des modifications non enregistrées ?',
         'confirmCloseDirtyDescription': '"{name}" contient des modifications non enregistrées. Les modifications seront abandonnées à la fermeture.',
+        'transferErrors': {
+            'noTargetGroup': 'Aucun groupe cible n’est disponible dans la fenêtre de destination.',
+            'noTargetTab': 'Aucun onglet cible n’est disponible dans la fenêtre de destination.',
+            'restoreFailed': 'Impossible de restaurer l’état de l’onglet transféré.',
+        },
     },
     'zoom': {
         'fitWidth': 'Ajuster à la largeur',

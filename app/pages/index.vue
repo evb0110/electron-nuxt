@@ -924,13 +924,13 @@ async function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
     try {
         const targetGroup = getGroupById(activeGroupId.value) ?? groups.value[0] ?? null;
         if (!targetGroup) {
-            await ackFailure('No target group is available in the destination window.');
+            await ackFailure(t('tabs.transferErrors.noTargetGroup'));
             return;
         }
 
         const targetTab = resolveIncomingTransferTargetTab(targetGroup.id);
         if (!targetTab) {
-            await ackFailure('No target tab is available in the destination window.');
+            await ackFailure(t('tabs.transferErrors.noTargetTab'));
             return;
         }
 
@@ -939,7 +939,7 @@ async function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
             if (targetTab.created) {
                 removeTabFromState(targetTab.tabId);
             }
-            await ackFailure('Failed to restore transferred tab state.');
+            await ackFailure(t('tabs.transferErrors.restoreFailed'));
             return;
         }
 

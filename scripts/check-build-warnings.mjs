@@ -70,7 +70,10 @@ async function main() {
         process.exit(1);
     }
 
-    const [allowlistRaw, logRaw] = await Promise.all([
+    const [
+        allowlistRaw,
+        logRaw,
+    ] = await Promise.all([
         readFile(allowlistPath, 'utf8'),
         readFile(path.resolve(projectRoot, logPathArgument), 'utf8'),
     ]);

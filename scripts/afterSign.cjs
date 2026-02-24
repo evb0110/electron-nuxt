@@ -24,6 +24,19 @@ exports.default = async function afterSign(context) {
     }
 
     console.log('[afterSign] No Developer ID credentials detected, applying ad-hoc signature.');
-    execFileSync('codesign', ['--force', '--deep', '--sign', '-', '--timestamp=none', appPath], { stdio: 'inherit' });
-    execFileSync('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], { stdio: 'inherit' });
+    execFileSync('codesign', [
+        '--force',
+        '--deep',
+        '--sign',
+        '-',
+        '--timestamp=none',
+        appPath,
+    ], { stdio: 'inherit' });
+    execFileSync('codesign', [
+        '--verify',
+        '--deep',
+        '--strict',
+        '--verbose=2',
+        appPath,
+    ], { stdio: 'inherit' });
 };

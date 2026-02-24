@@ -31,6 +31,11 @@ export default {
         'preparingBatch': 'Preparazione {processed}/{total}',
         'confirmCloseDirtyTitle': 'Chiudere la scheda con modifiche non salvate?',
         'confirmCloseDirtyDescription': '"{name}" ha modifiche non salvate. Le modifiche verranno scartate alla chiusura.',
+        'transferErrors': {
+            'noTargetGroup': 'Nella finestra di destinazione non è disponibile alcun gruppo di destinazione.',
+            'noTargetTab': 'Nella finestra di destinazione non è disponibile alcuna scheda di destinazione.',
+            'restoreFailed': 'Impossibile ripristinare lo stato della scheda trasferita.',
+        },
     },
     'zoom': {
         'fitWidth': 'Adatta alla larghezza',

@@ -43,11 +43,17 @@ interface IOcrJobStartResult {
     error?: string;
 }
 
+interface IOcrResultFileAckResult {
+    cleaned: boolean;
+    error?: string;
+}
+
 interface IOcrCompleteResult {
     requestId: string;
     success: boolean;
     pdfData: Uint8Array | null;
     pdfPath?: string;
+    requiresCleanupAck?: boolean;
     errors: string[];
 }
 
@@ -312,6 +318,7 @@ export interface IElectronAPI {
     }>;
     ocrCancel: (requestId: string) => Promise<{ canceled: boolean }>;
     ocrGetLanguages: () => Promise<IOcrLanguage[]>;
+    ocrAcknowledgeResultFile: (requestId: string, pdfPath?: string) => Promise<IOcrResultFileAckResult>;
     ocrCreateSearchablePdf: (
         originalPdfData: Uint8Array,
         pages: Array<{

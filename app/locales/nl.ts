@@ -31,6 +31,11 @@ export default {
         'preparingBatch': 'Voorbereiden {processed}/{total}',
         'confirmCloseDirtyTitle': 'Tabblad sluiten met niet-opgeslagen wijzigingen?',
         'confirmCloseDirtyDescription': '"{name}" heeft niet-opgeslagen wijzigingen. Wijzigingen worden verworpen bij het sluiten.',
+        'transferErrors': {
+            'noTargetGroup': 'Er is geen doelgroep beschikbaar in het bestemmingsvenster.',
+            'noTargetTab': 'Er is geen doeltabblad beschikbaar in het bestemmingsvenster.',
+            'restoreFailed': 'De status van het overgezette tabblad kon niet worden hersteld.',
+        },
     },
     'zoom': {
         'fitWidth': 'Breedte passend',

@@ -163,6 +163,7 @@ function sendComplete(jobId: string, result: {
     success: boolean;
     pdfData: Uint8Array | null;
     pdfPath?: string;
+    requiresCleanupAck?: boolean;
     errors: string[];
 }) {
     const normalizedPdfData = result.pdfData
@@ -422,6 +423,7 @@ async function processOcrJob(
                 success: true,
                 pdfData: null,
                 pdfPath: mergedPdfPath,
+                requiresCleanupAck: true,
                 errors,
             });
         } else {

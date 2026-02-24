@@ -26,7 +26,11 @@ export async function sendCommand(
             continue;
         }
 
-        let data: { success: boolean; result?: unknown; error?: string } | null = null;
+        let data: {
+            success: boolean;
+            result?: unknown;
+            error?: string 
+        } | null = null;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -34,10 +38,17 @@ export async function sendCommand(
             const res = await fetch(`http://localhost:${info.port}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ command, args }),
+                body: JSON.stringify({
+                    command,
+                    args, 
+                }),
                 signal: controller.signal,
             });
-            data = (await res.json()) as { success: boolean; result?: unknown; error?: string };
+            data = (await res.json()) as {
+                success: boolean;
+                result?: unknown;
+                error?: string 
+            };
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
                 throw new Error(`Command "${command}" timed out after ${Math.round(requestTimeoutMs / 1000)}s`);

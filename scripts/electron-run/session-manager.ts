@@ -1,5 +1,8 @@
 import { createServer } from 'node:http';
-import { spawn, type ChildProcess } from 'node:child_process';
+import {
+    spawn,
+    type ChildProcess,
+} from 'node:child_process';
 import {
     closeSync,
     existsSync,
@@ -124,7 +127,10 @@ async function clearViteCache(): Promise<void> {
 
     for (const cachePath of cachePaths) {
         try {
-            rmSync(cachePath, { recursive: true, force: true });
+            rmSync(cachePath, {
+                recursive: true,
+                force: true, 
+            });
             console.log(`[Cache] Cleared ${cachePath.replace(projectRoot + '/', '')}`);
         } catch {}
     }
@@ -141,10 +147,17 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
     }
 
     console.log('[Nuxt] Starting dev server...');
-    const nuxt = spawn('pnpm', ['run', 'dev:nuxt'], {
+    const nuxt = spawn('pnpm', [
+        'run',
+        'dev:nuxt',
+    ], {
         cwd: projectRoot,
         shell: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+        ],
     });
 
     let viteClientBuilt = false;
@@ -253,7 +266,10 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
         }
     };
 
-    const formatStartupFailure = (reason: string, details: { code: number | null; signal: NodeJS.Signals | null }) => {
+    const formatStartupFailure = (reason: string, details: {
+        code: number | null;
+        signal: NodeJS.Signals | null 
+    }) => {
         const tail = startupLogLines
             .slice(-ELECTRON_STARTUP_LOG_TAIL_LINES)
             .join('\n')
@@ -273,7 +289,11 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
         mainJs,
     ], {
         cwd: projectRoot,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+        ],
         env: {
             ...process.env,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
@@ -397,7 +417,10 @@ async function findAppPage(browser: Browser): Promise<Page | null> {
     return pages.find(page => page.url().includes(`localhost:${NUXT_PORT}`)) ?? null;
 }
 
-async function connectToBrowser(cdpPort: number): Promise<{ browser: Browser; page: Page }> {
+async function connectToBrowser(cdpPort: number): Promise<{
+    browser: Browser;
+    page: Page 
+}> {
     console.log('[Puppeteer] Connecting via CDP...');
     let browser: Browser | null = null;
 
@@ -598,7 +621,10 @@ export async function startSession(forceClean = false) {
 
         if (forceClean) {
             try {
-                rmSync(electronUserDataPath(), { recursive: true, force: true });
+                rmSync(electronUserDataPath(), {
+                    recursive: true,
+                    force: true, 
+                });
                 console.log(`[Cache] Cleared ${electronUserDataPath().replace(projectRoot + '/', '')}`);
             } catch {}
         }
@@ -862,10 +888,16 @@ export async function startSession(forceClean = false) {
                     const {
                         command,
                         args,
-                    } = JSON.parse(body) as { command: string; args: unknown[] };
+                    } = JSON.parse(body) as {
+                        command: string;
+                        args: unknown[] 
+                    };
                     const result = await handleCommand(command, args);
                     res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: true, result }));
+                    res.end(JSON.stringify({
+                        success: true,
+                        result, 
+                    }));
                 } catch (error) {
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({
@@ -1009,11 +1041,19 @@ export async function startSessionDetached() {
 
     mkdirSync(sessionDir(), { recursive: true });
     const logFd = openSync(sessionLogFilePath(), 'w');
-    const child = spawn('pnpm', ['electron:run', `--session=${getCurrentSessionName()}`, 'start'], {
+    const child = spawn('pnpm', [
+        'electron:run',
+        `--session=${getCurrentSessionName()}`,
+        'start',
+    ], {
         cwd: projectRoot,
         detached: true,
         shell: false,
-        stdio: ['ignore', logFd, logFd],
+        stdio: [
+            'ignore',
+            logFd,
+            logFd,
+        ],
         env: { ...process.env },
     });
     closeSync(logFd);

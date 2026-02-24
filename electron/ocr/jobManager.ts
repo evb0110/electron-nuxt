@@ -8,6 +8,7 @@ import {
     join,
 } from 'path';
 import { existsSync } from 'fs';
+import { unlink } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import { ensureTessdataLanguages } from '@electron/ocr/language-models';
@@ -49,6 +50,13 @@ interface IOcrActiveJob extends IOcrQueuedJob {
     startedAtMs: number;
 }
 
+interface IOcrPendingResultFile {
+    jobId: string;
+    webContentsId: number;
+    pdfPath: string;
+    createdAtMs: number;
+}
+
 type TWorkerMessage = {
     type: 'progress' | 'complete' | 'log';
     jobId?: string;
@@ -62,6 +70,7 @@ type TWorkerMessage = {
         success: boolean;
         pdfData: Uint8Array | null;
         pdfPath?: string;
+        requiresCleanupAck?: boolean;
         errors: string[];
     };
     level?: string;
@@ -72,6 +81,7 @@ const activeJobs = new Map<string, IOcrActiveJob>();
 const queuedJobs: IOcrQueuedJob[] = [];
 const queuedJobIds = new Set<string>();
 const cancelledJobs = new Set<string>();
+const pendingResultFiles = new Map<string, IOcrPendingResultFile>();
 const OCR_QUEUE_MAX_SIZE = (() => {
     const parsed = Number.parseInt(process.env.EVB_OCR_QUEUE_MAX_SIZE ?? '8', 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
@@ -90,6 +100,13 @@ const OCR_QUEUE_MAX_AGE_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_OCR_QUEUE_MAX_AGE_MS ?? `${10 * 60 * 1000}`, 10);
     if (!Number.isFinite(parsed) || parsed < 5_000) {
         return 10 * 60 * 1000;
+    }
+    return parsed;
+})();
+const OCR_RESULT_FILE_ACK_TTL_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_RESULT_FILE_TTL_MS ?? `${15 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 60_000) {
+        return 15 * 60 * 1000;
     }
     return parsed;
 })();
@@ -181,6 +198,50 @@ function evictStaleQueuedJobs(nowMs = Date.now()) {
     }
 
     log.warn(`Evicted ${staleJobs.length} stale OCR queue jobs`);
+}
+
+async function removeResultFile(path: string) {
+    try {
+        await unlink(path);
+    } catch (err) {
+        const code = (err as NodeJS.ErrnoException)?.code;
+        if (code !== 'ENOENT') {
+            log.warn(`Failed to cleanup OCR temp result file "${path}": ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+}
+
+function trackPendingResultFile(jobId: string, webContentsId: number, pdfPath: string) {
+    const normalizedPath = typeof pdfPath === 'string' ? pdfPath.trim() : '';
+    if (!normalizedPath) {
+        return;
+    }
+
+    pendingResultFiles.set(jobId, {
+        jobId,
+        webContentsId,
+        pdfPath: normalizedPath,
+        createdAtMs: Date.now(),
+    });
+}
+
+async function evictStaleResultFiles(nowMs = Date.now()) {
+    if (pendingResultFiles.size === 0) {
+        return;
+    }
+
+    const staleEntries = Array.from(pendingResultFiles.values())
+        .filter(entry => nowMs - entry.createdAtMs > OCR_RESULT_FILE_ACK_TTL_MS);
+    if (staleEntries.length === 0) {
+        return;
+    }
+
+    for (const entry of staleEntries) {
+        pendingResultFiles.delete(entry.jobId);
+        await removeResultFile(entry.pdfPath);
+    }
+
+    log.warn(`Cleaned up ${staleEntries.length} stale OCR result file(s) without renderer acknowledgement`);
 }
 
 function ensureQueueCapacity(additionalBytes: number) {
@@ -294,6 +355,11 @@ function handleWorkerMessage(
     }
 
     if (message.type === 'complete' && message.result) {
+        if (message.result.success && message.result.pdfPath) {
+            trackPendingResultFile(jobId, webContentsId, message.result.pdfPath);
+            void evictStaleResultFiles();
+        }
+
         safeSendToWindow(window, 'ocr:complete', {
             requestId: jobId,
             ...message.result,
@@ -426,6 +492,7 @@ export async function handleOcrCreateSearchablePdfAsync(
 
     try {
         evictStaleQueuedJobs();
+        await evictStaleResultFiles();
 
         if (activeJobs.has(requestId) || queuedJobIds.has(requestId)) {
             return {
@@ -483,6 +550,54 @@ export async function handleOcrCreateSearchablePdfAsync(
             error: errMsg,
         };
     }
+}
+
+export async function handleOcrAcknowledgeResultFile(
+    event: IpcMainInvokeEvent,
+    requestIdPayload: unknown,
+    pdfPathPayload?: unknown,
+): Promise<{
+    cleaned: boolean;
+    error?: string; 
+}> {
+    await evictStaleResultFiles();
+
+    const requestId = typeof requestIdPayload === 'string' ? requestIdPayload.trim() : '';
+    if (!requestId) {
+        return {
+            cleaned: false,
+            error: 'requestId must be a non-empty string',
+        };
+    }
+
+    const pending = pendingResultFiles.get(requestId);
+    if (!pending) {
+        return {
+            cleaned: false,
+            error: `No pending OCR result file for requestId "${requestId}"`,
+        };
+    }
+
+    if (pending.webContentsId !== event.sender.id) {
+        return {
+            cleaned: false,
+            error: 'OCR result acknowledgement sender mismatch',
+        };
+    }
+
+    if (typeof pdfPathPayload === 'string' && pdfPathPayload.trim().length > 0) {
+        const normalizedPayloadPath = pdfPathPayload.trim();
+        if (normalizedPayloadPath !== pending.pdfPath) {
+            return {
+                cleaned: false,
+                error: 'Acknowledged OCR result path does not match pending result path',
+            };
+        }
+    }
+
+    pendingResultFiles.delete(requestId);
+    await removeResultFile(pending.pdfPath);
+    return { cleaned: true };
 }
 
 export function handleOcrCancel(

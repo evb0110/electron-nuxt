@@ -9,9 +9,7 @@ import {
 } from '../landing/app/i18n/locales';
 import { EN_MESSAGE_SCHEMA as landingSchema } from '../landing/app/i18n/message-schema';
 
-interface ILocaleDefinitionLike {
-    code: string;
-}
+interface ILocaleDefinitionLike {code: string;}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -89,7 +87,10 @@ function assertParity(
 ) {
     const expectedPaths = new Set(collectLeafPaths(schema));
 
-    for (const [locale, messages] of Object.entries(localeMessages)) {
+    for (const [
+        locale,
+        messages,
+    ] of Object.entries(localeMessages)) {
         const actualPaths = new Set(collectLeafPaths(messages));
         const {
             missing,

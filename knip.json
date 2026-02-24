@@ -13,12 +13,12 @@
         "electron/image/pdf-combine-worker.ts",
         "electron/ocr/worker/main.ts",
         "electron/search/worker.ts",
-        "scripts/electron-run/**/*.ts"
+        "scripts/**/*.{ts,mjs,cjs}"
     ],
     "project": [
         "app/**/*.{ts,vue}",
         "electron/**/*.ts",
-        "scripts/electron-run/**/*.ts"
+        "scripts/**/*.{ts,mjs,cjs}"
     ],
     "paths": {
         "@app/*": ["app/*"],

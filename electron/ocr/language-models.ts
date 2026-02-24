@@ -24,6 +24,27 @@ const DOWNLOAD_BASE_URL = 'https://github.com/tesseract-ocr/tessdata_best/raw/ma
 const DOWNLOAD_TIMEOUT_MS = 90_000;
 const DOWNLOAD_RETRIES = 3;
 const RETRY_DELAY_MS = 1_500;
+const PRECHECK_TIMEOUT_MS = 4_000;
+const NON_RETRYABLE_HTTP_STATUSES = new Set([
+    400,
+    401,
+    403,
+    404,
+    410,
+]);
+const NETWORK_UNREACHABLE_CODES = new Set([
+    'ENETUNREACH',
+    'EHOSTUNREACH',
+    'ENETDOWN',
+    'ENETRESET',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ECONNABORTED',
+    'ENOTFOUND',
+    'EAI_AGAIN',
+    'ETIMEDOUT',
+    'ERR_NETWORK_CHANGED',
+]);
 
 const inFlightDownloads = new Map<string, Promise<void>>();
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -53,6 +74,130 @@ function normalizeLanguageCodes(languageCodes: string[]): string[] {
 
 function delay(ms: number) {
     return new Promise<void>(resolve => setTimeout(resolve, ms));
+}
+
+class LanguageModelDownloadError extends Error {
+    readonly retryable: boolean;
+    readonly code: string;
+
+    constructor(
+        message: string,
+        options: {
+            retryable: boolean;
+            code: string;
+        },
+    ) {
+        super(message);
+        this.name = 'LanguageModelDownloadError';
+        this.retryable = options.retryable;
+        this.code = options.code;
+    }
+}
+
+function getErrorCode(error: unknown): string | null {
+    const visited = new Set<unknown>();
+    let current: unknown = error;
+
+    while (current && typeof current === 'object' && !visited.has(current)) {
+        visited.add(current);
+        const code = (current as { code?: unknown }).code;
+        if (typeof code === 'string' && code.length > 0) {
+            return code;
+        }
+        current = (current as { cause?: unknown }).cause;
+    }
+
+    return null;
+}
+
+function isAbortError(error: unknown) {
+    if (!error || typeof error !== 'object') {
+        return false;
+    }
+
+    return (error as { name?: string }).name === 'AbortError';
+}
+
+function createHttpDownloadError(languageCode: string, statusCode: number) {
+    if (statusCode === 404) {
+        return new LanguageModelDownloadError(
+            `OCR language model "${languageCode}" is unavailable (HTTP 404). Verify language configuration and try again.`,
+            {
+                retryable: false,
+                code: `HTTP_${statusCode}`,
+            },
+        );
+    }
+
+    if (NON_RETRYABLE_HTTP_STATUSES.has(statusCode)) {
+        return new LanguageModelDownloadError(
+            `OCR language model "${languageCode}" download rejected by server (HTTP ${statusCode}).`,
+            {
+                retryable: false,
+                code: `HTTP_${statusCode}`,
+            },
+        );
+    }
+
+    return new LanguageModelDownloadError(
+        `OCR language model "${languageCode}" download failed with HTTP ${statusCode}.`,
+        {
+            retryable: true,
+            code: `HTTP_${statusCode}`,
+        },
+    );
+}
+
+function classifyDownloadError(languageCode: string, error: unknown, timeoutMs = DOWNLOAD_TIMEOUT_MS) {
+    if (error instanceof LanguageModelDownloadError) {
+        return error;
+    }
+
+    if (isAbortError(error)) {
+        return new LanguageModelDownloadError(
+            `OCR language model "${languageCode}" download timed out after ${timeoutMs}ms.`,
+            {
+                retryable: true,
+                code: 'DOWNLOAD_TIMEOUT',
+            },
+        );
+    }
+
+    const errorCode = getErrorCode(error);
+    if (errorCode && NETWORK_UNREACHABLE_CODES.has(errorCode)) {
+        return new LanguageModelDownloadError(
+            `Network is offline or unreachable (${errorCode}) while downloading OCR model "${languageCode}". Check connection and retry OCR.`,
+            {
+                retryable: false,
+                code: 'NETWORK_UNREACHABLE',
+            },
+        );
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    const normalizedMessage = message.toLowerCase();
+    if (
+        normalizedMessage.includes('network is unreachable')
+        || normalizedMessage.includes('failed to resolve')
+        || normalizedMessage.includes('getaddrinfo')
+        || normalizedMessage.includes('not known')
+    ) {
+        return new LanguageModelDownloadError(
+            `Network is offline or DNS is unreachable while downloading OCR model "${languageCode}".`,
+            {
+                retryable: false,
+                code: 'NETWORK_UNREACHABLE',
+            },
+        );
+    }
+
+    return new LanguageModelDownloadError(
+        `OCR model "${languageCode}" download failed: ${message}`,
+        {
+            retryable: true,
+            code: 'DOWNLOAD_FAILED',
+        },
+    );
 }
 
 function getBundledTessdataDir() {
@@ -130,6 +275,33 @@ async function seedBundledModels(runtimeDir: string) {
     }
 }
 
+async function precheckLanguageDownload(languageCode: string, languageUrl: string) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), PRECHECK_TIMEOUT_MS);
+
+    try {
+        const response = await fetch(languageUrl, {
+            method: 'HEAD',
+            signal: controller.signal,
+        });
+
+        if (!response.ok) {
+            throw createHttpDownloadError(languageCode, response.status);
+        }
+    } catch (error) {
+        const classified = classifyDownloadError(languageCode, error, PRECHECK_TIMEOUT_MS);
+        if (!classified.retryable || classified.code === 'NETWORK_UNREACHABLE') {
+            throw classified;
+        }
+
+        log.warn(
+            `Skipping OCR model precheck strictness for ${languageCode}: ${classified.message}. Continuing with download attempts.`,
+        );
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 async function downloadLanguageModel(languageCode: string, runtimeDir: string) {
     const modelPath = getModelPath(runtimeDir, languageCode);
     if (existsSync(modelPath)) {
@@ -138,6 +310,7 @@ async function downloadLanguageModel(languageCode: string, runtimeDir: string) {
 
     const languageUrl = `${DOWNLOAD_BASE_URL}/${encodeURIComponent(languageCode)}.traineddata`;
     const tempPath = `${modelPath}.download-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await precheckLanguageDownload(languageCode, languageUrl);
 
     for (let attempt = 1; attempt <= DOWNLOAD_RETRIES; attempt++) {
         const controller = new AbortController();
@@ -151,7 +324,7 @@ async function downloadLanguageModel(languageCode: string, runtimeDir: string) {
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+                throw createHttpDownloadError(languageCode, response.status);
             }
 
             const arrayBuffer = await response.arrayBuffer();
@@ -166,10 +339,19 @@ async function downloadLanguageModel(languageCode: string, runtimeDir: string) {
             log.info(`Downloaded OCR model ${languageCode} (${Math.round(modelBuffer.length / (1024 * 1024))}MB)`);
             return;
         } catch (err) {
-            const errMessage = err instanceof Error ? err.message : String(err);
-            if (attempt >= DOWNLOAD_RETRIES) {
-                throw new Error(`Failed to download OCR language model "${languageCode}": ${errMessage}`);
+            const classified = classifyDownloadError(languageCode, err);
+
+            if (!classified.retryable) {
+                throw new Error(classified.message);
             }
+
+            if (attempt >= DOWNLOAD_RETRIES) {
+                throw new Error(
+                    `Failed to download OCR language model "${languageCode}" after ${DOWNLOAD_RETRIES} attempts: ${classified.message}`,
+                );
+            }
+
+            log.warn(`Download retry scheduled for OCR model ${languageCode}: ${classified.message}`);
             await delay(RETRY_DELAY_MS * attempt);
         } finally {
             clearTimeout(timeout);

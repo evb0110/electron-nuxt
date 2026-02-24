@@ -19,6 +19,7 @@ import {
     getTesseractThreadLimit,
 } from '@electron/utils/concurrency';
 import {
+    handleOcrAcknowledgeResultFile,
     handleOcrCreateSearchablePdfAsync,
     handleOcrCancel,
     safeSendToWindow,
@@ -340,11 +341,34 @@ function handleOcrCancelValidated(
     }
 }
 
+async function handleOcrAcknowledgeResultFileValidated(
+    event: IpcMainInvokeEvent,
+    requestIdPayload: unknown,
+    pdfPathPayload?: unknown,
+) {
+    try {
+        return await handleOcrAcknowledgeResultFile(
+            event,
+            requestIdPayload,
+            pdfPathPayload,
+        );
+    } catch (error) {
+        const envelope = toOcrErrorEnvelope(error);
+        log.warn(`ocr:ackResultFile rejected: ${envelope.message}`);
+        return {
+            cleaned: false,
+            error: envelope.message,
+            errorEnvelope: envelope,
+        };
+    }
+}
+
 export function registerOcrHandlers() {
     ipcMain.handle('ocr:recognize', handleOcrRecognize);
     ipcMain.handle('ocr:recognizeBatch', handleOcrRecognizeBatch);
     ipcMain.handle('ocr:createSearchablePdf', handleOcrCreateSearchablePdf);
     ipcMain.handle('ocr:cancel', handleOcrCancelValidated);
+    ipcMain.handle('ocr:ackResultFile', handleOcrAcknowledgeResultFileValidated);
     ipcMain.handle('ocr:getLanguages', handleOcrGetLanguages);
     ipcMain.handle('ocr:validateTools', handleOcrValidateTools);
     ipcMain.handle('preprocessing:validate', handlePreprocessingValidate);
