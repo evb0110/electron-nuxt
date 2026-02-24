@@ -113,6 +113,7 @@ let renderRunId = 0;
 let pendingInvalidation: number[] | null = null;
 let reloadTransition = false;
 let containerVisibilityState: 'unknown' | 'visible' | 'hidden' = 'unknown';
+let measurementState: 'ready' | 'no-item' | 'no-rendered-canvas' = 'ready';
 
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
@@ -363,10 +364,60 @@ const measureThumbnailHeight = useDebounceFn(() => {
 
     const item = container.querySelector<HTMLElement>('.pdf-thumbnail');
     if (!item) {
+        if (measurementState !== 'no-item') {
+            measurementState = 'no-item';
+            BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no thumbnail items', {
+                currentPage: props.currentPage,
+                totalPages: props.totalPages,
+                geometry: describeContainerGeometry(container),
+            });
+        }
         return;
     }
 
-    const measuredHeight = Math.max(1, Math.ceil(item.getBoundingClientRect().height));
+    const renderedItem = Array.from(
+        container.querySelectorAll<HTMLElement>('.pdf-thumbnail'),
+    ).find((candidate) => {
+        const candidateCanvas = candidate.querySelector<HTMLCanvasElement>('canvas');
+        return Boolean(
+            candidateCanvas
+            && candidateCanvas.width > 0
+            && candidateCanvas.height > 0
+            && candidateCanvas.getBoundingClientRect().height > 0,
+        );
+    });
+    const measurementItem = renderedItem ?? item;
+    const canvas = measurementItem.querySelector<HTMLCanvasElement>('canvas');
+    if (
+        !renderedItem
+        || !canvas
+    ) {
+        if (measurementState !== 'no-rendered-canvas') {
+            measurementState = 'no-rendered-canvas';
+            BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no rendered canvas in virtual window yet', {
+                currentPage: props.currentPage,
+                totalPages: props.totalPages,
+                geometry: describeContainerGeometry(container),
+                itemPage: measurementItem.dataset.page ?? null,
+                canvasWidth: canvas?.width ?? null,
+                canvasHeight: canvas?.height ?? null,
+            });
+        }
+        return;
+    }
+
+    if (measurementState !== 'ready') {
+        measurementState = 'ready';
+        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail height measurement resumed with rendered canvas', {
+            currentPage: props.currentPage,
+            totalPages: props.totalPages,
+            itemPage: measurementItem.dataset.page ?? null,
+            canvasWidth: canvas.width,
+            canvasHeight: canvas.height,
+        });
+    }
+
+    const measuredHeight = Math.max(1, Math.ceil(measurementItem.getBoundingClientRect().height));
     if (Math.abs(measuredHeight - thumbnailItemHeight.value) < 1) {
         return;
     }
