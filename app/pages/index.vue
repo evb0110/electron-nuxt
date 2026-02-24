@@ -132,6 +132,7 @@ import {
     workspaceHasPdf,
 } from '@app/composables/page/useMenuSync';
 import { useTabsShellBindings } from '@app/composables/page/useTabsShellBindings';
+import { isWorkspaceExpose } from '@app/composables/page/workspace-expose-contract';
 import { useAppUpdates } from '@app/composables/useAppUpdates';
 import { useEditorGroupsManager } from '@app/composables/useEditorGroupsManager';
 import { useWorkspaceRestoreTracker } from '@app/composables/useWorkspaceRestoreTracker';
@@ -142,7 +143,7 @@ import {
 } from '@app/composables/page/window-tab-transfer-orchestration';
 import type { TOpenFileResult } from '@app/types/electron-api';
 import type { ITab } from '@app/types/tabs';
-import type {TGroupDirection} from '@app/types/editor-groups';
+import type { TGroupDirection } from '@app/types/editor-groups';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import type { TSplitPayload } from '@app/types/split-payload';
 import type {
@@ -223,38 +224,6 @@ const {
     t,
 });
 
-const REQUIRED_WORKSPACE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> = [
-    'handleSave',
-    'handleSaveAs',
-    'handleUndo',
-    'handleRedo',
-    'handleOpenFileFromUi',
-    'handleOpenFileDirectWithPersist',
-    'handleOpenFileDirectBatchWithPersist',
-    'handleOpenFileWithResult',
-    'handleCloseFileFromUi',
-    'handleExportDocx',
-    'handleExportImages',
-    'handleExportMultiPageTiff',
-    'handleZoomIn',
-    'handleZoomOut',
-    'handleFitWidth',
-    'handleFitHeight',
-    'handleActualSize',
-    'handleViewModeSingle',
-    'handleViewModeFacing',
-    'handleViewModeFacingFirstSingle',
-    'handleDeletePages',
-    'handleExtractPages',
-    'handleRotateCw',
-    'handleRotateCcw',
-    'handleInsertPages',
-    'handleConvertToPdf',
-    'captureSplitPayload',
-    'restoreSplitPayload',
-    'closeAllDropdowns',
-];
-
 const isTabTransitionBusy = computed(() => activeTabTransitions.value > 0);
 
 function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
@@ -273,19 +242,6 @@ function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
     );
 
     return chained;
-}
-
-function isWorkspaceExpose(value: unknown): value is IWorkspaceExpose {
-    if (!value || typeof value !== 'object') {
-        return false;
-    }
-
-    const candidate = value as Record<string, unknown>;
-    if (!('hasPdf' in candidate)) {
-        return false;
-    }
-
-    return REQUIRED_WORKSPACE_METHODS.every(methodName => typeof candidate[methodName] === 'function');
 }
 
 function setWorkspaceRef(tabId: string, el: unknown) {

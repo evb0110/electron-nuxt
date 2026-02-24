@@ -47,11 +47,39 @@ interface IOcrIndexV2Page {
     text: string;
 }
 
+interface IBuildSearchIndexOptions {
+    pageCount?: number;
+    signal?: AbortSignal;
+}
+
+function createAbortError() {
+    const error = new Error('The operation was aborted');
+    error.name = 'AbortError';
+    return error;
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw createAbortError();
+    }
+}
+
+function isAbortError(error: unknown) {
+    return error instanceof Error && (
+        error.name === 'AbortError'
+        || error.message.toLowerCase().includes('aborted')
+    );
+}
+
 /**
  * Load OCR v2 index text for all pages.
  * Returns a Map of pageNumber -> text, or null if no v2 index exists.
  */
-async function loadOcrIndexText(pdfPath: string): Promise<Map<number, string> | null> {
+async function loadOcrIndexText(
+    pdfPath: string,
+    signal?: AbortSignal,
+): Promise<Map<number, string> | null> {
+    throwIfAborted(signal);
     const ocrDir = `${pdfPath}.ocr`;
     const manifestPath = join(ocrDir, 'manifest.json');
 
@@ -60,7 +88,9 @@ async function loadOcrIndexText(pdfPath: string): Promise<Map<number, string> | 
     }
 
     try {
+        throwIfAborted(signal);
         const manifestJson = await readFile(manifestPath, 'utf-8');
+        throwIfAborted(signal);
         const manifest = JSON.parse(manifestJson) as IOcrIndexV2Manifest;
 
         if (manifest.version < 2) {
@@ -74,11 +104,13 @@ async function loadOcrIndexText(pdfPath: string): Promise<Map<number, string> | 
             pageNumStr,
             pageInfo,
         ] of Object.entries(manifest.pages)) {
+            throwIfAborted(signal);
             const pageNum = parseInt(pageNumStr, 10);
             const pagePath = join(ocrDir, pageInfo.path);
 
             if (existsSync(pagePath)) {
                 const pageJson = await readFile(pagePath, 'utf-8');
+                throwIfAborted(signal);
                 const pageData = JSON.parse(pageJson) as IOcrIndexV2Page;
                 pageTexts.set(pageNum, pageData.text || '');
             }
@@ -87,6 +119,9 @@ async function loadOcrIndexText(pdfPath: string): Promise<Map<number, string> | 
         log.debug(`Loaded OCR v2 index with ${pageTexts.size} pages from ${ocrDir}`);
         return pageTexts;
     } catch (err) {
+        if (isAbortError(err)) {
+            throw err;
+        }
         const errMsg = err instanceof Error ? err.message : String(err);
         log.debug(`Failed to load OCR v2 index: ${errMsg}`);
         return null;
@@ -110,15 +145,19 @@ export async function buildSearchIndex(
         pageWidth?: number;
         pageHeight?: number;
     }>,
-    options: {pageCount?: number;} = {},
+    options: IBuildSearchIndexOptions = {},
 ): Promise<IPdfSearchIndex> {
     log.debug(`Building search index for ${pdfPath}`);
 
-    const expectedCount = options.pageCount;
+    const {
+        pageCount: expectedCount,
+        signal,
+    } = options;
+    throwIfAborted(signal);
 
     // Try OCR v2 index first - this is the preferred source for OCR'd PDFs
     // as it matches the text layer that PDF.js will display
-    const ocrTexts = await loadOcrIndexText(pdfPath);
+    const ocrTexts = await loadOcrIndexText(pdfPath, signal);
     if (ocrTexts && ocrTexts.size > 0) {
         log.debug(`Using OCR v2 index with ${ocrTexts.size} pages`);
         const pages: IPageIndex[] = [];
@@ -126,6 +165,7 @@ export async function buildSearchIndex(
             pageNum,
             text,
         ] of ocrTexts) {
+            throwIfAborted(signal);
             pages.push({
                 pageNumber: pageNum,
                 text,
@@ -145,9 +185,13 @@ export async function buildSearchIndex(
         // Save index for future use
         const indexPath = getIndexPath(pdfPath);
         try {
+            throwIfAborted(signal);
             await writeFile(indexPath, JSON.stringify(index), 'utf-8');
             log.debug(`Saved OCR-based index to ${indexPath}`);
         } catch (err) {
+            if (isAbortError(err)) {
+                throw err;
+            }
             const errMsg = err instanceof Error ? err.message : String(err);
             log.debug(`Warning: Failed to save OCR-based index: ${errMsg}`);
         }
@@ -157,7 +201,9 @@ export async function buildSearchIndex(
 
     // Fall back to existing index or pdftotext
     const pagesByNumber = new Map<number, IPageIndex>();
+    throwIfAborted(signal);
     const existing = await loadSearchIndex(pdfPath);
+    throwIfAborted(signal);
 
     if (existing?.pages?.length) {
         existing.pages.forEach((page) => {
@@ -182,8 +228,9 @@ export async function buildSearchIndex(
         // Primary: pdfjs-dist — matches the text layer exactly
         try {
             log.debug(`Seeding index with pdfjs-dist (pageCount=${expectedCount ?? 'unknown'})`);
-            const pageTexts = await extractTextWithPdfjs(pdfPath);
-            pageTexts.forEach((pt) => {
+            const pageTexts = await extractTextWithPdfjs(pdfPath, { signal });
+            for (const pt of pageTexts) {
+                throwIfAborted(signal);
                 const entry = pagesByNumber.get(pt.pageNumber);
                 if (!entry) {
                     pagesByNumber.set(pt.pageNumber, {
@@ -191,15 +238,18 @@ export async function buildSearchIndex(
                         text: pt.text,
                         words: undefined,
                     });
-                    return;
+                    continue;
                 }
 
                 if (!entry.text && pt.text) {
                     entry.text = pt.text;
                 }
-            });
+            }
             seeded = pageTexts.some(pt => pt.text.length > 0);
         } catch (pdfjsErr) {
+            if (isAbortError(pdfjsErr)) {
+                throw pdfjsErr;
+            }
             const errMsg = pdfjsErr instanceof Error ? pdfjsErr.message : String(pdfjsErr);
             log.warn(`Failed to extract text with pdfjs-dist: ${errMsg}`);
         }
@@ -208,8 +258,12 @@ export async function buildSearchIndex(
         if (!seeded) {
             try {
                 log.debug(`Falling back to pdftotext (pageCount=${expectedCount ?? 'unknown'})`);
-                const pageTexts = await extractTextFromPdf(pdfPath, { pageCount: expectedCount });
-                pageTexts.forEach((pt) => {
+                const pageTexts = await extractTextFromPdf(pdfPath, {
+                    pageCount: expectedCount,
+                    signal,
+                });
+                for (const pt of pageTexts) {
+                    throwIfAborted(signal);
                     const entry = pagesByNumber.get(pt.pageNumber);
                     if (!entry) {
                         pagesByNumber.set(pt.pageNumber, {
@@ -217,14 +271,17 @@ export async function buildSearchIndex(
                             text: pt.text,
                             words: undefined,
                         });
-                        return;
+                        continue;
                     }
 
                     if (!entry.text && pt.text) {
                         entry.text = pt.text;
                     }
-                });
+                }
             } catch (pdfTextErr) {
+                if (isAbortError(pdfTextErr)) {
+                    throw pdfTextErr;
+                }
                 const errMsg = pdfTextErr instanceof Error ? pdfTextErr.message : String(pdfTextErr);
                 log.warn(`Failed to extract text with pdftotext: ${errMsg}`);
             }
@@ -233,6 +290,7 @@ export async function buildSearchIndex(
 
     if (typeof expectedCount === 'number' && expectedCount > 0) {
         for (let pageNumber = 1; pageNumber <= expectedCount; pageNumber += 1) {
+            throwIfAborted(signal);
             if (!pagesByNumber.has(pageNumber)) {
                 pagesByNumber.set(pageNumber, {
                     pageNumber,
@@ -245,6 +303,7 @@ export async function buildSearchIndex(
 
     if (pageData?.length) {
         pageData.forEach((page) => {
+            throwIfAborted(signal);
             const textFromOcr = page.text?.trim() ?? '';
             const textFromWords = page.words.map(w => w.text).join(' ').trim();
             const text = textFromOcr || textFromWords;
@@ -276,6 +335,7 @@ export async function buildSearchIndex(
     log.debug(`Saving index to ${indexPath}`);
 
     try {
+        throwIfAborted(signal);
         await writeFile(indexPath, JSON.stringify(index), 'utf-8');
         log.debug(`Index saved successfully: ${indexPath}`);
         return index;

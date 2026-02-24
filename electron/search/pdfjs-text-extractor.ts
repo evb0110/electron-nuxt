@@ -15,24 +15,92 @@ interface IPageText {
     text: string;
 }
 
-export async function extractTextWithPdfjs(pdfPath: string): Promise<IPageText[]> {
+interface IExtractPdfjsTextOptions {signal?: AbortSignal;}
+
+function createAbortError() {
+    const error = new Error('The operation was aborted');
+    error.name = 'AbortError';
+    return error;
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw createAbortError();
+    }
+}
+
+async function withAbortSignal<T>(
+    promise: Promise<T>,
+    signal: AbortSignal | undefined,
+    onAbort: () => void,
+): Promise<T> {
+    if (!signal) {
+        return promise;
+    }
+
+    if (signal.aborted) {
+        onAbort();
+        throw createAbortError();
+    }
+
+    return new Promise<T>((resolve, reject) => {
+        const handleAbort = () => {
+            onAbort();
+            reject(createAbortError());
+        };
+
+        signal.addEventListener('abort', handleAbort, { once: true });
+        promise.then(
+            (value) => {
+                signal.removeEventListener('abort', handleAbort);
+                resolve(value);
+            },
+            (error) => {
+                signal.removeEventListener('abort', handleAbort);
+                reject(error);
+            },
+        );
+    });
+}
+
+export async function extractTextWithPdfjs(
+    pdfPath: string,
+    options: IExtractPdfjsTextOptions = {},
+): Promise<IPageText[]> {
+    const { signal } = options;
     log.debug(`Extracting text with pdfjs-dist: ${pdfPath}`);
+    throwIfAborted(signal);
 
     const data = new Uint8Array(await readFile(pdfPath));
-    const doc = await getDocument({
+    throwIfAborted(signal);
+    const loadingTask = getDocument({
         data,
         isEvalSupported: false,
-    }).promise;
+    });
+    const doc = await withAbortSignal(loadingTask.promise, signal, () => {
+        void loadingTask.destroy();
+    });
 
     try {
         const pages: IPageText[] = [];
 
         for (let i = 1; i <= doc.numPages; i++) {
-            const page = await doc.getPage(i);
-            const content = await page.getTextContent({disableNormalization: true});
+            throwIfAborted(signal);
+            const page = await withAbortSignal(doc.getPage(i), signal, () => {
+                void doc.destroy();
+            });
+            const content = await withAbortSignal(
+                page.getTextContent({disableNormalization: true}),
+                signal,
+                () => {
+                    void doc.destroy();
+                },
+            );
+            throwIfAborted(signal);
 
             const parts: string[] = [];
             for (const item of content.items) {
+                throwIfAborted(signal);
                 if ('str' in item) {
                     const textItem = item as TextItem;
                     parts.push(textItem.str);

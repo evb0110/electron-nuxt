@@ -97,6 +97,7 @@ const SEARCH_INDEX_CACHE_TTL_MS = (() => {
 })();
 const indexCache = new Map<string, TCachedIndex>();
 const cancelledRequests = new Set<string>();
+const requestAbortControllers = new Map<string, AbortController>();
 const progressSentAt = new Map<string, number>();
 const log = createLogger('search-worker');
 
@@ -169,6 +170,28 @@ function buildExcerpt(
 
 function isCancelled(requestId: string) {
     return cancelledRequests.has(requestId);
+}
+
+function createAbortError() {
+    const error = new Error('The operation was aborted');
+    error.name = 'AbortError';
+    return error;
+}
+
+function isAbortError(error: unknown) {
+    return error instanceof Error && (
+        error.name === 'AbortError'
+        || error.message.toLowerCase().includes('aborted')
+    );
+}
+
+function throwIfCancelled(
+    requestId: string,
+    signal?: AbortSignal,
+) {
+    if (isCancelled(requestId) || signal?.aborted) {
+        throw createAbortError();
+    }
 }
 
 function sendProgress(
@@ -259,16 +282,26 @@ async function cacheBuiltIndex(
 }
 
 async function ensureSearchIndex(
+    requestId: string,
     pdfPath: string,
-    options: { pageCount?: number },
+    options: {
+        pageCount?: number;
+        signal?: AbortSignal;
+    },
 ): Promise<TCachedIndex> {
     const expectedCount = options.pageCount;
+    const { signal } = options;
+    throwIfCancelled(requestId, signal);
 
     let entry = await loadCachedIndex(pdfPath);
+    throwIfCancelled(requestId, signal);
     if (!entry) {
         entry = await cacheBuiltIndex(
             pdfPath,
-            await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
+            await buildSearchIndex(pdfPath, [], {
+                pageCount: expectedCount,
+                signal,
+            }),
         );
         return entry;
     }
@@ -279,7 +312,10 @@ async function ensureSearchIndex(
     if (!hasAnyText && entry.index.pages.length > 0) {
         entry = await cacheBuiltIndex(
             pdfPath,
-            await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
+            await buildSearchIndex(pdfPath, [], {
+                pageCount: expectedCount,
+                signal,
+            }),
         );
         return entry;
     }
@@ -291,7 +327,10 @@ async function ensureSearchIndex(
     ) {
         entry = await cacheBuiltIndex(
             pdfPath,
-            await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
+            await buildSearchIndex(pdfPath, [], {
+                pageCount: expectedCount,
+                signal,
+            }),
         );
     } else if (typeof expectedCount === 'number' && expectedCount > 0) {
         const inRangeCount = entry.index.pages.reduce((count, page) => (
@@ -301,7 +340,10 @@ async function ensureSearchIndex(
         if (inRangeCount < expectedCount) {
             entry = await cacheBuiltIndex(
                 pdfPath,
-                await buildSearchIndex(pdfPath, [], { pageCount: expectedCount }),
+                await buildSearchIndex(pdfPath, [], {
+                    pageCount: expectedCount,
+                    signal,
+                }),
             );
         }
     }
@@ -317,15 +359,21 @@ async function processSearchRequest(request: ISearchRequest) {
         pageCount,
     } = request;
 
+    const abortController = new AbortController();
+    requestAbortControllers.set(requestId, abortController);
+    const { signal } = abortController;
+
     try {
-        cancelledRequests.delete(requestId);
         progressSentAt.delete(requestId);
+        throwIfCancelled(requestId, signal);
 
         if (!pdfPath || !(await fileExists(pdfPath))) {
             throw new Error(`PDF not found: ${pdfPath}`);
         }
+        throwIfCancelled(requestId, signal);
 
         if (!query || query.trim().length === 0) {
+            throwIfCancelled(requestId, signal);
             postMessage({
                 type: 'complete',
                 requestId,
@@ -339,15 +387,11 @@ async function processSearchRequest(request: ISearchRequest) {
 
         const normalizedQuery = query.trim();
         const lowerQuery = normalizedQuery.toLowerCase();
-        const indexEntry = await ensureSearchIndex(pdfPath, { pageCount });
-
-        if (isCancelled(requestId)) {
-            postMessage({
-                type: 'cancelled',
-                requestId,
-            });
-            return;
-        }
+        const indexEntry = await ensureSearchIndex(requestId, pdfPath, {
+            pageCount,
+            signal,
+        });
+        throwIfCancelled(requestId, signal);
 
         const totalPages = typeof pageCount === 'number' && pageCount > 0
             ? pageCount
@@ -361,13 +405,7 @@ async function processSearchRequest(request: ISearchRequest) {
         let truncated = false;
 
         for (let pageIdx = 0; pageIdx < indexEntry.index.pages.length; pageIdx += 1) {
-            if (isCancelled(requestId)) {
-                postMessage({
-                    type: 'cancelled',
-                    requestId,
-                });
-                return;
-            }
+            throwIfCancelled(requestId, signal);
 
             const page = indexEntry.index.pages[pageIdx]!;
             if (page.pageNumber < 1) {
@@ -385,6 +423,7 @@ async function processSearchRequest(request: ISearchRequest) {
                 let pageMatchIndex = 0;
 
                 while ((position = lowerPageText.indexOf(lowerQuery, position)) !== -1) {
+                    throwIfCancelled(requestId, signal);
                     const startOffset = position;
                     const endOffset = position + normalizedQuery.length;
 
@@ -421,6 +460,7 @@ async function processSearchRequest(request: ISearchRequest) {
         } else {
             sendProgress(requestId, processedCount, totalPages, true);
         }
+        throwIfCancelled(requestId, signal);
 
         postMessage({
             type: 'complete',
@@ -431,6 +471,14 @@ async function processSearchRequest(request: ISearchRequest) {
             },
         });
     } catch (error) {
+        if (isAbortError(error) || isCancelled(requestId)) {
+            postMessage({
+                type: 'cancelled',
+                requestId,
+            });
+            return;
+        }
+
         const errMsg = error instanceof Error ? error.message : String(error);
         postMessage({
             type: 'error',
@@ -438,6 +486,7 @@ async function processSearchRequest(request: ISearchRequest) {
             error: `Search failed: ${errMsg}`,
         });
     } finally {
+        requestAbortControllers.delete(request.requestId);
         progressSentAt.delete(request.requestId);
         cancelledRequests.delete(request.requestId);
     }
@@ -446,6 +495,7 @@ async function processSearchRequest(request: ISearchRequest) {
 parentPort?.on('message', (message: TWorkerInboundMessage) => {
     if (message.type === 'cancel') {
         cancelledRequests.add(message.requestId);
+        requestAbortControllers.get(message.requestId)?.abort();
         return;
     }
 

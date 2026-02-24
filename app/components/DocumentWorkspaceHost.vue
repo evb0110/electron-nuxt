@@ -3,6 +3,7 @@
         <component
             :is="DocumentWorkspace"
             v-if="workspaceRequested"
+            :key="workspaceRenderKey"
             ref="workspaceRef"
             :tab-id="tabId"
             :is-active="isActive"
@@ -22,6 +23,28 @@
                 @remove-recent="handleRemoveRecentFromPlaceholder"
                 @clear-recent="handleClearRecentFromPlaceholder"
             />
+        </div>
+
+        <div
+            v-if="isHostErrorVisible"
+            class="workspace-host__loading"
+            role="alert"
+            aria-live="assertive"
+        >
+            <div class="flex max-w-sm flex-col items-center gap-3 px-4 text-center">
+                <span class="text-sm font-medium text-[var(--ui-text-highlighted)]">
+                    {{ t('errors.workspace.loadTitle') }}
+                </span>
+                <p class="text-sm text-[var(--ui-text-muted)]">
+                    {{ workspaceLoadErrorDescription }}
+                </p>
+                <UButton
+                    color="neutral"
+                    variant="outline"
+                    :label="t('common.retry')"
+                    @click="handleRetryWorkspaceMount"
+                />
+            </div>
         </div>
 
         <div
@@ -53,6 +76,11 @@ import type { TTabUpdate } from '@app/types/tabs';
 import type { TSplitPayload } from '@app/types/split-payload';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import {
+    getAsyncChunkLoadErrorMessage,
+    shouldRetryAsyncChunkLoad,
+} from '@app/composables/page/workspace-host-async-load';
+import { isWorkspaceExpose } from '@app/composables/page/workspace-expose-contract';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { useWorkspaceSplitCache } from '@app/composables/useWorkspaceSplitCache';
 import { resolveWorkspaceRequestedState } from '@app/composables/page/workspace-host-mounting';
@@ -74,14 +102,8 @@ const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const LOADER_LOG_SECTION = 'loader';
 
 const loadDocumentWorkspace = () => import('@app/components/DocumentWorkspace.vue');
-function isRecoverableChunkLoadError(error: unknown) {
-    const message = error instanceof Error ? error.message : String(error ?? '');
-    return (
-        message.includes('Failed to fetch dynamically imported module')
-        || message.includes('Importing a module script failed')
-        || message.includes('Outdated Optimize Dep')
-    );
-}
+const workspaceChunkLoadError = ref<unknown>(null);
+const workspaceRenderNonce = ref(0);
 
 const DocumentWorkspace = defineAsyncComponent({
     loader: loadDocumentWorkspace,
@@ -93,11 +115,16 @@ const DocumentWorkspace = defineAsyncComponent({
             error,
         });
 
-        if (import.meta.dev && attempts < 3 && isRecoverableChunkLoadError(error)) {
+        if (shouldRetryAsyncChunkLoad({
+            attempts,
+            error,
+            isDev: import.meta.dev,
+        })) {
             setTimeout(() => retry(), attempts * 150);
             return;
         }
 
+        workspaceChunkLoadError.value = error;
         fail();
     },
 });
@@ -110,37 +137,6 @@ const documentOpenInFlightCount = ref(0);
 const workspaceSplitCache = useWorkspaceSplitCache();
 const WORKSPACE_MOUNT_TIMEOUT_MS = 30_000;
 const WORKSPACE_MOUNT_RETRY_TIMEOUT_MS = 20_000;
-const REQUIRED_WORKSPACE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> = [
-    'handleSave',
-    'handleSaveAs',
-    'handleUndo',
-    'handleRedo',
-    'handleOpenFileFromUi',
-    'handleOpenFileDirectWithPersist',
-    'handleOpenFileDirectBatchWithPersist',
-    'handleOpenFileWithResult',
-    'handleCloseFileFromUi',
-    'handleExportDocx',
-    'handleExportImages',
-    'handleExportMultiPageTiff',
-    'handleZoomIn',
-    'handleZoomOut',
-    'handleFitWidth',
-    'handleFitHeight',
-    'handleActualSize',
-    'handleViewModeSingle',
-    'handleViewModeFacing',
-    'handleViewModeFacingFirstSingle',
-    'handleDeletePages',
-    'handleExtractPages',
-    'handleRotateCw',
-    'handleRotateCcw',
-    'handleInsertPages',
-    'handleConvertToPdf',
-    'captureSplitPayload',
-    'restoreSplitPayload',
-    'closeAllDropdowns',
-];
 
 const {
     recentFiles,
@@ -149,23 +145,19 @@ const {
     clearRecentFiles,
 } = useRecentFiles();
 
-function isWorkspaceExpose(value: unknown): value is IWorkspaceExpose {
-    if (!value || typeof value !== 'object') {
-        return false;
-    }
-
-    const candidate = value as Record<string, unknown>;
-    if (!('hasPdf' in candidate)) {
-        return false;
-    }
-
-    return REQUIRED_WORKSPACE_METHODS.every(methodName => typeof candidate[methodName] === 'function');
-}
-
 const mountedWorkspace = computed<IWorkspaceExpose | null>(() => (
     isWorkspaceExpose(workspaceRef.value) ? workspaceRef.value : null
 ));
 const hasMountedWorkspace = computed(() => mountedWorkspace.value !== null);
+const hasWorkspaceChunkLoadError = computed(() => workspaceChunkLoadError.value !== null);
+const workspaceRenderKey = computed(() => `${props.tabId}:${workspaceRenderNonce.value}`);
+const workspaceLoadErrorDescription = computed(() => {
+    const message = getAsyncChunkLoadErrorMessage(workspaceChunkLoadError.value).trim();
+    if (!message) {
+        return t('errors.workspace.loadDescription');
+    }
+    return t('errors.workspace.loadDescriptionWithMessage', { message });
+});
 
 const hasPdf = computed<boolean>(() => {
     const value = mountedWorkspace.value?.hasPdf;
@@ -176,11 +168,22 @@ const hasPdf = computed<boolean>(() => {
 });
 const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(props.tabId));
 const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0);
+const isHostErrorVisible = computed(() => (
+    hasWorkspaceChunkLoadError.value
+    && workspaceRequested.value
+    && !hasMountedWorkspace.value
+));
 const isHostLoaderVisible = computed(() => (
-    isDocumentOpenInFlight.value
+    !isHostErrorVisible.value && (
+        isDocumentOpenInFlight.value
     || (workspaceRequested.value && !hasMountedWorkspace.value)
+    )
 ));
 const loaderVariant = computed(() => {
+    if (isHostErrorVisible.value) {
+        return 'workspace-mount:error';
+    }
+
     if (!isHostLoaderVisible.value) {
         return 'none';
     }
@@ -233,8 +236,25 @@ watch(loaderVariant, (nextVariant, previousVariant) => {
         isDocumentOpenInFlight: isDocumentOpenInFlight.value,
         workspaceRequested: workspaceRequested.value,
         hasMountedWorkspace: hasMountedWorkspace.value,
+        hasWorkspaceChunkLoadError: hasWorkspaceChunkLoadError.value,
     });
 }, { immediate: true });
+
+watch(hasMountedWorkspace, (mounted) => {
+    if (mounted) {
+        workspaceChunkLoadError.value = null;
+    }
+});
+
+function handleRetryWorkspaceMount() {
+    BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Retrying DocumentWorkspace async chunk load', {tabId: props.tabId});
+
+    workspaceChunkLoadError.value = null;
+    workspaceRenderNonce.value += 1;
+    workspaceLoadPromise = null;
+    workspaceRequested.value = true;
+    void preloadWorkspaceComponent('manual-retry');
+}
 
 function workspaceHasPdf(workspace: IWorkspaceExpose) {
     const value = workspace.hasPdf;
@@ -292,6 +312,10 @@ async function preloadWorkspaceComponent(reason: string) {
 async function waitForWorkspaceMount(timeoutMs = WORKSPACE_MOUNT_TIMEOUT_MS) {
     const start = Date.now();
     while (Date.now() - start <= timeoutMs) {
+        if (hasWorkspaceChunkLoadError.value) {
+            return null;
+        }
+
         const workspace = mountedWorkspace.value;
         if (workspace) {
             return workspace;
@@ -305,6 +329,9 @@ async function waitForWorkspaceMount(timeoutMs = WORKSPACE_MOUNT_TIMEOUT_MS) {
 async function ensureWorkspaceLoaded(reason: string) {
     if (mountedWorkspace.value) {
         return mountedWorkspace.value;
+    }
+    if (hasWorkspaceChunkLoadError.value) {
+        return null;
     }
 
     const preloadSucceeded = await preloadWorkspaceComponent(`ensureWorkspaceLoaded:${reason}`);
@@ -330,10 +357,18 @@ async function ensureWorkspaceLoaded(reason: string) {
 
     const loadedWorkspace = await workspaceLoadPromise;
     if (!loadedWorkspace) {
-        BrowserLogger.error('workspace-host', 'Workspace load timed out', {
-            tabId: props.tabId,
-            reason,
-        });
+        if (hasWorkspaceChunkLoadError.value) {
+            BrowserLogger.error('workspace-host', 'Workspace load failed due to async chunk error', {
+                tabId: props.tabId,
+                reason,
+                error: workspaceChunkLoadError.value,
+            });
+        } else {
+            BrowserLogger.error('workspace-host', 'Workspace load timed out', {
+                tabId: props.tabId,
+                reason,
+            });
+        }
     } else {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace mount ready', {
             tabId: props.tabId,
@@ -369,6 +404,14 @@ async function withWorkspace(action: string, run: (workspace: IWorkspaceExpose) 
 
     let workspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded(action);
     if (!workspace) {
+        if (hasWorkspaceChunkLoadError.value) {
+            BrowserLogger.warn('workspace-host', 'Workspace unavailable due to async chunk load failure', {
+                tabId: props.tabId,
+                action,
+                error: workspaceChunkLoadError.value,
+            });
+            return;
+        }
         workspace = await waitForWorkspaceMount(WORKSPACE_MOUNT_RETRY_TIMEOUT_MS);
     }
     if (!workspace) {

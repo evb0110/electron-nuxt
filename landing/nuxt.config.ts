@@ -43,6 +43,15 @@ export default defineNuxtConfig({
     },
 
     icon: {clientBundle: {icons: [
+        'lucide:arrow-right',
+        'lucide:download',
+        'lucide:file-stack',
+        'lucide:folder-output',
+        'lucide:layout-panel-left',
+        'lucide:list',
+        'lucide:pen-tool',
+        'lucide:scissors-square-dashed-bottom',
+        'lucide:text-search',
         'circle-flags:gb',
         'circle-flags:ru',
         'circle-flags:fr',
@@ -51,6 +60,7 @@ export default defineNuxtConfig({
         'circle-flags:it',
         'circle-flags:pt',
         'circle-flags:nl',
+        'simple-icons:github',
     ]}},
 
     compatibilityDate: '2025-01-15',

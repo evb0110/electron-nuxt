@@ -34,6 +34,26 @@ import { getOcrToolPaths } from '@electron/ocr/paths';
 
 const log = createLogger('page-ops-ipc');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
+const workingCopyMutationQueue = new Map<string, Promise<void>>();
+
+function enqueueWorkingCopyMutation<T>(
+    workingCopyPath: string,
+    operation: () => Promise<T>,
+) {
+    const previousTail = workingCopyMutationQueue.get(workingCopyPath) ?? Promise.resolve();
+    const operationPromise = previousTail.then(operation);
+
+    const nextTail = operationPromise
+        .then(() => undefined, () => undefined)
+        .finally(() => {
+            if (workingCopyMutationQueue.get(workingCopyPath) === nextTail) {
+                workingCopyMutationQueue.delete(workingCopyPath);
+            }
+        });
+
+    workingCopyMutationQueue.set(workingCopyPath, nextTail);
+    return operationPromise;
+}
 
 function validateWorkingCopyPath(path: unknown): asserts path is string {
     if (!path || typeof path !== 'string' || path.trim() === '') {
@@ -87,7 +107,10 @@ async function handlePageOpsDelete(
         throw new Error('Invalid totalPages');
     }
 
-    const result = await deletePages(workingCopyPath, pages, totalPages);
+    const result = await enqueueWorkingCopyMutation(workingCopyPath, async () => {
+        validateWorkingCopyPath(workingCopyPath);
+        return deletePages(workingCopyPath, pages, totalPages);
+    });
     return {
         success: true,
         pageCount: result.pageCount,
@@ -145,7 +168,10 @@ async function handlePageOpsReorder(
     validateWorkingCopyPath(workingCopyPath);
     validatePageNumbers(newOrder, 'reorderPages');
 
-    const result = await reorderPages(workingCopyPath, newOrder);
+    const result = await enqueueWorkingCopyMutation(workingCopyPath, async () => {
+        validateWorkingCopyPath(workingCopyPath);
+        return reorderPages(workingCopyPath, newOrder);
+    });
     return {
         success: true,
         pageCount: result.pageCount,
@@ -193,7 +219,10 @@ async function handlePageOpsInsert(
         };
     }
 
-    await insertPagesFromSourcePaths(workingCopyPath, totalPages, result.filePaths, afterPage);
+    await enqueueWorkingCopyMutation(workingCopyPath, async () => {
+        validateWorkingCopyPath(workingCopyPath);
+        await insertPagesFromSourcePaths(workingCopyPath, totalPages, result.filePaths, afterPage);
+    });
     return {success: true};
 }
 
@@ -324,7 +353,10 @@ async function handlePageOpsRotate(
         throw new Error(`Invalid rotation angle: ${angle}`);
     }
 
-    await rotatePages(workingCopyPath, pages, angle);
+    await enqueueWorkingCopyMutation(workingCopyPath, async () => {
+        validateWorkingCopyPath(workingCopyPath);
+        await rotatePages(workingCopyPath, pages, angle);
+    });
     return {success: true};
 }
 
@@ -347,7 +379,10 @@ async function handlePageOpsInsertFile(
         throw new Error('Invalid source paths');
     }
 
-    await insertPagesFromSourcePaths(workingCopyPath, totalPages, sourcePaths, afterPage);
+    await enqueueWorkingCopyMutation(workingCopyPath, async () => {
+        validateWorkingCopyPath(workingCopyPath);
+        await insertPagesFromSourcePaths(workingCopyPath, totalPages, sourcePaths, afterPage);
+    });
     return {success: true};
 }
 

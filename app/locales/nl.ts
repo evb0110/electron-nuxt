@@ -187,6 +187,7 @@ export default {
     },
     'common': {
         'loading': 'Laden...',
+        'retry': 'Opnieuw proberen',
         'cancel': 'Annuleren',
         'convert': 'Converteren',
         'unitDpi': 'DPI',
@@ -521,6 +522,11 @@ export default {
         'djvu': {
             'open': 'DjVu-conversie mislukt',
             'convert': 'Conversie mislukt',
+        },
+        'workspace': {
+            'loadTitle': 'Kan de documentwerkruimte niet laden',
+            'loadDescription': 'Probeer de werkruimte opnieuw te laden.',
+            'loadDescriptionWithMessage': 'Probeer de werkruimte opnieuw te laden. ({message})',
         },
     },
     'export': {
