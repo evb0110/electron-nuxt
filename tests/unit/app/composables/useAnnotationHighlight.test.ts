@@ -65,7 +65,9 @@ function createFakePageContainer(page: number, rect: IRect): IFakePageElement {
 function createFakeViewerContainer(pages: IFakePageElement[]): IFakeViewerContainer {
     return {
         querySelectorAll: (selector: string) => selector === '.page_container' ? pages : [],
-        contains: (target: IFakePageElement | null) => Boolean(target && pages.includes(target)),
+        contains: (target: IFakePageElement | null) => Boolean(
+            target && pages.some(page => page === target || page.dataset.page === target.dataset.page),
+        ),
     };
 }
 
@@ -107,7 +109,7 @@ function createTarget(page: IFakePageElement | null): IFakeTargetElement {
 }
 
 describe('useAnnotationHighlight resolvePagePointTarget', () => {
-    it('prefers the clicked target page container over coordinate-only fallback', () => {
+    it('prefers geometry fallback when target page conflicts with pointer coordinates', () => {
         const page1 = createFakePageContainer(1, {
             left: 0,
             top: 0,
@@ -132,8 +134,8 @@ describe('useAnnotationHighlight resolvePagePointTarget', () => {
             asElement(createTarget(page1)),
         );
 
-        expect(resolved?.pageNumber).toBe(1);
-        expect(resolved?.pageContainer).toBe(page1);
+        expect(resolved?.pageNumber).toBe(2);
+        expect(resolved?.pageContainer).toBe(page2);
     });
 
     it('falls back to coordinate-based page resolution when target is unavailable', () => {

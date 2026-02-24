@@ -40,6 +40,8 @@ export interface IPdfjsEditor {
     fixAndSetPosition?: () => void;
     parent?: { div?: HTMLElement };
     __evbPendingAnchorRect?: IAnnotationMarkerRect | null;
+    __evbResolvedPageIndex?: number;
+    __evbPlacementAttemptId?: string | null;
     getData?: () => {
         modificationDate?: string | null;
         creationDate?: string | null;

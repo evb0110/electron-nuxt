@@ -678,8 +678,18 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             return null;
         }
         const pageContainer = targetElement.closest<HTMLElement>('.page_container');
-        if (!pageContainer || !container.contains(pageContainer)) {
+        if (!pageContainer) {
             return null;
+        }
+        if (!container.contains(pageContainer)) {
+            const targetPageNumber = parsePageNumberFromContainer(pageContainer);
+            if (!targetPageNumber) {
+                return null;
+            }
+            const matchingPage = Array.from(container.querySelectorAll<HTMLElement>('.page_container'))
+                .find(page => parsePageNumberFromContainer(page) === targetPageNumber)
+                ?? null;
+            return matchingPage;
         }
         return pageContainer;
     }
@@ -828,25 +838,6 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         }
         const pageX = clamp01((clientX - rect.left) / rect.width);
         const pageY = clamp01((clientY - rect.top) / rect.height);
-        if (diagnostics) {
-            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note target page', {
-                attemptId: diagnostics.attemptId ?? null,
-                source: diagnostics.source ?? null,
-                selectedSource,
-                pageNumber,
-                pageX: roundForLog(pageX, 4),
-                pageY: roundForLog(pageY, 4),
-                byTargetPage,
-                byElementFromPointPage,
-                byGeometryPage,
-                hasTargetConflict,
-                clickTarget: summarizeElementForLog(targetElement ?? null),
-                pointElement: summarizeElementForLog(documentPointResolution.pointElement),
-                renderedPageCandidates: geometryResolution.candidates,
-                visiblePageWindow: summarizeVisiblePageWindowForLog(),
-                clickMeta: diagnostics.clickMeta ?? null,
-            });
-        }
         return {
             pageContainer,
             pageNumber,
@@ -986,16 +977,6 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         const uiManager = annotationUiManager.value;
         const diagnosticsContext = pointOptions.diagnosticsContext;
         if (!container || !uiManager) {
-            if (diagnosticsContext) {
-                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint aborted: viewer container or uiManager is missing', {
-                    attemptId: diagnosticsContext.attemptId ?? null,
-                    pageNumber,
-                    pageX: roundForLog(pageX, 4),
-                    pageY: roundForLog(pageY, 4),
-                    hasContainer: Boolean(container),
-                    hasUiManager: Boolean(uiManager),
-                });
-            }
             return false;
         }
 
@@ -1005,44 +986,11 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
 
         const pageContainer = container.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
         if (!pageContainer) {
-            if (diagnosticsContext) {
-                const visiblePageWindow = summarizeVisiblePageWindowForLog();
-                const renderedPages = Array.from(container.querySelectorAll<HTMLElement>('.page_container'))
-                    .slice(0, MAX_PAGE_CANDIDATE_LOG_ENTRIES)
-                    .map((page) => ({
-                        pageNumber: parsePageNumberFromContainer(page),
-                        rect: toRectLog(page.getBoundingClientRect()),
-                    }));
-                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint aborted: requested page is not currently rendered', {
-                    attemptId: diagnosticsContext.attemptId ?? null,
-                    requestedPageNumber: pageNumber,
-                    currentPage: currentPage.value,
-                    renderedPages,
-                    visiblePageWindow,
-                    viewerScrollTop: roundForLog(container.scrollTop),
-                    viewerScrollLeft: roundForLog(container.scrollLeft),
-                });
-            }
             return false;
         }
         const pageRect = pageContainer.getBoundingClientRect();
         const pageClientX = pageRect.left + clamp01(pageX) * pageRect.width;
         const pageClientY = pageRect.top + clamp01(pageY) * pageRect.height;
-        if (diagnosticsContext) {
-            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint started', {
-                attemptId: diagnosticsContext.attemptId ?? null,
-                source: diagnosticsContext.source ?? null,
-                requestedPageNumber: pageNumber,
-                pageRect: toRectLog(pageRect),
-                pageX: roundForLog(pageX, 4),
-                pageY: roundForLog(pageY, 4),
-                pageClientX: roundForLog(pageClientX),
-                pageClientY: roundForLog(pageClientY),
-                currentPage: currentPage.value,
-                visiblePageWindow: summarizeVisiblePageWindowForLog(),
-                clickMeta: diagnosticsContext.clickMeta ?? null,
-            });
-        }
 
         if (pointOptions.preferTextAnchor ?? true) {
             const range = buildRangeFromPagePoint({
@@ -1054,12 +1002,6 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             if (range) {
                 const created = await highlightSelectionInternal(true, range);
                 if (created) {
-                    if (diagnosticsContext) {
-                        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint completed via text-anchor path', {
-                            attemptId: diagnosticsContext.attemptId ?? null,
-                            pageNumber,
-                        });
-                    }
                     return true;
                 }
             }
@@ -1105,12 +1047,6 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             await uiManager.waitForEditorsRendered(pageNumber);
             const layer = uiManager.getLayer(pageNumber - 1) ?? uiManager.currentLayer;
             if (!layer?.div) {
-                if (diagnosticsContext) {
-                    BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint aborted: annotation layer div missing', {
-                        attemptId: diagnosticsContext.attemptId ?? null,
-                        pageNumber,
-                    });
-                }
                 return false;
             }
 
@@ -1125,23 +1061,9 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             };
             layer.div.dispatchEvent(new PointerEvent('pointerdown', eventInit));
             layer.div.dispatchEvent(new PointerEvent('pointerup', eventInit));
-            if (diagnosticsContext) {
-                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Dispatched synthetic pointer events for quick-note placement', {
-                    attemptId: diagnosticsContext.attemptId ?? null,
-                    pageNumber,
-                    clientX: roundForLog(eventInit.clientX ?? 0),
-                    clientY: roundForLog(eventInit.clientY ?? 0),
-                });
-            }
 
             const resolvedEditor = await resolveCreatedEditor(null);
             if (!resolvedEditor) {
-                if (diagnosticsContext) {
-                    BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint aborted: failed to resolve created editor', {
-                        attemptId: diagnosticsContext.attemptId ?? null,
-                        pageNumber,
-                    });
-                }
                 return false;
             }
             resolvedEditor.__evbResolvedPageIndex = pageIndex;
@@ -1159,24 +1081,10 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             const clickMarkerRect = markerRectFromPoint(pageX, pageY);
             resolvedEditor.__evbPendingAnchorRect = clickMarkerRect;
             commentSync.pendingCommentEditorKeys.add(identity.getEditorPendingKey(resolvedEditor, pageIndex));
-            if (diagnosticsContext) {
-                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Prepared pending quick-note anchor rect', {
-                    attemptId: diagnosticsContext.attemptId ?? null,
-                    pageNumber,
-                    clickMarkerRect,
-                    editorPendingKey: identity.getEditorPendingKey(resolvedEditor, pageIndex),
-                });
-            }
 
             const resolvedEditorWithComment = resolvedEditor as IPdfjsEditor & { editComment?: () => void };
             if (typeof resolvedEditorWithComment.editComment === 'function') {
                 resolvedEditorWithComment.editComment();
-                if (diagnosticsContext) {
-                    BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Opened editor comment dialog through editComment()', {
-                        attemptId: diagnosticsContext.attemptId ?? null,
-                        pageNumber,
-                    });
-                }
             } else {
                 const summary = commentSync.toEditorSummary(resolvedEditor, pageIndex, getCommentText(resolvedEditor));
                 let finalMarkerRect = summary.markerRect ?? clickMarkerRect;
@@ -1191,21 +1099,6 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 const summaryPageNumber = Number.isFinite(summary.pageNumber)
                     ? summary.pageNumber
                     : (summary.pageIndex + 1);
-                if (diagnosticsContext) {
-                    BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note summary before opening note window', {
-                        attemptId: diagnosticsContext.attemptId ?? null,
-                        requestedPageNumber: pageNumber,
-                        summaryPageNumber,
-                        summaryPageIndex: summary.pageIndex,
-                        summaryStableKey: summary.stableKey,
-                        summarySource: summary.source,
-                        summaryMarkerRect: summary.markerRect ?? null,
-                        clickMarkerRect,
-                        finalMarkerRect,
-                        centerDistance: roundForLog(centerDistance, 5),
-                        shouldUseClickAnchor,
-                    });
-                }
                 if (diagnosticsContext && summaryPageNumber !== pageNumber) {
                     BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page mismatch: summary page differs from requested page', {
                         attemptId: diagnosticsContext.attemptId ?? null,
@@ -1218,12 +1111,6 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 emitAnnotationOpenNote({
                     ...summary,
                     markerRect: finalMarkerRect,
-                });
-            }
-            if (diagnosticsContext) {
-                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint completed successfully', {
-                    attemptId: diagnosticsContext.attemptId ?? null,
-                    pageNumber,
                 });
             }
             return true;
@@ -1247,22 +1134,6 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         if (isPlacingComment.value === active) {
             return;
         }
-        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Comment placement mode changed', {
-            active,
-            currentPage: currentPage.value,
-            annotationTool: annotationTool.value,
-            stack: (() => {
-                try {
-                    return (new Error('note-placement-mode-change'))
-                        .stack
-                        ?.split('\n')
-                        .slice(1, 5)
-                        .map(entry => entry.trim());
-                } catch {
-                    return null;
-                }
-            })(),
-        });
         isPlacingComment.value = active;
         emitAnnotationNotePlacementChange(active);
     }
@@ -1284,30 +1155,167 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         const attemptId = diagnosticsContext?.attemptId
             ?? `note-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
         const viewer = viewerContainer.value;
-        const viewerRect = viewer?.getBoundingClientRect() ?? null;
+        const viewerScrollSnapshot = (
+            viewer
+            && typeof viewer.scrollTop === 'number'
+            && typeof viewer.scrollLeft === 'number'
+        )
+            ? {
+                top: viewer.scrollTop,
+                left: viewer.scrollLeft,
+                clientHeight: viewer.clientHeight,
+                clientWidth: viewer.clientWidth,
+            }
+            : null;
         const enrichedDiagnosticsContext: INotePlacementDiagnosticsContext = {
             ...diagnosticsContext,
             attemptId,
         };
-        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note placeCommentAtClientPoint invoked', {
-            attemptId,
-            source: diagnosticsContext?.source ?? null,
-            clickCapturedAtMs: diagnosticsContext?.clickCapturedAtMs ?? null,
-            nowMs: Date.now(),
-            currentPage: currentPage.value,
-            annotationTool: annotationTool.value,
-            isPlacingComment: isPlacingComment.value,
-            clientX: roundForLog(clientX),
-            clientY: roundForLog(clientY),
-            clickTarget: summarizeElementForLog(targetElement ?? null),
-            viewerRect: viewerRect ? toRectLog(viewerRect) : null,
-            viewerScrollTop: viewer?.scrollTop ?? null,
-            viewerScrollLeft: viewer?.scrollLeft ?? null,
-            clickMeta: diagnosticsContext?.clickMeta ?? null,
-        });
+        const monitorViewerJumpAfterPlacement = (created: boolean) => {
+            if (
+                !viewer
+                || !viewerScrollSnapshot
+                || typeof viewer.scrollTop !== 'number'
+                || typeof viewer.scrollLeft !== 'number'
+            ) {
+                return;
+            }
+
+            const topThreshold = Math.max(160, viewerScrollSnapshot.clientHeight * 0.25);
+            const leftThreshold = Math.max(80, viewerScrollSnapshot.clientWidth * 0.2);
+            const timeouts: Array<ReturnType<typeof setTimeout>> = [];
+            const removeListeners: Array<() => void> = [];
+            let userInteracted = false;
+            let restoreCount = 0;
+            let lastDriftTop = 0;
+            let lastDriftLeft = 0;
+
+            const release = () => {
+                timeouts.splice(0).forEach(timeoutId => clearTimeout(timeoutId));
+                removeListeners.splice(0).forEach(dispose => dispose());
+            };
+
+            const scheduleTimeout = (callback: () => void, delayMs: number) => {
+                const timeoutId = setTimeout(callback, delayMs);
+                timeouts.push(timeoutId);
+            };
+
+            const restoreViewerScroll = (phase: string) => {
+                restoreCount += 1;
+                viewer.scrollTop = viewerScrollSnapshot.top;
+                viewer.scrollLeft = viewerScrollSnapshot.left;
+                if (typeof window !== 'undefined') {
+                    window.requestAnimationFrame(() => {
+                        viewer.scrollTop = viewerScrollSnapshot.top;
+                        viewer.scrollLeft = viewerScrollSnapshot.left;
+                    });
+                }
+                scheduleTimeout(() => {
+                    viewer.scrollTop = viewerScrollSnapshot.top;
+                    viewer.scrollLeft = viewerScrollSnapshot.left;
+                }, 90);
+                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Detected large viewport jump after quick-note placement; restoring viewer scroll', {
+                    attemptId,
+                    phase,
+                    restoreCount,
+                    target: {
+                        top: roundForLog(viewerScrollSnapshot.top),
+                        left: roundForLog(viewerScrollSnapshot.left),
+                    },
+                    current: {
+                        top: roundForLog(viewer.scrollTop),
+                        left: roundForLog(viewer.scrollLeft),
+                    },
+                    driftTop: roundForLog(lastDriftTop),
+                    driftLeft: roundForLog(lastDriftLeft),
+                    topThreshold: roundForLog(topThreshold),
+                    leftThreshold: roundForLog(leftThreshold),
+                    created,
+                });
+            };
+
+            const sample = (phase: string) => {
+                if (!viewer) {
+                    return;
+                }
+                lastDriftTop = viewer.scrollTop - viewerScrollSnapshot.top;
+                lastDriftLeft = viewer.scrollLeft - viewerScrollSnapshot.left;
+                const shouldRestore = (
+                    Math.abs(lastDriftTop) >= topThreshold
+                    || Math.abs(lastDriftLeft) >= leftThreshold
+                );
+
+                if (shouldRestore && !userInteracted) {
+                    restoreViewerScroll(phase);
+                }
+            };
+
+            const registerUserIntentCancel = (
+                eventName: 'wheel' | 'touchstart' | 'pointerdown',
+            ) => {
+                const handler = (event: Event) => {
+                    if ('isTrusted' in event && event.isTrusted === false) {
+                        return;
+                    }
+                    userInteracted = true;
+                };
+                viewer.addEventListener(eventName, handler, {
+                    passive: true,
+                    once: true,
+                });
+                removeListeners.push(() => {
+                    viewer.removeEventListener(eventName, handler);
+                });
+            };
+
+            registerUserIntentCancel('wheel');
+            registerUserIntentCancel('touchstart');
+            registerUserIntentCancel('pointerdown');
+
+            sample('t+0ms');
+            if (typeof window !== 'undefined') {
+                window.requestAnimationFrame(() => sample('raf'));
+            }
+            const checkpoints = [
+                {
+                    phase: 't+36ms',
+                    delayMs: 36,
+                },
+                {
+                    phase: 't+90ms',
+                    delayMs: 90,
+                },
+                {
+                    phase: 't+180ms',
+                    delayMs: 180,
+                },
+                {
+                    phase: 't+340ms',
+                    delayMs: 340,
+                },
+                {
+                    phase: 't+620ms',
+                    delayMs: 620,
+                },
+                {
+                    phase: 't+980ms',
+                    delayMs: 980,
+                },
+                {
+                    phase: 't+1360ms',
+                    delayMs: 1360,
+                },
+            ];
+            checkpoints.forEach((checkpoint) => {
+                scheduleTimeout(() => sample(checkpoint.phase), checkpoint.delayMs);
+            });
+            scheduleTimeout(() => {
+                release();
+            }, 1500);
+        };
+
         const target = resolvePagePointTarget(clientX, clientY, targetElement, enrichedDiagnosticsContext);
         if (!target) {
-            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'placeCommentAtClientPoint aborted: no resolved target', {attemptId});
             return false;
         }
         const created = await commentAtPoint(
@@ -1319,16 +1327,10 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 diagnosticsContext: enrichedDiagnosticsContext,
             },
         );
-        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'placeCommentAtClientPoint finished', {
-            attemptId,
-            created,
-            resolvedPageNumber: target.pageNumber,
-            resolvedPageX: roundForLog(target.pageX, 4),
-            resolvedPageY: roundForLog(target.pageY, 4),
-        });
         if (created) {
             setCommentPlacementMode(false);
         }
+        monitorViewerJumpAfterPlacement(created);
         return created;
     }
 

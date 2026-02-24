@@ -163,6 +163,42 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
         dialogElement.setAttribute('aria-hidden', 'true');
         dialogElement.style.display = 'none';
 
+        function resolveEditorPageIndex(editor: IPdfjsEditor) {
+            const explicitResolvedPageIndex = Number.isFinite(editor.__evbResolvedPageIndex)
+                ? (editor.__evbResolvedPageIndex as number)
+                : null;
+            if (
+                explicitResolvedPageIndex !== null
+                && explicitResolvedPageIndex >= 0
+                && explicitResolvedPageIndex < Math.max(1, numPages.value)
+            ) {
+                return explicitResolvedPageIndex;
+            }
+
+            const pageFromDom = (() => {
+                const pageContainer = editor.div?.closest<HTMLElement>('.page_container');
+                const pageNumber = pageContainer?.dataset.page
+                    ? Number(pageContainer.dataset.page)
+                    : Number.NaN;
+                if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
+                    return null;
+                }
+                return pageNumber - 1;
+            })();
+            if (pageFromDom !== null) {
+                return pageFromDom;
+            }
+
+            const parentPageIndex = Number.isFinite(editor.parentPageIndex)
+                ? (editor.parentPageIndex as number)
+                : null;
+            if (parentPageIndex !== null) {
+                return parentPageIndex;
+            }
+
+            return currentPage.value - 1;
+        }
+
         return {
             dialogElement,
             setSidebarUiManager: (_uiManager: AnnotationEditorUIManager) => {},
@@ -176,13 +212,31 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
 
                 const identity = getIdentity();
                 const commentSync = getCommentSync();
+                const pageIndex = resolveEditorPageIndex(editor);
                 const summary = identity.hydrateSummaryFromMemory(
                     commentSync.toEditorSummary(
                         editor,
-                        editor.parentPageIndex ?? currentPage.value - 1,
+                        pageIndex,
                         getCommentText(editor),
                     ),
                 );
+                const parentPageIndex = Number.isFinite(editor.parentPageIndex)
+                    ? (editor.parentPageIndex as number)
+                    : null;
+                const placementAttemptId = typeof editor.__evbPlacementAttemptId === 'string'
+                    ? editor.__evbPlacementAttemptId
+                    : null;
+                if (parentPageIndex !== null && parentPageIndex !== pageIndex) {
+                    BrowserLogger.warn('note-placement', 'Editor bridge adjusted page index before opening note', {
+                        attemptId: placementAttemptId,
+                        editorUid: editor.uid ?? null,
+                        annotationId: editor.annotationElementId ?? null,
+                        parentPageIndex,
+                        resolvedPageIndex: pageIndex,
+                        resolvedPageNumber: pageIndex + 1,
+                        currentPage: currentPage.value,
+                    });
+                }
                 commentSync.setActiveCommentStableKey(summary.stableKey);
                 emitAnnotationOpenNote(summary);
             },

@@ -106,6 +106,12 @@ interface ICrudHighlight {
         clientX: number,
         clientY: number,
         targetElement?: HTMLElement | null,
+        diagnosticsContext?: {
+            attemptId?: string;
+            source?: string;
+            clickCapturedAtMs?: number;
+            clickMeta?: Record<string, unknown>;
+        },
     ) => Promise<boolean>;
     findPageContainerFromClientPoint: (clientX: number, clientY: number) => HTMLElement | null;
     buildAnnotationContextMenuPayload: (
@@ -176,6 +182,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
     } = options;
 
     const focusPulseTimers: Array<ReturnType<typeof useTimeoutFn>> = [];
+    let notePlacementAttemptCounter = 0;
 
     tryOnScopeDispose(() => {
         focusPulseTimers.forEach(t => t.stop());
@@ -184,6 +191,11 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
 
     function logCrudDebug(message: string, error: unknown) {
         BrowserLogger.debug('annotations', `${message}: ${errorToLogText(error)}`);
+    }
+
+    function nextNotePlacementAttemptId() {
+        notePlacementAttemptCounter += 1;
+        return `note-${Date.now().toString(36)}-${notePlacementAttemptCounter}`;
     }
 
     function setActiveCommentAndSync(stableKey: string | null) {
@@ -1005,8 +1017,23 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         const clickTarget = event.target;
 
         if (highlight.isPlacingComment.value) {
+            const attemptId = nextNotePlacementAttemptId();
+            const placementClickMeta = {
+                button: event.button,
+                buttons: event.buttons,
+                detail: event.detail,
+                ctrlKey: event.ctrlKey,
+                shiftKey: event.shiftKey,
+                altKey: event.altKey,
+                metaKey: event.metaKey,
+            };
             runGuardedTask(
-                () => highlight.placeCommentAtClientPoint(event.clientX, event.clientY, clickTarget),
+                () => highlight.placeCommentAtClientPoint(event.clientX, event.clientY, clickTarget, {
+                    attemptId,
+                    source: 'annotation-comment-click',
+                    clickCapturedAtMs: Date.now(),
+                    clickMeta: placementClickMeta,
+                }),
                 {
                     scope: 'annotations',
                     message: 'Failed to place annotation comment at pointer location', 
