@@ -1,0 +1,149 @@
+import {
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import { usePdfSearch } from '@app/composables/usePdfSearch';
+import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
+
+interface IProgressPayload {
+    requestId: string;
+    processed: number;
+    total: number;
+}
+
+const mocks = vi.hoisted(() => {
+    let progressHandler: ((payload: IProgressPayload) => void) | null = null;
+
+    const api = {
+        pdfSearch: vi.fn(),
+        pdfSearchCancel: vi.fn(async () => true),
+        pdfSearchResetCache: vi.fn(async () => true),
+        onPdfSearchProgress: vi.fn((handler: (payload: IProgressPayload) => void) => {
+            progressHandler = handler;
+            return () => {
+                progressHandler = null;
+            };
+        }),
+    };
+
+    return {
+        api,
+        hasElectronAPI: vi.fn(() => true),
+        emitProgress: (payload: IProgressPayload) => {
+            progressHandler?.(payload);
+        },
+    };
+});
+
+vi.mock('@app/utils/electron', () => ({
+    hasElectronAPI: () => mocks.hasElectronAPI(),
+    getElectronAPI: () => mocks.api,
+}));
+
+vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+}}));
+
+describe('usePdfSearch', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.clearAllMocks();
+
+        mocks.api.pdfSearch.mockResolvedValue({
+            truncated: false,
+            results: [
+                {
+                    pageNumber: 2,
+                    matchIndex: 0,
+                    startOffset: 10,
+                    endOffset: 20,
+                    excerpt: {
+                        before: 'prefix ',
+                        match: 'term',
+                        after: ' suffix',
+                        prefix: false,
+                        suffix: false,
+                    },
+                },
+                {
+                    pageNumber: 2,
+                    matchIndex: 1,
+                    startOffset: 40,
+                    endOffset: 50,
+                    excerpt: {
+                        before: 'a ',
+                        match: 'term',
+                        after: ' b',
+                        prefix: false,
+                        suffix: false,
+                    },
+                },
+            ],
+        });
+    });
+
+    it('returns false and clears state for short queries', async () => {
+        const search = usePdfSearch();
+
+        const applied = await search.search('a', '/tmp/doc.pdf', 20);
+
+        expect(applied).toBe(false);
+        expect(search.results.value).toEqual([]);
+        expect(search.currentResultIndex.value).toBe(-1);
+        expect(mocks.api.pdfSearch).not.toHaveBeenCalled();
+    });
+
+    it('runs debounced backend search and builds page matches', async () => {
+        const search = usePdfSearch();
+
+        const promise = search.search('term', '/tmp/doc.pdf', 20);
+        await Promise.resolve();
+        expect(search.isSearching.value).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        const applied = await promise;
+
+        expect(applied).toBe(true);
+        expect(mocks.api.pdfSearch).toHaveBeenCalledWith('/tmp/doc.pdf', 'term', {
+            requestId: expect.stringContaining('search-'),
+            pageCount: 20,
+        });
+        expect(search.results.value).toHaveLength(2);
+        expect(search.totalMatches.value).toBe(2);
+        expect(search.currentResultIndex.value).toBe(0);
+        expect(search.getMatchesForPage(1)?.matches).toHaveLength(2);
+
+        mocks.emitProgress({
+            requestId: 'other-request',
+            processed: 1,
+            total: 10,
+        });
+        expect(search.searchProgress.value).toBeUndefined();
+    });
+
+    it('navigates matches and resets backend cache', async () => {
+        const search = usePdfSearch();
+
+        const promise = search.search('term', '/tmp/doc.pdf', 20);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await promise;
+
+        search.goToResult('next');
+        expect(search.currentResultIndex.value).toBe(1);
+
+        search.goToResult('next');
+        expect(search.currentResultIndex.value).toBe(0);
+
+        search.goToResult('previous');
+        expect(search.currentResultIndex.value).toBe(1);
+
+        search.resetSearchCache();
+        expect(search.results.value).toEqual([]);
+        expect(mocks.api.pdfSearchResetCache).toHaveBeenCalledOnce();
+    });
+});

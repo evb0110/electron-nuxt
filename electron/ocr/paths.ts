@@ -2,7 +2,7 @@ import {
     existsSync,
     readdirSync,
 } from 'fs';
-import { execSync } from 'child_process';
+import { spawn } from 'child_process';
 import {
     dirname,
     join,
@@ -118,26 +118,90 @@ function getBinaryPath(dir: string, name: string, optional = false): string {
     return findOnSystemPath(name);
 }
 
-function getToolVersion(path: string, versionFlag = '--version'): string | undefined {
-    if (!path || !existsSync(path)) {
-        return undefined;
-    }
-    try {
-        const output = execSync(`"${path}" ${versionFlag}`, {
-            encoding: 'utf-8',
-            timeout: 5000,
+async function runProcess(
+    command: string,
+    args: string[],
+    timeoutMs = 5_000,
+) {
+    return new Promise<{
+        exitCode: number;
+        stdout: string;
+        stderr: string;
+    }>((resolve) => {
+        const proc = spawn(command, args, {
+            shell: false,
+            windowsHide: true,
             stdio: [
-                'pipe',
+                'ignore',
                 'pipe',
                 'pipe',
             ],
         });
-        // Extract version number from first line
-        const match = output.match(/(\d+\.\d+(?:\.\d+)?)/);
-        return match?.[1];
-    } catch {
+
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+        const timeoutHandle = setTimeout(() => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            proc.kill('SIGKILL');
+            resolve({
+                exitCode: -1,
+                stdout,
+                stderr: `${stderr}\nProcess timed out`,
+            });
+        }, timeoutMs);
+
+        proc.stdout?.on('data', (data: Buffer) => {
+            stdout += data.toString();
+        });
+        proc.stderr?.on('data', (data: Buffer) => {
+            stderr += data.toString();
+        });
+
+        proc.on('error', (error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            clearTimeout(timeoutHandle);
+            resolve({
+                exitCode: -1,
+                stdout,
+                stderr: `${stderr}\n${error.message}`,
+            });
+        });
+
+        proc.on('close', (code) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            clearTimeout(timeoutHandle);
+            resolve({
+                exitCode: typeof code === 'number' ? code : -1,
+                stdout,
+                stderr,
+            });
+        });
+    });
+}
+
+async function getToolVersion(path: string, versionFlag = '--version'): Promise<string | undefined> {
+    if (!path || !existsSync(path)) {
         return undefined;
     }
+
+    const result = await runProcess(path, [versionFlag], 5_000);
+    if (result.exitCode !== 0) {
+        return undefined;
+    }
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    const match = output.match(/(\d+\.\d+(?:\.\d+)?)/);
+    return match?.[1];
 }
 
 export function getOcrPaths(): IOcrPaths {
@@ -201,27 +265,15 @@ export function getOcrToolPaths(): IOcrToolPaths {
     };
 }
 
-function checkToolExists(path: string): boolean {
+async function checkToolExists(path: string): Promise<boolean> {
     // If path contains a directory separator, check if file exists
     if (path.includes('/') || path.includes('\\')) {
         return existsSync(path);
     }
-    // Otherwise it's a system PATH reference - try to find it
-    try {
-        const cmd = process.platform === 'win32' ? 'where' : 'which';
-        execSync(`${cmd} "${path}"`, {
-            encoding: 'utf-8',
-            timeout: 5000,
-            stdio: [
-                'pipe',
-                'pipe',
-                'pipe',
-            ],
-        });
-        return true;
-    } catch {
-        return false;
-    }
+
+    const cmd = process.platform === 'win32' ? 'where' : 'which';
+    const result = await runProcess(cmd, [path], 5_000);
+    return result.exitCode === 0;
 }
 
 function getAvailableLanguages(tessdataPath: string): string[] {
@@ -243,8 +295,8 @@ export async function validateOcrTools(): Promise<IToolValidationResult> {
     const errors: string[] = [];
 
     // Check tesseract
-    const tesseractFound = checkToolExists(paths.tesseract);
-    const tesseractVersion = tesseractFound ? getToolVersion(paths.tesseract) : undefined;
+    const tesseractFound = await checkToolExists(paths.tesseract);
+    const tesseractVersion = tesseractFound ? await getToolVersion(paths.tesseract) : undefined;
     if (!tesseractFound) {
         errors.push(`Tesseract binary not found: ${paths.tesseract}`);
     }
@@ -259,13 +311,13 @@ export async function validateOcrTools(): Promise<IToolValidationResult> {
     }
 
     // Check pdftoppm
-    const pdftoppmFound = checkToolExists(paths.pdftoppm);
+    const pdftoppmFound = await checkToolExists(paths.pdftoppm);
     if (!pdftoppmFound) {
         errors.push(`pdftoppm not found: ${paths.pdftoppm} (install Poppler or bundle it)`);
     }
 
     // Check pdftotext
-    const pdftotextFound = checkToolExists(paths.pdftotext);
+    const pdftotextFound = await checkToolExists(paths.pdftotext);
     if (!pdftotextFound) {
         errors.push(`pdftotext not found: ${paths.pdftotext} (install Poppler or bundle it)`);
     }
@@ -279,7 +331,7 @@ export async function validateOcrTools(): Promise<IToolValidationResult> {
     }
 
     // Check qpdf
-    const qpdfFound = checkToolExists(paths.qpdf);
+    const qpdfFound = await checkToolExists(paths.qpdf);
     if (!qpdfFound) {
         errors.push(`qpdf not found: ${paths.qpdf} (install qpdf or bundle it)`);
     }

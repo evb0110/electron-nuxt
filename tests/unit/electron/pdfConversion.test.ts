@@ -74,6 +74,10 @@ vi.mock('worker_threads', () => ({Worker: class {
     removeAllListeners() {
         return this;
     }
+
+    terminate() {
+        return Promise.resolve(0);
+    }
 }}));
 
 vi.mock('fs/promises', () => ({ readFile: mocks.readFile }));

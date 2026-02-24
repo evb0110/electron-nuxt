@@ -60,7 +60,7 @@
                         :result="entry.data"
                         :is-active="entry.index === currentResultIndex"
                         :page-labels="pageLabels"
-                        @click="$emit('goToResult', entry.index)"
+                        @activate="$emit('goToResult', entry.index)"
                     />
                 </div>
             </div>

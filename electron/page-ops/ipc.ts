@@ -33,6 +33,7 @@ import { runCommand } from '@electron/ocr/worker/run-command';
 import { getOcrToolPaths } from '@electron/ocr/paths';
 
 const log = createLogger('page-ops-ipc');
+const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 
 function validateWorkingCopyPath(path: unknown): asserts path is string {
     if (!path || typeof path !== 'string' || path.trim() === '') {
@@ -285,7 +286,10 @@ async function insertPagesFromSourcePaths(
             '--',
             tempPath,
         ];
-        await runCommand(qpdf, args);
+        await runCommand(qpdf, args, {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            commandLabel: 'qpdf(insert-pages)',
+        });
         await rename(tempPath, workingCopyPath);
     } catch (err) {
         try {

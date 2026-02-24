@@ -1,6 +1,5 @@
 import {
     ref,
-    shallowRef,
     computed,
     type Ref,
 } from 'vue';
@@ -8,38 +7,28 @@ import {
     syncRef,
     useStorage,
 } from '@vueuse/core';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type {
-    TFitMode,
-    TPdfViewMode,
-} from '@app/types/shared';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
-import type {
-    IAnnotationCommentSummary,
-    IShapeAnnotation,
-} from '@app/types/annotations';
 import { STORAGE_KEYS } from '@app/constants/storage-keys';
-import { useSidebarResize } from '@app/composables/useSidebarResize';
 import { useAnnotationContextMenu } from '@app/composables/pdf/useAnnotationContextMenu';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { usePageContextMenu } from '@app/composables/pdf/usePageContextMenu';
 import { useAnnotationNoteWindows } from '@app/composables/pdf/useAnnotationNoteWindows';
 import { usePageLabelState } from '@app/composables/pdf/usePageLabelState';
 import { useBookmarkState } from '@app/composables/pdf/useBookmarkState';
-import { useDropdownManager } from '@app/composables/useDropdownManager';
 import { usePdfHistory } from '@app/composables/usePdfHistory';
 import { usePageAnnotationTools } from '@app/composables/usePageAnnotationTools';
-import { usePageSearch } from '@app/composables/usePageSearch';
 import { usePageAnnotationActions } from '@app/composables/usePageAnnotationActions';
 import { usePageSaveOrchestration } from '@app/composables/usePageSaveOrchestration';
 import { usePageStatusBar } from '@app/composables/usePageStatusBar';
 import { usePageOpsHandlers } from '@app/composables/usePageOpsHandlers';
-import { usePageFileOperations } from '@app/composables/usePageFileOperations';
 import { usePageShortcuts } from '@app/composables/usePageShortcuts';
-import { useDjvu } from '@app/composables/useDjvu';
 import { useDocumentTransitions } from '@app/composables/page/useDocumentTransitions';
 import { useWorkspaceExport } from '@app/composables/page/useWorkspaceExport';
-import { useWorkspaceFileSwitch } from '@app/composables/page/useWorkspaceFileSwitch';
+import {
+    useWorkspaceFileLifecycleController,
+    useWorkspaceFileOperationController,
+} from '@app/composables/page/workspace-file-lifecycle-controller';
+import { useWorkspaceSidebarSearchSyncController } from '@app/composables/page/workspace-sidebar-search-sync-controller';
 import { setupWorkspaceUiSyncWatchers } from '@app/composables/page/workspace-ui-sync';
 import {
     createSerializeCurrentPdfForEmbeddedFallback,
@@ -54,43 +43,6 @@ import {
 import { useWorkspaceViewState } from '@app/composables/page/workspace-view-state';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import type { TSplitPayload } from '@app/types/split-payload';
-
-type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
-
-export interface IPdfViewerExpose {
-    getViewerContainer: () => HTMLElement | null;
-    scrollToPage: (page: number) => void;
-    captureRegionToClipboard: () => Promise<boolean>;
-    isCapturingRegion: { value: boolean };
-    saveDocument: () => Promise<Uint8Array | null>;
-    highlightSelection: () => Promise<boolean>;
-    commentSelection: () => Promise<boolean>;
-    commentAtPoint: (
-        pageNumber: number,
-        pageX: number,
-        pageY: number,
-        options?: { preferTextAnchor?: boolean },
-    ) => Promise<boolean>;
-    startCommentPlacement: () => void;
-    cancelCommentPlacement: () => void;
-    undoAnnotation: () => void;
-    redoAnnotation: () => void;
-    focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
-    updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
-    deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
-    getMarkupSubtypeOverrides: () => Map<string, import('@app/types/annotations').TMarkupSubtype>;
-    getAllShapes: () => IShapeAnnotation[];
-    loadShapes: (shapes: IShapeAnnotation[]) => void;
-    clearShapes: () => void;
-    deleteSelectedShape: () => void;
-    hasShapes: { value: boolean };
-    selectedShapeId: { value: string | null };
-    updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
-    getSelectedShape: () => IShapeAnnotation | null;
-    applyStampImage: (file: File) => void;
-    invalidatePages: (pages: number[]) => void;
-    requestScrollToCurrentResult: () => void;
-}
 
 export interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
@@ -110,100 +62,108 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const { t } = useTypedI18n();
 
     const {
+        isDjvuMode,
+        djvuSourcePath,
+        conversionState,
+        djvuIsLoadingPages,
+        djvuLoadingProgress,
+        djvuShowBanner,
+        showConvertDialog,
+        djvuError,
+        openDjvuFile,
+        openConvertDialog,
+        djvuDismissBanner,
+        handleDjvuConvert,
+        handleDjvuCancel,
+        recentFiles,
+        loadRecentFiles,
+        removeRecentFile,
+        clearRecentFiles,
+        pickFileToOpenWithDjvuCleanup,
+        openFileWithDjvuCleanup,
+        openFileDirectWithDjvuCleanup,
+        openFileDirectBatchWithDjvuCleanup,
+        closeFileWithDjvuCleanup,
+        hasPdf,
+        initFromStorage,
         pdfSrc,
         pdfData,
         workingCopyPath,
         originalPath,
         fileName,
         isDirty,
-        error: pdfError,
+        pdfError,
         isElectron,
         pendingDjvu,
         openBatchProgress,
-        pickFileToOpen,
-        openFile,
-        openFileDirect,
-        openFileDirectBatch,
         loadPdfFromPath,
         loadPdfFromData,
-        closeFile,
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,
         markDirty,
-        canUndo: canUndoFile,
-        canRedo: canRedoFile,
+        canUndoFile,
+        canRedoFile,
         undo,
         redo,
-    } = usePdfFile();
+    } = useWorkspaceFileLifecycleController();
 
     const {
-        isDjvuMode,
-        djvuSourcePath,
-        conversionState,
-        isLoadingPages: djvuIsLoadingPages,
-        loadingProgress: djvuLoadingProgress,
-        showBanner: djvuShowBanner,
-        showConvertDialog,
-        viewingError: djvuError,
-        openDjvuFile,
-        convertToPdf: djvuConvertToPdf,
-        cancelActiveJobs: cancelDjvuJobs,
-        cleanupDjvuTemp,
-        exitDjvuMode,
-        openConvertDialog,
-        dismissBanner: djvuDismissBanner,
-    } = useDjvu();
-
-    const {
-        recentFiles,
-        loadRecentFiles,
-        removeRecentFile,
-        clearRecentFiles,
-    } = useRecentFiles();
-
-    const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
-    const zoomDropdownOpen = ref(false);
-    const pageDropdownOpen = ref(false);
-    const ocrPopupOpen = ref(false);
-    const overflowMenuOpen = ref(false);
-    const selectedThumbnailPages = ref<number[]>([]);
-    const thumbnailInvalidationRequest = ref<{
-        id: number;
-        pages: number[];
-    } | null>(null);
-    let thumbnailInvalidationRequestId = 0;
-
-    function setSelectedThumbnailPages(pages: number[]) {
-        selectedThumbnailPages.value = [...pages];
-    }
-
-    function requestThumbnailInvalidation(pages: number[]) {
-        thumbnailInvalidationRequestId += 1;
-        thumbnailInvalidationRequest.value = {
-            id: thumbnailInvalidationRequestId,
-            pages: [...pages],
-        };
-    }
-
-    const {
+        pdfViewerRef,
+        zoomDropdownOpen,
+        pageDropdownOpen,
+        ocrPopupOpen,
+        overflowMenuOpen,
         closeAllDropdowns,
         closeOtherDropdowns,
         handleDropdownOpenChange,
         openDropdown,
-    } = useDropdownManager({
-        zoomOpen: zoomDropdownOpen,
-        pageOpen: pageDropdownOpen,
-        ocrOpen: ocrPopupOpen,
-        overflowOpen: overflowMenuOpen,
-    });
+        selectedThumbnailPages,
+        thumbnailInvalidationRequest,
+        setSelectedThumbnailPages,
+        requestThumbnailInvalidation,
+        handleSelectedThumbnailPagesUpdate,
+        zoom,
+        fitMode,
+        viewMode,
+        currentPage,
+        totalPages,
+        pdfDocument,
+        isLoading,
+        dragMode,
+        continuousScroll,
+        showSidebar,
+        showSettings,
+        sidebarTab,
+        searchQuery,
+        results,
+        pageMatches,
+        currentResultIndex,
+        currentResult,
+        isSearching,
+        totalMatches,
+        searchProgress,
+        isTruncated,
+        minQueryLength,
+        openSearch,
+        openAnnotations,
+        closeSearch,
+        handleSearch,
+        handleSearchNext,
+        handleSearchPrevious,
+        handleGoToResult,
+        resetSearchCache,
+        sidebarWidth,
+        sidebarWrapperStyle,
+        isResizingSidebar,
+        startSidebarResize,
+        cleanupSidebarResizeListeners,
+    } = useWorkspaceSidebarSearchSyncController({workingCopyPath});
 
-    const zoom = ref(1);
-    const fitMode = ref<TFitMode>('width');
-    const viewMode = ref<TPdfViewMode>('single');
-    const currentPage = ref(1);
-    const totalPages = ref(0);
-    const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+    const { settings: appSettings } = useSettings();
+    const isSaving = ref(false);
+    const isSavingAs = ref(false);
+    const isHistoryBusy = ref(false);
 
     const {
         pageLabels,
@@ -225,16 +185,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleBookmarksChange,
     } = useBookmarkState({ markDirty });
 
-    const isLoading = ref(false);
-    const dragMode = ref(true);
-    const continuousScroll = ref(true);
-    const { settings: appSettings } = useSettings();
-    const showSidebar = ref(false);
-    const showSettings = ref(false);
-    const sidebarTab = ref<TPdfSidebarTab>('thumbnails');
-    const isSaving = ref(false);
-    const isSavingAs = ref(false);
-    const isHistoryBusy = ref(false);
     const {
         isExportInProgress,
         exportScopeDialogOpen,
@@ -308,24 +258,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         rtl: stored => stored === '1',
     }});
 
-    const {
-        searchQuery,
-        results,
-        pageMatches,
-        currentResultIndex,
-        currentResult,
-        isSearching,
-        totalMatches,
-        search,
-        goToResult,
-        setResultIndex,
-        clearSearch,
-        searchProgress,
-        resetSearchCache,
-        isTruncated,
-        minQueryLength,
-    } = usePdfSearch();
-
     const { clearCache: clearOcrCache } = useOcrTextContent();
     const {
         isExportingDocx: isDocxExporting,
@@ -333,31 +265,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         exportDocx,
         clearDocxExportError,
     } = useDocxExport();
-
-    const {
-        openSearch,
-        openAnnotations,
-        closeSearch,
-        handleSearch,
-        handleSearchNext,
-        handleSearchPrevious,
-        handleGoToResult: baseHandleGoToResult,
-    } = usePageSearch({
-        showSidebar,
-        sidebarTab,
-        dragMode,
-        workingCopyPath,
-        totalPages,
-        searchQuery,
-        search,
-        goToResult,
-        setResultIndex,
-        clearSearch,
-    });
-
-    function handleGoToResult(index: number) {
-        baseHandleGoToResult(index);
-    }
 
     const {
         handleSave,
@@ -604,31 +511,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
 
     const {
-        pickFileToOpenWithDjvuCleanup,
-        openFileWithDjvuCleanup,
-        openFileDirectWithDjvuCleanup,
-        openFileDirectBatchWithDjvuCleanup,
-        closeFileWithDjvuCleanup,
-    } = useWorkspaceFileSwitch({
-        workingCopyPath,
-        isDjvuMode,
-        cleanupDjvuTemp,
-        exitDjvuMode,
-        pickFileToOpen,
-        openFile,
-        openFileDirect,
-        openFileDirectBatch,
-        closeFile,
-    });
-
-    const {
         handleOpenFileFromUi,
         handleOpenFileDirectWithPersist,
         handleOpenFileDirectBatchWithPersist,
         handleOpenFileWithResult,
         handleCloseFileFromUi,
         openRecentFile,
-    } = usePageFileOperations({
+    } = useWorkspaceFileOperationController({
         pdfSrc,
         isAnySaving,
         isHistoryBusy,
@@ -642,13 +531,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasAnnotationChanges,
         persistAllAnnotationNotes,
         handleSave,
-        pickFileToOpen: pickFileToOpenWithDjvuCleanup,
-        openFile: openFileWithDjvuCleanup,
-        openFileDirect: openFileDirectWithDjvuCleanup,
-        openFileDirectBatch: openFileDirectBatchWithDjvuCleanup,
-        closeFile: closeFileWithDjvuCleanup,
+        pickFileToOpenWithDjvuCleanup,
+        openFileWithDjvuCleanup,
+        openFileDirectWithDjvuCleanup,
+        openFileDirectBatchWithDjvuCleanup,
+        closeFileWithDjvuCleanup,
         closeAllDropdowns,
-        emitOpenInNewTab: (result: TOpenFileResult) => emit('open-in-new-tab', result),
+        emitOpenInNewTab: (result: TOpenFileResult) => {
+            emit('open-in-new-tab', result);
+        },
     });
 
     const {
@@ -671,14 +562,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openAnnotations,
         handleAnnotationToolChange,
     });
-
-    const {
-        sidebarWidth,
-        sidebarWrapperStyle,
-        isResizingSidebar,
-        startSidebarResize,
-        cleanupSidebarResizeListeners,
-    } = useSidebarResize({ showSidebar });
 
     setupWorkspaceUiSyncWatchers({
         pendingDjvu,
@@ -732,16 +615,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     // --- Helper functions ---
 
-    function handleDjvuConvert(subsample: number, preserveBookmarks: boolean) {
-        return djvuConvertToPdf(subsample, preserveBookmarks, loadPdfFromPath);
-    }
-
-    function handleDjvuCancel() {
-        if (djvuSourcePath.value) {
-            void cancelDjvuJobs();
-        }
-    }
-
     const isCapturingRegion = computed(() => pdfViewerRef.value?.isCapturingRegion.value ?? false);
 
     function handleCaptureRegion() {
@@ -751,17 +624,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         void pdfViewerRef.value.captureRegionToClipboard();
     }
 
-    function initFromStorage() {
-        if (import.meta.dev) {
-            BrowserLogger.debug('workspace', 'Electron API available', isElectron.value);
-        }
-        if (hasElectronAPI()) {
-            loadRecentFiles();
-        }
-    }
-
-    const hasPdf = computed(() => !!pdfSrc.value);
-
     function handleDropdownOpen(
         dropdown: 'zoom' | 'page' | 'ocr' | 'overflow',
         isOpen: boolean,
@@ -770,10 +632,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         if (isOpen && dropdown === 'ocr') {
             clearDocxExportError();
         }
-    }
-
-    function handleSelectedThumbnailPagesUpdate(pages: number[]) {
-        setSelectedThumbnailPages(pages);
     }
 
     async function captureSplitPayload(): Promise<TSplitPayload> {

@@ -24,6 +24,25 @@ const logger = createLogger('working-copy');
 
 export const workingCopyMap = new Map<string, string>();
 
+export function findWorkingCopyPathByOriginalPath(originalPath: string): string | null {
+    const normalizedOriginalPath = typeof originalPath === 'string' ? originalPath.trim() : '';
+    if (!normalizedOriginalPath) {
+        return null;
+    }
+
+    let latestMatch: string | null = null;
+    for (const [
+        workingPath,
+        mappedOriginalPath,
+    ] of workingCopyMap.entries()) {
+        if (mappedOriginalPath === normalizedOriginalPath) {
+            latestMatch = workingPath;
+        }
+    }
+
+    return latestMatch;
+}
+
 function createWorkingDirectory() {
     const tempDir = app.getPath('temp');
     const sessionId = `pdf-${Date.now()}-${Math.random().toString(36).slice(2)}`;

@@ -1,6 +1,6 @@
 <template>
-    <div class="flex h-full min-h-0 min-w-0 w-full flex-col">
-        <Teleport v-if="isActive && canTeleportToolbar" to="#editor-global-toolbar-host">
+    <WorkspaceShell>
+        <WorkspaceToolbarHost :is-active="isActive" :can-teleport="canTeleportToolbar">
             <PdfToolbar
                 :has-pdf="!!pdfSrc"
                 :can-save="canSave"
@@ -112,7 +112,7 @@
                     />
                 </template>
             </PdfToolbar>
-        </Teleport>
+        </WorkspaceToolbarHost>
 
         <UAlert
             v-if="pdfError"
@@ -142,13 +142,14 @@
             @dismiss="djvuDismissBanner"
         />
 
-        <!-- Main -->
-        <main class="flex-1 overflow-hidden flex relative min-w-0 min-h-0">
-            <div
-                v-if="pdfSrc && showSidebar"
-                class="sidebar-wrapper"
-                :style="sidebarWrapperStyle"
-            >
+        <WorkspaceSidebarHost
+            :show-sidebar="Boolean(pdfSrc && showSidebar)"
+            :sidebar-wrapper-style="sidebarWrapperStyle"
+            :is-resizing-sidebar="isResizingSidebar"
+            :resize-aria-label="t('sidebar.resize')"
+            @resize-start="startSidebarResize"
+        >
+            <template #sidebar>
                 <PdfSidebar
                     v-model:active-tab="sidebarTab"
                     v-model:search-query="searchQuery"
@@ -201,61 +202,58 @@
                     @page-reorder="(order) => pageOpsReorder(order)"
                     @page-file-drop="handlePageFileDrop"
                 />
-                <div
-                    class="sidebar-resizer"
-                    :class="{ 'is-active': isResizingSidebar }"
-                    role="separator"
-                    aria-orientation="vertical"
-                    :aria-label="t('sidebar.resize')"
-                    @pointerdown.prevent="startSidebarResize"
-                />
-            </div>
-            <div class="flex-1 overflow-hidden min-w-0 min-h-0">
-                <PdfViewer
-                    v-if="pdfSrc"
-                    ref="pdfViewerRef"
-                    :src="pdfSrc"
-                    :zoom="zoom"
-                    :fit-mode="fitMode"
-                    :view-mode="viewMode"
-                    :drag-mode="dragMode"
-                    :continuous-scroll="continuousScroll"
-                    :annotation-tool="annotationTool"
-                    :annotation-cursor-mode="annotationCursorMode"
-                    :annotation-keep-active="annotationKeepActive"
-                    :annotation-settings="annotationSettings"
-                    :search-page-matches="pageMatches"
-                    :current-search-match="currentResult"
-                    :working-copy-path="workingCopyPath"
-                    :author-name="appSettings.authorName"
-                    @update:current-page="currentPage = $event"
-                    @update:total-pages="totalPages = $event"
-                    @update:document="pdfDocument = $event"
-                    @loading="isLoading = $event"
-                    @annotation-state="handleAnnotationState"
-                    @annotation-modified="handleAnnotationModified"
-                    @annotation-comments="annotationComments = $event"
-                    @annotation-open-note="handleOpenAnnotationNote"
-                    @annotation-comment-click="handleAnnotationCommentClick"
-                    @annotation-context-menu="handleViewerAnnotationContextMenu"
-                    @annotation-tool-auto-reset="handleAnnotationToolAutoReset"
-                    @annotation-tool-cancel="handleAnnotationToolCancel"
-                    @annotation-setting="handleAnnotationSettingChange"
-                    @annotation-note-placement-change="annotationPlacingPageNote = $event"
-                    @shape-context-menu="handleShapeContextMenu"
-                />
-                <div v-else-if="suppressEmptyState" class="workspace-transition-placeholder" />
-                <PdfEmptyState
-                    v-else
-                    :recent-files="recentFiles"
-                    :open-batch-progress="openBatchProgress"
-                    @open-file="handleOpenFileFromUi"
-                    @open-recent="openRecentFile"
-                    @remove-recent="removeRecentFile"
-                    @clear-recent="clearRecentFiles"
-                />
-            </div>
-        </main>
+            </template>
+
+            <WorkspaceViewerHost
+                :has-document="Boolean(pdfSrc)"
+                :suppress-empty-state="suppressEmptyState"
+            >
+                <template #document>
+                    <PdfViewer
+                        ref="pdfViewerRef"
+                        :src="pdfSrc!"
+                        :zoom="zoom"
+                        :fit-mode="fitMode"
+                        :view-mode="viewMode"
+                        :drag-mode="dragMode"
+                        :continuous-scroll="continuousScroll"
+                        :annotation-tool="annotationTool"
+                        :annotation-cursor-mode="annotationCursorMode"
+                        :annotation-keep-active="annotationKeepActive"
+                        :annotation-settings="annotationSettings"
+                        :search-page-matches="pageMatches"
+                        :current-search-match="currentResult"
+                        :working-copy-path="workingCopyPath"
+                        :author-name="appSettings.authorName"
+                        @update:current-page="currentPage = $event"
+                        @update:total-pages="totalPages = $event"
+                        @update:document="pdfDocument = $event"
+                        @loading="isLoading = $event"
+                        @annotation-state="handleAnnotationState"
+                        @annotation-modified="handleAnnotationModified"
+                        @annotation-comments="annotationComments = $event"
+                        @annotation-open-note="handleOpenAnnotationNote"
+                        @annotation-comment-click="handleAnnotationCommentClick"
+                        @annotation-context-menu="handleViewerAnnotationContextMenu"
+                        @annotation-tool-auto-reset="handleAnnotationToolAutoReset"
+                        @annotation-tool-cancel="handleAnnotationToolCancel"
+                        @annotation-setting="handleAnnotationSettingChange"
+                        @annotation-note-placement-change="annotationPlacingPageNote = $event"
+                        @shape-context-menu="handleShapeContextMenu"
+                    />
+                </template>
+                <template #empty>
+                    <PdfEmptyState
+                        :recent-files="recentFiles"
+                        :open-batch-progress="openBatchProgress"
+                        @open-file="handleOpenFileFromUi"
+                        @open-recent="openRecentFile"
+                        @remove-recent="removeRecentFile"
+                        @clear-recent="clearRecentFiles"
+                    />
+                </template>
+            </WorkspaceViewerHost>
+        </WorkspaceSidebarHost>
         <div
             v-if="isExportInProgress"
             class="pointer-events-none absolute bottom-12 right-4 z-50 flex items-center gap-2 rounded-md border border-default bg-default/95 px-3 py-2 text-xs text-default shadow-lg"
@@ -349,7 +347,7 @@
             :djvu-path="djvuSourcePath"
             @convert="handleDjvuConvert"
         />
-    </div>
+    </WorkspaceShell>
 </template>
 
 <script setup lang="ts">
@@ -710,34 +708,3 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
 
 defineExpose(workspaceExpose);
 </script>
-
-<style scoped>
-.sidebar-wrapper {
-    display: flex;
-    height: 100%;
-    min-width: 0;
-}
-
-.sidebar-resizer {
-    width: 6px;
-    cursor: col-resize;
-    position: relative;
-    flex-shrink: 0;
-    user-select: none;
-    touch-action: none;
-    background: transparent;
-    border-left: 1px solid var(--ui-border);
-    transition: border-color 0.15s ease;
-}
-
-.sidebar-resizer:hover,
-.sidebar-resizer.is-active {
-    border-left-color: var(--ui-primary);
-}
-
-.workspace-transition-placeholder {
-    width: 100%;
-    height: 100%;
-    background: var(--app-window-bg);
-}
-</style>

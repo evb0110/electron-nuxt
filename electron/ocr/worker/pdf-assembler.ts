@@ -7,6 +7,8 @@ import { PDFDocument } from 'pdf-lib';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { runCommand } from '@electron/ocr/worker/run-command';
 
+const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
+
 export async function getPageCount(
     qpdfBinary: string,
     pdfPath: string,
@@ -16,7 +18,10 @@ export async function getPageCount(
         const result = await runCommand(qpdfBinary, [
             '--show-npages',
             pdfPath,
-        ]);
+        ], {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            commandLabel: 'qpdf(show-npages)',
+        });
         const parsed = parseInt((result.stdout ?? '').trim(), 10);
         if (Number.isFinite(parsed) && parsed > 0) {
             return parsed;
@@ -69,10 +74,15 @@ export async function assembleSearchablePdf(
         '--',
         '--',
         mergedPdfPath,
-    ], { allowedExitCodes: [
-        0,
-        3,
-    ] });
+    ], {
+        allowedExitCodes: [
+            0,
+            3,
+        ],
+        timeoutMs: QPDF_TIMEOUT_MS,
+        commandLabel: 'qpdf(overlay)',
+        log,
+    });
 
     return mergedPdfPath;
 }

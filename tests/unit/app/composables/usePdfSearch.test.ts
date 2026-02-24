@@ -1,0 +1,189 @@
+import {
+    afterEach,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
+
+const mockElectronAPI = {
+    onPdfSearchProgress: vi.fn(),
+    pdfSearch: vi.fn(),
+    pdfSearchCancel: vi.fn(),
+    pdfSearchResetCache: vi.fn(),
+};
+
+const hasElectronApiMock = vi.fn(() => true);
+
+vi.mock('@app/utils/electron', () => ({
+    getElectronAPI: () => mockElectronAPI,
+    hasElectronAPI: () => hasElectronApiMock(),
+}));
+
+describe('usePdfSearch', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.clearAllMocks();
+        hasElectronApiMock.mockReturnValue(true);
+        mockElectronAPI.onPdfSearchProgress.mockReturnValue(vi.fn());
+        mockElectronAPI.pdfSearch.mockResolvedValue({
+            results: [],
+            truncated: false,
+        });
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('rejects too-short queries without calling backend search', async () => {
+        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
+        const search = usePdfSearch();
+
+        const applied = await search.search('a', '/tmp/work.pdf');
+
+        expect(applied).toBe(false);
+        expect(search.results.value).toEqual([]);
+        expect(search.currentResultIndex.value).toBe(-1);
+        expect(search.isSearching.value).toBe(false);
+        expect(mockElectronAPI.pdfSearch).not.toHaveBeenCalled();
+    });
+
+    it('maps backend matches to result and page match state after debounce', async () => {
+        const progressUnsubscribe = vi.fn();
+        let progressListener: ((progress: {
+            requestId: string;
+            processed: number;
+            total: number;
+        }) => void) | null = null;
+
+        mockElectronAPI.onPdfSearchProgress.mockImplementation((listener) => {
+            progressListener = listener;
+            return progressUnsubscribe;
+        });
+
+        mockElectronAPI.pdfSearch.mockImplementation(async (_pdfPath, _query, options) => {
+            progressListener?.({
+                requestId: options.requestId,
+                processed: 3,
+                total: 10,
+            });
+
+            return {
+                results: [
+                    {
+                        pageNumber: 2,
+                        pageMatchIndex: 1,
+                        matchIndex: 11,
+                        startOffset: 20,
+                        endOffset: 24,
+                        excerpt: {
+                            before: 'before',
+                            match: 'term',
+                            after: 'after',
+                        },
+                    },
+                    {
+                        pageNumber: 2,
+                        pageMatchIndex: 2,
+                        matchIndex: 12,
+                        startOffset: 30,
+                        endOffset: 35,
+                        excerpt: {
+                            before: 'before2',
+                            match: 'term',
+                            after: 'after2',
+                        },
+                    },
+                ],
+                truncated: true,
+            };
+        });
+
+        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
+        const search = usePdfSearch();
+
+        const promise = search.search('term', '/tmp/work.pdf', 10);
+        await Promise.resolve();
+        expect(search.isSearching.value).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        const applied = await promise;
+
+        expect(applied).toBe(true);
+        expect(search.isSearching.value).toBe(false);
+        expect(search.totalMatches.value).toBe(2);
+        expect(search.currentMatch.value).toBe(1);
+        expect(search.currentResult.value).toEqual(expect.objectContaining({
+            pageIndex: 1,
+            pageMatchIndex: 1,
+            matchIndex: 11,
+            startOffset: 20,
+            endOffset: 24,
+        }));
+        expect(search.isTruncated.value).toBe(true);
+        expect(search.searchProgress.value).toBeUndefined();
+        expect(progressUnsubscribe).toHaveBeenCalledOnce();
+
+        const matchesForPage = search.getMatchesForPage(1);
+        expect(matchesForPage).not.toBeNull();
+        expect(matchesForPage?.searchQuery).toBe('term');
+        expect(matchesForPage?.matches).toEqual([
+            {
+                matchIndex: 11,
+                start: 20,
+                end: 24,
+            },
+            {
+                matchIndex: 12,
+                start: 30,
+                end: 35,
+            },
+        ]);
+    });
+
+    it('cancels active searches on clear and resets backend cache explicitly', async () => {
+        let requestId = '';
+        let resolveSearch: (value: {
+            results: unknown[];
+            truncated: boolean;
+        }) => void = () => {};
+
+        mockElectronAPI.pdfSearch.mockImplementation(async (_pdfPath, _query, options) => {
+            requestId = options.requestId;
+            return new Promise<{
+                results: unknown[];
+                truncated: boolean;
+            }>((resolve) => {
+                resolveSearch = resolve;
+            });
+        });
+
+        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
+        const search = usePdfSearch();
+
+        const searchPromise = search.search('alpha', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+
+        expect(mockElectronAPI.pdfSearch).toHaveBeenCalledOnce();
+        expect(requestId).toContain('search-');
+
+        search.clearSearch();
+        await Promise.resolve();
+
+        expect(mockElectronAPI.pdfSearchCancel).toHaveBeenCalledWith(requestId);
+        expect(search.searchQuery.value).toBe('');
+        expect(search.results.value).toEqual([]);
+
+        resolveSearch({
+            results: [],
+            truncated: false,
+        });
+        await searchPromise;
+
+        search.resetSearchCache();
+        expect(mockElectronAPI.pdfSearchResetCache).toHaveBeenCalledOnce();
+    });
+});

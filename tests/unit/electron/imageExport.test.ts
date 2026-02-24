@@ -132,6 +132,13 @@ describe('exportPdfAsMultiPageTiff', () => {
         ]);
 
         expect(mocks.runCommand).toHaveBeenCalledTimes(1);
-        expect(mocks.runCommand).toHaveBeenCalledWith('/mock/pdftoppm', expect.any(Array));
+        expect(mocks.runCommand).toHaveBeenCalledWith(
+            '/mock/pdftoppm',
+            expect.any(Array),
+            expect.objectContaining({
+                timeoutMs: 180_000,
+                commandLabel: 'pdftoppm(export-tiff)',
+            }),
+        );
     });
 });

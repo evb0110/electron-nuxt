@@ -1,4 +1,3 @@
-import { app } from 'electron';
 import { existsSync } from 'fs';
 import {
     readFile,
@@ -11,14 +10,13 @@ import {
     extname,
     basename,
     resolve,
-    relative,
-    sep,
-    isAbsolute,
 } from 'path';
 import {
-    isAllowedWritePath,
     isAllowedReadPath,
+    resolveAllowedReadPath,
+    resolveAllowedWritePath,
 } from '@electron/utils/path-validator';
+import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
 import { consumeAllowedDocxWritePath } from '@electron/ipc/docxExportPaths';
 import { MAX_CHUNK } from '@electron/config/constants';
 import { createLogger } from '@electron/utils/logger';
@@ -37,6 +35,39 @@ const ALLOWED_BINARY_READ_EXTENSIONS = new Set([
     '.djv',
 ]);
 
+async function resolveReadablePath(normalizedPath: string): Promise<string | null> {
+    const directResolvedPath = await resolveAllowedReadPath(normalizedPath);
+    if (directResolvedPath) {
+        return directResolvedPath;
+    }
+
+    // When renderer still references the original path, remap it to the active
+    // working copy path to preserve temp-sandboxed reads.
+    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath);
+    if (!mappedWorkingCopyPath) {
+        return null;
+    }
+
+    return resolveAllowedReadPath(mappedWorkingCopyPath);
+}
+
+function resolveReadablePathSync(normalizedPath: string): string | null {
+    if (isAllowedReadPath(normalizedPath) && existsSync(normalizedPath)) {
+        return normalizedPath;
+    }
+
+    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath);
+    if (!mappedWorkingCopyPath) {
+        return null;
+    }
+
+    if (!isAllowedReadPath(mappedWorkingCopyPath) || !existsSync(mappedWorkingCopyPath)) {
+        return null;
+    }
+
+    return mappedWorkingCopyPath;
+}
+
 export async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePath: string): Promise<Uint8Array> {
     if (!filePath || filePath.trim() === '') {
         throw new Error('Invalid file path: path must be a non-empty string');
@@ -49,15 +80,16 @@ export async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePa
         throw new Error('Invalid file type: only PDF and DjVu files are allowed');
     }
 
-    if (!isAllowedReadPath(normalizedPath)) {
+    const resolvedPath = await resolveReadablePath(normalizedPath);
+    if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
 
-    if (!existsSync(normalizedPath)) {
+    if (!existsSync(resolvedPath)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
-    const buffer = await readFile(normalizedPath);
+    const buffer = await readFile(resolvedPath);
     return new Uint8Array(buffer);
 }
 
@@ -75,15 +107,16 @@ export async function handleFileStat(
         throw new Error('Invalid file type: only PDF files are allowed');
     }
 
-    if (!isAllowedReadPath(normalizedPath)) {
+    const resolvedPath = await resolveReadablePath(normalizedPath);
+    if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
 
-    if (!existsSync(normalizedPath)) {
+    if (!existsSync(resolvedPath)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
-    const s = await stat(normalizedPath);
+    const s = await stat(resolvedPath);
     return { size: s.size };
 }
 
@@ -102,11 +135,12 @@ export async function handleFileReadRange(
         throw new Error('Invalid file type: only PDF files are allowed');
     }
 
-    if (!isAllowedReadPath(normalizedPath)) {
+    const resolvedPath = await resolveReadablePath(normalizedPath);
+    if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
 
-    if (!existsSync(normalizedPath)) {
+    if (!existsSync(resolvedPath)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
@@ -118,7 +152,7 @@ export async function handleFileReadRange(
 
     const want = Math.min(len, MAX_CHUNK);
 
-    const fh = await openFileHandle(normalizedPath, 'r');
+    const fh = await openFileHandle(resolvedPath, 'r');
     try {
         const buf = Buffer.allocUnsafe(want);
         const { bytesRead } = await fh.read(buf, 0, want, off);
@@ -143,11 +177,12 @@ export async function handleFileWrite(
 
     const normalizedPath = filePath.trim();
 
-    if (!isAllowedWritePath(normalizedPath)) {
+    const resolvedPath = await resolveAllowedWritePath(normalizedPath);
+    if (!resolvedPath) {
         throw new Error('Invalid file path: writes only allowed within temp directory');
     }
 
-    await writeFile(normalizedPath, data);
+    await writeFile(resolvedPath, data);
     return true;
 }
 
@@ -188,15 +223,16 @@ export async function handleFileReadText(
         throw new Error('Invalid file type: only .json, .txt, and .tsv files are allowed');
     }
 
-    if (!isAllowedReadPath(normalizedPath)) {
+    const resolvedPath = await resolveReadablePath(normalizedPath);
+    if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
 
-    if (!existsSync(normalizedPath)) {
+    if (!existsSync(resolvedPath)) {
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
-    const buffer = await readFile(normalizedPath, 'utf-8');
+    const buffer = await readFile(resolvedPath, 'utf-8');
     return buffer;
 }
 
@@ -210,11 +246,12 @@ export function handleFileExists(
 
     const normalizedPath = filePath.trim();
 
-    if (!isAllowedReadPath(normalizedPath)) {
+    const resolvedPath = resolveReadablePathSync(normalizedPath);
+    if (!resolvedPath) {
         return false;
     }
 
-    return existsSync(normalizedPath);
+    return true;
 }
 
 export async function handleCleanupOcrTemp(
@@ -227,29 +264,20 @@ export async function handleCleanupOcrTemp(
     }
 
     try {
-        const tempDir = resolve(app.getPath('temp'));
-        const absolutePath = resolve(normalizedPath);
-        const relativePath = relative(tempDir, absolutePath);
-
-        const isWithinTemp = (
-            relativePath !== '..'
-            && !relativePath.startsWith(`..${sep}`)
-            && !isAbsolute(relativePath)
-        );
-
-        if (!isWithinTemp) {
+        const resolvedPath = await resolveAllowedWritePath(normalizedPath);
+        if (!resolvedPath) {
             return;
         }
 
-        const fileName = basename(absolutePath);
+        const fileName = basename(resolvedPath);
         const isOcrArtifact = fileName.startsWith('ocr-') || fileName.startsWith('searchable-');
 
         if (!isOcrArtifact) {
             return;
         }
 
-        if (existsSync(absolutePath)) {
-            await unlink(absolutePath);
+        if (existsSync(resolvedPath)) {
+            await unlink(resolvedPath);
         }
     } catch (err) {
         logger.warn(`Failed to delete OCR temp file: ${err instanceof Error ? err.message : String(err)}`);

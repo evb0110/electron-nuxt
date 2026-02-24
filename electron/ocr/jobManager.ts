@@ -38,12 +38,15 @@ interface IOcrQueuedJob {
     pages: IOcrPdfPageRequest[];
     workingCopyPath?: string;
     renderDpi?: number;
+    queuedAtMs: number;
+    requestedBytes: number;
 }
 
 interface IOcrActiveJob extends IOcrQueuedJob {
     worker: Worker;
     completed: boolean;
     terminatedByUs: boolean;
+    startedAtMs: number;
 }
 
 type TWorkerMessage = {
@@ -69,6 +72,27 @@ const activeJobs = new Map<string, IOcrActiveJob>();
 const queuedJobs: IOcrQueuedJob[] = [];
 const queuedJobIds = new Set<string>();
 const cancelledJobs = new Set<string>();
+const OCR_QUEUE_MAX_SIZE = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_QUEUE_MAX_SIZE ?? '8', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 8;
+    }
+    return parsed;
+})();
+const OCR_QUEUE_MAX_BUFFERED_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_QUEUE_MAX_BUFFERED_MB ?? '768', 10);
+    if (!Number.isFinite(parsed) || parsed < 32) {
+        return 768 * 1024 * 1024;
+    }
+    return parsed * 1024 * 1024;
+})();
+const OCR_QUEUE_MAX_AGE_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_QUEUE_MAX_AGE_MS ?? `${10 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 5_000) {
+        return 10 * 60 * 1000;
+    }
+    return parsed;
+})();
 
 function asTransferableBytes(bytes: Uint8Array) {
     if (
@@ -111,7 +135,7 @@ function getJobWindow(webContentsId: number) {
 
 function getWorkerPath(): string {
     const defaultPath = join(__dirname, 'ocr-worker.js');
-    if (!app?.isPackaged) {
+    if (!app?.isPackaged && existsSync(defaultPath)) {
         return defaultPath;
     }
 
@@ -120,12 +144,85 @@ function getWorkerPath(): string {
         return unpackedPath;
     }
 
-    return defaultPath;
+    if (existsSync(defaultPath)) {
+        return defaultPath;
+    }
+
+    throw new Error(`OCR worker script not found. lookedFor="${unpackedPath}", fallback="${defaultPath}"`);
+}
+
+function getBufferedBytes() {
+    const activeBytes = Array.from(activeJobs.values()).reduce(
+        (total, job) => total + job.requestedBytes,
+        0,
+    );
+    const queuedBytes = queuedJobs.reduce(
+        (total, job) => total + job.requestedBytes,
+        0,
+    );
+    return activeBytes + queuedBytes;
+}
+
+function evictStaleQueuedJobs(nowMs = Date.now()) {
+    if (queuedJobs.length === 0) {
+        return;
+    }
+
+    const staleJobs = queuedJobs.filter(
+        (job) => nowMs - job.queuedAtMs > OCR_QUEUE_MAX_AGE_MS,
+    );
+    if (staleJobs.length === 0) {
+        return;
+    }
+
+    for (const staleJob of staleJobs) {
+        removeQueuedJob(staleJob.jobId);
+        sendJobFailure(staleJob, 'OCR queue item expired before processing');
+    }
+
+    log.warn(`Evicted ${staleJobs.length} stale OCR queue jobs`);
+}
+
+function ensureQueueCapacity(additionalBytes: number) {
+    if (queuedJobs.length >= OCR_QUEUE_MAX_SIZE) {
+        return {
+            ok: false,
+            error: `OCR queue is full (${OCR_QUEUE_MAX_SIZE} jobs)`,
+        };
+    }
+
+    const bufferedBytes = getBufferedBytes();
+    if (bufferedBytes + additionalBytes > OCR_QUEUE_MAX_BUFFERED_BYTES) {
+        return {
+            ok: false,
+            error: `OCR queue is full (buffer cap ${Math.floor(OCR_QUEUE_MAX_BUFFERED_BYTES / (1024 * 1024))}MB reached)`,
+        };
+    }
+
+    return { ok: true };
+}
+
+function estimateRequestBytes(
+    originalPdfData: Uint8Array,
+    pages: IOcrPdfPageRequest[],
+) {
+    const averagePageOverhead = 32 * 1024;
+    return originalPdfData.byteLength + (pages.length * averagePageOverhead);
+}
+
+function logQueueDepth(context: string) {
+    log.debug(
+        `${context}: active=${activeJobs.size}/${OCR_WORKER_POOL_SIZE}, queued=${queuedJobs.length}/${OCR_QUEUE_MAX_SIZE}, bufferedMB=${(getBufferedBytes() / (1024 * 1024)).toFixed(1)}`,
+    );
 }
 
 function createOcrWorker(): Worker {
     const paths = getOcrToolPaths();
     const workerPath = getWorkerPath();
+
+    if (!existsSync(workerPath)) {
+        throw new Error(`OCR worker unavailable at path: ${workerPath}`);
+    }
 
     log.debug(`Creating OCR worker: ${workerPath}`);
     log.debug(
@@ -215,14 +312,26 @@ function handleWorkerMessage(
 function startQueuedJob(job: IOcrQueuedJob) {
     queuedJobIds.delete(job.jobId);
 
-    const worker = createOcrWorker();
+    let worker: Worker;
+    try {
+        worker = createOcrWorker();
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        sendJobFailure(job, `OCR worker unavailable: ${message}`);
+        log.error(`Failed to start OCR worker for job ${job.jobId}: ${message}`);
+        dispatchQueuedJobs();
+        return;
+    }
+
     const activeJob: IOcrActiveJob = {
         ...job,
         worker,
         completed: false,
         terminatedByUs: false,
+        startedAtMs: Date.now(),
     };
     activeJobs.set(job.jobId, activeJob);
+    logQueueDepth(`OCR job ${job.jobId} activated`);
 
     worker.on('message', (message: TWorkerMessage) => {
         handleWorkerMessage(job.jobId, job.webContentsId, message);
@@ -290,6 +399,8 @@ function startQueuedJob(job: IOcrQueuedJob) {
 }
 
 function dispatchQueuedJobs() {
+    evictStaleQueuedJobs();
+
     while (activeJobs.size < OCR_WORKER_POOL_SIZE && queuedJobs.length > 0) {
         const nextJob = queuedJobs.shift();
         if (!nextJob) {
@@ -314,11 +425,23 @@ export async function handleOcrCreateSearchablePdfAsync(
     log.debug(`handleOcrCreateSearchablePdfAsync called: pdfLen=${originalPdfData.length}, pages=${pages.length}, reqId=${requestId}, dpi=${renderDpi}`);
 
     try {
+        evictStaleQueuedJobs();
+
         if (activeJobs.has(requestId) || queuedJobIds.has(requestId)) {
             return {
                 started: false,
                 jobId: requestId,
                 error: `OCR job with id "${requestId}" already exists`,
+            };
+        }
+
+        const requestBytes = estimateRequestBytes(originalPdfData, pages);
+        const capacityResult = ensureQueueCapacity(requestBytes);
+        if (!capacityResult.ok) {
+            return {
+                started: false,
+                jobId: requestId,
+                error: capacityResult.error,
             };
         }
 
@@ -339,9 +462,12 @@ export async function handleOcrCreateSearchablePdfAsync(
             pages,
             workingCopyPath,
             renderDpi,
+            queuedAtMs: Date.now(),
+            requestedBytes: requestBytes,
         };
         queuedJobs.push(queuedJob);
         queuedJobIds.add(requestId);
+        logQueueDepth(`OCR job ${requestId} queued`);
         dispatchQueuedJobs();
 
         return {

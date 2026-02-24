@@ -99,7 +99,7 @@ const { t } = useTypedI18n();
     gap: 0.375rem;
     padding: 0.375rem 0.5rem;
     border-bottom: 1px solid var(--ui-border);
-    background: color-mix(in oklab, var(--ui-bg) 85%, var(--ui-primary) 15%);
+    background: var(--app-pdf-page-selection-bar-bg);
     flex-shrink: 0;
 }
 
@@ -126,7 +126,7 @@ const { t } = useTypedI18n();
     justify-content: center;
     width: 1.75rem;
     height: 1.75rem;
-    border: 1px solid color-mix(in srgb, var(--ui-border) 70%, transparent 30%);
+    border: 1px solid var(--app-pdf-page-selection-button-border);
     border-radius: 0.375rem;
     background: transparent;
     color: var(--ui-text-muted);
@@ -145,7 +145,7 @@ const { t } = useTypedI18n();
 }
 
 .page-selection-bar-button-danger:hover:not(:disabled) {
-    color: #b42318;
+    color: var(--app-pdf-page-selection-danger-fg);
 }
 
 .page-selection-bar-icon {

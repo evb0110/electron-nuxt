@@ -342,6 +342,22 @@ function createPdfFromInputPathsWorker(
         const worker = new Worker(getCombineWorkerPath(), {workerData: { inputPaths }});
 
         let settled = false;
+        let cleanedUp = false;
+
+        const cleanupWorker = () => {
+            if (cleanedUp) {
+                return;
+            }
+            cleanedUp = true;
+            worker.removeAllListeners('message');
+            worker.removeAllListeners('error');
+            worker.removeAllListeners('exit');
+        };
+
+        const terminateWorker = () => {
+            cleanupWorker();
+            void worker.terminate().catch(() => undefined);
+        };
 
         worker.on('message', (message: unknown) => {
             const payload = message as ICombineWorkerPayload;
@@ -372,6 +388,7 @@ function createPdfFromInputPathsWorker(
                 return;
             }
             settled = true;
+            terminateWorker();
 
             if (payload.type === 'result' && !payload.ok) {
                 reject(new Error(payload.error || 'Image combine worker failed'));
@@ -392,18 +409,21 @@ function createPdfFromInputPathsWorker(
                 return;
             }
 
-            worker.removeAllListeners('message');
             resolve(data);
         });
 
         worker.once('error', (error) => {
             if (!settled) {
+                settled = true;
+                terminateWorker();
                 reject(error);
             }
         });
 
         worker.once('exit', (code) => {
             if (!settled && code !== 0) {
+                settled = true;
+                cleanupWorker();
                 reject(new Error(`Image combine worker exited with code ${code}`));
             }
         });

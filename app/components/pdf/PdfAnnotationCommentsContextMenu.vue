@@ -1,13 +1,15 @@
 <template>
-    <div
-        v-if="visible"
+    <PdfContextMenuBase
         class="notes-context-menu"
+        :visible="visible"
         :style="menuStyle"
-        @click.stop
+        variant="panel"
+        min-width="10.5rem"
+        :z-index="1400"
     >
         <button
             type="button"
-            class="context-menu-action"
+            class="pdf-context-menu__action"
             :disabled="!comment"
             @click="emit('open')"
         >
@@ -15,7 +17,7 @@
         </button>
         <button
             type="button"
-            class="context-menu-action"
+            class="pdf-context-menu__action"
             :disabled="!comment"
             @click="emit('copy')"
         >
@@ -23,13 +25,13 @@
         </button>
         <button
             type="button"
-            class="context-menu-action is-danger"
+            class="pdf-context-menu__action pdf-context-menu__action--danger"
             :disabled="!comment"
             @click="emit('delete')"
         >
             {{ t('annotations.delete') }}
         </button>
-    </div>
+    </PdfContextMenuBase>
 </template>
 
 <script setup lang="ts">
@@ -58,44 +60,3 @@ const menuStyle = computed(() => ({
     top: `${props.y}px`,
 }));
 </script>
-
-<style scoped>
-.notes-context-menu {
-    position: fixed;
-    z-index: 1400;
-    min-width: 10.5rem;
-    border: 1px solid var(--ui-border);
-    border-radius: 0.55rem;
-    background: var(--ui-bg);
-    box-shadow: 0 14px 30px color-mix(in srgb, var(--ui-bg-inverted) 20%, transparent 80%);
-    padding: 0.3rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-}
-
-.context-menu-action {
-    border: 1px solid transparent;
-    border-radius: 0.4rem;
-    background: transparent;
-    color: var(--ui-text-highlighted);
-    font-size: 0.77rem;
-    text-align: left;
-    padding: 0.35rem 0.45rem;
-    cursor: pointer;
-}
-
-.context-menu-action:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.context-menu-action:hover:not(:disabled) {
-    border-color: var(--ui-border);
-    background: color-mix(in srgb, var(--ui-bg-muted) 55%, var(--ui-bg) 45%);
-}
-
-.context-menu-action.is-danger {
-    color: color-mix(in srgb, var(--ui-error) 68%, var(--ui-text-highlighted) 32%);
-}
-</style>

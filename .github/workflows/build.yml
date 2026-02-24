@@ -7,7 +7,39 @@ on:
   workflow_dispatch:
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (non-mutating)
+        run: pnpm run lint:check
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Dead code check
+        run: pnpm run knip
+
   build:
+    needs: quality
     strategy:
       fail-fast: false
       matrix:
@@ -91,6 +123,9 @@ jobs:
 
       - name: Build (Nuxt + Electron)
         run: pnpm run build:strict
+
+      - name: Validate resource matrix
+        run: pnpm run check:resources:matrix
 
       - name: Configure optional macOS signing and notarization
         if: runner.os == 'macOS'
@@ -385,6 +420,9 @@ jobs:
 
       - name: Build (Nuxt + Electron)
         run: pnpm run build:strict
+
+      - name: Validate resource matrix
+        run: pnpm run check:resources:matrix
 
       - name: Configure optional macOS signing and notarization
         shell: bash

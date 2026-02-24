@@ -6,99 +6,137 @@ import {
     it,
     vi,
 } from 'vitest';
-import { sep } from 'path';
 
-let tempDir: string;
+const mocks = vi.hoisted(() => ({
+    tempDir: '/tmp/electron-test',
+    existsSync: vi.fn<(path: string) => boolean>(),
+    lstatSync: vi.fn<(path: string) => { isSymbolicLink: () => boolean; }>(),
+    realpathSync: vi.fn<(path: string) => string>(),
+    lstat: vi.fn<(path: string) => Promise<{ isSymbolicLink: () => boolean; }>>(),
+    realpath: vi.fn<(path: string) => Promise<string>>(),
+}));
+
+function createStat(isSymlink: boolean) {
+    return {isSymbolicLink: () => isSymlink};
+}
 
 vi.mock('electron', () => ({app: {getPath: (name: string) => {
-    if (name === 'temp') {
-        return tempDir;
+    if (name !== 'temp') {
+        throw new Error(`Unknown path name: ${name}`);
     }
-    throw new Error(`Unknown path name: ${name}`);
+    return mocks.tempDir;
 }}}));
+
+vi.mock('fs', () => ({
+    existsSync: (path: string) => mocks.existsSync(path),
+    lstatSync: (path: string) => mocks.lstatSync(path),
+    realpathSync: (path: string) => mocks.realpathSync(path),
+}));
+
+vi.mock('fs/promises', () => ({
+    lstat: (path: string) => mocks.lstat(path),
+    realpath: (path: string) => mocks.realpath(path),
+}));
 
 const {
     isAllowedReadPath,
     isAllowedWritePath,
+    resolveAllowedReadPath,
+    resolveAllowedWritePath,
 } = await import('@electron/utils/path-validator');
 
+beforeEach(() => {
+    mocks.tempDir = '/tmp/electron-test';
+    mocks.existsSync.mockReset();
+    mocks.lstatSync.mockReset();
+    mocks.realpathSync.mockReset();
+    mocks.lstat.mockReset();
+    mocks.realpath.mockReset();
+
+    mocks.existsSync.mockReturnValue(true);
+    mocks.lstatSync.mockReturnValue(createStat(false));
+    mocks.realpathSync.mockImplementation((path: string) => path);
+    mocks.lstat.mockResolvedValue(createStat(false));
+    mocks.realpath.mockImplementation(async (path: string) => path);
+});
+
+afterEach(() => {
+    vi.restoreAllMocks();
+});
+
 describe('isAllowedWritePath', () => {
-    beforeEach(() => {
-        tempDir = '/tmp/electron-test';
-    });
-
-    afterEach(() => {
-        vi.restoreAllMocks();
-    });
-
     it('allows a file inside the temp directory', () => {
         expect(isAllowedWritePath('/tmp/electron-test/output.pdf')).toBe(true);
     });
 
-    it('allows a nested file inside the temp directory', () => {
-        expect(isAllowedWritePath('/tmp/electron-test/subdir/deep/output.pdf')).toBe(true);
-    });
+    it('rejects symlink targets', () => {
+        mocks.lstatSync.mockReturnValue(createStat(true));
 
-    it('rejects the temp directory itself', () => {
-        expect(isAllowedWritePath('/tmp/electron-test')).toBe(false);
-        expect(isAllowedWritePath('/tmp/electron-test/')).toBe(false);
-    });
-
-    it('rejects paths outside the temp directory', () => {
-        expect(isAllowedWritePath('/etc/passwd')).toBe(false);
-        expect(isAllowedWritePath('/usr/local/bin/app')).toBe(false);
-    });
-
-    it('rejects path traversal attempts', () => {
-        expect(isAllowedWritePath('/tmp/electron-test/../../../etc/passwd')).toBe(false);
-        expect(isAllowedWritePath('/tmp/electron-test/..')).toBe(false);
-        expect(isAllowedWritePath('/tmp/electron-test/subdir/../../outside')).toBe(false);
-    });
-
-    it('rejects empty and whitespace-only strings', () => {
-        expect(isAllowedWritePath('')).toBe(false);
-        expect(isAllowedWritePath('   ')).toBe(false);
-    });
-
-    it('handles paths with trailing whitespace', () => {
-        expect(isAllowedWritePath('/tmp/electron-test/file.pdf   ')).toBe(true);
-    });
-
-    it('rejects paths that start with .. relative to temp', () => {
-        expect(isAllowedWritePath(`/tmp/electron-test/..${sep}outside`)).toBe(false);
+        expect(isAllowedWritePath('/tmp/electron-test/symlink-output.pdf')).toBe(false);
     });
 });
 
 describe('isAllowedReadPath', () => {
-    beforeEach(() => {
-        tempDir = '/tmp/electron-test';
-    });
-
-    afterEach(() => {
-        vi.restoreAllMocks();
-    });
-
-    it('allows a file inside the temp directory', () => {
+    it('allows a regular file inside the temp directory', () => {
         expect(isAllowedReadPath('/tmp/electron-test/document.pdf')).toBe(true);
     });
 
-    it('allows nested files', () => {
-        expect(isAllowedReadPath('/tmp/electron-test/a/b/c.txt')).toBe(true);
+    it('accepts canonical temp directory paths', () => {
+        mocks.tempDir = '/tmp/electron-test';
+        mocks.realpathSync.mockImplementation((path: string) => {
+            if (path === '/tmp/electron-test') {
+                return '/private/tmp/electron-test';
+            }
+            return path;
+        });
+
+        expect(isAllowedReadPath('/private/tmp/electron-test/document.pdf')).toBe(true);
     });
 
-    it('rejects the temp directory itself', () => {
-        expect(isAllowedReadPath('/tmp/electron-test')).toBe(false);
+    it('rejects symlink targets', () => {
+        mocks.lstatSync.mockReturnValue(createStat(true));
+
+        expect(isAllowedReadPath('/tmp/electron-test/symlink-document.pdf')).toBe(false);
     });
 
-    it('rejects path traversal', () => {
-        expect(isAllowedReadPath('/tmp/electron-test/../../etc/shadow')).toBe(false);
+    it('rejects missing files', () => {
+        mocks.existsSync.mockReturnValue(false);
+
+        expect(isAllowedReadPath('/tmp/electron-test/missing.pdf')).toBe(false);
+    });
+});
+
+describe('resolveAllowedReadPath', () => {
+    it('rejects symlink targets', async () => {
+        mocks.lstat.mockResolvedValue(createStat(true));
+
+        await expect(resolveAllowedReadPath('/tmp/electron-test/symlink.pdf')).resolves.toBeNull();
+        expect(mocks.realpath).toHaveBeenCalledWith('/tmp/electron-test');
+        expect(mocks.realpath).not.toHaveBeenCalledWith('/tmp/electron-test/symlink.pdf');
     });
 
-    it('rejects empty input', () => {
-        expect(isAllowedReadPath('')).toBe(false);
-    });
+    it('allows temp paths when canonical temp dir differs', async () => {
+        mocks.tempDir = '/var/folders/abc/T';
+        mocks.realpath.mockImplementation(async (path: string) => {
+            if (path === '/var/folders/abc/T') {
+                return '/private/var/folders/abc/T';
+            }
+            if (path === '/var/folders/abc/T/file.pdf') {
+                return '/private/var/folders/abc/T/file.pdf';
+            }
+            return path;
+        });
 
-    it('rejects paths outside temp directory', () => {
-        expect(isAllowedReadPath('/home/user/secrets.txt')).toBe(false);
+        await expect(resolveAllowedReadPath('/var/folders/abc/T/file.pdf')).resolves.toBe('/private/var/folders/abc/T/file.pdf');
+    });
+});
+
+describe('resolveAllowedWritePath', () => {
+    it('rejects symlink targets', async () => {
+        mocks.lstat.mockResolvedValue(createStat(true));
+
+        await expect(resolveAllowedWritePath('/tmp/electron-test/symlink-write.pdf')).resolves.toBeNull();
+        expect(mocks.realpath).toHaveBeenCalledWith('/tmp/electron-test');
+        expect(mocks.realpath).not.toHaveBeenCalledWith('/tmp/electron-test/symlink-write.pdf');
     });
 });

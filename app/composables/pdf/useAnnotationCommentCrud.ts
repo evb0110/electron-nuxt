@@ -43,6 +43,13 @@ import {
 } from '@app/composables/pdf/annotationCommentCrudHelpers';
 import type { IEditorTargetMatch } from '@app/composables/pdf/annotationCommentCrudHelpers';
 import { runGuardedTask } from '@app/utils/async-guard';
+import {
+    getEditorById,
+    getEditorByUidFromLayer,
+    selectCommentByUid,
+    setSelectedEditor,
+    unselectAllEditors,
+} from '@app/services/pdfjs/annotationEditorAdapter';
 
 export type { IEditorTargetMatch } from '@app/composables/pdf/annotationCommentCrudHelpers';
 export {
@@ -56,10 +63,6 @@ type TCommentSync = ReturnType<typeof useAnnotationCommentSync>;
 type TInlineIndicators = ReturnType<typeof useInlineCommentIndicators>;
 type TToolManager = ReturnType<typeof useAnnotationToolManager>;
 type THighlight = ReturnType<typeof useAnnotationHighlight>;
-
-type TUiManagerSelectedEditor = Parameters<
-    AnnotationEditorUIManager['setSelected']
->[0];
 
 interface IUseAnnotationCommentCrudOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -643,14 +646,7 @@ export function useAnnotationCommentCrud(
         await nextTick();
         inlineIndicators.pulseCommentIndicator(comment.stableKey);
 
-        const uiManager = annotationUiManager.value as
-      | (AnnotationEditorUIManager & {
-          getLayer?: (
-              pageIndex: number,
-          ) => { getEditorByUID?: (uid: string) => IPdfjsEditor | null } | null;
-          selectComment?: (pageIndex: number, uid: string) => void;
-      })
-      | null;
+        const uiManager = annotationUiManager.value;
         const pageIndex = pageNumber - 1;
 
         if (uiManager) {
@@ -663,21 +659,18 @@ export function useAnnotationCommentCrud(
                 );
             }
 
-            const layer = uiManager.getLayer?.(pageIndex) ?? null;
             const candidateIds = getCommentCandidateIds(comment);
 
             for (const id of candidateIds) {
-                const editor = layer?.getEditorByUID?.(id);
+                const editor = getEditorByUidFromLayer(uiManager, pageIndex, id);
                 if (editor) {
                     editor.toggleComment?.(true, true);
                     return;
                 }
             }
 
-            if (typeof uiManager.selectComment === 'function') {
-                for (const id of candidateIds) {
-                    uiManager.selectComment(pageIndex, id);
-                }
+            for (const id of candidateIds) {
+                selectCommentByUid(uiManager, pageIndex, id);
             }
         }
 
@@ -766,14 +759,6 @@ export function useAnnotationCommentCrud(
         );
         let pageIndex = Math.max(0, pageNumber - 1);
         let candidateIds = getCommentCandidateIds(resolvedComment);
-        const managerWithCommentSelection =
-            uiManager as AnnotationEditorUIManager & {
-                selectComment?: (candidatePageIndex: number, uid: string) => void;
-                getEditor?: (id: string) => IPdfjsEditor | null;
-                getLayer?: (
-                    candidatePageIndex: number,
-                ) => { getEditorByUID?: (uid: string) => IPdfjsEditor | null } | null;
-            };
         BrowserLogger.debug('annotations', 'deleteAnnotationComment: start', {
             stableKey: resolvedComment.stableKey,
             source: resolvedComment.source,
@@ -845,12 +830,11 @@ export function useAnnotationCommentCrud(
         if (
             !editor
             && candidateIds.length > 0
-            && typeof managerWithCommentSelection.getEditor === 'function'
         ) {
             for (const id of candidateIds) {
-                const byGlobalId = managerWithCommentSelection.getEditor(id);
+                const byGlobalId = getEditorById(uiManager, id);
                 if (byGlobalId) {
-                    editor = byGlobalId as IPdfjsEditor;
+                    editor = byGlobalId;
                     break;
                 }
             }
@@ -858,9 +842,11 @@ export function useAnnotationCommentCrud(
 
         if (!editor && candidateIds.length > 0) {
             for (const id of candidateIds) {
-                const fromLayer = managerWithCommentSelection
-                    .getLayer?.(pageIndex)
-                    ?.getEditorByUID?.(id);
+                const fromLayer = getEditorByUidFromLayer(
+                    uiManager,
+                    pageIndex,
+                    id,
+                );
                 if (fromLayer) {
                     editor = fromLayer;
                     break;
@@ -869,14 +855,11 @@ export function useAnnotationCommentCrud(
         }
 
         let attemptedCommentSelection = false;
-        if (
-            !editor &&
-            candidateIds.length > 0 &&
-            typeof managerWithCommentSelection.selectComment === 'function'
-        ) {
+        if (!editor && candidateIds.length > 0) {
             for (const id of candidateIds) {
-                managerWithCommentSelection.selectComment(pageIndex, id);
-                attemptedCommentSelection = true;
+                attemptedCommentSelection =
+                    selectCommentByUid(uiManager, pageIndex, id)
+                    || attemptedCommentSelection;
             }
             await nextTick();
             editor =
@@ -977,7 +960,7 @@ export function useAnnotationCommentCrud(
 
         try {
             if (!deleted && editor) {
-                uiManager.setSelected(editor as TUiManagerSelectedEditor);
+                setSelectedEditor(uiManager, editor);
                 uiManager.delete();
                 deleted = true;
             }
@@ -1184,18 +1167,13 @@ export function useAnnotationCommentCrud(
             return false;
         }
 
-        uiManager.setSelected(match.editor as TUiManagerSelectedEditor);
+        setSelectedEditor(uiManager, match.editor);
         freeTextResize.ensureFreeTextEditorCanResize(match.editor);
         return true;
     }
 
     function clearStickyHighlightSelectionState(editor: IPdfjsEditor | null = null) {
-        const uiManager = annotationUiManager.value as
-            | (AnnotationEditorUIManager & {unselectAll?: () => void;})
-            | null;
-        if (uiManager) {
-            uiManager.unselectAll?.();
-        }
+        unselectAllEditors(annotationUiManager.value);
 
         const clearSelectionVisuals = () => {
             const root = viewerContainer.value ?? document;
