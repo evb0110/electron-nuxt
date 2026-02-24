@@ -50,6 +50,12 @@ export default withNuxt(
         rules: {
             'vue/no-multiple-template-root': 'off',
             'vue/html-self-closing': 'off',
+            'vue/no-undef-properties': [
+                'error',
+                {
+                    ignores: ['/^\\$/u'],
+                },
+            ],
             '@typescript-eslint/unified-signatures': 'off',
             '@typescript-eslint/explicit-function-return-type': 'off',
             '@typescript-eslint/explicit-module-boundary-types': 'off',
