@@ -30,6 +30,7 @@ function createHarness() {
         pdfViewerRef: ref(viewer),
         dragMode: ref(true),
         markDirty: vi.fn(),
+        clearAnnotationChanges: vi.fn(),
         closeAnnotationContextMenu: vi.fn(),
         hasAnnotationChanges: vi.fn(() => false),
     };
@@ -106,5 +107,37 @@ describe('usePageAnnotationTools', () => {
         expect(tools.annotationRevision.value).toBe(0);
         expect(tools.annotationSavedRevision.value).toBe(0);
         expect(tools.annotationDirty.value).toBe(false);
+    });
+
+    it('clears annotation storage markers when undo stack becomes empty', () => {
+        const {
+            deps,
+            tools,
+        } = createHarness();
+
+        deps.hasAnnotationChanges.mockReturnValue(false);
+
+        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: true }));
+        expect(tools.annotationDirty.value).toBe(true);
+
+        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: false }));
+
+        expect(deps.clearAnnotationChanges).toHaveBeenCalledOnce();
+        expect(tools.annotationDirty.value).toBe(false);
+    });
+
+    it('keeps annotation dirty when changes still exist after undo stack is empty', () => {
+        const {
+            deps,
+            tools,
+        } = createHarness();
+
+        deps.hasAnnotationChanges.mockReturnValue(true);
+
+        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: true }));
+        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: false }));
+
+        expect(deps.clearAnnotationChanges).toHaveBeenCalledOnce();
+        expect(tools.annotationDirty.value).toBe(true);
     });
 });

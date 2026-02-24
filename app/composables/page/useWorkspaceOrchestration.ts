@@ -218,6 +218,21 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closePageContextMenu,
     } = usePageContextMenu();
 
+    function clearAnnotationChanges() {
+        try {
+            pdfDocument.value?.annotationStorage?.resetModified();
+        } catch (error) {
+            BrowserLogger.debug('workspace', 'Failed to reset annotation storage modified state', error);
+        }
+    }
+
+    function hasAnnotationChanges() {
+        return detectAnnotationChanges({
+            pdfViewerRef,
+            pdfDocument,
+        });
+    }
+
     const {
         annotationTool,
         annotationKeepActive,
@@ -240,11 +255,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfViewerRef,
         dragMode,
         markDirty,
+        clearAnnotationChanges,
         closeAnnotationContextMenu,
-        hasAnnotationChanges: () => detectAnnotationChanges({
-            pdfViewerRef,
-            pdfDocument, 
-        }),
+        hasAnnotationChanges,
     });
 
     const annotationKeepActiveStorage = useStorage<string>(
@@ -395,12 +408,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         waitForPdfReload,
     });
 
-    function hasAnnotationChanges() {
-        return detectAnnotationChanges({
-            pdfViewerRef,
-            pdfDocument,
-        });
-    }
+    const hasPendingTabChanges = computed(() => (
+        annotationDirty.value
+        || isDirty.value
+        || hasAnnotationChanges()
+        || pageLabelsDirty.value
+        || bookmarksDirty.value
+    ));
 
     const {
         shapePropertiesPopover,
@@ -572,7 +586,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         originalPath,
         isActive,
         fileName,
-        isDirty,
+        isDirty: hasPendingTabChanges,
         isDjvuMode,
         djvuSourcePath,
         openBatchProgress,
@@ -671,13 +685,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             fileName: fileName.value ?? 'document.pdf',
             originalPath: originalPath.value,
             data: snapshot.slice(),
-            isDirty: (
-                annotationDirty.value
-                || isDirty.value
-                || hasAnnotationChanges()
-                || pageLabelsDirty.value
-                || bookmarksDirty.value
-            ),
+            isDirty: hasPendingTabChanges.value,
         };
     }
 

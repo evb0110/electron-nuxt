@@ -47,7 +47,7 @@ interface IWorkspaceUiSyncDeps {
     openBatchProgress: Ref<IOpenBatchProgressState | null>;
     isActive: Ref<boolean>;
     fileName: Ref<string | null>;
-    isDirty: Ref<boolean>;
+    isDirty: Readonly<Ref<boolean>>;
     isDjvuMode: Ref<boolean>;
     djvuSourcePath: Ref<string | null>;
     showSettings: Ref<boolean>;

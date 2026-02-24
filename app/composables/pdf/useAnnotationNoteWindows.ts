@@ -395,7 +395,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
 
         const current = note.comment;
         const nextText = note.text;
-        if (!force && nextText === note.lastSavedText) {
+        // Even forced persistence should skip true no-op updates.
+        // Otherwise Save/Save As can materialize and reload the PDF despite no text change.
+        if (nextText === note.lastSavedText) {
             return true;
         }
 
@@ -443,13 +445,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                         await restorePromise;
                         saved = true;
                     }
-                }
-            }
-            if (savedInViewer && force) {
-                const materialized = await serializeCurrentPdfForEmbeddedFallback();
-                if (!materialized) {
-                    note.error = t('errors.annotation.updateNote');
-                    return false;
                 }
             }
             if (!saved) {
