@@ -428,8 +428,10 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
 
     attachRendererDiagnostics(window);
     attachShowLifecycle(window);
-    await lockRendererZoom(window);
     void window.loadURL(config.server.url);
+    window.webContents.once('did-finish-load', () => {
+        void lockRendererZoom(window);
+    });
     logWindowStartup(`BrowserWindow created and loadURL dispatched (step +${Date.now() - createStart}ms)`, {
         windowId: window.id,
         url: config.server.url,
