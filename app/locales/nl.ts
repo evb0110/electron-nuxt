@@ -288,7 +288,7 @@ export default {
         },
     },
     'noteWindow': {
-        'popUpNote': 'Pop-upnotitie : Pagina {page}',
+        'popUpNote': 'Pagina {page}',
         'unknownAuthor': 'Onbekende auteur',
         'noDate': 'Geen datum',
         'writeNote': 'Annotatienotitie schrijven',

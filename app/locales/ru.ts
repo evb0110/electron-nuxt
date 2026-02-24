@@ -288,7 +288,7 @@ export default {
         },
     },
     'noteWindow': {
-        'popUpNote': 'Заметка : Стр. {page}',
+        'popUpNote': 'Стр. {page}',
         'unknownAuthor': 'Неизвестный автор',
         'noDate': 'Нет даты',
         'writeNote': 'Введите текст заметки',

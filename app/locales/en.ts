@@ -288,7 +288,7 @@ export default {
         },
     },
     'noteWindow': {
-        'popUpNote': 'Pop-up Note : Page {page}',
+        'popUpNote': 'Page {page}',
         'unknownAuthor': 'Unknown Author',
         'noDate': 'No date',
         'writeNote': 'Write annotation note',

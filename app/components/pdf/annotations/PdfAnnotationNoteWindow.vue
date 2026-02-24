@@ -15,7 +15,6 @@
                 <span class="note-window__meta">{{ authorText }}</span>
             </div>
             <div class="note-window__title-side">
-                <span class="note-window__date">{{ timestampText }}</span>
                 <div class="note-window__actions">
                     <button
                         type="button"
@@ -34,6 +33,7 @@
                         <UIcon name="i-lucide-minus" class="size-3.5" />
                     </button>
                 </div>
+                <span class="note-window__date">{{ timestampText }}</span>
             </div>
         </header>
 
