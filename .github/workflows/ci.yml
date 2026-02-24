@@ -32,14 +32,11 @@ jobs:
       - name: Locale parity check
         run: pnpm run check:locales
 
-      - name: Build Electron bundles
-        run: pnpm run build:electron
+      - name: Build (strict warnings)
+        run: pnpm run build:strict
 
       - name: Test
         run: pnpm test
-
-      - name: Build app
-        run: pnpm exec nuxt build
 
       - name: Resource matrix check
         run: pnpm run check:resources:matrix

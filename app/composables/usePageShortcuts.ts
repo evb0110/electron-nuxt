@@ -40,13 +40,28 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         openSearch,
     } = deps;
     const shortcutListenerCleanups: Array<() => void> = [];
+    let isSetup = false;
+
+    function getWindowTarget() {
+        if (typeof window === 'undefined') {
+            return null;
+        }
+        return window;
+    }
+
+    function getEventTargetElement(target: EventTarget | null) {
+        if (typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) {
+            return null;
+        }
+        return target;
+    }
 
     function handleGlobalShortcut(event: KeyboardEvent) {
         if (!isActive.value) {
             return;
         }
 
-        const target = event.target instanceof HTMLElement ? event.target : null;
+        const target = getEventTargetElement(event.target);
         const isEditingText = (
             target?.isContentEditable
             || target?.closest('[contenteditable="true"], [contenteditable=""]')
@@ -82,7 +97,7 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         if (!isActive.value) {
             return;
         }
-        const target = event.target instanceof HTMLElement ? event.target : null;
+        const target = getEventTargetElement(event.target);
 
         if (shapePropertiesPopoverVisible.value) {
             if (!target?.closest('.annotation-properties')) {
@@ -104,11 +119,26 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     }
 
     function setupShortcuts() {
-        shortcutListenerCleanups.push(useEventListener(window, 'keydown', handleGlobalShortcut));
-        shortcutListenerCleanups.push(useEventListener(window, 'pointerdown', handleGlobalPointerDown));
+        if (isSetup) {
+            return;
+        }
+
+        const target = getWindowTarget();
+        if (!target) {
+            return;
+        }
+
+        isSetup = true;
+        shortcutListenerCleanups.push(useEventListener(target, 'keydown', handleGlobalShortcut));
+        shortcutListenerCleanups.push(useEventListener(target, 'pointerdown', handleGlobalPointerDown));
     }
 
     function cleanupShortcuts() {
+        if (!isSetup && shortcutListenerCleanups.length === 0) {
+            return;
+        }
+
+        isSetup = false;
         while (shortcutListenerCleanups.length > 0) {
             const cleanup = shortcutListenerCleanups.pop();
             cleanup?.();

@@ -48,6 +48,7 @@ interface IOcrActiveJob extends IOcrQueuedJob {
     completed: boolean;
     terminatedByUs: boolean;
     startedAtMs: number;
+    watchdogTimer: NodeJS.Timeout | null;
 }
 
 interface IOcrPendingResultFile {
@@ -110,6 +111,21 @@ const OCR_RESULT_FILE_ACK_TTL_MS = (() => {
     }
     return parsed;
 })();
+const OCR_JOB_MAX_RUNTIME_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_JOB_MAX_RUNTIME_MS ?? `${15 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 15_000) {
+        return 15 * 60 * 1000;
+    }
+    return parsed;
+})();
+const OCR_MODEL_PREP_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_MODEL_PREP_TIMEOUT_MS ?? `${2 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 10_000) {
+        return 2 * 60 * 1000;
+    }
+    return parsed;
+})();
+const registeredSenderCleanupIds = new Set<number>();
 
 function asTransferableBytes(bytes: Uint8Array) {
     if (
@@ -120,6 +136,30 @@ function asTransferableBytes(bytes: Uint8Array) {
         return bytes;
     }
     return bytes.slice();
+}
+
+function withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    errorMessage: string,
+): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            reject(new Error(errorMessage));
+        }, timeoutMs);
+        timeout.unref?.();
+
+        promise.then(
+            (result) => {
+                clearTimeout(timeout);
+                resolve(result);
+            },
+            (error) => {
+                clearTimeout(timeout);
+                reject(error);
+            },
+        );
+    });
 }
 
 export function safeSendToWindow(
@@ -315,6 +355,65 @@ function removeQueuedJob(jobId: string) {
     return job ?? null;
 }
 
+function clearJobWatchdog(jobId: string) {
+    const activeJob = activeJobs.get(jobId);
+    if (!activeJob?.watchdogTimer) {
+        return;
+    }
+    clearTimeout(activeJob.watchdogTimer);
+    activeJob.watchdogTimer = null;
+}
+
+async function cleanupPendingResultFilesForSender(webContentsId: number) {
+    const pendingEntries = Array.from(pendingResultFiles.values())
+        .filter(entry => entry.webContentsId === webContentsId);
+    for (const pendingEntry of pendingEntries) {
+        pendingResultFiles.delete(pendingEntry.jobId);
+        await removeResultFile(pendingEntry.pdfPath);
+    }
+}
+
+function cancelJobsForSender(webContentsId: number, reason: string) {
+    const queuedForSender = queuedJobs
+        .filter(job => job.webContentsId === webContentsId)
+        .map(job => job.jobId);
+    for (const jobId of queuedForSender) {
+        const removedJob = removeQueuedJob(jobId);
+        if (removedJob) {
+            log.info(`[${jobId}] Removed queued OCR job: ${reason}`);
+        }
+    }
+
+    const activeForSender = Array.from(activeJobs.values())
+        .filter(activeJob => activeJob.webContentsId === webContentsId);
+    for (const activeJob of activeForSender) {
+        activeJob.completed = true;
+        activeJob.terminatedByUs = true;
+        cancelledJobs.add(activeJob.jobId);
+        clearJobWatchdog(activeJob.jobId);
+        void activeJob.worker.terminate();
+        finalizeActiveJob(activeJob.jobId);
+        log.info(`[${activeJob.jobId}] Cancelled active OCR job: ${reason}`);
+    }
+
+    void cleanupPendingResultFilesForSender(webContentsId);
+}
+
+function registerSenderCleanup(event: IpcMainInvokeEvent) {
+    const senderId = event.sender.id;
+    if (registeredSenderCleanupIds.has(senderId)) {
+        return;
+    }
+
+    registeredSenderCleanupIds.add(senderId);
+    const cleanup = () => {
+        cancelJobsForSender(senderId, 'Renderer disconnected');
+        registeredSenderCleanupIds.delete(senderId);
+    };
+
+    event.sender.once('destroyed', cleanup);
+}
+
 function sendJobFailure(job: IOcrQueuedJob, error: string) {
     const window = getJobWindow(job.webContentsId);
     safeSendToWindow(window, 'ocr:complete', {
@@ -326,6 +425,7 @@ function sendJobFailure(job: IOcrQueuedJob, error: string) {
 }
 
 function finalizeActiveJob(jobId: string) {
+    clearJobWatchdog(jobId);
     activeJobs.delete(jobId);
     dispatchQueuedJobs();
 }
@@ -395,8 +495,24 @@ function startQueuedJob(job: IOcrQueuedJob) {
         completed: false,
         terminatedByUs: false,
         startedAtMs: Date.now(),
+        watchdogTimer: null,
     };
     activeJobs.set(job.jobId, activeJob);
+    const watchdog = setTimeout(() => {
+        const pendingActiveJob = activeJobs.get(job.jobId);
+        if (!pendingActiveJob || pendingActiveJob.completed) {
+            return;
+        }
+
+        pendingActiveJob.completed = true;
+        pendingActiveJob.terminatedByUs = true;
+        sendJobFailure(job, `OCR job timed out after ${OCR_JOB_MAX_RUNTIME_MS}ms`);
+        void pendingActiveJob.worker.terminate();
+        finalizeActiveJob(job.jobId);
+        log.error(`OCR watchdog timed out job ${job.jobId}`);
+    }, OCR_JOB_MAX_RUNTIME_MS);
+    watchdog.unref?.();
+    activeJob.watchdogTimer = watchdog;
     logQueueDepth(`OCR job ${job.jobId} activated`);
 
     worker.on('message', (message: TWorkerMessage) => {
@@ -491,6 +607,15 @@ export async function handleOcrCreateSearchablePdfAsync(
     log.debug(`handleOcrCreateSearchablePdfAsync called: pdfLen=${originalPdfData.length}, pages=${pages.length}, reqId=${requestId}, dpi=${renderDpi}`);
 
     try {
+        registerSenderCleanup(event);
+        if (event.sender.isDestroyed()) {
+            return {
+                started: false,
+                jobId: requestId,
+                error: 'Renderer disconnected before OCR request could be queued',
+            };
+        }
+
         evictStaleQueuedJobs();
         await evictStaleResultFiles();
 
@@ -520,7 +645,19 @@ export async function handleOcrCreateSearchablePdfAsync(
         if (missingLanguages.length > 0) {
             log.warn(`Missing OCR language models in ${tessdataDir}; downloading: ${missingLanguages.join(', ')}`);
         }
-        await ensureTessdataLanguages(languages);
+        await withTimeout(
+            ensureTessdataLanguages(languages),
+            OCR_MODEL_PREP_TIMEOUT_MS,
+            `OCR model preparation timed out after ${OCR_MODEL_PREP_TIMEOUT_MS}ms`,
+        );
+
+        if (event.sender.isDestroyed()) {
+            return {
+                started: false,
+                jobId: requestId,
+                error: 'Renderer disconnected before OCR request could be queued',
+            };
+        }
 
         const queuedJob: IOcrQueuedJob = {
             jobId: requestId,
@@ -560,6 +697,7 @@ export async function handleOcrAcknowledgeResultFile(
     cleaned: boolean;
     error?: string; 
 }> {
+    registerSenderCleanup(event);
     await evictStaleResultFiles();
 
     const requestId = typeof requestIdPayload === 'string' ? requestIdPayload.trim() : '';

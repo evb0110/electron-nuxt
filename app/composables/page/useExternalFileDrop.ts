@@ -67,8 +67,31 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
 
 export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
     const { openPathInAppropriateTab } = options;
+    let queue: Promise<void> = Promise.resolve();
+    let lifecycleToken = 0;
+    let disposed = false;
+
+    async function processDroppedPaths(
+        paths: string[],
+        tokenAtSchedule: number,
+    ) {
+        if (disposed || tokenAtSchedule !== lifecycleToken) {
+            return;
+        }
+
+        for (const path of paths) {
+            if (disposed || tokenAtSchedule !== lifecycleToken) {
+                return;
+            }
+            await openPathInAppropriateTab(path);
+        }
+    }
 
     function handleWindowDragOver(event: DragEvent) {
+        if (disposed) {
+            return;
+        }
+
         if (event.defaultPrevented || isSidebarDropArea(event)) {
             return;
         }
@@ -85,6 +108,10 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
     }
 
     function handleWindowDrop(event: DragEvent) {
+        if (disposed) {
+            return;
+        }
+
         if (event.defaultPrevented || isSidebarDropArea(event)) {
             return;
         }
@@ -101,15 +128,28 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
             return;
         }
 
-        void (async () => {
-            for (const path of paths) {
-                await openPathInAppropriateTab(path);
-            }
-        })();
+        const tokenAtSchedule = lifecycleToken;
+        queue = queue
+            .catch(() => {
+                // Keep the queue flowing after a single file-open failure.
+            })
+            .then(async () => {
+                await processDroppedPaths(paths, tokenAtSchedule);
+            });
+    }
+
+    function cleanup() {
+        if (disposed) {
+            return;
+        }
+        disposed = true;
+        lifecycleToken += 1;
+        queue = Promise.resolve();
     }
 
     return {
         handleWindowDragOver,
         handleWindowDrop,
+        cleanup,
     };
 }

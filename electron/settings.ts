@@ -9,49 +9,16 @@ import {
 import { join } from 'path';
 import { app } from 'electron';
 import {
-    DEFAULT_LOCALE,
-    LOCALE_CODES,
-    type TLocale,
-} from '@app/i18n/locale-codes';
+    DEFAULT_SETTINGS,
+    sanitizeSettings,
+} from '@app/shared/settings-sanitizer';
 import type { ISettingsData } from '@app/types/shared';
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('settings');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 
-type TSupportedLocale = TLocale;
-
-const DEFAULT_SETTINGS: ISettingsData = {
-    version: 1,
-    authorName: '',
-    theme: 'light',
-    locale: DEFAULT_LOCALE,
-};
-
 let settingsCache: ISettingsData | null = null;
-
-function isSupportedLocale(locale: string): locale is TSupportedLocale {
-    return LOCALE_CODES.includes(locale as TSupportedLocale);
-}
-
-function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined): ISettingsData {
-    const locale = typeof raw?.locale === 'string' && isSupportedLocale(raw.locale)
-        ? raw.locale
-        : DEFAULT_LOCALE;
-
-    return {
-        version: typeof raw?.version === 'number' ? raw.version : DEFAULT_SETTINGS.version,
-        authorName: typeof raw?.authorName === 'string' ? raw.authorName : DEFAULT_SETTINGS.authorName,
-        theme: raw?.theme === 'dark' ? 'dark' : 'light',
-        locale,
-        suppressDefaultViewerPrompt: typeof raw?.suppressDefaultViewerPrompt === 'boolean'
-            ? raw.suppressDefaultViewerPrompt
-            : undefined,
-        skippedUpdateVersion: typeof raw?.skippedUpdateVersion === 'string' && raw.skippedUpdateVersion.trim()
-            ? raw.skippedUpdateVersion.trim()
-            : undefined,
-    };
-}
 
 function getStoragePath() {
     return join(app.getPath('userData'), 'settings.json');

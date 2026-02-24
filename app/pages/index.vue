@@ -118,7 +118,6 @@ import {
     shallowRef,
     triggerRef,
     watch,
-    watchEffect,
 } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
@@ -127,6 +126,11 @@ import {
 } from '@app/utils/electron';
 import { traceRendererStartup } from '@app/utils/startup-trace';
 import { useExternalFileDrop } from '@app/composables/page/useExternalFileDrop';
+import { useDirtyTabCloseDialog } from '@app/composables/page/useDirtyTabCloseDialog';
+import {
+    useMenuSync,
+    workspaceHasPdf,
+} from '@app/composables/page/useMenuSync';
 import { useTabsShellBindings } from '@app/composables/page/useTabsShellBindings';
 import { useAppUpdates } from '@app/composables/useAppUpdates';
 import { useEditorGroupsManager } from '@app/composables/useEditorGroupsManager';
@@ -181,9 +185,6 @@ const {
 const { t } = useTypedI18n();
 const showSettings = ref(false);
 const chromeHostsReady = ref(false);
-const dirtyTabCloseDialogOpen = ref(false);
-const dirtyTabCloseTargetId = ref<string | null>(null);
-let dirtyTabCloseDialogResolver: ((confirmed: boolean) => void) | null = null;
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const {
@@ -210,6 +211,17 @@ const DIRECTION_ORDER: TGroupDirection[] = [
 const activeTabTransitions = ref(0);
 let tabTransitionQueue: Promise<void> = Promise.resolve();
 let incomingTabTransferCleanup: (() => void) | null = null;
+
+const {
+    dirtyTabCloseDialogOpen,
+    dirtyTabCloseTargetName,
+    confirmDirtyTabClose,
+    requestDirtyTabCloseConfirmation,
+    resolveDirtyTabCloseDialog,
+} = useDirtyTabCloseDialog({
+    tabs,
+    t,
+});
 
 const REQUIRED_WORKSPACE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> = [
     'handleSave',
@@ -436,6 +448,10 @@ const activeWorkspace = computed(() => {
     }
     return workspaceRefs.value.get(activeTabId.value) ?? null;
 });
+useMenuSync({
+    activeWorkspace,
+    tabs,
+});
 
 function createDirectionalAvailability(value: boolean): TDirectionalCommandAvailability {
     return {
@@ -483,49 +499,6 @@ const tabContextAvailabilityByGroup = computed<Record<string, ITabContextAvailab
     }
 
     return result;
-});
-
-let lastSyncedMenuDocumentState: boolean | null = null;
-let lastSyncedMenuTabCount: number | null = null;
-
-function workspaceHasPdf(workspace: IWorkspaceExpose | null | undefined) {
-    if (!workspace) {
-        return false;
-    }
-    return typeof workspace.hasPdf === 'boolean' ? workspace.hasPdf : workspace.hasPdf.value;
-}
-
-function syncMenuDocumentState() {
-    if (!hasElectronAPI()) {
-        return;
-    }
-    const hasDocument = workspaceHasPdf(activeWorkspace.value);
-    if (lastSyncedMenuDocumentState === hasDocument) {
-        return;
-    }
-    lastSyncedMenuDocumentState = hasDocument;
-    void getElectronAPI().setMenuDocumentState(hasDocument);
-}
-
-function syncMenuTabCount() {
-    if (!hasElectronAPI()) {
-        return;
-    }
-
-    const tabCount = tabs.value.length;
-    if (lastSyncedMenuTabCount === tabCount) {
-        return;
-    }
-
-    lastSyncedMenuTabCount = tabCount;
-    void getElectronAPI().setMenuTabCount(tabCount);
-}
-
-const dirtyTabCloseTargetName = computed(() => {
-    const tab = dirtyTabCloseTargetId.value
-        ? tabs.value.find(candidate => candidate.id === dirtyTabCloseTargetId.value)
-        : null;
-    return tab?.fileName ?? t('tabs.newTab');
 });
 
 const updatesDialogTitle = computed(() => {
@@ -589,31 +562,6 @@ function handleSkipUpdate(close: () => void) {
 
 function handleInstallUpdate() {
     void installUpdateNow();
-}
-
-function resolveDirtyTabCloseDialog(confirmed: boolean) {
-    const resolver = dirtyTabCloseDialogResolver;
-    dirtyTabCloseDialogResolver = null;
-    dirtyTabCloseTargetId.value = null;
-    dirtyTabCloseDialogOpen.value = false;
-    if (resolver) {
-        resolver(confirmed);
-    }
-}
-
-function confirmDirtyTabClose() {
-    resolveDirtyTabCloseDialog(true);
-}
-
-function requestDirtyTabCloseConfirmation(tabId: string) {
-    if (dirtyTabCloseDialogResolver) {
-        resolveDirtyTabCloseDialog(false);
-    }
-    dirtyTabCloseTargetId.value = tabId;
-    dirtyTabCloseDialogOpen.value = true;
-    return new Promise<boolean>((resolve) => {
-        dirtyTabCloseDialogResolver = resolve;
-    });
 }
 
 async function handleCloseTab(groupId: string, tabId: string) {
@@ -1190,6 +1138,7 @@ function handleTabMoveDirection(
 const {
     handleWindowDragOver,
     handleWindowDrop,
+    cleanup: cleanupExternalFileDrop,
 } = useExternalFileDrop({ openPathInAppropriateTab });
 
 const {
@@ -1254,15 +1203,11 @@ onMounted(() => {
 onUnmounted(() => {
     incomingTabTransferCleanup?.();
     incomingTabTransferCleanup = null;
-});
-
-watchEffect(() => {
-    syncMenuDocumentState();
-    syncMenuTabCount();
+    cleanupExternalFileDrop();
 });
 
 watch(dirtyTabCloseDialogOpen, (isOpen) => {
-    if (!isOpen && dirtyTabCloseDialogResolver) {
+    if (!isOpen) {
         resolveDirtyTabCloseDialog(false);
     }
 });
