@@ -8,9 +8,11 @@ export function buildContentSecurityPolicy(isDev: boolean) {
         ? 'connect-src \'self\' ws: blob:'
         : 'connect-src \'self\' blob:';
 
+    // Nuxt SPA renderer injects inline payload/config scripts in both dev and production.
+    // Blocking inline scripts breaks bootstrap at startup (`window.__NUXT__` never initializes).
     const scriptSrc = isDev
         ? 'script-src \'self\' \'unsafe-inline\' \'wasm-unsafe-eval\''
-        : 'script-src \'self\'';
+        : 'script-src \'self\' \'unsafe-inline\'';
     const styleSrc = 'style-src \'self\' \'unsafe-inline\'';
 
     return [

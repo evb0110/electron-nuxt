@@ -19,11 +19,12 @@ describe('buildContentSecurityPolicy', () => {
         expect(csp).toContain('script-src-attr \'none\'');
     });
 
-    it('uses self-only connect/script sources in production policy', () => {
+    it('allows inline script elements in production for Nuxt SPA bootstrap', () => {
         const csp = buildContentSecurityPolicy(false);
 
-        expect(csp).toContain('script-src \'self\'');
+        expect(csp).toContain('script-src \'self\' \'unsafe-inline\'');
         expect(csp).toContain('connect-src \'self\' blob:');
         expect(csp).not.toContain('wasm-unsafe-eval');
+        expect(csp).toContain('script-src-attr \'none\'');
     });
 });

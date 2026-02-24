@@ -508,8 +508,42 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         return nearest?.element ?? null;
     }
 
-    function resolvePagePointTarget(clientX: number, clientY: number): IPagePointTarget | null {
-        const pageContainer = findPageContainerFromClientPoint(clientX, clientY);
+    function resolvePageContainerFromTarget(targetElement?: HTMLElement | null) {
+        const container = viewerContainer.value;
+        if (!container || !targetElement) {
+            return null;
+        }
+        const pageContainer = targetElement.closest<HTMLElement>('.page_container');
+        if (!pageContainer || !container.contains(pageContainer)) {
+            return null;
+        }
+        return pageContainer;
+    }
+
+    function resolvePageContainerFromDocumentPoint(clientX: number, clientY: number) {
+        const container = viewerContainer.value;
+        if (!container || typeof document === 'undefined') {
+            return null;
+        }
+        const pointElement = document.elementFromPoint(clientX, clientY);
+        if (!(pointElement instanceof HTMLElement)) {
+            return null;
+        }
+        const pageContainer = pointElement.closest<HTMLElement>('.page_container');
+        if (!pageContainer || !container.contains(pageContainer)) {
+            return null;
+        }
+        return pageContainer;
+    }
+
+    function resolvePagePointTarget(
+        clientX: number,
+        clientY: number,
+        targetElement?: HTMLElement | null,
+    ): IPagePointTarget | null {
+        const pageContainer = resolvePageContainerFromTarget(targetElement)
+            ?? resolvePageContainerFromDocumentPoint(clientX, clientY)
+            ?? findPageContainerFromClientPoint(clientX, clientY);
         if (!pageContainer) {
             return null;
         }
@@ -804,8 +838,12 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         setCommentPlacementMode(false);
     }
 
-    async function placeCommentAtClientPoint(clientX: number, clientY: number) {
-        const target = resolvePagePointTarget(clientX, clientY);
+    async function placeCommentAtClientPoint(
+        clientX: number,
+        clientY: number,
+        targetElement?: HTMLElement | null,
+    ) {
+        const target = resolvePagePointTarget(clientX, clientY, targetElement);
         if (!target) {
             return false;
         }
