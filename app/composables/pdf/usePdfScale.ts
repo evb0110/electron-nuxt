@@ -7,6 +7,7 @@ import {
 import type { TFitMode } from '@app/types/pdf';
 import type { TPdfViewMode } from '@app/types/shared';
 import { getViewColumnCount } from '@app/utils/pdf-view-mode';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 const BASE_MARGIN = 20;
 
@@ -37,6 +38,11 @@ export const usePdfScale = (
         const width = toValue(basePageWidth);
         const height = toValue(basePageHeight);
         if (!container || !width || !height) {
+            BrowserLogger.warn('pdf-nav', '[scale] skipped computeFitWidthScale: missing container/base dimensions', {
+                hasContainer: Boolean(container),
+                basePageWidth: width,
+                basePageHeight: height,
+            });
             return false;
         }
 
@@ -46,6 +52,11 @@ export const usePdfScale = (
             : container.clientWidth;
 
         if (rawSize <= 0) {
+            BrowserLogger.warn('pdf-nav', `[scale] skipped computeFitWidthScale: rawSize<=0 mode=${mode}`, {
+                rawSize,
+                clientWidth: container.clientWidth,
+                clientHeight: container.clientHeight,
+            });
             return false;
         }
 
@@ -56,6 +67,12 @@ export const usePdfScale = (
             ? rawSize - BASE_MARGIN * 2
             : rawSize - BASE_MARGIN * (columns + 1);
         if (availableSize <= 0) {
+            BrowserLogger.warn('pdf-nav', `[scale] skipped computeFitWidthScale: availableSize<=0 mode=${mode}`, {
+                rawSize,
+                columns,
+                baseMargin: BASE_MARGIN,
+                availableSize,
+            });
             return false;
         }
         const baseDimension = mode === 'height'
@@ -68,6 +85,12 @@ export const usePdfScale = (
             && Math.abs(rawSize - lastContainerSize.value) < 1
             && Math.abs(baseDimension - lastBaseDimension.value) < 0.001
         ) {
+            BrowserLogger.warn('pdf-nav', `[scale] skipped computeFitWidthScale: dimensions unchanged mode=${mode}`, {
+                rawSize,
+                previousRawSize: lastContainerSize.value,
+                baseDimension,
+                previousBaseDimension: lastBaseDimension.value,
+            });
             return false;
         }
 
@@ -77,9 +100,28 @@ export const usePdfScale = (
         const newScale = availableSize / baseDimension;
 
         if (Math.abs(newScale - fitWidthScale.value) < 0.001) {
+            BrowserLogger.warn('pdf-nav', `[scale] skipped computeFitWidthScale: delta below epsilon mode=${mode}`, {
+                currentScale: fitWidthScale.value,
+                newScale,
+                availableSize,
+                baseDimension,
+                epsilon: 0.001,
+            });
             return false;
         }
 
+        BrowserLogger.warn('pdf-nav', `[scale] computeFitWidthScale mode=${mode} columns=${columns} ${fitWidthScale.value.toFixed(4)}->${newScale.toFixed(4)}`, {
+            rawSize,
+            availableSize,
+            baseDimension,
+            basePageWidth: width,
+            basePageHeight: height,
+            zoom: toValue(zoom),
+            viewMode: toValue(viewMode),
+            numPages: toValue(numPages),
+            previousScale: fitWidthScale.value,
+            nextScale: newScale,
+        });
         fitWidthScale.value = newScale;
         return true;
     }

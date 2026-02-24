@@ -22,9 +22,13 @@
 </template>
 
 <script setup lang="ts">
-import type { CSSProperties } from 'vue';
+import {
+    watch,
+    type CSSProperties,
+} from 'vue';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
-defineProps<{
+const props = defineProps<{
     showSidebar: boolean;
     sidebarWrapperStyle?: CSSProperties | null;
     isResizingSidebar: boolean;
@@ -32,6 +36,51 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{(e: 'resize-start', event: PointerEvent): void;}>();
+
+watch(
+    () => [
+        props.showSidebar,
+        props.sidebarWrapperStyle?.width,
+        props.isResizingSidebar,
+    ] as const,
+    ([
+        nextShowSidebar,
+        nextWidth,
+        nextResizing,
+    ], previousState) => {
+        const [
+            prevShowSidebar,
+            prevWidth,
+            prevResizing,
+        ] = previousState ?? [
+            nextShowSidebar,
+            nextWidth,
+            nextResizing,
+        ];
+        if (
+            nextShowSidebar === prevShowSidebar
+            && nextWidth === prevWidth
+            && nextResizing === prevResizing
+        ) {
+            return;
+        }
+        BrowserLogger.warn('pdf-nav', `[sidebar-host] show=${nextShowSidebar} width=${String(nextWidth)} resizing=${nextResizing}`, {
+            showSidebar: {
+                previous: prevShowSidebar,
+                next: nextShowSidebar, 
+            },
+            sidebarWidth: {
+                previous: prevWidth ?? null,
+                next: nextWidth ?? null, 
+            },
+            isResizingSidebar: {
+                previous: prevResizing,
+                next: nextResizing, 
+            },
+        });
+    },
+    { immediate: true },
+);
 </script>
 
 <style scoped>

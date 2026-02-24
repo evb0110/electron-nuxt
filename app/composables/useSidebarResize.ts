@@ -40,7 +40,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         const nextWidth = resizeStartWidth + deltaX;
 
         if (nextWidth < SIDEBAR.COLLAPSE_WIDTH) {
-            BrowserLogger.warn('pdf-nav', 'Sidebar resize triggered collapse threshold', {
+            BrowserLogger.warn('pdf-nav', '[sidebar-resize] collapse threshold reached', {
                 nextWidth: Math.round(nextWidth),
                 collapseWidth: SIDEBAR.COLLAPSE_WIDTH,
                 resizeStartWidth: Math.round(resizeStartWidth),
@@ -60,7 +60,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         );
 
         if (Math.round(clampedWidth) !== Math.round(sidebarWidth.value)) {
-            BrowserLogger.warn('pdf-nav', 'Sidebar width changed during resize', {
+            BrowserLogger.warn('pdf-nav', `[sidebar-resize] width ${Math.round(sidebarWidth.value)}->${Math.round(clampedWidth)}`, {
                 previousWidth: Math.round(sidebarWidth.value),
                 nextWidth: Math.round(clampedWidth),
                 deltaX: Math.round(deltaX),
@@ -90,7 +90,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         isResizingSidebar.value = true;
         resizeStartX = event.clientX;
         resizeStartWidth = sidebarWidth.value;
-        BrowserLogger.warn('pdf-nav', 'Sidebar resize started', {
+        BrowserLogger.warn('pdf-nav', '[sidebar-resize] start', {
             pointerX: Math.round(event.clientX),
             startWidth: Math.round(resizeStartWidth),
         });
@@ -102,7 +102,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
     }
 
     watch(showSidebar, (isOpen) => {
-        BrowserLogger.warn('pdf-nav', 'Sidebar open state changed in resize controller', {
+        BrowserLogger.warn('pdf-nav', `[sidebar-state] open=${isOpen}`, {
             isOpen,
             sidebarWidth: Math.round(sidebarWidth.value),
             lastOpenSidebarWidth: Math.round(lastOpenSidebarWidth.value),
@@ -125,7 +125,7 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         if (Math.round(next) === Math.round(previous)) {
             return;
         }
-        BrowserLogger.warn('pdf-nav', 'Sidebar width ref changed', {
+        BrowserLogger.warn('pdf-nav', `[sidebar-width-ref] ${Math.round(previous)}->${Math.round(next)}`, {
             previous: Math.round(previous),
             next: Math.round(next),
             open: showSidebar.value,

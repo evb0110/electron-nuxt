@@ -78,7 +78,7 @@ export function useWorkspaceViewState(deps: IWorkspaceViewStateDeps) {
     }
 
     function handleGoToPage(page: number) {
-        BrowserLogger.warn('pdf-nav', 'Workspace requested go-to-page', {
+        BrowserLogger.warn('pdf-nav', `[workspace-go-to-page] requested=${page}`, {
             requestedPage: page,
             hasViewer: Boolean(deps.pdfViewerRef.value),
             sidebarOpen: deps.showSidebar.value,

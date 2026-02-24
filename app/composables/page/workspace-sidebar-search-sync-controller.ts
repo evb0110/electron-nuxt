@@ -136,7 +136,7 @@ export const useWorkspaceSidebarSearchSyncController = (
         if (next === previous) {
             return;
         }
-        BrowserLogger.warn('pdf-nav', 'Workspace sync controller currentPage changed', {
+        BrowserLogger.warn('pdf-nav', `[workspace-sync-page] ${previous}->${next}`, {
             previous,
             next,
             showSidebar: showSidebar.value,
