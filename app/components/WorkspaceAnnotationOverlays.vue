@@ -782,7 +782,7 @@ const emit = defineEmits<{
     inset: 0;
     width: 100vw;
     height: 100vh;
-    z-index: 89;
+    z-index: 8;
     overflow: visible;
 }
 
