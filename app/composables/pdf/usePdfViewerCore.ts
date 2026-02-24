@@ -30,7 +30,7 @@ import type {
     TPdfSource,
 } from '@app/types/pdf';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
-import type { useAnnotationOrchestrator } from '@app/composables/pdf/useAnnotationOrchestrator';
+import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { runGuardedTask } from '@app/utils/async-guard';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;

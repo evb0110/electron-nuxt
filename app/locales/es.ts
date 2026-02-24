@@ -326,6 +326,7 @@ export default {
     'contextMenu': {
         'openPopUpNote': 'Abrir nota emergente',
         'copyTextToClipboard': 'Copiar texto al portapapeles',
+        'copySelectionToClipboard': 'Copiar selección al portapapeles',
         'markupSelection': 'Marcar selección',
         'highlight': 'Resaltar',
         'underline': 'Subrayar',

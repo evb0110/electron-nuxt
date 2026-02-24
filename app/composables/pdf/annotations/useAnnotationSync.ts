@@ -2,14 +2,16 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import { useDebounceFn } from '@vueuse/core';
+import { tryOnScopeDispose } from '@vueuse/core';
+import { debounce } from 'es-toolkit/function';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     IAnnotationCommentSummary,
     TMarkupSubtype,
-} from '@app/types/annotations';
+    IPdfjsEditor,
+} from '@app/composables/pdf/annotations/types';
+import { markerRectCenterDistance } from '@app/composables/pdf/annotations/types';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import type { IPdfjsEditor } from '@app/composables/pdf/pdfAnnotationUtils';
 import {
     getCommentText,
     hasEditorCommentPayload,
@@ -25,56 +27,62 @@ import {
     isTextMarkupSubtype,
     normalizeMarkerRect,
 } from '@app/composables/pdf/pdfAnnotationUtils';
-import type { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnotationCommentIdentity';
-import type { useAnnotationMarkupSubtype } from '@app/composables/pdf/useAnnotationMarkupSubtype';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { runGuardedTask } from '@app/utils/async-guard';
 
-type TIdentity = ReturnType<typeof useAnnotationCommentIdentity>;
-type TMarkupSubtypeComposable = ReturnType<typeof useAnnotationMarkupSubtype>;
-
-function markerRectCenterDistance(
-    left: IAnnotationCommentSummary['markerRect'] | null | undefined,
-    right: IAnnotationCommentSummary['markerRect'] | null | undefined,
-) {
-    const normalizedLeft = normalizeMarkerRect(left);
-    const normalizedRight = normalizeMarkerRect(right);
-    if (!normalizedLeft || !normalizedRight) {
-        return Number.POSITIVE_INFINITY;
-    }
-    const leftCx = normalizedLeft.left + normalizedLeft.width / 2;
-    const leftCy = normalizedLeft.top + normalizedLeft.height / 2;
-    const rightCx = normalizedRight.left + normalizedRight.width / 2;
-    const rightCy = normalizedRight.top + normalizedRight.height / 2;
-    return Math.hypot(leftCx - rightCx, leftCy - rightCy);
-}
-
 function isMarkupSubtype(value: unknown): value is TMarkupSubtype {
     return (
-        value === 'Highlight' ||
-    value === 'Underline' ||
-    value === 'StrikeOut' ||
-    value === 'Squiggly'
+        value === 'Highlight'
+        || value === 'Underline'
+        || value === 'StrikeOut'
+        || value === 'Squiggly'
     );
 }
 
-interface IUseAnnotationCommentSyncOptions {
+interface ISyncIdentity {
+    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
+    getEditorPendingKey: (editor: IPdfjsEditor, pageIndex: number) => string;
+    computeSummaryStableKey: (params: {
+        pageIndex: number;
+        id: string;
+        source: IAnnotationCommentSummary['source'];
+        uid?: string | null;
+        annotationId?: string | null;
+    }) => string;
+    toSummaryKey: (summary: IAnnotationCommentSummary) => string;
+    rememberSummaryText: (summary: IAnnotationCommentSummary) => void;
+    hydrateSummaryFromMemory: (summary: IAnnotationCommentSummary) => IAnnotationCommentSummary;
+    mergeCommentSummaries: (existing: IAnnotationCommentSummary, incoming: IAnnotationCommentSummary) => IAnnotationCommentSummary;
+    dedupeAnnotationCommentSummaries: (comments: IAnnotationCommentSummary[]) => IAnnotationCommentSummary[];
+    clearMemory: () => void;
+}
+
+interface ISyncMarkupSubtype {
+    resolveEditorMarkupSubtypeOverride: (editor: IPdfjsEditor, pageIndex: number) => TMarkupSubtype | null;
+    syncMarkupSubtypePresentationForEditors: () => void;
+    getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
+    clearOverrides: () => void;
+}
+
+interface ISyncStore {
+    setAnnotations: (comments: IAnnotationCommentSummary[]) => void;
+    setActiveKey: (key: string | null) => void;
+}
+
+interface IUseAnnotationSyncOptions {
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     numPages: Ref<number>;
     currentPage: Ref<number>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     authorName: Ref<string | null | undefined>;
-    identity: TIdentity;
-    markupSubtype: TMarkupSubtypeComposable;
-    annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
-    activeCommentStableKey: Ref<string | null>;
-    emitAnnotationComments: (comments: IAnnotationCommentSummary[]) => void;
+    getIdentity: () => ISyncIdentity;
+    getMarkupSubtype: () => ISyncMarkupSubtype;
+    getStore: () => ISyncStore;
     syncInlineCommentIndicators: () => void;
+    debounceMs?: number;
 }
 
-export function useAnnotationCommentSync(
-    options: IUseAnnotationCommentSyncOptions,
-) {
+export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
     const { t } = useTypedI18n();
 
     const {
@@ -82,15 +90,14 @@ export function useAnnotationCommentSync(
         numPages,
         annotationUiManager,
         authorName,
-        identity,
-        markupSubtype,
-        annotationCommentsCache,
-        activeCommentStableKey,
-        emitAnnotationComments,
+        getIdentity,
+        getMarkupSubtype,
+        getStore,
         syncInlineCommentIndicators,
+        debounceMs = 140,
     } = options;
 
-    let annotationCommentsSyncToken = 0;
+    let syncToken = 0;
     const pendingCommentEditorKeys = new Set<string>();
     const trackedCreatedEditors = new WeakSet<object>();
 
@@ -100,6 +107,9 @@ export function useAnnotationCommentSync(
         textOverride?: string,
         sortIndex: number | null = null,
     ): IAnnotationCommentSummary {
+        const identity = getIdentity();
+        const markupSubtype = getMarkupSubtype();
+
         let data: ReturnType<NonNullable<IPdfjsEditor['getData']>> = {};
         try {
             data = editor.getData?.() ?? {};
@@ -111,39 +121,42 @@ export function useAnnotationCommentSync(
             );
             data = {};
         }
-        const text =
-            typeof textOverride === 'string'
-                ? textOverride
-                : getCommentText(editor).trim();
-        const resolvedSubtype =
-            markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex) ??
-      detectEditorSubtype(editor);
+
+        const text = typeof textOverride === 'string'
+            ? textOverride
+            : getCommentText(editor).trim();
+
+        const resolvedSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex)
+            ?? detectEditorSubtype(editor);
+
         const uid = editor.uid ?? null;
         const annotationId = editor.annotationElementId ?? null;
+
         if (
-            annotationId &&
-      resolvedSubtype &&
-      resolvedSubtype !== 'Highlight' &&
-      resolvedSubtype !== 'Ink' &&
-      resolvedSubtype !== 'Typewriter'
+            annotationId
+            && resolvedSubtype
+            && resolvedSubtype !== 'Highlight'
+            && resolvedSubtype !== 'Ink'
+            && resolvedSubtype !== 'Typewriter'
         ) {
             const normalized = resolvedSubtype.toLowerCase();
             if (
-                normalized === 'underline' ||
-        normalized === 'strikeout' ||
-        normalized === 'squiggly'
+                normalized === 'underline'
+                || normalized === 'strikeout'
+                || normalized === 'squiggly'
             ) {
-                markupSubtype.markupSubtypeOverrides.set(
+                markupSubtype.getMarkupSubtypeOverrides().set(
                     annotationId,
                     resolvedSubtype as TMarkupSubtype,
                 );
             }
         }
+
         const id = identity.getEditorIdentity(editor, pageIndex);
         const pendingKey = identity.getEditorPendingKey(editor, pageIndex);
-        const hasNote =
-            hasEditorCommentPayload(editor) ||
-      pendingCommentEditorKeys.has(pendingKey);
+        const hasNote = hasEditorCommentPayload(editor)
+            || pendingCommentEditorKeys.has(pendingKey);
+
         const markerRectFromEditor = toMarkerRectFromEditor(editor);
         const pendingAnchorRect = normalizeMarkerRect(editor.__evbPendingAnchorRect ?? null);
         const markerDistanceFromPending = markerRectCenterDistance(markerRectFromEditor, pendingAnchorRect);
@@ -157,6 +170,7 @@ export function useAnnotationCommentSync(
         const markerRect = shouldUsePendingAnchor
             ? pendingAnchorRect
             : markerRectFromEditor;
+
         if (shouldUsePendingAnchor) {
             BrowserLogger.debug('note-anchor', 'toEditorSummary', {
                 pageIndex,
@@ -191,9 +205,8 @@ export function useAnnotationCommentSync(
             kindLabel: annotationKindLabelFromSubtype(resolvedSubtype, t),
             subtype: resolvedSubtype,
             author: authorName.value?.trim() || null,
-            modifiedAt:
-        parsePdfDateTimestamp(data.modificationDate) ??
-        parsePdfDateTimestamp(data.creationDate),
+            modifiedAt: parsePdfDateTimestamp(data.modificationDate)
+                ?? parsePdfDateTimestamp(data.creationDate),
             color: toCssColor(
                 data.color ?? editor.color,
                 data.opacity ?? editor.opacity ?? 1,
@@ -208,38 +221,34 @@ export function useAnnotationCommentSync(
 
     async function syncAnnotationComments() {
         try {
+            const identity = getIdentity();
+            const markupSubtype = getMarkupSubtype();
+            const store = getStore();
             const doc = pdfDocument.value;
+
             if (!doc || numPages.value <= 0) {
                 identity.clearMemory();
                 markupSubtype.clearOverrides();
-                annotationCommentsCache.value = [];
-                emitAnnotationComments([]);
+                store.setAnnotations([]);
                 syncInlineCommentIndicators();
                 return;
             }
 
-            const localToken = ++annotationCommentsSyncToken;
+            const localToken = ++syncToken;
             const commentsByKey = new Map<string, IAnnotationCommentSummary>();
             let sourceOrder = 0;
 
             const uiManager = annotationUiManager.value;
             const managerWithDeletedLookup = uiManager as
-        | (AnnotationEditorUIManager & {isDeletedAnnotationElement?: (
-            annotationElementId: string,
-        ) => boolean;})
-        | null;
+                | (AnnotationEditorUIManager & {isDeletedAnnotationElement?: (annotationElementId: string) => boolean;})
+                | null;
+
             if (uiManager) {
                 for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
                     for (const editor of uiManager.getEditors(pageIndex)) {
                         const normalizedEditor = editor as IPdfjsEditor;
                         const text = getCommentText(normalizedEditor).trim();
-
-                        const summary = toEditorSummary(
-                            normalizedEditor,
-                            pageIndex,
-                            text,
-                            sourceOrder,
-                        );
+                        const summary = toEditorSummary(normalizedEditor, pageIndex, text, sourceOrder);
                         sourceOrder += 1;
                         const hydrated = identity.hydrateSummaryFromMemory(summary);
                         commentsByKey.set(identity.toSummaryKey(hydrated), hydrated);
@@ -248,7 +257,7 @@ export function useAnnotationCommentSync(
             }
 
             for (let pageNumber = 1; pageNumber <= numPages.value; pageNumber += 1) {
-                if (localToken !== annotationCommentsSyncToken) {
+                if (localToken !== syncToken) {
                     return;
                 }
 
@@ -286,10 +295,8 @@ export function useAnnotationCommentSync(
                 const popupById = new Map<string, (typeof pageAnnotations)[number]>();
                 pageAnnotations.forEach((annotation) => {
                     if (
-                        annotation.id &&
-            managerWithDeletedLookup?.isDeletedAnnotationElement?.(
-                annotation.id,
-            )
+                        annotation.id
+                        && managerWithDeletedLookup?.isDeletedAnnotationElement?.(annotation.id)
                     ) {
                         return;
                     }
@@ -304,10 +311,8 @@ export function useAnnotationCommentSync(
 
                 pageAnnotations.forEach((annotation, annotationIndex) => {
                     if (
-                        annotation.id &&
-            managerWithDeletedLookup?.isDeletedAnnotationElement?.(
-                annotation.id,
-            )
+                        annotation.id
+                        && managerWithDeletedLookup?.isDeletedAnnotationElement?.(annotation.id)
                     ) {
                         return;
                     }
@@ -326,8 +331,7 @@ export function useAnnotationCommentSync(
                     const subtype = annotation.subtype ?? null;
                     const id = annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`;
                     const annotationId = annotation.id ?? null;
-                    const hasLinkedPopup =
-                        Boolean(annotation.popupRef) || Boolean(popupAnnotation);
+                    const hasLinkedPopup = Boolean(annotation.popupRef) || Boolean(popupAnnotation);
                     const summaryKey = identity.computeSummaryStableKey({
                         id,
                         pageIndex: pageNumber - 1,
@@ -345,16 +349,14 @@ export function useAnnotationCommentSync(
                         text,
                         kindLabel: annotationKindLabelFromSubtype(subtype, t),
                         subtype,
-                        author:
-              getAnnotationAuthor(annotation) ??
-              (popupAnnotation ? getAnnotationAuthor(popupAnnotation) : null),
+                        author: getAnnotationAuthor(annotation)
+                            ?? (popupAnnotation ? getAnnotationAuthor(popupAnnotation) : null),
                         modifiedAt: (() => {
-                            const own =
-                                parsePdfDateTimestamp(annotation.modificationDate) ??
-                parsePdfDateTimestamp(annotation.creationDate);
+                            const own = parsePdfDateTimestamp(annotation.modificationDate)
+                                ?? parsePdfDateTimestamp(annotation.creationDate);
                             const popup = popupAnnotation
-                                ? (parsePdfDateTimestamp(popupAnnotation.modificationDate) ??
-                  parsePdfDateTimestamp(popupAnnotation.creationDate))
+                                ? (parsePdfDateTimestamp(popupAnnotation.modificationDate)
+                                    ?? parsePdfDateTimestamp(popupAnnotation.creationDate))
                                 : null;
                             if (own && popup) {
                                 return Math.max(own, popup);
@@ -368,39 +370,43 @@ export function useAnnotationCommentSync(
                         uid: null,
                         annotationId,
                         source: 'pdf',
-                        hasNote: Boolean(isTextMarkupSubtype(subtype) && hasLinkedPopup),
+                        hasNote: Boolean(
+                            isTextMarkupSubtype(subtype)
+                            && (hasLinkedPopup || text.trim().length > 0),
+                        ),
                         markerRect: toMarkerRectFromPdfRect(
                             annotation.rect ?? popupAnnotation?.rect,
                             pageView,
                         ),
                     };
+
                     const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
                     if (
-                        annotationId &&
-            (normalizedSubtype === 'underline' ||
-              normalizedSubtype === 'strikeout' ||
-              normalizedSubtype === 'squiggly') &&
-            isMarkupSubtype(subtype)
+                        annotationId
+                        && (normalizedSubtype === 'underline'
+                            || normalizedSubtype === 'strikeout'
+                            || normalizedSubtype === 'squiggly')
+                        && isMarkupSubtype(subtype)
                     ) {
-                        markupSubtype.markupSubtypeOverrides.set(annotationId, subtype);
+                        markupSubtype.getMarkupSubtypeOverrides().set(annotationId, subtype);
                     }
+
                     sourceOrder += 1;
                     const hydratedSummary = identity.hydrateSummaryFromMemory(summary);
 
-                    const key = summaryKey;
-                    const existing = commentsByKey.get(key);
+                    const existing = commentsByKey.get(summaryKey);
                     if (!existing) {
-                        commentsByKey.set(key, hydratedSummary);
+                        commentsByKey.set(summaryKey, hydratedSummary);
                         return;
                     }
                     commentsByKey.set(
-                        key,
+                        summaryKey,
                         identity.mergeCommentSummaries(existing, hydratedSummary),
                     );
                 });
             }
 
-            if (localToken !== annotationCommentsSyncToken) {
+            if (localToken !== syncToken) {
                 return;
             }
 
@@ -410,8 +416,8 @@ export function useAnnotationCommentSync(
             comments.forEach((comment) => {
                 identity.rememberSummaryText(comment);
             });
-            annotationCommentsCache.value = comments;
-            emitAnnotationComments(comments);
+
+            store.setAnnotations(comments);
             markupSubtype.syncMarkupSubtypePresentationForEditors();
             syncInlineCommentIndicators();
         } catch (error) {
@@ -423,42 +429,47 @@ export function useAnnotationCommentSync(
         }
     }
 
-    const debouncedSyncAnnotationComments = useDebounceFn(() => {
+    const debouncedSync = debounce(() => {
         runGuardedTask(() => syncAnnotationComments(), {
             scope: 'annotations',
-            message: 'Failed to synchronize annotation comments',
+            message: 'Failed to synchronize annotation comments (debounced)',
         });
-    }, 140);
+    }, debounceMs);
 
     function scheduleAnnotationCommentsSync(immediate = false) {
         if (immediate) {
+            debouncedSync.cancel();
             runGuardedTask(() => syncAnnotationComments(), {
                 scope: 'annotations',
                 message: 'Failed to synchronize annotation comments',
             });
             return;
         }
-        debouncedSyncAnnotationComments();
+        debouncedSync();
     }
 
     function setActiveCommentStableKey(stableKey: string | null) {
-        activeCommentStableKey.value = stableKey;
+        getStore().setActiveKey(stableKey);
     }
 
     function incrementSyncToken() {
-        annotationCommentsSyncToken += 1;
+        syncToken += 1;
     }
 
     function clearSyncState() {
-        annotationCommentsSyncToken += 1;
+        syncToken += 1;
+        debouncedSync.cancel();
         pendingCommentEditorKeys.clear();
-        identity.clearMemory();
-        markupSubtype.clearOverrides();
+        getIdentity().clearMemory();
+        getMarkupSubtype().clearOverrides();
     }
 
+    tryOnScopeDispose(() => {
+        debouncedSync.cancel();
+        syncToken += 1;
+    });
+
     return {
-        annotationCommentsCache,
-        activeCommentStableKey,
         pendingCommentEditorKeys,
         trackedCreatedEditors,
         toEditorSummary,

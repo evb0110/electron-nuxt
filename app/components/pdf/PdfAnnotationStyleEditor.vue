@@ -87,6 +87,7 @@ import type {
 } from '@app/types/annotations';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdf-colors';
 import { ANNOTATION_PROPERTY_RANGES } from '@app/constants/annotation-defaults';
+import { isShapeTool } from '@app/composables/pdf/useAnnotationShapes';
 
 type TDrawStyle = 'pen' | 'pencil' | 'marker';
 
@@ -144,10 +145,6 @@ const drawStylePresets = computed<IDrawStylePreset[]>(() => [
         opacity: 0.42,
     },
 ]);
-
-function isShapeTool(tool: TAnnotationTool) {
-    return tool === 'rectangle' || tool === 'circle' || tool === 'line' || tool === 'arrow';
-}
 
 function updateSetting<K extends keyof IAnnotationSettings>(key: K, value: IAnnotationSettings[K]) {
     emit('update-setting', {

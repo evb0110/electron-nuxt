@@ -101,7 +101,7 @@ import {
     normalizeMarkerRect,
     isTextMarkupSubtype,
 } from '@app/composables/pdf/pdfAnnotationUtils';
-import type { IAnnotationNotePosition } from '@app/composables/pdf/useAnnotationNoteWindows';
+import type { IAnnotationNotePosition } from '@app/composables/pdf/annotations/types';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface IAnnotationNoteWindowEntry {
@@ -166,7 +166,6 @@ const anchoredAnnotationNoteWindows = computed(() => {
         note.isMinimized
         && isFloatingIndicatorEligible(note.comment)
         && Boolean(getNoteMarkerRect(note))
-        && !isTextMarkupSubtype(note.comment.subtype)
         && !inlineIdentityMatchesNote(inlineIdentity, note)
     ));
 });
@@ -246,20 +245,18 @@ function clampUnit(value: number) {
 
 function isFloatingIndicatorEligible(comment: IAnnotationCommentSummary) {
     const subtype = (comment.subtype ?? '').trim().toLowerCase();
-    if (isTextMarkupSubtype(comment.subtype)) {
-        return false;
-    }
     if (subtype === 'link') {
         return false;
     }
-    // Text-selection notes already have inline anchors and should not also show
-    // a detached floating indicator.
+    if (isTextMarkupSubtype(comment.subtype) && comment.hasNote) {
+        return true;
+    }
     if (
         subtype === 'text'
         || subtype === 'note-linked'
         || subtype === 'note-inline'
     ) {
-        return false;
+        return comment.hasNote;
     }
     if (subtype === 'freetext' || subtype === 'typewriter') {
         return true;

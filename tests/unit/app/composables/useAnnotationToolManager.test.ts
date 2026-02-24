@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    computed,
     ref,
     shallowRef,
     type ShallowRef,
@@ -78,31 +79,35 @@ function mockUiManagerRef(uiManager: ReturnType<typeof createUiManager>) {
     return cast<ShallowRef<AnnotationEditorUIManager | null>>(shallowRef(uiManager));
 }
 
-describe('useAnnotationToolManager', () => {
+function createToolStateOptions(uiManager: ReturnType<typeof createUiManager>, overrides: Record<string, unknown> = {}) {
+    return {
+        annotationUiManager: mockUiManagerRef(uiManager),
+        currentPage: ref(1),
+        annotationTool: computed(() => (overrides.tool as string) ?? 'none'),
+        annotationCursorMode: computed(() => false),
+        annotationKeepActive: computed(() => (overrides.keepActive as boolean) ?? false),
+        annotationSettings: computed(() => createAnnotationSettings()),
+        numPages: ref(10),
+        getEditorIdentity: vi.fn(() => 'mock-identity'),
+        getFreeTextResize: () => ({ patchResizableFreeTextEditors: vi.fn() }),
+        emitAnnotationToolAutoReset: vi.fn(),
+        ...overrides,
+    };
+}
+
+describe('useAnnotationToolState', () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
     it('retries mode switch once after waiting for editors', async () => {
-        const { useAnnotationToolManager } = await import('@app/composables/pdf/useAnnotationToolManager');
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
         const firstError = new Error('mode not ready');
         const uiManager = createUiManager({updateMode: vi.fn()
             .mockRejectedValueOnce(firstError)
             .mockResolvedValueOnce(undefined)});
 
-        const manager = useAnnotationToolManager({
-            annotationUiManager: mockUiManagerRef(uiManager),
-            currentPage: ref(3),
-            annotationTool: ref('none'),
-            annotationCursorMode: ref(false),
-            annotationKeepActive: ref(false),
-            freeTextResize: {patchResizableFreeTextEditors: vi.fn()} as never,
-            markupSubtype: {
-                applyHighlightParamsForTool: vi.fn(),
-                syncMarkupSubtypePresentationForEditors: vi.fn(),
-            } as never,
-            emitAnnotationToolAutoReset: vi.fn(),
-        });
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager, { currentPage: ref(3) }) as never);
 
         const expectedMode = manager.getAnnotationMode('text');
         const result = await manager.updateModeWithRetry(uiManager as never, expectedMode, 3);
@@ -112,7 +117,7 @@ describe('useAnnotationToolManager', () => {
     });
 
     it('returns retry error when second mode switch fails', async () => {
-        const { useAnnotationToolManager } = await import('@app/composables/pdf/useAnnotationToolManager');
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
         const retryError = new Error('still failing');
         const uiManager = createUiManager({
             updateMode: vi.fn()
@@ -123,19 +128,7 @@ describe('useAnnotationToolManager', () => {
             }),
         });
 
-        const manager = useAnnotationToolManager({
-            annotationUiManager: mockUiManagerRef(uiManager),
-            currentPage: ref(1),
-            annotationTool: ref('none'),
-            annotationCursorMode: ref(false),
-            annotationKeepActive: ref(false),
-            freeTextResize: {patchResizableFreeTextEditors: vi.fn()} as never,
-            markupSubtype: {
-                applyHighlightParamsForTool: vi.fn(),
-                syncMarkupSubtypePresentationForEditors: vi.fn(),
-            } as never,
-            emitAnnotationToolAutoReset: vi.fn(),
-        });
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager) as never);
 
         const expectedMode = manager.getAnnotationMode('draw');
         const result = await manager.updateModeWithRetry(uiManager as never, expectedMode, 1);
@@ -143,25 +136,10 @@ describe('useAnnotationToolManager', () => {
     });
 
     it('serializes rapid tool changes and applies only latest pending mode', async () => {
-        const { useAnnotationToolManager } = await import('@app/composables/pdf/useAnnotationToolManager');
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
         const uiManager = createUiManager();
-        const applyHighlightParamsForTool = vi.fn();
-        const syncMarkupSubtypePresentationForEditors = vi.fn();
-        const patchResizableFreeTextEditors = vi.fn();
 
-        const manager = useAnnotationToolManager({
-            annotationUiManager: mockUiManagerRef(uiManager),
-            currentPage: ref(1),
-            annotationTool: ref('none'),
-            annotationCursorMode: ref(false),
-            annotationKeepActive: ref(false),
-            freeTextResize: {patchResizableFreeTextEditors} as never,
-            markupSubtype: {
-                applyHighlightParamsForTool,
-                syncMarkupSubtypePresentationForEditors,
-            } as never,
-            emitAnnotationToolAutoReset: vi.fn(),
-        });
+        const manager = useAnnotationToolState(createToolStateOptions(uiManager) as never);
 
         manager.applyAnnotationSettings(createAnnotationSettings());
         await Promise.all([
@@ -171,27 +149,15 @@ describe('useAnnotationToolManager', () => {
 
         expect(uiManager.updateMode).toHaveBeenCalledTimes(1);
         expect(uiManager.updateMode).toHaveBeenCalledWith(manager.getAnnotationMode('draw'));
-        expect(applyHighlightParamsForTool).toHaveBeenCalled();
-        expect(patchResizableFreeTextEditors).toHaveBeenCalled();
-        expect(syncMarkupSubtypePresentationForEditors).toHaveBeenCalled();
     });
 
     it('auto-resets tool when keep-active is disabled', async () => {
-        const { useAnnotationToolManager } = await import('@app/composables/pdf/useAnnotationToolManager');
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
         const emitAnnotationToolAutoReset = vi.fn();
-        const manager = useAnnotationToolManager({
-            annotationUiManager: mockUiManagerRef(createUiManager()),
-            currentPage: ref(1),
-            annotationTool: ref('text'),
-            annotationCursorMode: ref(false),
-            annotationKeepActive: ref(false),
-            freeTextResize: {patchResizableFreeTextEditors: vi.fn()} as never,
-            markupSubtype: {
-                applyHighlightParamsForTool: vi.fn(),
-                syncMarkupSubtypePresentationForEditors: vi.fn(),
-            } as never,
+        const manager = useAnnotationToolState(createToolStateOptions(createUiManager(), {
+            tool: 'text',
             emitAnnotationToolAutoReset,
-        });
+        }) as never);
 
         manager.maybeAutoResetAnnotationTool();
         await Promise.resolve();

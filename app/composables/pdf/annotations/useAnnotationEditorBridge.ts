@@ -13,50 +13,35 @@ import {
     type Ref,
     type ShallowRef,
 } from 'vue';
+import { tryOnScopeDispose } from '@vueuse/core';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
+    IAnnotationSettings,
     TAnnotationTool,
     TMarkupSubtype,
-} from '@app/types/annotations';
+    IPdfjsEditor,
+} from '@app/composables/pdf/annotations/types';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import type { IPdfjsEditor } from '@app/composables/pdf/pdfAnnotationUtils';
 import {
     getCommentText,
     toCssColor,
     detectEditorSubtype,
     errorToLogText,
 } from '@app/composables/pdf/pdfAnnotationUtils';
-import type { useFreeTextResize } from '@app/composables/pdf/useFreeTextResize';
-import type { useAnnotationMarkupSubtype } from '@app/composables/pdf/useAnnotationMarkupSubtype';
-import type { useAnnotationCommentSync } from '@app/composables/pdf/useAnnotationCommentSync';
-import type { useAnnotationToolManager } from '@app/composables/pdf/useAnnotationToolManager';
-import type { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnotationCommentIdentity';
+import { unselectAllEditors } from '@app/services/pdfjs/annotationEditorAdapter';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { runGuardedTask } from '@app/utils/async-guard';
 
-type TFreeTextResize = ReturnType<typeof useFreeTextResize>;
-type TMarkupSubtypeComposable = ReturnType<typeof useAnnotationMarkupSubtype>;
-type TCommentSync = ReturnType<typeof useAnnotationCommentSync>;
-type TToolManager = ReturnType<typeof useAnnotationToolManager>;
-type TIdentity = ReturnType<typeof useAnnotationCommentIdentity>;
+type TEditorParamType = Parameters<AnnotationEditorUIManager['updateParams']>[0];
+type TEditorParamValue = Parameters<AnnotationEditorUIManager['updateParams']>[1];
 
-type TEditorParamType = Parameters<
-    AnnotationEditorUIManager['updateParams']
->[0];
-type TEditorParamValue = Parameters<
-    AnnotationEditorUIManager['updateParams']
->[1];
-
-interface IPdfjsEditorConstructor {updateDefaultParams?: (
-    type: TEditorParamType,
-    value: TEditorParamValue,
-) => void;}
+interface IPdfjsEditorConstructor {updateDefaultParams?: (type: TEditorParamType, value: TEditorParamValue) => void;}
 
 const DEFAULT_PDFJS_HIGHLIGHT_COLORS =
     'yellow=#FFFF98,green=#98FF98,blue=#98C0FF,pink=#FF98FF,red=#FF9090';
 
-interface IUseAnnotationEditorLifecycleOptions {
+interface IEditorBridgeDeps {
     viewerContainer: Ref<HTMLElement | null>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     numPages: Ref<number>;
@@ -65,19 +50,46 @@ interface IUseAnnotationEditorLifecycleOptions {
     annotationTool: Ref<TAnnotationTool>;
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
     annotationL10n: ShallowRef<GenericL10n | null>;
-    freeTextResize: TFreeTextResize;
-    markupSubtype: TMarkupSubtypeComposable;
-    commentSync: TCommentSync;
-    toolManager: TToolManager;
-    identity: TIdentity;
+    getIdentity: () => {
+        getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
+        hydrateSummaryFromMemory: (s: IAnnotationCommentSummary) => IAnnotationCommentSummary;
+    };
+    getCommentSync: () => {
+        toEditorSummary: (editor: IPdfjsEditor, pageIndex: number, text: string) => IAnnotationCommentSummary;
+        setActiveCommentStableKey: (key: string | null) => void;
+        scheduleAnnotationCommentsSync: (immediate?: boolean) => void;
+        incrementSyncToken: () => void;
+        clearSyncState: () => void;
+        trackedCreatedEditors: WeakSet<object>;
+    };
+    getToolManager: () => {
+        pendingAnnotationTool: Ref<TAnnotationTool>;
+        pendingAnnotationSettings: Ref<IAnnotationSettings | null>;
+        applyAnnotationSettings: (settings: IAnnotationSettings | null) => void;
+        setAnnotationTool: (tool: TAnnotationTool) => Promise<void>;
+        maybeAutoResetAnnotationTool: () => void;
+    };
+    getMarkupSubtype: () => {
+        TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
+        shouldForceTextMarkup: (tool: TAnnotationTool) => boolean;
+        applyHighlightParamsForTool: (mgr: AnnotationEditorUIManager, s: IAnnotationSettings, t: TAnnotationTool) => void;
+        resolveEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number) => TMarkupSubtype | null;
+        resolveEditorSubtypeFromPresentation: (e: IPdfjsEditor) => TMarkupSubtype | null;
+        setEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number, s: TMarkupSubtype) => void;
+        applyEditorMarkupSubtypePresentation: (e: IPdfjsEditor, s: TMarkupSubtype | null) => void;
+        syncMarkupSubtypePresentationForEditors: () => void;
+        clearOverrides: () => void;
+    };
+    getFreeTextResize: () => {
+        ensureFreeTextEditorCanResize: (editor: IPdfjsEditor) => void;
+        patchResizableFreeTextEditors: (mgr: AnnotationEditorUIManager) => void;
+    };
     emitAnnotationModified: () => void;
     emitAnnotationState: (state: IAnnotationEditorState) => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
 }
 
-export function useAnnotationEditorLifecycle(
-    options: IUseAnnotationEditorLifecycleOptions,
-) {
+export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
     const {
         viewerContainer,
         pdfDocument,
@@ -87,15 +99,15 @@ export function useAnnotationEditorLifecycle(
         annotationTool,
         annotationUiManager,
         annotationL10n,
-        freeTextResize,
-        markupSubtype,
-        commentSync,
-        toolManager,
-        identity,
+        getIdentity,
+        getCommentSync,
+        getToolManager,
+        getMarkupSubtype,
+        getFreeTextResize,
         emitAnnotationModified,
         emitAnnotationState,
         emitAnnotationOpenNote,
-    } = options;
+    } = deps;
 
     const annotationEventBus = shallowRef<EventBus | null>(null);
     const annotationState = ref<IAnnotationEditorState>({
@@ -107,8 +119,8 @@ export function useAnnotationEditorLifecycle(
     });
 
     let annotationStateListener:
-    | ((event: { details?: Partial<IAnnotationEditorState> }) => void)
-    | null = null;
+        | ((event: { details?: Partial<IAnnotationEditorState> }) => void)
+        | null = null;
 
     function shouldIgnoreEditorEvent(event: Event) {
         const target = event.target;
@@ -118,8 +130,8 @@ export function useAnnotationEditorLifecycle(
                 const anchorParent = selection.anchorNode?.parentElement ?? null;
                 const focusParent = selection.focusNode?.parentElement ?? null;
                 if (
-                    anchorParent?.closest('.text-layer, .textLayer') ||
-          focusParent?.closest('.text-layer, .textLayer')
+                    anchorParent?.closest('.text-layer, .textLayer')
+                    || focusParent?.closest('.text-layer, .textLayer')
                 ) {
                     return true;
                 }
@@ -136,11 +148,7 @@ export function useAnnotationEditorLifecycle(
         if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
             return true;
         }
-        if (
-            target.closest(
-                '.pdf-annotation-comment-popup, #commentPopup, #commentManagerDialog',
-            )
-        ) {
+        if (target.closest('.pdf-annotation-comment-popup, #commentPopup, #commentManagerDialog')) {
             return true;
         }
         if (target.closest('[contenteditable="true"], [contenteditable=""]')) {
@@ -162,6 +170,12 @@ export function useAnnotationEditorLifecycle(
             showSidebar: () => {},
             hideSidebar: () => {},
             showDialog: (_uiManager: unknown, editor: IPdfjsEditor) => {
+                try {
+                    unselectAllEditors(annotationUiManager.value);
+                } catch { /* ignore */ }
+
+                const identity = getIdentity();
+                const commentSync = getCommentSync();
                 const summary = identity.hydrateSummaryFromMemory(
                     commentSync.toEditorSummary(
                         editor,
@@ -173,23 +187,19 @@ export function useAnnotationEditorLifecycle(
                 emitAnnotationOpenNote(summary);
             },
             updateComment: () => {
-                commentSync.scheduleAnnotationCommentsSync();
+                getCommentSync().scheduleAnnotationCommentsSync();
             },
             updatePopupColor: () => {},
             removeComments: () => {
-                commentSync.scheduleAnnotationCommentsSync();
+                getCommentSync().scheduleAnnotationCommentsSync();
             },
             toggleCommentPopup: () => {},
             makeCommentColor: (
-                color:
-          | string
-          | number[]
-          | {
-              r: number;
-              g: number;
-              b: number;
-          }
-          | null,
+                color: string | number[] | {
+                    r: number;
+                    g: number;
+                    b: number 
+                } | null,
                 opacity = 1,
             ) => toCssColor(color, opacity),
             destroy: () => {
@@ -206,41 +216,36 @@ export function useAnnotationEditorLifecycle(
         const constructors = new Set<IPdfjsEditorConstructor>();
         for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
             for (const editor of uiManager.getEditors(pageIndex)) {
-                const ctor = (
-                    editor as IPdfjsEditor & { constructor?: IPdfjsEditorConstructor }
-                ).constructor;
+                const ctor = (editor as IPdfjsEditor & { constructor?: IPdfjsEditorConstructor }).constructor;
                 if (ctor && typeof ctor.updateDefaultParams === 'function') {
                     constructors.add(ctor);
                 }
             }
         }
-
         constructors.forEach((ctor) => {
             try {
                 ctor.updateDefaultParams?.(type, value);
             } catch (error) {
-                BrowserLogger.debug(
-                    'annotations',
-                    `Failed to sync editor default params: ${errorToLogText(error)}`,
-                );
+                BrowserLogger.debug('annotations', `Failed to sync editor default params: ${errorToLogText(error)}`);
             }
         });
     }
 
     function destroyAnnotationEditor() {
+        const commentSync = getCommentSync();
         commentSync.incrementSyncToken();
+
         if (annotationEventBus.value && annotationStateListener) {
-            annotationEventBus.value.off(
-                'annotationeditorstateschanged',
-                annotationStateListener,
-            );
+            annotationEventBus.value.off('annotationeditorstateschanged', annotationStateListener);
         }
         annotationStateListener = null;
+
         annotationUiManager.value?.removeEditListeners();
         annotationUiManager.value?.destroy();
         annotationUiManager.value = null;
         annotationEventBus.value = null;
         annotationL10n.value = null;
+
         commentSync.clearSyncState();
     }
 
@@ -267,44 +272,30 @@ export function useAnnotationEditorLifecycle(
         const commentManager = createSimpleCommentManager(container);
 
         const uiManager = new AnnotationEditorUIManager(
-            container,
-            container,
-            null,
-            null,
-            commentManager,
-            null,
-            eventBus,
-            pdfDoc,
-            null,
-            DEFAULT_PDFJS_HIGHLIGHT_COLORS,
-            false,
-            false,
-            false,
-            null,
-            null,
-            false,
+            container, container, null, null, commentManager, null,
+            eventBus, pdfDoc, null,
+            DEFAULT_PDFJS_HIGHLIGHT_COLORS, false, false, false, null, null, false,
         );
-
         annotationUiManager.value = uiManager;
+
+        const markupSubtype = getMarkupSubtype();
+        const freeTextResize = getFreeTextResize();
+        const commentSync = getCommentSync();
+        const toolManager = getToolManager();
 
         const originalUpdateParams = uiManager.updateParams.bind(uiManager);
         uiManager.updateParams = (type, value) => {
-            const hasSelection =
-                'hasSelection' in uiManager
-                    ? Boolean((uiManager as { hasSelection?: boolean }).hasSelection)
-                    : false;
-            const resolvedValue =
-                type === AnnotationEditorParamsType.HIGHLIGHT_FREE &&
-        markupSubtype.shouldForceTextMarkup(annotationTool.value)
-                    ? false
-                    : value;
-
+            const hasSelection = 'hasSelection' in uiManager
+                ? Boolean((uiManager as { hasSelection?: boolean }).hasSelection)
+                : false;
+            const resolvedValue = type === AnnotationEditorParamsType.HIGHLIGHT_FREE
+                && markupSubtype.shouldForceTextMarkup(annotationTool.value)
+                ? false
+                : value;
             const result = originalUpdateParams(type, resolvedValue);
-            if (
-                hasSelection &&
-        type !== AnnotationEditorParamsType.CREATE &&
-        type !== AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL
-            ) {
+            if (hasSelection
+                && type !== AnnotationEditorParamsType.CREATE
+                && type !== AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL) {
                 syncSelectedEditorParamToDefaults(uiManager, type, resolvedValue);
             }
             return result;
@@ -350,15 +341,11 @@ export function useAnnotationEditorLifecycle(
             await originalPaste(event);
         };
 
-        const originalAddToAnnotationStorage =
-            uiManager.addToAnnotationStorage.bind(uiManager);
+        const originalAddToAnnotationStorage = uiManager.addToAnnotationStorage.bind(uiManager);
         uiManager.addToAnnotationStorage = (editor) => {
             const result = originalAddToAnnotationStorage(editor);
             const editorObject = editor as object | null;
-            if (
-                editorObject &&
-        !commentSync.trackedCreatedEditors.has(editorObject)
-            ) {
+            if (editorObject && !commentSync.trackedCreatedEditors.has(editorObject)) {
                 commentSync.trackedCreatedEditors.add(editorObject);
                 toolManager.maybeAutoResetAnnotationTool();
             }
@@ -368,36 +355,19 @@ export function useAnnotationEditorLifecycle(
                 const pageIndex = Number.isFinite(normalizedEditor.parentPageIndex)
                     ? (normalizedEditor.parentPageIndex as number)
                     : Math.max(0, currentPage.value - 1);
-                let knownSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(
-                    normalizedEditor,
-                    pageIndex,
-                );
+                let knownSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex);
                 if (!knownSubtype) {
-                    knownSubtype =
-                        markupSubtype.resolveEditorSubtypeFromPresentation(
-                            normalizedEditor,
-                        );
+                    knownSubtype = markupSubtype.resolveEditorSubtypeFromPresentation(normalizedEditor);
                 }
-                if (
-                    !knownSubtype &&
-          detectEditorSubtype(normalizedEditor) === 'Highlight'
-                ) {
-                    const toolSubtype =
-                        markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
+                if (!knownSubtype && detectEditorSubtype(normalizedEditor) === 'Highlight') {
+                    const toolSubtype = markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
                     if (toolSubtype) {
-                        markupSubtype.setEditorMarkupSubtypeOverride(
-                            normalizedEditor,
-                            pageIndex,
-                            toolSubtype as TMarkupSubtype,
-                        );
-                        knownSubtype = toolSubtype as TMarkupSubtype;
+                        markupSubtype.setEditorMarkupSubtypeOverride(normalizedEditor, pageIndex, toolSubtype);
+                        knownSubtype = toolSubtype;
                     }
                 }
                 if (knownSubtype) {
-                    markupSubtype.applyEditorMarkupSubtypePresentation(
-                        normalizedEditor,
-                        knownSubtype,
-                    );
+                    markupSubtype.applyEditorMarkupSubtypePresentation(normalizedEditor, knownSubtype);
                 }
             }
             emitAnnotationModified();
@@ -457,31 +427,28 @@ export function useAnnotationEditorLifecycle(
                 freeTextResize.patchResizableFreeTextEditors(uiManager);
             };
         } catch (error) {
-            BrowserLogger.warn(
-                'annotations',
-                'Failed to attach annotation modified handler',
-                error,
-            );
+            BrowserLogger.warn('annotations', 'Failed to attach annotation modified handler', error);
         }
 
         uiManager.addEditListeners();
-        uiManager.onScaleChanging({scale: effectiveScale.value / PixelsPerInch.PDF_TO_CSS_UNITS});
+        uiManager.onScaleChanging({ scale: effectiveScale.value / PixelsPerInch.PDF_TO_CSS_UNITS });
         uiManager.onPageChanging({ pageNumber: currentPage.value });
 
-        toolManager.applyAnnotationSettings(
-            toolManager.pendingAnnotationSettings.value,
-        );
+        toolManager.applyAnnotationSettings(toolManager.pendingAnnotationSettings.value);
         runGuardedTask(
-            () =>
-                toolManager.setAnnotationTool(toolManager.pendingAnnotationTool.value),
+            () => toolManager.setAnnotationTool(toolManager.pendingAnnotationTool.value),
             {
                 scope: 'annotations',
-                message: 'Failed to restore pending annotation tool',
+                message: 'Failed to restore pending annotation tool', 
             },
         );
         emitAnnotationState(annotationState.value);
         commentSync.scheduleAnnotationCommentsSync(true);
     }
+
+    tryOnScopeDispose(() => {
+        destroyAnnotationEditor();
+    });
 
     return {
         annotationEventBus,

@@ -1,9 +1,25 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type { Ref } from 'vue';
+import { tryOnScopeDispose } from '@vueuse/core';
+import type {
+    IAnnotationCommentSummary,
+    IAnnotationMarkerRect,
+    IPdfjsEditor,
+} from '@app/composables/pdf/annotations/types';
 import {
     normalizeMarkerRect,
     markerRectIoU,
     isTextMarkupSubtype,
 } from '@app/composables/pdf/pdfAnnotationUtils';
+
+interface ISummaryMemoryEntry {
+    text: string;
+    modifiedAt: number | null;
+    author: string | null;
+    kindLabel: string | null;
+    subtype: string | null;
+    color: string | null;
+    markerRect: IAnnotationMarkerRect | null;
+}
 
 export function computeSummaryStableKey(params: {
     pageIndex: number;
@@ -21,7 +37,9 @@ export function computeSummaryStableKey(params: {
     return `src:${params.source}:${params.pageIndex}:${params.id}`;
 }
 
-export function toCanonicalStableKey(summary: Pick<IAnnotationCommentSummary, 'id' | 'pageIndex' | 'source' | 'uid' | 'annotationId'>) {
+export function toCanonicalStableKey(
+    summary: Pick<IAnnotationCommentSummary, 'id' | 'pageIndex' | 'source' | 'uid' | 'annotationId'>,
+) {
     return computeSummaryStableKey({
         id: summary.id,
         pageIndex: summary.pageIndex,
@@ -31,75 +49,35 @@ export function toCanonicalStableKey(summary: Pick<IAnnotationCommentSummary, 'i
     });
 }
 
-export function normalizeSummaryStableKey(summary: IAnnotationCommentSummary): IAnnotationCommentSummary {
+export function normalizeSummaryStableKey(
+    summary: IAnnotationCommentSummary,
+): IAnnotationCommentSummary {
     return {
         ...summary,
         stableKey: toCanonicalStableKey(summary),
     };
 }
 
-export function compareAnnotationComments(a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) {
-    if (a.pageIndex !== b.pageIndex) {
-        return a.pageIndex - b.pageIndex;
-    }
-
-    const sortIndexA = typeof a.sortIndex === 'number' ? a.sortIndex : null;
-    const sortIndexB = typeof b.sortIndex === 'number' ? b.sortIndex : null;
-    if (sortIndexA !== null && sortIndexB !== null && sortIndexA !== sortIndexB) {
-        return sortIndexA - sortIndexB;
-    }
-    if (sortIndexA !== null && sortIndexB === null) {
-        return -1;
-    }
-    if (sortIndexA === null && sortIndexB !== null) {
-        return 1;
-    }
-
-    const aTime = a.modifiedAt ?? 0;
-    const bTime = b.modifiedAt ?? 0;
-    if (aTime !== bTime) {
-        return bTime - aTime;
-    }
-    return a.stableKey.localeCompare(b.stableKey);
-}
-
-export function areTextMarkupCommentsLikelySame(
-    left: IAnnotationCommentSummary,
-    right: IAnnotationCommentSummary,
+export function getSummaryMemoryKeys(
+    summary: Pick<IAnnotationCommentSummary, 'stableKey' | 'pageIndex' | 'annotationId' | 'uid' | 'id'>,
 ) {
-    if (left.pageIndex !== right.pageIndex) {
-        return false;
+    const keys = new Set<string>();
+    if (summary.stableKey) {
+        keys.add(`stable:${summary.stableKey}`);
     }
-    if (!isTextMarkupSubtype(left.subtype) || !isTextMarkupSubtype(right.subtype)) {
-        return false;
+    if (summary.annotationId) {
+        keys.add(`ann:${summary.pageIndex}:${summary.annotationId}`);
+        keys.add(`ann:any:${summary.annotationId}`);
     }
-
-    const iou = markerRectIoU(left.markerRect, right.markerRect);
-    if (iou >= 0.46) {
-        return true;
+    if (summary.uid) {
+        keys.add(`uid:${summary.pageIndex}:${summary.uid}`);
+        keys.add(`uid:any:${summary.uid}`);
     }
-
-    const leftRect = normalizeMarkerRect(left.markerRect);
-    const rightRect = normalizeMarkerRect(right.markerRect);
-    if (!leftRect || !rightRect) {
-        return false;
+    if (summary.id) {
+        keys.add(`id:${summary.pageIndex}:${summary.id}`);
+        keys.add(`id:any:${summary.id}`);
     }
-
-    const leftCenterX = leftRect.left + leftRect.width / 2;
-    const leftCenterY = leftRect.top + leftRect.height / 2;
-    const rightCenterX = rightRect.left + rightRect.width / 2;
-    const rightCenterY = rightRect.top + rightRect.height / 2;
-    const dx = leftCenterX - rightCenterX;
-    const dy = leftCenterY - rightCenterY;
-    const centerDistance = Math.hypot(dx, dy);
-
-    const leftArea = leftRect.width * leftRect.height;
-    const rightArea = rightRect.width * rightRect.height;
-    const largerArea = Math.max(leftArea, rightArea);
-    const smallerArea = Math.max(1e-6, Math.min(leftArea, rightArea));
-    const areaRatio = largerArea / smallerArea;
-
-    return centerDistance <= 0.045 && areaRatio <= 2.8;
+    return Array.from(keys);
 }
 
 function isTextLikeNoteSubtype(subtype: IAnnotationCommentSummary['subtype']) {
@@ -113,22 +91,6 @@ function isTextLikeNoteSubtype(subtype: IAnnotationCommentSummary['subtype']) {
         || normalized.includes('note')
         || isTextMarkupSubtype(subtype)
     );
-}
-
-function markerRectCenterDistance(
-    left: IAnnotationCommentSummary['markerRect'],
-    right: IAnnotationCommentSummary['markerRect'],
-) {
-    const normalizedLeft = normalizeMarkerRect(left);
-    const normalizedRight = normalizeMarkerRect(right);
-    if (!normalizedLeft || !normalizedRight) {
-        return Number.POSITIVE_INFINITY;
-    }
-    const leftCenterX = normalizedLeft.left + normalizedLeft.width / 2;
-    const leftCenterY = normalizedLeft.top + normalizedLeft.height / 2;
-    const rightCenterX = normalizedRight.left + normalizedRight.width / 2;
-    const rightCenterY = normalizedRight.top + normalizedRight.height / 2;
-    return Math.hypot(leftCenterX - rightCenterX, leftCenterY - rightCenterY);
 }
 
 function intervalOverlap(
@@ -145,16 +107,16 @@ function rectContainsPoint(
         left: number;
         top: number;
         width: number;
-        height: number;
+        height: number 
     },
     x: number,
     y: number,
 ) {
     return (
         x >= rect.left
-        && x <= (rect.left + rect.width)
+        && x <= rect.left + rect.width
         && y >= rect.top
-        && y <= (rect.top + rect.height)
+        && y <= rect.top + rect.height
     );
 }
 
@@ -186,10 +148,10 @@ function markerRectLineMirrorSignal(
         normalizedRight.left + normalizedRight.width,
     ) / minWidth;
 
-    const leftCenterX = normalizedLeft.left + (normalizedLeft.width / 2);
-    const leftCenterY = normalizedLeft.top + (normalizedLeft.height / 2);
-    const rightCenterX = normalizedRight.left + (normalizedRight.width / 2);
-    const rightCenterY = normalizedRight.top + (normalizedRight.height / 2);
+    const leftCenterX = normalizedLeft.left + normalizedLeft.width / 2;
+    const leftCenterY = normalizedLeft.top + normalizedLeft.height / 2;
+    const rightCenterX = normalizedRight.left + normalizedRight.width / 2;
+    const rightCenterY = normalizedRight.top + normalizedRight.height / 2;
     const centerContainment = rectContainsPoint(normalizedLeft, rightCenterX, rightCenterY)
         || rectContainsPoint(normalizedRight, leftCenterX, leftCenterY);
 
@@ -201,6 +163,22 @@ function markerRectLineMirrorSignal(
             || (widthRatio >= 3.2 && xOverlap >= 0.08)
         )
     );
+}
+
+function markerRectCenterDistanceLocal(
+    left: IAnnotationCommentSummary['markerRect'],
+    right: IAnnotationCommentSummary['markerRect'],
+) {
+    const normalizedLeft = normalizeMarkerRect(left);
+    const normalizedRight = normalizeMarkerRect(right);
+    if (!normalizedLeft || !normalizedRight) {
+        return Number.POSITIVE_INFINITY;
+    }
+    const leftCx = normalizedLeft.left + normalizedLeft.width / 2;
+    const leftCy = normalizedLeft.top + normalizedLeft.height / 2;
+    const rightCx = normalizedRight.left + normalizedRight.width / 2;
+    const rightCy = normalizedRight.top + normalizedRight.height / 2;
+    return Math.hypot(leftCx - rightCx, leftCy - rightCy);
 }
 
 function likelyEditorPdfMirror(
@@ -244,13 +222,12 @@ function likelyEditorPdfMirror(
     }
 
     const iou = markerRectIoU(left.markerRect, right.markerRect);
-    const centerDistance = markerRectCenterDistance(left.markerRect, right.markerRect);
+    const centerDistance = markerRectCenterDistanceLocal(left.markerRect, right.markerRect);
     const lineMirror = markerRectLineMirrorSignal(left.markerRect, right.markerRect);
     const leftTs = left.modifiedAt ?? 0;
     const rightTs = right.modifiedAt ?? 0;
-    const modifiedClose = Boolean(leftTs && rightTs && Math.abs(leftTs - rightTs) <= 3 * 1000);
+    const modifiedClose = Boolean(leftTs && rightTs && Math.abs(leftTs - rightTs) <= 3_000);
 
-    // Both sides already carry stable refs: allow moderate geometric reconciliation.
     if (hasLeftStableRef && hasRightStableRef) {
         if (hasLeftText && hasRightText) {
             return lineMirror || iou >= 0.18 || centerDistance <= 0.08 || modifiedClose;
@@ -258,8 +235,6 @@ function likelyEditorPdfMirror(
         return modifiedClose && (iou >= 0.28 || centerDistance <= 0.04);
     }
 
-    // Exactly one side is stable (typically editor->pdf transition). Use a much
-    // stronger geometry gate to avoid collapsing independent notes.
     const strongGeometry = (
         iou >= 0.45
         || centerDistance <= 0.028
@@ -279,6 +254,45 @@ function likelyEditorPdfMirror(
     return modifiedClose || iou >= 0.62 || centerDistance <= 0.018;
 }
 
+export function areTextMarkupCommentsLikelySame(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+) {
+    if (left.pageIndex !== right.pageIndex) {
+        return false;
+    }
+    if (!isTextMarkupSubtype(left.subtype) || !isTextMarkupSubtype(right.subtype)) {
+        return false;
+    }
+
+    const iou = markerRectIoU(left.markerRect, right.markerRect);
+    if (iou >= 0.46) {
+        return true;
+    }
+
+    const leftRect = normalizeMarkerRect(left.markerRect);
+    const rightRect = normalizeMarkerRect(right.markerRect);
+    if (!leftRect || !rightRect) {
+        return false;
+    }
+
+    const leftCenterX = leftRect.left + leftRect.width / 2;
+    const leftCenterY = leftRect.top + leftRect.height / 2;
+    const rightCenterX = rightRect.left + rightRect.width / 2;
+    const rightCenterY = rightRect.top + rightRect.height / 2;
+    const dx = leftCenterX - rightCenterX;
+    const dy = leftCenterY - rightCenterY;
+    const centerDistance = Math.hypot(dx, dy);
+
+    const leftArea = leftRect.width * leftRect.height;
+    const rightArea = rightRect.width * rightRect.height;
+    const largerArea = Math.max(leftArea, rightArea);
+    const smallerArea = Math.max(1e-6, Math.min(leftArea, rightArea));
+    const areaRatio = largerArea / smallerArea;
+
+    return centerDistance <= 0.045 && areaRatio <= 2.8;
+}
+
 export function commentsAreSameLogicalAnnotation(
     left: IAnnotationCommentSummary,
     right: IAnnotationCommentSummary,
@@ -295,10 +309,7 @@ export function commentsAreSameLogicalAnnotation(
         return left.uid === right.uid;
     }
 
-    if (
-        left.id === right.id
-        && left.source === right.source
-    ) {
+    if (left.id === right.id && left.source === right.source) {
         return true;
     }
 
@@ -306,7 +317,6 @@ export function commentsAreSameLogicalAnnotation(
         return true;
     }
 
-    // Keep geometry fallback only for pure text-markup duplicates.
     if (
         !left.hasNote
         && !right.hasNote
@@ -358,8 +368,7 @@ function markerRectConfidenceScore(
     if (typeof comment.modifiedAt === 'number' && comment.modifiedAt > 0) {
         score += 2;
     }
-    const area = rect.width * rect.height;
-    if (area > 0.00001) {
+    if (rect.width * rect.height > 0.00001) {
         score += 1;
     }
     return score;
@@ -381,33 +390,22 @@ function pickPreferredMarkerRect(
     const leftScore = markerRectConfidenceScore(left, leftRect);
     const rightScore = markerRectConfidenceScore(right, rightRect);
     if (leftScore !== rightScore) {
-        return rightScore > leftScore
-            ? rightRect
-            : leftRect;
+        return rightScore > leftScore ? rightRect : leftRect;
     }
 
     const leftTs = left.modifiedAt ?? 0;
     const rightTs = right.modifiedAt ?? 0;
     if (leftTs !== rightTs) {
-        return rightTs > leftTs
-            ? rightRect
-            : leftRect;
+        return rightTs > leftTs ? rightRect : leftRect;
     }
 
     if (left.source !== right.source) {
-        return right.source === 'editor'
-            ? rightRect
-            : leftRect;
+        return right.source === 'editor' ? rightRect : leftRect;
     }
 
     const leftArea = leftRect.width * leftRect.height;
     const rightArea = rightRect.width * rightRect.height;
-    if (leftArea === rightArea) {
-        return leftRect;
-    }
-    return rightArea > leftArea
-        ? rightRect
-        : leftRect;
+    return rightArea > leftArea ? rightRect : leftRect;
 }
 
 export function mergeCommentSummaries(
@@ -415,13 +413,9 @@ export function mergeCommentSummaries(
     incoming: IAnnotationCommentSummary,
 ): IAnnotationCommentSummary {
     const existingText = existing.text.trim();
-    const text = existingText.length > 0
-        ? existing.text
-        : incoming.text;
+    const text = existingText.length > 0 ? existing.text : incoming.text;
 
-    const author = existing.author?.trim()
-        ? existing.author
-        : incoming.author;
+    const author = existing.author?.trim() ? existing.author : incoming.author;
 
     const kindLabel = (() => {
         if (existing.kindLabel?.trim() && existing.subtype !== 'Highlight') {
@@ -430,9 +424,7 @@ export function mergeCommentSummaries(
         if (incoming.kindLabel?.trim() && incoming.subtype !== 'Highlight') {
             return incoming.kindLabel;
         }
-        return existing.kindLabel?.trim()
-            ? existing.kindLabel
-            : incoming.kindLabel;
+        return existing.kindLabel?.trim() ? existing.kindLabel : incoming.kindLabel;
     })();
 
     const modifiedAt = (() => {
@@ -444,9 +436,7 @@ export function mergeCommentSummaries(
         return existingTs ?? incomingTs;
     })();
 
-    const source = existing.source === 'editor'
-        ? 'editor'
-        : incoming.source;
+    const source = existing.source === 'editor' ? 'editor' : incoming.source;
     const existingSortIndex = typeof existing.sortIndex === 'number' ? existing.sortIndex : null;
     const incomingSortIndex = typeof incoming.sortIndex === 'number' ? incoming.sortIndex : null;
     const sortIndex = (
@@ -506,16 +496,10 @@ export function mergeDuplicateCommentSummary(
     );
 
     const id = annotationId
-        ? (
-            primary.annotationId
-                ? primary.id
-                : secondary.id
-        )
-        : (
-            uid
-                ? (primary.uid ? primary.id : secondary.id)
-                : merged.id
-        );
+        ? (primary.annotationId ? primary.id : secondary.id)
+        : (uid
+            ? (primary.uid ? primary.id : secondary.id)
+            : merged.id);
 
     const normalized: IAnnotationCommentSummary = {
         ...merged,
@@ -560,7 +544,28 @@ export function dedupeAnnotationCommentSummaries(comments: IAnnotationCommentSum
         merged[existingIndex] = mergeDuplicateCommentSummary(primary, candidate);
     }
 
-    return merged.sort(compareAnnotationComments);
+    return merged.sort((a, b) => {
+        if (a.pageIndex !== b.pageIndex) {
+            return a.pageIndex - b.pageIndex;
+        }
+        const aSort = typeof a.sortIndex === 'number' ? a.sortIndex : null;
+        const bSort = typeof b.sortIndex === 'number' ? b.sortIndex : null;
+        if (aSort !== null && bSort !== null && aSort !== bSort) {
+            return aSort - bSort;
+        }
+        if (aSort !== null && bSort === null) {
+            return -1;
+        }
+        if (aSort === null && bSort !== null) {
+            return 1;
+        }
+        const aTime = a.modifiedAt ?? 0;
+        const bTime = b.modifiedAt ?? 0;
+        if (aTime !== bTime) {
+            return bTime - aTime;
+        }
+        return a.stableKey.localeCompare(b.stableKey);
+    });
 }
 
 export function commentsMatchForEditorLookup(
@@ -583,22 +588,180 @@ export function commentsMatchForEditorLookup(
     );
 }
 
-export function getSummaryMemoryKeys(summary: Pick<IAnnotationCommentSummary, 'stableKey' | 'pageIndex' | 'annotationId' | 'uid' | 'id'>) {
-    const keys = new Set<string>();
-    if (summary.stableKey) {
-        keys.add(`stable:${summary.stableKey}`);
+export function useAnnotationIdentity(
+    annotationCommentsCache: Ref<IAnnotationCommentSummary[]>,
+) {
+    const editorRuntimeIds = new WeakMap<IPdfjsEditor, string>();
+    let editorRuntimeIdCounter = 0;
+    let commentSummaryMemory = new Map<string, ISummaryMemoryEntry>();
+
+    tryOnScopeDispose(() => {
+        commentSummaryMemory.clear();
+    });
+
+    function getEditorRuntimeId(editor: IPdfjsEditor, pageIndex: number) {
+        let runtimeId = editorRuntimeIds.get(editor);
+        if (!runtimeId) {
+            editorRuntimeIdCounter += 1;
+            runtimeId = `runtime-${pageIndex}-${editorRuntimeIdCounter}`;
+            editorRuntimeIds.set(editor, runtimeId);
+        }
+        return runtimeId;
     }
-    if (summary.annotationId) {
-        keys.add(`ann:${summary.pageIndex}:${summary.annotationId}`);
-        keys.add(`ann:any:${summary.annotationId}`);
+
+    function getEditorIdentity(editor: IPdfjsEditor, pageIndex: number) {
+        const rawEditorId = typeof editor.id === 'string' || typeof editor.id === 'number'
+            ? String(editor.id)
+            : '';
+        return editor.uid
+            ?? editor.annotationElementId
+            ?? (rawEditorId ? `editor:${pageIndex}:${rawEditorId}` : null)
+            ?? getEditorRuntimeId(editor, pageIndex);
     }
-    if (summary.uid) {
-        keys.add(`uid:${summary.pageIndex}:${summary.uid}`);
-        keys.add(`uid:any:${summary.uid}`);
+
+    function getEditorPendingKey(editor: IPdfjsEditor, pageIndex: number) {
+        return `p${pageIndex}:${getEditorIdentity(editor, pageIndex)}`;
     }
-    if (summary.id) {
-        keys.add(`id:${summary.pageIndex}:${summary.id}`);
-        keys.add(`id:any:${summary.id}`);
+
+    function toSummaryKey(summary: IAnnotationCommentSummary) {
+        return summary.stableKey;
     }
-    return Array.from(keys);
+
+    function rememberSummaryText(summary: IAnnotationCommentSummary) {
+        const text = summary.text.trim();
+        if (!text) {
+            getSummaryMemoryKeys(summary).forEach((key) => {
+                commentSummaryMemory.delete(key);
+            });
+            return;
+        }
+        const payload: ISummaryMemoryEntry = {
+            text: summary.text,
+            modifiedAt: summary.modifiedAt ?? null,
+            author: summary.author ?? null,
+            kindLabel: summary.kindLabel ?? null,
+            subtype: summary.subtype ?? null,
+            color: summary.color ?? null,
+            markerRect: summary.markerRect ?? null,
+        };
+        getSummaryMemoryKeys(summary).forEach((key) => {
+            commentSummaryMemory.set(key, payload);
+        });
+    }
+
+    function forgetSummaryText(summary: IAnnotationCommentSummary) {
+        getSummaryMemoryKeys(summary).forEach((key) => {
+            commentSummaryMemory.delete(key);
+        });
+    }
+
+    function hydrateSummaryFromMemory(summary: IAnnotationCommentSummary) {
+        if (summary.text.trim()) {
+            return summary;
+        }
+        if (summary.hasNote) {
+            return summary;
+        }
+
+        for (const key of getSummaryMemoryKeys(summary)) {
+            const cached = commentSummaryMemory.get(key);
+            if (!cached || !cached.text.trim()) {
+                continue;
+            }
+            return {
+                ...summary,
+                text: cached.text,
+                modifiedAt: summary.modifiedAt ?? cached.modifiedAt,
+                author: summary.author ?? cached.author,
+                kindLabel: summary.kindLabel ?? cached.kindLabel,
+                subtype: summary.subtype ?? cached.subtype,
+                color: summary.color ?? cached.color,
+                markerRect: summary.markerRect ?? cached.markerRect,
+            };
+        }
+
+        return summary;
+    }
+
+    function findCommentByStableKey(stableKey: string) {
+        return annotationCommentsCache.value.find(comment => comment.stableKey === stableKey) ?? null;
+    }
+
+    function findCommentByAnnotationId(annotationId: string | null | undefined, pageNumber: number | null = null) {
+        const normalized = (annotationId ?? '').trim();
+        if (!normalized) {
+            return null;
+        }
+
+        if (Number.isFinite(pageNumber)) {
+            const byPage = annotationCommentsCache.value.find(comment => (
+                comment.annotationId === normalized
+                && comment.pageNumber === pageNumber
+            ));
+            if (byPage) {
+                return byPage;
+            }
+        }
+
+        return annotationCommentsCache.value.find(comment => comment.annotationId === normalized) ?? null;
+    }
+
+    function resolveCommentFromCache(comment: IAnnotationCommentSummary) {
+        const direct = findCommentByStableKey(comment.stableKey);
+        if (direct) {
+            return direct;
+        }
+        return annotationCommentsCache.value.find(candidate => commentsMatchForEditorLookup(candidate, comment)) ?? null;
+    }
+
+    function clearMemory() {
+        commentSummaryMemory = new Map();
+    }
+
+    return {
+        getEditorRuntimeId,
+        getEditorIdentity,
+        getEditorPendingKey,
+        computeSummaryStableKey,
+        toCanonicalStableKey,
+        normalizeSummaryStableKey,
+        compareAnnotationComments: (a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) => {
+            if (a.pageIndex !== b.pageIndex) {
+                return a.pageIndex - b.pageIndex;
+            }
+            const sortIndexA = typeof a.sortIndex === 'number' ? a.sortIndex : null;
+            const sortIndexB = typeof b.sortIndex === 'number' ? b.sortIndex : null;
+            if (sortIndexA !== null && sortIndexB !== null && sortIndexA !== sortIndexB) {
+                return sortIndexA - sortIndexB;
+            }
+            if (sortIndexA !== null && sortIndexB === null) {
+                return -1;
+            }
+            if (sortIndexA === null && sortIndexB !== null) {
+                return 1;
+            }
+            const aTime = a.modifiedAt ?? 0;
+            const bTime = b.modifiedAt ?? 0;
+            if (aTime !== bTime) {
+                return bTime - aTime;
+            }
+            return a.stableKey.localeCompare(b.stableKey);
+        },
+        dedupeAnnotationCommentSummaries,
+        commentMergePriority,
+        mergeDuplicateCommentSummary,
+        mergeCommentSummaries,
+        commentsAreSameLogicalAnnotation,
+        areTextMarkupCommentsLikelySame,
+        toSummaryKey,
+        rememberSummaryText,
+        hydrateSummaryFromMemory,
+        forgetSummaryText,
+        getSummaryMemoryKeys,
+        commentsMatchForEditorLookup,
+        resolveCommentFromCache,
+        findCommentByStableKey,
+        findCommentByAnnotationId,
+        clearMemory,
+    };
 }

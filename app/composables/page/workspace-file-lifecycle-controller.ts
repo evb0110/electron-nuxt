@@ -7,7 +7,7 @@ import { useDjvu } from '@app/composables/useDjvu';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { useWorkspaceFileSwitch } from '@app/composables/page/useWorkspaceFileSwitch';
 import { usePageFileOperations } from '@app/composables/usePageFileOperations';
-import type { IAnnotationNoteWindowState } from '@app/composables/pdf/useAnnotationNoteWindows';
+import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/types';
 import type { TOpenFileResult } from '@app/types/electron-api';
 import {hasElectronAPI} from '@app/utils/electron';
 import { BrowserLogger } from '@app/utils/browser-logger';
