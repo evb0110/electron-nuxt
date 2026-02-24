@@ -19,11 +19,15 @@ import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
 } from 'electron/ipc-types';
+import {
+    assertAbsolutePath,
+    assertNonEmptyString,
+    assertOptionalAbsolutePath,
+} from '@app/shared/ipc-assertions';
 import { getDebugLogMessages } from '@electron/preload/debug-log-buffer';
 
 const preloadStartupStart = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
-const MAX_IPC_PATH_LENGTH = 4_096;
 const MAX_IPC_FILE_NAME_LENGTH = 255;
 const MAX_IPC_WRITE_BYTES = 512 * 1024 * 1024;
 
@@ -84,39 +88,6 @@ function onSingleArgEvent<T>(
     return () => ipcRenderer.removeListener(channel, handler);
 }
 
-function assertNonEmptyString(value: unknown, fieldName: string, maxLength = MAX_IPC_PATH_LENGTH) {
-    if (typeof value !== 'string') {
-        throw new Error(`${fieldName} must be a string`);
-    }
-
-    const normalized = value.trim();
-    if (!normalized) {
-        throw new Error(`${fieldName} must not be empty`);
-    }
-    if (normalized.length > maxLength) {
-        throw new Error(`${fieldName} exceeds maximum length (${maxLength})`);
-    }
-    if (normalized.includes('\0')) {
-        throw new Error(`${fieldName} must not contain NUL bytes`);
-    }
-
-    return normalized;
-}
-
-function isLikelyAbsolutePath(path: string) {
-    return path.startsWith('/')
-        || path.startsWith('\\\\')
-        || /^[A-Za-z]:[\\/]/.test(path);
-}
-
-function assertAbsolutePath(value: unknown, fieldName: string) {
-    const normalized = assertNonEmptyString(value, fieldName);
-    if (!isLikelyAbsolutePath(normalized)) {
-        throw new Error(`${fieldName} must be an absolute path`);
-    }
-    return normalized;
-}
-
 function assertWriteData(value: unknown, fieldName: string) {
     if (!(value instanceof Uint8Array)) {
         throw new Error(`${fieldName} must be a Uint8Array`);
@@ -143,22 +114,6 @@ function assertWorkingCopyFileName(value: unknown, fieldName: string) {
 
 function assertRequestId(value: unknown, fieldName: string) {
     return assertNonEmptyString(value, fieldName, 128);
-}
-
-function assertOptionalAbsolutePath(value: unknown, fieldName: string) {
-    if (value === undefined || value === null) {
-        return undefined;
-    }
-
-    if (typeof value === 'string' && value.trim().length === 0) {
-        return undefined;
-    }
-
-    const normalized = assertNonEmptyString(value, fieldName);
-    if (!isLikelyAbsolutePath(normalized)) {
-        throw new Error(`${fieldName} must be an absolute path`);
-    }
-    return normalized;
 }
 
 export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: typeof webUtils): IElectronAPI {

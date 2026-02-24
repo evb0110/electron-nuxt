@@ -40,6 +40,7 @@ let activeViewingJobWindowId: number | null = null;
 const trackedTempPdfs = new Set<string>();
 const trackedWindowTempPdfs = new Map<number, Set<string>>();
 const hookedWindowIds = new Set<number>();
+let globalCleanupHooksInstalled = false;
 const DJVU_SETTLED_CLEANUP_DELAY_MS = 60_000;
 const DJVU_STALE_SWEEP_MAX_AGE_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_DJVU_TEMP_STALE_MAX_AGE_MS ?? `${24 * 60 * 60 * 1000}`, 10);
@@ -48,6 +49,13 @@ const DJVU_STALE_SWEEP_MAX_AGE_MS = (() => {
     }
     return parsed;
 })();
+
+async function cleanupAllTrackedTempPdfs() {
+    const paths = Array.from(trackedTempPdfs.values());
+    for (const path of paths) {
+        await safeDeleteDjvuTempPdf(path);
+    }
+}
 
 function normalizeTempPdfPath(tempPdfPath: string): string | null {
     if (!tempPdfPath || tempPdfPath.trim() === '') {
@@ -114,6 +122,18 @@ async function safeDeleteDjvuTempPdf(tempPdfPath: string) {
     }
 }
 
+function registerGlobalCleanupHooks() {
+    if (globalCleanupHooksInstalled) {
+        return;
+    }
+
+    globalCleanupHooksInstalled = true;
+    app.on('before-quit', () => {
+        cancelActiveViewingJob();
+        void cleanupAllTrackedTempPdfs();
+    });
+}
+
 export async function cleanupDjvuTempPdfPath(tempPdfPath: string) {
     await safeDeleteDjvuTempPdf(tempPdfPath);
 }
@@ -148,13 +168,17 @@ function attachWindowCleanup(window: BrowserWindow) {
     }
 
     hookedWindowIds.add(window.id);
-    window.on('closed', () => {
+    const cleanupForWindow = () => {
         hookedWindowIds.delete(window.id);
         if (activeViewingJobWindowId === window.id) {
             cancelActiveViewingJob();
         }
         void cleanupDjvuTempPdfsForWindow(window.id);
-    });
+    };
+
+    window.on('closed', cleanupForWindow);
+    window.webContents.on('destroyed', cleanupForWindow);
+    window.webContents.on('render-process-gone', cleanupForWindow);
 }
 
 function cancelActiveViewingJob() {
@@ -460,6 +484,7 @@ export async function handleDjvuOpenForViewing(
     jobId?: string;
     error?: string;
 }> {
+    registerGlobalCleanupHooks();
     const window = BrowserWindow.fromWebContents(event.sender);
     if (window && !window.isDestroyed()) {
         attachWindowCleanup(window);

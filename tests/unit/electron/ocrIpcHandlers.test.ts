@@ -103,7 +103,7 @@ describe('registerOcrHandlers', () => {
         mocks.getSequentialProgressPage.mockImplementation((pages: Array<{ pageNumber: number }>, processedCount: number) =>
             pages[Math.max(0, processedCount - 1)]?.pageNumber ?? 0);
         mocks.forEachConcurrent.mockImplementation(async (
-            pages: Array<unknown>,
+            pages: unknown[],
             _concurrency: number,
             worker: (page: unknown) => Promise<void>,
         ) => {

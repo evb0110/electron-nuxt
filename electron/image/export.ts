@@ -54,7 +54,7 @@ interface IUtifModule {
     decode(input: Uint8Array | ArrayBuffer): IUtifFrame[];
     decodeImage(input: Uint8Array | ArrayBuffer, frame: IUtifFrame): void;
     toRGBA8(frame: IUtifFrame): Uint8Array;
-    encode(ifds: Record<string, unknown>[]): ArrayBuffer;
+    encode(ifds: Array<Record<string, unknown>>): ArrayBuffer;
 }
 
 interface ITiffPageRgba {

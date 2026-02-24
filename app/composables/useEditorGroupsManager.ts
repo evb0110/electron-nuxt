@@ -52,6 +52,171 @@ const tabGroupLookup = computed(() => {
     return map;
 });
 
+function collectLayoutGroupIds(node: TEditorLayoutNode, target: Set<string>) {
+    if (node.type === 'leaf') {
+        target.add(node.groupId);
+        return;
+    }
+
+    collectLayoutGroupIds(node.first, target);
+    collectLayoutGroupIds(node.second, target);
+}
+
+function pruneLayoutToExistingGroups(
+    node: TEditorLayoutNode,
+    validGroupIds: Set<string>,
+): TEditorLayoutNode | null {
+    if (node.type === 'leaf') {
+        return validGroupIds.has(node.groupId) ? node : null;
+    }
+
+    const nextFirst = pruneLayoutToExistingGroups(node.first, validGroupIds);
+    const nextSecond = pruneLayoutToExistingGroups(node.second, validGroupIds);
+
+    if (!nextFirst && !nextSecond) {
+        return null;
+    }
+    if (!nextFirst) {
+        return nextSecond;
+    }
+    if (!nextSecond) {
+        return nextFirst;
+    }
+
+    return {
+        ...node,
+        first: nextFirst,
+        second: nextSecond,
+    };
+}
+
+function appendGroupToLayout(
+    currentLayout: TEditorLayoutNode | null,
+    groupId: string,
+): TEditorLayoutNode {
+    const nextLeaf: IEditorLayoutLeafNode = {
+        type: 'leaf',
+        groupId,
+    };
+    if (!currentLayout) {
+        return nextLeaf;
+    }
+
+    return {
+        type: 'split',
+        id: crypto.randomUUID(),
+        orientation: 'horizontal',
+        ratio: 0.5,
+        first: currentLayout,
+        second: nextLeaf,
+    };
+}
+
+function normalizeManagerState() {
+    const uniqueTabs: ITab[] = [];
+    const validTabIds = new Set<string>();
+    for (const tab of tabs.value) {
+        if (!tab.id || validTabIds.has(tab.id)) {
+            continue;
+        }
+        validTabIds.add(tab.id);
+        uniqueTabs.push(tab);
+    }
+    tabs.value = uniqueTabs;
+
+    const normalizedGroups: IEditorGroupState[] = [];
+    const validGroupIds = new Set<string>();
+    const assignedTabIds = new Set<string>();
+    for (const group of groups.value) {
+        if (!group.id || validGroupIds.has(group.id)) {
+            continue;
+        }
+        validGroupIds.add(group.id);
+
+        const nextTabIds: string[] = [];
+        for (const tabId of group.tabIds) {
+            if (!validTabIds.has(tabId) || assignedTabIds.has(tabId)) {
+                continue;
+            }
+            assignedTabIds.add(tabId);
+            nextTabIds.push(tabId);
+        }
+
+        const nextActiveTabId = group.activeTabId && nextTabIds.includes(group.activeTabId)
+            ? group.activeTabId
+            : (nextTabIds[0] ?? null);
+        normalizedGroups.push({
+            id: group.id,
+            tabIds: nextTabIds,
+            activeTabId: nextActiveTabId,
+        });
+    }
+
+    if (normalizedGroups.length === 0) {
+        const fallback = createGroup();
+        normalizedGroups.push(fallback);
+        validGroupIds.add(fallback.id);
+    }
+
+    groups.value = normalizedGroups;
+    const fallbackGroup = groups.value[0]!;
+
+    for (const tab of tabs.value) {
+        if (assignedTabIds.has(tab.id)) {
+            continue;
+        }
+        fallbackGroup.tabIds.push(tab.id);
+        assignedTabIds.add(tab.id);
+    }
+
+    for (const group of groups.value) {
+        if (!group.activeTabId || !group.tabIds.includes(group.activeTabId)) {
+            group.activeTabId = group.tabIds[0] ?? null;
+        }
+    }
+
+    const freshGroupIds = new Set(groups.value.map(group => group.id));
+    if (layout.value) {
+        layout.value = pruneLayoutToExistingGroups(layout.value, freshGroupIds);
+    }
+    if (!layout.value) {
+        layout.value = {
+            type: 'leaf',
+            groupId: groups.value[0]!.id,
+        };
+    }
+
+    const layoutGroupIds = new Set<string>();
+    collectLayoutGroupIds(layout.value, layoutGroupIds);
+    for (const group of groups.value) {
+        if (layoutGroupIds.has(group.id)) {
+            continue;
+        }
+        layout.value = appendGroupToLayout(layout.value, group.id);
+        layoutGroupIds.add(group.id);
+    }
+
+    if (!activeGroupId.value || !freshGroupIds.has(activeGroupId.value)) {
+        activeGroupId.value = groups.value[0]?.id ?? null;
+    }
+
+    const nextMru: string[] = [];
+    const mruSeen = new Set<string>();
+    const preferredGroupIds = [
+        activeGroupId.value,
+        ...groupMru.value,
+        ...groups.value.map(group => group.id),
+    ];
+    for (const groupId of preferredGroupIds) {
+        if (!groupId || !freshGroupIds.has(groupId) || mruSeen.has(groupId)) {
+            continue;
+        }
+        mruSeen.add(groupId);
+        nextMru.push(groupId);
+    }
+    groupMru.value = nextMru;
+}
+
 function createGroup(): IEditorGroupState {
     return {
         id: crypto.randomUUID(),
@@ -118,9 +283,11 @@ function ensureLayoutInitialized() {
         type: 'leaf',
         groupId: group.id,
     };
+    normalizeManagerState();
 }
 
 function ensureAtLeastOneTab() {
+    normalizeManagerState();
     ensureLayoutInitialized();
 
     const hasAnyTab = groups.value.some(group => group.tabIds.length > 0);
@@ -133,6 +300,7 @@ function ensureAtLeastOneTab() {
                 activeGroup.activeTabId = activeGroup.tabIds[0] ?? null;
             }
         }
+        normalizeManagerState();
         return;
     }
 
@@ -140,6 +308,7 @@ function ensureAtLeastOneTab() {
         groupId: activeGroupId.value,
         activate: true,
     });
+    normalizeManagerState();
 }
 
 function activateGroup(groupId: string) {
@@ -154,6 +323,7 @@ function activateGroup(groupId: string) {
     if (!group.activeTabId && group.tabIds.length > 0) {
         group.activeTabId = group.tabIds[0] ?? null;
     }
+    normalizeManagerState();
 }
 
 function activateTab(groupId: string, tabId: string) {
@@ -164,9 +334,11 @@ function activateTab(groupId: string, tabId: string) {
 
     group.activeTabId = tabId;
     activateGroup(groupId);
+    normalizeManagerState();
 }
 
 function createTab(options: ICreateTabOptions = {}) {
+    normalizeManagerState();
     ensureLayoutInitialized();
 
     let group = getGroupById(options.groupId ?? activeGroupId.value);
@@ -196,6 +368,7 @@ function createTab(options: ICreateTabOptions = {}) {
         activateGroup(group.id);
     }
 
+    normalizeManagerState();
     return tab;
 }
 
@@ -220,6 +393,7 @@ function moveTabWithinGroup(groupId: string, fromIndex: number, toIndex: number)
         return;
     }
     group.tabIds.splice(toIndex, 0, tabId);
+    normalizeManagerState();
 }
 
 function removeLeafNode(
@@ -283,6 +457,7 @@ function closeGroup(groupId: string) {
         }
     }
 
+    normalizeManagerState();
     return true;
 }
 
@@ -326,6 +501,7 @@ function closeTab(groupId: string, tabId: string): ICloseTabResult {
         }
     }
 
+    normalizeManagerState();
     return {
         tab,
         removedGroupId,
@@ -600,6 +776,7 @@ function splitGroup(sourceGroupId: string, direction: TGroupDirection) {
 
     layout.value = replaceLeafWithSplit(layout.value, sourceGroupId, splitNode);
     touchGroupMru(newGroup.id);
+    normalizeManagerState();
 
     return newGroup.id;
 }
@@ -631,6 +808,7 @@ function setSplitRatio(splitId: string, nextRatio: number) {
     }
 
     layout.value = updateNode(layout.value);
+    normalizeManagerState();
 }
 
 function focusGroup(direction: TGroupDirection, wrap = true) {
@@ -659,6 +837,7 @@ function moveTabToGroup(tabId: string, targetGroupId: string, activate = true) {
         if (activate) {
             activateTab(targetGroup.id, tabId);
         }
+        normalizeManagerState();
         return true;
     }
 
@@ -678,6 +857,7 @@ function moveTabToGroup(tabId: string, targetGroupId: string, activate = true) {
         activateTab(targetGroup.id, tabId);
     }
 
+    normalizeManagerState();
     return true;
 }
 

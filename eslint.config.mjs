@@ -169,6 +169,78 @@ export default withNuxt(
         },
     },
     {
+        files: ['electron/**/*.ts'],
+        languageOptions: {parserOptions: {
+            project: ['./electron/tsconfig.json'],
+            tsconfigRootDir: import.meta.dirname,
+        }},
+        rules: {
+            '@typescript-eslint/array-type': [
+                'error',
+                {
+                    default: 'array-simple',
+                    readonly: 'array-simple',
+                },
+            ],
+            '@typescript-eslint/naming-convention': [
+                'error',
+                {
+                    selector: 'typeAlias',
+                    format: ['PascalCase'],
+                    custom: {
+                        regex: '^[TI][A-Z]',
+                        match: true,
+                    },
+                },
+                {
+                    selector: 'interface',
+                    format: ['PascalCase'],
+                    custom: {
+                        regex: '^I[A-Z]',
+                        match: true,
+                    },
+                },
+            ],
+            '@typescript-eslint/require-await': 'off',
+        },
+    },
+    {
+        files: ['tests/**/*.ts'],
+        languageOptions: {parserOptions: {
+            project: ['./tests/tsconfig.json'],
+            tsconfigRootDir: import.meta.dirname,
+        }},
+        rules: {
+            '@typescript-eslint/array-type': [
+                'error',
+                {
+                    default: 'array-simple',
+                    readonly: 'array-simple',
+                },
+            ],
+            '@typescript-eslint/naming-convention': [
+                'error',
+                {
+                    selector: 'typeAlias',
+                    format: ['PascalCase'],
+                    custom: {
+                        regex: '^T[A-Z]',
+                        match: true,
+                    },
+                },
+                {
+                    selector: 'interface',
+                    format: ['PascalCase'],
+                    custom: {
+                        regex: '^I[A-Z]',
+                        match: true,
+                    },
+                },
+            ],
+            '@typescript-eslint/require-await': 'off',
+        },
+    },
+    {
         files: ['landing/app/pages/**/*.vue'],
         rules: {
             'vue/multi-word-component-names': 'off',

@@ -3,10 +3,9 @@ import {
     toRaw,
 } from 'vue';
 import {
-    DEFAULT_LOCALE,
-    LOCALE_CODES,
-    type TLocale,
-} from '@app/i18n/locale-codes';
+    DEFAULT_SETTINGS,
+    sanitizeSettings,
+} from '@app/shared/settings-sanitizer';
 import type { ISettingsData } from '@app/types/shared';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
@@ -21,45 +20,6 @@ declare global {
         data?: Record<string, unknown>;
         dispose: (callback: (data: Record<string, unknown>) => void) => void;
     };}
-}
-
-const DEFAULT_SETTINGS: ISettingsData = {
-    version: 1,
-    authorName: '',
-    theme: 'light',
-    locale: DEFAULT_LOCALE,
-};
-
-const SUPPORTED_LOCALES = new Set<string>(LOCALE_CODES);
-
-function isLocale(locale: string): locale is TLocale {
-    return SUPPORTED_LOCALES.has(locale);
-}
-
-function sanitizeTheme(theme: unknown): ISettingsData['theme'] {
-    return theme === 'dark' ? 'dark' : 'light';
-}
-
-function sanitizeLocale(locale: unknown): TLocale {
-    if (typeof locale !== 'string') {
-        return DEFAULT_LOCALE;
-    }
-    return isLocale(locale) ? locale : DEFAULT_LOCALE;
-}
-
-function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined): ISettingsData {
-    return {
-        version: typeof raw?.version === 'number' ? raw.version : DEFAULT_SETTINGS.version,
-        authorName: typeof raw?.authorName === 'string' ? raw.authorName : DEFAULT_SETTINGS.authorName,
-        theme: sanitizeTheme(raw?.theme),
-        locale: sanitizeLocale(raw?.locale),
-        suppressDefaultViewerPrompt: typeof raw?.suppressDefaultViewerPrompt === 'boolean'
-            ? raw.suppressDefaultViewerPrompt
-            : undefined,
-        skippedUpdateVersion: typeof raw?.skippedUpdateVersion === 'string' && raw.skippedUpdateVersion.trim()
-            ? raw.skippedUpdateVersion.trim()
-            : undefined,
-    };
 }
 
 // Shared state across all composable instances

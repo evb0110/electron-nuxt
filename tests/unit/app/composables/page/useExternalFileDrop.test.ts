@@ -27,6 +27,14 @@ function createDragEvent(paths: string[], types: string[] = ['Files']) {
     return cast<DragEvent>(event);
 }
 
+async function flushDropQueue() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 0);
+    });
+}
+
 describe('useExternalFileDrop', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
@@ -51,8 +59,7 @@ describe('useExternalFileDrop', () => {
             '/docs/b.djvu',
         ]));
 
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushDropQueue();
 
         expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(1, '/docs/a.pdf');
         expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(2, '/docs/b.djvu');
@@ -81,5 +88,46 @@ describe('useExternalFileDrop', () => {
 
         expect(nonFileEvent.preventDefault).not.toHaveBeenCalled();
         expect(openPathInAppropriateTab).not.toHaveBeenCalled();
+    });
+
+    it('stops processing queued paths after cleanup', async () => {
+        let releaseFirstPathBarrier!: () => void;
+        const firstPathOpened = new Promise<void>((resolve) => {
+            releaseFirstPathBarrier = resolve;
+        });
+        const openPathInAppropriateTab = vi.fn(async (path: string) => {
+            if (path.endsWith('a.pdf')) {
+                await firstPathOpened;
+            }
+        });
+
+        vi.stubGlobal('window', {
+            ...globalThis,
+            electronAPI: { getPathForFile: vi.fn((file: { name: string }) => {
+                if (file.name === 'file-0') {
+                    return '/docs/a.pdf';
+                }
+                return '/docs/b.djvu';
+            }) },
+        });
+
+        const {
+            handleWindowDrop,
+            cleanup,
+        } = useExternalFileDrop({ openPathInAppropriateTab });
+
+        handleWindowDrop(createDragEvent([
+            '/docs/a.pdf',
+            '/docs/b.djvu',
+        ]));
+
+        await flushDropQueue();
+        expect(openPathInAppropriateTab).toHaveBeenCalledWith('/docs/a.pdf');
+
+        cleanup();
+        releaseFirstPathBarrier();
+        await flushDropQueue();
+
+        expect(openPathInAppropriateTab).not.toHaveBeenCalledWith('/docs/b.djvu');
     });
 });
