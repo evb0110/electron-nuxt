@@ -10,6 +10,10 @@ import type { TPdfViewMode } from '@app/types/shared';
 import { runGuardedTask } from '@app/utils/async-guard';
 import { stepBySpread } from '@app/utils/pdf-view-mode';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
+import {
+    getPageContainerByNumber,
+    getPageScrollBounds as getPageScrollBoundsForContainer,
+} from '@app/composables/pdf/pdfScrollVisibility';
 
 const WHEEL_LINE_DELTA_PX = 16;
 const PAGE_FLIP_STEP_DELTA_PX = 120;
@@ -107,72 +111,6 @@ export function resolveWheelPageFlipStepDelta(
     );
 }
 
-function hasPageGeometry(value: unknown): value is HTMLElement {
-    if (!value || typeof value !== 'object') {
-        return false;
-    }
-
-    const candidate = value as {
-        offsetTop?: unknown;
-        offsetHeight?: unknown;
-    };
-
-    return typeof candidate.offsetTop === 'number' && typeof candidate.offsetHeight === 'number';
-}
-
-function getPageNumberFromDataset(value: unknown): number | null {
-    if (!value || typeof value !== 'object') {
-        return null;
-    }
-
-    const candidate = value as {dataset?: {page?: unknown;};};
-
-    const pageValue = candidate.dataset?.page;
-    if (typeof pageValue !== 'string') {
-        return null;
-    }
-
-    const pageNumber = Number.parseInt(pageValue, 10);
-    return Number.isFinite(pageNumber) ? pageNumber : null;
-}
-
-function getPageElementByNumber(container: HTMLElement, pageNumber: number) {
-    const selector = `.page_container[data-page="${pageNumber}"]`;
-    const querySelector = (
-        container as {querySelector?: (input: string) => unknown;}
-    ).querySelector;
-
-    if (typeof querySelector === 'function') {
-        const directMatch = querySelector.call(container, selector);
-        if (hasPageGeometry(directMatch)) {
-            return directMatch;
-        }
-    }
-
-    const querySelectorAll = (
-        container as {querySelectorAll?: (input: string) => ArrayLike<unknown>;}
-    ).querySelectorAll;
-    if (typeof querySelectorAll !== 'function') {
-        return null;
-    }
-
-    const allPages = querySelectorAll.call(container, '.page_container') as ArrayLike<unknown> & {item?: (index: number) => unknown;};
-    for (let index = 0; index < allPages.length; index += 1) {
-        const candidate = typeof allPages.item === 'function'
-            ? allPages.item(index)
-            : allPages[index];
-        if (!hasPageGeometry(candidate)) {
-            continue;
-        }
-
-        if (getPageNumberFromDataset(candidate) === pageNumber) {
-            return candidate;
-        }
-    }
-
-    return null;
-}
-
 interface IUsePdfSinglePageScrollOptions {
     viewerContainer: Ref<HTMLElement | null>;
     numPages: Ref<number>;
@@ -200,7 +138,7 @@ interface IUsePdfSinglePageScrollOptions {
     ) => number;
     renderVisiblePages: (range: {
         start: number;
-        end: number 
+        end: number
     }) => Promise<void>;
     visibleRange: Ref<{
         start: number;
@@ -346,25 +284,11 @@ export function usePdfSinglePageScroll(
         }
 
         const targetPage = Math.max(1, Math.min(pageNumber, numPages.value));
-        const pageElement = getPageElementByNumber(container, targetPage);
-        if (!pageElement) {
-            return null;
-        }
-
-        const maxScrollTop = Math.max(
-            0,
-            container.scrollHeight - container.clientHeight,
+        return getPageScrollBoundsForContainer(
+            container,
+            targetPage,
+            scaledMargin.value,
         );
-        const unclampedMin = Math.max(0, pageElement.offsetTop - scaledMargin.value);
-        const unclampedMax =
-            unclampedMin + Math.max(0, pageElement.offsetHeight - container.clientHeight);
-        const min = Math.min(maxScrollTop, unclampedMin);
-        const max = Math.min(maxScrollTop, Math.max(min, unclampedMax));
-
-        return {
-            min,
-            max,
-        };
     }
 
     function isWithinTallPageInterior(pageNumber: number) {
@@ -381,7 +305,7 @@ export function usePdfSinglePageScroll(
         const top = container.scrollTop;
         return (
             top > bounds.min + PAGE_SCROLL_EDGE_EPSILON &&
-      top < bounds.max - PAGE_SCROLL_EDGE_EPSILON
+            top < bounds.max - PAGE_SCROLL_EDGE_EPSILON
         );
     }
 
@@ -399,13 +323,23 @@ export function usePdfSinglePageScroll(
         }
 
         const targetPage = Math.max(1, Math.min(pageNumber, numPages.value));
-        const targetEl = getPageElementByNumber(viewerContainer.value, targetPage);
+        const targetEl = getPageContainerByNumber(
+            viewerContainer.value,
+            targetPage,
+        );
         if (!targetEl) {
             isSnapping.value = true;
-            scrollToPageInternal(viewerContainer.value, targetPage, numPages.value, scaledMargin.value);
+            scrollToPageInternal(
+                viewerContainer.value,
+                targetPage,
+                numPages.value,
+                scaledMargin.value,
+            );
             currentPage.value = targetPage;
             emitCurrentPage(targetPage);
-            requestAnimationFrame(() => { isSnapping.value = false; });
+            requestAnimationFrame(() => {
+                isSnapping.value = false;
+            });
             return;
         }
 
@@ -437,7 +371,13 @@ export function usePdfSinglePageScroll(
     }
 
     const debouncedSnapToPage = useDebounceFn(() => {
-        const suppressed = isLoading.value || !pdfDocument.value || continuousScroll.value || isSnapping.value || Date.now() < snapSuppressUntil.value;
+        const suppressed = (
+            isLoading.value
+            || !pdfDocument.value
+            || continuousScroll.value
+            || isSnapping.value
+            || Date.now() < snapSuppressUntil.value
+        );
         if (suppressed) {
             return;
         }
@@ -454,12 +394,12 @@ export function usePdfSinglePageScroll(
     function handleWheel(event: WheelEvent) {
         if (
             continuousScroll.value ||
-      isLoading.value ||
-      !pdfDocument.value ||
-      !viewerContainer.value ||
-      numPages.value === 0 ||
-      event.ctrlKey ||
-      event.metaKey
+            isLoading.value ||
+            !pdfDocument.value ||
+            !viewerContainer.value ||
+            numPages.value === 0 ||
+            event.ctrlKey ||
+            event.metaKey
         ) {
             return;
         }
@@ -578,7 +518,7 @@ export function usePdfSinglePageScroll(
 
         if (continuousScroll.value) {
             markProgrammaticNavigation(220);
-            const hasTargetPageInDom = !!getPageElementByNumber(
+            const hasTargetPageInDom = !!getPageContainerByNumber(
                 viewerContainer.value,
                 pageNumber,
             );

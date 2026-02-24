@@ -47,8 +47,8 @@
             @input="emit('update:text', ($event.target as HTMLTextAreaElement).value)"
         ></textarea>
 
-        <p v-if="saving" class="note-window__status">{{ t('noteWindow.saving') }}</p>
-        <p v-if="error" class="note-window__error">{{ error }}</p>
+        <p v-if="saving" class="note-window__status" role="status" aria-live="polite">{{ t('noteWindow.saving') }}</p>
+        <p v-if="error" class="note-window__error" role="alert" aria-live="assertive">{{ error }}</p>
     </div>
 </template>
 
@@ -433,22 +433,22 @@ watch(
 
 <style scoped>
 .note-window {
-    --note-bg: #fff5a0;
-    --note-border: #c7b75b;
-    --note-title-bg: rgb(255 255 255 / 42%);
-    --note-title-border: rgb(88 72 7 / 30%);
-    --note-text: #2b2206;
-    --note-text-heading: #473b08;
-    --note-text-secondary: rgb(71 59 8 / 88%);
-    --note-text-dim: rgb(71 59 8 / 84%);
-    --note-text-status: rgb(71 59 8 / 82%);
-    --note-btn-border: rgb(88 72 7 / 28%);
-    --note-btn-bg: rgb(255 255 255 / 70%);
-    --note-btn-color: #3e3307;
-    --note-delete-border: rgb(161 23 23 / 26%);
-    --note-delete-bg: rgb(255 255 255 / 72%);
-    --note-delete-color: #a61414;
-    --note-shadow: 0 14px 28px rgb(0 0 0 / 16%), 0 4px 10px rgb(0 0 0 / 8%);
+    --note-bg: var(--app-pdf-note-bg);
+    --note-border: var(--app-pdf-note-border);
+    --note-title-bg: var(--app-pdf-note-title-bg);
+    --note-title-border: var(--app-pdf-note-title-border);
+    --note-text: var(--app-pdf-note-text);
+    --note-text-heading: var(--app-pdf-note-text-heading);
+    --note-text-secondary: var(--app-pdf-note-text-secondary);
+    --note-text-dim: var(--app-pdf-note-text-dim);
+    --note-text-status: var(--app-pdf-note-text-status);
+    --note-btn-border: var(--app-pdf-note-button-border);
+    --note-btn-bg: var(--app-pdf-note-button-bg);
+    --note-btn-color: var(--app-pdf-note-button-fg);
+    --note-delete-border: var(--app-pdf-note-delete-border);
+    --note-delete-bg: var(--app-pdf-note-delete-bg);
+    --note-delete-color: var(--app-pdf-note-delete-fg);
+    --note-shadow: var(--app-pdf-note-shadow);
 
     position: fixed;
     z-index: 55;
@@ -463,25 +463,6 @@ watch(
     grid-template-rows: auto 1fr auto auto;
     resize: both;
     overflow: hidden;
-}
-
-.dark .note-window {
-    --note-bg: #3d3520;
-    --note-border: #5c5030;
-    --note-title-bg: rgb(0 0 0 / 18%);
-    --note-title-border: rgb(92 80 48 / 50%);
-    --note-text: #e8dfc0;
-    --note-text-heading: #f0e8d0;
-    --note-text-secondary: rgb(232 223 192 / 80%);
-    --note-text-dim: rgb(232 223 192 / 72%);
-    --note-text-status: rgb(232 223 192 / 68%);
-    --note-btn-border: rgb(92 80 48 / 50%);
-    --note-btn-bg: rgb(0 0 0 / 22%);
-    --note-btn-color: #e8dfc0;
-    --note-delete-border: rgb(220 80 80 / 35%);
-    --note-delete-bg: rgb(0 0 0 / 22%);
-    --note-delete-color: #f08080;
-    --note-shadow: 0 14px 28px rgb(0 0 0 / 40%), 0 4px 10px rgb(0 0 0 / 25%);
 }
 
 .note-window__title {

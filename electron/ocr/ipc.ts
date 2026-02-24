@@ -4,7 +4,10 @@ import {
     ipcMain,
 } from 'electron';
 import { runOcr } from '@electron/ocr/tesseract';
-import { validateOcrTools } from '@electron/ocr/paths';
+import {
+    getOcrToolPaths,
+    validateOcrTools,
+} from '@electron/ocr/paths';
 import type { IOcrLanguage } from '@app/types/shared';
 import { createLogger } from '@electron/utils/logger';
 import {
@@ -22,14 +25,17 @@ import {
     handlePreprocessingValidate,
     handlePreprocessPage,
 } from '@electron/ocr/preprocessingHandlers';
+import {
+    buildOcrErrorEnvelope,
+    mapStartFailureCode,
+    toOcrErrorEnvelope,
+    validateCancelRequestId,
+    validateCreateSearchablePdfPayload,
+    validateRecognizeBatchPayload,
+    validateRecognizeRequest,
+} from '@electron/ocr/contracts';
 
 const log = createLogger('ocr-ipc');
-
-interface IOcrPageRequest {
-    pageNumber: number;
-    imageData: Uint8Array;
-    languages: string[];
-}
 
 const AVAILABLE_LANGUAGES: IOcrLanguage[] = [
     {
@@ -86,72 +92,102 @@ const AVAILABLE_LANGUAGES: IOcrLanguage[] = [
 
 async function handleOcrRecognize(
     _event: IpcMainInvokeEvent,
-    request: IOcrPageRequest,
+    requestPayload: unknown,
 ) {
-    const imageBuffer = Buffer.from(request.imageData);
-    const result = await runOcr(imageBuffer, request.languages);
+    let pageNumber = 0;
 
-    return {
-        pageNumber: request.pageNumber,
-        success: result.success,
-        text: result.text,
-        error: result.error,
-    };
+    try {
+        const request = validateRecognizeRequest(requestPayload);
+        pageNumber = request.pageNumber;
+        const imageBuffer = Buffer.from(request.imageData);
+        const result = await runOcr(imageBuffer, request.languages);
+
+        return {
+            pageNumber: request.pageNumber,
+            success: result.success,
+            text: result.text,
+            error: result.error,
+        };
+    } catch (error) {
+        const envelope = toOcrErrorEnvelope(error);
+        log.warn(`ocr:recognize failed: ${envelope.message}`);
+        return {
+            pageNumber,
+            success: false,
+            text: '',
+            error: envelope.message,
+            errorEnvelope: envelope,
+        };
+    }
 }
 
 async function handleOcrRecognizeBatch(
     event: IpcMainInvokeEvent,
-    pages: IOcrPageRequest[],
-    requestId: string,
+    pagesPayload: unknown,
+    requestIdPayload: unknown,
 ) {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    const results: Record<number, string> = {};
-    const errors: string[] = [];
+    try {
+        const {
+            pages,
+            requestId,
+        } = validateRecognizeBatchPayload(pagesPayload, requestIdPayload);
+        const targetPages = pages;
+        const window = BrowserWindow.fromWebContents(event.sender);
+        const results: Record<number, string> = {};
+        const errors: string[] = [];
 
-    const targetPages = pages.filter((p): p is IOcrPageRequest => !!p);
-    const concurrency = getOcrConcurrency(targetPages.length);
-    const tesseractThreads = getTesseractThreadLimit(concurrency);
+        const concurrency = getOcrConcurrency(targetPages.length);
+        const tesseractThreads = getTesseractThreadLimit(concurrency);
 
-    log.debug(`OCR batch: pages=${targetPages.length}, concurrency=${concurrency}, threads=${tesseractThreads}`);
+        log.debug(`OCR batch: pages=${targetPages.length}, concurrency=${concurrency}, threads=${tesseractThreads}`);
 
-    let processedCount = 0;
+        let processedCount = 0;
 
-    safeSendToWindow(window, 'ocr:progress', {
-        requestId,
-        currentPage: targetPages[0]?.pageNumber ?? 0,
-        processedCount,
-        totalPages: targetPages.length,
-    });
+        safeSendToWindow(window, 'ocr:progress', {
+            requestId,
+            currentPage: targetPages[0]?.pageNumber ?? 0,
+            processedCount,
+            totalPages: targetPages.length,
+        });
 
-    await forEachConcurrent(targetPages, concurrency, async (page) => {
-        const imageBuffer = Buffer.from(page.imageData);
+        await forEachConcurrent(targetPages, concurrency, async (page) => {
+            const imageBuffer = Buffer.from(page.imageData);
 
-        try {
-            const result = await runOcr(imageBuffer, page.languages, {threads: tesseractThreads});
+            try {
+                const result = await runOcr(imageBuffer, page.languages, {threads: tesseractThreads});
 
-            if (result.success) {
-                results[page.pageNumber] = result.text;
-            } else {
-                errors.push(`Page ${page.pageNumber}: ${result.error}`);
+                if (result.success) {
+                    results[page.pageNumber] = result.text;
+                } else {
+                    errors.push(`Page ${page.pageNumber}: ${result.error}`);
+                }
+            } catch (err) {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                errors.push(`Page ${page.pageNumber}: ${errMsg}`);
+            } finally {
+                processedCount += 1;
+                safeSendToWindow(window, 'ocr:progress', {
+                    requestId,
+                    currentPage: getSequentialProgressPage(targetPages, processedCount),
+                    processedCount,
+                    totalPages: targetPages.length,
+                });
             }
-        } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            errors.push(`Page ${page.pageNumber}: ${errMsg}`);
-        } finally {
-            processedCount += 1;
-            safeSendToWindow(window, 'ocr:progress', {
-                requestId,
-                currentPage: getSequentialProgressPage(targetPages, processedCount),
-                processedCount,
-                totalPages: targetPages.length,
-            });
-        }
-    });
+        });
 
-    return {
-        results,
-        errors,
-    };
+        return {
+            results,
+            errors,
+        };
+    } catch (error) {
+        const envelope = toOcrErrorEnvelope(error);
+        log.warn(`ocr:recognizeBatch failed: ${envelope.message}`);
+        return {
+            results: {},
+            errors: [envelope.message],
+            errorEnvelope: envelope,
+        };
+    }
 }
 
 function handleOcrGetLanguages() {
@@ -159,14 +195,132 @@ function handleOcrGetLanguages() {
 }
 
 async function handleOcrValidateTools() {
-    return validateOcrTools();
+    try {
+        return await validateOcrTools();
+    } catch (error) {
+        const envelope = toOcrErrorEnvelope(error, 'OCR_TOOLS_VALIDATION_FAILED');
+        const paths = getOcrToolPaths();
+        log.error(`ocr:validateTools failed: ${envelope.message}`);
+        return {
+            valid: false,
+            tools: {
+                tesseract: {
+                    found: false,
+                    path: paths.tesseract,
+                },
+                tessdata: {
+                    found: false,
+                    path: paths.tessdata,
+                    languages: [],
+                },
+                pdftoppm: {
+                    found: false,
+                    path: paths.pdftoppm,
+                },
+                pdftotext: {
+                    found: false,
+                    path: paths.pdftotext,
+                },
+                popplerRuntime: {
+                    dataDirFound: false,
+                    dataDir: paths.popplerDataDir,
+                    fontConfigDirFound: false,
+                    fontConfigDir: paths.popplerFontConfigDir,
+                },
+                qpdf: {
+                    found: false,
+                    path: paths.qpdf,
+                },
+            },
+            errors: [envelope.message],
+            errorEnvelope: envelope,
+        };
+    }
+}
+
+async function handleOcrCreateSearchablePdf(
+    event: IpcMainInvokeEvent,
+    originalPdfDataPayload: unknown,
+    pagesPayload: unknown,
+    requestIdPayload: unknown,
+    workingCopyPathPayload?: unknown,
+    renderDpiPayload?: unknown,
+): Promise<{
+    started: boolean;
+    jobId: string;
+    error?: string;
+    errorEnvelope?: ReturnType<typeof buildOcrErrorEnvelope>;
+}> {
+    let jobId = typeof requestIdPayload === 'string' ? requestIdPayload.trim() : '';
+
+    try {
+        const payload = validateCreateSearchablePdfPayload(
+            originalPdfDataPayload,
+            pagesPayload,
+            requestIdPayload,
+            workingCopyPathPayload,
+            renderDpiPayload,
+        );
+
+        jobId = payload.requestId;
+        const result = await handleOcrCreateSearchablePdfAsync(
+            event,
+            payload.originalPdfData,
+            payload.pages,
+            payload.requestId,
+            payload.workingCopyPath,
+            payload.renderDpi,
+        );
+
+        if (!result.started && result.error) {
+            return {
+                ...result,
+                errorEnvelope: buildOcrErrorEnvelope(
+                    mapStartFailureCode(result.error),
+                    result.error,
+                    {retryable: true},
+                ),
+            };
+        }
+
+        return result;
+    } catch (error) {
+        const envelope = toOcrErrorEnvelope(error, 'OCR_INTERNAL_ERROR', true);
+        log.warn(`ocr:createSearchablePdf rejected: ${envelope.message}`);
+        return {
+            started: false,
+            jobId,
+            error: envelope.message,
+            errorEnvelope: envelope,
+        };
+    }
+}
+
+function handleOcrCancelValidated(
+    event: IpcMainInvokeEvent,
+    requestIdPayload: unknown,
+): {
+    canceled: boolean;
+    errorEnvelope?: ReturnType<typeof buildOcrErrorEnvelope> 
+} {
+    try {
+        const requestId = validateCancelRequestId(requestIdPayload);
+        return handleOcrCancel(event, requestId);
+    } catch (error) {
+        const envelope = toOcrErrorEnvelope(error);
+        log.warn(`ocr:cancel rejected: ${envelope.message}`);
+        return {
+            canceled: false,
+            errorEnvelope: envelope,
+        };
+    }
 }
 
 export function registerOcrHandlers() {
     ipcMain.handle('ocr:recognize', handleOcrRecognize);
     ipcMain.handle('ocr:recognizeBatch', handleOcrRecognizeBatch);
-    ipcMain.handle('ocr:createSearchablePdf', handleOcrCreateSearchablePdfAsync);
-    ipcMain.handle('ocr:cancel', handleOcrCancel);
+    ipcMain.handle('ocr:createSearchablePdf', handleOcrCreateSearchablePdf);
+    ipcMain.handle('ocr:cancel', handleOcrCancelValidated);
     ipcMain.handle('ocr:getLanguages', handleOcrGetLanguages);
     ipcMain.handle('ocr:validateTools', handleOcrValidateTools);
     ipcMain.handle('preprocessing:validate', handlePreprocessingValidate);

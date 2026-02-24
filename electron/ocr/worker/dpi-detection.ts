@@ -1,6 +1,8 @@
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { runCommand } from '@electron/ocr/worker/run-command';
 
+const PDFIMAGES_TIMEOUT_MS = 30 * 1000;
+
 export async function detectSourceDpi(
     pdfPath: string,
     pdfimagesBinary: string | undefined,
@@ -18,6 +20,7 @@ export async function detectSourceDpi(
         ], {
             commandLabel: 'pdfimages(-list)',
             env: commandEnv,
+            timeoutMs: PDFIMAGES_TIMEOUT_MS,
             log,
         });
         const lines = result.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean);

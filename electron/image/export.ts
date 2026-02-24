@@ -72,6 +72,8 @@ interface ITiffPageDescriptor {
 
 const UTIF = utifModule as IUtifModule;
 const logger = createLogger('image-export');
+const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
+const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 
 function resolveFormatExtension(format: TImageExportFormat): string {
     if (format === 'jpeg') {
@@ -182,7 +184,10 @@ async function renderPdfToTempPages(pdfPath: string, format: TImageExportFormat)
             String(renderDpi),
             pdfPath,
             prefix,
-        ]);
+        ], {
+            timeoutMs: PDFTOPPM_TIMEOUT_MS,
+            commandLabel: `pdftoppm(export-${format})`,
+        });
 
         const fileNames = await readdir(tempDir);
         const pageFiles = fileNames
@@ -250,7 +255,10 @@ async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOpt
             formatPageList(normalizedPages),
             '--',
             subsetPdfPath,
-        ]);
+        ], {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            commandLabel: 'qpdf(export-subset)',
+        });
 
         return {
             pdfPath: subsetPdfPath,

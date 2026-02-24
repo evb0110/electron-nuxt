@@ -1,7 +1,12 @@
 <template>
-    <div
+    <button
+        type="button"
         class="pdf-search-result"
         :class="{ 'is-active': isActive }"
+        :aria-current="isActive ? 'true' : undefined"
+        @click="emit('activate')"
+        @keydown.enter.prevent="emit('activate')"
+        @keydown.space.prevent="emit('activate')"
     >
         <div class="pdf-search-result-meta">
             <span class="pdf-search-result-page">{{ t('searchResults.page', { page: pageIndicator }) }}</span>
@@ -19,7 +24,7 @@
             </span>
             <template v-if="result.excerpt.suffix">…</template>
         </div>
-    </div>
+    </button>
 </template>
 
 <script setup lang="ts">
@@ -47,6 +52,7 @@ interface IProps {
 }
 
 const props = defineProps<IProps>();
+const emit = defineEmits<{(e: 'activate'): void;}>();
 
 const textRef = ref<HTMLSpanElement | null>(null);
 const highlightId = `search-${Math.random().toString(36).slice(2)}`;
@@ -112,11 +118,15 @@ watch(
 
 <style scoped>
 .pdf-search-result {
+    width: 100%;
+    border: none;
+    text-align: left;
     display: flex;
     flex-direction: column;
     gap: 4px;
     padding: 8px 12px;
     cursor: pointer;
+    background: transparent;
     transition: background-color 0.15s;
 }
 
@@ -126,6 +136,11 @@ watch(
 
 .pdf-search-result.is-active {
     background: var(--ui-bg-accented);
+}
+
+.pdf-search-result:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--app-pdf-search-result-focus-ring);
 }
 
 .pdf-search-result-meta {
@@ -160,6 +175,6 @@ watch(
 /* CSS Custom Highlight API - must be global (not scoped) */
 ::highlight(search-result-match) {
     color: var(--ui-text);
-    background-color: rgb(59 130 246 / 0.25);
+    background-color: var(--app-pdf-search-result-highlight-bg);
 }
 </style>

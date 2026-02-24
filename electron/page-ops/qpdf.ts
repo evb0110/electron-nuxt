@@ -9,6 +9,7 @@ import { getOcrToolPaths } from '@electron/ocr/paths';
 import { createLogger } from '@electron/utils/logger';
 
 const log = createLogger('page-ops-qpdf');
+const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 
 function getQpdfBinary() {
     return getOcrToolPaths().qpdf;
@@ -65,7 +66,10 @@ export async function extractPages(
         '--',
         destPath,
     ];
-    await runCommand(qpdf, args);
+    await runCommand(qpdf, args, {
+        timeoutMs: QPDF_TIMEOUT_MS,
+        commandLabel: 'qpdf(extract-pages)',
+    });
 }
 
 export async function deletePages(
@@ -90,7 +94,10 @@ export async function deletePages(
             '--',
             tempPath,
         ];
-        await runCommand(qpdf, args);
+        await runCommand(qpdf, args, {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            commandLabel: 'qpdf(delete-pages)',
+        });
         await atomicReplace(tempPath, workingCopyPath);
     } catch (err) {
         await cleanupTemp(tempPath);
@@ -116,7 +123,10 @@ export async function reorderPages(
             '--',
             tempPath,
         ];
-        await runCommand(qpdf, args);
+        await runCommand(qpdf, args, {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            commandLabel: 'qpdf(reorder-pages)',
+        });
         await atomicReplace(tempPath, workingCopyPath);
     } catch (err) {
         await cleanupTemp(tempPath);
@@ -142,7 +152,10 @@ export async function rotatePages(
             `--rotate=+${angle}:${formatPageList(pages)}`,
             tempPath,
         ];
-        await runCommand(qpdf, args);
+        await runCommand(qpdf, args, {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            commandLabel: 'qpdf(rotate-pages)',
+        });
         await atomicReplace(tempPath, workingCopyPath);
     } catch (err) {
         await cleanupTemp(tempPath);

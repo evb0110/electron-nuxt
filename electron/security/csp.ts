@@ -13,10 +13,17 @@ export function setupContentSecurityPolicy() {
         ? 'connect-src \'self\' blob: data: ws:'
         : 'connect-src \'self\' blob: data:';
 
+    const scriptSrc = config.isDev
+        ? 'script-src \'self\' \'unsafe-inline\' \'wasm-unsafe-eval\''
+        : 'script-src \'self\'';
+    const styleSrc = config.isDev
+        ? 'style-src \'self\' \'unsafe-inline\''
+        : 'style-src \'self\' \'unsafe-inline\'';
+
     const csp = [
         'default-src \'self\'',
-        'script-src \'self\' \'unsafe-inline\' \'wasm-unsafe-eval\'',
-        'style-src \'self\' \'unsafe-inline\'',
+        scriptSrc,
+        styleSrc,
         'img-src \'self\' data: blob:',
         'font-src \'self\' data:',
         connectSrc,

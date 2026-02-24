@@ -306,7 +306,7 @@ function applyDrawStyle(style: TDrawStyle) {
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+    box-shadow: var(--app-pdf-card-shadow);
 }
 
 .notes-section-header {
@@ -358,7 +358,7 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .swatch {
-    border: 1px solid color-mix(in srgb, var(--ui-border) 80%, #000 20%);
+    border: 1px solid var(--app-pdf-color-swatch-border);
     border-radius: 0.3rem;
     height: 1.1rem;
     cursor: pointer;
@@ -381,7 +381,7 @@ function applyDrawStyle(style: TDrawStyle) {
     border-radius: 50%;
     background: var(--ui-primary);
     border: 2px solid var(--ui-bg);
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+    box-shadow: var(--app-pdf-control-thumb-shadow);
     cursor: pointer;
 }
 
@@ -404,7 +404,7 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .style-step-button:hover {
-    border-color: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
+    border-color: var(--app-pdf-style-active-border);
 }
 
 .draw-style-row {
@@ -431,9 +431,9 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .draw-style-button.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
+    border-color: var(--app-pdf-style-active-border);
     color: var(--ui-text-highlighted);
-    background: color-mix(in srgb, var(--ui-primary) 12%, var(--ui-bg) 88%);
+    background: var(--app-pdf-style-active-bg);
 }
 
 @media (width <= 860px) {

@@ -1,117 +1,121 @@
 <template>
-    <div
-        v-if="visible && bookmark"
+    <PdfContextMenuBase
         class="bookmarks-context-menu"
+        :visible="visible && Boolean(bookmark)"
         :style="menuStyle"
-        @click.stop
+        variant="panel"
+        min-width="210px"
+        :z-index="1400"
     >
-        <button
-            type="button"
-            class="bookmarks-context-menu-action"
-            :title="t('bookmarks.editBookmark')"
-            @click="emit('edit', bookmark.id)"
-        >
-            {{ t('bookmarks.editBookmark') }}
-        </button>
-        <button
-            type="button"
-            class="bookmarks-context-menu-action"
-            :title="t('bookmarks.addSiblingAbove')"
-            @click="emit('add-sibling-above', bookmark.id)"
-        >
-            {{ t('bookmarks.addSiblingAbove') }}
-        </button>
-        <button
-            type="button"
-            class="bookmarks-context-menu-action"
-            :title="t('bookmarks.addSiblingBelow')"
-            @click="emit('add-sibling-below', bookmark.id)"
-        >
-            {{ t('bookmarks.addSiblingBelow') }}
-        </button>
-        <button
-            type="button"
-            class="bookmarks-context-menu-action"
-            :title="t('bookmarks.addChild')"
-            @click="emit('add-child', bookmark.id)"
-        >
-            {{ t('bookmarks.addChild') }}
-        </button>
-        <div class="bookmarks-context-menu-divider" />
+        <template v-if="bookmark">
+            <button
+                type="button"
+                class="pdf-context-menu__action"
+                :title="t('bookmarks.editBookmark')"
+                @click="emit('edit', bookmark.id)"
+            >
+                {{ t('bookmarks.editBookmark') }}
+            </button>
+            <button
+                type="button"
+                class="pdf-context-menu__action"
+                :title="t('bookmarks.addSiblingAbove')"
+                @click="emit('add-sibling-above', bookmark.id)"
+            >
+                {{ t('bookmarks.addSiblingAbove') }}
+            </button>
+            <button
+                type="button"
+                class="pdf-context-menu__action"
+                :title="t('bookmarks.addSiblingBelow')"
+                @click="emit('add-sibling-below', bookmark.id)"
+            >
+                {{ t('bookmarks.addSiblingBelow') }}
+            </button>
+            <button
+                type="button"
+                class="pdf-context-menu__action"
+                :title="t('bookmarks.addChild')"
+                @click="emit('add-child', bookmark.id)"
+            >
+                {{ t('bookmarks.addChild') }}
+            </button>
+            <div class="pdf-context-menu__divider" />
 
-        <div class="bookmarks-context-menu-style-block">
-            <div class="bookmarks-context-menu-style-row">
-                <button
-                    type="button"
-                    class="bookmarks-style-toggle"
-                    :class="{ 'is-active': bookmark.bold }"
-                    :title="bookmark.bold ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
-                    @click="emit('toggle-bold', bookmark.id)"
-                >
-                    B
-                </button>
-                <button
-                    type="button"
-                    class="bookmarks-style-toggle"
-                    :class="{ 'is-active': bookmark.italic }"
-                    :title="bookmark.italic ? t('bookmarks.disableItalic') : t('bookmarks.enableItalic')"
-                    @click="emit('toggle-italic', bookmark.id)"
-                >
-                    I
-                </button>
-                <button
-                    type="button"
-                    class="bookmarks-style-toggle"
-                    :class="{ 'is-active': !bookmark.color }"
-                    :title="t('bookmarks.defaultColor')"
-                    @click="emit('set-color', { id: bookmark.id, color: null })"
-                >
-                    A
-                </button>
+            <div class="bookmarks-context-menu-style-block">
+                <div class="bookmarks-context-menu-style-row">
+                    <button
+                        type="button"
+                        class="bookmarks-style-toggle"
+                        :class="{ 'is-active': bookmark.bold }"
+                        :title="bookmark.bold ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
+                        @click="emit('toggle-bold', bookmark.id)"
+                    >
+                        B
+                    </button>
+                    <button
+                        type="button"
+                        class="bookmarks-style-toggle"
+                        :class="{ 'is-active': bookmark.italic }"
+                        :title="bookmark.italic ? t('bookmarks.disableItalic') : t('bookmarks.enableItalic')"
+                        @click="emit('toggle-italic', bookmark.id)"
+                    >
+                        I
+                    </button>
+                    <button
+                        type="button"
+                        class="bookmarks-style-toggle"
+                        :class="{ 'is-active': !bookmark.color }"
+                        :title="t('bookmarks.defaultColor')"
+                        @click="emit('set-color', { id: bookmark.id, color: null })"
+                    >
+                        A
+                    </button>
+                </div>
+                <div class="bookmarks-context-menu-color-row">
+                    <button
+                        v-for="preset in colorPresets"
+                        :key="preset"
+                        type="button"
+                        class="bookmarks-color-swatch"
+                        :class="{ 'is-active': bookmark.color === preset }"
+                        :style="{ background: preset }"
+                        :title="t('bookmarks.setColor', { color: preset })"
+                        @click="emit('set-color', { id: bookmark.id, color: preset })"
+                    />
+                </div>
             </div>
-            <div class="bookmarks-context-menu-color-row">
-                <button
-                    v-for="preset in colorPresets"
-                    :key="preset"
-                    type="button"
-                    class="bookmarks-color-swatch"
-                    :class="{ 'is-active': bookmark.color === preset }"
-                    :style="{ background: preset }"
-                    :title="t('bookmarks.setColor', { color: preset })"
-                    @click="emit('set-color', { id: bookmark.id, color: preset })"
-                />
-            </div>
-        </div>
 
-        <div class="bookmarks-context-menu-divider" />
-        <button
-            type="button"
-            class="bookmarks-context-menu-action"
-            :title="t('bookmarks.setStyleStart')"
-            @click="emit('set-style-range-start', bookmark.id)"
-        >
-            {{ bookmark.id === styleRangeStartId ? t('bookmarks.rangeStartSet') : t('bookmarks.setStyleStart') }}
-        </button>
-        <button
-            type="button"
-            class="bookmarks-context-menu-action"
-            :disabled="!canApplyStyleRange"
-            :title="applyStyleRangeLabel"
-            @click="emit('apply-style-to-range')"
-        >
-            {{ applyStyleRangeLabel }}
-        </button>
+            <div class="pdf-context-menu__divider" />
+            <button
+                type="button"
+                class="pdf-context-menu__action"
+                :title="t('bookmarks.setStyleStart')"
+                @click="emit('set-style-range-start', bookmark.id)"
+            >
+                {{ bookmark.id === styleRangeStartId ? t('bookmarks.rangeStartSet') : t('bookmarks.setStyleStart') }}
+            </button>
+            <button
+                type="button"
+                class="pdf-context-menu__action"
+                :disabled="!canApplyStyleRange"
+                :title="applyStyleRangeLabel"
+                @click="emit('apply-style-to-range')"
+            >
+                {{ applyStyleRangeLabel }}
+            </button>
 
-        <div class="bookmarks-context-menu-divider" />
-        <button
-            type="button"
-            class="bookmarks-context-menu-action is-danger"
-            :title="t('bookmarks.removeBookmark')"
-            @click="emit('remove', bookmark.id)"
-        >
-            {{ t('bookmarks.removeBookmark') }}
-        </button>
-    </div>
+            <div class="pdf-context-menu__divider" />
+            <button
+                type="button"
+                class="pdf-context-menu__action pdf-context-menu__action--danger"
+                :title="t('bookmarks.removeBookmark')"
+                @click="emit('remove', bookmark.id)"
+            >
+                {{ t('bookmarks.removeBookmark') }}
+            </button>
+        </template>
+    </PdfContextMenuBase>
 </template>
 
 <script setup lang="ts">
@@ -158,51 +162,6 @@ const menuStyle = computed(() => ({
 </script>
 
 <style scoped>
-.bookmarks-context-menu {
-    position: fixed;
-    z-index: 1400;
-    min-width: 210px;
-    border: 1px solid var(--ui-border);
-    border-radius: 10px;
-    background: var(--ui-bg);
-    box-shadow: 0 14px 30px color-mix(in srgb, var(--ui-bg-inverted) 20%, transparent 80%);
-    padding: 5px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.bookmarks-context-menu-action {
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--ui-text-highlighted);
-    font-size: 12px;
-    text-align: left;
-    padding: 6px 8px;
-    cursor: pointer;
-}
-
-.bookmarks-context-menu-action:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.bookmarks-context-menu-action:hover:not(:disabled) {
-    border-color: var(--ui-border);
-    background: color-mix(in srgb, var(--ui-bg-muted) 55%, var(--ui-bg) 45%);
-}
-
-.bookmarks-context-menu-action.is-danger {
-    color: color-mix(in srgb, var(--ui-error) 68%, var(--ui-text-highlighted) 32%);
-}
-
-.bookmarks-context-menu-divider {
-    height: 1px;
-    background: var(--ui-border);
-    margin: 3px 2px;
-}
-
 .bookmarks-context-menu-style-block {
     padding: 3px 4px;
     display: flex;

@@ -54,6 +54,8 @@ import {
 import { runCommand } from '@electron/ocr/worker/run-command';
 
 const paths = workerData as IWorkerPaths;
+const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
+const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 
 const log: TWorkerLog = (level, message) => {
     const timestamp = new Date().toISOString();
@@ -104,6 +106,7 @@ async function renderPdfPageToPng(
     ], {
         commandLabel: `pdftoppm(page=${pageNumber},dpi=${dpi})`,
         env: popplerEnv,
+        timeoutMs: PDFTOPPM_TIMEOUT_MS,
         log,
     });
 }
@@ -125,6 +128,7 @@ async function preparePdfForPoppler(
                 0,
                 3,
             ],
+            timeoutMs: QPDF_TIMEOUT_MS,
             log,
         });
 

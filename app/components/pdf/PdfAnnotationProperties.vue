@@ -84,6 +84,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { IShapeAnnotation } from '@app/types/annotations';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
 
 const { t } = useTypedI18n();
 
@@ -117,9 +118,9 @@ const hasFill = computed(() => {
 
 const effectiveFillColor = computed(() => {
     if (hasFill.value) {
-        return props.shape?.fillColor ?? '#ffffff';
+        return props.shape?.fillColor ?? DEFAULT_ANNOTATION_SETTINGS.shapeColor;
     }
-    return '#ffffff';
+    return DEFAULT_ANNOTATION_SETTINGS.shapeColor;
 });
 
 const positionStyle = computed(() => ({
@@ -135,7 +136,7 @@ function toggleFill() {
     if (hasFill.value) {
         emit('update', { fillColor: 'transparent' });
     } else {
-        emit('update', { fillColor: props.shape?.color ?? '#2563eb' });
+        emit('update', { fillColor: props.shape?.color ?? DEFAULT_ANNOTATION_SETTINGS.shapeColor });
     }
 }
 </script>
@@ -147,7 +148,7 @@ function toggleFill() {
     background: var(--ui-bg);
     border: 1px solid var(--ui-border);
     border-radius: 8px;
-    box-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
+    box-shadow: var(--app-pdf-popover-shadow);
     min-width: 200px;
     max-width: 260px;
     font-size: 12px;
@@ -237,7 +238,7 @@ function toggleFill() {
     border-radius: 50%;
     background: var(--ui-primary);
     border: 2px solid var(--ui-bg);
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+    box-shadow: var(--app-pdf-control-thumb-shadow);
     cursor: pointer;
 }
 
