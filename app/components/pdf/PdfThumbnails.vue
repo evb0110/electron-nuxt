@@ -80,6 +80,7 @@ const VIRTUAL_OVERSCAN = 8;
 const THUMBNAIL_RENDER_CONCURRENCY = 3;
 const IMMEDIATE_RENDER_RADIUS = 2;
 const PREFETCH_RENDER_RADIUS = 8;
+const THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
 
 const props = defineProps<IProps>();
 
@@ -111,6 +112,7 @@ const renderTasks = new Map<number, RenderTask>();
 let renderRunId = 0;
 let pendingInvalidation: number[] | null = null;
 let reloadTransition = false;
+let containerVisibilityState: 'unknown' | 'visible' | 'hidden' = 'unknown';
 
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
@@ -270,17 +272,91 @@ function getPageIndicator(page: number) {
     return formatPageIndicator(page, props.pageLabels ?? null);
 }
 
-function updateViewportMetrics() {
+function roundMetric(value: number) {
+    return Number(value.toFixed(2));
+}
+
+function describeContainerGeometry(container: HTMLElement) {
+    const rect = container.getBoundingClientRect();
+    return {
+        scrollTop: roundMetric(container.scrollTop),
+        clientWidth: roundMetric(container.clientWidth),
+        clientHeight: roundMetric(container.clientHeight),
+        rectWidth: roundMetric(rect.width),
+        rectHeight: roundMetric(rect.height),
+    };
+}
+
+function isContainerVisible(container: HTMLElement) {
+    const rect = container.getBoundingClientRect();
+    return (
+        container.clientWidth > 0
+        && container.clientHeight > 0
+        && rect.width > 0
+        && rect.height > 0
+    );
+}
+
+function resolveVisibleContainer(reason: string) {
     const container = containerRef.value;
+    if (!container) {
+        if (containerVisibilityState !== 'unknown') {
+            BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail container detached', {
+                reason,
+                stateBeforeDetach: containerVisibilityState,
+                currentPage: props.currentPage,
+                totalPages: props.totalPages,
+            });
+            containerVisibilityState = 'unknown';
+        }
+        return null;
+    }
+
+    const isVisible = isContainerVisible(container);
+    const nextState = isVisible ? 'visible' : 'hidden';
+    if (containerVisibilityState !== nextState) {
+        containerVisibilityState = nextState;
+        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, nextState === 'visible'
+            ? 'Thumbnail container became visible'
+            : 'Thumbnail container became hidden', {
+            reason,
+            currentPage: props.currentPage,
+            totalPages: props.totalPages,
+            geometry: describeContainerGeometry(container),
+            itemHeight: roundMetric(thumbnailItemHeight.value),
+            renderedPages: renderedPages.size,
+            renderingPages: renderingPages.size,
+        });
+    }
+
+    if (!isVisible) {
+        return null;
+    }
+
+    return container;
+}
+
+function updateViewportMetrics() {
+    const container = resolveVisibleContainer('update-viewport-metrics');
     if (!container) {
         return;
     }
+    const previousViewportHeight = viewportHeight.value;
     scrollTop.value = container.scrollTop;
     viewportHeight.value = container.clientHeight;
+    if (Math.abs(previousViewportHeight - viewportHeight.value) >= 1) {
+        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail viewport height changed', {
+            previousViewportHeight: roundMetric(previousViewportHeight),
+            nextViewportHeight: roundMetric(viewportHeight.value),
+            currentPage: props.currentPage,
+            totalPages: props.totalPages,
+            geometry: describeContainerGeometry(container),
+        });
+    }
 }
 
 const measureThumbnailHeight = useDebounceFn(() => {
-    const container = containerRef.value;
+    const container = resolveVisibleContainer('measure-thumbnail-height');
     if (!container) {
         return;
     }
@@ -295,7 +371,16 @@ const measureThumbnailHeight = useDebounceFn(() => {
         return;
     }
 
+    const previousHeight = thumbnailItemHeight.value;
     thumbnailItemHeight.value = measuredHeight;
+    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Measured thumbnail item height changed', {
+        previousHeight: roundMetric(previousHeight),
+        nextHeight: roundMetric(thumbnailItemHeight.value),
+        itemPitch: roundMetric(itemPitch.value),
+        currentPage: props.currentPage,
+        totalPages: props.totalPages,
+        geometry: describeContainerGeometry(container),
+    });
 }, 16);
 
 function handleContainerScroll() {
@@ -500,6 +585,9 @@ const scheduleVisibleThumbnailRender = useDebounceFn(() => {
     if (!doc || totalPages <= 0) {
         return;
     }
+    if (!resolveVisibleContainer('schedule-visible-render')) {
+        return;
+    }
 
     const runId = renderRunId;
     const pages = buildRenderQueue(totalPages);
@@ -527,6 +615,15 @@ watch(
     ], [oldDoc]) => {
         cancelAllRenders();
         renderRunId += 1;
+        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail source/watch cycle started', {
+            hasDocument: Boolean(doc),
+            hadDocument: Boolean(oldDoc),
+            totalPages: total,
+            renderRunId,
+            reloadTransition,
+            pendingInvalidation: pendingInvalidation?.slice(0, 24) ?? null,
+            currentPage: props.currentPage,
+        });
 
         if (!doc || total <= 0) {
             if (total <= 0) {
@@ -576,6 +673,12 @@ watch(
 
 function invalidatePages(pages: number[]) {
     pendingInvalidation = pages;
+    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Invalidating thumbnail pages', {
+        pages: pages.slice(0, 40),
+        totalPages: pages.length,
+        renderRunId,
+        currentPage: props.currentPage,
+    });
     for (const page of pages) {
         renderedPages.delete(page);
 
@@ -620,6 +723,7 @@ watch(virtualPages, async () => {
 });
 
 useResizeObserver(containerRef, () => {
+    resolveVisibleContainer('resize-observer');
     updateViewportMetrics();
     scheduleVisibleThumbnailRender();
     measureThumbnailHeight();

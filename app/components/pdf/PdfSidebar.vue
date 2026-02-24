@@ -1,6 +1,6 @@
 <template>
     <aside
-        v-if="isOpen"
+        v-show="isOpen"
         class="pdf-sidebar"
         :style="sidebarStyle"
     >

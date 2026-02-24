@@ -109,6 +109,11 @@ interface IUsePdfViewerCoreOptions {
     };
 }
 
+interface ICurrentPageSyncOptions {
+    source?: string;
+    stabilize?: boolean;
+}
+
 export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     const {
         viewerContainer,
@@ -170,6 +175,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     } = annotations;
 
     const SKELETON_BUFFER = 3;
+    const CURRENT_PAGE_SYNC_SAMPLE_COUNT = 3;
+    let reRenderSyncRunId = 0;
+    let currentPageSyncRunId = 0;
 
     function isPageNearVisible(page: number) {
         const start = Math.max(1, visibleRange.value.start - SKELETON_BUFFER);
@@ -229,8 +237,11 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         });
     }
 
-    function scheduleReRenderVisiblePages(stage: string) {
-        runGuardedTask(() => reRenderVisiblePagesAndSyncCurrentPage(), {
+    function scheduleReRenderVisiblePages(
+        stage: string,
+        syncOptions: ICurrentPageSyncOptions = {},
+    ) {
+        runGuardedTask(() => reRenderVisiblePagesAndSyncCurrentPage(syncOptions), {
             scope: 'pdf-viewer',
             message: `Failed to ${stage}`,
         });
@@ -250,17 +261,165 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         });
     }
 
-    function syncCurrentPageFromViewport() {
-        if (!pdfDocument.value || isLoading.value || numPages.value <= 0) {
+    function waitForAnimationFrame() {
+        return new Promise<void>((resolve) => {
+            if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+                setTimeout(() => resolve(), 16);
+                return;
+            }
+            window.requestAnimationFrame(() => resolve());
+        });
+    }
+
+    function summarizeViewerMetricsForLog(container: HTMLElement | null) {
+        if (!container) {
+            return null;
+        }
+        return {
+            scrollTop: Math.round(container.scrollTop),
+            scrollLeft: Math.round(container.scrollLeft),
+            clientWidth: Math.round(container.clientWidth),
+            clientHeight: Math.round(container.clientHeight),
+            scrollWidth: Math.round(container.scrollWidth),
+            scrollHeight: Math.round(container.scrollHeight),
+        };
+    }
+
+    function pickMostFrequentPage(pages: number[]) {
+        const counts = new Map<number, number>();
+        for (const page of pages) {
+            counts.set(page, (counts.get(page) ?? 0) + 1);
+        }
+        let winner: number | null = null;
+        let maxCount = 0;
+        for (const page of pages) {
+            const count = counts.get(page) ?? 0;
+            if (count > maxCount) {
+                winner = page;
+                maxCount = count;
+            }
+        }
+        return {
+            page: winner,
+            count: maxCount,
+        };
+    }
+
+    function emitCurrentPageIfChanged(
+        page: number,
+        source: string,
+        samples: number[] | null,
+        fallbackToCurrent: boolean,
+    ) {
+        const previous = currentPage.value;
+        const changed = page !== previous;
+        const hasSampleDrift = Boolean(samples && new Set(samples).size > 1);
+        const shouldLog = changed || hasSampleDrift || fallbackToCurrent || source.includes('resize');
+
+        if (shouldLog) {
+            BrowserLogger.warn('pdf-nav', 'Viewport current-page sync', {
+                source,
+                previousPage: previous,
+                nextPage: page,
+                changed,
+                fallbackToCurrent,
+                samples,
+                currentVisibleRange: {
+                    start: visibleRange.value.start,
+                    end: visibleRange.value.end,
+                },
+                viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+            });
+        }
+
+        if (!changed) {
             return;
         }
-        const page = updateCurrentPage(viewerContainer.value, numPages.value);
+        currentPage.value = page;
         emit('update:currentPage', page);
     }
 
-    async function reRenderVisiblePagesAndSyncCurrentPage() {
+    async function resolveStableCurrentPageFromViewport(syncRunId: number) {
+        const container = viewerContainer.value;
+        if (!container || numPages.value <= 0) {
+            return null;
+        }
+
+        const samples: number[] = [];
+        for (
+            let sampleIndex = 0;
+            sampleIndex < CURRENT_PAGE_SYNC_SAMPLE_COUNT;
+            sampleIndex += 1
+        ) {
+            if (syncRunId !== currentPageSyncRunId) {
+                return null;
+            }
+            samples.push(getMostVisiblePage(container, numPages.value));
+            if (sampleIndex + 1 < CURRENT_PAGE_SYNC_SAMPLE_COUNT) {
+                await nextTick();
+                await waitForAnimationFrame();
+            }
+        }
+
+        const picked = pickMostFrequentPage(samples);
+        if (picked.page === null) {
+            return null;
+        }
+
+        if (picked.count <= 1) {
+            return {
+                page: currentPage.value,
+                samples,
+                fallbackToCurrent: true,
+            };
+        }
+
+        return {
+            page: picked.page,
+            samples,
+            fallbackToCurrent: false,
+        };
+    }
+
+    async function syncCurrentPageFromViewport(options: ICurrentPageSyncOptions = {}) {
+        if (!pdfDocument.value || isLoading.value || numPages.value <= 0) {
+            return;
+        }
+
+        const source = options.source ?? 'default';
+        const syncRunId = ++currentPageSyncRunId;
+        if (options.stabilize) {
+            const stablePage = await resolveStableCurrentPageFromViewport(syncRunId);
+            if (!stablePage || syncRunId !== currentPageSyncRunId) {
+                return;
+            }
+            emitCurrentPageIfChanged(
+                stablePage.page,
+                source,
+                stablePage.samples,
+                stablePage.fallbackToCurrent,
+            );
+            return;
+        }
+
+        const page = updateCurrentPage(viewerContainer.value, numPages.value);
+        emitCurrentPageIfChanged(page, source, null, false);
+    }
+
+    async function reRenderVisiblePagesAndSyncCurrentPage(
+        syncOptions: ICurrentPageSyncOptions = {},
+    ) {
+        const runId = ++reRenderSyncRunId;
         await reRenderAllVisiblePages(getVisibleRange);
-        syncCurrentPageFromViewport();
+        if (runId !== reRenderSyncRunId) {
+            BrowserLogger.warn('pdf-nav', 'Skipped stale re-render current-page sync run', {
+                staleRunId: runId,
+                activeRunId: reRenderSyncRunId,
+                source: syncOptions.source ?? 're-render',
+            });
+            return;
+        }
+        await syncCurrentPageFromViewport(syncOptions);
     }
 
     async function recoverInitialRenderIfNeeded() {
@@ -295,7 +454,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         updateVisibleRange(viewerContainer.value, numPages.value);
         try {
             await renderVisiblePages(getVisibleRange());
-            syncCurrentPageFromViewport();
+            await syncCurrentPageFromViewport({ source: 'recover-initial-render' });
         } catch (error) {
             logAsyncStageError('render visible pages during initial recovery', error);
         }
@@ -401,7 +560,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         updateVisibleRange(viewerContainer.value, numPages.value);
         try {
             await renderVisiblePages(visibleRange.value);
-            syncCurrentPageFromViewport();
+            await syncCurrentPageFromViewport({ source: 'load-from-source' });
         } catch (error) {
             logAsyncStageError('render visible pages after source load', error);
         }
@@ -421,7 +580,13 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         if (isLoading.value || !pdfDocument.value) {
             return;
         }
-        scheduleReRenderVisiblePages('re-render visible pages after resize');
+        scheduleReRenderVisiblePages(
+            're-render visible pages after resize',
+            {
+                source: 'resize-observer',
+                stabilize: true,
+            },
+        );
     }, 200);
 
     function handleResize() {
@@ -429,7 +594,17 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             return;
         }
         const updated = computeFitWidthScale(viewerContainer.value);
-        if (updated && pdfDocument.value) debouncedRenderOnResize();
+        if (updated && pdfDocument.value) {
+            BrowserLogger.warn('pdf-nav', 'Resize observer requested re-render', {
+                currentPage: currentPage.value,
+                visibleRange: {
+                    start: visibleRange.value.start,
+                    end: visibleRange.value.end,
+                },
+                viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+            });
+            debouncedRenderOnResize();
+        }
     }
 
     useResizeObserver(viewerContainer, handleResize);
@@ -473,7 +648,10 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         if (updated && pdfDocument.value) {
             await reRenderAllVisiblePages(getVisibleRange);
             if (pageToSnapTo === null) {
-                syncCurrentPageFromViewport();
+                await syncCurrentPageFromViewport({
+                    source: 'fit-mode',
+                    stabilize: true,
+                });
             }
             if (pageToSnapTo !== null) {
                 await nextTick();
@@ -537,7 +715,13 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     watch(zoom, () => {
         if (pdfDocument.value) {
-            scheduleReRenderVisiblePages('re-render visible pages after zoom change');
+            scheduleReRenderVisiblePages(
+                're-render visible pages after zoom change',
+                {
+                    source: 'zoom-change',
+                    stabilize: true,
+                },
+            );
         }
     });
 
@@ -586,6 +770,10 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             computeFitWidthScale(viewerContainer.value);
             scheduleReRenderVisiblePages(
                 're-render visible pages after resize settle',
+                {
+                    source: 'resize-settle',
+                    stabilize: true,
+                },
             );
         }
     });
