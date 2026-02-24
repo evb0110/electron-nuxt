@@ -56,6 +56,7 @@ interface IOcrPendingResultFile {
     webContentsId: number;
     pdfPath: string;
     createdAtMs: number;
+    cleanupTimer: NodeJS.Timeout | null;
 }
 
 type TWorkerMessage = {
@@ -251,17 +252,52 @@ async function removeResultFile(path: string) {
     }
 }
 
+function clearPendingResultFileCleanupTimer(entry: IOcrPendingResultFile | null | undefined) {
+    if (!entry?.cleanupTimer) {
+        return;
+    }
+    clearTimeout(entry.cleanupTimer);
+    entry.cleanupTimer = null;
+}
+
+function removePendingResultFileEntry(jobId: string) {
+    const pending = pendingResultFiles.get(jobId);
+    if (!pending) {
+        return null;
+    }
+    pendingResultFiles.delete(jobId);
+    clearPendingResultFileCleanupTimer(pending);
+    return pending;
+}
+
 function trackPendingResultFile(jobId: string, webContentsId: number, pdfPath: string) {
     const normalizedPath = typeof pdfPath === 'string' ? pdfPath.trim() : '';
     if (!normalizedPath) {
         return;
     }
 
+    const previousEntry = removePendingResultFileEntry(jobId);
+    if (previousEntry && previousEntry.pdfPath !== normalizedPath) {
+        void removeResultFile(previousEntry.pdfPath);
+    }
+
+    const cleanupTimer = setTimeout(() => {
+        const pending = removePendingResultFileEntry(jobId);
+        if (!pending) {
+            return;
+        }
+
+        void removeResultFile(pending.pdfPath);
+        log.warn(`Cleaned up stale OCR result file for job "${jobId}" after acknowledgement timeout`);
+    }, OCR_RESULT_FILE_ACK_TTL_MS);
+    cleanupTimer.unref?.();
+
     pendingResultFiles.set(jobId, {
         jobId,
         webContentsId,
         pdfPath: normalizedPath,
         createdAtMs: Date.now(),
+        cleanupTimer,
     });
 }
 
@@ -277,8 +313,10 @@ async function evictStaleResultFiles(nowMs = Date.now()) {
     }
 
     for (const entry of staleEntries) {
-        pendingResultFiles.delete(entry.jobId);
-        await removeResultFile(entry.pdfPath);
+        const removedEntry = removePendingResultFileEntry(entry.jobId);
+        if (removedEntry) {
+            await removeResultFile(removedEntry.pdfPath);
+        }
     }
 
     log.warn(`Cleaned up ${staleEntries.length} stale OCR result file(s) without renderer acknowledgement`);
@@ -368,8 +406,10 @@ async function cleanupPendingResultFilesForSender(webContentsId: number) {
     const pendingEntries = Array.from(pendingResultFiles.values())
         .filter(entry => entry.webContentsId === webContentsId);
     for (const pendingEntry of pendingEntries) {
-        pendingResultFiles.delete(pendingEntry.jobId);
-        await removeResultFile(pendingEntry.pdfPath);
+        const removedEntry = removePendingResultFileEntry(pendingEntry.jobId);
+        if (removedEntry) {
+            await removeResultFile(removedEntry.pdfPath);
+        }
     }
 }
 
@@ -733,8 +773,15 @@ export async function handleOcrAcknowledgeResultFile(
         }
     }
 
-    pendingResultFiles.delete(requestId);
-    await removeResultFile(pending.pdfPath);
+    const removedEntry = removePendingResultFileEntry(requestId);
+    if (!removedEntry) {
+        return {
+            cleaned: false,
+            error: `No pending OCR result file for requestId "${requestId}"`,
+        };
+    }
+
+    await removeResultFile(removedEntry.pdfPath);
     return { cleaned: true };
 }
 
