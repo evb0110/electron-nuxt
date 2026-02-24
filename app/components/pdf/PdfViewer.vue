@@ -93,7 +93,7 @@ import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets'
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import { range } from 'es-toolkit/math';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
-import { useAnnotationOrchestrator } from '@app/composables/pdf/useAnnotationOrchestrator';
+import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { usePdfViewerCore } from '@app/composables/pdf/usePdfViewerCore';
 import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
@@ -113,7 +113,7 @@ import type {
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/pdfAnnotationUtils';
+import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotations/types';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
 import { BrowserLogger } from '@app/utils/browser-logger';
 

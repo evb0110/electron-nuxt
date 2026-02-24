@@ -1,6 +1,6 @@
 <template>
     <section class="notes-section notes-list-section" @click="closeContextMenu">
-        <UCollapsible :default-open="false" :unmount-on-hide="false">
+        <UCollapsible v-model:open="collapsibleOpen" :unmount-on-hide="false">
             <template #default="{ open }">
                 <button
                     type="button"
@@ -129,6 +129,7 @@ const emit = defineEmits<{
 
 const query = ref('');
 const selectedStableKey = ref<string | null>(null);
+const collapsibleOpen = ref(false);
 
 const contextMenu = ref<{
     visible: boolean;
@@ -162,6 +163,9 @@ watch(
     () => props.activeCommentStableKey,
     (stableKey) => {
         selectedStableKey.value = stableKey ?? null;
+        if (stableKey) {
+            collapsibleOpen.value = true;
+        }
     },
     { immediate: true },
 );
@@ -170,12 +174,12 @@ const sortedComments = computed(() => props.comments.slice().sort(compareComment
 const noteComments = computed(() => sortedComments.value.filter(isTextNoteComment));
 
 watch(
-    () => props.comments,
-    (comments) => {
+    () => props.comments.map(c => c.stableKey),
+    () => {
         if (!selectedStableKey.value) {
             return;
         }
-        const stillExists = comments.some(comment => (
+        const stillExists = props.comments.some(comment => (
             comment.stableKey === selectedStableKey.value
             && isTextNoteComment(comment)
         ));
@@ -183,7 +187,6 @@ watch(
             selectedStableKey.value = null;
         }
     },
-    { deep: true },
 );
 
 const filteredComments = computed(() => {

@@ -326,6 +326,7 @@ export default {
     'contextMenu': {
         'openPopUpNote': 'Ouvrir la note contextuelle',
         'copyTextToClipboard': 'Copier le texte dans le presse-papiers',
+        'copySelectionToClipboard': 'Copier la sélection dans le presse-papiers',
         'markupSelection': 'Annoter la sélection',
         'highlight': 'Surligner',
         'underline': 'Souligner',

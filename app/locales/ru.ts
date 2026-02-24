@@ -326,6 +326,7 @@ export default {
     'contextMenu': {
         'openPopUpNote': 'Открыть заметку',
         'copyTextToClipboard': 'Копировать в буфер',
+        'copySelectionToClipboard': 'Копировать выделение в буфер',
         'markupSelection': 'Разметить выделение',
         'highlight': 'Выделить',
         'underline': 'Подчеркнуть',

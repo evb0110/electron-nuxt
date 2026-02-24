@@ -100,29 +100,21 @@
     pointer-events: none !important;
 }
 
-/* Keep highlight note interactions without a persistent blue selected frame.
-   The note marker already communicates focus and this avoids obscuring text. */
-.pdfViewer .annotationEditorLayer .highlightEditor.selectedEditor .internal,
-.pdfViewer .annotation-editor-layer .highlightEditor.selectedEditor .internal,
-.pdfViewer .annotationEditorLayer .highlightEditor.selected .internal,
-.pdfViewer .annotation-editor-layer .highlightEditor.selected .internal,
-.pdf-viewer-container .annotationEditorLayer .highlightEditor.selectedEditor .internal,
-.pdf-viewer-container .annotation-editor-layer .highlightEditor.selectedEditor .internal,
-.pdf-viewer-container .annotationEditorLayer .highlightEditor.selected .internal,
-.pdf-viewer-container .annotation-editor-layer .highlightEditor.selected .internal {
+/* Suppress highlight editor chrome — the floating note indicator is the
+   only interactive trigger and the highlight colour is sufficient visual cue. */
+.pdfViewer .annotationEditorLayer .highlightEditor .internal,
+.pdfViewer .annotation-editor-layer .highlightEditor .internal,
+.pdf-viewer-container .annotationEditorLayer .highlightEditor .internal,
+.pdf-viewer-container .annotation-editor-layer .highlightEditor .internal {
     border-color: transparent !important;
     outline: none !important;
     box-shadow: none !important;
 }
 
-.pdfViewer .annotationEditorLayer .highlightEditor.selectedEditor,
-.pdfViewer .annotation-editor-layer .highlightEditor.selectedEditor,
-.pdfViewer .annotationEditorLayer .highlightEditor.selected,
-.pdfViewer .annotation-editor-layer .highlightEditor.selected,
-.pdf-viewer-container .annotationEditorLayer .highlightEditor.selectedEditor,
-.pdf-viewer-container .annotation-editor-layer .highlightEditor.selectedEditor,
-.pdf-viewer-container .annotationEditorLayer .highlightEditor.selected,
-.pdf-viewer-container .annotation-editor-layer .highlightEditor.selected {
+.pdfViewer .annotationEditorLayer .highlightEditor,
+.pdfViewer .annotation-editor-layer .highlightEditor,
+.pdf-viewer-container .annotationEditorLayer .highlightEditor,
+.pdf-viewer-container .annotation-editor-layer .highlightEditor {
     border-color: transparent !important;
     outline: none !important;
     box-shadow: none !important;
@@ -140,20 +132,22 @@
     box-shadow: none !important;
 }
 
-.pdfViewer .highlightOutline.selected:is(.canvasWrapper svg),
-.pdf-viewer-container .highlightOutline.selected:is(.canvasWrapper svg) {
+/* Suppress ALL highlight outline SVGs — selected, hover, and idle.
+   PDF.js renders dual-stroke outlines (.mainOutline + .secondaryOutline)
+   via the DrawLayer; the app uses its own floating indicator system. */
+.pdfViewer .highlightOutline:is(.canvasWrapper svg),
+.pdf-viewer-container .highlightOutline:is(.canvasWrapper svg) {
     stroke: transparent !important;
     stroke-width: 0 !important;
+    --outline-color: transparent !important;
+    --outline-around-color: transparent !important;
+    --hover-outline-color: transparent !important;
 }
 
-.pdfViewer .highlightOutline.selected:is(.canvasWrapper svg):not(.free) .mainOutline,
-.pdfViewer .highlightOutline.selected:is(.canvasWrapper svg):not(.free) .secondaryOutline,
-.pdfViewer .highlightOutline.free.selected:is(.canvasWrapper svg) .mainOutline,
-.pdfViewer .highlightOutline.free.selected:is(.canvasWrapper svg) .secondaryOutline,
-.pdf-viewer-container .highlightOutline.selected:is(.canvasWrapper svg):not(.free) .mainOutline,
-.pdf-viewer-container .highlightOutline.selected:is(.canvasWrapper svg):not(.free) .secondaryOutline,
-.pdf-viewer-container .highlightOutline.free.selected:is(.canvasWrapper svg) .mainOutline,
-.pdf-viewer-container .highlightOutline.free.selected:is(.canvasWrapper svg) .secondaryOutline {
+.pdfViewer .highlightOutline:is(.canvasWrapper svg) .mainOutline,
+.pdfViewer .highlightOutline:is(.canvasWrapper svg) .secondaryOutline,
+.pdf-viewer-container .highlightOutline:is(.canvasWrapper svg) .mainOutline,
+.pdf-viewer-container .highlightOutline:is(.canvasWrapper svg) .secondaryOutline {
     stroke: transparent !important;
     stroke-width: 0 !important;
 }

@@ -326,6 +326,7 @@ export default {
     'contextMenu': {
         'openPopUpNote': 'Pop-upnotitie openen',
         'copyTextToClipboard': 'Tekst naar klembord kopiëren',
+        'copySelectionToClipboard': 'Selectie naar klembord kopiëren',
         'markupSelection': 'Selectie markeren',
         'highlight': 'Markeren',
         'underline': 'Onderstrepen',

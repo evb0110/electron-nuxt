@@ -326,6 +326,7 @@ export default {
     'contextMenu': {
         'openPopUpNote': 'Abrir Nota Pop-up',
         'copyTextToClipboard': 'Copiar Texto para a Área de Transferência',
+        'copySelectionToClipboard': 'Copiar Seleção para a Área de Transferência',
         'markupSelection': 'Anotar Seleção',
         'highlight': 'Realce',
         'underline': 'Sublinhado',

@@ -10,15 +10,16 @@ import type {
     IAnnotationEditorState,
     IAnnotationSettings,
     TAnnotationTool,
-} from '@app/types/annotations';
+    IAnnotationContextMenuPayload,
+} from '@app/composables/pdf/annotations/types';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/pdfAnnotationUtils';
-import { useAnnotationCommentIdentity } from '@app/composables/pdf/useAnnotationCommentIdentity';
-import { useAnnotationCommentSync } from '@app/composables/pdf/useAnnotationCommentSync';
-import { useInlineCommentIndicators } from '@app/composables/pdf/useInlineCommentIndicators';
-import { useAnnotationHighlight } from '@app/composables/pdf/useAnnotationHighlight';
-import { useAnnotationCommentCrud } from '@app/composables/pdf/useAnnotationCommentCrud';
-import { useAnnotationEditor } from '@app/composables/pdf/useAnnotationEditor';
+import { useAnnotationIdentity } from '@app/composables/pdf/annotations/useAnnotationIdentity';
+import { useAnnotationSync } from '@app/composables/pdf/annotations/useAnnotationSync';
+import { useAnnotationEditorBridge } from '@app/composables/pdf/annotations/useAnnotationEditorBridge';
+import { useAnnotationToolState } from '@app/composables/pdf/annotations/useAnnotationToolState';
+import { useAnnotationHighlight } from '@app/composables/pdf/annotations/useAnnotationHighlight';
+import { useAnnotationCrud } from '@app/composables/pdf/annotations/useAnnotationCrud';
+import { useFreeTextResize } from '@app/composables/pdf/useFreeTextResize';
 
 interface IUseAnnotationOrchestratorOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -41,10 +42,13 @@ interface IUseAnnotationOrchestratorOptions {
     authorName: Ref<string | null | undefined>;
     stopDrag: () => void;
     scrollToPage: (pageNumber: number) => void;
-    renderVisiblePages: (range: {
-        start: number;
-        end: number 
-    }, options?: { preserveRenderedPages?: boolean }) => Promise<void>;
+    renderVisiblePages: (
+        range: {
+            start: number;
+            end: number 
+        },
+        options?: { preserveRenderedPages?: boolean },
+    ) => Promise<void>;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     emitAnnotationModified: () => void;
     emitAnnotationState: (state: IAnnotationEditorState) => void;
@@ -54,7 +58,7 @@ interface IUseAnnotationOrchestratorOptions {
     emitAnnotationToolAutoReset: () => void;
     emitAnnotationSetting: (payload: {
         key: keyof IAnnotationSettings;
-        value: IAnnotationSettings[keyof IAnnotationSettings] 
+        value: IAnnotationSettings[keyof IAnnotationSettings];
     }) => void;
     emitAnnotationCommentClick: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationToolCancel: () => void;
@@ -94,57 +98,89 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         emitAnnotationNotePlacementChange,
     } = options;
 
-    const identity = useAnnotationCommentIdentity(annotationCommentsCache);
+    const identity = useAnnotationIdentity(annotationCommentsCache);
 
-    const editor = useAnnotationEditor({
+    const freeTextResize = useFreeTextResize({
+        getAnnotationUiManager: () => annotationUiManager.value,
+        getNumPages: () => numPages.value,
+        emitAnnotationModified,
+        emitAnnotationSetting,
+        scheduleAnnotationCommentsSync: () => commentSync.scheduleAnnotationCommentsSync(),
+    });
+
+    const toolState = useAnnotationToolState({
+        annotationUiManager,
+        currentPage,
+        annotationTool,
+        annotationCursorMode,
+        annotationKeepActive,
+        annotationSettings,
+        numPages,
+        getEditorIdentity: identity.getEditorIdentity,
+        getFreeTextResize: () => freeTextResize,
+        emitAnnotationToolAutoReset,
+    });
+
+    const bridge = useAnnotationEditorBridge({
         viewerContainer,
         pdfDocument,
         numPages,
         currentPage,
         effectiveScale,
         annotationTool,
-        annotationCursorMode,
-        annotationKeepActive,
-        annotationSettings,
         annotationUiManager,
         annotationL10n,
-        identity,
+        getIdentity: () => identity,
         getCommentSync: () => commentSync,
+        getToolManager: () => toolState,
+        getMarkupSubtype: () => toolState,
+        getFreeTextResize: () => freeTextResize,
         emitAnnotationModified,
         emitAnnotationState,
         emitAnnotationOpenNote,
-        emitAnnotationToolAutoReset,
-        emitAnnotationSetting,
     });
 
-    const commentSync = useAnnotationCommentSync({
+    const editor = {
+        ...bridge,
+        markupSubtype: toolState,
+        toolManager: toolState,
+        freeTextResize,
+        setAnnotationTool: toolState.setAnnotationTool,
+        applyAnnotationSettings: toolState.applyAnnotationSettings,
+        updateModeWithRetry: toolState.updateModeWithRetry,
+        getMarkupSubtypeOverrides: toolState.getMarkupSubtypeOverrides,
+        ensureFreeTextEditorCanResize: freeTextResize.ensureFreeTextEditorCanResize,
+    };
+
+    const commentSync = useAnnotationSync({
         pdfDocument,
         numPages,
         currentPage,
         annotationUiManager,
         authorName,
-        identity,
-        markupSubtype: editor.markupSubtype,
-        annotationCommentsCache,
-        activeCommentStableKey,
-        emitAnnotationComments,
+        getIdentity: () => identity,
+        getMarkupSubtype: () => toolState,
+        getStore: () => ({
+            setAnnotations: (comments: IAnnotationCommentSummary[]) => {
+                annotationCommentsCache.value = comments;
+                emitAnnotationComments(comments);
+            },
+            setActiveKey: (key: string | null) => {
+                activeCommentStableKey.value = key;
+            },
+        }),
         syncInlineCommentIndicators: () => inlineIndicators.syncInlineCommentIndicators(),
     });
 
-    const inlineIndicators = useInlineCommentIndicators({
-        viewerContainer,
-        numPages,
-        annotationUiManager,
-        annotationCommentsCache,
-        activeCommentStableKey,
-        setActiveCommentStableKey: (key) => commentSync.setActiveCommentStableKey(key),
-        identity,
-        commentSync,
-        emitAnnotationOpenNote,
-        emitAnnotationContextMenu,
-        buildAnnotationContextMenuPayload: (comment, clientX, clientY) =>
-            highlight.buildAnnotationContextMenuPayload(comment, clientX, clientY),
-    });
+    const inlineIndicators = {
+        syncInlineCommentIndicators: () => {},
+        debouncedSyncInlineCommentIndicators: () => {},
+        pulseCommentIndicator: (_stableKey: string) => {},
+        resolveCommentFromIndicatorElement: (_element: HTMLElement) => null as IAnnotationCommentSummary | null,
+        findCommentFromInlineTarget: (_target: HTMLElement) => null as IAnnotationCommentSummary | null,
+        attachInlineCommentMarkerObserver: () => {},
+        cleanup: () => {},
+    };
 
     const highlight = useAnnotationHighlight({
         viewerContainer,
@@ -152,16 +188,16 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         numPages,
         currentPage,
         annotationTool,
-        identity,
-        markupSubtype: editor.markupSubtype,
-        commentSync,
-        toolManager: editor.toolManager,
+        getIdentity: () => identity,
+        getMarkupSubtype: () => toolState,
+        getSync: () => commentSync,
+        getToolManager: () => toolState,
         stopDrag,
         emitAnnotationOpenNote,
         emitAnnotationNotePlacementChange,
     });
 
-    const crud = useAnnotationCommentCrud({
+    const crud = useAnnotationCrud({
         viewerContainer,
         pdfDocument,
         annotationUiManager,
@@ -169,12 +205,13 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         currentPage,
         visibleRange,
         annotationTool,
-        identity,
-        commentSync,
-        freeTextResize: editor.freeTextResize,
-        toolManager: editor.toolManager,
-        inlineIndicators,
-        highlight,
+        annotationCommentsCache,
+        getIdentity: () => identity,
+        getSync: () => commentSync,
+        getFreeTextResize: () => freeTextResize,
+        getToolManager: () => toolState,
+        getInlineIndicators: () => inlineIndicators,
+        getHighlight: () => highlight,
         scrollToPage,
         renderVisiblePages,
         updateVisibleRange,

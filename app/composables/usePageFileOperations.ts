@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { IAnnotationNoteWindowState } from '@app/composables/pdf/useAnnotationNoteWindows';
+import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/types';
 import type { TOpenFileResult } from '@app/types/electron-api';
 import type { ICloseFileFromUiOptions } from '@app/types/workspace-expose';
 import { waitUntilIdle } from '@app/utils/async-helpers';

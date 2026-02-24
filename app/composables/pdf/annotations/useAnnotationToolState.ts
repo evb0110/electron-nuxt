@@ -1,50 +1,107 @@
 import {
     AnnotationEditorParamsType,
+    AnnotationEditorType,
     type AnnotationEditorUIManager,
 } from 'pdfjs-dist';
-import type {
-    Ref,
-    ShallowRef,
+import {
+    ref,
+    nextTick,
+    type Ref,
+    type ShallowRef,
 } from 'vue';
+import {
+    useTimeoutFn,
+    tryOnScopeDispose,
+} from '@vueuse/core';
 import type {
     IAnnotationSettings,
     TAnnotationTool,
     TMarkupSubtype,
-} from '@app/types/annotations';
-import type { IPdfjsEditor } from '@app/composables/pdf/pdfAnnotationUtils';
+    IPdfjsEditor,
+} from '@app/composables/pdf/annotations/types';
+import {
+    isSelectionMarkupTool,
+    shouldForceTextMarkup,
+    TOOL_TO_MARKUP_SUBTYPE,
+} from '@app/composables/pdf/annotations/types';
 import {
     colorWithOpacity,
     rectIoU,
     rectCenterDistance,
+    errorToLogText,
 } from '@app/composables/pdf/pdfAnnotationUtils';
-
-export const TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>> = {
-    underline: 'Underline',
-    strikethrough: 'StrikeOut',
-};
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 const MARKUP_EDITOR_CLASS_PREFIX = 'pdf-markup-subtype-';
 const MARKUP_DRAW_LAYER_CLASS_PREFIX = 'pdf-markup-subtype-draw-';
 
-interface IUseAnnotationMarkupSubtypeOptions {
+interface IUseAnnotationToolStateOptions {
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
+    currentPage: Ref<number>;
+    annotationTool: Ref<TAnnotationTool>;
+    annotationCursorMode: Ref<boolean>;
+    annotationKeepActive: Ref<boolean>;
     annotationSettings: Ref<IAnnotationSettings | null>;
     numPages: Ref<number>;
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
+    getFreeTextResize: () => {patchResizableFreeTextEditors: (mgr: AnnotationEditorUIManager) => void;};
+    emitAnnotationToolAutoReset: () => void;
 }
 
-export function useAnnotationMarkupSubtype(options: IUseAnnotationMarkupSubtypeOptions) {
+export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) {
     const {
         annotationUiManager,
+        currentPage,
+        annotationTool,
+        annotationCursorMode,
+        annotationKeepActive,
         annotationSettings,
         numPages,
         getEditorIdentity,
+        getFreeTextResize,
+        emitAnnotationToolAutoReset,
     } = options;
+
+    const pendingAnnotationTool = ref<TAnnotationTool>(annotationTool.value);
+    const pendingAnnotationSettings = ref<IAnnotationSettings | null>(null);
+    let annotationToolUpdateToken = 0;
+    let annotationToolUpdatePromise: Promise<void> = Promise.resolve();
 
     const markupSubtypeOverrides = new Map<string, TMarkupSubtype>();
     const editorMarkupSubtypeOverrides = new Map<string, TMarkupSubtype>();
-    const editorObjectMarkupSubtypeOverrides = new WeakMap<IPdfjsEditor, TMarkupSubtype>();
-    const editorDrawLayerHighlightRefs = new WeakMap<IPdfjsEditor, SVGElement>();
+    let editorObjectMarkupSubtypeOverrides = new WeakMap<IPdfjsEditor, TMarkupSubtype>();
+    let editorDrawLayerHighlightRefs = new WeakMap<IPdfjsEditor, SVGElement>();
+
+    const { stop: stopRetryTimeout } = useTimeoutFn(() => {}, 0, { immediate: false });
+
+    tryOnScopeDispose(() => {
+        stopRetryTimeout();
+    });
+
+    function getAnnotationMode(tool: TAnnotationTool) {
+        switch (tool) {
+            case 'highlight':
+            case 'underline':
+            case 'strikethrough':
+                return AnnotationEditorType.NONE;
+            case 'text':
+                return AnnotationEditorType.FREETEXT;
+            case 'draw':
+                return AnnotationEditorType.INK;
+            case 'stamp':
+                return AnnotationEditorType.STAMP;
+            case 'rectangle':
+            case 'circle':
+            case 'line':
+            case 'arrow':
+                return AnnotationEditorType.NONE;
+            case 'none':
+            default:
+                return annotationCursorMode.value
+                    ? AnnotationEditorType.POPUP
+                    : AnnotationEditorType.NONE;
+        }
+    }
 
     function resolveMarkupSubtypeColor(subtype: TMarkupSubtype) {
         const settings = annotationSettings.value;
@@ -57,12 +114,158 @@ export function useAnnotationMarkupSubtype(options: IUseAnnotationMarkupSubtypeO
         return settings?.highlightColor ?? '#ffd400';
     }
 
+    function resolveHighlightColorForTool(settings: IAnnotationSettings, tool: TAnnotationTool) {
+        switch (tool) {
+            case 'underline':
+                return colorWithOpacity(settings.underlineColor, settings.underlineOpacity);
+            case 'strikethrough':
+                return colorWithOpacity(settings.strikethroughColor, settings.strikethroughOpacity);
+            default:
+                return colorWithOpacity(settings.highlightColor, settings.highlightOpacity);
+        }
+    }
+
+    function resolveHighlightFreeForTool(settings: IAnnotationSettings, tool: TAnnotationTool) {
+        if (shouldForceTextMarkup(tool)) {
+            return false;
+        }
+        return settings.highlightFree;
+    }
+
+    function applyHighlightParamsForTool(
+        uiManager: AnnotationEditorUIManager,
+        settings: IAnnotationSettings,
+        tool: TAnnotationTool,
+    ) {
+        uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_COLOR, resolveHighlightColorForTool(settings, tool));
+        uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_THICKNESS, settings.highlightThickness);
+        uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_FREE, resolveHighlightFreeForTool(settings, tool));
+        uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL, settings.highlightShowAll);
+    }
+
+    function applyAnnotationSettings(settings: IAnnotationSettings | null) {
+        pendingAnnotationSettings.value = settings;
+        const uiManager = annotationUiManager.value;
+        if (!uiManager || !settings) {
+            return;
+        }
+
+        const tool = annotationTool.value;
+        applyHighlightParamsForTool(uiManager, settings, tool);
+        uiManager.updateParams(AnnotationEditorParamsType.INK_COLOR, settings.inkColor);
+        uiManager.updateParams(AnnotationEditorParamsType.INK_OPACITY, settings.inkOpacity);
+        uiManager.updateParams(AnnotationEditorParamsType.INK_THICKNESS, settings.inkThickness);
+        uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_COLOR, settings.textColor);
+        uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, settings.textSize);
+        getFreeTextResize().patchResizableFreeTextEditors(uiManager);
+        syncMarkupSubtypePresentationForEditors();
+    }
+
+    async function updateModeWithRetry(
+        uiManager: AnnotationEditorUIManager,
+        mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
+        pageNumber = currentPage.value,
+    ) {
+        try {
+            await uiManager.updateMode(mode);
+            return null;
+        } catch (initialError) {
+            BrowserLogger.debug('annotations', `Annotation mode switch will retry: ${errorToLogText(initialError)}`);
+            try {
+                await uiManager.waitForEditorsRendered(Math.max(1, pageNumber));
+            } catch (waitError) {
+                BrowserLogger.debug('annotations', `Failed to wait for editor render before mode retry: ${errorToLogText(waitError)}`);
+            }
+            await nextTick();
+        }
+
+        try {
+            await uiManager.updateMode(mode);
+            return null;
+        } catch (retryError) {
+            return retryError;
+        }
+    }
+
+    function syncAnnotationEditorLayerVisibility(
+        mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
+    ) {
+        if (typeof document === 'undefined' || mode === AnnotationEditorType.NONE) {
+            return;
+        }
+        const layers = document.querySelectorAll<HTMLElement>(
+            '.annotation-editor-layer, .annotationEditorLayer',
+        );
+        layers.forEach((layer) => {
+            if (layer.hidden) {
+                layer.hidden = false;
+            }
+        });
+    }
+
+    async function setAnnotationTool(tool: TAnnotationTool) {
+        pendingAnnotationTool.value = tool;
+        const uiManager = annotationUiManager.value;
+        if (!uiManager) {
+            return;
+        }
+        const localToken = ++annotationToolUpdateToken;
+
+        annotationToolUpdatePromise = annotationToolUpdatePromise.then(async () => {
+            if (annotationToolUpdateToken !== localToken) {
+                return;
+            }
+
+            const effectiveTool = pendingAnnotationTool.value;
+            const mode = getAnnotationMode(effectiveTool);
+            const settings = pendingAnnotationSettings.value;
+
+            if (settings) {
+                applyHighlightParamsForTool(uiManager, settings, effectiveTool);
+            }
+
+            const modeError = await updateModeWithRetry(uiManager, mode, currentPage.value);
+            if (modeError) {
+                BrowserLogger.warn('annotations', `Failed to update annotation tool mode: ${errorToLogText(modeError)}`);
+                return;
+            }
+
+            syncAnnotationEditorLayerVisibility(mode);
+
+            if (annotationToolUpdateToken !== localToken || !settings) {
+                return;
+            }
+
+            applyAnnotationSettings(settings);
+            getFreeTextResize().patchResizableFreeTextEditors(uiManager);
+        }).catch((error: unknown) => {
+            BrowserLogger.warn('annotations', 'Failed to apply annotation tool update', error);
+        });
+
+        await annotationToolUpdatePromise;
+    }
+
+    function getToolUpdatePromise() {
+        return annotationToolUpdatePromise;
+    }
+
+    function maybeAutoResetAnnotationTool() {
+        if (annotationKeepActive.value) {
+            return;
+        }
+        if (annotationTool.value === 'none') {
+            return;
+        }
+        queueMicrotask(() => {
+            emitAnnotationToolAutoReset();
+        });
+    }
+
     function resolveEditorHighlightClipPathId(editor: IPdfjsEditor) {
         const internal = editor.div?.querySelector<HTMLElement>('.internal');
         if (!internal) {
             return null;
         }
-
         const clipPath = internal.style.clipPath || getComputedStyle(internal).clipPath;
         const clipMatch = /#([A-Za-z0-9_-]+)/.exec(clipPath);
         return clipMatch?.[1] ?? null;
@@ -73,15 +276,14 @@ export function useAnnotationMarkupSubtype(options: IUseAnnotationMarkupSubtypeO
         if (editorRect.width <= 0 || editorRect.height <= 0) {
             return null;
         }
-
         const candidates = Array.from(pageContainer.querySelectorAll<SVGElement>('svg.highlight'));
         let bestOverlap: {
             score: number;
-            svg: SVGElement;
+            svg: SVGElement 
         } | null = null;
         let bestDistance: {
             distance: number;
-            svg: SVGElement;
+            svg: SVGElement 
         } | null = null;
 
         for (const candidate of candidates) {
@@ -94,17 +296,16 @@ export function useAnnotationMarkupSubtype(options: IUseAnnotationMarkupSubtypeO
                 if (!bestOverlap || overlapScore > bestOverlap.score) {
                     bestOverlap = {
                         score: overlapScore,
-                        svg: candidate,
+                        svg: candidate, 
                     };
                 }
                 continue;
             }
-
             const distance = rectCenterDistance(editorRect, rect);
             if (!bestDistance || distance < bestDistance.distance) {
                 bestDistance = {
                     distance,
-                    svg: candidate,
+                    svg: candidate, 
                 };
             }
         }
@@ -123,21 +324,16 @@ export function useAnnotationMarkupSubtype(options: IUseAnnotationMarkupSubtypeO
         if (cached?.isConnected) {
             return cached;
         }
-
         const pageContainer = editor.div?.closest<HTMLElement>('.page_container');
         if (!pageContainer) {
             return null;
         }
-
         const clipPathId = resolveEditorHighlightClipPathId(editor);
         if (!clipPathId) {
             return null;
         }
-
         const escapedClipPathId = clipPathId.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
-        const clipPathNode = pageContainer.querySelector<SVGElement>(
-            `svg.highlight clipPath[id="${escapedClipPathId}"]`,
-        );
+        const clipPathNode = pageContainer.querySelector<SVGElement>(`svg.highlight clipPath[id="${escapedClipPathId}"]`);
         let highlightSvg = clipPathNode?.closest<SVGElement>('svg.highlight') ?? null;
         if (!highlightSvg && editor.div) {
             highlightSvg = findClosestHighlightDrawLayerSvg(pageContainer, editor.div);
@@ -153,7 +349,6 @@ export function useAnnotationMarkupSubtype(options: IUseAnnotationMarkupSubtypeO
         if (!highlightSvg) {
             return;
         }
-
         highlightSvg.classList.remove(
             `${MARKUP_DRAW_LAYER_CLASS_PREFIX}underline`,
             `${MARKUP_DRAW_LAYER_CLASS_PREFIX}strikeout`,
@@ -166,18 +361,17 @@ export function useAnnotationMarkupSubtype(options: IUseAnnotationMarkupSubtypeO
         const highlightSvg = resolveEditorDrawLayerHighlight(editor);
         if (!highlightSvg) {
             if (attempt < 18 && editor.div?.isConnected) {
-                setTimeout(() => {
+                const { start } = useTimeoutFn(() => {
                     applyMarkupSubtypeDrawLayerClass(editor, subtype, attempt + 1);
-                }, 50);
+                }, 50, { immediate: false });
+                start();
             }
             return;
         }
-
         clearMarkupSubtypeDrawLayerClass(editor);
         if (!subtype || subtype === 'Highlight') {
             return;
         }
-
         highlightSvg.classList.add(`${MARKUP_DRAW_LAYER_CLASS_PREFIX}${subtype.toLowerCase()}`);
         highlightSvg.style.setProperty('--pdf-markup-subtype-color', resolveMarkupSubtypeColor(subtype));
     }
@@ -202,16 +396,13 @@ export function useAnnotationMarkupSubtype(options: IUseAnnotationMarkupSubtypeO
     function applyEditorMarkupSubtypePresentation(editor: IPdfjsEditor, subtype: TMarkupSubtype | null) {
         clearMarkupSubtypeEditorClass(editor);
         applyMarkupSubtypeDrawLayerClass(editor, subtype);
-
         const div = editor.div;
         if (!div) {
             return;
         }
-
         if (!subtype || subtype === 'Highlight') {
             return;
         }
-
         const normalizedSubtype = subtype.toLowerCase();
         div.classList.add(`${MARKUP_EDITOR_CLASS_PREFIX}${normalizedSubtype}`);
         div.dataset.markupSubtype = normalizedSubtype;
@@ -255,7 +446,6 @@ export function useAnnotationMarkupSubtype(options: IUseAnnotationMarkupSubtypeO
         if (!uiManager) {
             return;
         }
-
         for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
             for (const editor of uiManager.getEditors(pageIndex)) {
                 const normalizedEditor = editor as IPdfjsEditor;
@@ -297,54 +487,29 @@ export function useAnnotationMarkupSubtype(options: IUseAnnotationMarkupSubtypeO
         return markupSubtypeOverrides;
     }
 
-    function isSelectionMarkupTool(tool: TAnnotationTool) {
-        return tool === 'highlight' || tool === 'underline' || tool === 'strikethrough';
-    }
-
-    function shouldForceTextMarkup(tool: TAnnotationTool) {
-        return tool === 'underline' || tool === 'strikethrough';
-    }
-
-    function resolveHighlightColorForTool(settings: IAnnotationSettings, tool: TAnnotationTool) {
-        switch (tool) {
-            case 'underline':
-                return colorWithOpacity(settings.underlineColor, settings.underlineOpacity);
-            case 'strikethrough':
-                return colorWithOpacity(settings.strikethroughColor, settings.strikethroughOpacity);
-            default:
-                return colorWithOpacity(settings.highlightColor, settings.highlightOpacity);
-        }
-    }
-
-    function resolveHighlightFreeForTool(settings: IAnnotationSettings, tool: TAnnotationTool) {
-        if (shouldForceTextMarkup(tool)) {
-            return false;
-        }
-        return settings.highlightFree;
-    }
-
-    function applyHighlightParamsForTool(
-        uiManager: AnnotationEditorUIManager,
-        settings: IAnnotationSettings,
-        tool: TAnnotationTool,
-    ) {
-        uiManager.updateParams(
-            AnnotationEditorParamsType.HIGHLIGHT_COLOR,
-            resolveHighlightColorForTool(settings, tool),
-        );
-        uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_THICKNESS, settings.highlightThickness);
-        uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_FREE, resolveHighlightFreeForTool(settings, tool));
-        uiManager.updateParams(AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL, settings.highlightShowAll);
-    }
-
     function clearOverrides() {
         markupSubtypeOverrides.clear();
         editorMarkupSubtypeOverrides.clear();
+        editorObjectMarkupSubtypeOverrides = new WeakMap();
+        editorDrawLayerHighlightRefs = new WeakMap();
     }
 
     return {
+        pendingAnnotationTool,
+        pendingAnnotationSettings,
         TOOL_TO_MARKUP_SUBTYPE,
+        isSelectionMarkupTool,
+        shouldForceTextMarkup,
+        getAnnotationMode,
         resolveMarkupSubtypeColor,
+        resolveHighlightColorForTool,
+        resolveHighlightFreeForTool,
+        applyHighlightParamsForTool,
+        applyAnnotationSettings,
+        setAnnotationTool,
+        updateModeWithRetry,
+        getToolUpdatePromise,
+        maybeAutoResetAnnotationTool,
         resolveEditorHighlightClipPathId,
         resolveEditorDrawLayerHighlight,
         findClosestHighlightDrawLayerSvg,
@@ -355,12 +520,7 @@ export function useAnnotationMarkupSubtype(options: IUseAnnotationMarkupSubtypeO
         setEditorMarkupSubtypeOverride,
         resolveEditorMarkupSubtypeOverride,
         getMarkupSubtypeOverrides,
-        isSelectionMarkupTool,
-        shouldForceTextMarkup,
-        resolveHighlightColorForTool,
-        resolveHighlightFreeForTool,
-        applyHighlightParamsForTool,
-        clearOverrides,
         markupSubtypeOverrides,
+        clearOverrides,
     };
 }

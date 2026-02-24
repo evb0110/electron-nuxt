@@ -144,7 +144,7 @@ function toggleFill() {
 <style scoped>
 .annotation-properties {
     position: fixed;
-    z-index: 100;
+    z-index: 200;
     background: var(--ui-bg);
     border: 1px solid var(--ui-border);
     border-radius: 8px;

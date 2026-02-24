@@ -175,21 +175,6 @@
 
 /* ── Note Target Annotations ───────────────────────────────────────── */
 
-.pdfViewer .pdf-annotation-has-note-target {
-    position: relative;
-    overflow: visible;
-    cursor: pointer;
-    pointer-events: auto !important;
-}
-
-.pdfViewer .pdf-annotation-has-note-target:hover {
-    filter: drop-shadow(0 0 1px color-mix(in oklab, var(--ui-primary, #3b82f6) 20%, transparent));
-}
-
 .pdfViewer .pdf-annotation-has-note-target.pdf-comment-focus-pulse {
     animation: inline-comment-focus-pulse 0.9s ease-out;
-}
-
-.pdfViewer .pdf-annotation-has-note-active {
-    filter: drop-shadow(0 0 2px color-mix(in oklab, var(--ui-primary, #3b82f6) 18%, transparent));
 }
