@@ -87,6 +87,10 @@ interface IUsePdfViewerCoreOptions {
         container: HTMLElement | null,
         numPages: number,
     ) => number;
+    updateCurrentPage: (
+        container: HTMLElement | null,
+        numPages: number,
+    ) => number;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     scrollToPage: (pageNumber: number) => void;
     resetContinuousScrollState: () => void;
@@ -139,6 +143,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         applySearchHighlights,
         isPageRendered,
         getMostVisiblePage,
+        updateCurrentPage,
         updateVisibleRange,
         scrollToPage,
         resetContinuousScrollState,
@@ -225,7 +230,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     }
 
     function scheduleReRenderVisiblePages(stage: string) {
-        runGuardedTask(() => reRenderAllVisiblePages(getVisibleRange), {
+        runGuardedTask(() => reRenderVisiblePagesAndSyncCurrentPage(), {
             scope: 'pdf-viewer',
             message: `Failed to ${stage}`,
         });
@@ -245,6 +250,19 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         });
     }
 
+    function syncCurrentPageFromViewport() {
+        if (!pdfDocument.value || isLoading.value || numPages.value <= 0) {
+            return;
+        }
+        const page = updateCurrentPage(viewerContainer.value, numPages.value);
+        emit('update:currentPage', page);
+    }
+
+    async function reRenderVisiblePagesAndSyncCurrentPage() {
+        await reRenderAllVisiblePages(getVisibleRange);
+        syncCurrentPageFromViewport();
+    }
+
     async function recoverInitialRenderIfNeeded() {
         if (!pdfDocument.value || isLoading.value || numPages.value <= 0) {
             return;
@@ -260,7 +278,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
         updateVisibleRange(viewerContainer.value, numPages.value);
         try {
-            await reRenderAllVisiblePages(getVisibleRange);
+            await reRenderVisiblePagesAndSyncCurrentPage();
         } catch (error) {
             logAsyncStageError(
                 're-render visible pages during initial recovery',
@@ -277,6 +295,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         updateVisibleRange(viewerContainer.value, numPages.value);
         try {
             await renderVisiblePages(getVisibleRange());
+            syncCurrentPageFromViewport();
         } catch (error) {
             logAsyncStageError('render visible pages during initial recovery', error);
         }
@@ -382,6 +401,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         updateVisibleRange(viewerContainer.value, numPages.value);
         try {
             await renderVisiblePages(visibleRange.value);
+            syncCurrentPageFromViewport();
         } catch (error) {
             logAsyncStageError('render visible pages after source load', error);
         }
@@ -452,6 +472,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         const updated = computeFitWidthScale(viewerContainer.value);
         if (updated && pdfDocument.value) {
             await reRenderAllVisiblePages(getVisibleRange);
+            if (pageToSnapTo === null) {
+                syncCurrentPageFromViewport();
+            }
             if (pageToSnapTo !== null) {
                 await nextTick();
                 scrollToPage(pageToSnapTo);

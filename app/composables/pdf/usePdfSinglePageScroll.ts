@@ -479,19 +479,15 @@ export function usePdfSinglePageScroll(
         updateVisibleRange(viewerContainer.value, numPages.value);
         debouncedRenderOnScroll();
 
-        const suppressPageTracking =
-            isSearchNavigationLocked.value || Date.now() < snapSuppressUntil.value;
-        if (!suppressPageTracking) {
-            const previous = currentPage.value;
-            const page = updateCurrentPage(viewerContainer.value, numPages.value);
-            if (page !== previous) {
-                const top = viewerContainer.value?.scrollTop ?? 0;
-                logPdfNav(
-                    `[PDF-NAV] handleScroll: currentPage ${previous} -> ${page}`
-                    + ` scrollTop=${Math.round(top)}`,
-                );
-                emitCurrentPage(page);
-            }
+        const previous = currentPage.value;
+        const page = updateCurrentPage(viewerContainer.value, numPages.value);
+        if (page !== previous) {
+            const top = viewerContainer.value?.scrollTop ?? 0;
+            logPdfNav(
+                `[PDF-NAV] handleScroll: currentPage ${previous} -> ${page}`
+                + ` scrollTop=${Math.round(top)}`,
+            );
+            emitCurrentPage(page);
         }
         maybeReleaseProgrammaticNavigation();
 
@@ -518,10 +514,6 @@ export function usePdfSinglePageScroll(
 
         if (continuousScroll.value) {
             markProgrammaticNavigation(220);
-            const hasTargetPageInDom = !!getPageContainerByNumber(
-                viewerContainer.value,
-                pageNumber,
-            );
             scrollToPageInternal(
                 viewerContainer.value,
                 pageNumber,
@@ -529,9 +521,8 @@ export function usePdfSinglePageScroll(
                 scaledMargin.value,
                 options,
             );
-            if (!options?.preferExactDom || hasTargetPageInDom) {
-                emitCurrentPage(currentPage.value);
-            }
+            const page = updateCurrentPage(viewerContainer.value, numPages.value);
+            emitCurrentPage(page);
         } else {
             snapToPage(pageNumber, 'center');
         }

@@ -22,6 +22,8 @@ export interface IScrollSnapshot {
     height: number;
     centerX: number;
     centerY: number;
+    anchorPage?: number | null;
+    anchorOffsetRatio?: number;
 }
 
 export type TPdfSource =

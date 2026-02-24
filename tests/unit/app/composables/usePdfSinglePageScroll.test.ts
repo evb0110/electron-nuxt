@@ -36,6 +36,7 @@ interface IScrollHarnessOptions {
     getMostVisiblePage?: (viewer: HTMLElement | null) => number;
     clientHeight?: number;
     scrollHeight?: number;
+    continuousScroll?: boolean;
 }
 
 function createWheelEvent(
@@ -134,7 +135,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
         currentPage,
         scaledMargin: ref(20),
         viewMode: ref(options?.viewMode ?? 'single'),
-        continuousScroll: ref(false),
+        continuousScroll: ref(options?.continuousScroll ?? false),
         isLoading: ref(false),
         pdfDocument: shallowRef({} as PDFDocumentProxy),
         getMostVisiblePage,
@@ -149,6 +150,7 @@ function createSinglePageScrollHarness(options?: IScrollHarnessOptions) {
     return {
         container,
         currentPage,
+        emitCurrentPage,
         scrollToPageInternal,
         singlePageScroll,
     };
@@ -473,5 +475,44 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
 
         expect(scrollToPageInternal).toHaveBeenCalledOnce();
         expect(currentPage.value).toBe(1);
+    });
+
+    it('emits current page updates while search navigation suppression is active', () => {
+        const {
+            container,
+            currentPage,
+            emitCurrentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness();
+
+        singlePageScroll.beginSearchNavigation(2, 500);
+        container.scrollTop = 160;
+
+        singlePageScroll.handleScroll();
+
+        expect(currentPage.value).toBe(2);
+        expect(emitCurrentPage).toHaveBeenCalledWith(2);
+    });
+
+    it('emits reconciled page in continuous mode when exact target page is not mounted', () => {
+        const {
+            currentPage,
+            emitCurrentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            continuousScroll: true,
+            mountedPageNumbers: [
+                10,
+                11,
+                12,
+            ],
+            getMostVisiblePage: () => 1,
+        });
+
+        currentPage.value = 3;
+        singlePageScroll.scrollToPage(1, {preferExactDom: true});
+
+        expect(currentPage.value).toBe(1);
+        expect(emitCurrentPage).toHaveBeenCalledWith(1);
     });
 });
