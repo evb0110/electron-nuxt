@@ -1,3 +1,4 @@
+import { nativeImage } from 'electron';
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
 import {
@@ -76,6 +77,37 @@ async function appendPngOrJpegPage(
         ? await targetPdf.embedJpg(imageBytes)
         : await targetPdf.embedPng(imageBytes);
 
+    const pageWidth = pixelsToPdfPoints(embeddedImage.width, dpi);
+    const pageHeight = pixelsToPdfPoints(embeddedImage.height, dpi);
+
+    const page = targetPdf.addPage([
+        pageWidth,
+        pageHeight,
+    ]);
+    page.drawImage(embeddedImage, {
+        x: 0,
+        y: 0,
+        width: pageWidth,
+        height: pageHeight,
+    });
+
+    return 1;
+}
+
+async function appendBitmapPageViaNativeImage(
+    targetPdf: PDFDocument,
+    sourcePath: string,
+    extension: string,
+): Promise<number> {
+    const imageBytes = await readFile(sourcePath);
+    const dpi = readImageDpi(imageBytes, extension);
+    const image = nativeImage.createFromPath(sourcePath);
+
+    if (image.isEmpty()) {
+        throw new Error(`Unsupported or unreadable image: ${sourcePath}`);
+    }
+
+    const embeddedImage = await targetPdf.embedPng(image.toPNG());
     const pageWidth = pixelsToPdfPoints(embeddedImage.width, dpi);
     const pageHeight = pixelsToPdfPoints(embeddedImage.height, dpi);
 
@@ -182,6 +214,12 @@ async function createCombinedPdf(
             pageCount += await appendPdfPages(targetPdf, sourcePath);
         } else if (extension === '.png' || extension === '.jpg' || extension === '.jpeg') {
             pageCount += await appendPngOrJpegPage(targetPdf, sourcePath, extension);
+        } else if (extension === '.bmp' || extension === '.webp' || extension === '.gif') {
+            pageCount += await appendBitmapPageViaNativeImage(
+                targetPdf,
+                sourcePath,
+                extension,
+            );
         } else if (extension === '.tif' || extension === '.tiff') {
             pageCount += await appendTiffPages(targetPdf, sourcePath);
         } else {

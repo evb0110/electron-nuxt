@@ -143,4 +143,25 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.create).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
     });
+
+    it('keeps worker combine path for bmp/webp/gif inputs', async () => {
+        mocks.workerState.mode = 'success';
+
+        const inputPaths = [
+            '/tmp/input.webp',
+            '/tmp/input.bmp',
+            '/tmp/input.gif',
+        ];
+        const result = await createPdfFromInputPaths(inputPaths);
+
+        expect(Array.from(result)).toEqual([
+            7,
+            7,
+        ]);
+        expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
+        const workerOptions = mocks.workerCtor.mock.calls[0]?.[1] as {workerData?: { inputPaths?: string[] };};
+        expect(workerOptions.workerData?.inputPaths).toEqual(inputPaths);
+        expect(mocks.create).not.toHaveBeenCalled();
+        expect(mocks.loggerWarn).not.toHaveBeenCalled();
+    });
 });

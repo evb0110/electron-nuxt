@@ -7,6 +7,12 @@ type TRunCommandResult = {
     exitCode: number;
 };
 
+function createAbortError() {
+    const error = new Error('The operation was aborted');
+    error.name = 'AbortError';
+    return error;
+}
+
 export async function runCommand(
     command: string,
     args: string[],
@@ -15,6 +21,7 @@ export async function runCommand(
         env?: NodeJS.ProcessEnv;
         timeoutMs?: number;
         allowedExitCodes?: number[];
+        signal?: AbortSignal;
     } = {},
 ): Promise<TRunCommandResult> {
     const {
@@ -22,9 +29,15 @@ export async function runCommand(
         env,
         timeoutMs,
         allowedExitCodes = [0],
+        signal,
     } = options;
 
     return new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(createAbortError());
+            return;
+        }
+
         const proc = spawn(command, args, {
             cwd,
             env,
@@ -48,36 +61,64 @@ export async function runCommand(
         });
 
         let timeoutId: NodeJS.Timeout | null = null;
+        let settled = false;
+        const cleanup = () => {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+            if (signal && abortHandler) {
+                signal.removeEventListener('abort', abortHandler);
+            }
+        };
+        const resolveOnce = (value: TRunCommandResult) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
+            resolve(value);
+        };
+        const rejectOnce = (error: Error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanup();
+            reject(error);
+        };
+
+        const abortHandler = signal
+            ? () => {
+                proc.kill('SIGKILL');
+                rejectOnce(createAbortError());
+            }
+            : null;
+        if (signal && abortHandler) {
+            signal.addEventListener('abort', abortHandler, { once: true });
+        }
+
         if (typeof timeoutMs === 'number' && timeoutMs > 0) {
             timeoutId = setTimeout(() => {
                 proc.kill('SIGKILL');
-                reject(new Error(`${command} timed out after ${timeoutMs}ms`));
+                rejectOnce(new Error(`${command} timed out after ${timeoutMs}ms`));
             }, timeoutMs);
         }
 
         proc.on('error', (err) => {
-            if (timeoutId) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
-            }
-            reject(err);
+            rejectOnce(err);
         });
 
         proc.on('close', (code) => {
-            if (timeoutId) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
-            }
-
             const exitCode = typeof code === 'number' ? code : -1;
             if (!allowedExitCodes.includes(exitCode)) {
-                reject(new Error(`${command} failed with exit code ${
+                rejectOnce(new Error(`${command} failed with exit code ${
                     describeProcessExitCode(exitCode)
                 }: ${stderr || stdout}`));
                 return;
             }
 
-            resolve({
+            resolveOnce({
                 stdout,
                 stderr,
                 exitCode,

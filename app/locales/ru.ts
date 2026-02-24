@@ -187,6 +187,7 @@ export default {
     },
     'common': {
         'loading': 'Загрузка...',
+        'retry': 'Повторить',
         'cancel': 'Отмена',
         'convert': 'Конвертировать',
         'unitDpi': 'DPI',
@@ -521,6 +522,11 @@ export default {
         'djvu': {
             'open': 'Не удалось выполнить конвертацию DjVu',
             'convert': 'Не удалось выполнить конвертацию',
+        },
+        'workspace': {
+            'loadTitle': 'Не удалось загрузить рабочую область документа',
+            'loadDescription': 'Попробуйте загрузить рабочую область снова.',
+            'loadDescriptionWithMessage': 'Попробуйте загрузить рабочую область снова. ({message})',
         },
     },
     'export': {

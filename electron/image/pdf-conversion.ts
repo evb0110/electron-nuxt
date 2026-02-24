@@ -57,13 +57,6 @@ const UTIF = utifModule as IUtifModule;
 const logger = createLogger('pdf-conversion');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COMBINE_WORKER_FILENAME = 'pdf-combine-worker.js';
-const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>([
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.tif',
-    '.tiff',
-]);
 
 export const SUPPORTED_IMAGE_EXTENSIONS = [
     '.png',
@@ -75,6 +68,10 @@ export const SUPPORTED_IMAGE_EXTENSIONS = [
     '.webp',
     '.gif',
 ] as const;
+
+const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
+    SUPPORTED_IMAGE_EXTENSIONS,
+);
 
 const SUPPORTED_IMAGE_EXTENSION_SET = new Set<string>(
     SUPPORTED_IMAGE_EXTENSIONS,

@@ -10,7 +10,29 @@ interface IPageText {
     text: string;
 }
 
-interface IExtractTextOptions {pageCount?: number;}
+interface IExtractTextOptions {
+    pageCount?: number;
+    signal?: AbortSignal;
+}
+
+function createAbortError() {
+    const error = new Error('The operation was aborted');
+    error.name = 'AbortError';
+    return error;
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw createAbortError();
+    }
+}
+
+function isAbortError(error: unknown) {
+    return error instanceof Error && (
+        error.name === 'AbortError'
+        || error.message.toLowerCase().includes('aborted')
+    );
+}
 
 /**
  * Extract all text from a PDF using pdftotext command
@@ -21,6 +43,8 @@ export async function extractTextFromPdf(
     options: IExtractTextOptions = {},
 ): Promise<IPageText[]> {
     log.debug(`Extracting text from PDF: ${pdfPath}`);
+    const { signal } = options;
+    throwIfAborted(signal);
 
     const { pdftotext } = getOcrToolPaths();
     log.debug(`Using pdftotext at: ${pdftotext}`);
@@ -35,13 +59,15 @@ export async function extractTextFromPdf(
     }
 
     try {
+        throwIfAborted(signal);
         // Use pdftotext -layout to preserve some structure
         // Each page is separated by form feed character (0x0C)
         const result = await runCommand(pdftotext, [
             '-layout',
             pdfPath,
             '-',
-        ]);
+        ], { signal });
+        throwIfAborted(signal);
 
         const output = result.stdout ?? '';
 
@@ -69,6 +95,10 @@ export async function extractTextFromPdf(
 
         return pageTexts;
     } catch (err) {
+        if (isAbortError(err)) {
+            throw err;
+        }
+
         const errMsg = err instanceof Error ? err.message : String(err);
         log.debug(`Failed to extract text using ${pdftotext}: ${errMsg}`);
 

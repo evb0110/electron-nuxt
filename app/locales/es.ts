@@ -187,6 +187,7 @@ export default {
     },
     'common': {
         'loading': 'Cargando...',
+        'retry': 'Reintentar',
         'cancel': 'Cancelar',
         'convert': 'Convertir',
         'unitDpi': 'DPI',
@@ -521,6 +522,11 @@ export default {
         'djvu': {
             'open': 'La conversión de DjVu falló',
             'convert': 'La conversión falló',
+        },
+        'workspace': {
+            'loadTitle': 'No se pudo cargar el espacio de trabajo del documento',
+            'loadDescription': 'Intenta cargar el espacio de trabajo de nuevo.',
+            'loadDescriptionWithMessage': 'Intenta cargar el espacio de trabajo de nuevo. ({message})',
         },
     },
     'export': {

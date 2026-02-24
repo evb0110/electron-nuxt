@@ -187,6 +187,7 @@ export default {
     },
     'common': {
         'loading': 'Wird geladen...',
+        'retry': 'Erneut versuchen',
         'cancel': 'Abbrechen',
         'convert': 'Konvertieren',
         'unitDpi': 'DPI',
@@ -521,6 +522,11 @@ export default {
         'djvu': {
             'open': 'DjVu-Konvertierung fehlgeschlagen',
             'convert': 'Konvertierung fehlgeschlagen',
+        },
+        'workspace': {
+            'loadTitle': 'Der Dokument-Arbeitsbereich konnte nicht geladen werden',
+            'loadDescription': 'Versuchen Sie, den Arbeitsbereich erneut zu laden.',
+            'loadDescriptionWithMessage': 'Versuchen Sie, den Arbeitsbereich erneut zu laden. ({message})',
         },
     },
     'export': {
