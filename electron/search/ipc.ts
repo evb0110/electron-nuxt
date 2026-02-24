@@ -12,6 +12,8 @@ import {
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import { createLogger } from '@electron/utils/logger';
+import { resolveAllowedReadPath } from '@electron/utils/path-validator';
+import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
 
 interface ISearchExcerpt {
     prefix: boolean;
@@ -407,6 +409,20 @@ function ensureSenderState(event: IpcMainInvokeEvent, senderId: number) {
     return state;
 }
 
+export async function resolveSearchablePdfPath(pdfPath: string): Promise<string | null> {
+    const directResolvedPath = await resolveAllowedReadPath(pdfPath);
+    if (directResolvedPath) {
+        return directResolvedPath;
+    }
+
+    const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(pdfPath);
+    if (!mappedWorkingCopyPath) {
+        return null;
+    }
+
+    return resolveAllowedReadPath(mappedWorkingCopyPath);
+}
+
 async function handlePdfSearch(
     event: IpcMainInvokeEvent,
     request: ISearchRequest,
@@ -422,6 +438,16 @@ async function handlePdfSearch(
             results: [],
             truncated: false,
         };
+    }
+
+    const normalizedPdfPath = typeof pdfPath === 'string' ? pdfPath.trim() : '';
+    if (!normalizedPdfPath) {
+        throw new Error('Invalid PDF path');
+    }
+
+    const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath);
+    if (!resolvedPdfPath) {
+        throw new Error('Invalid PDF path: search only allowed within temp directory');
     }
 
     const senderId = event.sender.id;
@@ -469,7 +495,7 @@ async function handlePdfSearch(
                 type: 'search',
                 payload: {
                     requestId,
-                    pdfPath,
+                    pdfPath: resolvedPdfPath,
                     query,
                     pageCount,
                 },
