@@ -74,6 +74,33 @@ interface IUseAnnotationHighlightOptions {
     emitAnnotationNotePlacementChange: (active: boolean) => void;
 }
 
+interface INotePlacementDiagnosticsContext {
+    attemptId?: string;
+    source?: string;
+    clickCapturedAtMs?: number;
+    clickMeta?: Record<string, unknown>;
+}
+
+interface IPageCandidateLogEntry {
+    pageNumber: number | null;
+    inside: boolean;
+    distanceSquared: number;
+    rect: {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+        width: number;
+        height: number;
+    };
+}
+
+interface IGeometryResolution {
+    pageContainer: HTMLElement | null;
+    source: 'inside' | 'nearest' | 'none';
+    candidates: IPageCandidateLogEntry[] | null;
+}
+
 export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) {
     const {
         viewerContainer,
@@ -91,6 +118,8 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
 
     const isPlacingComment = ref(false);
     const DEFAULT_POINT_MARKER_SIZE = 0.0016;
+    const NOTE_PLACEMENT_LOG_SECTION = 'note-placement';
+    const MAX_PAGE_CANDIDATE_LOG_ENTRIES = 14;
 
     let cachedSelectionRange: Range | null = null;
     let cachedSelectionTimestamp = 0;
@@ -463,20 +492,117 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         });
     }
 
-    function findPageContainerFromClientPoint(clientX: number, clientY: number) {
+    function roundForLog(value: number, digits = 3) {
+        if (!Number.isFinite(value)) {
+            return value;
+        }
+        const factor = 10 ** digits;
+        return Math.round(value * factor) / factor;
+    }
+
+    function toRectLog(rect: DOMRect | {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+        width: number;
+        height: number;
+    }) {
+        return {
+            left: roundForLog(rect.left),
+            top: roundForLog(rect.top),
+            right: roundForLog(rect.right),
+            bottom: roundForLog(rect.bottom),
+            width: roundForLog(rect.width),
+            height: roundForLog(rect.height),
+        };
+    }
+
+    function parsePageNumberFromContainer(pageContainer: HTMLElement | null) {
+        if (!pageContainer?.dataset.page) {
+            return null;
+        }
+        const parsed = Number(pageContainer.dataset.page);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            return null;
+        }
+        return parsed;
+    }
+
+    function summarizeElementForLog(element: HTMLElement | null) {
+        if (!element) {
+            return null;
+        }
+        return {
+            tag: element.tagName.toLowerCase(),
+            id: element.id || null,
+            classList: Array.from(element.classList).slice(0, 8),
+            dataPage: parsePageNumberFromContainer(element.closest<HTMLElement>('.page_container')),
+            role: element.getAttribute('role'),
+        };
+    }
+
+    function summarizeVisiblePageWindowForLog() {
         const container = viewerContainer.value;
         if (!container) {
             return null;
         }
+        const viewportTop = container.scrollTop;
+        const viewportBottom = viewportTop + container.clientHeight;
+        const visiblePages: number[] = [];
+        const pageContainers = container.querySelectorAll<HTMLElement>('.page_container');
+        for (const pageContainer of pageContainers) {
+            const pageNumber = parsePageNumberFromContainer(pageContainer);
+            if (!pageNumber) {
+                continue;
+            }
+            const pageTop = pageContainer.offsetTop;
+            const pageBottom = pageTop + pageContainer.offsetHeight;
+            if (pageBottom < viewportTop || pageTop > viewportBottom) {
+                continue;
+            }
+            visiblePages.push(pageNumber);
+        }
+        return {
+            start: visiblePages[0] ?? null,
+            end: visiblePages.at(-1) ?? null,
+            count: visiblePages.length,
+            sample: visiblePages.slice(0, MAX_PAGE_CANDIDATE_LOG_ENTRIES),
+            viewportTop: roundForLog(viewportTop),
+            viewportBottom: roundForLog(viewportBottom),
+        };
+    }
+
+    function resolvePageContainerByGeometry(
+        clientX: number,
+        clientY: number,
+        options: { collectCandidates?: boolean } = {},
+    ): IGeometryResolution {
+        const collectCandidates = options.collectCandidates ?? false;
+        const container = viewerContainer.value;
+        if (!container) {
+            return {
+                pageContainer: null,
+                source: 'none',
+                candidates: collectCandidates ? [] : null,
+            };
+        }
         const pages = Array.from(container.querySelectorAll<HTMLElement>('.page_container'));
         if (pages.length === 0) {
-            return null;
+            return {
+                pageContainer: null,
+                source: 'none',
+                candidates: collectCandidates ? [] : null,
+            };
         }
 
         let nearest: {
             element: HTMLElement;
-            distanceSquared: number 
+            distanceSquared: number
         } | null = null;
+        let insideMatch: HTMLElement | null = null;
+        const candidates: IPageCandidateLogEntry[] = [];
+
         for (const element of pages) {
             const rect = element.getBoundingClientRect();
             if (rect.width <= 0 || rect.height <= 0) {
@@ -488,9 +614,6 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 && clientY >= rect.top
                 && clientY <= rect.bottom
             );
-            if (inside) {
-                return element;
-            }
             const dx = clientX < rect.left
                 ? rect.left - clientX
                 : (clientX > rect.right ? clientX - rect.right : 0);
@@ -498,14 +621,55 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 ? rect.top - clientY
                 : (clientY > rect.bottom ? clientY - rect.bottom : 0);
             const distanceSquared = dx * dx + dy * dy;
+            if (collectCandidates && candidates.length < MAX_PAGE_CANDIDATE_LOG_ENTRIES) {
+                candidates.push({
+                    pageNumber: parsePageNumberFromContainer(element),
+                    inside,
+                    distanceSquared: roundForLog(distanceSquared),
+                    rect: toRectLog(rect),
+                });
+            }
+            if (inside && !collectCandidates) {
+                return {
+                    pageContainer: element,
+                    source: 'inside',
+                    candidates: null,
+                };
+            }
+            if (inside && !insideMatch) {
+                insideMatch = element;
+            }
             if (!nearest || distanceSquared < nearest.distanceSquared) {
                 nearest = {
                     element,
-                    distanceSquared, 
+                    distanceSquared,
                 };
             }
         }
-        return nearest?.element ?? null;
+
+        if (insideMatch) {
+            return {
+                pageContainer: insideMatch,
+                source: 'inside',
+                candidates: collectCandidates ? candidates : null,
+            };
+        }
+        if (nearest) {
+            return {
+                pageContainer: nearest.element,
+                source: 'nearest',
+                candidates: collectCandidates ? candidates : null,
+            };
+        }
+        return {
+            pageContainer: null,
+            source: 'none',
+            candidates: collectCandidates ? candidates : null,
+        };
+    }
+
+    function findPageContainerFromClientPoint(clientX: number, clientY: number) {
+        return resolvePageContainerByGeometry(clientX, clientY).pageContainer;
     }
 
     function resolvePageContainerFromTarget(targetElement?: HTMLElement | null) {
@@ -523,45 +687,171 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
     function resolvePageContainerFromDocumentPoint(clientX: number, clientY: number) {
         const container = viewerContainer.value;
         if (!container || typeof document === 'undefined') {
-            return null;
+            return {
+                pointElement: null,
+                pageContainer: null,
+            };
         }
         const pointElement = document.elementFromPoint(clientX, clientY);
         if (!(pointElement instanceof HTMLElement)) {
-            return null;
+            return {
+                pointElement: null,
+                pageContainer: null,
+            };
         }
         const pageContainer = pointElement.closest<HTMLElement>('.page_container');
         if (!pageContainer || !container.contains(pageContainer)) {
-            return null;
+            return {
+                pointElement,
+                pageContainer: null,
+            };
         }
-        return pageContainer;
+        return {
+            pointElement,
+            pageContainer,
+        };
     }
 
     function resolvePagePointTarget(
         clientX: number,
         clientY: number,
         targetElement?: HTMLElement | null,
+        diagnostics?: INotePlacementDiagnosticsContext,
     ): IPagePointTarget | null {
-        const pageContainer = resolvePageContainerFromTarget(targetElement)
-            ?? resolvePageContainerFromDocumentPoint(clientX, clientY)
-            ?? findPageContainerFromClientPoint(clientX, clientY);
+        const targetPageContainer = resolvePageContainerFromTarget(targetElement);
+        const documentPointResolution = resolvePageContainerFromDocumentPoint(clientX, clientY);
+        const geometryResolution = resolvePageContainerByGeometry(clientX, clientY, {collectCandidates: Boolean(diagnostics)});
+        const byTargetPage = parsePageNumberFromContainer(targetPageContainer);
+        const byElementFromPointPage = parsePageNumberFromContainer(documentPointResolution.pageContainer);
+        const byGeometryPage = parsePageNumberFromContainer(geometryResolution.pageContainer);
+
+        const targetConflictsWithElementPoint = (
+            byTargetPage !== null
+            && byElementFromPointPage !== null
+            && byTargetPage !== byElementFromPointPage
+        );
+        const targetConflictsWithGeometry = (
+            byTargetPage !== null
+            && byGeometryPage !== null
+            && byTargetPage !== byGeometryPage
+        );
+        const hasTargetConflict = targetConflictsWithElementPoint || targetConflictsWithGeometry;
+
+        let pageContainer: HTMLElement | null = null;
+        let selectedSource = 'none';
+        if (targetPageContainer && !hasTargetConflict) {
+            pageContainer = targetPageContainer;
+            selectedSource = 'target-element';
+        }
+        else if (documentPointResolution.pageContainer) {
+            pageContainer = documentPointResolution.pageContainer;
+            selectedSource = 'document.elementFromPoint';
+        }
+        else if (geometryResolution.pageContainer) {
+            pageContainer = geometryResolution.pageContainer;
+            selectedSource = geometryResolution.source === 'inside'
+                ? 'geometry-inside'
+                : 'geometry-nearest';
+        }
+        else if (targetPageContainer) {
+            pageContainer = targetPageContainer;
+            selectedSource = 'target-element-conflicted-fallback';
+        }
+
+        if (diagnostics && hasTargetConflict) {
+            const viewer = viewerContainer.value;
+            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page target conflict detected', {
+                attemptId: diagnostics.attemptId ?? null,
+                source: diagnostics.source ?? null,
+                selectedSource,
+                byTargetPage,
+                byElementFromPointPage,
+                byGeometryPage,
+                targetConflictsWithElementPoint,
+                targetConflictsWithGeometry,
+                clickTarget: summarizeElementForLog(targetElement ?? null),
+                pointElement: summarizeElementForLog(documentPointResolution.pointElement),
+                renderedPageCandidates: geometryResolution.candidates,
+                visiblePageWindow: summarizeVisiblePageWindowForLog(),
+                viewerScrollTop: viewer?.scrollTop ?? null,
+                viewerScrollLeft: viewer?.scrollLeft ?? null,
+                clickMeta: diagnostics.clickMeta ?? null,
+            });
+        }
+
         if (!pageContainer) {
+            if (diagnostics) {
+                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Failed to resolve quick-note page container', {
+                    attemptId: diagnostics.attemptId ?? null,
+                    source: diagnostics.source ?? null,
+                    clientX: roundForLog(clientX),
+                    clientY: roundForLog(clientY),
+                    currentPage: currentPage.value,
+                    byTargetPage,
+                    byElementFromPointPage,
+                    byGeometryPage,
+                    selectedSource,
+                    clickTarget: summarizeElementForLog(targetElement ?? null),
+                    pointElement: summarizeElementForLog(documentPointResolution.pointElement),
+                    renderedPageCandidates: geometryResolution.candidates,
+                    visiblePageWindow: summarizeVisiblePageWindowForLog(),
+                    clickMeta: diagnostics.clickMeta ?? null,
+                });
+            }
             return null;
         }
         const rect = pageContainer.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) {
+            if (diagnostics) {
+                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note page container has invalid rect', {
+                    attemptId: diagnostics.attemptId ?? null,
+                    selectedSource,
+                    pageNumberFromDataset: pageContainer.dataset.page ?? null,
+                    rect: toRectLog(rect),
+                });
+            }
             return null;
         }
         const pageNumber = pageContainer.dataset.page
             ? Number(pageContainer.dataset.page)
             : currentPage.value;
         if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
+            if (diagnostics) {
+                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note page container has invalid page number', {
+                    attemptId: diagnostics.attemptId ?? null,
+                    selectedSource,
+                    datasetPage: pageContainer.dataset.page ?? null,
+                    fallbackCurrentPage: currentPage.value,
+                });
+            }
             return null;
+        }
+        const pageX = clamp01((clientX - rect.left) / rect.width);
+        const pageY = clamp01((clientY - rect.top) / rect.height);
+        if (diagnostics) {
+            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note target page', {
+                attemptId: diagnostics.attemptId ?? null,
+                source: diagnostics.source ?? null,
+                selectedSource,
+                pageNumber,
+                pageX: roundForLog(pageX, 4),
+                pageY: roundForLog(pageY, 4),
+                byTargetPage,
+                byElementFromPointPage,
+                byGeometryPage,
+                hasTargetConflict,
+                clickTarget: summarizeElementForLog(targetElement ?? null),
+                pointElement: summarizeElementForLog(documentPointResolution.pointElement),
+                renderedPageCandidates: geometryResolution.candidates,
+                visiblePageWindow: summarizeVisiblePageWindowForLog(),
+                clickMeta: diagnostics.clickMeta ?? null,
+            });
         }
         return {
             pageContainer,
             pageNumber,
-            pageX: clamp01((clientX - rect.left) / rect.width),
-            pageY: clamp01((clientY - rect.top) / rect.height),
+            pageX,
+            pageY,
         };
     }
 
@@ -687,11 +977,25 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         pageNumber: number,
         pageX: number,
         pageY: number,
-        pointOptions: { preferTextAnchor?: boolean } = {},
+        pointOptions: {
+            preferTextAnchor?: boolean;
+            diagnosticsContext?: INotePlacementDiagnosticsContext;
+        } = {},
     ) {
         const container = viewerContainer.value;
         const uiManager = annotationUiManager.value;
+        const diagnosticsContext = pointOptions.diagnosticsContext;
         if (!container || !uiManager) {
+            if (diagnosticsContext) {
+                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint aborted: viewer container or uiManager is missing', {
+                    attemptId: diagnosticsContext.attemptId ?? null,
+                    pageNumber,
+                    pageX: roundForLog(pageX, 4),
+                    pageY: roundForLog(pageY, 4),
+                    hasContainer: Boolean(container),
+                    hasUiManager: Boolean(uiManager),
+                });
+            }
             return false;
         }
 
@@ -701,11 +1005,44 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
 
         const pageContainer = container.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
         if (!pageContainer) {
+            if (diagnosticsContext) {
+                const visiblePageWindow = summarizeVisiblePageWindowForLog();
+                const renderedPages = Array.from(container.querySelectorAll<HTMLElement>('.page_container'))
+                    .slice(0, MAX_PAGE_CANDIDATE_LOG_ENTRIES)
+                    .map((page) => ({
+                        pageNumber: parsePageNumberFromContainer(page),
+                        rect: toRectLog(page.getBoundingClientRect()),
+                    }));
+                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint aborted: requested page is not currently rendered', {
+                    attemptId: diagnosticsContext.attemptId ?? null,
+                    requestedPageNumber: pageNumber,
+                    currentPage: currentPage.value,
+                    renderedPages,
+                    visiblePageWindow,
+                    viewerScrollTop: roundForLog(container.scrollTop),
+                    viewerScrollLeft: roundForLog(container.scrollLeft),
+                });
+            }
             return false;
         }
         const pageRect = pageContainer.getBoundingClientRect();
         const pageClientX = pageRect.left + clamp01(pageX) * pageRect.width;
         const pageClientY = pageRect.top + clamp01(pageY) * pageRect.height;
+        if (diagnosticsContext) {
+            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint started', {
+                attemptId: diagnosticsContext.attemptId ?? null,
+                source: diagnosticsContext.source ?? null,
+                requestedPageNumber: pageNumber,
+                pageRect: toRectLog(pageRect),
+                pageX: roundForLog(pageX, 4),
+                pageY: roundForLog(pageY, 4),
+                pageClientX: roundForLog(pageClientX),
+                pageClientY: roundForLog(pageClientY),
+                currentPage: currentPage.value,
+                visiblePageWindow: summarizeVisiblePageWindowForLog(),
+                clickMeta: diagnosticsContext.clickMeta ?? null,
+            });
+        }
 
         if (pointOptions.preferTextAnchor ?? true) {
             const range = buildRangeFromPagePoint({
@@ -717,6 +1054,12 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             if (range) {
                 const created = await highlightSelectionInternal(true, range);
                 if (created) {
+                    if (diagnosticsContext) {
+                        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint completed via text-anchor path', {
+                            attemptId: diagnosticsContext.attemptId ?? null,
+                            pageNumber,
+                        });
+                    }
                     return true;
                 }
             }
@@ -762,6 +1105,12 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             await uiManager.waitForEditorsRendered(pageNumber);
             const layer = uiManager.getLayer(pageNumber - 1) ?? uiManager.currentLayer;
             if (!layer?.div) {
+                if (diagnosticsContext) {
+                    BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint aborted: annotation layer div missing', {
+                        attemptId: diagnosticsContext.attemptId ?? null,
+                        pageNumber,
+                    });
+                }
                 return false;
             }
 
@@ -776,11 +1125,27 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             };
             layer.div.dispatchEvent(new PointerEvent('pointerdown', eventInit));
             layer.div.dispatchEvent(new PointerEvent('pointerup', eventInit));
+            if (diagnosticsContext) {
+                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Dispatched synthetic pointer events for quick-note placement', {
+                    attemptId: diagnosticsContext.attemptId ?? null,
+                    pageNumber,
+                    clientX: roundForLog(eventInit.clientX ?? 0),
+                    clientY: roundForLog(eventInit.clientY ?? 0),
+                });
+            }
 
             const resolvedEditor = await resolveCreatedEditor(null);
             if (!resolvedEditor) {
+                if (diagnosticsContext) {
+                    BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint aborted: failed to resolve created editor', {
+                        attemptId: diagnosticsContext.attemptId ?? null,
+                        pageNumber,
+                    });
+                }
                 return false;
             }
+            resolvedEditor.__evbResolvedPageIndex = pageIndex;
+            resolvedEditor.__evbPlacementAttemptId = diagnosticsContext?.attemptId ?? null;
 
             for (let attempt = 0; attempt < 12; attempt += 1) {
                 const markerRect = toMarkerRectFromEditor(resolvedEditor);
@@ -794,10 +1159,24 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             const clickMarkerRect = markerRectFromPoint(pageX, pageY);
             resolvedEditor.__evbPendingAnchorRect = clickMarkerRect;
             commentSync.pendingCommentEditorKeys.add(identity.getEditorPendingKey(resolvedEditor, pageIndex));
+            if (diagnosticsContext) {
+                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Prepared pending quick-note anchor rect', {
+                    attemptId: diagnosticsContext.attemptId ?? null,
+                    pageNumber,
+                    clickMarkerRect,
+                    editorPendingKey: identity.getEditorPendingKey(resolvedEditor, pageIndex),
+                });
+            }
 
             const resolvedEditorWithComment = resolvedEditor as IPdfjsEditor & { editComment?: () => void };
             if (typeof resolvedEditorWithComment.editComment === 'function') {
                 resolvedEditorWithComment.editComment();
+                if (diagnosticsContext) {
+                    BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Opened editor comment dialog through editComment()', {
+                        attemptId: diagnosticsContext.attemptId ?? null,
+                        pageNumber,
+                    });
+                }
             } else {
                 const summary = commentSync.toEditorSummary(resolvedEditor, pageIndex, getCommentText(resolvedEditor));
                 let finalMarkerRect = summary.markerRect ?? clickMarkerRect;
@@ -809,12 +1188,54 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 if (shouldUseClickAnchor) {
                     finalMarkerRect = clickMarkerRect;
                 }
+                const summaryPageNumber = Number.isFinite(summary.pageNumber)
+                    ? summary.pageNumber
+                    : (summary.pageIndex + 1);
+                if (diagnosticsContext) {
+                    BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note summary before opening note window', {
+                        attemptId: diagnosticsContext.attemptId ?? null,
+                        requestedPageNumber: pageNumber,
+                        summaryPageNumber,
+                        summaryPageIndex: summary.pageIndex,
+                        summaryStableKey: summary.stableKey,
+                        summarySource: summary.source,
+                        summaryMarkerRect: summary.markerRect ?? null,
+                        clickMarkerRect,
+                        finalMarkerRect,
+                        centerDistance: roundForLog(centerDistance, 5),
+                        shouldUseClickAnchor,
+                    });
+                }
+                if (diagnosticsContext && summaryPageNumber !== pageNumber) {
+                    BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page mismatch: summary page differs from requested page', {
+                        attemptId: diagnosticsContext.attemptId ?? null,
+                        requestedPageNumber: pageNumber,
+                        summaryPageNumber,
+                        summaryPageIndex: summary.pageIndex,
+                        summaryStableKey: summary.stableKey,
+                    });
+                }
                 emitAnnotationOpenNote({
                     ...summary,
                     markerRect: finalMarkerRect,
                 });
             }
+            if (diagnosticsContext) {
+                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint completed successfully', {
+                    attemptId: diagnosticsContext.attemptId ?? null,
+                    pageNumber,
+                });
+            }
             return true;
+        } catch (error) {
+            if (diagnosticsContext) {
+                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'commentAtPoint threw while creating quick-note annotation', {
+                    attemptId: diagnosticsContext.attemptId ?? null,
+                    pageNumber,
+                    error: errorToLogText(error),
+                });
+            }
+            throw error;
         } finally {
             if (previousMode !== AnnotationEditorType.FREETEXT) {
                 await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
@@ -826,6 +1247,22 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         if (isPlacingComment.value === active) {
             return;
         }
+        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Comment placement mode changed', {
+            active,
+            currentPage: currentPage.value,
+            annotationTool: annotationTool.value,
+            stack: (() => {
+                try {
+                    return (new Error('note-placement-mode-change'))
+                        .stack
+                        ?.split('\n')
+                        .slice(1, 5)
+                        .map(entry => entry.trim());
+                } catch {
+                    return null;
+                }
+            })(),
+        });
         isPlacingComment.value = active;
         emitAnnotationNotePlacementChange(active);
     }
@@ -842,17 +1279,53 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         clientX: number,
         clientY: number,
         targetElement?: HTMLElement | null,
+        diagnosticsContext?: INotePlacementDiagnosticsContext,
     ) {
-        const target = resolvePagePointTarget(clientX, clientY, targetElement);
+        const attemptId = diagnosticsContext?.attemptId
+            ?? `note-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        const viewer = viewerContainer.value;
+        const viewerRect = viewer?.getBoundingClientRect() ?? null;
+        const enrichedDiagnosticsContext: INotePlacementDiagnosticsContext = {
+            ...diagnosticsContext,
+            attemptId,
+        };
+        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note placeCommentAtClientPoint invoked', {
+            attemptId,
+            source: diagnosticsContext?.source ?? null,
+            clickCapturedAtMs: diagnosticsContext?.clickCapturedAtMs ?? null,
+            nowMs: Date.now(),
+            currentPage: currentPage.value,
+            annotationTool: annotationTool.value,
+            isPlacingComment: isPlacingComment.value,
+            clientX: roundForLog(clientX),
+            clientY: roundForLog(clientY),
+            clickTarget: summarizeElementForLog(targetElement ?? null),
+            viewerRect: viewerRect ? toRectLog(viewerRect) : null,
+            viewerScrollTop: viewer?.scrollTop ?? null,
+            viewerScrollLeft: viewer?.scrollLeft ?? null,
+            clickMeta: diagnosticsContext?.clickMeta ?? null,
+        });
+        const target = resolvePagePointTarget(clientX, clientY, targetElement, enrichedDiagnosticsContext);
         if (!target) {
+            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'placeCommentAtClientPoint aborted: no resolved target', {attemptId});
             return false;
         }
         const created = await commentAtPoint(
             target.pageNumber,
             target.pageX,
             target.pageY,
-            { preferTextAnchor: false },
+            {
+                preferTextAnchor: false,
+                diagnosticsContext: enrichedDiagnosticsContext,
+            },
         );
+        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'placeCommentAtClientPoint finished', {
+            attemptId,
+            created,
+            resolvedPageNumber: target.pageNumber,
+            resolvedPageX: roundForLog(target.pageX, 4),
+            resolvedPageY: roundForLog(target.pageY, 4),
+        });
         if (created) {
             setCommentPlacementMode(false);
         }
