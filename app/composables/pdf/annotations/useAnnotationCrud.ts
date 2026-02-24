@@ -102,7 +102,11 @@ interface ICrudInlineIndicators {
 
 interface ICrudHighlight {
     isPlacingComment: Ref<boolean>;
-    placeCommentAtClientPoint: (clientX: number, clientY: number) => Promise<boolean>;
+    placeCommentAtClientPoint: (
+        clientX: number,
+        clientY: number,
+        targetElement?: HTMLElement | null,
+    ) => Promise<boolean>;
     findPageContainerFromClientPoint: (clientX: number, clientY: number) => HTMLElement | null;
     buildAnnotationContextMenuPayload: (
         summary: IAnnotationCommentSummary | null,
@@ -998,10 +1002,11 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
 
         const highlight = getHighlight();
         const inlineIndicators = getInlineIndicators();
+        const clickTarget = event.target;
 
         if (highlight.isPlacingComment.value) {
             runGuardedTask(
-                () => highlight.placeCommentAtClientPoint(event.clientX, event.clientY),
+                () => highlight.placeCommentAtClientPoint(event.clientX, event.clientY, clickTarget),
                 {
                     scope: 'annotations',
                     message: 'Failed to place annotation comment at pointer location', 
