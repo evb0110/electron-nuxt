@@ -47,6 +47,7 @@ vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
+    warnThrottled: vi.fn(),
 }}));
 
 describe('usePdfSearch', () => {

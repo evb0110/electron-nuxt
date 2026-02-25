@@ -24,6 +24,7 @@ const loggerDebug = vi.fn();
 
 vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {
     warn: loggerWarn,
+    warnThrottled: vi.fn(),
     debug: loggerDebug,
     error: vi.fn(),
 }}));

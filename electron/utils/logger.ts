@@ -8,7 +8,6 @@ import {
     dirname,
     join,
 } from 'path';
-import { config } from '@electron/config';
 
 interface ILogMessage {
     source: string;
@@ -53,7 +52,7 @@ function shouldLog(level: TLogLevel, minLevel: TLogLevel) {
 
 const FILE_LOG_LEVEL = normalizeLogLevel(process.env.ELECTRON_FILE_LOG_LEVEL) ?? 'DEBUG';
 const RENDER_LOG_LEVEL = normalizeLogLevel(process.env.ELECTRON_RENDER_LOG_LEVEL)
-    ?? (config.isDev ? 'INFO' : 'WARN');
+    ?? 'WARN';
 
 const LOG_DIR = join(tmpdir(), 'electron-logs');
 
