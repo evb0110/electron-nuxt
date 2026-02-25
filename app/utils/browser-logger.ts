@@ -35,12 +35,13 @@ function normalizeLogLevel(value: unknown): TBrowserLogLevel | null {
     return null;
 }
 
-const DEFAULT_LOG_LEVEL: TBrowserLogLevel = import.meta.dev ? 'info' : 'warn';
+const DEFAULT_LOG_LEVEL: TBrowserLogLevel = 'warn';
 const DIAGNOSTIC_WARNING_SECTIONS = new Set([
     'pdf-nav',
     'pdf-thumbnails',
     'note-placement',
     'loader',
+    'pdf-zoom-debug',
 ]);
 const THROTTLED_LOG_STATE = new Map<string, {
     lastAtMs: number;
