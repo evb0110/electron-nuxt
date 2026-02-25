@@ -23,7 +23,16 @@ export interface IScrollSnapshot {
     centerX: number;
     centerY: number;
     anchorPage?: number | null;
+    anchorInsidePage?: boolean;
     anchorOffsetRatio?: number;
+    anchorViewportX?: number;
+    anchorViewportY?: number;
+    anchorContentXRatio?: number;
+    anchorContentYRatio?: number;
+    anchorPageXRatio?: number;
+    anchorPageYRatio?: number;
+    anchorPageYOutsideEdge?: 'inside' | 'above' | 'below';
+    anchorPageYOutsideOffsetPx?: number | null;
 }
 
 export type TPdfSource =
