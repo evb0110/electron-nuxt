@@ -44,14 +44,18 @@ function createWheelEvent(
     timeStamp: number,
     deltaX = 0,
     deltaMode = 0,
+    modifiers?: {
+        ctrlKey?: boolean;
+        metaKey?: boolean;
+    },
 ): WheelEvent {
     return cast<WheelEvent>({
         deltaX,
         deltaY,
         deltaMode,
         timeStamp,
-        ctrlKey: false,
-        metaKey: false,
+        ctrlKey: modifiers?.ctrlKey ?? false,
+        metaKey: modifiers?.metaKey ?? false,
         preventDefault: vi.fn(),
     });
 }
@@ -292,6 +296,26 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
 
     afterEach(() => {
         vi.unstubAllGlobals();
+    });
+
+    it('ignores ctrl/meta wheel packets to avoid competing with zoom gestures', () => {
+        const {
+            container,
+            currentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness();
+
+        const ctrlEvent = createWheelEvent(120, 10, 0, 0, {ctrlKey: true});
+        singlePageScroll.handleWheel(ctrlEvent);
+        expect(currentPage.value).toBe(1);
+        expect(container.scrollTop).toBe(0);
+        expect(ctrlEvent.preventDefault).not.toHaveBeenCalled();
+
+        const metaEvent = createWheelEvent(120, 20, 0, 0, {metaKey: true});
+        singlePageScroll.handleWheel(metaEvent);
+        expect(currentPage.value).toBe(1);
+        expect(container.scrollTop).toBe(0);
+        expect(metaEvent.preventDefault).not.toHaveBeenCalled();
     });
 
     it('scrolls inside tall page first, then flips only at page edge', () => {

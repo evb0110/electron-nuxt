@@ -31,6 +31,9 @@ interface IClassList {
 interface INodeLike {
     style: Record<string, string>;
     classList: IClassList;
+    dataset?: Record<string, string>;
+    offsetTop?: number;
+    offsetHeight?: number;
     innerHTML?: string;
     hidden?: boolean;
     dir?: string;
@@ -165,6 +168,9 @@ function createPageContainer(overrides?: {
     ]);
 
     const pageContainer: INodeLike = {
+        dataset: { page: '1' },
+        offsetTop: 0,
+        offsetHeight: 180,
         style: {},
         classList: createClassList(),
         querySelector: vi.fn((selector: string) => selectorMap.get(selector) ?? null),
@@ -215,6 +221,63 @@ function createRenderResult() {
 }
 
 describe('usePdfPageRenderer resilience', () => {
+    it('re-renders visible pages in place when preserving existing pages', async () => {
+        const { pageContainer } = createPageContainer();
+        const containerRoot = createContainerRoot(pageContainer);
+        const pageContainerClassList = pageContainer.classList;
+
+        const documentState = {
+            pdfDocument: shallowRef({} as object),
+            numPages: ref(1),
+            basePageWidth: ref(100),
+            basePageHeight: ref(100),
+            isLoading: ref(false),
+            getPage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
+            evictPage: vi.fn(),
+            cleanupPageCache: vi.fn(),
+        };
+
+        canvasRendererMock.renderCanvas
+            .mockResolvedValueOnce(createRenderResult())
+            .mockResolvedValueOnce(createRenderResult());
+        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
+        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
+
+        const renderer = usePdfPageRenderer({
+            container: ref(containerRoot),
+            document: documentState as never,
+            currentPage: ref(1),
+            effectiveScale: ref(1),
+            bufferPages: ref(0),
+            showAnnotations: ref(true),
+            annotationUiManager: ref(null),
+            annotationL10n: ref(null),
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+        });
+
+        await renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        });
+        expect(renderer.isPageRendered(1)).toBe(true);
+
+        vi.clearAllMocks();
+
+        await renderer.reRenderAllVisiblePages(
+            () => ({
+                start: 1,
+                end: 1,
+            }),
+            { preserveExistingPages: true },
+        );
+
+        expect(canvasRendererMock.renderCanvas).toHaveBeenCalledTimes(1);
+        expect(renderer.isPageRendered(1)).toBe(true);
+        expect(pageContainerClassList.remove).not.toHaveBeenCalled();
+    });
+
     it('keeps page rendered when text layer rendering fails', async () => {
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
