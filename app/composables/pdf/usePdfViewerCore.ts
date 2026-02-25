@@ -34,7 +34,7 @@ import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { runGuardedTask } from '@app/utils/async-guard';
 import { getVisiblePageDebugSnapshot } from '@app/composables/pdf/pdfScrollVisibility';
-import {captureScrollSnapshot} from '@app/composables/pdf/pdfPageRenderPipeline';
+import { captureScrollSnapshot } from '@app/composables/pdf/pdfPageRenderPipeline';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
 type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;
@@ -90,6 +90,7 @@ interface IUsePdfViewerCoreOptions {
             disableVerticalAnchorRestore?: boolean;
             disablePageAnchorRestore?: boolean;
             rerenderSource?: string;
+            renderBufferOverride?: number;
         },
     ) => Promise<void>;
     cleanupRenderedPages: () => void;
@@ -245,6 +246,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     const CURRENT_PAGE_SYNC_SAMPLE_COUNT = 3;
     const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
     const ZOOM_RERENDER_DEFER_WHILE_GESTURE_MS = 80;
+    const ZOOM_RERENDER_DURING_GESTURE_MIN_INTERVAL_MS = 110;
     let reRenderSyncRunId = 0;
     let currentPageSyncRunId = 0;
     let currentPageEmitEventId = 0;
@@ -254,6 +256,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     let zoomRerenderFrameScheduled = false;
     let zoomRerenderDeferredTimer: ReturnType<typeof setTimeout> | null = null;
     let zoomRerenderQueueProcessing = false;
+    let lastZoomRerenderFrameAtMs = 0;
     let deferredResizeSyncAfterZoom: {
         stage: string;
         syncOptions: ICurrentPageSyncOptions;
@@ -496,12 +499,30 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     }
 
     function scheduleZoomRerender() {
-        if (isZoomInteractionLocked?.()) {
-            const deferScheduled = deferZoomRerenderWhileGestureActive();
-            if (deferScheduled) {
-                BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-defer-while-gesture-active', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] defer while gesture active');
+        const isGestureLocked = isZoomInteractionLocked?.() ?? false;
+        if (isGestureLocked) {
+            const nowMs = Date.now();
+            const elapsedSinceLastFrameMs = nowMs - lastZoomRerenderFrameAtMs;
+            const shouldThrottleDuringGesture = lastZoomRerenderFrameAtMs > 0
+                && elapsedSinceLastFrameMs < ZOOM_RERENDER_DURING_GESTURE_MIN_INTERVAL_MS;
+            if (shouldThrottleDuringGesture) {
+                const deferScheduled = deferZoomRerenderWhileGestureActive();
+                if (deferScheduled) {
+                    BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-defer-while-gesture-active', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] defer while gesture active', {
+                        throttleIntervalMs: ZOOM_RERENDER_DURING_GESTURE_MIN_INTERVAL_MS,
+                        elapsedSinceLastFrameMs,
+                    });
+                }
+                return;
             }
-            return;
+            BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-allow-during-gesture', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] allow frame while gesture active', {
+                throttleIntervalMs: ZOOM_RERENDER_DURING_GESTURE_MIN_INTERVAL_MS,
+                elapsedSinceLastFrameMs: lastZoomRerenderFrameAtMs > 0
+                    ? elapsedSinceLastFrameMs
+                    : null,
+            });
+        } else {
+            lastZoomRerenderFrameAtMs = 0;
         }
         clearZoomRerenderDeferredTimer();
         if (zoomRerenderFrameScheduled) {
@@ -514,6 +535,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         runGuardedTask(async () => {
             await waitForAnimationFrame();
             zoomRerenderFrameScheduled = false;
+            lastZoomRerenderFrameAtMs = Date.now();
             reportZoomBusyStateIfChanged('frame-fired');
             BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-frame-fired', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] frame fired');
             await processPendingZoomRerenderQueue();
@@ -583,6 +605,13 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     function shouldPreserveExistingPagesDuringRerender(source: string) {
         return source === 'zoom-change' || source === 'fit-mode';
+    }
+
+    function resolveRerenderBufferOverride(source: string) {
+        if (source === 'zoom-change' || source === 'fit-mode') {
+            return 0;
+        }
+        return undefined;
     }
 
     function pickMostFrequentPage(pages: number[]) {
@@ -796,6 +825,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             preserveExistingPages: shouldPreserveExistingPagesDuringRerender(source),
             anchorSnapshot: syncOptions.resizeAnchor?.snapshot ?? null,
             rerenderSource: source,
+            renderBufferOverride: resolveRerenderBufferOverride(source),
         });
         if (runId !== reRenderSyncRunId) {
             if (source === 'zoom-change') {
@@ -1137,6 +1167,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         clearZoomRerenderDeferredTimer();
         zoomRerenderFrameScheduled = false;
         zoomRerenderQueueProcessing = false;
+        lastZoomRerenderFrameAtMs = 0;
         deferredResizeSyncAfterZoom = null;
         lastReportedZoomBusy = false;
         setZoomRerenderBusy?.(false);
@@ -1162,7 +1193,11 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
                 : null;
         const updated = computeFitWidthScale(viewerContainer.value);
         if (updated && pdfDocument.value) {
-            await reRenderAllVisiblePages(getVisibleRange, {preserveExistingPages: true});
+            await reRenderAllVisiblePages(getVisibleRange, {
+                preserveExistingPages: true,
+                rerenderSource: 'fit-mode',
+                renderBufferOverride: 0,
+            });
             if (pageToSnapTo === null) {
                 await syncCurrentPageFromViewport({
                     source: 'fit-mode',

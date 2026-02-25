@@ -641,6 +641,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             disableVerticalAnchorRestore?: boolean;
             disablePageAnchorRestore?: boolean;
             rerenderSource?: string;
+            renderBufferOverride?: number;
         },
     ) {
         const preserveExistingPages = rerenderOptions?.preserveExistingPages ?? false;
@@ -649,6 +650,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         const disableVerticalAnchorRestore = rerenderOptions?.disableVerticalAnchorRestore ?? false;
         const disablePageAnchorRestore = rerenderOptions?.disablePageAnchorRestore ?? false;
         const rerenderSource = rerenderOptions?.rerenderSource ?? 'unknown';
+        const renderBufferOverride = rerenderOptions?.renderBufferOverride;
         const version = bumpRenderVersion();
         const containerAtCapture = options.container.value;
         const snapshot = captureScrollSnapshot(containerAtCapture);
@@ -754,6 +756,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 await renderVisiblePages(visibleRange, {
                     preserveRenderedPages: true,
                     forceRerender: true,
+                    bufferOverride: renderBufferOverride,
                 });
                 return;
             }
@@ -828,7 +831,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
 
             const visibleRange = getVisibleRange();
-            await renderVisiblePages(visibleRange);
+            await renderVisiblePages(visibleRange, { bufferOverride: renderBufferOverride });
         } finally {
             renderMutex.release();
         }
