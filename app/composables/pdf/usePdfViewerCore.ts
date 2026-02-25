@@ -91,8 +91,10 @@ interface IUsePdfViewerCoreOptions {
             disablePageAnchorRestore?: boolean;
             rerenderSource?: string;
             renderBufferOverride?: number;
+            maxCanvasPixelsOverride?: number;
         },
     ) => Promise<void>;
+    cancelInFlightPageRenders?: () => void;
     cleanupRenderedPages: () => void;
     invalidateRenderedPages: (pages: number[]) => void;
     applySearchHighlights: () => void;
@@ -106,13 +108,14 @@ interface IUsePdfViewerCoreOptions {
         numPages: number,
     ) => number;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
-    scrollToPage: (pageNumber: number) => void;
+    scrollToPage: (pageNumber: number, options?: { preferExactDom?: boolean; }) => void;
     resetContinuousScrollState: () => void;
     startDrag: (e: MouseEvent, container: HTMLElement | null) => void;
     onDrag: (e: MouseEvent, container: HTMLElement | null) => void;
     stopDrag: () => void;
     consumeZoomViewportAnchor?: () => IZoomViewportAnchor | null;
     isZoomInteractionLocked?: () => boolean;
+    isZoomGestureSessionLocked?: () => boolean;
     setZoomRerenderBusy?: (busy: boolean) => void;
     setResizeTransitionVisible?: (payload: IResizeTransitionSignal) => void;
     emit: {
@@ -207,6 +210,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         setupPagePlaceholders,
         renderVisiblePages,
         reRenderAllVisiblePages,
+        cancelInFlightPageRenders,
         cleanupRenderedPages,
         invalidateRenderedPages,
         applySearchHighlights,
@@ -220,6 +224,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         onDrag,
         consumeZoomViewportAnchor,
         isZoomInteractionLocked,
+        isZoomGestureSessionLocked,
         setZoomRerenderBusy,
         setResizeTransitionVisible,
         emit,
@@ -247,6 +252,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
     const ZOOM_RERENDER_DEFER_WHILE_GESTURE_MS = 80;
     const ZOOM_RERENDER_DURING_GESTURE_MIN_INTERVAL_MS = 110;
+    const ZOOM_GESTURE_MAX_CANVAS_PIXELS = 14_000_000;
     let reRenderSyncRunId = 0;
     let currentPageSyncRunId = 0;
     let currentPageEmitEventId = 0;
@@ -257,6 +263,8 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     let zoomRerenderDeferredTimer: ReturnType<typeof setTimeout> | null = null;
     let zoomRerenderQueueProcessing = false;
     let lastZoomRerenderFrameAtMs = 0;
+    let zoomGestureLowResRerenderUsed = false;
+    let zoomSettleCheckTimer: ReturnType<typeof setTimeout> | null = null;
     let deferredResizeSyncAfterZoom: {
         stage: string;
         syncOptions: ICurrentPageSyncOptions;
@@ -275,6 +283,57 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             clearTimeout(zoomRerenderDeferredTimer);
             zoomRerenderDeferredTimer = null;
         }
+    }
+
+    function clearZoomSettleCheckTimer() {
+        if (zoomSettleCheckTimer !== null) {
+            clearTimeout(zoomSettleCheckTimer);
+            zoomSettleCheckTimer = null;
+        }
+    }
+
+    function scheduleZoomSettleRerenderIfNeeded() {
+        if (!zoomGestureLowResRerenderUsed || pendingZoomSyncOptions) {
+            return;
+        }
+        if (!pdfDocument.value || isLoading.value) {
+            return;
+        }
+        const gestureSessionLocked = isZoomGestureSessionLocked?.() ?? false;
+        if (gestureSessionLocked) {
+            if (zoomSettleCheckTimer !== null) {
+                return;
+            }
+            zoomSettleCheckTimer = setTimeout(() => {
+                zoomSettleCheckTimer = null;
+                scheduleZoomSettleRerenderIfNeeded();
+            }, ZOOM_RERENDER_DEFER_WHILE_GESTURE_MS);
+            return;
+        }
+
+        zoomGestureLowResRerenderUsed = false;
+        pendingZoomSyncOptions = {
+            source: 'zoom-settle',
+            stabilize: true,
+            resizeAnchor: buildResizeAnchorContext(),
+        };
+        reportZoomBusyStateIfChanged('zoom-settle-enqueue');
+        scheduleZoomRerender();
+    }
+
+    function resetZoomRerenderQueueState(reason: string) {
+        pendingZoomSyncOptions = null;
+        clearZoomRerenderDeferredTimer();
+        clearZoomSettleCheckTimer();
+        zoomGestureLowResRerenderUsed = false;
+        BrowserLogger.warnThrottled(
+            'pdf-zoom-debug',
+            'zoom-queue-reset',
+            ZOOM_QUEUE_LOG_THROTTLE_MS,
+            '[zoom-queue] reset',
+            { reason },
+        );
+        reportZoomBusyStateIfChanged(`reset:${reason}`);
     }
 
     function deferZoomRerenderWhileGestureActive() {
@@ -493,6 +552,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
                 BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-queue-pending-remains', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-queue] pending remains after processing; schedule again');
                 scheduleZoomRerender();
             }
+            scheduleZoomSettleRerenderIfNeeded();
             reportZoomBusyStateIfChanged('queue-end');
             flushDeferredResizeRerender('zoom-queue-drained');
         }
@@ -604,14 +664,25 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     }
 
     function shouldPreserveExistingPagesDuringRerender(source: string) {
-        return source === 'zoom-change' || source === 'fit-mode';
+        return source === 'zoom-change' || source === 'zoom-settle' || source === 'fit-mode';
     }
 
     function resolveRerenderBufferOverride(source: string) {
-        if (source === 'zoom-change' || source === 'fit-mode') {
+        if (source === 'zoom-change' || source === 'zoom-settle' || source === 'fit-mode') {
             return 0;
         }
         return undefined;
+    }
+
+    function resolveMaxCanvasPixelsOverride(source: string) {
+        if (source !== 'zoom-change') {
+            return undefined;
+        }
+        const gestureSessionLocked = isZoomGestureSessionLocked?.() ?? false;
+        if (!gestureSessionLocked) {
+            return undefined;
+        }
+        return ZOOM_GESTURE_MAX_CANVAS_PIXELS;
     }
 
     function pickMostFrequentPage(pages: number[]) {
@@ -821,11 +892,16 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             },
             viewer: summarizeViewerMetricsForLog(viewerContainer.value),
         });
+        const maxCanvasPixelsOverride = resolveMaxCanvasPixelsOverride(source);
+        if (maxCanvasPixelsOverride !== undefined) {
+            zoomGestureLowResRerenderUsed = true;
+        }
         await reRenderAllVisiblePages(getVisibleRange, {
             preserveExistingPages: shouldPreserveExistingPagesDuringRerender(source),
             anchorSnapshot: syncOptions.resizeAnchor?.snapshot ?? null,
             rerenderSource: source,
             renderBufferOverride: resolveRerenderBufferOverride(source),
+            maxCanvasPixelsOverride,
         });
         if (runId !== reRenderSyncRunId) {
             if (source === 'zoom-change') {
@@ -1165,9 +1241,11 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     onUnmounted(() => {
         pendingZoomSyncOptions = null;
         clearZoomRerenderDeferredTimer();
+        clearZoomSettleCheckTimer();
         zoomRerenderFrameScheduled = false;
         zoomRerenderQueueProcessing = false;
         lastZoomRerenderFrameAtMs = 0;
+        zoomGestureLowResRerenderUsed = false;
         deferredResizeSyncAfterZoom = null;
         lastReportedZoomBusy = false;
         setZoomRerenderBusy?.(false);
@@ -1187,12 +1265,14 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     });
 
     watch(fitMode, async (mode) => {
+        resetZoomRerenderQueueState('fit-mode-change');
         const pageToSnapTo =
             mode === 'height'
                 ? getMostVisiblePage(viewerContainer.value, numPages.value)
                 : null;
         const updated = computeFitWidthScale(viewerContainer.value);
         if (updated && pdfDocument.value) {
+            cancelInFlightPageRenders?.();
             await reRenderAllVisiblePages(getVisibleRange, {
                 preserveExistingPages: true,
                 rerenderSource: 'fit-mode',
@@ -1206,7 +1286,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             }
             if (pageToSnapTo !== null) {
                 await nextTick();
-                scrollToPage(pageToSnapTo);
+                scrollToPage(pageToSnapTo, { preferExactDom: true });
             }
         }
     });
@@ -1223,6 +1303,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             setupPagePlaceholders();
         }
 
+        cancelInFlightPageRenders?.();
         await reRenderAllVisiblePages(getVisibleRange);
         await nextTick();
         scrollToPage(pageToSnapTo);
@@ -1266,6 +1347,8 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     watch(zoom, (nextZoom, previousZoom) => {
         if (pdfDocument.value) {
+            clearZoomSettleCheckTimer();
+            cancelInFlightPageRenders?.();
             const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
             const zoomAnchor = buildResizeAnchorContext({
                 anchorViewportX: zoomViewportAnchor?.x ?? null,
