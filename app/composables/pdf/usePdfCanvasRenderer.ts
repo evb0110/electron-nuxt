@@ -14,6 +14,16 @@ interface ICanvasRenderResult {
     totalScaleFactor: number;
 }
 
+interface ICancelableRenderTask {
+    cancel: () => void;
+    promise: Promise<unknown>;
+}
+
+interface IRenderCanvasOptions {
+    maxCanvasPixels?: number;
+    onRenderTask?: (task: ICancelableRenderTask) => void;
+}
+
 export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
     const { outputScale } = deps;
 
@@ -26,6 +36,7 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
     async function renderCanvas(
         pdfPage: PDFPageProxy,
         scale: number,
+        options?: IRenderCanvasOptions,
     ): Promise<ICanvasRenderResult | null> {
         const viewport = pdfPage.getViewport({ scale });
         const userUnit = viewport.userUnit ?? 1;
@@ -55,8 +66,20 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
             );
             return null;
         }
-        const pixelWidth = Math.max(1, Math.round(cssWidth * outputScale));
-        const pixelHeight = Math.max(1, Math.round(cssHeight * outputScale));
+        const requestedPixelWidth = Math.max(1, Math.round(cssWidth * outputScale));
+        const requestedPixelHeight = Math.max(1, Math.round(cssHeight * outputScale));
+        const requestedPixelCount = requestedPixelWidth * requestedPixelHeight;
+        const maxCanvasPixels = typeof options?.maxCanvasPixels === 'number'
+            && Number.isFinite(options.maxCanvasPixels)
+            && options.maxCanvasPixels > 0
+            ? Math.max(1, Math.round(options.maxCanvasPixels))
+            : null;
+        const shouldClampPixels = maxCanvasPixels !== null && requestedPixelCount > maxCanvasPixels;
+        const pixelScaleFactor = shouldClampPixels
+            ? Math.sqrt(maxCanvasPixels / requestedPixelCount)
+            : 1;
+        const pixelWidth = Math.max(1, Math.round(requestedPixelWidth * pixelScaleFactor));
+        const pixelHeight = Math.max(1, Math.round(requestedPixelHeight * pixelScaleFactor));
 
         canvas.width = pixelWidth;
         canvas.height = pixelHeight;
@@ -91,7 +114,9 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
             viewport,
         };
 
-        await pdfPage.render(renderContext).promise;
+        const renderTask = pdfPage.render(renderContext) as ICancelableRenderTask;
+        options?.onRenderTask?.(renderTask);
+        await renderTask.promise;
 
         return {
             canvas,

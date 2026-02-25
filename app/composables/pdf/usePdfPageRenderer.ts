@@ -82,6 +82,11 @@ interface IUsePdfPageRendererOptions {
     workingCopyPath?: MaybeRefOrGetter<string | null>;
 }
 
+interface ICancelableRenderTask {
+    cancel: () => void;
+    promise: Promise<unknown>;
+}
+
 export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const {
         pdfDocument,
@@ -129,13 +134,37 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const renderedPages = new Set<number>();
     const staleRenderedPages = new Set<number>();
     const renderingPages = new Map<number, number>();
+    const activeRenderTasks = new Map<number, {
+        version: number;
+        task: ICancelableRenderTask;
+    }>();
     const pageCanvases = new Map<number, HTMLCanvasElement>();
     const textLayerCleanupFns = new Map<number, () => void>();
 
     const RENDERED_CONTAINER_CLASS = 'page_container--rendered';
 
+    function cancelActiveRenderTask(pageNumber: number) {
+        const activeRenderTask = activeRenderTasks.get(pageNumber);
+        if (!activeRenderTask) {
+            return;
+        }
+        activeRenderTasks.delete(pageNumber);
+        try {
+            activeRenderTask.task.cancel();
+        } catch {
+            // Ignore cancellation failures.
+        }
+    }
+
+    function cancelAllActiveRenderTasks() {
+        for (const pageNumber of Array.from(activeRenderTasks.keys())) {
+            cancelActiveRenderTask(pageNumber);
+        }
+    }
+
     function bumpRenderVersion() {
         renderVersion += 1;
+        cancelAllActiveRenderTasks();
         return renderVersion;
     }
 
@@ -224,6 +253,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
     function cleanupPage(pageNumber: number) {
         const containerRoot = options.container.value;
+        cancelActiveRenderTask(pageNumber);
 
         cleanupTextLayer(pageNumber);
 
@@ -314,6 +344,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             preserveRenderedPages?: boolean;
             bufferOverride?: number;
             forceRerender?: boolean;
+            maxCanvasPixelsOverride?: number;
         },
     ) {
         const containerRoot = options.container.value;
@@ -390,6 +421,27 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         const renderResult = await canvasRenderer.renderCanvas(
                             pdfPage,
                             scale,
+                            {
+                                maxCanvasPixels: renderOptions?.maxCanvasPixelsOverride,
+                                onRenderTask: (task) => {
+                                    if (renderVersion !== version) {
+                                        try {
+                                            task.cancel();
+                                        } catch {
+                                            // Ignore cancellation failures.
+                                        }
+                                        return;
+                                    }
+                                    const previousTask = activeRenderTasks.get(pageNumber);
+                                    if (previousTask && previousTask.task !== task) {
+                                        cancelActiveRenderTask(pageNumber);
+                                    }
+                                    activeRenderTasks.set(pageNumber, {
+                                        version,
+                                        task,
+                                    });
+                                },
+                            },
                         );
                         if (!renderResult) {
                             return;
@@ -623,6 +675,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             }
                         }
                     } finally {
+                        const activeRenderTask = activeRenderTasks.get(pageNumber);
+                        if (activeRenderTask && activeRenderTask.version === version) {
+                            activeRenderTasks.delete(pageNumber);
+                        }
                         if (renderingPages.get(pageNumber) === version) {
                             renderingPages.delete(pageNumber);
                         }
@@ -642,6 +698,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             disablePageAnchorRestore?: boolean;
             rerenderSource?: string;
             renderBufferOverride?: number;
+            maxCanvasPixelsOverride?: number;
         },
     ) {
         const preserveExistingPages = rerenderOptions?.preserveExistingPages ?? false;
@@ -651,6 +708,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         const disablePageAnchorRestore = rerenderOptions?.disablePageAnchorRestore ?? false;
         const rerenderSource = rerenderOptions?.rerenderSource ?? 'unknown';
         const renderBufferOverride = rerenderOptions?.renderBufferOverride;
+        const maxCanvasPixelsOverride = rerenderOptions?.maxCanvasPixelsOverride;
         const version = bumpRenderVersion();
         const containerAtCapture = options.container.value;
         const snapshot = captureScrollSnapshot(containerAtCapture);
@@ -757,6 +815,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     preserveRenderedPages: true,
                     forceRerender: true,
                     bufferOverride: renderBufferOverride,
+                    maxCanvasPixelsOverride,
                 });
                 return;
             }
@@ -831,7 +890,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
 
             const visibleRange = getVisibleRange();
-            await renderVisiblePages(visibleRange, { bufferOverride: renderBufferOverride });
+            await renderVisiblePages(visibleRange, {
+                bufferOverride: renderBufferOverride,
+                maxCanvasPixelsOverride,
+            });
         } finally {
             renderMutex.release();
         }
@@ -958,6 +1020,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
 
+    function cancelInFlightRenders() {
+        bumpRenderVersion();
+    }
+
     function requestScrollToCurrentResult() {
         const currentMatchValue = toValue(currentSearchMatch);
         if (!currentMatchValue) {
@@ -976,5 +1042,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         isPageRendered: (pageNumber: number) => renderedPages.has(pageNumber),
         requestScrollToCurrentResult,
         cancelPendingSearchScroll: searchMatchScroller.invalidatePendingRequests,
+        cancelInFlightRenders,
     };
 };

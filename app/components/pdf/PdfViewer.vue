@@ -435,6 +435,7 @@ const {
     isPageRendered,
     requestScrollToCurrentResult,
     cancelPendingSearchScroll,
+    cancelInFlightRenders,
 } = usePdfPageRenderer({
     container: viewerContainer,
     document: pdfDocumentResult,
@@ -544,6 +545,7 @@ const {
     setupPagePlaceholders,
     renderVisiblePages,
     reRenderAllVisiblePages,
+    cancelInFlightPageRenders: cancelInFlightRenders,
     cleanupRenderedPages,
     invalidateRenderedPages,
     applySearchHighlights,
@@ -551,7 +553,10 @@ const {
     getMostVisiblePage,
     updateCurrentPage,
     updateVisibleRange,
-    scrollToPage: (pageNumber) => singlePageScroll.scrollToPage(pageNumber),
+    scrollToPage: (
+        pageNumber,
+        options,
+    ) => singlePageScroll.scrollToPage(pageNumber, options),
     resetContinuousScrollState: () => singlePageScroll.resetContinuousScrollState(),
     startDrag,
     onDrag,
@@ -638,6 +643,7 @@ const {
         return pendingAnchor;
     },
     isZoomInteractionLocked: () => isWheelZoomGestureLocked(),
+    isZoomGestureSessionLocked: () => isWheelZoomGestureLocked(),
     setZoomRerenderBusy: (busy) => updateZoomRerenderBusyState(busy, 'viewer-core-callback'),
     setResizeTransitionVisible: handleResizeTransitionSignal,
     emit,
