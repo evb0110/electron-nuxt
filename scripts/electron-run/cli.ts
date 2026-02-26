@@ -27,16 +27,105 @@ import {
     stopSingleSession,
 } from './session-manager';
 
+const CLI_COMMANDS = [
+    'start',
+    'cleanstart',
+    'startd',
+    'stop',
+    'status',
+    'restart',
+    'restartd',
+    'list',
+    'screenshot',
+    'screenshots',
+    'console',
+    'devtools',
+    'click',
+    'type',
+    'content',
+    'waitfor',
+    'resize',
+    'viewport',
+    'run',
+    'run-file',
+    'eval',
+    'openPdf',
+    'health',
+] as const;
+
+type TCliCommand = typeof CLI_COMMANDS[number];
+const CLI_COMMAND_SET = new Set<TCliCommand>(CLI_COMMANDS);
+
+function isCliCommand(value: string): value is TCliCommand {
+    return CLI_COMMAND_SET.has(value as TCliCommand);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function parsePositivePid(value: unknown): number | null {
+    return typeof value === 'number' && Number.isInteger(value) && value > 0
+        ? value
+        : null;
+}
+
+function readLegacyPid(filePath: string): number | null {
+    try {
+        const parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+        if (!isRecord(parsed)) {
+            return null;
+        }
+        return parsePositivePid(parsed.pid);
+    } catch {
+        return null;
+    }
+}
+
+function parsePingResult(value: unknown): { uptime: number } | null {
+    if (!isRecord(value) || typeof value.uptime !== 'number' || !Number.isFinite(value.uptime)) {
+        return null;
+    }
+    return {uptime: value.uptime};
+}
+
+interface IHealthResult {
+    ready?: boolean;
+    health?: {
+        openFileDirect?: string;
+        electronAPI?: string;
+    };
+}
+
+function parseHealthResult(value: unknown): IHealthResult | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+
+    const healthValue = value.health;
+    const health = isRecord(healthValue)
+        ? {
+            openFileDirect: typeof healthValue.openFileDirect === 'string' ? healthValue.openFileDirect : undefined,
+            electronAPI: typeof healthValue.electronAPI === 'string' ? healthValue.electronAPI : undefined,
+        }
+        : undefined;
+
+    return {
+        ready: typeof value.ready === 'boolean' ? value.ready : undefined,
+        health,
+    };
+}
+
 function migrateLegacySessionFiles() {
     const legacySessionFile = join(projectRoot, '.devkit', 'electron-session.json');
     const legacyStartingFile = join(projectRoot, '.devkit', 'electron-session-starting.json');
 
     try {
         if (existsSync(legacySessionFile)) {
-            const info = JSON.parse(readFileSync(legacySessionFile, 'utf8'));
-            if (info.pid && isProcessAlive(info.pid)) {
+            const pid = readLegacyPid(legacySessionFile);
+            if (pid && isProcessAlive(pid)) {
                 try {
-                    process.kill(info.pid, 'SIGTERM');
+                    process.kill(pid, 'SIGTERM');
                 } catch {}
             }
             unlinkSync(legacySessionFile);
@@ -46,10 +135,10 @@ function migrateLegacySessionFiles() {
 
     try {
         if (existsSync(legacyStartingFile)) {
-            const starting = JSON.parse(readFileSync(legacyStartingFile, 'utf8'));
-            if (starting.pid && isProcessAlive(starting.pid)) {
+            const pid = readLegacyPid(legacyStartingFile);
+            if (pid && isProcessAlive(pid)) {
                 try {
-                    process.kill(starting.pid, 'SIGTERM');
+                    process.kill(pid, 'SIGTERM');
                 } catch {}
             }
             unlinkSync(legacyStartingFile);
@@ -138,16 +227,21 @@ export async function runCli() {
 
     setCurrentSessionName(sessionName);
     const [
-        command,
+        rawCommand,
         ...args
     ] = filteredArgs;
 
     migrateLegacySessionFiles();
 
-    if (!command) {
+    if (!rawCommand) {
         printUsage();
         process.exit(0);
     }
+    if (!isCliCommand(rawCommand)) {
+        console.error(`Unknown command: ${rawCommand}`);
+        process.exit(1);
+    }
+    const command = rawCommand;
 
     try {
         switch (command) {
@@ -176,20 +270,17 @@ export async function runCli() {
                     process.exit(1);
                 }
                 try {
-                    const pingResult = await sendCommand('ping') as { uptime: number };
+                    const pingResult = parsePingResult(await sendCommand('ping'));
+                    if (!pingResult) {
+                        throw new Error('Malformed ping response payload');
+                    }
                     try {
-                        const healthResult = await sendCommand('health') as {
-                            ready?: boolean;
-                            health?: {
-                                openFileDirect?: string;
-                                electronAPI?: string;
-                            };
-                        };
-                        if (healthResult.ready) {
+                        const healthResult = parseHealthResult(await sendCommand('health'));
+                        if (healthResult?.ready) {
                             console.log(`Session '${getCurrentSessionName()}' running (port: ${info.port}, uptime: ${Math.round(pingResult.uptime)}s) - App ready \u2713`);
                         } else {
-                            const openFileDirect = healthResult.health?.openFileDirect ?? 'unknown';
-                            const electronAPI = healthResult.health?.electronAPI ?? 'unknown';
+                            const openFileDirect = healthResult?.health?.openFileDirect ?? 'unknown';
+                            const electronAPI = healthResult?.health?.electronAPI ?? 'unknown';
                             console.log(`Session '${getCurrentSessionName()}' running (port: ${info.port}, uptime: ${Math.round(pingResult.uptime)}s) - \u26a0\ufe0f  App not ready (openFileDirect=${openFileDirect}, electronAPI=${electronAPI})`);
                         }
                     } catch {
@@ -371,10 +462,6 @@ export async function runCli() {
                 console.log(JSON.stringify(result, null, 2));
                 break;
             }
-
-            default:
-                console.error(`Unknown command: ${command}`);
-                process.exit(1);
         }
     } catch (error) {
         console.error('Error:', error instanceof Error ? error.message : error);

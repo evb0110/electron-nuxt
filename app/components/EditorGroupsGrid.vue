@@ -120,6 +120,7 @@ import type {
     TEditorLayoutNode,
     TGroupOrientation,
 } from '@app/types/editor-groups';
+import type { TOpenFileResult } from '@app/types/electron-api';
 import { hasDocumentMountHint } from '@app/composables/page/workspace-host-mounting';
 
 defineOptions({name: 'EditorGroupsGrid'});
@@ -143,7 +144,7 @@ const emit = defineEmits<{
     'tab-context-command': [groupId: string, tabId: string, command: TTabContextCommand];
     'set-workspace-ref': [tabId: string, el: unknown];
     'update-tab': [tabId: string, updates: TTabUpdate];
-    'open-in-new-tab': [result: string | import('@app/types/electron-api').TOpenFileResult, groupId: string];
+    'open-in-new-tab': [result: string | TOpenFileResult, groupId: string];
     'request-close-tab': [groupId: string, tabId: string];
     'open-settings': [];
     'update-split-ratio': [splitId: string, ratio: number];

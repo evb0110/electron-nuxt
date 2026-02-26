@@ -13,7 +13,9 @@ export interface IWorkerPaths {
     tempDir: string;
 }
 
-export type TWorkerLog = (level: 'debug' | 'warn' | 'error', message: string) => void;
+export type TOcrWorkerLogLevel = 'debug' | 'warn' | 'error';
+
+export type TWorkerLog = (level: TOcrWorkerLogLevel, message: string) => void;
 
 export interface IOcrPdfPageRequest {
     pageNumber: number;
@@ -34,6 +36,63 @@ export interface IOcrFileResult {
     pdfPath: string | null;
     error?: string;
 }
+
+export interface IOcrWorkerStartPayload {
+    originalPdfData: Uint8Array;
+    pages: IOcrPdfPageRequest[];
+    workingCopyPath?: string;
+    renderDpi?: number;
+}
+
+export type TOcrWorkerInboundMessage = {
+    type: 'start';
+    jobId: string;
+    data: IOcrWorkerStartPayload;
+};
+
+export interface IOcrWorkerProgressPayload {
+    requestId: string;
+    currentPage: number;
+    processedCount: number;
+    totalPages: number;
+}
+
+export type TOcrWorkerCompleteResult =
+    | {
+        success: true;
+        pdfData: Uint8Array | null;
+        pdfPath?: string;
+        requiresCleanupAck?: boolean;
+        errors: string[];
+    }
+    | {
+        success: false;
+        pdfData: null;
+        errors: string[];
+    };
+
+export type TOcrWorkerProgressMessage = {
+    type: 'progress';
+    jobId: string;
+    progress: IOcrWorkerProgressPayload;
+};
+
+export type TOcrWorkerCompleteMessage = {
+    type: 'complete';
+    jobId: string;
+    result: TOcrWorkerCompleteResult;
+};
+
+export type TOcrWorkerLogMessage = {
+    type: 'log';
+    level: TOcrWorkerLogLevel;
+    message: string;
+};
+
+export type TOcrWorkerOutboundMessage =
+    | TOcrWorkerProgressMessage
+    | TOcrWorkerCompleteMessage
+    | TOcrWorkerLogMessage;
 
 export type TRotation = 0 | 90 | 180 | 270;
 

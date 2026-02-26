@@ -1,7 +1,8 @@
-import type {Ref} from 'vue';
+import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
 import { hasElectronAPI } from '@app/utils/electron';
 import type { TAnnotationTool } from '@app/types/annotations';
+import type { TPdfSource } from '@app/types/pdf';
 
 interface IPdfViewerForShortcuts {
     cancelCommentPlacement: () => void;
@@ -10,7 +11,7 @@ interface IPdfViewerForShortcuts {
 
 export interface IPageShortcutsDeps {
     isActive: Ref<boolean>;
-    pdfSrc: Ref<unknown>;
+    pdfSrc: Ref<TPdfSource | null>;
     showSettings: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;
     annotationPlacingPageNote: Ref<boolean>;

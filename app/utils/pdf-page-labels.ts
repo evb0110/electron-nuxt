@@ -1,17 +1,16 @@
-import type {
-    IPdfPageLabelRange,
-    IPdfPageRange,
-    TPageLabelStyle,
+import {
+    PAGE_LABEL_STYLE_VALUES,
+    type IPdfPageLabelRange,
+    type IPdfPageRange,
+    type TPageLabelStyle,
 } from '@app/types/pdf';
 
-const PAGE_LABEL_STYLE_SET = new Set<TPageLabelStyle>([
-    null,
-    'D',
-    'R',
-    'r',
-    'A',
-    'a',
-]);
+type TNonNullPageLabelStyle = Exclude<TPageLabelStyle, null>;
+const PAGE_LABEL_STYLE_SET = new Set<TNonNullPageLabelStyle>(PAGE_LABEL_STYLE_VALUES);
+
+function isNonNullPageLabelStyle(style: unknown): style is TNonNullPageLabelStyle {
+    return typeof style === 'string' && PAGE_LABEL_STYLE_SET.has(style as TNonNullPageLabelStyle);
+}
 
 function clamp(value: number, min: number, max: number) {
     return Math.max(min, Math.min(max, value));
@@ -29,8 +28,8 @@ function normalizeStyle(style: unknown): TPageLabelStyle {
     if (style === null) {
         return null;
     }
-    if (typeof style === 'string' && PAGE_LABEL_STYLE_SET.has(style as TPageLabelStyle)) {
-        return style as TPageLabelStyle;
+    if (isNonNullPageLabelStyle(style)) {
+        return style;
     }
     return 'D';
 }

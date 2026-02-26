@@ -101,9 +101,9 @@ export const usePdfSkeletonInsets = (
             const originX = transform[4] ?? 0;
             const originY = transform[5] ?? 0;
 
-            const itemWidth = typeof item.width === 'number' ? (item.width as number) : 0;
+            const itemWidth = typeof item.width === 'number' ? (item.width) : 0;
             const itemHeight = typeof item.height === 'number'
-                ? (item.height as number)
+                ? (item.height)
                 : Math.abs(transform[3] ?? 0);
 
             const points = [

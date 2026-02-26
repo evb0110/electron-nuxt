@@ -14,75 +14,12 @@ import { Worker } from 'worker_threads';
 import { createLogger } from '@electron/utils/logger';
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
-
-interface ISearchExcerpt {
-    prefix: boolean;
-    suffix: boolean;
-    before: string;
-    match: string;
-    after: string;
-}
-
-interface ISearchMatch {
-    pageNumber: number;
-    pageMatchIndex: number;
-    matchIndex: number;
-    startOffset: number;
-    endOffset: number;
-    excerpt: ISearchExcerpt;
-}
-
-interface ISearchRequest {
-    pdfPath: string;
-    query: string;
-    requestId?: string;
-    pageCount?: number;
-}
-
-interface ISearchResponse {
-    results: ISearchMatch[];
-    truncated: boolean;
-}
-
-interface ISearchWorkerRequest {
-    requestId: string;
-    pdfPath: string;
-    query: string;
-    pageCount?: number;
-}
-
-type TSearchWorkerInboundMessage =
-    | {
-        type: 'search';
-        payload: ISearchWorkerRequest;
-    }
-    | {
-        type: 'cancel';
-        requestId: string;
-    }
-    | {type: 'reset-cache';};
-
-type TSearchWorkerOutboundMessage =
-    | {
-        type: 'progress';
-        requestId: string;
-        processed: number;
-        total: number;
-    }
-    | {
-        type: 'complete';
-        requestId: string;
-        response: ISearchResponse;
-    }
-    | {
-        type: 'cancelled';
-        requestId: string;
-    }
-    | {
-        type: 'error';
-        requestId: string;
-        error: string;
-    };
+import type {
+    ISearchRequest,
+    ISearchResponse,
+    TSearchWorkerInboundMessage,
+    TSearchWorkerOutboundMessage,
+} from '@electron/search/protocol';
 
 interface IPendingSearchRequest {
     resolve: (response: ISearchResponse) => void;
@@ -126,6 +63,133 @@ const SEARCH_WORKER_IDLE_TTL_MS = (() => {
     }
     return parsed;
 })();
+
+type TSearchMatch = ISearchResponse['results'][number];
+type TSearchExcerpt = TSearchMatch['excerpt'];
+
+function assertNever(value: never): never {
+    throw new Error(`Unhandled search worker message: ${JSON.stringify(value)}`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
+function parseSearchExcerpt(value: unknown): TSearchExcerpt | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    if (
+        typeof value.prefix !== 'boolean'
+        || typeof value.suffix !== 'boolean'
+        || typeof value.before !== 'string'
+        || typeof value.match !== 'string'
+        || typeof value.after !== 'string'
+    ) {
+        return null;
+    }
+    return {
+        prefix: value.prefix,
+        suffix: value.suffix,
+        before: value.before,
+        match: value.match,
+        after: value.after,
+    };
+}
+
+function parseSearchMatch(value: unknown): TSearchMatch | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const excerpt = parseSearchExcerpt(value.excerpt);
+    if (!excerpt) {
+        return null;
+    }
+    if (
+        !isFiniteNumber(value.pageNumber)
+        || !isFiniteNumber(value.pageMatchIndex)
+        || !isFiniteNumber(value.matchIndex)
+        || !isFiniteNumber(value.startOffset)
+        || !isFiniteNumber(value.endOffset)
+    ) {
+        return null;
+    }
+    return {
+        pageNumber: value.pageNumber,
+        pageMatchIndex: value.pageMatchIndex,
+        matchIndex: value.matchIndex,
+        startOffset: value.startOffset,
+        endOffset: value.endOffset,
+        excerpt,
+    };
+}
+
+function parseSearchResponse(value: unknown): ISearchResponse | null {
+    if (!isRecord(value) || !Array.isArray(value.results) || typeof value.truncated !== 'boolean') {
+        return null;
+    }
+    const results: TSearchMatch[] = [];
+    for (const result of value.results) {
+        const parsedResult = parseSearchMatch(result);
+        if (!parsedResult) {
+            return null;
+        }
+        results.push(parsedResult);
+    }
+    return {
+        results,
+        truncated: value.truncated,
+    };
+}
+
+function parseWorkerOutboundMessage(value: unknown): TSearchWorkerOutboundMessage | null {
+    if (!isRecord(value) || typeof value.type !== 'string' || typeof value.requestId !== 'string') {
+        return null;
+    }
+    switch (value.type) {
+        case 'progress':
+            if (!isFiniteNumber(value.processed) || !isFiniteNumber(value.total)) {
+                return null;
+            }
+            return {
+                type: 'progress',
+                requestId: value.requestId,
+                processed: value.processed,
+                total: value.total,
+            };
+        case 'complete': {
+            const response = parseSearchResponse(value.response);
+            if (!response) {
+                return null;
+            }
+            return {
+                type: 'complete',
+                requestId: value.requestId,
+                response,
+            };
+        }
+        case 'cancelled':
+            return {
+                type: 'cancelled',
+                requestId: value.requestId,
+            };
+        case 'error':
+            if (typeof value.error !== 'string') {
+                return null;
+            }
+            return {
+                type: 'error',
+                requestId: value.requestId,
+                error: value.error,
+            };
+        default:
+            return null;
+    }
+}
 
 function getWorkerPath(): string {
     const defaultPath = join(__dirname, 'search-worker.js');
@@ -336,39 +400,38 @@ function handleWorkerMessage(
     }
     markStateActivity(state);
 
-    if (message.type === 'progress') {
-        sendSearchProgress(senderId, {
-            requestId: message.requestId,
-            processed: message.processed,
-            total: message.total,
-        });
-        return;
+    switch (message.type) {
+        case 'progress':
+            sendSearchProgress(senderId, {
+                requestId: message.requestId,
+                processed: message.processed,
+                total: message.total,
+            });
+            return;
+        case 'complete':
+            if (state.activeRequestId === message.requestId) {
+                state.activeRequestId = null;
+            }
+            resolvePendingRequest(state, message.requestId, message.response);
+            return;
+        case 'cancelled':
+            if (state.activeRequestId === message.requestId) {
+                state.activeRequestId = null;
+            }
+            resolvePendingRequest(state, message.requestId, {
+                results: [],
+                truncated: false,
+            });
+            return;
+        case 'error':
+            if (state.activeRequestId === message.requestId) {
+                state.activeRequestId = null;
+            }
+            rejectPendingRequest(state, message.requestId, new Error(message.error));
+            return;
+        default:
+            assertNever(message);
     }
-
-    if (message.type === 'complete') {
-        if (state.activeRequestId === message.requestId) {
-            state.activeRequestId = null;
-        }
-        resolvePendingRequest(state, message.requestId, message.response);
-        return;
-    }
-
-    if (message.type === 'cancelled') {
-        if (state.activeRequestId === message.requestId) {
-            state.activeRequestId = null;
-        }
-        resolvePendingRequest(state, message.requestId, {
-            results: [],
-            truncated: false,
-        });
-        return;
-    }
-
-    if (state.activeRequestId === message.requestId) {
-        state.activeRequestId = null;
-    }
-
-    rejectPendingRequest(state, message.requestId, new Error(message.error));
 }
 
 function createSenderSearchState(senderId: number): ISenderSearchState {
@@ -385,8 +448,13 @@ function createSenderSearchState(senderId: number): ISenderSearchState {
     };
     log.info(`Search worker lifecycle: created worker for sender ${senderId}`);
 
-    worker.on('message', (message: TSearchWorkerOutboundMessage) => {
-        handleWorkerMessage(state, message);
+    worker.on('message', (message: unknown) => {
+        const parsedMessage = parseWorkerOutboundMessage(message);
+        if (!parsedMessage) {
+            log.warn(`Search worker sent malformed message for sender ${state.senderId}`);
+            return;
+        }
+        handleWorkerMessage(state, parsedMessage);
     });
 
     worker.on('error', (error: Error) => {
