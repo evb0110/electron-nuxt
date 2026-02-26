@@ -8,6 +8,7 @@ import type {
 import type {
     ICloseFileFromUiOptions,
     IWorkspaceExpose,
+    IWorkspaceToolbarSnapshot,
 } from '@app/types/workspace-expose';
 
 interface ICreateWorkspaceExposeDeps {
@@ -24,10 +25,34 @@ interface ICreateWorkspaceExposeDeps {
     handleExportImages: () => Promise<void>;
     handleExportMultiPageTiff: () => Promise<void>;
     hasPdf: Ref<boolean>;
+    canSave: Ref<boolean>;
+    canUndo: Ref<boolean>;
+    canRedo: Ref<boolean>;
+    canExportDocx: Ref<boolean>;
+    isSaving: Ref<boolean>;
+    isSavingAs: Ref<boolean>;
+    isAnySaving: Ref<boolean>;
+    isHistoryBusy: Ref<boolean>;
+    isExportingDocx: Ref<boolean>;
+    isFitWidthActive: Ref<boolean>;
+    isFitHeightActive: Ref<boolean>;
+    showSidebar: Ref<boolean>;
+    dragMode: Ref<boolean>;
+    continuousScroll: Ref<boolean>;
+    isCapturingRegion: Ref<boolean>;
+    isPlacingPageNote: Ref<boolean>;
     closeAllDropdowns: () => void;
     zoom: Ref<number>;
+    fitMode: Ref<TFitMode>;
     viewMode: Ref<TPdfViewMode>;
+    currentPage: Ref<number>;
     handleFitMode: (mode: TFitMode) => void;
+    handleToggleSidebar: () => void;
+    handleToggleContinuousScroll: () => void;
+    handleEnableDragMode: () => void;
+    handleDisableDragMode: () => void;
+    handleCaptureRegion: () => void;
+    handleQuickNote: () => void;
     selectedThumbnailPages: Ref<number[]>;
     pageOpsDelete: (pages: number[], totalPages: number) => Promise<boolean>;
     pageOpsExtract: (pages: number[]) => Promise<boolean>;
@@ -44,11 +69,55 @@ function getSelectedPages(selectedThumbnailPages: Ref<number[]>) {
     return selectedThumbnailPages.value;
 }
 
+function normalizeToolbarSnapshotPage(page: number | undefined) {
+    if (typeof page !== 'number' || !Number.isFinite(page)) {
+        return 1;
+    }
+    return Math.max(1, Math.floor(page));
+}
+
+function normalizeToolbarSnapshotTotalPages(totalPages: number | undefined, fallbackPage: number) {
+    if (typeof totalPages !== 'number' || !Number.isFinite(totalPages)) {
+        return fallbackPage;
+    }
+    return Math.max(fallbackPage, Math.floor(totalPages));
+}
+
 /**
  * Builds the public workspace command surface exposed to parent tabs/menu bindings.
  * Keeping this mapping centralized avoids duplicating command wiring in component files.
  */
 export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorkspaceExpose {
+    const getToolbarSnapshot = (): IWorkspaceToolbarSnapshot => {
+        const currentPage = normalizeToolbarSnapshotPage(deps.currentPage.value);
+        const totalPages = normalizeToolbarSnapshotTotalPages(deps.totalPages.value, currentPage);
+        return {
+            hasPdf: deps.hasPdf.value,
+            canSave: deps.canSave.value,
+            canUndo: deps.canUndo.value,
+            canRedo: deps.canRedo.value,
+            canExportDocx: deps.canExportDocx.value,
+            isSaving: deps.isSaving.value,
+            isSavingAs: deps.isSavingAs.value,
+            isAnySaving: deps.isAnySaving.value,
+            isHistoryBusy: deps.isHistoryBusy.value,
+            isExportingDocx: deps.isExportingDocx.value,
+            isFitWidthActive: deps.isFitWidthActive.value,
+            isFitHeightActive: deps.isFitHeightActive.value,
+            showSidebar: deps.showSidebar.value,
+            dragMode: deps.dragMode.value,
+            continuousScroll: deps.continuousScroll.value,
+            isDjvuMode: deps.isDjvuMode.value,
+            isCapturingRegion: deps.isCapturingRegion.value,
+            isPlacingPageNote: deps.isPlacingPageNote.value,
+            zoom: deps.zoom.value,
+            fitMode: deps.fitMode.value,
+            viewMode: deps.viewMode.value,
+            currentPage,
+            totalPages,
+        };
+    };
+
     return {
         handleSave: deps.handleSave,
         handleSaveAs: deps.handleSaveAs,
@@ -78,6 +147,12 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleActualSize: () => {
             deps.zoom.value = 1;
         },
+        handleToggleSidebar: deps.handleToggleSidebar,
+        handleToggleContinuousScroll: deps.handleToggleContinuousScroll,
+        handleEnableDragMode: deps.handleEnableDragMode,
+        handleDisableDragMode: deps.handleDisableDragMode,
+        handleCaptureRegion: deps.handleCaptureRegion,
+        handleQuickNote: deps.handleQuickNote,
         handleViewModeSingle: () => {
             deps.viewMode.value = 'single';
         },
@@ -124,5 +199,6 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         captureSplitPayload: deps.captureSplitPayload,
         restoreSplitPayload: deps.restoreSplitPayload,
         closeAllDropdowns: deps.closeAllDropdowns,
+        getToolbarSnapshot,
     };
 }

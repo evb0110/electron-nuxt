@@ -1,5 +1,35 @@
 import type { TOpenFileResult } from '@app/types/electron-api';
 import type { TSplitPayload } from '@app/types/split-payload';
+import type {
+    TFitMode,
+    TPdfViewMode,
+} from '@app/types/shared';
+
+export interface IWorkspaceToolbarSnapshot {
+    hasPdf: boolean;
+    canSave: boolean;
+    canUndo: boolean;
+    canRedo: boolean;
+    canExportDocx: boolean;
+    isSaving: boolean;
+    isSavingAs: boolean;
+    isAnySaving: boolean;
+    isHistoryBusy: boolean;
+    isExportingDocx: boolean;
+    isFitWidthActive: boolean;
+    isFitHeightActive: boolean;
+    showSidebar: boolean;
+    dragMode: boolean;
+    continuousScroll: boolean;
+    isDjvuMode: boolean;
+    isCapturingRegion: boolean;
+    isPlacingPageNote: boolean;
+    zoom: number;
+    fitMode: TFitMode;
+    viewMode: TPdfViewMode;
+    currentPage: number;
+    totalPages: number;
+}
 
 export interface ICloseFileFromUiOptions {persist?: boolean;}
 
@@ -22,6 +52,12 @@ export interface IWorkspaceExpose {
     handleFitWidth: () => void;
     handleFitHeight: () => void;
     handleActualSize: () => void;
+    handleToggleSidebar: () => void;
+    handleToggleContinuousScroll: () => void;
+    handleEnableDragMode: () => void;
+    handleDisableDragMode: () => void;
+    handleCaptureRegion: () => void;
+    handleQuickNote: () => void;
     handleViewModeSingle: () => void;
     handleViewModeFacing: () => void;
     handleViewModeFacingFirstSingle: () => void;
@@ -34,4 +70,5 @@ export interface IWorkspaceExpose {
     captureSplitPayload: () => Promise<TSplitPayload>;
     restoreSplitPayload: (payload: TSplitPayload) => Promise<void>;
     closeAllDropdowns: () => void;
+    getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
 }
