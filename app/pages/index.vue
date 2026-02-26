@@ -2,7 +2,7 @@
     <div class="h-screen min-w-0 flex flex-col bg-[var(--app-window-bg)]">
         <div class="editor-global-toolbar-shell">
             <PdfToolbar
-                v-if="showFallbackToolbar"
+                v-show="showFallbackToolbar"
                 :has-pdf="fallbackHasPdf"
                 :can-save="false"
                 :can-undo="false"
@@ -87,6 +87,7 @@
                 </template>
             </PdfToolbar>
             <div
+                v-show="!showFallbackToolbar"
                 id="editor-global-toolbar-host"
                 ref="globalToolbarHostRef"
                 class="editor-global-toolbar-host"
@@ -324,7 +325,9 @@ const {
 });
 
 const isTabTransitionBusy = computed(() => activeTabTransitions.value > 0);
-const showFallbackToolbar = computed(() => !hasTeleportedToolbarContent.value);
+const showFallbackToolbar = computed(() => (
+    isTabTransitionBusy.value || !hasTeleportedToolbarContent.value
+));
 const fallbackZoom = ref(1);
 const fallbackFitMode = ref<TFitMode>('width');
 const fallbackViewMode = ref<TPdfViewMode>('single');
@@ -762,17 +765,19 @@ watch(
     [
         fallbackHasPdfSignal,
         isTabTransitionBusy,
+        hasTeleportedToolbarContent,
     ],
     ([
         hasDocumentSignal,
         transitionBusy,
+        hasToolbarContent,
     ]) => {
         if (hasDocumentSignal) {
             fallbackHasPdfSticky.value = true;
             return;
         }
 
-        if (!transitionBusy) {
+        if (!transitionBusy && hasToolbarContent) {
             fallbackHasPdfSticky.value = false;
         }
     },
@@ -792,7 +797,7 @@ watch(
         activeWorkspace,
     ],
     () => {
-        if (isTabTransitionBusy.value) {
+        if (isTabTransitionBusy.value || !hasTeleportedToolbarContent.value) {
             return;
         }
 
