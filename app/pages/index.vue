@@ -3,7 +3,7 @@
         <div class="editor-global-toolbar-shell">
             <PdfToolbar
                 v-if="showFallbackToolbar"
-                :has-pdf="false"
+                :has-pdf="fallbackHasPdf"
                 :can-save="false"
                 :can-undo="false"
                 :can-redo="false"
@@ -32,7 +32,7 @@
                         :total-pages="0"
                         :working-copy-path="null"
                         :open="fallbackOcrPopupOpen"
-                        disabled
+                        :disabled="!fallbackHasPdf"
                         :hide-trigger="isCollapsed(3)"
                         @update:open="fallbackOcrPopupOpen = $event"
                         @export-docx="noopFallbackAction"
@@ -45,7 +45,7 @@
                         v-model:fit-mode="fallbackFitMode"
                         v-model:view-mode="fallbackViewMode"
                         :open="fallbackZoomDropdownOpen"
-                        disabled
+                        :disabled="!fallbackHasPdf"
                         :compact-level="0"
                         @update:open="fallbackZoomDropdownOpen = $event"
                     />
@@ -54,9 +54,9 @@
                     <PdfPageDropdown
                         v-model="fallbackCurrentPage"
                         :open="fallbackPageDropdownOpen"
-                        :total-pages="0"
+                        :total-pages="fallbackTotalPages"
                         :page-labels="null"
-                        disabled
+                        :disabled="!fallbackHasPdf"
                         :compact-level="collapseTier >= 5 ? 2 : collapseTier >= 4 ? 1 : 0"
                         @go-to-page="noopFallbackAction"
                         @update:open="fallbackPageDropdownOpen = $event"
@@ -329,15 +329,66 @@ const fallbackZoom = ref(1);
 const fallbackFitMode = ref<TFitMode>('width');
 const fallbackViewMode = ref<TPdfViewMode>('single');
 const fallbackCurrentPage = ref(1);
+const fallbackTotalPages = ref(0);
 const fallbackOcrPopupOpen = ref(false);
 const fallbackZoomDropdownOpen = ref(false);
 const fallbackPageDropdownOpen = ref(false);
 const fallbackOverflowMenuOpen = ref(false);
+const fallbackHasPdf = computed(() => {
+    if (workspaceHasPdf(activeWorkspace.value)) {
+        return true;
+    }
+
+    const tabId = activeTabId.value;
+    if (!tabId) {
+        return false;
+    }
+
+    const tab = getTabById(tabId);
+    if (!tab) {
+        return false;
+    }
+
+    if (fallbackTotalPages.value > 0) {
+        return true;
+    }
+
+    return hasDocumentMountHint(tab);
+});
 
 function noopFallbackAction() {}
 
+function primeFallbackToolbarFromPayload(payload: TSplitPayload | null) {
+    if (!payload || payload.kind !== 'pdfSnapshot') {
+        return;
+    }
+
+    const normalizedCurrentPage = Math.max(
+        1,
+        Math.floor(payload.currentPage ?? 1),
+    );
+    const normalizedTotalPages = Math.max(
+        normalizedCurrentPage,
+        Math.floor(payload.totalPages ?? normalizedCurrentPage),
+    );
+
+    fallbackCurrentPage.value = normalizedCurrentPage;
+    fallbackTotalPages.value = normalizedTotalPages;
+}
+
 function syncToolbarTeleportPresence() {
-    hasTeleportedToolbarContent.value = Boolean(globalToolbarHostRef.value?.firstElementChild);
+    const hasContent = Boolean(globalToolbarHostRef.value?.firstElementChild);
+    if (hasTeleportedToolbarContent.value === hasContent) {
+        return;
+    }
+
+    BrowserLogger.warn('toolbar-transition', 'Global toolbar teleport presence changed', {
+        hasContent,
+        isTabTransitionBusy: isTabTransitionBusy.value,
+        activeTabId: activeTabId.value,
+        activeGroupId: activeGroupId.value,
+    });
+    hasTeleportedToolbarContent.value = hasContent;
 }
 
 function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
@@ -689,6 +740,29 @@ const activeWorkspace = computed(() => {
     }
     return workspaceRefs.value.get(activeTabId.value) ?? null;
 });
+
+watch(
+    [
+        activeTabId,
+        activeWorkspace,
+    ],
+    () => {
+        if (workspaceHasPdf(activeWorkspace.value)) {
+            return;
+        }
+
+        const tabId = activeTabId.value;
+        const tab = tabId ? getTabById(tabId) : null;
+        if (tab && hasDocumentMountHint(tab)) {
+            return;
+        }
+
+        fallbackCurrentPage.value = 1;
+        fallbackTotalPages.value = 0;
+    },
+    { immediate: true },
+);
+
 useMenuSync({
     activeWorkspace,
     activeTabId,
@@ -1232,6 +1306,7 @@ async function splitEditor(direction: TGroupDirection) {
         if (!payload) {
             return;
         }
+        primeFallbackToolbarFromPayload(payload);
 
         workspaceSplitCache.set(sourceTabId, payload);
         scheduleSplitCacheCleanup(sourceTabId);
@@ -1306,6 +1381,7 @@ async function moveActiveTab(direction: TGroupDirection) {
         if (!payload) {
             return;
         }
+        primeFallbackToolbarFromPayload(payload);
 
         if (payload.kind !== 'empty') {
             workspaceSplitCache.set(sourceTabId, payload);
@@ -1333,6 +1409,7 @@ async function copyActiveTab(direction: TGroupDirection) {
         if (!payload) {
             return;
         }
+        primeFallbackToolbarFromPayload(payload);
 
         const route = ensureTargetGroupForDirection(direction);
         if (!route) {

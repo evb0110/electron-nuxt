@@ -539,6 +539,7 @@ describe('useWorkspaceOrchestration', () => {
             ]),
             isDirty: true,
             currentPage: 1,
+            totalPages: 1,
         });
     });
 

@@ -666,6 +666,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         return Math.max(1, Math.floor(page));
     }
 
+    function normalizeSplitPayloadTotalPages(total: number | undefined, fallbackPage: number) {
+        if (typeof total !== 'number' || !Number.isFinite(total)) {
+            return fallbackPage;
+        }
+
+        return Math.max(fallbackPage, Math.floor(total));
+    }
+
     async function captureSplitPayload(): Promise<TSplitPayload> {
         if (!pdfSrc.value) {
             return { kind: 'empty' };
@@ -698,13 +706,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             return { kind: 'empty' };
         }
 
+        const normalizedCurrentPage = normalizeSplitPayloadPage(currentPage.value) ?? 1;
         return {
             kind: 'pdfSnapshot',
             fileName: fileName.value ?? 'document.pdf',
             originalPath: originalPath.value,
             data: snapshot.slice(),
             isDirty: hasPendingTabChanges.value,
-            currentPage: normalizeSplitPayloadPage(currentPage.value) ?? 1,
+            currentPage: normalizedCurrentPage,
+            totalPages: normalizeSplitPayloadTotalPages(totalPages.value, normalizedCurrentPage),
         };
     }
 
@@ -723,6 +733,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         }
 
         const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
+        if (payload.totalPages && Number.isFinite(payload.totalPages)) {
+            totalPages.value = Math.max(totalPages.value, Math.floor(payload.totalPages));
+        }
         const restorePagePromise = pageToRestore && pageToRestore > 1
             ? waitForPdfReload(pageToRestore).catch((error) => {
                 BrowserLogger.debug('workspace', 'Split payload page restore wait failed', {

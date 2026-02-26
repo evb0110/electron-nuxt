@@ -2,7 +2,7 @@
     <WorkspaceShell>
         <WorkspaceToolbarHost :is-active="isActive" :can-teleport="canTeleportToolbar">
             <PdfToolbar
-                :has-pdf="!!pdfSrc"
+                :has-pdf="toolbarHasPdf"
                 :can-save="canSave"
                 :can-undo="canUndo"
                 :can-redo="canRedo"
@@ -46,7 +46,7 @@
                         :open="ocrPopupOpen"
                         :is-exporting-docx="isExportingDocx"
                         :external-error="docxExportError"
-                        :disabled="isDjvuMode || !hasPdf"
+                        :disabled="isDjvuMode || !toolbarHasPdf"
                         :hide-trigger="isCollapsed(3)"
                         @update:open="handleDropdownOpen('ocr', $event)"
                         @export-docx="handleExportDocx"
@@ -59,7 +59,7 @@
                         v-model:fit-mode="fitMode"
                         v-model:view-mode="viewMode"
                         :open="zoomDropdownOpen"
-                        :disabled="!hasPdf"
+                        :disabled="!toolbarHasPdf"
                         :compact-level="0"
                         @update:open="handleDropdownOpen('zoom', $event)"
                     />
@@ -70,7 +70,7 @@
                         :open="pageDropdownOpen"
                         :total-pages="totalPages"
                         :page-labels="pageLabels"
-                        :disabled="!hasPdf"
+                        :disabled="!toolbarHasPdf"
                         :compact-level="collapseTier >= 5 ? 2 : collapseTier >= 4 ? 1 : 0"
                         @go-to-page="handleGoToPage"
                         @update:open="handleDropdownOpen('page', $event)"
@@ -84,7 +84,7 @@
                         :can-save="canSave"
                         :can-undo="canUndo"
                         :can-redo="canRedo"
-                        :has-pdf="hasPdf"
+                        :has-pdf="toolbarHasPdf"
                         :is-any-saving="isAnySaving"
                         :is-history-busy="isHistoryBusy"
                         :is-exporting-docx="isExportingDocx"
@@ -609,6 +609,14 @@ const {
     hasPdf,
 } = w;
 
+const toolbarHasPdf = computed(() => (
+    hasPdf.value
+    || hasQueuedSplitRestore.value
+    || isRestoringSplitPayload.value
+    || isExternallyRestoring.value
+    || props.pendingDocumentOpen === true
+));
+
 function runToolbarAction(action: () => unknown) {
     const result = action();
     if (result instanceof Promise) {
@@ -780,6 +788,26 @@ async function restoreCachedSplitPayloadIfNeeded() {
 
     isRestoringSplitPayload.value = true;
     try {
+        BrowserLogger.warn('toolbar-transition', 'Restoring cached split payload', {
+            tabId: props.tabId,
+            payloadKind: payload.kind,
+            hadPdfBeforeRestore: hasPdf.value,
+            currentPage: currentPage.value,
+            totalPages: totalPages.value,
+        });
+        if (payload.kind === 'pdfSnapshot') {
+            if (payload.currentPage && Number.isFinite(payload.currentPage)) {
+                currentPage.value = Math.max(1, Math.floor(payload.currentPage));
+            }
+            if (payload.totalPages && Number.isFinite(payload.totalPages)) {
+                const normalizedTotalPages = Math.max(
+                    currentPage.value,
+                    Math.floor(payload.totalPages),
+                );
+                totalPages.value = Math.max(totalPages.value, normalizedTotalPages);
+            }
+        }
+
         await restoreSplitPayload(payload);
     } catch (error) {
         BrowserLogger.warn('workspace', 'Failed to restore cached split payload', {
