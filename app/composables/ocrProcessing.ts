@@ -77,7 +77,7 @@ export async function extractPdfText(pdfDocument: PDFDocumentProxy): Promise<str
             const page = await pdfDocument.getPage(pageNumber);
             const content = await page.getTextContent();
             const text = content.items
-                .map((item) => (item as { str?: string }).str ?? '')
+                .map((item) => ('str' in item ? item.str : ''))
                 .join(' ')
                 .replace(/\s+/g, ' ')
                 .trim();
