@@ -330,11 +330,12 @@ const fallbackFitMode = ref<TFitMode>('width');
 const fallbackViewMode = ref<TPdfViewMode>('single');
 const fallbackCurrentPage = ref(1);
 const fallbackTotalPages = ref(0);
+const fallbackHasPdfSticky = ref(false);
 const fallbackOcrPopupOpen = ref(false);
 const fallbackZoomDropdownOpen = ref(false);
 const fallbackPageDropdownOpen = ref(false);
 const fallbackOverflowMenuOpen = ref(false);
-const fallbackHasPdf = computed(() => {
+const fallbackHasPdfSignal = computed(() => {
     if (workspaceHasPdf(activeWorkspace.value)) {
         return true;
     }
@@ -355,6 +356,9 @@ const fallbackHasPdf = computed(() => {
 
     return hasDocumentMountHint(tab);
 });
+const fallbackHasPdf = computed(() => (
+    fallbackHasPdfSignal.value || (isTabTransitionBusy.value && fallbackHasPdfSticky.value)
+));
 
 function noopFallbackAction() {}
 
@@ -374,12 +378,25 @@ function primeFallbackToolbarFromPayload(payload: TSplitPayload | null) {
 
     fallbackCurrentPage.value = normalizedCurrentPage;
     fallbackTotalPages.value = normalizedTotalPages;
+    fallbackHasPdfSticky.value = true;
+}
+
+function primeFallbackToolbarFromCache(tabId: string | null | undefined) {
+    if (!tabId) {
+        return;
+    }
+
+    primeFallbackToolbarFromPayload(workspaceSplitCache.peek(tabId));
 }
 
 function syncToolbarTeleportPresence() {
     const hasContent = Boolean(globalToolbarHostRef.value?.firstElementChild);
     if (hasTeleportedToolbarContent.value === hasContent) {
         return;
+    }
+
+    if (!hasContent && isTabTransitionBusy.value) {
+        primeFallbackToolbarFromCache(activeTabId.value);
     }
 
     BrowserLogger.warn('toolbar-transition', 'Global toolbar teleport presence changed', {
@@ -743,10 +760,42 @@ const activeWorkspace = computed(() => {
 
 watch(
     [
+        fallbackHasPdfSignal,
+        isTabTransitionBusy,
+    ],
+    ([
+        hasDocumentSignal,
+        transitionBusy,
+    ]) => {
+        if (hasDocumentSignal) {
+            fallbackHasPdfSticky.value = true;
+            return;
+        }
+
+        if (!transitionBusy) {
+            fallbackHasPdfSticky.value = false;
+        }
+    },
+    { immediate: true },
+);
+
+watch(activeTabId, (tabId) => {
+    if (!isTabTransitionBusy.value) {
+        return;
+    }
+    primeFallbackToolbarFromCache(tabId);
+});
+
+watch(
+    [
         activeTabId,
         activeWorkspace,
     ],
     () => {
+        if (isTabTransitionBusy.value) {
+            return;
+        }
+
         if (workspaceHasPdf(activeWorkspace.value)) {
             return;
         }
