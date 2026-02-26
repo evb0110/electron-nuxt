@@ -29,6 +29,7 @@
                     :tab-id="tab.id"
                     :has-document-hint="hasDocumentMountHint(tab)"
                     :is-active="groupForLeaf!.id === activeGroupId && tab.id === groupForLeaf!.activeTabId"
+                    :is-tab-transition-busy="isTabTransitionBusy"
                     @update-tab="(updates) => emit('update-tab', tab.id, updates)"
                     @open-in-new-tab="(result) => emit('open-in-new-tab', result, groupForLeaf!.id)"
                     @request-close-tab="emit('request-close-tab', groupForLeaf!.id, tab.id)"
@@ -51,6 +52,7 @@
                 :groups="groups"
                 :tabs="tabs"
                 :active-group-id="activeGroupId"
+                :is-tab-transition-busy="isTabTransitionBusy"
                 :tab-context-availability-by-group="tabContextAvailabilityByGroup"
                 @activate-group="(groupId) => emit('activate-group', groupId)"
                 @activate-tab="(groupId, tabId) => emit('activate-tab', groupId, tabId)"
@@ -82,6 +84,7 @@
                 :groups="groups"
                 :tabs="tabs"
                 :active-group-id="activeGroupId"
+                :is-tab-transition-busy="isTabTransitionBusy"
                 :tab-context-availability-by-group="tabContextAvailabilityByGroup"
                 @activate-group="(groupId) => emit('activate-group', groupId)"
                 @activate-tab="(groupId, tabId) => emit('activate-tab', groupId, tabId)"
@@ -131,6 +134,7 @@ const props = defineProps<{
     groups: IEditorGroupState[];
     tabs: ITab[];
     activeGroupId: string | null;
+    isTabTransitionBusy: boolean;
     tabContextAvailabilityByGroup: Record<string, ITabContextAvailability>;
 }>();
 
