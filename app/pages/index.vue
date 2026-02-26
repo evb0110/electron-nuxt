@@ -409,6 +409,14 @@ const fallbackHasPdf = computed(() => (
 
 function noopFallbackAction() {}
 
+function getPathBaseName(path: string | null | undefined) {
+    if (!path) {
+        return null;
+    }
+    const segments = path.split(/[\\/]/);
+    return segments[segments.length - 1] ?? null;
+}
+
 function createDefaultToolbarSnapshot(): IWorkspaceToolbarSnapshot {
     return {
         hasPdf: false,
@@ -921,6 +929,31 @@ const activeWorkspace = computed(() => {
     }
     return workspaceRefs.value.get(activeTabId.value) ?? null;
 });
+
+const activeWindowTitle = computed(() => {
+    const activeTab = activeTabId.value ? getTabById(activeTabId.value) : null;
+    if (!activeTab) {
+        return t('app.title');
+    }
+
+    if (activeTab.fileName) {
+        return activeTab.fileName;
+    }
+
+    const pathTitle = getPathBaseName(activeTab.originalPath);
+    if (pathTitle) {
+        return pathTitle;
+    }
+
+    return t('app.title');
+});
+
+watch(activeWindowTitle, (title) => {
+    if (!hasElectronAPI()) {
+        return;
+    }
+    void getElectronAPI().setWindowTitle(title);
+}, { immediate: true });
 
 watch(activeWorkspace, (workspace) => {
     primeFallbackToolbarFromWorkspace(workspace);

@@ -4,10 +4,6 @@ import {
 } from 'vue';
 import type { TTranslationKey } from '@app/i18n/locales';
 import type { TTabUpdate } from '@app/types/tabs';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/electron';
 
 interface IWorkspaceWindowTitleState {
     isDjvuMode: boolean;
@@ -126,32 +122,6 @@ export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
             deps.onOpenDjvuError?.(error);
         }
     });
-
-    watch(
-        [
-            deps.isActive,
-            deps.fileName,
-            deps.isDjvuMode,
-            deps.djvuSourcePath,
-            deps.openBatchProgress,
-        ],
-        ([active]) => {
-            if (!active || !hasElectronAPI()) {
-                return;
-            }
-
-            const title = resolveWorkspaceWindowTitle({
-                isDjvuMode: deps.isDjvuMode.value,
-                djvuSourcePath: deps.djvuSourcePath.value,
-                fileName: deps.fileName.value,
-                pendingOpenDisplayName: resolvePendingOpenDisplayName(deps.openBatchProgress.value, deps.t),
-                fallbackTitle: deps.t('app.title'),
-            });
-
-            void getElectronAPI().setWindowTitle(title);
-        },
-        { immediate: true },
-    );
 
     watch(
         [
