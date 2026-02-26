@@ -7,6 +7,7 @@
             ref="workspaceRef"
             :tab-id="tabId"
             :is-active="isActive"
+            :is-tab-transition-busy="isTabTransitionBusy"
             :pending-document-open="isDocumentOpenInFlight"
             @update-tab="(updates) => emit('update-tab', updates)"
             @open-in-new-tab="(result) => emit('open-in-new-tab', result)"
@@ -91,6 +92,7 @@ import { resolveWorkspaceRequestedState } from '@app/composables/page/workspace-
 const props = defineProps<{
     tabId: string;
     isActive: boolean;
+    isTabTransitionBusy: boolean;
     hasDocumentHint?: boolean;
 }>();
 const { t } = useTypedI18n();

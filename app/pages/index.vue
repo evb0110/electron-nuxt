@@ -125,6 +125,7 @@
                 :groups="groups"
                 :tabs="tabs"
                 :active-group-id="activeGroupId"
+                :is-tab-transition-busy="isTabTransitionBusy"
                 :tab-context-availability-by-group="tabContextAvailabilityByGroup"
                 @activate-group="activateGroup"
                 @activate-tab="activateTab"
@@ -353,7 +354,7 @@ const {
 
 const isTabTransitionBusy = computed(() => activeTabTransitions.value > 0);
 const showFallbackToolbar = computed(() => (
-    isTabTransitionBusy.value || !hasTeleportedToolbarContent.value
+    !hasTeleportedToolbarContent.value
 ));
 const fallbackZoom = ref(1);
 const fallbackFitMode = ref<TFitMode>('width');
@@ -404,7 +405,7 @@ const fallbackHasPdfSignal = computed(() => {
     return hasDocumentMountHint(tab);
 });
 const fallbackHasPdf = computed(() => (
-    fallbackHasPdfSignal.value || (isTabTransitionBusy.value && fallbackHasPdfSticky.value)
+    fallbackHasPdfSignal.value || fallbackHasPdfSticky.value
 ));
 
 function noopFallbackAction() {}
@@ -570,12 +571,18 @@ function syncToolbarTeleportPresence() {
         primeFallbackToolbarFromCache(activeTabId.value);
     }
 
-    BrowserLogger.warn('toolbar-transition', 'Global toolbar teleport presence changed', {
+    const logPayload = {
         hasContent,
         isTabTransitionBusy: isTabTransitionBusy.value,
         activeTabId: activeTabId.value,
         activeGroupId: activeGroupId.value,
-    });
+    };
+
+    if (isTabTransitionBusy.value) {
+        BrowserLogger.debug('toolbar-transition', 'Global toolbar teleport presence changed during transition', logPayload);
+    } else {
+        BrowserLogger.warn('toolbar-transition', 'Global toolbar teleport presence changed', logPayload);
+    }
     hasTeleportedToolbarContent.value = hasContent;
 }
 
@@ -586,6 +593,9 @@ function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
         try {
             return await task();
         } finally {
+            await nextTick();
+            syncToolbarTeleportPresence();
+            await nextTick();
             activeTabTransitions.value = Math.max(0, activeTabTransitions.value - 1);
         }
     });
@@ -651,6 +661,7 @@ function updateTab(tabId: string, updates: Partial<ITab>) {
             isTabTransitionBusy.value
             || workspaceSplitCache.has(tabId)
             || workspaceRestoreTracker.has(tabId)
+            || (activeTabId.value === tabId && !hasTeleportedToolbarContent.value)
         );
 
     if (shouldSuppressPlaceholderDowngrade) {
@@ -1191,6 +1202,32 @@ async function handleCloseTab(groupId: string, tabId: string) {
             return;
         }
 
+        const sourceGroupBeforeClose = getGroupById(groupId);
+        const closeHandoffTarget = resolveCloseHandoffTarget(groupId, tabId);
+        const shouldDeferCrossGroupHandoff = Boolean(
+            sourceGroupBeforeClose
+            && closeHandoffTarget
+            && sourceGroupBeforeClose.tabIds.length === 1
+            && closeHandoffTarget.groupId !== sourceGroupBeforeClose.id,
+        );
+
+        const activateDeferredCloseHandoff = async () => {
+            if (!shouldDeferCrossGroupHandoff || !closeHandoffTarget) {
+                return;
+            }
+
+            const targetTab = getTabById(closeHandoffTarget.tabId);
+            const targetGroup = getGroupById(closeHandoffTarget.groupId)
+                ?? getGroupByTabId(closeHandoffTarget.tabId);
+            if (!targetTab || !targetGroup || !targetGroup.tabIds.includes(targetTab.id)) {
+                return;
+            }
+
+            activateGroup(targetGroup.id);
+            activateTab(targetGroup.id, targetTab.id);
+            await nextTick();
+        };
+
         let shouldPersistBeforeClose = true;
         if (tab.isDirty) {
             const confirmed = await requestDirtyTabCloseConfirmation(tabId);
@@ -1200,7 +1237,9 @@ async function handleCloseTab(groupId: string, tabId: string) {
             shouldPersistBeforeClose = false;
         }
 
-        await handoffActiveTabBeforeClose(groupId, tabId);
+        if (!shouldDeferCrossGroupHandoff) {
+            await handoffActiveTabBeforeClose(groupId, tabId);
+        }
 
         const workspace = workspaceRefs.value.get(tabId);
         if (workspace && workspaceHasPdf(workspace)) {
@@ -1218,6 +1257,7 @@ async function handleCloseTab(groupId: string, tabId: string) {
                 }
             }
             cleanupEmptyGroups();
+            await activateDeferredCloseHandoff();
             return;
         }
 
@@ -1227,6 +1267,7 @@ async function handleCloseTab(groupId: string, tabId: string) {
         }
 
         cleanupEmptyGroups();
+        await activateDeferredCloseHandoff();
     });
 }
 

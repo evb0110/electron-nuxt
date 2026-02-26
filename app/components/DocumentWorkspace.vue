@@ -379,6 +379,7 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 const props = defineProps<{
     tabId: string;
     isActive: boolean;
+    isTabTransitionBusy: boolean;
     pendingDocumentOpen?: boolean;
 }>();
 
@@ -401,6 +402,7 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
+const SPLIT_CACHE_LOG_SECTION = 'split-cache';
 const isRestoringSplitPayload = ref(false);
 const currentPageTransitionHistory = ref<Array<{
     page: number;
@@ -794,13 +796,6 @@ async function restoreCachedSplitPayloadIfNeeded() {
 
     isRestoringSplitPayload.value = true;
     try {
-        BrowserLogger.warn('toolbar-transition', 'Restoring cached split payload', {
-            tabId: props.tabId,
-            payloadKind: payload.kind,
-            hadPdfBeforeRestore: hasPdf.value,
-            currentPage: currentPage.value,
-            totalPages: totalPages.value,
-        });
         if (payload.kind === 'pdfSnapshot') {
             if (payload.currentPage && Number.isFinite(payload.currentPage)) {
                 currentPage.value = Math.max(1, Math.floor(payload.currentPage));
@@ -813,6 +808,15 @@ async function restoreCachedSplitPayloadIfNeeded() {
                 totalPages.value = Math.max(totalPages.value, normalizedTotalPages);
             }
         }
+        BrowserLogger.warn('toolbar-transition', 'Restoring cached split payload', {
+            tabId: props.tabId,
+            payloadKind: payload.kind,
+            hadPdfBeforeRestore: hasPdf.value,
+            payloadCurrentPage: payload.kind === 'pdfSnapshot' ? payload.currentPage : null,
+            payloadTotalPages: payload.kind === 'pdfSnapshot' ? payload.totalPages : null,
+            preseededCurrentPage: currentPage.value,
+            preseededTotalPages: totalPages.value,
+        });
 
         await restoreSplitPayload(payload);
     } catch (error) {
@@ -826,10 +830,48 @@ async function restoreCachedSplitPayloadIfNeeded() {
     }
 }
 
+const canCacheSplitPayloadForRemount = computed(() => (
+    props.isTabTransitionBusy === true
+    && !isRestoringSplitPayload.value
+    && !isExternallyRestoring.value
+    && props.pendingDocumentOpen !== true
+));
+
 async function cacheSplitPayloadForRemount() {
+    if (!canCacheSplitPayloadForRemount.value) {
+        BrowserLogger.debug(SPLIT_CACHE_LOG_SECTION, 'Skipping split payload cache on unmount', {
+            tabId: props.tabId,
+            reason: 'guard-blocked',
+            isTabTransitionBusy: props.isTabTransitionBusy,
+            isRestoringSplitPayload: isRestoringSplitPayload.value,
+            isExternallyRestoring: isExternallyRestoring.value,
+            pendingDocumentOpen: props.pendingDocumentOpen === true,
+        });
+        return;
+    }
+
+    if (workspaceSplitCache.has(props.tabId)) {
+        BrowserLogger.debug(SPLIT_CACHE_LOG_SECTION, 'Skipping split payload cache on unmount', {
+            tabId: props.tabId,
+            reason: 'cache-already-populated',
+        });
+        return;
+    }
+
     try {
         const payload = await captureSplitPayload();
+        if (payload.kind === 'empty') {
+            BrowserLogger.debug(SPLIT_CACHE_LOG_SECTION, 'Skipping split payload cache on unmount', {
+                tabId: props.tabId,
+                reason: 'captured-empty-payload',
+            });
+            return;
+        }
         workspaceSplitCache.set(props.tabId, payload);
+        BrowserLogger.debug(SPLIT_CACHE_LOG_SECTION, 'Cached split payload on unmount', {
+            tabId: props.tabId,
+            payloadKind: payload.kind,
+        });
     } catch (error) {
         BrowserLogger.warn('workspace', 'Failed to cache split payload on unmount', {
             tabId: props.tabId,
@@ -841,7 +883,6 @@ async function cacheSplitPayloadForRemount() {
 onMounted(() => {
     initFromStorage();
     setupShortcuts();
-    void restoreCachedSplitPayloadIfNeeded();
 });
 
 watch(
