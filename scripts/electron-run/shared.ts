@@ -13,8 +13,10 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import type {
     Browser,
+    ConsoleMessage,
     Page,
 } from 'puppeteer-core';
+import type { MergeExclusive } from 'type-fest';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -28,6 +30,111 @@ export const OPEN_PDF_TRIGGER_TIMEOUT_MS = 12_000;
 export const COMMAND_EXECUTION_TIMEOUT_MS = 180_000;
 
 let currentSessionName = 'default';
+
+type TJsonRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is TJsonRecord {
+    return typeof value === 'object' && value !== null;
+}
+
+function isPositiveInt(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function isNullablePositiveInt(value: unknown): value is number | null {
+    return value === null || isPositiveInt(value);
+}
+
+function parseJsonFile(path: string): unknown | null {
+    try {
+        return JSON.parse(readFileSync(path, 'utf8'));
+    } catch {
+        return null;
+    }
+}
+
+export const ELECTRON_RUN_COMMANDS = [
+    'ping',
+    'screenshot',
+    'screenshots',
+    'console',
+    'devtools',
+    'run',
+    'eval',
+    'click',
+    'type',
+    'content',
+    'waitfor',
+    'resize',
+    'viewport',
+    'openPdf',
+    'health',
+] as const;
+
+export type TElectronRunCommand = typeof ELECTRON_RUN_COMMANDS[number];
+
+const ELECTRON_RUN_COMMAND_SET = new Set<TElectronRunCommand>(ELECTRON_RUN_COMMANDS);
+
+export interface IElectronRunCommandRequest {
+    command: TElectronRunCommand;
+    args: unknown[];
+}
+
+type TElectronRunCommandSuccessResponse = {
+    success: true;
+    result: unknown;
+    error?: never;
+};
+
+type TElectronRunCommandFailureResponse = {
+    success: false;
+    error: string;
+    result?: never;
+};
+
+export type TElectronRunCommandResponse = MergeExclusive<
+    TElectronRunCommandSuccessResponse,
+    TElectronRunCommandFailureResponse
+>;
+
+export function isElectronRunCommand(value: unknown): value is TElectronRunCommand {
+    return typeof value === 'string' && ELECTRON_RUN_COMMAND_SET.has(value as TElectronRunCommand);
+}
+
+export function parseElectronRunCommandRequest(value: unknown): IElectronRunCommandRequest | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    if (!isElectronRunCommand(value.command)) {
+        return null;
+    }
+    if (!Array.isArray(value.args)) {
+        return null;
+    }
+    return {
+        command: value.command,
+        args: value.args,
+    };
+}
+
+export function parseElectronRunCommandResponse(value: unknown): TElectronRunCommandResponse | null {
+    if (!isRecord(value) || typeof value.success !== 'boolean') {
+        return null;
+    }
+    if (value.success) {
+        return {
+            success: true,
+            result: value.result,
+        };
+    }
+    if (typeof value.error !== 'string') {
+        return null;
+    }
+    return {
+        success: false,
+        error: value.error,
+    };
+}
 
 export function getCurrentSessionName() {
     return currentSessionName;
@@ -63,28 +170,66 @@ export function screenshotDirPath(name = getCurrentSessionName()) {
     return join(sessionDir(name), 'screenshots');
 }
 
+export type TConsoleMessageType = ReturnType<ConsoleMessage['type']>;
+
 export interface IConsoleMessage {
-    type: string;
+    type: TConsoleMessageType;
     text: string;
     timestamp: number;
 }
 
-export interface IDevtoolsEvent {
-    kind: 'console' | 'request' | 'response' | 'requestfailed' | 'pageerror' | 'error';
-    timestamp: number;
-    type?: string;
-    text?: string;
-    level?: string;
-    url?: string;
-    method?: string;
-    status?: number;
-    ok?: boolean;
-    resourceType?: string;
-    isNavigationRequest?: boolean;
-    fromCache?: boolean;
-    fromServiceWorker?: boolean;
-    failureText?: string;
+interface IDevtoolsEventBase {timestamp: number;}
+
+interface IConsoleDevtoolsEvent extends IDevtoolsEventBase {
+    kind: 'console';
+    level: TConsoleMessageType;
+    text: string;
 }
+
+interface IRequestDevtoolsEvent extends IDevtoolsEventBase {
+    kind: 'request';
+    url: string;
+    method: string;
+    resourceType: string;
+    isNavigationRequest: boolean;
+}
+
+interface IResponseDevtoolsEvent extends IDevtoolsEventBase {
+    kind: 'response';
+    url: string;
+    status: number;
+    ok: boolean;
+    fromCache: boolean;
+    fromServiceWorker: boolean;
+    resourceType: string;
+    method: string;
+}
+
+interface IRequestFailedDevtoolsEvent extends IDevtoolsEventBase {
+    kind: 'requestfailed';
+    url: string;
+    method: string;
+    resourceType: string;
+    failureText: string;
+}
+
+interface IPageErrorDevtoolsEvent extends IDevtoolsEventBase {
+    kind: 'pageerror';
+    text: string;
+}
+
+interface IErrorDevtoolsEvent extends IDevtoolsEventBase {
+    kind: 'error';
+    text: string;
+}
+
+export type TDevtoolsEvent =
+    | IConsoleDevtoolsEvent
+    | IRequestDevtoolsEvent
+    | IResponseDevtoolsEvent
+    | IRequestFailedDevtoolsEvent
+    | IPageErrorDevtoolsEvent
+    | IErrorDevtoolsEvent;
 
 export interface ISessionState {
     browser: Browser;
@@ -92,7 +237,7 @@ export interface ISessionState {
     electronProcess: ChildProcess;
     nuxtProcess: ChildProcess | null;
     consoleMessages: IConsoleMessage[];
-    devtoolsEvents: IDevtoolsEvent[];
+    devtoolsEvents: TDevtoolsEvent[];
 }
 
 export interface ISessionInfo {
@@ -106,6 +251,26 @@ export interface ISessionInfo {
 export interface ISessionStartingInfo {
     pid: number;
     startedAt: number;
+}
+
+function isSessionInfo(value: unknown): value is ISessionInfo {
+    if (!isRecord(value)) {
+        return false;
+    }
+    return (
+        isPositiveInt(value.port)
+        && isPositiveInt(value.pid)
+        && isPositiveInt(value.cdpPort)
+        && isNullablePositiveInt(value.electronPid)
+        && isNullablePositiveInt(value.nuxtPid)
+    );
+}
+
+function isSessionStartingInfo(value: unknown): value is ISessionStartingInfo {
+    if (!isRecord(value)) {
+        return false;
+    }
+    return isPositiveInt(value.pid) && isPositiveInt(value.startedAt);
 }
 
 export async function findFreePort(): Promise<number> {
@@ -127,7 +292,7 @@ export async function findFreePort(): Promise<number> {
 
 export async function getPidsOnPort(port: number): Promise<number[]> {
     try {
-        const output = execSync(`lsof -ti :${port} 2>/dev/null || true`, { encoding: 'utf8' }) as string;
+        const output = execSync(`lsof -ti :${port} 2>/dev/null || true`, { encoding: 'utf8' });
         return output
             .split('\n')
             .map(entry => Number(entry.trim()))
@@ -177,7 +342,7 @@ function collectDescendantPidsUnix(rootPid: number): number[] {
     }
 
     try {
-        const output = execSync('ps -eo pid=,ppid=', { encoding: 'utf8' }) as string;
+        const output = execSync('ps -eo pid=,ppid=', { encoding: 'utf8' });
         const childrenByParent = new Map<number, number[]>();
 
         for (const line of output.split('\n')) {
@@ -224,7 +389,7 @@ export function findPidsByCommandSubstring(substring: string): number[] {
     }
 
     try {
-        const output = execSync('ps -ax -o pid=,command=', { encoding: 'utf8' }) as string;
+        const output = execSync('ps -ax -o pid=,command=', { encoding: 'utf8' });
         const pids: number[] = [];
         for (const line of output.split('\n')) {
             const match = line.match(/^\s*(\d+)\s+(.+)$/);
@@ -289,19 +454,19 @@ export async function killProcessTree(pid: number, graceMs = 1500): Promise<void
 }
 
 export function getSessionInfo(name = getCurrentSessionName()): ISessionInfo | null {
-    try {
-        return JSON.parse(readFileSync(sessionFilePath(name), 'utf8'));
-    } catch {
+    const raw = parseJsonFile(sessionFilePath(name));
+    if (!isSessionInfo(raw)) {
         return null;
     }
+    return raw;
 }
 
 export function getSessionStartingInfo(name = getCurrentSessionName()): ISessionStartingInfo | null {
-    try {
-        return JSON.parse(readFileSync(sessionStartingFilePath(name), 'utf8')) as ISessionStartingInfo;
-    } catch {
+    const raw = parseJsonFile(sessionStartingFilePath(name));
+    if (!isSessionStartingInfo(raw)) {
         return null;
     }
+    return raw;
 }
 
 export function isProcessAlive(pid: number) {
@@ -384,11 +549,15 @@ export async function isSessionRunning(name = getCurrentSessionName()): Promise<
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                command: 'ping',
+                command: 'ping' satisfies TElectronRunCommand,
                 args: [], 
             }),
         });
-        return res.ok;
+        if (!res.ok) {
+            return false;
+        }
+        const responsePayload = parseElectronRunCommandResponse(await res.json());
+        return Boolean(responsePayload?.success);
     } catch {
         if (!isProcessAlive(info.pid)) {
             try {

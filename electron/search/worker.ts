@@ -5,40 +5,18 @@ import {
     buildSearchIndex,
     loadSearchIndex,
 } from '@electron/search/index-builder';
+import type {
+    ISearchExcerpt,
+    ISearchMatch,
+    ISearchWorkerRequest,
+    TSearchWorkerInboundMessage,
+    TSearchWorkerOutboundMessage,
+} from '@electron/search/protocol';
 import {
     EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
 } from '@electron/config/constants';
 import { createLogger } from '@electron/utils/logger';
-
-interface ISearchExcerpt {
-    prefix: boolean;
-    suffix: boolean;
-    before: string;
-    match: string;
-    after: string;
-}
-
-interface ISearchMatch {
-    pageNumber: number;
-    pageMatchIndex: number;
-    matchIndex: number;
-    startOffset: number;
-    endOffset: number;
-    excerpt: ISearchExcerpt;
-}
-
-interface ISearchRequest {
-    requestId: string;
-    pdfPath: string;
-    query: string;
-    pageCount?: number;
-}
-
-interface ISearchResponse {
-    results: ISearchMatch[];
-    truncated: boolean;
-}
 
 type TCachedIndex = {
     mtimeMs: number;
@@ -46,39 +24,6 @@ type TCachedIndex = {
     lowerTexts: string[];
     accessedAt: number;
 };
-
-type TWorkerInboundMessage =
-    | {
-        type: 'search';
-        payload: ISearchRequest;
-    }
-    | {
-        type: 'cancel';
-        requestId: string;
-    }
-    | {type: 'reset-cache';};
-
-type TWorkerOutboundMessage =
-    | {
-        type: 'progress';
-        requestId: string;
-        processed: number;
-        total: number;
-    }
-    | {
-        type: 'complete';
-        requestId: string;
-        response: ISearchResponse;
-    }
-    | {
-        type: 'cancelled';
-        requestId: string;
-    }
-    | {
-        type: 'error';
-        requestId: string;
-        error: string;
-    };
 
 const PROGRESS_THROTTLE_MS = 60;
 const SEARCH_INDEX_CACHE_MAX_ENTRIES = (() => {
@@ -101,7 +46,69 @@ const requestAbortControllers = new Map<string, AbortController>();
 const progressSentAt = new Map<string, number>();
 const log = createLogger('search-worker');
 
-function postMessage(message: TWorkerOutboundMessage) {
+function assertNever(value: never): never {
+    throw new Error(`Unhandled search worker inbound message: ${JSON.stringify(value)}`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
+function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    if (
+        typeof value.requestId !== 'string'
+        || typeof value.pdfPath !== 'string'
+        || typeof value.query !== 'string'
+    ) {
+        return null;
+    }
+    const pageCount = isFiniteNumber(value.pageCount) ? value.pageCount : undefined;
+    return {
+        requestId: value.requestId,
+        pdfPath: value.pdfPath,
+        query: value.query,
+        pageCount,
+    };
+}
+
+function parseInboundMessage(value: unknown): TSearchWorkerInboundMessage | null {
+    if (!isRecord(value) || typeof value.type !== 'string') {
+        return null;
+    }
+    switch (value.type) {
+        case 'cancel':
+            if (typeof value.requestId !== 'string') {
+                return null;
+            }
+            return {
+                type: 'cancel',
+                requestId: value.requestId,
+            };
+        case 'reset-cache':
+            return { type: 'reset-cache' };
+        case 'search': {
+            const payload = parseSearchWorkerRequest(value.payload);
+            if (!payload) {
+                return null;
+            }
+            return {
+                type: 'search',
+                payload,
+            };
+        }
+        default:
+            return null;
+    }
+}
+
+function postMessage(message: TSearchWorkerOutboundMessage) {
     parentPort?.postMessage(message);
 }
 
@@ -351,7 +358,7 @@ async function ensureSearchIndex(
     return entry;
 }
 
-async function processSearchRequest(request: ISearchRequest) {
+async function processSearchRequest(request: ISearchWorkerRequest) {
     const {
         requestId,
         pdfPath,
@@ -407,7 +414,10 @@ async function processSearchRequest(request: ISearchRequest) {
         for (let pageIdx = 0; pageIdx < indexEntry.index.pages.length; pageIdx += 1) {
             throwIfCancelled(requestId, signal);
 
-            const page = indexEntry.index.pages[pageIdx]!;
+            const page = indexEntry.index.pages[pageIdx];
+            if (!page) {
+                continue;
+            }
             if (page.pageNumber < 1) {
                 continue;
             }
@@ -492,20 +502,26 @@ async function processSearchRequest(request: ISearchRequest) {
     }
 }
 
-parentPort?.on('message', (message: TWorkerInboundMessage) => {
-    if (message.type === 'cancel') {
-        cancelledRequests.add(message.requestId);
-        requestAbortControllers.get(message.requestId)?.abort();
+parentPort?.on('message', (rawMessage: unknown) => {
+    const message = parseInboundMessage(rawMessage);
+    if (!message) {
+        log.warn('Ignoring malformed search worker inbound message');
         return;
     }
 
-    if (message.type === 'reset-cache') {
-        indexCache.clear();
-        return;
-    }
-
-    if (message.type === 'search') {
-        void processSearchRequest(message.payload);
+    switch (message.type) {
+        case 'cancel':
+            cancelledRequests.add(message.requestId);
+            requestAbortControllers.get(message.requestId)?.abort();
+            return;
+        case 'reset-cache':
+            indexCache.clear();
+            return;
+        case 'search':
+            void processSearchRequest(message.payload);
+            return;
+        default:
+            assertNever(message);
     }
 });
 

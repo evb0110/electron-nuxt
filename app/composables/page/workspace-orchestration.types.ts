@@ -1,6 +1,7 @@
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
+    TMarkupSubtype,
 } from '@app/types/annotations';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
@@ -26,7 +27,7 @@ export interface IPdfViewerExpose {
     focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
-    getMarkupSubtypeOverrides: () => Map<string, import('@app/types/annotations').TMarkupSubtype>;
+    getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
     getAllShapes: () => IShapeAnnotation[];
     loadShapes: (shapes: IShapeAnnotation[]) => void;
     clearShapes: () => void;

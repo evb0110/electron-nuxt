@@ -1,5 +1,4 @@
 import type {
-    PDFArray,
     PDFDict,
     PDFRef,
 } from 'pdf-lib';
@@ -117,7 +116,7 @@ export async function rewriteBookmarks(
                 pdfNull,
                 pdfNull,
                 pdfNull,
-            ]) as PDFArray;
+            ]);
             dict.set(destName, destArray);
             return;
         }
@@ -166,7 +165,7 @@ export async function rewriteBookmarks(
         }
 
         const nodes: IOutlineNodeBuild[] = items.map((item) => {
-            const dict = doc.context.obj({}) as PDFDict;
+            const dict = doc.context.obj({});
             dict.set(titleName, PDFHexString.fromText(item.title));
             setNodeDestination(dict, item);
             setNodeStyle(dict, item);
@@ -222,7 +221,7 @@ export async function rewriteBookmarks(
         };
     }
 
-    const outlinesDict = doc.context.obj({}) as PDFDict;
+    const outlinesDict = doc.context.obj({});
     outlinesDict.set(typeName, PDFName.of('Outlines'));
     const outlinesRef = doc.context.register(outlinesDict);
 

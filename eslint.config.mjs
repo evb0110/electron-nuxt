@@ -37,6 +37,30 @@ const stylisticRules = {
     ],
 };
 
+const strictTypeRules = {
+    '@typescript-eslint/consistent-type-imports': [
+        'error',
+        {
+            prefer: 'type-imports',
+            fixStyle: 'separate-type-imports',
+        },
+    ],
+    '@typescript-eslint/consistent-type-exports': 'error',
+    '@typescript-eslint/no-import-type-side-effects': 'error',
+    '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+    '@typescript-eslint/no-unnecessary-type-constraint': 'error',
+    '@typescript-eslint/ban-ts-comment': [
+        'error',
+        {
+            'ts-ignore': true,
+            'ts-nocheck': true,
+            'ts-check': false,
+            'ts-expect-error': 'allow-with-description',
+            minimumDescriptionLength: 8,
+        },
+    ],
+};
+
 export default withNuxt(
     {ignores: [
         '**/.devkit/**',
@@ -105,6 +129,7 @@ export default withNuxt(
         ],
         languageOptions: {parserOptions: {projectService: true}},
         rules: {
+            ...strictTypeRules,
             '@typescript-eslint/array-type': [
                 'error',
                 {
@@ -149,6 +174,7 @@ export default withNuxt(
             tsconfigRootDir: import.meta.dirname,
         }},
         rules: {
+            ...strictTypeRules,
             '@typescript-eslint/array-type': [
                 'error',
                 {
@@ -189,6 +215,7 @@ export default withNuxt(
             tsconfigRootDir: import.meta.dirname,
         }},
         rules: {
+            ...strictTypeRules,
             '@typescript-eslint/array-type': [
                 'error',
                 {
@@ -225,6 +252,7 @@ export default withNuxt(
             tsconfigRootDir: import.meta.dirname,
         }},
         rules: {
+            ...strictTypeRules,
             '@typescript-eslint/array-type': [
                 'error',
                 {
@@ -265,6 +293,7 @@ export default withNuxt(
         plugins: {custom: customPlugin},
         languageOptions: {parserOptions: {projectService: true}},
         rules: {
+            ...strictTypeRules,
             '@typescript-eslint/require-await': 'error',
             '@typescript-eslint/array-type': [
                 'error',

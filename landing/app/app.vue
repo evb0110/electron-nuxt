@@ -39,7 +39,7 @@ const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
 const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
 const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, '/evb-viewer-preview.png'));
 const ogLocale = computed(
-    () => OPEN_GRAPH_LOCALE_BY_LOCALE[locale.value as keyof typeof OPEN_GRAPH_LOCALE_BY_LOCALE]
+    () => OPEN_GRAPH_LOCALE_BY_LOCALE[locale.value]
         || OPEN_GRAPH_LOCALE_BY_LOCALE.en,
 );
 const ogLocaleAlternates = computed(

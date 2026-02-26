@@ -302,7 +302,7 @@ function getEditMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                 label: te('menu.copy'),
                 accelerator: 'CmdOrCtrl+C',
                 click: (_item, window) => {
-                    (resolveWindowFromMenuContext(window) as Electron.BrowserWindow | null)?.webContents.copy();
+                    (resolveWindowFromMenuContext(window))?.webContents.copy();
                 },
             },
         ],

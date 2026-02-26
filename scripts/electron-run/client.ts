@@ -4,10 +4,12 @@ import {
     SESSION_WAIT_TIMEOUT_MS,
     getCurrentSessionName,
     getSessionInfo,
+    parseElectronRunCommandResponse,
+    type TElectronRunCommand,
 } from './shared';
 
 export async function sendCommand(
-    command: string,
+    command: TElectronRunCommand,
     args: unknown[] = [],
     requestTimeoutMs = COMMAND_REQUEST_TIMEOUT_MS,
 ): Promise<unknown> {
@@ -26,11 +28,7 @@ export async function sendCommand(
             continue;
         }
 
-        let data: {
-            success: boolean;
-            result?: unknown;
-            error?: string 
-        } | null = null;
+        let data: ReturnType<typeof parseElectronRunCommandResponse> = null;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
 
@@ -44,11 +42,10 @@ export async function sendCommand(
                 }),
                 signal: controller.signal,
             });
-            data = (await res.json()) as {
-                success: boolean;
-                result?: unknown;
-                error?: string 
-            };
+            data = parseElectronRunCommandResponse(await res.json());
+            if (!data) {
+                throw new Error('Session returned malformed response payload');
+            }
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
                 throw new Error(`Command "${command}" timed out after ${Math.round(requestTimeoutMs / 1000)}s`);

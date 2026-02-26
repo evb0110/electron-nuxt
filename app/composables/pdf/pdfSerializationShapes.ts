@@ -78,7 +78,7 @@ function createRectAnnotationDict(
             0,
             shape.strokeWidth,
         ],
-    }) as PDFDict;
+    });
 }
 
 function createLineAnnotationDict(
@@ -132,7 +132,7 @@ function createLineAnnotationDict(
             0,
             lineWidth,
         ],
-    }) as PDFDict;
+    });
 
     if (shape.type === 'arrow') {
         const lineEndStyle = shape.lineEndStyle === 'openArrow'

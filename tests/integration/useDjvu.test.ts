@@ -6,9 +6,10 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
+import type * as TVueModule from 'vue';
 
 vi.mock('vue', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('vue')>();
+    const actual = await importOriginal<typeof TVueModule>();
     return {
         ...actual,
         onUnmounted: vi.fn(),
