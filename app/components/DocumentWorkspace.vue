@@ -227,7 +227,7 @@
                         :author-name="appSettings.authorName"
                         @update:zoom="zoom = $event"
                         @update:current-page="handleViewerCurrentPageUpdate"
-                        @update:total-pages="totalPages = $event"
+                        @update:total-pages="handleViewerTotalPagesUpdate"
                         @update:document="pdfDocument = $event"
                         @loading="isLoading = $event"
                         @annotation-state="handleAnnotationState"
@@ -610,6 +610,17 @@ const toolbarHasPdf = computed(() => (
     || isExternallyRestoring.value
     || props.pendingDocumentOpen === true
 ));
+function handleViewerTotalPagesUpdate(value: number) {
+    // During split restore the PdfViewer emits totalPages=0 while it starts
+    // loading the "new" source, overwriting the pre-seeded cache value.
+    // Suppress the transient 0 whenever a document is already loaded — the
+    // viewer will emit the real count once parsing finishes.
+    if (value === 0 && hasPdf.value) {
+        return;
+    }
+    totalPages.value = value;
+}
+
 const canExportDocx = computed(() => (
     Boolean(workingCopyPath.value)
     && !isAnySaving.value

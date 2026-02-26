@@ -518,8 +518,27 @@ applyFallbackToolbarSnapshot(createDefaultToolbarSnapshot());
 
 
 let isMutatingGhosts = false;
+let ghostExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+const GHOST_EXPIRY_MS = 200;
+
+function clearGhostExpiryTimer() {
+    if (ghostExpiryTimer !== null) {
+        clearTimeout(ghostExpiryTimer);
+        ghostExpiryTimer = null;
+    }
+}
+
+function scheduleGhostExpiry() {
+    clearGhostExpiryTimer();
+    ghostExpiryTimer = setTimeout(() => {
+        ghostExpiryTimer = null;
+        clearToolbarGhostNodes();
+        syncToolbarTeleportPresence();
+    }, GHOST_EXPIRY_MS);
+}
 
 function clearToolbarGhostNodes() {
+    clearGhostExpiryTimer();
     const host = globalToolbarHostRef.value;
     if (!host) {
         return;
@@ -1853,6 +1872,7 @@ onMounted(() => {
             if (isTabTransitionBusy.value && !hasRealToolbarContent()) {
                 const host = globalToolbarHostRef.value;
                 if (host) {
+                    let injected = false;
                     isMutatingGhosts = true;
                     for (const mutation of mutations) {
                         for (const removed of mutation.removedNodes) {
@@ -1861,10 +1881,14 @@ onMounted(() => {
                                 ghost.dataset.toolbarGhost = '1';
                                 ghost.inert = true;
                                 host.appendChild(ghost);
+                                injected = true;
                             }
                         }
                     }
                     isMutatingGhosts = false;
+                    if (injected) {
+                        scheduleGhostExpiry();
+                    }
                 }
             }
             syncToolbarTeleportPresence();
@@ -1888,6 +1912,7 @@ onMounted(() => {
 onUnmounted(() => {
     globalToolbarObserver?.disconnect();
     globalToolbarObserver = null;
+    clearGhostExpiryTimer();
     incomingTabTransferCleanup?.();
     incomingTabTransferCleanup = null;
     cleanupExternalFileDrop();
