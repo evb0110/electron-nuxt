@@ -633,6 +633,51 @@ function updateTab(tabId: string, updates: Partial<ITab>) {
     if (!tab) {
         return;
     }
+
+    const nextTabState: ITab = {
+        ...tab,
+        ...updates,
+    };
+
+    const wasDocumentTab = hasDocumentMountHint(tab);
+    const becomesPlaceholder = !hasDocumentMountHint(nextTabState)
+        && nextTabState.fileName === null
+        && nextTabState.originalPath === null
+        && !nextTabState.isDjvu
+        && !nextTabState.isDirty;
+    const shouldSuppressPlaceholderDowngrade = wasDocumentTab
+        && becomesPlaceholder
+        && (
+            isTabTransitionBusy.value
+            || workspaceSplitCache.has(tabId)
+            || workspaceRestoreTracker.has(tabId)
+        );
+
+    if (shouldSuppressPlaceholderDowngrade) {
+        BrowserLogger.warn('toolbar-transition', 'Suppressing transient placeholder tab update during remount handoff', {
+            tabId,
+            updates,
+            activeTabId: activeTabId.value,
+            activeGroupId: activeGroupId.value,
+            isTabTransitionBusy: isTabTransitionBusy.value,
+            hasSplitCache: workspaceSplitCache.has(tabId),
+            isRestoreTracked: workspaceRestoreTracker.has(tabId),
+            previousTabState: {
+                fileName: tab.fileName,
+                originalPath: tab.originalPath,
+                isDirty: tab.isDirty,
+                isDjvu: tab.isDjvu,
+            },
+            nextTabState: {
+                fileName: nextTabState.fileName,
+                originalPath: nextTabState.originalPath,
+                isDirty: nextTabState.isDirty,
+                isDjvu: nextTabState.isDjvu,
+            },
+        });
+        return;
+    }
+
     Object.assign(tab, updates);
 }
 
