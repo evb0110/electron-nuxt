@@ -114,17 +114,6 @@ export function useWorkspaceSplitCache() {
         return clonePayload(entry.payload);
     }
 
-    function peek(tabId: string): TSplitPayload | null {
-        pruneCache();
-
-        const entry = splitPayloadCache.get(tabId);
-        if (!entry) {
-            return null;
-        }
-
-        return clonePayload(entry.payload);
-    }
-
     function has(tabId: string) {
         void splitPayloadCacheRevision.value;
         const entry = splitPayloadCache.get(tabId);
@@ -152,7 +141,6 @@ export function useWorkspaceSplitCache() {
     return {
         set,
         consume,
-        peek,
         has,
         clear,
     };

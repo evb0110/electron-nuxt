@@ -366,7 +366,6 @@ const fallbackContinuousScroll = ref(false);
 const fallbackIsDjvuMode = ref(false);
 const fallbackIsCapturingRegion = ref(false);
 const fallbackIsPlacingPageNote = ref(false);
-const fallbackHasPdfSticky = ref(false);
 const fallbackOcrPopupOpen = ref(false);
 const fallbackZoomDropdownOpen = ref(false);
 const fallbackPageDropdownOpen = ref(false);
@@ -392,9 +391,7 @@ const fallbackHasPdfSignal = computed(() => {
 
     return hasDocumentMountHint(tab);
 });
-const fallbackHasPdf = computed(() => (
-    fallbackHasPdfSignal.value || fallbackHasPdfSticky.value
-));
+const fallbackHasPdf = computed(() => fallbackHasPdfSignal.value);
 
 function noopFallbackAction() {}
 
@@ -467,7 +464,6 @@ function applyFallbackToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot | null
     fallbackViewMode.value = snapshot.viewMode;
     fallbackCurrentPage.value = normalizedCurrentPage;
     fallbackTotalPages.value = normalizedTotalPages;
-    fallbackHasPdfSticky.value = fallbackHasPdfSticky.value || snapshot.hasPdf;
 }
 
 function readToolbarSnapshot(workspace: IWorkspaceExpose | null) {
@@ -520,71 +516,68 @@ function handleFallbackOverflowSetViewMode(mode: TPdfViewMode) {
 
 applyFallbackToolbarSnapshot(createDefaultToolbarSnapshot());
 
-function primeFallbackToolbarFromPayload(payload: TSplitPayload | null) {
-    if (!payload || payload.kind !== 'pdfSnapshot') {
+
+let isMutatingGhosts = false;
+
+function clearToolbarGhostNodes() {
+    const host = globalToolbarHostRef.value;
+    if (!host) {
         return;
     }
-
-    const normalizedCurrentPage = Math.max(
-        1,
-        Math.floor(payload.currentPage ?? 1),
-    );
-    const normalizedTotalPages = Math.max(
-        normalizedCurrentPage,
-        Math.floor(payload.totalPages ?? normalizedCurrentPage),
-    );
-
-    fallbackCurrentPage.value = normalizedCurrentPage;
-    fallbackTotalPages.value = normalizedTotalPages;
-    fallbackHasPdfSticky.value = true;
+    const ghosts = Array.from(host.querySelectorAll(':scope > [data-toolbar-ghost]'));
+    if (ghosts.length === 0) {
+        return;
+    }
+    isMutatingGhosts = true;
+    for (const ghost of ghosts) {
+        ghost.remove();
+    }
+    isMutatingGhosts = false;
 }
 
-function primeFallbackToolbarFromCache(tabId: string | null | undefined) {
-    primeFallbackToolbarFromWorkspace(activeWorkspace.value);
-
-    if (!tabId) {
-        return;
+function hasRealToolbarContent() {
+    const host = globalToolbarHostRef.value;
+    if (!host) {
+        return false;
     }
+    return Boolean(host.querySelector(':scope > :not([data-toolbar-ghost])'));
+}
 
-    primeFallbackToolbarFromPayload(workspaceSplitCache.peek(tabId));
+function hasAnyToolbarContent() {
+    const host = globalToolbarHostRef.value;
+    if (!host) {
+        return false;
+    }
+    return host.children.length > 0;
 }
 
 function syncToolbarTeleportPresence() {
-    const hasContent = Boolean(globalToolbarHostRef.value?.firstElementChild);
+    const hasReal = hasRealToolbarContent();
+
+    if (hasReal) {
+        clearToolbarGhostNodes();
+    }
+
+    // Treat ghost content as "present" — the ghost visually bridges the
+    // gap while the async workspace component resolves after split/close.
+    const hasContent = hasReal || hasAnyToolbarContent();
+
     if (hasTeleportedToolbarContent.value === hasContent) {
         return;
     }
 
-    if (!hasContent && isTabTransitionBusy.value) {
-        primeFallbackToolbarFromCache(activeTabId.value);
-    }
-
-    const logPayload = {
-        hasContent,
-        isTabTransitionBusy: isTabTransitionBusy.value,
-        activeTabId: activeTabId.value,
-        activeGroupId: activeGroupId.value,
-    };
-
-    if (isTabTransitionBusy.value) {
-        BrowserLogger.debug('toolbar-transition', 'Global toolbar teleport presence changed during transition', logPayload);
-    } else {
-        BrowserLogger.warn('toolbar-transition', 'Global toolbar teleport presence changed', logPayload);
-    }
     hasTeleportedToolbarContent.value = hasContent;
 }
 
 function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
     const chained = tabTransitionQueue.then(async () => {
         activeTabTransitions.value += 1;
-        primeFallbackToolbarFromWorkspace(activeWorkspace.value);
         try {
             return await task();
         } finally {
             await nextTick();
-            syncToolbarTeleportPresence();
-            await nextTick();
             activeTabTransitions.value = Math.max(0, activeTabTransitions.value - 1);
+            syncToolbarTeleportPresence();
         }
     });
 
@@ -1003,35 +996,6 @@ watch(activeWorkspace, (workspace) => {
     primeFallbackToolbarFromWorkspace(workspace);
 }, { immediate: true });
 
-watch(
-    [
-        fallbackHasPdfSignal,
-        isTabTransitionBusy,
-        hasTeleportedToolbarContent,
-    ],
-    ([
-        hasDocumentSignal,
-        transitionBusy,
-        hasToolbarContent,
-    ]) => {
-        if (hasDocumentSignal) {
-            fallbackHasPdfSticky.value = true;
-            return;
-        }
-
-        if (!transitionBusy && hasToolbarContent) {
-            fallbackHasPdfSticky.value = false;
-        }
-    },
-    { immediate: true },
-);
-
-watch(activeTabId, (tabId) => {
-    if (!isTabTransitionBusy.value) {
-        return;
-    }
-    primeFallbackToolbarFromCache(tabId);
-});
 
 watch(
     [
@@ -1631,7 +1595,6 @@ async function splitEditor(direction: TGroupDirection) {
         if (!payload) {
             return;
         }
-        primeFallbackToolbarFromPayload(payload);
 
         workspaceSplitCache.set(sourceTabId, payload);
         scheduleSplitCacheCleanup(sourceTabId);
@@ -1706,7 +1669,6 @@ async function moveActiveTab(direction: TGroupDirection) {
         if (!payload) {
             return;
         }
-        primeFallbackToolbarFromPayload(payload);
 
         if (payload.kind !== 'empty') {
             workspaceSplitCache.set(sourceTabId, payload);
@@ -1734,7 +1696,6 @@ async function copyActiveTab(direction: TGroupDirection) {
         if (!payload) {
             return;
         }
-        primeFallbackToolbarFromPayload(payload);
 
         const route = ensureTargetGroupForDirection(direction);
         if (!route) {
@@ -1885,7 +1846,27 @@ onMounted(() => {
 
     syncToolbarTeleportPresence();
     if (typeof MutationObserver !== 'undefined' && globalToolbarHostRef.value) {
-        globalToolbarObserver = new MutationObserver(() => {
+        globalToolbarObserver = new MutationObserver((mutations) => {
+            if (isMutatingGhosts) {
+                return;
+            }
+            if (isTabTransitionBusy.value && !hasRealToolbarContent()) {
+                const host = globalToolbarHostRef.value;
+                if (host) {
+                    isMutatingGhosts = true;
+                    for (const mutation of mutations) {
+                        for (const removed of mutation.removedNodes) {
+                            if (removed instanceof HTMLElement) {
+                                const ghost = removed.cloneNode(true) as HTMLElement;
+                                ghost.dataset.toolbarGhost = '1';
+                                ghost.inert = true;
+                                host.appendChild(ghost);
+                            }
+                        }
+                    }
+                    isMutatingGhosts = false;
+                }
+            }
             syncToolbarTeleportPresence();
         });
         globalToolbarObserver.observe(globalToolbarHostRef.value, {childList: true});
