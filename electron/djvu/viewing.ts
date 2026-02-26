@@ -304,7 +304,7 @@ async function buildSkeletonPdf(
 
     const doc = await PDFDocument.create();
     const [copiedPage1] = await doc.copyPages(page1Doc, [0]);
-    doc.addPage(copiedPage1!);
+    doc.addPage(copiedPage1);
 
     for (let i = 1; i < pageCount; i += 1) {
         addSkeletonPage(doc, width, height);

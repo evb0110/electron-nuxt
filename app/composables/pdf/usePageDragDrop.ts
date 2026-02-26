@@ -65,7 +65,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return [page];
     }
 
-    function findScrollContainer() {
+    function findScrollContainer(): HTMLElement | null {
         const container = containerRef.value;
         if (!container) {
             return null;
@@ -75,7 +75,8 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             return container;
         }
 
-        return container.closest('.pdf-sidebar-pages-thumbnails') as HTMLElement | null;
+        const closestContainer = container.closest('.pdf-sidebar-pages-thumbnails');
+        return closestContainer instanceof HTMLElement ? closestContainer : null;
     }
 
     function calcDropIndex(clientY: number) {

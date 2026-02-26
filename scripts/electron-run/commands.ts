@@ -9,14 +9,58 @@ import {
     OPEN_PDF_READY_TIMEOUT_MS,
     OPEN_PDF_TRIGGER_TIMEOUT_MS,
     screenshotDirPath,
-    type IDevtoolsEvent,
     type ISessionState,
+    type TDevtoolsEvent,
+    type TElectronRunCommand,
 } from './shared';
 
 const DEFAULT_CONSOLE_LIMIT = 50;
 const DEFAULT_DEVTOOLS_LIMIT = 120;
 const DEFAULT_SCREENSHOT_INTERVAL_MS = 1000;
 const DEFAULT_SCREENSHOT_COUNT = 5;
+const TRUTHY_BOOLEAN_TOKENS = [
+    '1',
+    'true',
+    'yes',
+    'y',
+    'on',
+    'full',
+] as const;
+const FALSY_BOOLEAN_TOKENS = [
+    '0',
+    'false',
+    'no',
+    'n',
+    'off',
+] as const;
+type TTruthyBooleanToken = typeof TRUTHY_BOOLEAN_TOKENS[number];
+type TFalsyBooleanToken = typeof FALSY_BOOLEAN_TOKENS[number];
+const DEVTOOLS_SECTION_VALUES = [
+    'summary',
+    'console',
+    'network',
+    'errors',
+    'metrics',
+    'all',
+] as const;
+type TDevtoolsSection = typeof DEVTOOLS_SECTION_VALUES[number];
+const DEVTOOLS_SECTION_SET = new Set<TDevtoolsSection>(DEVTOOLS_SECTION_VALUES);
+const DEVTOOLS_EVENT_SUMMARY_TEMPLATE: Record<TDevtoolsEvent['kind'], number> = {
+    console: 0,
+    request: 0,
+    response: 0,
+    requestfailed: 0,
+    pageerror: 0,
+    error: 0,
+};
+
+function isTruthyBooleanToken(value: string): value is TTruthyBooleanToken {
+    return (TRUTHY_BOOLEAN_TOKENS as readonly string[]).includes(value);
+}
+
+function isFalsyBooleanToken(value: string): value is TFalsyBooleanToken {
+    return (FALSY_BOOLEAN_TOKENS as readonly string[]).includes(value);
+}
 
 function sanitizeSnapshotName(name: string) {
     return name
@@ -51,23 +95,10 @@ function parseBooleanArg(value: unknown, fallback = false) {
         return fallback;
     }
     const normalized = value.trim().toLowerCase();
-    if ([
-        '1',
-        'true',
-        'yes',
-        'y',
-        'on',
-        'full',
-    ].includes(normalized)) {
+    if (isTruthyBooleanToken(normalized)) {
         return true;
     }
-    if ([
-        '0',
-        'false',
-        'no',
-        'n',
-        'off',
-    ].includes(normalized)) {
+    if (isFalsyBooleanToken(normalized)) {
         return false;
     }
     return fallback;
@@ -77,15 +108,45 @@ function normalizeEventLimit(value: unknown, fallback: number) {
     return parsePositiveInt(value, fallback, 2000);
 }
 
-function getDevtoolsSummary(events: IDevtoolsEvent[]) {
+function getDevtoolsSummary(events: readonly TDevtoolsEvent[]) {
     return events.reduce((acc, event) => {
-        acc[event.kind] = (acc[event.kind] ?? 0) + 1;
+        acc[event.kind] += 1;
         return acc;
-    }, {} as Record<string, number>);
+    }, { ...DEVTOOLS_EVENT_SUMMARY_TEMPLATE });
+}
+
+function parseStringArg(args: readonly unknown[], index: number): string | null {
+    const value = args[index];
+    if (typeof value !== 'string') {
+        return null;
+    }
+    return value;
+}
+
+function parseRequiredStringArg(args: readonly unknown[], index: number, errorMessage: string): string {
+    const value = parseStringArg(args, index);
+    if (!value) {
+        throw new Error(errorMessage);
+    }
+    return value;
+}
+
+function parseDevtoolsSection(value: unknown): TDevtoolsSection | null {
+    if (typeof value === 'undefined') {
+        return 'summary';
+    }
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const normalized = value.toLowerCase();
+    if (DEVTOOLS_SECTION_SET.has(normalized as TDevtoolsSection)) {
+        return normalized as TDevtoolsSection;
+    }
+    return null;
 }
 
 export function createCommandHandler(getSessionState: () => ISessionState | null) {
-    return async function handleCommand(command: string, args: unknown[]): Promise<unknown> {
+    return async function handleCommand(command: TElectronRunCommand, args: unknown[]): Promise<unknown> {
         const sessionState = getSessionState();
         if (!sessionState) {
             throw new Error('Session not initialized');
@@ -115,7 +176,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                 };
 
             case 'screenshot': {
-                const name = (args[0] as string) ?? `screenshot-${Date.now()}`;
+                const name = parseStringArg(args, 0) ?? `screenshot-${Date.now()}`;
                 const fullPage = parseBooleanArg(args[1]);
                 const filepath = await takeScreenshot(name, fullPage);
                 return {
@@ -125,7 +186,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
             }
 
             case 'screenshots': {
-                const baseName = sanitizeSnapshotName((args[0] as string) ?? `timelapse-${Date.now()}`);
+                const baseName = sanitizeSnapshotName(parseStringArg(args, 0) ?? `timelapse-${Date.now()}`);
                 const count = parsePositiveInt(args[1], DEFAULT_SCREENSHOT_COUNT, 240);
                 const intervalMs = parseNonNegativeInt(args[2], DEFAULT_SCREENSHOT_INTERVAL_MS, 60_000);
                 const fullPage = parseBooleanArg(args[3]);
@@ -157,7 +218,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
             }
 
             case 'console': {
-                const level = (args[0] as string) ?? 'all';
+                const level = parseStringArg(args, 0) ?? 'all';
                 const limit = normalizeEventLimit(args[1], DEFAULT_CONSOLE_LIMIT);
                 const filtered = level === 'all'
                     ? consoleMessages
@@ -170,7 +231,10 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
             }
 
             case 'devtools': {
-                const section = ((args[0] as string) ?? 'summary').toLowerCase();
+                const section = parseDevtoolsSection(args[0]);
+                if (!section) {
+                    throw new Error('Unknown devtools section. Use summary|console|network|errors|metrics|all');
+                }
                 const limit = normalizeEventLimit(args[1], DEFAULT_DEVTOOLS_LIMIT);
                 const events = devtoolsEvents.slice(-limit);
 
@@ -209,7 +273,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                                 return true;
                             }
                             if (event.kind === 'console') {
-                                return event.level === 'error' || event.level === 'warning' || event.level === 'warn';
+                                return event.level === 'error' || event.level === 'warn';
                             }
                             if (event.kind === 'response') {
                                 return typeof event.status === 'number' && event.status >= 400;
@@ -246,10 +310,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
             }
 
             case 'run': {
-                const code = args[0] as string;
-                if (!code) {
-                    throw new Error('No code provided');
-                }
+                const code = parseRequiredStringArg(args, 0, 'No code provided');
 
                 const screenshotFn = async (name: string) => {
                     return await takeScreenshot(name, false);
@@ -273,10 +334,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
             }
 
             case 'eval': {
-                const code = args[0] as string;
-                if (!code) {
-                    throw new Error('No code provided');
-                }
+                const code = parseRequiredStringArg(args, 0, 'No code provided');
                 return await Promise.race([
                     page.evaluate(code),
                     delay(COMMAND_EXECUTION_TIMEOUT_MS).then(() => {
@@ -286,13 +344,10 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
             }
 
             case 'click': {
-                const selector = args[0] as string;
-                if (!selector) {
-                    throw new Error('No selector provided');
-                }
+                const selector = parseRequiredStringArg(args, 0, 'No selector provided');
                 const timeoutMs = parsePositiveInt(args[1], 8_000, 120_000);
                 const targetInfo = await page.evaluate((sel: string) => {
-                    const el = document.querySelector(sel) as HTMLElement | null;
+                    const el = document.querySelector(sel);
                     if (!el) {
                         return null;
                     }
@@ -388,13 +443,8 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
             }
 
             case 'type': {
-                const [
-                    selector,
-                    text,
-                ] = args as [string, string];
-                if (!selector || !text) {
-                    throw new Error('Selector and text required');
-                }
+                const selector = parseRequiredStringArg(args, 0, 'Selector and text required');
+                const text = parseRequiredStringArg(args, 1, 'Selector and text required');
                 await page.type(selector, text);
                 return {
                     typed: text,
@@ -403,10 +453,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
             }
 
             case 'content': {
-                const selector = args[0] as string;
-                if (!selector) {
-                    throw new Error('No selector provided');
-                }
+                const selector = parseRequiredStringArg(args, 0, 'No selector provided');
                 const el = await page.$(selector);
                 if (!el) {
                     return null;
@@ -415,10 +462,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
             }
 
             case 'waitfor': {
-                const selector = args[0] as string;
-                if (!selector) {
-                    throw new Error('No selector provided');
-                }
+                const selector = parseRequiredStringArg(args, 0, 'No selector provided');
                 const timeoutMs = parsePositiveInt(args[1], 10_000, 300_000);
                 await page.waitForSelector(selector, { timeout: timeoutMs });
                 return {
@@ -471,10 +515,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
             }
 
             case 'openPdf': {
-                const pdfPath = args[0] as string;
-                if (!pdfPath) {
-                    throw new Error('PDF path required');
-                }
+                const pdfPath = parseRequiredStringArg(args, 0, 'PDF path required');
                 const requestedBasename = basename(pdfPath).toLowerCase();
                 type TViewerSnapshot = {
                     viewerIndex: number;
@@ -537,14 +578,14 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                 };
 
                 const readViewerState = async (token?: string) => await page.evaluate((requestedPathBasename: string, requestedToken?: string) => {
-                    const hosts = Array.from(document.querySelectorAll('#pdf-viewer')) as Array<HTMLElement & {__vueParentComponent?: {setupState?: {
-                        numPages?: number;
-                        currentPage?: number;
-                        isLoading?: boolean;
-                        workingCopyPath?: string | null;
-                    };};}>;
+                    const hosts = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'));
                     const viewers = hosts.map((host, viewerIndex) => {
-                        const setupState = host.__vueParentComponent?.setupState;
+                        const setupState = (host as HTMLElement & {__vueParentComponent?: {setupState?: {
+                            numPages?: number;
+                            currentPage?: number;
+                            isLoading?: boolean;
+                            workingCopyPath?: string | null;
+                        };};}).__vueParentComponent?.setupState;
                         const pageContainers = host.querySelectorAll('.page_container');
                         const isHostVisible = (() => {
                             if (!host.isConnected) {
@@ -766,7 +807,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                 const start = Date.now();
                 let lastState: TOpenPdfState = beforeState;
                 while (Date.now() - start < OPEN_PDF_READY_TIMEOUT_MS) {
-                    lastState = await readViewerState(triggerToken as string);
+                    lastState = await readViewerState(triggerToken);
 
                     if (lastState.openTrigger?.status === 'rejected') {
                         throw new Error(lastState.openTrigger.error || 'openPdf failed');

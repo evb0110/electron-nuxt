@@ -2,6 +2,57 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { getElectronAPI } from '@app/utils/electron';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
+type TJsonRecord = Record<string, unknown>;
+
+interface IOcrManifestPageEntry {path: string;}
+
+interface IOcrManifestIndex {pages: Record<string, IOcrManifestPageEntry>;}
+
+interface IOcrPageTextEntry {text?: string;}
+
+interface ILegacyOcrIndex {pages?: IOcrPageTextEntry[];}
+
+function isRecord(value: unknown): value is TJsonRecord {
+    return typeof value === 'object' && value !== null;
+}
+
+function isOcrManifestIndex(value: unknown): value is IOcrManifestIndex {
+    if (!isRecord(value) || !isRecord(value.pages)) {
+        return false;
+    }
+    return Object.values(value.pages).every((page) => isRecord(page) && typeof page.path === 'string');
+}
+
+function isOcrPageTextEntry(value: unknown): value is IOcrPageTextEntry {
+    return isRecord(value) && (typeof value.text === 'string' || typeof value.text === 'undefined');
+}
+
+function isLegacyOcrIndex(value: unknown): value is ILegacyOcrIndex {
+    if (!isRecord(value)) {
+        return false;
+    }
+    if (typeof value.pages === 'undefined') {
+        return true;
+    }
+    return Array.isArray(value.pages) && value.pages.every(isOcrPageTextEntry);
+}
+
+function parseJsonWithGuard<T>(json: string, guard: (value: unknown) => value is T): T | null {
+    try {
+        const parsed = JSON.parse(json);
+        return guard(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+function getTextContentItemString(item: unknown): string {
+    if (!isRecord(item) || typeof item.str !== 'string') {
+        return '';
+    }
+    return item.str;
+}
+
 export async function loadOcrText(workingCopyPath: string): Promise<string | null> {
     try {
         const api = getElectronAPI();
@@ -9,7 +60,10 @@ export async function loadOcrText(workingCopyPath: string): Promise<string | nul
         const exists = await api.fileExists(manifestPath);
         if (exists) {
             const manifestJson = await api.readTextFile(manifestPath);
-            const manifest = JSON.parse(manifestJson) as {pages: Record<number, { path: string }>;};
+            const manifest = parseJsonWithGuard(manifestJson, isOcrManifestIndex);
+            if (!manifest) {
+                return null;
+            }
 
             const pageEntries = Object.entries(manifest.pages ?? {})
                 .map(([
@@ -27,7 +81,7 @@ export async function loadOcrText(workingCopyPath: string): Promise<string | nul
             for (const entry of pageEntries) {
                 const pagePath = `${workingCopyPath}.ocr/${entry.path}`;
                 const pageJson = await api.readTextFile(pagePath);
-                const pageData = JSON.parse(pageJson) as { text?: string };
+                const pageData = parseJsonWithGuard(pageJson, isOcrPageTextEntry);
                 if (pageData?.text) {
                     texts.push(pageData.text.trim());
                 }
@@ -44,7 +98,10 @@ export async function loadOcrText(workingCopyPath: string): Promise<string | nul
         }
 
         const indexJson = await api.readTextFile(legacyIndexPath);
-        const index = JSON.parse(indexJson) as {pages?: Array<{ text?: string }>;};
+        const index = parseJsonWithGuard(indexJson, isLegacyOcrIndex);
+        if (!index) {
+            return null;
+        }
 
         const legacyTexts = (index.pages ?? [])
             .map((page) => page?.text?.trim())
@@ -70,7 +127,7 @@ export async function extractPdfText(pdfDocument: PDFDocumentProxy): Promise<str
             const page = await pdfDocument.getPage(pageNumber);
             const content = await page.getTextContent();
             const text = content.items
-                .map((item) => (item as { str?: string }).str ?? '')
+                .map(getTextContentItemString)
                 .join(' ')
                 .replace(/\s+/g, ' ')
                 .trim();

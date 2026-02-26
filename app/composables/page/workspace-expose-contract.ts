@@ -1,6 +1,8 @@
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 
-export const REQUIRED_WORKSPACE_EXPOSE_METHODS: Array<keyof Omit<IWorkspaceExpose, 'hasPdf'>> = [
+type TWorkspaceExposeMethod = keyof Omit<IWorkspaceExpose, 'hasPdf'>;
+
+export const REQUIRED_WORKSPACE_EXPOSE_METHODS = [
     'handleSave',
     'handleSaveAs',
     'handleUndo',
@@ -37,17 +39,27 @@ export const REQUIRED_WORKSPACE_EXPOSE_METHODS: Array<keyof Omit<IWorkspaceExpos
     'restoreSplitPayload',
     'closeAllDropdowns',
     'getToolbarSnapshot',
-];
+] as const satisfies readonly TWorkspaceExposeMethod[];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isHasPdfField(value: unknown): value is IWorkspaceExpose['hasPdf'] {
+    if (typeof value === 'boolean') {
+        return true;
+    }
+    return isRecord(value) && typeof value.value === 'boolean';
+}
 
 export function isWorkspaceExpose(value: unknown): value is IWorkspaceExpose {
-    if (!value || typeof value !== 'object') {
+    if (!isRecord(value)) {
         return false;
     }
 
-    const candidate = value as Record<string, unknown>;
-    if (!('hasPdf' in candidate)) {
+    if (!isHasPdfField(value.hasPdf)) {
         return false;
     }
 
-    return REQUIRED_WORKSPACE_EXPOSE_METHODS.every(methodName => typeof candidate[methodName] === 'function');
+    return REQUIRED_WORKSPACE_EXPOSE_METHODS.every(methodName => typeof value[methodName] === 'function');
 }

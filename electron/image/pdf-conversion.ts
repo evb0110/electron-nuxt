@@ -14,17 +14,31 @@ import {
     SUPPORTED_IMAGE_EXTENSIONS as SHARED_SUPPORTED_IMAGE_EXTENSIONS,
 } from '@electron/image/pdf-combine-shared';
 
-interface ICombineWorkerPayload {
-    type?: string;
-    ok?: boolean;
-    error?: string;
-    data?: unknown;
-    processed?: number;
-    total?: number;
-    percent?: number;
-    elapsedMs?: number;
-    estimatedRemainingMs?: number | null;
+interface ICombineWorkerProgressPayload {
+    type: 'progress';
+    processed: number;
+    total: number;
+    percent: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number | null;
 }
+
+interface ICombineWorkerResultSuccessPayload {
+    type: 'result';
+    ok: true;
+    data: unknown;
+}
+
+interface ICombineWorkerResultErrorPayload {
+    type: 'result';
+    ok: false;
+    error: string;
+}
+
+type TCombineWorkerPayload =
+    | ICombineWorkerProgressPayload
+    | ICombineWorkerResultSuccessPayload
+    | ICombineWorkerResultErrorPayload;
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -45,6 +59,64 @@ export const SUPPORTED_IMAGE_EXTENSIONS = SHARED_SUPPORTED_IMAGE_EXTENSIONS;
 const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
     SUPPORTED_IMAGE_EXTENSIONS,
 );
+
+function assertNever(value: never): never {
+    throw new Error(`Unhandled image combine worker payload: ${JSON.stringify(value)}`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
+function parseCombineWorkerPayload(message: unknown): TCombineWorkerPayload | null {
+    if (!isRecord(message) || typeof message.type !== 'string') {
+        return null;
+    }
+
+    switch (message.type) {
+        case 'progress':
+            if (
+                !isFiniteNumber(message.processed)
+                || !isFiniteNumber(message.total)
+                || !isFiniteNumber(message.percent)
+                || !isFiniteNumber(message.elapsedMs)
+            ) {
+                return null;
+            }
+            return {
+                type: 'progress',
+                processed: message.processed,
+                total: message.total,
+                percent: message.percent,
+                elapsedMs: message.elapsedMs,
+                estimatedRemainingMs: isFiniteNumber(message.estimatedRemainingMs)
+                    ? message.estimatedRemainingMs
+                    : null,
+            };
+        case 'result':
+            if (message.ok === true) {
+                return {
+                    type: 'result',
+                    ok: true,
+                    data: message.data,
+                };
+            }
+            if (message.ok === false && typeof message.error === 'string') {
+                return {
+                    type: 'result',
+                    ok: false,
+                    error: message.error,
+                };
+            }
+            return null;
+        default:
+            return null;
+    }
+}
 
 export function isPdfPath(filePath: string): boolean {
     return extname(filePath).toLowerCase() === '.pdf';
@@ -68,7 +140,10 @@ export function buildCombinedPdfOutputPath(inputPaths: string[]): string {
         return 'combined.pdf';
     }
 
-    const firstPath = inputPaths[0]!;
+    const firstPath = inputPaths[0];
+    if (!firstPath) {
+        return 'combined.pdf';
+    }
     const dir = dirname(firstPath);
     const stem = basename(firstPath, extname(firstPath));
     const outputName =
@@ -145,56 +220,52 @@ function createPdfFromInputPathsWorker(
         };
 
         worker.on('message', (message: unknown) => {
-            const payload = message as ICombineWorkerPayload;
-
-            if (payload.type === 'progress') {
-                if (
-                    options?.onProgress
-                    && Number.isFinite(payload.processed)
-                    && Number.isFinite(payload.total)
-                    && Number.isFinite(payload.percent)
-                    && Number.isFinite(payload.elapsedMs)
-                ) {
-                    options.onProgress({
-                        processed: Number(payload.processed),
-                        total: Number(payload.total),
-                        percent: Number(payload.percent),
-                        elapsedMs: Number(payload.elapsedMs),
-                        estimatedRemainingMs:
-                            typeof payload.estimatedRemainingMs === 'number'
-                                ? payload.estimatedRemainingMs
-                                : null,
-                    });
+            const payload = parseCombineWorkerPayload(message);
+            if (!payload) {
+                if (!settled) {
+                    settled = true;
+                    terminateWorker();
+                    reject(new Error('Image combine worker sent malformed payload'));
                 }
                 return;
             }
 
-            if (settled) {
-                return;
-            }
-            settled = true;
-            terminateWorker();
+            switch (payload.type) {
+                case 'progress':
+                    if (options?.onProgress) {
+                        options.onProgress({
+                            processed: payload.processed,
+                            total: payload.total,
+                            percent: payload.percent,
+                            elapsedMs: payload.elapsedMs,
+                            estimatedRemainingMs: payload.estimatedRemainingMs,
+                        });
+                    }
+                    return;
+                case 'result': {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    terminateWorker();
 
-            if (payload.type === 'result' && !payload.ok) {
-                reject(new Error(payload.error || 'Image combine worker failed'));
-                return;
-            }
-            if (payload.type === 'result' && payload.ok !== true) {
-                reject(new Error(payload.error || 'Image combine worker failed'));
-                return;
-            }
-            if (payload.type !== 'result' && payload.ok !== true) {
-                reject(new Error(payload.error || 'Image combine worker failed'));
-                return;
-            }
+                    if (!payload.ok) {
+                        reject(new Error(payload.error || 'Image combine worker failed'));
+                        return;
+                    }
 
-            const data = decodeWorkerPdfBytes(payload.data);
-            if (!data) {
-                reject(new Error('Image combine worker returned invalid PDF data'));
-                return;
-            }
+                    const data = decodeWorkerPdfBytes(payload.data);
+                    if (!data) {
+                        reject(new Error('Image combine worker returned invalid PDF data'));
+                        return;
+                    }
 
-            resolve(data);
+                    resolve(data);
+                    return;
+                }
+                default:
+                    assertNever(payload);
+            }
         });
 
         worker.once('error', (error) => {

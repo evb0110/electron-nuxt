@@ -1,6 +1,14 @@
 {
     "extends": "./.nuxt/tsconfig.json",
     "compilerOptions": {
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+        "useUnknownInCatchVariables": true,
+        "strictBuiltinIteratorReturn": true,
+        "verbatimModuleSyntax": true,
+        "moduleDetection": "force",
+        "isolatedModules": true,
         "baseUrl": ".",
         "paths": {
             "@app/*": ["app/*"],

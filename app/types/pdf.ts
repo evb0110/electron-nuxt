@@ -31,17 +31,19 @@ export interface IScrollSnapshot {
     anchorContentYRatio?: number;
     anchorPageXRatio?: number;
     anchorPageYRatio?: number;
-    anchorPageYOutsideEdge?: 'inside' | 'above' | 'below';
+    anchorPageYOutsideEdge?: TAnchorPageOutsideEdge;
     anchorPageYOutsideOffsetPx?: number | null;
 }
 
-export type TPdfSource =
-    | Blob
-    | {
-        kind: 'path';
-        path: string;
-        size: number;
-    };
+export type TAnchorPageOutsideEdge = 'inside' | 'above' | 'below';
+
+export interface IPdfPathSource {
+    kind: 'path';
+    path: string;
+    size: number;
+}
+
+export type TPdfSource = Blob | IPdfPathSource;
 
 export interface ISearchExcerpt {
     prefix: boolean;
@@ -79,7 +81,15 @@ export interface IPdfPageMatches {
 
 export type TSearchDirection = 'next' | 'previous';
 
-export type TPageLabelStyle = 'D' | 'R' | 'r' | 'A' | 'a' | null;
+export const PAGE_LABEL_STYLE_VALUES = [
+    'D',
+    'R',
+    'r',
+    'A',
+    'a',
+] as const;
+
+export type TPageLabelStyle = typeof PAGE_LABEL_STYLE_VALUES[number] | null;
 
 export interface IPdfPageLabelRange {
     startPage: number;

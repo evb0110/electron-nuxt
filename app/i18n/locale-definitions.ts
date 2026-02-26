@@ -1,11 +1,13 @@
 /* eslint-disable no-restricted-imports */
 import type { TLocale } from './locale-codes';
 
-export const LOCALE_DEFINITIONS: Array<{
+export interface ILocaleDefinition {
     code: TLocale;
-    file: string;
+    file: `${TLocale}.ts`;
     name: string;
-}> = [
+}
+
+export const LOCALE_DEFINITIONS = [
     {
         code: 'en',
         file: 'en.ts',
@@ -46,4 +48,4 @@ export const LOCALE_DEFINITIONS: Array<{
         file: 'nl.ts',
         name: 'Nederlands',
     },
-];
+] as const satisfies readonly ILocaleDefinition[];

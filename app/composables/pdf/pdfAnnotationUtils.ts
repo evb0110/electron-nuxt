@@ -1,5 +1,8 @@
 import { PDFDateString } from 'pdfjs-dist';
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    IAnnotationMarkerRect,
+} from '@app/types/annotations';
 import type {
     TTranslateFn,
     TTranslationKey,
@@ -56,7 +59,7 @@ export interface IPdfjsEditor {
 }
 
 export interface IAnnotationContextMenuPayload {
-    comment: import('@app/types/annotations').IAnnotationCommentSummary | null;
+    comment: IAnnotationCommentSummary | null;
     clientX: number;
     clientY: number;
     hasSelection: boolean;

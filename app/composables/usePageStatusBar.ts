@@ -1,12 +1,22 @@
 import type { Ref } from 'vue';
+import type { TPdfSource } from '@app/types/pdf';
 import {
     getElectronAPI,
     hasElectronAPI,
 } from '@app/utils/electron';
 import { formatBytes } from '@app/utils/formatters';
 
+type TSaveDotState = 'idle' | 'saving' | 'dirty' | 'clean';
+
+function isPathPdfSource(value: TPdfSource | null): value is Extract<TPdfSource, { kind: 'path' }> {
+    return typeof value === 'object'
+        && value !== null
+        && 'kind' in value
+        && value.kind === 'path';
+}
+
 export interface IPageStatusBarDeps {
-    pdfSrc: Ref<unknown>;
+    pdfSrc: Ref<TPdfSource | null>;
     pdfData: Ref<Uint8Array | null>;
     originalPath: Ref<string | null>;
     workingCopyPath: Ref<string | null>;
@@ -45,8 +55,8 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         if (pdfData.value) {
             return pdfData.value.byteLength;
         }
-        if (pdfSrc.value && typeof pdfSrc.value === 'object' && 'kind' in (pdfSrc.value as Record<string, unknown>) && (pdfSrc.value as Record<string, unknown>).kind === 'path') {
-            return (pdfSrc.value as { size: number }).size;
+        if (isPathPdfSource(pdfSrc.value)) {
+            return pdfSrc.value.size;
         }
         return null;
     });
@@ -57,7 +67,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         return t('status.fileSizeValue', { size: formatBytes(statusFileSizeBytes.value) });
     });
     const statusZoomLabel = computed(() => t('status.zoomValue', { zoom: Math.round(zoom.value * 100) }));
-    const statusSaveDotState = computed(() => {
+    const statusSaveDotState = computed<TSaveDotState>(() => {
         if (!pdfSrc.value) {
             return 'idle';
         }
