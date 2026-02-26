@@ -38,6 +38,7 @@ function clonePayload(payload: TSplitPayload): TSplitPayload {
         data: payload.data.slice(),
         isDirty: payload.isDirty,
         currentPage: payload.currentPage,
+        totalPages: payload.totalPages,
     };
 }
 
