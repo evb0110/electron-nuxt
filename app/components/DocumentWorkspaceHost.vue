@@ -593,7 +593,16 @@ const workspaceExpose: IWorkspaceExpose = {
         if (!mountedWorkspace.value && payload.kind === 'empty') {
             return;
         }
-        await withWorkspace('restoreSplitPayload', workspace => workspace.restoreSplitPayload(payload));
+        const restorePayload = async () => {
+            await withWorkspace('restoreSplitPayload', workspace => workspace.restoreSplitPayload(payload));
+        };
+
+        if (payload.kind === 'empty') {
+            await restorePayload();
+            return;
+        }
+
+        await runWhileOpeningDocument(restorePayload);
     },
     closeAllDropdowns: () => {
         void withLoadedWorkspace('closeAllDropdowns', workspace => workspace.closeAllDropdowns());

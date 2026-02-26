@@ -224,6 +224,7 @@ import {
 } from '@app/composables/page/useMenuSync';
 import { useTabsShellBindings } from '@app/composables/page/useTabsShellBindings';
 import { isWorkspaceExpose } from '@app/composables/page/workspace-expose-contract';
+import { hasDocumentMountHint } from '@app/composables/page/workspace-host-mounting';
 import { useAppUpdates } from '@app/composables/useAppUpdates';
 import { useEditorGroupsManager } from '@app/composables/useEditorGroupsManager';
 import { useWorkspaceRestoreTracker } from '@app/composables/useWorkspaceRestoreTracker';
@@ -567,6 +568,121 @@ function resolveTabForAction(tabId: string | undefined) {
     };
 }
 
+function scoreTabDocumentReadiness(tabId: string) {
+    const workspace = workspaceRefs.value.get(tabId) ?? null;
+    if (workspaceHasPdf(workspace)) {
+        return 3;
+    }
+
+    const tab = getTabById(tabId);
+    if (tab && hasDocumentMountHint(tab)) {
+        return 2;
+    }
+
+    return 1;
+}
+
+function pickBestTabCandidate(tabIds: Array<string | null | undefined>) {
+    const uniqueTabIds: string[] = [];
+    const seen = new Set<string>();
+    for (const tabId of tabIds) {
+        if (!tabId || seen.has(tabId) || !getTabById(tabId)) {
+            continue;
+        }
+        seen.add(tabId);
+        uniqueTabIds.push(tabId);
+    }
+
+    let bestTabId: string | null = null;
+    let bestScore = -1;
+    for (const tabId of uniqueTabIds) {
+        const score = scoreTabDocumentReadiness(tabId);
+        if (score > bestScore) {
+            bestScore = score;
+            bestTabId = tabId;
+        }
+    }
+
+    return bestTabId;
+}
+
+function resolveCloseHandoffTarget(groupId: string, tabId: string) {
+    if (activeGroupId.value !== groupId || activeTabId.value !== tabId) {
+        return null;
+    }
+
+    const sourceGroup = getGroupById(groupId);
+    if (!sourceGroup) {
+        return null;
+    }
+
+    const closingTabIndex = sourceGroup.tabIds.indexOf(tabId);
+    if (closingTabIndex === -1) {
+        return null;
+    }
+
+    const sameGroupReplacement = pickBestTabCandidate([
+        sourceGroup.tabIds[closingTabIndex + 1],
+        sourceGroup.tabIds[closingTabIndex - 1],
+        ...sourceGroup.tabIds.filter(candidate => candidate !== tabId),
+    ]);
+    if (sameGroupReplacement) {
+        return {
+            groupId: sourceGroup.id,
+            tabId: sameGroupReplacement,
+        };
+    }
+
+    let bestTarget: {
+        groupId: string;
+        tabId: string;
+        score: number;
+    } | null = null;
+
+    for (const candidateGroup of groups.value) {
+        if (candidateGroup.id === sourceGroup.id || candidateGroup.tabIds.length === 0) {
+            continue;
+        }
+
+        const candidateTabId = pickBestTabCandidate([
+            candidateGroup.activeTabId,
+            ...candidateGroup.tabIds,
+        ]);
+        if (!candidateTabId) {
+            continue;
+        }
+
+        const score = scoreTabDocumentReadiness(candidateTabId);
+        if (!bestTarget || score > bestTarget.score) {
+            bestTarget = {
+                groupId: candidateGroup.id,
+                tabId: candidateTabId,
+                score,
+            };
+        }
+    }
+
+    if (!bestTarget) {
+        return null;
+    }
+
+    return {
+        groupId: bestTarget.groupId,
+        tabId: bestTarget.tabId,
+    };
+}
+
+async function handoffActiveTabBeforeClose(groupId: string, tabId: string) {
+    const target = resolveCloseHandoffTarget(groupId, tabId);
+    if (!target) {
+        return;
+    }
+
+    activateGroup(target.groupId);
+    activateTab(target.groupId, target.tabId);
+    await nextTick();
+}
+
 const activeWorkspace = computed(() => {
     if (!activeTabId.value) {
         return null;
@@ -713,6 +829,8 @@ async function handleCloseTab(groupId: string, tabId: string) {
             }
             shouldPersistBeforeClose = false;
         }
+
+        await handoffActiveTabBeforeClose(groupId, tabId);
 
         const workspace = workspaceRefs.value.get(tabId);
         if (workspace && workspaceHasPdf(workspace)) {
@@ -878,8 +996,8 @@ async function restoreWorkspacePayload(tabId: string, payload: TSplitPayload | n
         await workspace.restoreSplitPayload(payload);
         await nextTick();
 
-        // Non-empty payloads must result in an opened document.
-        if (payload.kind !== 'empty' && !workspaceHasPdf(workspace)) {
+        // PDF snapshot payloads must result in an opened PDF.
+        if (payload.kind === 'pdfSnapshot' && !workspaceHasPdf(workspace)) {
             BrowserLogger.warn('tabs', 'Split payload restore finished without an opened document', {
                 tabId,
                 payloadKind: payload.kind,
@@ -902,7 +1020,9 @@ async function restoreWorkspacePayload(tabId: string, payload: TSplitPayload | n
 
 type TSourceTransferOutcome = 'success' | 'failed' | 'window-closed';
 
-async function closeSourceWorkspaceWithoutPersist(tabId: string) {
+async function closeSourceWorkspaceWithoutPersist(groupId: string, tabId: string) {
+    await handoffActiveTabBeforeClose(groupId, tabId);
+
     const workspace = workspaceRefs.value.get(tabId);
     if (!workspace || !workspaceHasPdf(workspace)) {
         return true;
@@ -924,7 +1044,7 @@ async function closeSourceWorkspaceWithoutPersist(tabId: string) {
 }
 
 async function finalizeTransferredSourceTab(groupId: string, tabId: string): Promise<TSourceTransferOutcome> {
-    const sourceCloseSucceeded = await closeSourceWorkspaceWithoutPersist(tabId);
+    const sourceCloseSucceeded = await closeSourceWorkspaceWithoutPersist(groupId, tabId);
     if (!sourceCloseSucceeded) {
         return 'failed';
     }
