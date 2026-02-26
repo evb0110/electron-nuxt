@@ -1,4 +1,3 @@
-import { ref } from 'vue';
 import type { IRecentFile } from '@app/types/shared';
 import {
     getElectronAPI,

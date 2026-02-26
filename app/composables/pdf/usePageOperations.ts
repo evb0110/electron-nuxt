@@ -1,7 +1,4 @@
-import {
-    ref,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import { getElectronAPI } from '@app/utils/electron';
 import { BrowserLogger } from '@app/utils/browser-logger';
 

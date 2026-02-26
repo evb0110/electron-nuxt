@@ -1,4 +1,3 @@
-import { ref } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { getElectronAPI } from '@app/utils/electron';
 import { createDocxFromText } from '@app/utils/docx';

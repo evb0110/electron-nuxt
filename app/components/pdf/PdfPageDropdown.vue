@@ -79,7 +79,6 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick } from 'vue';
 import { onClickOutside } from '@vueuse/core';
 import {
     findPageByPageLabelInput,

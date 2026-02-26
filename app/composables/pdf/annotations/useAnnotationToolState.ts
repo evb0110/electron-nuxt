@@ -3,11 +3,9 @@ import {
     AnnotationEditorType,
     type AnnotationEditorUIManager,
 } from 'pdfjs-dist';
-import {
-    ref,
-    nextTick,
-    type Ref,
-    type ShallowRef,
+import type {
+    Ref,
+    ShallowRef,
 } from 'vue';
 import {
     useTimeoutFn,

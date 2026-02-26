@@ -1,9 +1,4 @@
-import {
-    ref,
-    shallowRef,
-    watch,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     TFitMode,

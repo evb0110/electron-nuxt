@@ -1,7 +1,4 @@
-import {
-    watch,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,

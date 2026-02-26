@@ -1,8 +1,4 @@
-import {
-    ref,
-    watch,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import { isEqual } from 'es-toolkit/predicate';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IPdfPageLabelRange } from '@app/types/pdf';

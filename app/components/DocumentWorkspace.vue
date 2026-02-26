@@ -352,15 +352,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    onBeforeUnmount,
-    onMounted,
-    onUnmounted,
-    ref,
-    toRef,
-    watch,
-} from 'vue';
+
 import '@app/assets/css/pdfjs-overrides.css';
 import '@app/assets/css/pdf-comment-markers.css';
 import '@app/assets/css/pdf-comment-ui.css';

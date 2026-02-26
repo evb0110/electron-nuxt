@@ -156,7 +156,6 @@
             :width="selectedShapeBounds.width + 0.006"
             :height="selectedShapeBounds.height + 0.006"
             fill="none"
-            stroke="#2563eb"
             stroke-width="1"
             stroke-dasharray="4 2"
             vector-effect="non-scaling-stroke"
@@ -165,10 +164,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    ref,
-    computed,
-} from 'vue';
+
 import { useResizeObserver } from '@vueuse/core';
 import type {
     IShapeAnnotation,
@@ -390,5 +386,6 @@ function handleShapeContextMenu(id: string, event: MouseEvent) {
 
 .selection-outline {
     pointer-events: none;
+    stroke: var(--app-pdf-shape-selection-stroke);
 }
 </style>

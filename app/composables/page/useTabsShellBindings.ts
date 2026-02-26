@@ -1,9 +1,4 @@
-import {
-    nextTick,
-    onMounted,
-    onUnmounted,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
 import type { TGroupDirection } from '@app/types/editor-groups';
 import type { TWindowTabsAction } from '@app/types/window-tab-transfer';

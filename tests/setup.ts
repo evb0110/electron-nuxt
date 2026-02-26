@@ -1,6 +1,5 @@
 import { vi } from 'vitest';
 import enMessages from '@app/locales/en';
-import type { TLocale } from '@app/i18n/locales';
 
 interface IMessageNode {[key: string]: IMessageNode | string;}
 
@@ -32,22 +31,10 @@ const translate = (key: string) => {
     return key;
 };
 
-async function setLocale(_locale: TLocale) {
-    return;
-}
-
-async function loadLocaleMessages(_locale: TLocale) {
-    return;
-}
-
-vi.stubGlobal('useI18n', () => ({
+const i18nComposer = {
     t: translate,
-    setLocale,
-    loadLocaleMessages,
-}));
+    setLocale: async () => {},
+    loadLocaleMessages: async () => {},
+};
 
-vi.stubGlobal('useTypedI18n', () => ({
-    t: translate,
-    setLocale,
-    loadLocaleMessages,
-}));
+vi.mock('vue-i18n', () => ({useI18n: () => i18nComposer}));

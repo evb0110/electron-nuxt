@@ -28,14 +28,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    nextTick,
-    onBeforeUnmount,
-    onMounted,
-    ref,
-    watch,
-} from 'vue';
+
 import type { IPdfSearchMatch } from '@app/types/pdf';
 import {
     registerSearchHighlight,

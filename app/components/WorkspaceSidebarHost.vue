@@ -22,10 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    watch,
-    type CSSProperties,
-} from 'vue';
+import type { CSSProperties } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 const props = defineProps<{

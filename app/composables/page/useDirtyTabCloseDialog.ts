@@ -1,16 +1,10 @@
-import {
-    computed,
-    ref,
-    type ComputedRef,
-    type Ref,
+import type {
+    ComputedRef,
+    Ref,
 } from 'vue';
 import type { ITab } from '@app/types/tabs';
-import type { TTranslateFn } from '@app/i18n/locales';
 
-interface IUseDirtyTabCloseDialogDeps {
-    tabs: Ref<ITab[]>;
-    t: TTranslateFn;
-}
+interface IUseDirtyTabCloseDialogDeps {tabs: Ref<ITab[]>;}
 
 interface IUseDirtyTabCloseDialog {
     dirtyTabCloseDialogOpen: Ref<boolean>;
@@ -24,10 +18,8 @@ interface IUseDirtyTabCloseDialog {
 export function useDirtyTabCloseDialog(
     deps: IUseDirtyTabCloseDialogDeps,
 ): IUseDirtyTabCloseDialog {
-    const {
-        tabs,
-        t,
-    } = deps;
+    const { tabs } = deps;
+    const { t } = useTypedI18n();
     const dirtyTabCloseDialogOpen = ref(false);
     const dirtyTabCloseTargetId = ref<string | null>(null);
     let dirtyTabCloseDialogResolver: ((confirmed: boolean) => void) | null = null;

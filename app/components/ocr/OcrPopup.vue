@@ -88,7 +88,7 @@
                                             )
                                         "
                                     >
-                                    <span>{{ lang.name }}</span>
+                                    <span>{{ t(`ocr.languageName.${lang.code}` as TTranslationKey) }}</span>
                                 </label>
                             </div>
                         </div>
@@ -118,7 +118,7 @@
                                             )
                                         "
                                     >
-                                    <span>{{ lang.name }}</span>
+                                    <span>{{ t(`ocr.languageName.${lang.code}` as TTranslationKey) }}</span>
                                 </label>
                             </div>
                         </div>
@@ -148,7 +148,7 @@
                                             )
                                         "
                                     >
-                                    <span>{{ lang.name }}</span>
+                                    <span>{{ t(`ocr.languageName.${lang.code}` as TTranslationKey) }}</span>
                                 </label>
                             </div>
                         </div>
@@ -261,6 +261,7 @@
 
 <script setup lang="ts">
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { TTranslationKey } from '@app/i18n/locales';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/electron';
 

@@ -1,9 +1,4 @@
-import {
-    ref,
-    readonly,
-    onUnmounted,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 
 interface ISlot {
     left: number;

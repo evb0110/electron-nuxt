@@ -45,53 +45,43 @@ const log = createLogger('ocr-ipc');
 const AVAILABLE_LANGUAGES: IOcrLanguage[] = [
     {
         code: 'eng',
-        name: 'English',
-        script: 'latin',
+        script: 'latin', 
     },
     {
         code: 'fra',
-        name: 'French',
-        script: 'latin',
+        script: 'latin', 
     },
     {
         code: 'deu',
-        name: 'German',
-        script: 'latin',
+        script: 'latin', 
     },
     {
         code: 'tur',
-        name: 'Turkish',
-        script: 'latin',
+        script: 'latin', 
     },
     {
         code: 'ell',
-        name: 'Greek (Modern)',
-        script: 'greek',
+        script: 'greek', 
     },
     {
         code: 'grc',
-        name: 'Greek (Ancient)',
-        script: 'greek',
+        script: 'greek', 
     },
     {
         code: 'kmr',
-        name: 'Kurmanji',
-        script: 'latin',
+        script: 'latin', 
     },
     {
         code: 'rus',
-        name: 'Russian',
-        script: 'cyrillic',
+        script: 'cyrillic', 
     },
     {
         code: 'heb',
-        name: 'Hebrew',
-        script: 'rtl',
+        script: 'rtl', 
     },
     {
         code: 'syr',
-        name: 'Syriac',
-        script: 'rtl',
+        script: 'rtl', 
     },
 ];
 

@@ -119,7 +119,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
 import type { IBookmarkItem } from '@app/types/pdf-outline';
 import { BOOKMARK_COLOR_PRESETS } from '@app/constants/pdf-colors';
 

@@ -158,6 +158,18 @@ export default {
         'copyLogs': 'Protokolle kopieren',
         'logsCopied': 'Protokolle kopiert',
         'logsCopyFailed': 'Protokolle konnten nicht kopiert werden',
+        'languageName': {
+            'eng': 'Englisch',
+            'fra': 'Französisch',
+            'deu': 'Deutsch',
+            'tur': 'Türkisch',
+            'ell': 'Griechisch (Modern)',
+            'grc': 'Griechisch (Alt)',
+            'kmr': 'Kurmandschi',
+            'rus': 'Russisch',
+            'heb': 'Hebräisch',
+            'syr': 'Syrisch',
+        },
     },
     'djvu': {
         'loadingPages': 'Seiten werden geladen... {current}/{total}',

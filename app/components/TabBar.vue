@@ -73,11 +73,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    nextTick,
-    ref,
-} from 'vue';
+
 import { useEventListener } from '@vueuse/core';
 import type { ITab } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/composables/useTabDragReorder';

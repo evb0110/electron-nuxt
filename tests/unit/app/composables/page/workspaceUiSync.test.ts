@@ -90,7 +90,7 @@ interface IWorkspaceUiSyncTestDeps {
     originalPath: Ref<string | null>;
     openBatchProgress: Ref<{
         processed: number;
-        total: number 
+        total: number
     } | null>;
     isActive: Ref<boolean>;
     fileName: Ref<string | null>;
@@ -98,7 +98,6 @@ interface IWorkspaceUiSyncTestDeps {
     isDjvuMode: Ref<boolean>;
     djvuSourcePath: Ref<string | null>;
     showSettings: Ref<boolean>;
-    t: TWorkspaceUiSyncDeps['t'];
     emitUpdateTab: TWorkspaceUiSyncDeps['emitUpdateTab'];
     emitOpenSettings: TWorkspaceUiSyncDeps['emitOpenSettings'];
     onOpenDjvuError: NonNullable<TWorkspaceUiSyncDeps['onOpenDjvuError']>;
@@ -119,7 +118,6 @@ function createWatcherDeps(overrides: Partial<IWorkspaceUiSyncTestDeps> = {}): I
         isDjvuMode: ref(false),
         djvuSourcePath: ref<string | null>(null),
         showSettings: ref(false),
-        t: (vi.fn((key: string) => key) as TWorkspaceUiSyncDeps['t']),
         emitUpdateTab: (vi.fn() as TWorkspaceUiSyncDeps['emitUpdateTab']),
         emitOpenSettings: (vi.fn() as TWorkspaceUiSyncDeps['emitOpenSettings']),
         onOpenDjvuError: vi.fn() as NonNullable<TWorkspaceUiSyncDeps['onOpenDjvuError']>,

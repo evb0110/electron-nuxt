@@ -4,12 +4,9 @@ import type {
     PDFPageProxy,
 } from 'pdfjs-dist';
 import type { IL10n } from 'pdfjs-dist/types/web/interfaces';
-import {
-    nextTick,
-    toValue,
-    watch,
-    type MaybeRefOrGetter,
-    type Ref,
+import type {
+    MaybeRefOrGetter,
+    Ref,
 } from 'vue';
 import type {
     IPdfPageMatches,

@@ -7,11 +7,9 @@ import {
     EventBus,
     GenericL10n,
 } from 'pdfjs-dist/web/pdf_viewer.mjs';
-import {
-    ref,
-    shallowRef,
-    type Ref,
-    type ShallowRef,
+import type {
+    Ref,
+    ShallowRef,
 } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import type {

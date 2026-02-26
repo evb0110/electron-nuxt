@@ -1,8 +1,6 @@
-import {
-    computed,
-    ref,
-    type Ref,
-    type ShallowRef,
+import type {
+    Ref,
+    ShallowRef,
 } from 'vue';
 import { useDebounceFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from '@app/types/pdf';

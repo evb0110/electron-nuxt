@@ -63,14 +63,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    defineAsyncComponent,
-    nextTick,
-    onMounted,
-    ref,
-    watch,
-} from 'vue';
+
 import type { TOpenFileResult } from '@app/types/electron-api';
 import type { IRecentFile } from '@app/types/shared';
 import type { TTabUpdate } from '@app/types/tabs';
@@ -709,7 +702,6 @@ defineExpose(workspaceExpose);
     height: 1.25rem;
     animation: spin 1s linear infinite;
 }
-
 
 @keyframes spin {
     from {

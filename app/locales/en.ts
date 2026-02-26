@@ -158,6 +158,18 @@ export default {
         'copyLogs': 'Copy logs',
         'logsCopied': 'Logs copied',
         'logsCopyFailed': 'Failed to copy logs',
+        'languageName': {
+            'eng': 'English',
+            'fra': 'French',
+            'deu': 'German',
+            'tur': 'Turkish',
+            'ell': 'Greek (Modern)',
+            'grc': 'Greek (Ancient)',
+            'kmr': 'Kurmanji',
+            'rus': 'Russian',
+            'heb': 'Hebrew',
+            'syr': 'Syriac',
+        },
     },
     'djvu': {
         'loadingPages': 'Loading pages... {current}/{total}',

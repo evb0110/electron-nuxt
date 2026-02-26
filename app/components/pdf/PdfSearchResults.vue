@@ -69,11 +69,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    nextTick,
-    watch,
-} from 'vue';
+
 import { useVirtualList } from '@vueuse/core';
 import type { IPdfSearchMatch } from '@app/types/pdf';
 import PdfSearchResultItem from '@app/components/pdf/PdfSearchResultItem.vue';

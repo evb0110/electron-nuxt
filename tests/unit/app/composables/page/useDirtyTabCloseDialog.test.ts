@@ -15,10 +15,7 @@ describe('useDirtyTabCloseDialog', () => {
             isDirty: true,
             isDjvu: false,
         }]);
-        const dialog = useDirtyTabCloseDialog({
-            tabs,
-            t: (key) => key,
-        });
+        const dialog = useDirtyTabCloseDialog({tabs});
 
         const confirmationPromise = dialog.requestDirtyTabCloseConfirmation('tab-1');
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(true);
@@ -31,13 +28,10 @@ describe('useDirtyTabCloseDialog', () => {
 
     it('falls back to new-tab label and resolves false on external close', async () => {
         const tabs = ref([]);
-        const dialog = useDirtyTabCloseDialog({
-            tabs,
-            t: (key) => key === 'tabs.newTab' ? 'New Tab' : key,
-        });
+        const dialog = useDirtyTabCloseDialog({tabs});
 
         const confirmationPromise = dialog.requestDirtyTabCloseConfirmation('missing-tab');
-        expect(dialog.dirtyTabCloseTargetName.value).toBe('New Tab');
+        expect(dialog.dirtyTabCloseTargetName.value).toBe('tabs.newTab');
 
         dialog.resolveDirtyTabCloseDialog(false);
         await expect(confirmationPromise).resolves.toBe(false);

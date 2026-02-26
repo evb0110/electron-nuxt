@@ -1,9 +1,4 @@
-import {
-    ref,
-    computed,
-    nextTick,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { clamp } from 'es-toolkit/math';
 import type {

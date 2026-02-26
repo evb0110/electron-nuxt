@@ -1,4 +1,3 @@
-import { ref } from 'vue';
 
 const restoringTabCounts = ref<Map<string, number>>(new Map());
 

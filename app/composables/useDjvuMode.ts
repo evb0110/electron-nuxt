@@ -1,7 +1,3 @@
-import {
-    computed,
-    ref,
-} from 'vue';
 
 type TDjvuDisabledFeature =
     | 'save'

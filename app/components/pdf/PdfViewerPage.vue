@@ -33,10 +33,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    inject,
-} from 'vue';
+
 import PdfPageSkeleton from '@app/components/pdf/PdfPageSkeleton.vue';
 import PdfShapeOverlay from '@app/components/pdf/PdfShapeOverlay.vue';
 import { usePdfSkeletonContext } from '@app/composables/pdf/usePdfSkeletonInsets';

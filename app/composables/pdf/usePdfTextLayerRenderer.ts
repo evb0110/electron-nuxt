@@ -1,9 +1,6 @@
 import { TextLayer } from 'pdfjs-dist';
 import type { PDFPageProxy } from 'pdfjs-dist';
-import {
-    toValue,
-    type MaybeRefOrGetter,
-} from 'vue';
+import type { MaybeRefOrGetter } from 'vue';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,

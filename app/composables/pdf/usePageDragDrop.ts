@@ -1,8 +1,4 @@
-import {
-    ref,
-    onUnmounted,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import {
     useEventListener,
     useIntervalFn,

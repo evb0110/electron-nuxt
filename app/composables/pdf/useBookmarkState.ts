@@ -1,4 +1,3 @@
-import { ref } from 'vue';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 
 export const useBookmarkState = (deps: {markDirty: () => void;}) => {

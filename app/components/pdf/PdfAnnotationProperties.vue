@@ -82,7 +82,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
 

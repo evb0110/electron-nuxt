@@ -1,8 +1,4 @@
-import {
-    ref,
-    computed,
-    type Ref,
-} from 'vue';
+
 import {
     watchDebounced,
     tryOnScopeDispose,
@@ -24,7 +20,7 @@ export function useAnnotationStore(options: IUseAnnotationStoreOptions = {}) {
         debounceMs = 140,
     } = options;
 
-    const annotations: Ref<IAnnotationCommentSummary[]> = ref([]);
+    const annotations = ref<IAnnotationCommentSummary[]>([]);
     const activeAnnotationKey = ref<string | null>(null);
 
     let pendingDebounceCancel: (() => void) | null = null;

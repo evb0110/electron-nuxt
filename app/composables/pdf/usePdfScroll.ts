@@ -1,4 +1,3 @@
-import { ref } from 'vue';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import { clamp } from 'es-toolkit/math';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
