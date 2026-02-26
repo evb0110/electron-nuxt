@@ -4,7 +4,7 @@
         class="relative h-full w-full"
         :class="{ 'pdf-viewer-container--dark': invertColors }"
     >
-        <div v-if="src && isLoading" class="absolute inset-0 z-[1] flex items-center justify-center bg-[var(--ui-bg-muted)]">
+        <div v-if="isViewerLoadingOverlayVisible" class="absolute inset-0 z-[1] flex items-center justify-center bg-[var(--ui-bg-muted)]">
             <div class="flex flex-col items-center gap-2">
                 <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-[var(--ui-text-muted)]" />
                 <span class="text-sm text-[var(--ui-text-muted)]">{{ t('common.loading') }}</span>
@@ -22,7 +22,7 @@
                 'pdfViewer--mode-single': viewMode === 'single',
                 'pdfViewer--mode-facing': viewMode === 'facing',
                 'pdfViewer--mode-facing-first-single': viewMode === 'facing-first-single',
-                'pdfViewer--hidden': src && isLoading,
+                'pdfViewer--hidden': isViewerLoadingOverlayVisible,
                 'pdfViewer--fit-height': fitMode === 'height',
                 'pdfViewer--resize-transition': resizeTransitionVisible,
                 'pdfViewer--zoom-snap-suppressed': zoomSnapSuppressed,
@@ -76,6 +76,7 @@
 <script setup lang="ts">
 import {
     computed,
+    nextTick,
     onBeforeUnmount,
     ref,
     shallowRef,
@@ -276,6 +277,8 @@ const zoomSnapSuppressed = ref(false);
 const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
 let zoomSnapSuppressedTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingImmediateZoomRestoreIntent: IImmediateZoomRestoreIntent | null = null;
+const hasCompletedInitialRenderForCurrentSource = ref(false);
+let initialRenderObserver: MutationObserver | null = null;
 
 const pdfDocumentResult = usePdfDocument();
 const {
@@ -823,6 +826,91 @@ const pagesToRender = computed(() => {
     return range(virtualWindowStart.value, virtualWindowEnd.value + 1);
 });
 
+function stopInitialRenderObserver() {
+    initialRenderObserver?.disconnect();
+    initialRenderObserver = null;
+}
+
+function hasRenderedCanvasInDom() {
+    const container = viewerContainer.value;
+    if (!container) {
+        return false;
+    }
+
+    return Boolean(container.querySelector('.page_container--rendered .page_canvas canvas'));
+}
+
+function markInitialRenderCompleteIfReady() {
+    if (hasCompletedInitialRenderForCurrentSource.value) {
+        return true;
+    }
+
+    if (!hasRenderedCanvasInDom()) {
+        return false;
+    }
+
+    hasCompletedInitialRenderForCurrentSource.value = true;
+    stopInitialRenderObserver();
+    return true;
+}
+
+function ensureInitialRenderObserver() {
+    if (initialRenderObserver || hasCompletedInitialRenderForCurrentSource.value || !viewerContainer.value) {
+        return;
+    }
+
+    initialRenderObserver = new MutationObserver(() => {
+        markInitialRenderCompleteIfReady();
+    });
+    initialRenderObserver.observe(viewerContainer.value, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class'],
+    });
+}
+
+watch(
+    [
+        () => src.value,
+        isLoading,
+    ],
+    async ([
+        hasSrc,
+        loading,
+    ]) => {
+        if (!hasSrc || loading) {
+            hasCompletedInitialRenderForCurrentSource.value = false;
+            stopInitialRenderObserver();
+            return;
+        }
+
+        await nextTick();
+        if (!markInitialRenderCompleteIfReady()) {
+            ensureInitialRenderObserver();
+        }
+    },
+    { immediate: true },
+);
+
+watch(viewerContainer, () => {
+    if (!src.value || isLoading.value || hasCompletedInitialRenderForCurrentSource.value) {
+        stopInitialRenderObserver();
+        return;
+    }
+
+    if (!markInitialRenderCompleteIfReady()) {
+        ensureInitialRenderObserver();
+    }
+});
+
+const isViewerLoadingOverlayVisible = computed(() => (
+    Boolean(src.value) && (
+        isLoading.value
+        || !hasCompletedInitialRenderForCurrentSource.value
+    )
+));
+
 watch(
     () => [
         !!searchNavigationWindow.value,
@@ -965,6 +1053,7 @@ watch(
 
 onBeforeUnmount(() => {
     setUniformLayoutMetrics(null);
+    stopInitialRenderObserver();
     resizeTransitionVisible.value = false;
     clearWheelZoomSessionIdleTimer();
     clearZoomSnapSuppressedTimer();

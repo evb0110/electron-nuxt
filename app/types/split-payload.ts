@@ -11,6 +11,7 @@ export interface IPdfSnapshotSplitPayload {
     originalPath: string | null;
     data: Uint8Array;
     isDirty: boolean;
+    currentPage?: number;
 }
 
 export type TSplitPayload = IEmptySplitPayload | IDjvuSplitPayload | IPdfSnapshotSplitPayload;

@@ -168,6 +168,7 @@ const hasPdf = computed<boolean>(() => {
 });
 const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(props.tabId));
 const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0);
+const shouldShowWorkspaceMountLoader = computed(() => isDocumentOpenInFlight.value);
 const isHostErrorVisible = computed(() => (
     hasWorkspaceChunkLoadError.value
     && workspaceRequested.value
@@ -176,7 +177,7 @@ const isHostErrorVisible = computed(() => (
 const isHostLoaderVisible = computed(() => (
     !isHostErrorVisible.value && (
         isDocumentOpenInFlight.value
-    || (workspaceRequested.value && !hasMountedWorkspace.value)
+    || (workspaceRequested.value && !hasMountedWorkspace.value && shouldShowWorkspaceMountLoader.value)
     )
 ));
 const loaderVariant = computed(() => {

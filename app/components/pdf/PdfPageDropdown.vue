@@ -26,22 +26,32 @@
                 v-if="!isEditing"
                 class="page-controls-display"
                 :disabled="disabled || totalPages === 0"
+                :style="pageDisplayStyle"
                 @click="startEditing"
             >
                 <span class="page-controls-indicator">{{ pageIndicator }}</span>
-                <span v-if="showTotalInDisplay" class="page-controls-separator">&nbsp;/ {{ totalPages }}</span>
+                <span
+                    v-if="showTotalInDisplay"
+                    :class="['page-controls-separator', { 'is-hidden': !hasPages }]"
+                >
+                    &nbsp;/ {{ totalPages }}
+                </span>
             </button>
-            <div v-else class="page-controls-display is-editing">
+            <div v-else class="page-controls-display is-editing" :style="pageDisplayStyle">
                 <input
                     ref="pageInputRef"
                     v-model="pageInputValue"
                     class="page-controls-inline-input"
-                    :style="{ width: inputWidth }"
                     @keydown.enter.prevent="commitPageInput"
                     @keydown.escape.prevent="cancelEditing"
                     @blur="commitPageInput"
                 />
-                <span v-if="showTotalInDisplay" class="page-controls-separator">&nbsp;/ {{ totalPages }}</span>
+                <span
+                    v-if="showTotalInDisplay"
+                    :class="['page-controls-separator', { 'is-hidden': !hasPages }]"
+                >
+                    &nbsp;/ {{ totalPages }}
+                </span>
             </div>
         </div>
 
@@ -117,6 +127,7 @@ const effectiveCompactLevel = computed(() => {
 const showEdgeButtons = computed(() => effectiveCompactLevel.value < 1);
 const showStepButtons = computed(() => effectiveCompactLevel.value < 3);
 const showTotalInDisplay = computed(() => effectiveCompactLevel.value < 2);
+const hasPages = computed(() => totalPages > 0);
 
 const effectivePageLabels = computed(() => {
     if (pageLabels && pageLabels.length === totalPages) {
@@ -131,11 +142,6 @@ function getCurrentInputLabel() {
     return label.trim() || currentPage.toString();
 }
 
-const inputWidth = computed(() => {
-    const chars = Math.max(pageInputValue.value.length, 1);
-    return `${chars}ch`;
-});
-
 watch(
     () => currentPage,
     () => {
@@ -144,11 +150,15 @@ watch(
 );
 
 const pageIndicator = computed(() => {
-    if (totalPages === 0) {
-        return '';
+    if (!hasPages.value) {
+        return '-';
     }
     return formatPageIndicator(currentPage, effectivePageLabels.value);
 });
+
+const pageDisplayWidthCh = computed(() => (showTotalInDisplay.value ? 9 : 5));
+
+const pageDisplayStyle = computed(() => ({'--page-display-width-ch': `${pageDisplayWidthCh.value}ch`}));
 
 function startEditing() {
     if (disabled || totalPages === 0) {
@@ -237,20 +247,17 @@ onClickOutside(pageControlsRef, () => {
 .page-controls-display {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-end;
     padding: 0 0.5rem;
-    min-width: 5.5rem;
+    width: var(--page-display-width-ch);
+    min-width: var(--page-display-width-ch);
     height: var(--toolbar-control-height, 2.25rem);
     background: transparent;
     border: none;
     border-radius: 0;
     cursor: pointer;
+    box-sizing: border-box;
     transition: background-color 0.1s ease, box-shadow 0.1s ease;
-}
-
-.page-controls--compact-2 .page-controls-display {
-    min-width: 4rem;
-    padding: 0 0.375rem;
 }
 
 .page-controls-display:disabled {
@@ -279,7 +286,19 @@ onClickOutside(pageControlsRef, () => {
     white-space: nowrap;
 }
 
+.page-controls-separator.is-hidden {
+    visibility: hidden;
+}
+
+.page-controls-indicator {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .page-controls-inline-input {
+    flex: 1 1 auto;
+    width: 100%;
     font-family: inherit;
     background: transparent;
     border: none;

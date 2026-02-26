@@ -4,7 +4,7 @@
             <ToolbarButton
                 icon="lucide:minus"
                 :tooltip="t('zoom.zoomOut')"
-                :disabled="disabled || zoom <= ZOOM.MIN"
+                :disabled="disabled || normalizedZoom <= ZOOM.MIN"
                 grouped
                 icon-class="size-[1.1rem]"
                 @click="handleZoomOut"
@@ -195,7 +195,7 @@
             <ToolbarButton
                 icon="lucide:plus"
                 :tooltip="t('zoom.zoomIn')"
-                :disabled="disabled || zoom >= ZOOM.MAX"
+                :disabled="disabled || normalizedZoom >= ZOOM.MAX"
                 grouped
                 icon-class="size-[1.1rem]"
                 @click="handleZoomIn"
@@ -252,6 +252,15 @@ const effectiveCompactLevel = computed(() => {
 
 const showStepButtons = computed(() => effectiveCompactLevel.value < 1);
 
+function normalizeZoomLevel(value: number) {
+    if (!Number.isFinite(value)) {
+        return 1;
+    }
+    return Math.min(ZOOM.MAX, Math.max(ZOOM.MIN, value));
+}
+
+const normalizedZoom = computed(() => normalizeZoomLevel(zoom));
+
 function close() {
     isOpen.value = false;
 }
@@ -269,7 +278,7 @@ watch(isOpen, (value) => {
 watch(
     () => zoom,
     (value) => {
-        customZoomValue.value = formatZoomValue(value);
+        customZoomValue.value = formatZoomValue(normalizeZoomLevel(value));
     },
 );
 
@@ -277,30 +286,30 @@ function formatZoomValue(value: number) {
     return Math.round(value * 100).toString();
 }
 
-const zoomDisplay = computed(() => `${Math.round(zoom * 100)}%`);
+const zoomDisplay = computed(() => `${Math.round(normalizedZoom.value * 100)}%`);
 
 const zoomPresets = ZOOM.PRESETS;
 
 function handleZoomIn() {
-    const newZoom = Math.min(zoom + ZOOM.STEP, ZOOM.MAX);
+    const newZoom = Math.min(normalizedZoom.value + ZOOM.STEP, ZOOM.MAX);
     emit('update:zoom', newZoom);
 }
 
 function handleZoomOut() {
-    const newZoom = Math.max(zoom - ZOOM.STEP, ZOOM.MIN);
+    const newZoom = Math.max(normalizedZoom.value - ZOOM.STEP, ZOOM.MIN);
     emit('update:zoom', newZoom);
 }
 
 function isPresetActive(presetValue: number) {
-    return Math.abs(zoom - presetValue) < 0.01;
+    return Math.abs(normalizedZoom.value - presetValue) < 0.01;
 }
 
 function isFitModeActive(mode: TFitMode) {
-    return fitMode === mode && Math.abs(zoom - 1) < 0.01;
+    return fitMode === mode && Math.abs(normalizedZoom.value - 1) < 0.01;
 }
 
 function handleSetZoom(level: number) {
-    emit('update:zoom', level);
+    emit('update:zoom', normalizeZoomLevel(level));
     close();
 }
 
@@ -353,9 +362,11 @@ function applyCustomZoom() {
 .zoom-controls-display {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-end;
     padding: 0 0.5rem;
-    min-width: 4rem;
+    width: 6.5rem;
+    min-width: 6.5rem;
+    max-width: 6.5rem;
     height: var(--toolbar-control-height, 2.25rem);
     background: transparent;
     border: none;
@@ -366,7 +377,9 @@ function applyCustomZoom() {
 }
 
 .zoom-controls--compact-2 .zoom-controls-display {
-    min-width: 3.5rem;
+    width: 5.5rem;
+    min-width: 5.5rem;
+    max-width: 5.5rem;
     padding: 0 0.375rem;
 }
 
@@ -388,6 +401,10 @@ function applyCustomZoom() {
 }
 
 .zoom-controls-display-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 0.875rem;
     font-variant-numeric: tabular-nums;
     color: var(--ui-text);

@@ -213,7 +213,7 @@ export const useToolbarOverflow = () => {
     }, {
         subtree: true,
         childList: true,
-        characterData: true,
+        characterData: false,
     });
 
     useEventListener(typeof window !== 'undefined' ? window : undefined, 'resize', () => {

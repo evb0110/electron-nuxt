@@ -11,9 +11,9 @@ export function hasDocumentMountHint(tab: Pick<ITab, 'fileName' | 'originalPath'
 }
 
 export function shouldAutoRequestWorkspace(signals: IWorkspaceHostSignals) {
-    // Avoid mounting the heavy workspace/PDF stack for an empty active tab on startup.
-    // We only auto-mount when there is actual document state (or split restore work) to recover.
-    return signals.hasQueuedSplitRestore || signals.hasDocumentHint;
+    // Mount the workspace for active tabs so global chrome (toolbar/status) remains stable,
+    // and always mount when there is document state (or split restore work) to recover.
+    return signals.hasQueuedSplitRestore || signals.hasDocumentHint || signals.isActive;
 }
 
 export function resolveWorkspaceRequestedState(
