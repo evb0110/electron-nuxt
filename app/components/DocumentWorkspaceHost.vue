@@ -74,7 +74,10 @@ import type { TOpenFileResult } from '@app/types/electron-api';
 import type { IRecentFile } from '@app/types/shared';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TSplitPayload } from '@app/types/split-payload';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type {
+    IWorkspaceExpose,
+    IWorkspaceToolbarSnapshot,
+} from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     getAsyncChunkLoadErrorMessage,
@@ -166,6 +169,47 @@ const hasPdf = computed<boolean>(() => {
     }
     return value?.value ?? false;
 });
+
+function createEmptyToolbarSnapshot(): IWorkspaceToolbarSnapshot {
+    return {
+        hasPdf: false,
+        canSave: false,
+        canUndo: false,
+        canRedo: false,
+        canExportDocx: false,
+        isSaving: false,
+        isSavingAs: false,
+        isAnySaving: false,
+        isHistoryBusy: false,
+        isExportingDocx: false,
+        isFitWidthActive: false,
+        isFitHeightActive: false,
+        showSidebar: false,
+        dragMode: false,
+        continuousScroll: false,
+        isDjvuMode: false,
+        isCapturingRegion: false,
+        isPlacingPageNote: false,
+        zoom: 1,
+        fitMode: 'width',
+        viewMode: 'single',
+        currentPage: 1,
+        totalPages: 0,
+    };
+}
+
+const lastToolbarSnapshot = ref<IWorkspaceToolbarSnapshot>(createEmptyToolbarSnapshot());
+
+function readWorkspaceToolbarSnapshot() {
+    const workspace = mountedWorkspace.value;
+    if (!workspace) {
+        return lastToolbarSnapshot.value;
+    }
+
+    const snapshot = workspace.getToolbarSnapshot();
+    lastToolbarSnapshot.value = snapshot;
+    return snapshot;
+}
 const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(props.tabId));
 const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0);
 const shouldShowWorkspaceMountLoader = computed(() => isDocumentOpenInFlight.value);
@@ -555,6 +599,24 @@ const workspaceExpose: IWorkspaceExpose = {
     handleActualSize: () => {
         void withLoadedWorkspace('handleActualSize', workspace => workspace.handleActualSize());
     },
+    handleToggleSidebar: () => {
+        void withLoadedWorkspace('handleToggleSidebar', workspace => workspace.handleToggleSidebar());
+    },
+    handleToggleContinuousScroll: () => {
+        void withLoadedWorkspace('handleToggleContinuousScroll', workspace => workspace.handleToggleContinuousScroll());
+    },
+    handleEnableDragMode: () => {
+        void withLoadedWorkspace('handleEnableDragMode', workspace => workspace.handleEnableDragMode());
+    },
+    handleDisableDragMode: () => {
+        void withLoadedWorkspace('handleDisableDragMode', workspace => workspace.handleDisableDragMode());
+    },
+    handleCaptureRegion: () => {
+        void withLoadedWorkspace('handleCaptureRegion', workspace => workspace.handleCaptureRegion());
+    },
+    handleQuickNote: () => {
+        void withLoadedWorkspace('handleQuickNote', workspace => workspace.handleQuickNote());
+    },
     handleViewModeSingle: () => {
         void withLoadedWorkspace('handleViewModeSingle', workspace => workspace.handleViewModeSingle());
     },
@@ -607,6 +669,7 @@ const workspaceExpose: IWorkspaceExpose = {
     closeAllDropdowns: () => {
         void withLoadedWorkspace('closeAllDropdowns', workspace => workspace.closeAllDropdowns());
     },
+    getToolbarSnapshot: () => readWorkspaceToolbarSnapshot(),
 };
 
 defineExpose(workspaceExpose);

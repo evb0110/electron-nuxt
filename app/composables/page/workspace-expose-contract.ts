@@ -18,6 +18,12 @@ export const REQUIRED_WORKSPACE_EXPOSE_METHODS: Array<keyof Omit<IWorkspaceExpos
     'handleFitWidth',
     'handleFitHeight',
     'handleActualSize',
+    'handleToggleSidebar',
+    'handleToggleContinuousScroll',
+    'handleEnableDragMode',
+    'handleDisableDragMode',
+    'handleCaptureRegion',
+    'handleQuickNote',
     'handleViewModeSingle',
     'handleViewModeFacing',
     'handleViewModeFacingFirstSingle',
@@ -30,6 +36,7 @@ export const REQUIRED_WORKSPACE_EXPOSE_METHODS: Array<keyof Omit<IWorkspaceExpos
     'captureSplitPayload',
     'restoreSplitPayload',
     'closeAllDropdowns',
+    'getToolbarSnapshot',
 ];
 
 export function isWorkspaceExpose(value: unknown): value is IWorkspaceExpose {

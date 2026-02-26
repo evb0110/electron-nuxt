@@ -6,7 +6,7 @@
                 :can-save="canSave"
                 :can-undo="canUndo"
                 :can-redo="canRedo"
-                :can-export-docx="!!workingCopyPath && !isAnySaving && !isHistoryBusy && !isExportingDocx"
+                :can-export-docx="canExportDocx"
                 :is-saving="isSaving"
                 :is-saving-as="isSavingAs"
                 :is-any-saving="isAnySaving"
@@ -88,7 +88,7 @@
                         :is-any-saving="isAnySaving"
                         :is-history-busy="isHistoryBusy"
                         :is-exporting-docx="isExportingDocx"
-                        :can-export-docx="!!workingCopyPath && !isAnySaving && !isHistoryBusy && !isExportingDocx"
+                        :can-export-docx="canExportDocx"
                         :drag-mode="dragMode"
                         :continuous-scroll="continuousScroll"
                         :view-mode="viewMode"
@@ -616,6 +616,12 @@ const toolbarHasPdf = computed(() => (
     || isExternallyRestoring.value
     || props.pendingDocumentOpen === true
 ));
+const canExportDocx = computed(() => (
+    Boolean(workingCopyPath.value)
+    && !isAnySaving.value
+    && !isHistoryBusy.value
+    && !isExportingDocx.value
+));
 
 function runToolbarAction(action: () => unknown) {
     const result = action();
@@ -1000,10 +1006,46 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleExportImages,
     handleExportMultiPageTiff,
     hasPdf,
+    canSave,
+    canUndo,
+    canRedo,
+    canExportDocx,
+    isSaving,
+    isSavingAs,
+    isAnySaving,
+    isHistoryBusy,
+    isExportingDocx,
+    isFitWidthActive,
+    isFitHeightActive,
+    showSidebar,
+    dragMode,
+    continuousScroll,
+    isCapturingRegion,
+    isPlacingPageNote: annotationPlacingPageNote,
     closeAllDropdowns,
     zoom,
+    fitMode,
     viewMode,
+    currentPage,
     handleFitMode,
+    handleToggleSidebar: () => {
+        showSidebar.value = !showSidebar.value;
+    },
+    handleToggleContinuousScroll: () => {
+        continuousScroll.value = !continuousScroll.value;
+    },
+    handleEnableDragMode: () => {
+        enableDragMode();
+    },
+    handleDisableDragMode: () => {
+        handleAnnotationToolChange('none');
+    },
+    handleCaptureRegion: () => {
+        void handleCaptureRegion();
+    },
+    handleQuickNote: () => {
+        void handleQuickNoteAction();
+    },
     selectedThumbnailPages,
     pageOpsDelete,
     pageOpsExtract,

@@ -4,38 +4,51 @@
             <PdfToolbar
                 v-show="showFallbackToolbar"
                 :has-pdf="fallbackHasPdf"
-                :can-save="false"
-                :can-undo="false"
-                :can-redo="false"
-                :can-export-docx="false"
-                :is-saving="false"
-                :is-saving-as="false"
-                :is-any-saving="false"
-                :is-history-busy="false"
-                :is-exporting-docx="false"
-                :is-fit-width-active="false"
-                :is-fit-height-active="false"
-                :show-sidebar="false"
-                :drag-mode="false"
-                :continuous-scroll="false"
-                :is-djvu-mode="false"
-                :is-capturing-region="false"
-                :is-placing-page-note="false"
+                :can-save="fallbackCanSave"
+                :can-undo="fallbackCanUndo"
+                :can-redo="fallbackCanRedo"
+                :can-export-docx="fallbackCanExportDocx"
+                :is-saving="fallbackIsSaving"
+                :is-saving-as="fallbackIsSavingAs"
+                :is-any-saving="fallbackIsAnySaving"
+                :is-history-busy="fallbackIsHistoryBusy"
+                :is-exporting-docx="fallbackIsExportingDocx"
+                :is-fit-width-active="fallbackIsFitWidthActive"
+                :is-fit-height-active="fallbackIsFitHeightActive"
+                :show-sidebar="fallbackShowSidebar"
+                :drag-mode="fallbackDragMode"
+                :continuous-scroll="fallbackContinuousScroll"
+                :is-djvu-mode="fallbackIsDjvuMode"
+                :is-capturing-region="fallbackIsCapturingRegion"
+                :is-placing-page-note="fallbackIsPlacingPageNote"
                 @open-file="handleFallbackToolbarOpenFile"
                 @open-settings="showSettings = true"
+                @save="runFallbackWorkspaceAction((workspace) => workspace.handleSave())"
+                @save-as="runFallbackWorkspaceAction((workspace) => workspace.handleSaveAs())"
+                @export-docx="runFallbackWorkspaceAction((workspace) => workspace.handleExportDocx())"
+                @undo="runFallbackWorkspaceAction((workspace) => workspace.handleUndo())"
+                @redo="runFallbackWorkspaceAction((workspace) => workspace.handleRedo())"
+                @toggle-sidebar="runFallbackWorkspaceAction((workspace) => workspace.handleToggleSidebar())"
+                @fit-width="runFallbackWorkspaceAction((workspace) => workspace.handleFitWidth())"
+                @fit-height="runFallbackWorkspaceAction((workspace) => workspace.handleFitHeight())"
+                @toggle-continuous-scroll="runFallbackWorkspaceAction((workspace) => workspace.handleToggleContinuousScroll())"
+                @enable-drag="runFallbackWorkspaceAction((workspace) => workspace.handleEnableDragMode())"
+                @disable-drag="runFallbackWorkspaceAction((workspace) => workspace.handleDisableDragMode())"
+                @capture-region="runFallbackWorkspaceAction((workspace) => workspace.handleCaptureRegion())"
+                @quick-note="runFallbackWorkspaceAction((workspace) => workspace.handleQuickNote())"
             >
                 <template #ocr="{ isCollapsed }">
                     <OcrPopup
                         :pdf-document="null"
                         :pdf-data="null"
-                        :current-page="1"
-                        :total-pages="0"
+                        :current-page="fallbackCurrentPage"
+                        :total-pages="fallbackTotalPages"
                         :working-copy-path="null"
                         :open="fallbackOcrPopupOpen"
-                        :disabled="!fallbackHasPdf"
+                        :disabled="fallbackIsDjvuMode || !fallbackHasPdf"
                         :hide-trigger="isCollapsed(3)"
                         @update:open="fallbackOcrPopupOpen = $event"
-                        @export-docx="noopFallbackAction"
+                        @export-docx="runFallbackWorkspaceAction((workspace) => workspace.handleExportDocx())"
                         @ocr-complete="noopFallbackAction"
                     />
                 </template>
@@ -67,21 +80,32 @@
                         v-if="hasOverflowItems"
                         :open="fallbackOverflowMenuOpen"
                         :collapse-tier="collapseTier"
-                        :can-save="false"
-                        :can-undo="false"
-                        :can-redo="false"
-                        :has-pdf="false"
-                        :is-any-saving="false"
-                        :is-history-busy="false"
-                        :is-exporting-docx="false"
-                        :can-export-docx="false"
-                        :drag-mode="false"
-                        :continuous-scroll="false"
+                        :can-save="fallbackCanSave"
+                        :can-undo="fallbackCanUndo"
+                        :can-redo="fallbackCanRedo"
+                        :has-pdf="fallbackHasPdf"
+                        :is-any-saving="fallbackIsAnySaving"
+                        :is-history-busy="fallbackIsHistoryBusy"
+                        :is-exporting-docx="fallbackIsExportingDocx"
+                        :can-export-docx="fallbackCanExportDocx"
+                        :drag-mode="fallbackDragMode"
+                        :continuous-scroll="fallbackContinuousScroll"
                         :view-mode="fallbackViewMode"
-                        :is-djvu-mode="false"
-                        :is-fit-width-active="false"
-                        :is-fit-height-active="false"
+                        :is-djvu-mode="fallbackIsDjvuMode"
+                        :is-fit-width-active="fallbackIsFitWidthActive"
+                        :is-fit-height-active="fallbackIsFitHeightActive"
                         @update:open="fallbackOverflowMenuOpen = $event"
+                        @save="runFallbackWorkspaceAction((workspace) => workspace.handleSave())"
+                        @save-as="runFallbackWorkspaceAction((workspace) => workspace.handleSaveAs())"
+                        @export-docx="runFallbackWorkspaceAction((workspace) => workspace.handleExportDocx())"
+                        @undo="runFallbackWorkspaceAction((workspace) => workspace.handleUndo())"
+                        @redo="runFallbackWorkspaceAction((workspace) => workspace.handleRedo())"
+                        @fit-width="runFallbackWorkspaceAction((workspace) => workspace.handleFitWidth())"
+                        @fit-height="runFallbackWorkspaceAction((workspace) => workspace.handleFitHeight())"
+                        @enable-drag="runFallbackWorkspaceAction((workspace) => workspace.handleEnableDragMode())"
+                        @disable-drag="runFallbackWorkspaceAction((workspace) => workspace.handleDisableDragMode())"
+                        @set-view-mode="handleFallbackOverflowSetViewMode"
+                        @toggle-continuous-scroll="runFallbackWorkspaceAction((workspace) => workspace.handleToggleContinuousScroll())"
                         @open-settings="showSettings = true"
                     />
                 </template>
@@ -241,7 +265,10 @@ import type {
     TFitMode,
     TPdfViewMode,
 } from '@app/types/shared';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type {
+    IWorkspaceExpose,
+    IWorkspaceToolbarSnapshot,
+} from '@app/types/workspace-expose';
 import type { TSplitPayload } from '@app/types/split-payload';
 import type {
     ITabContextAvailability,
@@ -333,6 +360,23 @@ const fallbackFitMode = ref<TFitMode>('width');
 const fallbackViewMode = ref<TPdfViewMode>('single');
 const fallbackCurrentPage = ref(1);
 const fallbackTotalPages = ref(0);
+const fallbackCanSave = ref(false);
+const fallbackCanUndo = ref(false);
+const fallbackCanRedo = ref(false);
+const fallbackCanExportDocx = ref(false);
+const fallbackIsSaving = ref(false);
+const fallbackIsSavingAs = ref(false);
+const fallbackIsAnySaving = ref(false);
+const fallbackIsHistoryBusy = ref(false);
+const fallbackIsExportingDocx = ref(false);
+const fallbackIsFitWidthActive = ref(false);
+const fallbackIsFitHeightActive = ref(false);
+const fallbackShowSidebar = ref(false);
+const fallbackDragMode = ref(false);
+const fallbackContinuousScroll = ref(false);
+const fallbackIsDjvuMode = ref(false);
+const fallbackIsCapturingRegion = ref(false);
+const fallbackIsPlacingPageNote = ref(false);
 const fallbackHasPdfSticky = ref(false);
 const fallbackOcrPopupOpen = ref(false);
 const fallbackZoomDropdownOpen = ref(false);
@@ -365,6 +409,120 @@ const fallbackHasPdf = computed(() => (
 
 function noopFallbackAction() {}
 
+function createDefaultToolbarSnapshot(): IWorkspaceToolbarSnapshot {
+    return {
+        hasPdf: false,
+        canSave: false,
+        canUndo: false,
+        canRedo: false,
+        canExportDocx: false,
+        isSaving: false,
+        isSavingAs: false,
+        isAnySaving: false,
+        isHistoryBusy: false,
+        isExportingDocx: false,
+        isFitWidthActive: false,
+        isFitHeightActive: false,
+        showSidebar: false,
+        dragMode: false,
+        continuousScroll: false,
+        isDjvuMode: false,
+        isCapturingRegion: false,
+        isPlacingPageNote: false,
+        zoom: 1,
+        fitMode: 'width',
+        viewMode: 'single',
+        currentPage: 1,
+        totalPages: 0,
+    };
+}
+
+function applyFallbackToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot | null | undefined) {
+    if (!snapshot) {
+        return;
+    }
+
+    const normalizedCurrentPage = Math.max(1, Math.floor(snapshot.currentPage));
+    const normalizedTotalPages = Math.max(
+        normalizedCurrentPage,
+        Math.floor(snapshot.totalPages),
+    );
+
+    fallbackCanSave.value = snapshot.canSave;
+    fallbackCanUndo.value = snapshot.canUndo;
+    fallbackCanRedo.value = snapshot.canRedo;
+    fallbackCanExportDocx.value = snapshot.canExportDocx;
+    fallbackIsSaving.value = snapshot.isSaving;
+    fallbackIsSavingAs.value = snapshot.isSavingAs;
+    fallbackIsAnySaving.value = snapshot.isAnySaving;
+    fallbackIsHistoryBusy.value = snapshot.isHistoryBusy;
+    fallbackIsExportingDocx.value = snapshot.isExportingDocx;
+    fallbackIsFitWidthActive.value = snapshot.isFitWidthActive;
+    fallbackIsFitHeightActive.value = snapshot.isFitHeightActive;
+    fallbackShowSidebar.value = snapshot.showSidebar;
+    fallbackDragMode.value = snapshot.dragMode;
+    fallbackContinuousScroll.value = snapshot.continuousScroll;
+    fallbackIsDjvuMode.value = snapshot.isDjvuMode;
+    fallbackIsCapturingRegion.value = snapshot.isCapturingRegion;
+    fallbackIsPlacingPageNote.value = snapshot.isPlacingPageNote;
+    fallbackZoom.value = snapshot.zoom;
+    fallbackFitMode.value = snapshot.fitMode;
+    fallbackViewMode.value = snapshot.viewMode;
+    fallbackCurrentPage.value = normalizedCurrentPage;
+    fallbackTotalPages.value = normalizedTotalPages;
+    fallbackHasPdfSticky.value = fallbackHasPdfSticky.value || snapshot.hasPdf;
+}
+
+function readToolbarSnapshot(workspace: IWorkspaceExpose | null) {
+    if (!workspace) {
+        return null;
+    }
+
+    try {
+        return workspace.getToolbarSnapshot();
+    } catch (error) {
+        BrowserLogger.debug('toolbar-transition', 'Failed to read toolbar snapshot', {
+            activeTabId: activeTabId.value,
+            activeGroupId: activeGroupId.value,
+            error,
+        });
+        return null;
+    }
+}
+
+function primeFallbackToolbarFromWorkspace(workspace: IWorkspaceExpose | null) {
+    applyFallbackToolbarSnapshot(readToolbarSnapshot(workspace));
+}
+
+function runFallbackWorkspaceAction(action: (workspace: IWorkspaceExpose) => Promise<void> | void) {
+    const workspace = activeWorkspace.value;
+    if (!workspace) {
+        return;
+    }
+
+    const result = action(workspace);
+    if (result instanceof Promise) {
+        void result;
+    }
+}
+
+function handleFallbackOverflowSetViewMode(mode: TPdfViewMode) {
+    fallbackViewMode.value = mode;
+    runFallbackWorkspaceAction((workspace) => {
+        if (mode === 'single') {
+            workspace.handleViewModeSingle();
+            return;
+        }
+        if (mode === 'facing') {
+            workspace.handleViewModeFacing();
+            return;
+        }
+        workspace.handleViewModeFacingFirstSingle();
+    });
+}
+
+applyFallbackToolbarSnapshot(createDefaultToolbarSnapshot());
+
 function primeFallbackToolbarFromPayload(payload: TSplitPayload | null) {
     if (!payload || payload.kind !== 'pdfSnapshot') {
         return;
@@ -385,6 +543,8 @@ function primeFallbackToolbarFromPayload(payload: TSplitPayload | null) {
 }
 
 function primeFallbackToolbarFromCache(tabId: string | null | undefined) {
+    primeFallbackToolbarFromWorkspace(activeWorkspace.value);
+
     if (!tabId) {
         return;
     }
@@ -414,6 +574,7 @@ function syncToolbarTeleportPresence() {
 function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
     const chained = tabTransitionQueue.then(async () => {
         activeTabTransitions.value += 1;
+        primeFallbackToolbarFromWorkspace(activeWorkspace.value);
         try {
             return await task();
         } finally {
@@ -761,6 +922,10 @@ const activeWorkspace = computed(() => {
     return workspaceRefs.value.get(activeTabId.value) ?? null;
 });
 
+watch(activeWorkspace, (workspace) => {
+    primeFallbackToolbarFromWorkspace(workspace);
+}, { immediate: true });
+
 watch(
     [
         fallbackHasPdfSignal,
@@ -811,8 +976,7 @@ watch(
             return;
         }
 
-        fallbackCurrentPage.value = 1;
-        fallbackTotalPages.value = 0;
+        applyFallbackToolbarSnapshot(createDefaultToolbarSnapshot());
     },
     { immediate: true },
 );
