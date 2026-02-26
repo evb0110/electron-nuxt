@@ -1,6 +1,97 @@
 <template>
     <div class="h-screen min-w-0 flex flex-col bg-[var(--app-window-bg)]">
-        <div id="editor-global-toolbar-host" class="editor-global-toolbar-host" />
+        <div class="editor-global-toolbar-shell">
+            <PdfToolbar
+                v-if="showFallbackToolbar"
+                :has-pdf="false"
+                :can-save="false"
+                :can-undo="false"
+                :can-redo="false"
+                :can-export-docx="false"
+                :is-saving="false"
+                :is-saving-as="false"
+                :is-any-saving="false"
+                :is-history-busy="false"
+                :is-exporting-docx="false"
+                :is-fit-width-active="false"
+                :is-fit-height-active="false"
+                :show-sidebar="false"
+                :drag-mode="false"
+                :continuous-scroll="false"
+                :is-djvu-mode="false"
+                :is-capturing-region="false"
+                :is-placing-page-note="false"
+                @open-file="handleFallbackToolbarOpenFile"
+                @open-settings="showSettings = true"
+            >
+                <template #ocr="{ isCollapsed }">
+                    <OcrPopup
+                        :pdf-document="null"
+                        :pdf-data="null"
+                        :current-page="1"
+                        :total-pages="0"
+                        :working-copy-path="null"
+                        :open="fallbackOcrPopupOpen"
+                        disabled
+                        :hide-trigger="isCollapsed(3)"
+                        @update:open="fallbackOcrPopupOpen = $event"
+                        @export-docx="noopFallbackAction"
+                        @ocr-complete="noopFallbackAction"
+                    />
+                </template>
+                <template #zoom-dropdown>
+                    <PdfZoomDropdown
+                        v-model:zoom="fallbackZoom"
+                        v-model:fit-mode="fallbackFitMode"
+                        v-model:view-mode="fallbackViewMode"
+                        :open="fallbackZoomDropdownOpen"
+                        disabled
+                        :compact-level="0"
+                        @update:open="fallbackZoomDropdownOpen = $event"
+                    />
+                </template>
+                <template #page-dropdown="{ collapseTier }">
+                    <PdfPageDropdown
+                        v-model="fallbackCurrentPage"
+                        :open="fallbackPageDropdownOpen"
+                        :total-pages="0"
+                        :page-labels="null"
+                        disabled
+                        :compact-level="collapseTier >= 5 ? 2 : collapseTier >= 4 ? 1 : 0"
+                        @go-to-page="noopFallbackAction"
+                        @update:open="fallbackPageDropdownOpen = $event"
+                    />
+                </template>
+                <template #overflow-menu="{ collapseTier, hasOverflowItems }">
+                    <ToolbarOverflowMenu
+                        v-if="hasOverflowItems"
+                        :open="fallbackOverflowMenuOpen"
+                        :collapse-tier="collapseTier"
+                        :can-save="false"
+                        :can-undo="false"
+                        :can-redo="false"
+                        :has-pdf="false"
+                        :is-any-saving="false"
+                        :is-history-busy="false"
+                        :is-exporting-docx="false"
+                        :can-export-docx="false"
+                        :drag-mode="false"
+                        :continuous-scroll="false"
+                        :view-mode="fallbackViewMode"
+                        :is-djvu-mode="false"
+                        :is-fit-width-active="false"
+                        :is-fit-height-active="false"
+                        @update:open="fallbackOverflowMenuOpen = $event"
+                        @open-settings="showSettings = true"
+                    />
+                </template>
+            </PdfToolbar>
+            <div
+                id="editor-global-toolbar-host"
+                ref="globalToolbarHostRef"
+                class="editor-global-toolbar-host"
+            />
+        </div>
 
         <div class="flex-1 min-h-0 min-w-0">
             <EditorGroupsGrid
@@ -144,6 +235,10 @@ import {
 import type { TOpenFileResult } from '@app/types/electron-api';
 import type { ITab } from '@app/types/tabs';
 import type { TGroupDirection } from '@app/types/editor-groups';
+import type {
+    TFitMode,
+    TPdfViewMode,
+} from '@app/types/shared';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import type { TSplitPayload } from '@app/types/split-payload';
 import type {
@@ -188,6 +283,9 @@ const showSettings = ref(false);
 const chromeHostsReady = ref(false);
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
+const globalToolbarHostRef = ref<HTMLElement | null>(null);
+const hasTeleportedToolbarContent = ref(false);
+let globalToolbarObserver: MutationObserver | null = null;
 const {
     checkForUpdates,
     closeDialog: closeUpdatesDialog,
@@ -225,6 +323,21 @@ const {
 });
 
 const isTabTransitionBusy = computed(() => activeTabTransitions.value > 0);
+const showFallbackToolbar = computed(() => !hasTeleportedToolbarContent.value);
+const fallbackZoom = ref(1);
+const fallbackFitMode = ref<TFitMode>('width');
+const fallbackViewMode = ref<TPdfViewMode>('single');
+const fallbackCurrentPage = ref(1);
+const fallbackOcrPopupOpen = ref(false);
+const fallbackZoomDropdownOpen = ref(false);
+const fallbackPageDropdownOpen = ref(false);
+const fallbackOverflowMenuOpen = ref(false);
+
+function noopFallbackAction() {}
+
+function syncToolbarTeleportPresence() {
+    hasTeleportedToolbarContent.value = Boolean(globalToolbarHostRef.value?.firstElementChild);
+}
 
 function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
     const chained = tabTransitionQueue.then(async () => {
@@ -371,6 +484,25 @@ function isPlaceholderTab(tab: ITab) {
         && !tab.isDjvu;
 }
 
+function isSingletonPlaceholderCloseBlocked(groupId: string, tabId: string) {
+    if (tabs.value.length !== 1) {
+        return false;
+    }
+
+    const group = getGroupById(groupId);
+    if (!group || group.tabIds.length !== 1 || !group.tabIds.includes(tabId)) {
+        return false;
+    }
+
+    const tab = getTabById(tabId);
+    if (!tab || !isPlaceholderTab(tab)) {
+        return false;
+    }
+
+    const workspace = workspaceRefs.value.get(tabId) ?? null;
+    return !workspaceHasPdf(workspace);
+}
+
 function resolveIncomingTransferTargetTab(
     targetGroupId: string,
 ): {
@@ -404,7 +536,7 @@ function resolveIncomingTransferTargetTab(
 
     const createdTab = createTab({
         groupId: targetGroup.id,
-        activate: true,
+        activate: false,
     });
 
     return {
@@ -443,6 +575,7 @@ const activeWorkspace = computed(() => {
 });
 useMenuSync({
     activeWorkspace,
+    activeTabId,
     tabs,
 });
 
@@ -464,7 +597,11 @@ const tabContextAvailabilityByGroup = computed<Record<string, ITabContextAvailab
     const transitionsBusy = isTabTransitionBusy.value;
 
     for (const group of groups.value) {
-        const hasActiveTab = Boolean(group.activeTabId);
+        const activeTabIdForGroup = group.activeTabId;
+        const hasActiveTab = Boolean(activeTabIdForGroup);
+        const closeBlocked = activeTabIdForGroup
+            ? isSingletonPlaceholderCloseBlocked(group.id, activeTabIdForGroup)
+            : false;
         const focus = createDirectionalAvailability(false);
         const move = createDirectionalAvailability(false);
         const copy = createDirectionalAvailability(false);
@@ -485,7 +622,7 @@ const tabContextAvailabilityByGroup = computed<Record<string, ITabContextAvailab
             focus,
             move,
             copy,
-            canClose: hasActiveTab && !transitionsBusy,
+            canClose: hasActiveTab && !transitionsBusy && !closeBlocked,
             canCreate: !transitionsBusy,
             canMoveToNewWindow: tabs.value.length > 1 && !transitionsBusy,
         };
@@ -558,6 +695,10 @@ function handleInstallUpdate() {
 }
 
 async function handleCloseTab(groupId: string, tabId: string) {
+    if (isSingletonPlaceholderCloseBlocked(groupId, tabId)) {
+        return;
+    }
+
     await enqueueTabTransition(async () => {
         const tab = getTabById(tabId);
         if (!tab) {
@@ -615,6 +756,30 @@ function createTabInGroup(groupId: string) {
         groupId,
         activate: true,
     });
+}
+
+async function handleFallbackToolbarOpenFile() {
+    const currentActiveTabId = activeTabId.value;
+    const workspace = activeWorkspace.value
+        ?? (currentActiveTabId
+            ? (workspaceRefs.value.get(currentActiveTabId) ?? await waitForWorkspace(currentActiveTabId))
+            : null);
+
+    if (workspace) {
+        await workspace.handleOpenFileFromUi();
+        return;
+    }
+
+    const fallbackTab = createTab({
+        groupId: activeGroupId.value,
+        activate: true,
+    });
+    const fallbackWorkspace = await waitForWorkspace(fallbackTab.id);
+    if (!fallbackWorkspace) {
+        removeTabFromState(fallbackTab.id);
+        return;
+    }
+    await fallbackWorkspace.handleOpenFileFromUi();
 }
 
 async function handleOpenInNewTab(pathOrResult: string | TOpenFileResult, groupId?: string) {
@@ -938,7 +1103,8 @@ async function splitEditor(direction: TGroupDirection) {
     await enqueueTabTransition(async () => {
         const sourceGroup = getGroupById(activeGroupId.value);
         const sourceTabId = sourceGroup?.activeTabId ?? null;
-        if (!sourceGroup || !sourceTabId) {
+        const sourceTab = getTabById(sourceTabId);
+        if (!sourceGroup || !sourceTabId || !sourceTab) {
             return;
         }
 
@@ -957,7 +1123,13 @@ async function splitEditor(direction: TGroupDirection) {
 
         const newTab = createTab({
             groupId: newGroupId,
-            activate: true,
+            activate: false,
+            initial: {
+                fileName: sourceTab.fileName,
+                originalPath: sourceTab.originalPath,
+                isDirty: sourceTab.isDirty,
+                isDjvu: sourceTab.isDjvu,
+            },
         });
 
         const restored = await restoreWorkspacePayload(newTab.id, payload);
@@ -1031,7 +1203,8 @@ async function copyActiveTab(direction: TGroupDirection) {
     await enqueueTabTransition(async () => {
         const sourceGroup = getGroupById(activeGroupId.value);
         const sourceTabId = sourceGroup?.activeTabId ?? null;
-        if (!sourceGroup || !sourceTabId) {
+        const sourceTab = getTabById(sourceTabId);
+        if (!sourceGroup || !sourceTabId || !sourceTab) {
             return;
         }
 
@@ -1047,7 +1220,13 @@ async function copyActiveTab(direction: TGroupDirection) {
 
         const targetTab = createTab({
             groupId: route.targetGroupId,
-            activate: true,
+            activate: false,
+            initial: {
+                fileName: sourceTab.fileName,
+                originalPath: sourceTab.originalPath,
+                isDirty: sourceTab.isDirty,
+                isDjvu: sourceTab.isDjvu,
+            },
         });
 
         const restored = await restoreWorkspacePayload(targetTab.id, payload);
@@ -1180,6 +1359,15 @@ traceRendererStartup('index.vue setup wiring complete');
 onMounted(() => {
     const start = performance.now();
     traceRendererStartup('index.vue onMounted start');
+
+    syncToolbarTeleportPresence();
+    if (typeof MutationObserver !== 'undefined' && globalToolbarHostRef.value) {
+        globalToolbarObserver = new MutationObserver(() => {
+            syncToolbarTeleportPresence();
+        });
+        globalToolbarObserver.observe(globalToolbarHostRef.value, {childList: true});
+    }
+
     chromeHostsReady.value = true;
     traceRendererStartup('index.vue chrome hosts marked ready');
     cleanupEmptyGroups();
@@ -1194,6 +1382,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    globalToolbarObserver?.disconnect();
+    globalToolbarObserver = null;
     incomingTabTransferCleanup?.();
     incomingTabTransferCleanup = null;
     cleanupExternalFileDrop();
@@ -1213,6 +1403,7 @@ watch(() => updatesDialog.value.open, (isOpen) => {
 </script>
 
 <style scoped>
+.editor-global-toolbar-shell,
 .editor-global-toolbar-host,
 .editor-global-status-host {
     display: flex;

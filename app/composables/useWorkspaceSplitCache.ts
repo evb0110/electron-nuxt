@@ -37,6 +37,7 @@ function clonePayload(payload: TSplitPayload): TSplitPayload {
         originalPath: payload.originalPath,
         data: payload.data.slice(),
         isDirty: payload.isDirty,
+        currentPage: payload.currentPage,
     };
 }
 

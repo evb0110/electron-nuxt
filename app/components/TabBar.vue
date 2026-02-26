@@ -28,8 +28,9 @@
                     class="tab-close"
                     :class="{ 'is-visible': tab.id === activeTabId }"
                     :aria-label="t('tabs.closeTab')"
+                    :disabled="!canCloseTabs"
                     @pointerdown.stop
-                    @click.stop="emit('close', tab.id)"
+                    @click.stop="requestClose(tab.id)"
                 >
                     <Icon name="lucide:x" size="14" />
                 </button>
@@ -147,6 +148,7 @@ const contextMenuStyle = computed(() => ({
     left: `${contextMenu.value.x}px`,
     top: `${contextMenu.value.y}px`,
 }));
+const canCloseTabs = computed(() => props.contextAvailability?.canClose ?? true);
 
 function isDirectionEnabled(
     kind: 'split' | 'focus' | 'move' | 'copy',
@@ -347,9 +349,16 @@ function handleTabClick(tabId: string) {
 }
 
 function handleAuxClick(event: MouseEvent, tabId: string) {
-    if (event.button === 1) {
+    if (event.button === 1 && canCloseTabs.value) {
         emit('close', tabId);
     }
+}
+
+function requestClose(tabId: string) {
+    if (!canCloseTabs.value) {
+        return;
+    }
+    emit('close', tabId);
 }
 
 function closeTabContextMenu() {
@@ -541,13 +550,18 @@ useEventListener(window, 'pointerdown', (event) => {
     transition: opacity 0.1s ease, background-color 0.1s ease;
 }
 
-.tab:hover .tab-close,
-.tab-close.is-visible {
+.tab-close:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+}
+
+.tab:hover .tab-close:not(:disabled),
+.tab-close.is-visible:not(:disabled) {
     opacity: 1;
 }
 
 /* stylelint-disable-next-line no-descending-specificity */
-.tab-close:hover {
+.tab-close:hover:not(:disabled) {
     opacity: 1;
     background: var(--app-chrome-subtle-hover);
     color: var(--ui-text);

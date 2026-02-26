@@ -31,12 +31,14 @@ describe('useWorkspaceSplitCache', () => {
                 3,
             ]),
             isDirty: false,
+            currentPage: 7,
         });
 
         expect(splitCache.has('tab-1')).toBe(true);
         expect(splitCache.consume('tab-1')).toEqual(expect.objectContaining({
             kind: 'pdfSnapshot',
             fileName: 'sample.pdf',
+            currentPage: 7,
         }));
         expect(splitCache.has('tab-1')).toBe(false);
     });

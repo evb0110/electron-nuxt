@@ -1,16 +1,11 @@
 <template>
     <UPopover v-model:open="isOpen" mode="click" :disabled="disabled">
         <template v-if="!hideTrigger">
-            <UTooltip :text="t('ocr.button')" :delay-duration="1200">
-                <UButton
-                    icon="i-lucide-scan-text"
-                    variant="ghost"
-                    color="neutral"
-                    class="toolbar-icon-button"
-                    :disabled="disabled"
-                    :aria-label="t('ocr.button')"
-                />
-            </UTooltip>
+            <ToolbarButton
+                icon="lucide:scan-text"
+                :tooltip="t('ocr.button')"
+                :disabled="disabled"
+            />
         </template>
         <span v-else class="ocr-popup__hidden-trigger" aria-hidden="true" />
 

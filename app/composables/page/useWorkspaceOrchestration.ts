@@ -658,6 +658,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         }
     }
 
+    function normalizeSplitPayloadPage(page: number | undefined) {
+        if (typeof page !== 'number' || !Number.isFinite(page)) {
+            return null;
+        }
+
+        return Math.max(1, Math.floor(page));
+    }
+
     async function captureSplitPayload(): Promise<TSplitPayload> {
         if (!pdfSrc.value) {
             return { kind: 'empty' };
@@ -696,6 +704,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             originalPath: originalPath.value,
             data: snapshot.slice(),
             isDirty: hasPendingTabChanges.value,
+            currentPage: normalizeSplitPayloadPage(currentPage.value) ?? 1,
         };
     }
 
@@ -713,6 +722,16 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             return;
         }
 
+        const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
+        const restorePagePromise = pageToRestore && pageToRestore > 1
+            ? waitForPdfReload(pageToRestore).catch((error) => {
+                BrowserLogger.debug('workspace', 'Split payload page restore wait failed', {
+                    pageToRestore,
+                    error,
+                });
+            })
+            : null;
+
         if (!hasElectronAPI()) {
             await loadPdfFromData(payload.data.slice(), {
                 pushHistory: true,
@@ -722,16 +741,19 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             if (payload.isDirty) {
                 markDirty();
             }
-            return;
+        } else {
+            const workingPath = await getElectronAPI().createWorkingCopyFromData(
+                payload.fileName,
+                payload.data,
+                payload.originalPath ?? undefined,
+            );
+            await loadPdfFromPath(workingPath, { markDirty: payload.isDirty });
+            originalPath.value = payload.originalPath;
         }
 
-        const workingPath = await getElectronAPI().createWorkingCopyFromData(
-            payload.fileName,
-            payload.data,
-            payload.originalPath ?? undefined,
-        );
-        await loadPdfFromPath(workingPath, { markDirty: payload.isDirty });
-        originalPath.value = payload.originalPath;
+        if (restorePagePromise) {
+            await restorePagePromise;
+        }
     }
 
     return {

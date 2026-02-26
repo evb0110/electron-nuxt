@@ -41,11 +41,13 @@ describe('useMenuSync', () => {
             isDirty: false,
             isDjvu: false,
         }]);
+        const activeTabId = ref<string | null>('tab-1');
         const hasPdfRef = ref(false);
         const activeWorkspace = ref({ hasPdf: hasPdfRef });
 
         useMenuSync({
             activeWorkspace,
+            activeTabId,
             tabs,
         });
         await nextTick();
@@ -69,6 +71,27 @@ describe('useMenuSync', () => {
 
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(true);
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
+    });
+
+    it('keeps document menu enabled from active tab hints while workspace is remounting', async () => {
+        const tabs = ref([{
+            id: 'tab-1',
+            fileName: 'sample.pdf',
+            originalPath: '/tmp/sample.pdf',
+            isDirty: false,
+            isDjvu: false,
+        }]);
+        const activeTabId = ref<string | null>('tab-1');
+        const activeWorkspace = ref<{ hasPdf: boolean } | null>(null);
+
+        useMenuSync({
+            activeWorkspace,
+            activeTabId,
+            tabs,
+        });
+        await nextTick();
+
+        expect(mocks.setMenuDocumentState).toHaveBeenCalledWith(true);
     });
 
     it('handles both boolean and ref-based workspace hasPdf values', () => {

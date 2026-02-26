@@ -60,12 +60,12 @@ describe('workspace host mount request state', () => {
         })).toBe(true);
     });
 
-    it('does not request mount for an empty active tab', () => {
+    it('requests mount for an empty active tab to keep workspace chrome stable', () => {
         expect(shouldAutoRequestWorkspace({
             hasQueuedSplitRestore: false,
             hasDocumentHint: false,
             isActive: true,
-        })).toBe(false);
+        })).toBe(true);
     });
 
     it('keeps request latched after signals clear', () => {

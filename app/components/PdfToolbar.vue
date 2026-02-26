@@ -85,7 +85,7 @@
 
         <div class="toolbar-separator" />
 
-        <div :class="['toolbar-section', 'toolbar-center', { 'toolbar-center-collapsed': hasOverflowItems }]">
+        <div class="toolbar-section toolbar-center">
             <div class="toolbar-inline-group">
                 <slot
                     name="zoom-dropdown"
@@ -282,10 +282,6 @@ const {
     justify-content: center;
     gap: 0.25rem;
     overflow: hidden;
-}
-
-.toolbar-center-collapsed {
-    justify-content: flex-start;
 }
 
 .toolbar-right {

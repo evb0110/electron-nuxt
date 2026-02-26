@@ -7,11 +7,13 @@ import {
     hasElectronAPI,
 } from '@app/utils/electron';
 import type { ITab } from '@app/types/tabs';
+import { hasDocumentMountHint } from '@app/composables/page/workspace-host-mounting';
 
 interface IWorkspaceMenuState {hasPdf: boolean | { value: boolean };}
 
 interface IUseMenuSyncDeps {
     activeWorkspace: Readonly<Ref<IWorkspaceMenuState | null>>;
+    activeTabId: Ref<string | null>;
     tabs: Ref<ITab[]>;
 }
 
@@ -25,16 +27,31 @@ export function workspaceHasPdf(workspace: IWorkspaceMenuState | null | undefine
 export function useMenuSync(deps: IUseMenuSyncDeps) {
     const {
         activeWorkspace,
+        activeTabId,
         tabs,
     } = deps;
     let lastSyncedMenuDocumentState: boolean | null = null;
     let lastSyncedMenuTabCount: number | null = null;
 
+    function activeTabHasDocumentHint() {
+        const tabId = activeTabId.value;
+        if (!tabId) {
+            return false;
+        }
+
+        const tab = tabs.value.find(candidate => candidate.id === tabId) ?? null;
+        if (!tab) {
+            return false;
+        }
+
+        return hasDocumentMountHint(tab);
+    }
+
     function syncMenuDocumentState() {
         if (!hasElectronAPI()) {
             return;
         }
-        const hasDocument = workspaceHasPdf(activeWorkspace.value);
+        const hasDocument = workspaceHasPdf(activeWorkspace.value) || activeTabHasDocumentHint();
         if (lastSyncedMenuDocumentState === hasDocument) {
             return;
         }

@@ -47,7 +47,7 @@
                         :is-exporting-docx="isExportingDocx"
                         :external-error="docxExportError"
                         :disabled="isDjvuMode || !hasPdf"
-                        :hide-trigger="isCollapsed(1)"
+                        :hide-trigger="isCollapsed(3)"
                         @update:open="handleDropdownOpen('ocr', $event)"
                         @export-docx="handleExportDocx"
                         @ocr-complete="handleOcrComplete"

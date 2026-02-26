@@ -538,6 +538,7 @@ describe('useWorkspaceOrchestration', () => {
                 6,
             ]),
             isDirty: true,
+            currentPage: 1,
         });
     });
 
@@ -563,6 +564,7 @@ describe('useWorkspaceOrchestration', () => {
             originalPath: '/tmp/restored.pdf',
             data,
             isDirty: true,
+            currentPage: 6,
         });
 
         expect(lifecycle.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
@@ -575,6 +577,8 @@ describe('useWorkspaceOrchestration', () => {
         });
         expect(lifecycle.markDirty).toHaveBeenCalledOnce();
         expect(lifecycle.originalPath.value).toBe('/tmp/restored.pdf');
+        const historyState = pdfHistoryMock.mock.results[pdfHistoryMock.mock.results.length - 1]?.value;
+        expect(historyState?.waitForPdfReload).toHaveBeenCalledWith(6);
     });
 
     it('restores snapshots through working-copy creation when electron API is available', async () => {
@@ -596,6 +600,7 @@ describe('useWorkspaceOrchestration', () => {
                 2,
             ]),
             isDirty: false,
+            currentPage: 4,
         });
 
         expect(electronApiMock.createWorkingCopyFromData).toHaveBeenCalledWith(
@@ -608,5 +613,7 @@ describe('useWorkspaceOrchestration', () => {
         );
         expect(lifecycle.loadPdfFromPath).toHaveBeenCalledWith('/tmp/working-copy.pdf', { markDirty: false });
         expect(lifecycle.originalPath.value).toBe('/tmp/original.pdf');
+        const historyState = pdfHistoryMock.mock.results[pdfHistoryMock.mock.results.length - 1]?.value;
+        expect(historyState?.waitForPdfReload).toHaveBeenCalledWith(4);
     });
 });
