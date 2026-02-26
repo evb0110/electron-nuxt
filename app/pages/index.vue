@@ -302,6 +302,7 @@ const workspaceRefs = shallowRef<Map<string, IWorkspaceExpose>>(new Map());
 const pendingWorkspaceWaiters = new Map<string, Set<(workspace: IWorkspaceExpose) => void>>();
 const WORKSPACE_REF_WAIT_TIMEOUT_MS = 4000;
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
+const TOOLBAR_TELEPORT_EMPTY_GRACE_MS = 140;
 const DIRECTION_ORDER: TGroupDirection[] = [
     'left',
     'right',
@@ -311,6 +312,7 @@ const DIRECTION_ORDER: TGroupDirection[] = [
 const activeTabTransitions = ref(0);
 let tabTransitionQueue: Promise<void> = Promise.resolve();
 let incomingTabTransferCleanup: (() => void) | null = null;
+let toolbarTeleportEmptyTimer: ReturnType<typeof setTimeout> | null = null;
 
 const {
     dirtyTabCloseDialogOpen,
@@ -336,8 +338,44 @@ const fallbackOverflowMenuOpen = ref(false);
 
 function noopFallbackAction() {}
 
-function syncToolbarTeleportPresence() {
-    hasTeleportedToolbarContent.value = Boolean(globalToolbarHostRef.value?.firstElementChild);
+function clearToolbarTeleportEmptyTimer() {
+    if (!toolbarTeleportEmptyTimer) {
+        return;
+    }
+
+    clearTimeout(toolbarTeleportEmptyTimer);
+    toolbarTeleportEmptyTimer = null;
+}
+
+function syncToolbarTeleportPresence(options: { forceEmptyWhenMissing?: boolean } = {}) {
+    const hasContent = Boolean(globalToolbarHostRef.value?.firstElementChild);
+    if (hasContent) {
+        clearToolbarTeleportEmptyTimer();
+        hasTeleportedToolbarContent.value = true;
+        return;
+    }
+
+    if (!options.forceEmptyWhenMissing && isTabTransitionBusy.value) {
+        return;
+    }
+
+    if (options.forceEmptyWhenMissing) {
+        clearToolbarTeleportEmptyTimer();
+        hasTeleportedToolbarContent.value = false;
+        return;
+    }
+
+    if (toolbarTeleportEmptyTimer) {
+        return;
+    }
+
+    toolbarTeleportEmptyTimer = setTimeout(() => {
+        toolbarTeleportEmptyTimer = null;
+        const stillMissing = !globalToolbarHostRef.value?.firstElementChild;
+        if (stillMissing && !isTabTransitionBusy.value) {
+            hasTeleportedToolbarContent.value = false;
+        }
+    }, TOOLBAR_TELEPORT_EMPTY_GRACE_MS);
 }
 
 function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
@@ -1480,7 +1518,7 @@ onMounted(() => {
     const start = performance.now();
     traceRendererStartup('index.vue onMounted start');
 
-    syncToolbarTeleportPresence();
+    syncToolbarTeleportPresence({forceEmptyWhenMissing: true});
     if (typeof MutationObserver !== 'undefined' && globalToolbarHostRef.value) {
         globalToolbarObserver = new MutationObserver(() => {
             syncToolbarTeleportPresence();
@@ -1502,6 +1540,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    clearToolbarTeleportEmptyTimer();
     globalToolbarObserver?.disconnect();
     globalToolbarObserver = null;
     incomingTabTransferCleanup?.();
@@ -1519,6 +1558,15 @@ watch(() => updatesDialog.value.open, (isOpen) => {
     if (!isOpen) {
         closeUpdatesDialog();
     }
+});
+
+watch(isTabTransitionBusy, (busy) => {
+    if (busy) {
+        syncToolbarTeleportPresence();
+        return;
+    }
+
+    syncToolbarTeleportPresence({forceEmptyWhenMissing: true});
 });
 </script>
 
