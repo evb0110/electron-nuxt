@@ -30,9 +30,7 @@ import {
     getTesseractThreadLimit,
 } from '../../utils/concurrency';
 import type {
-    IOcrWorkerStartPayload,
     TOcrWorkerCompleteResult,
-    TOcrWorkerInboundMessage,
     TOcrWorkerLogMessage,
     TOcrWorkerOutboundMessage,
     IOcrPageWithWords,
@@ -66,7 +64,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
-function toStringArray(value: unknown): string[] | null {
+function toStringArray(value: unknown) {
     if (!Array.isArray(value)) {
         return null;
     }
@@ -76,7 +74,7 @@ function toStringArray(value: unknown): string[] | null {
     return value;
 }
 
-function decodeUint8Array(value: unknown): Uint8Array | null {
+function decodeUint8Array(value: unknown) {
     if (value instanceof Uint8Array) {
         return value;
     }
@@ -89,7 +87,7 @@ function decodeUint8Array(value: unknown): Uint8Array | null {
     return null;
 }
 
-function parsePdfPageRequest(value: unknown): IOcrPdfPageRequest | null {
+function parsePdfPageRequest(value: unknown) {
     if (!isRecord(value)) {
         return null;
     }
@@ -106,7 +104,7 @@ function parsePdfPageRequest(value: unknown): IOcrPdfPageRequest | null {
     };
 }
 
-function parseStartPayload(value: unknown): IOcrWorkerStartPayload | null {
+function parseStartPayload(value: unknown) {
     if (!isRecord(value)) {
         return null;
     }
@@ -142,7 +140,7 @@ function parseStartPayload(value: unknown): IOcrWorkerStartPayload | null {
     };
 }
 
-function parseInboundMessage(value: unknown): TOcrWorkerInboundMessage | null {
+function parseInboundMessage(value: unknown) {
     if (!isRecord(value) || value.type !== 'start' || typeof value.jobId !== 'string') {
         return null;
     }
@@ -184,7 +182,7 @@ function readOptionalPath(
     return value;
 }
 
-function resolveWorkerPaths(rawWorkerData: unknown): IWorkerPaths {
+function resolveWorkerPaths(rawWorkerData: unknown) {
     if (!isRecord(rawWorkerData)) {
         throw new Error('Invalid OCR workerData payload');
     }

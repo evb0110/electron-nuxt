@@ -115,7 +115,7 @@ function getDevtoolsSummary(events: readonly TDevtoolsEvent[]) {
     }, { ...DEVTOOLS_EVENT_SUMMARY_TEMPLATE });
 }
 
-function parseStringArg(args: readonly unknown[], index: number): string | null {
+function parseStringArg(args: readonly unknown[], index: number) {
     const value = args[index];
     if (typeof value !== 'string') {
         return null;
@@ -123,7 +123,7 @@ function parseStringArg(args: readonly unknown[], index: number): string | null 
     return value;
 }
 
-function parseRequiredStringArg(args: readonly unknown[], index: number, errorMessage: string): string {
+function parseRequiredStringArg(args: readonly unknown[], index: number, errorMessage: string) {
     const value = parseStringArg(args, index);
     if (!value) {
         throw new Error(errorMessage);
@@ -131,7 +131,7 @@ function parseRequiredStringArg(args: readonly unknown[], index: number, errorMe
     return value;
 }
 
-function parseDevtoolsSection(value: unknown): TDevtoolsSection | null {
+function parseDevtoolsSection(value: unknown) {
     if (typeof value === 'undefined') {
         return 'summary';
     }
@@ -146,7 +146,7 @@ function parseDevtoolsSection(value: unknown): TDevtoolsSection | null {
 }
 
 export function createCommandHandler(getSessionState: () => ISessionState | null) {
-    return async function handleCommand(command: TElectronRunCommand, args: unknown[]): Promise<unknown> {
+    return async function handleCommand(command: TElectronRunCommand, args: unknown[]) {
         const sessionState = getSessionState();
         if (!sessionState) {
             throw new Error('Session not initialized');

@@ -1,4 +1,5 @@
 import type { PageViewport } from 'pdfjs-dist';
+import { safeDestr } from 'destr';
 import type { IOcrWord } from '@app/types/pdf';
 import { getElectronAPI } from '@app/utils/electron';
 import {
@@ -9,48 +10,6 @@ import {
     type IOcrIndexV2Page,
 } from '@app/composables/pdfWordBoxGeometry';
 import { BrowserLogger } from '@app/utils/browser-logger';
-
-type TJsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is TJsonRecord {
-    return typeof value === 'object' && value !== null;
-}
-
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
-
-function isOcrWord(value: unknown): value is IOcrWord {
-    if (!isRecord(value)) {
-        return false;
-    }
-    return (
-        typeof value.text === 'string'
-        && isFiniteNumber(value.x)
-        && isFiniteNumber(value.y)
-        && isFiniteNumber(value.width)
-        && isFiniteNumber(value.height)
-    );
-}
-
-function isOcrIndexV2Page(value: unknown): value is IOcrIndexV2Page {
-    if (!isRecord(value) || !isFiniteNumber(value.pageNumber)) {
-        return false;
-    }
-    if (value.rotation !== 0 && value.rotation !== 90 && value.rotation !== 180 && value.rotation !== 270) {
-        return false;
-    }
-    if (!isRecord(value.render) || !isFiniteNumber(value.render.dpi)) {
-        return false;
-    }
-    if (!isRecord(value.render.imagePx) || !isFiniteNumber(value.render.imagePx.w) || !isFiniteNumber(value.render.imagePx.h)) {
-        return false;
-    }
-    if (typeof value.text !== 'string') {
-        return false;
-    }
-    return Array.isArray(value.words) && value.words.every(isOcrWord);
-}
 
 export const usePdfWordBoxes = () => {
     function clearWordBoxes(container: HTMLElement) {
@@ -147,11 +106,7 @@ export const usePdfWordBoxes = () => {
             }
 
             const content = await api.readTextFile(pagePath);
-            const parsed = JSON.parse(content);
-            if (!isOcrIndexV2Page(parsed)) {
-                throw new Error('Invalid OCR debug page payload');
-            }
-            return parsed;
+            return safeDestr<IOcrIndexV2Page>(content);
         } catch (error) {
             BrowserLogger.warn('ocr-debug', 'Failed to load OCR page data', error);
             return null;

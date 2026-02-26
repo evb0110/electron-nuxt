@@ -18,6 +18,7 @@ import puppeteer, {
     type HTTPResponse,
     type Page,
 } from 'puppeteer-core';
+import { safeDestr } from 'destr';
 import { delay } from 'es-toolkit/promise';
 import { createCommandHandler } from './commands';
 import {
@@ -887,7 +888,7 @@ export async function startSession(forceClean = false) {
             });
             req.on('end', async () => {
                 try {
-                    const requestPayload = parseElectronRunCommandRequest(JSON.parse(body));
+                    const requestPayload = parseElectronRunCommandRequest(safeDestr(body));
                     if (!requestPayload) {
                         throw new Error('Malformed command payload');
                     }

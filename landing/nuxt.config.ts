@@ -32,7 +32,7 @@ export default defineNuxtConfig({
 
     i18n: {
         restructureDir: 'app',
-        locales: LOCALE_DEFINITIONS,
+        locales: LOCALE_DEFINITIONS.map(locale => ({ ...locale })),
         defaultLocale: DEFAULT_LOCALE,
         langDir: 'locales/',
         strategy: 'no_prefix',
