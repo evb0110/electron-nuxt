@@ -11,7 +11,7 @@
             />
         </div>
 
-        <div class="zoom-controls-item">
+        <div class="zoom-controls-item zoom-controls-item--display">
             <UPopover v-model:open="isOpen" mode="click" :disabled="disabled">
                 <button
                     class="zoom-controls-display"
@@ -342,6 +342,9 @@ function applyCustomZoom() {
 
 <style scoped>
 .zoom-controls {
+    --zoom-control-side-width: var(--toolbar-control-height, 2.25rem);
+    --zoom-control-display-width: 6.5rem;
+
     display: flex;
     align-items: center;
     gap: 0;
@@ -352,6 +355,7 @@ function applyCustomZoom() {
 
 .zoom-controls-item {
     display: flex;
+    align-items: stretch;
     border-radius: 0;
 }
 
@@ -359,14 +363,24 @@ function applyCustomZoom() {
     border-left: 1px solid var(--app-toolbar-group-border);
 }
 
+.zoom-controls-item :deep(.toolbar-btn) {
+    width: var(--zoom-control-side-width);
+    min-width: var(--zoom-control-side-width);
+    max-width: var(--zoom-control-side-width);
+}
+
+.zoom-controls-item--display {
+    flex: 0 0 var(--zoom-control-display-width);
+}
+
 .zoom-controls-display {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    padding: 0 0.5rem;
-    width: 6.5rem;
-    min-width: 6.5rem;
-    max-width: 6.5rem;
+    justify-content: center;
+    padding: 0;
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
     height: var(--toolbar-control-height, 2.25rem);
     background: transparent;
     border: none;
@@ -377,10 +391,13 @@ function applyCustomZoom() {
 }
 
 .zoom-controls--compact-2 .zoom-controls-display {
-    width: 5.5rem;
-    min-width: 5.5rem;
-    max-width: 5.5rem;
-    padding: 0 0.375rem;
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+}
+
+.zoom-controls--compact-2 {
+    --zoom-control-display-width: 5.5rem;
 }
 
 .zoom-controls-display:disabled {
@@ -401,11 +418,15 @@ function applyCustomZoom() {
 }
 
 .zoom-controls-display-value {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 0.875rem;
+    line-height: 1;
     font-variant-numeric: tabular-nums;
     color: var(--ui-text);
 }
