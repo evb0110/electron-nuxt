@@ -17,6 +17,7 @@ import type {
     Page,
 } from 'puppeteer-core';
 import type { MergeExclusive } from 'type-fest';
+import { safeDestr } from 'destr';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -45,9 +46,9 @@ function isNullablePositiveInt(value: unknown): value is number | null {
     return value === null || isPositiveInt(value);
 }
 
-function parseJsonFile(path: string): unknown | null {
+function parseJsonFile(path: string) {
     try {
-        return JSON.parse(readFileSync(path, 'utf8'));
+        return safeDestr(readFileSync(path, 'utf8'));
     } catch {
         return null;
     }
@@ -101,7 +102,7 @@ export function isElectronRunCommand(value: unknown): value is TElectronRunComma
     return typeof value === 'string' && ELECTRON_RUN_COMMAND_SET.has(value as TElectronRunCommand);
 }
 
-export function parseElectronRunCommandRequest(value: unknown): IElectronRunCommandRequest | null {
+export function parseElectronRunCommandRequest(value: unknown) {
     if (!isRecord(value)) {
         return null;
     }
@@ -117,7 +118,7 @@ export function parseElectronRunCommandRequest(value: unknown): IElectronRunComm
     };
 }
 
-export function parseElectronRunCommandResponse(value: unknown): TElectronRunCommandResponse | null {
+export function parseElectronRunCommandResponse(value: unknown) {
     if (!isRecord(value) || typeof value.success !== 'boolean') {
         return null;
     }
@@ -336,7 +337,7 @@ function sleep(ms: number) {
     });
 }
 
-function collectDescendantPidsUnix(rootPid: number): number[] {
+function collectDescendantPidsUnix(rootPid: number) {
     if (!Number.isFinite(rootPid) || rootPid <= 0) {
         return [];
     }
@@ -378,7 +379,7 @@ function collectDescendantPidsUnix(rootPid: number): number[] {
     }
 }
 
-export function findPidsByCommandSubstring(substring: string): number[] {
+export function findPidsByCommandSubstring(substring: string) {
     const needle = substring.trim();
     if (!needle) {
         return [];
@@ -568,7 +569,7 @@ export async function isSessionRunning(name = getCurrentSessionName()): Promise<
     }
 }
 
-export function listAllSessionNames(): string[] {
+export function listAllSessionNames() {
     try {
         return readdirSync(sessionsBaseDir).filter(name => {
             try {

@@ -4,6 +4,7 @@ import {
     unlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { safeDestr } from 'destr';
 import { delay } from 'es-toolkit/promise';
 import { sendCommand } from './client';
 import {
@@ -64,40 +65,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
-function parsePositivePid(value: unknown): number | null {
+function parsePositivePid(value: unknown) {
     return typeof value === 'number' && Number.isInteger(value) && value > 0
         ? value
         : null;
 }
 
-function readLegacyPid(filePath: string): number | null {
+function readLegacyPid(filePath: string) {
     try {
-        const parsed = JSON.parse(readFileSync(filePath, 'utf8'));
-        if (!isRecord(parsed)) {
-            return null;
-        }
-        return parsePositivePid(parsed.pid);
+        const parsed = safeDestr<Partial<{ pid: unknown }>>(readFileSync(filePath, 'utf8'));
+        return parsePositivePid(parsed?.pid);
     } catch {
         return null;
     }
 }
 
-function parsePingResult(value: unknown): { uptime: number } | null {
+function parsePingResult(value: unknown) {
     if (!isRecord(value) || typeof value.uptime !== 'number' || !Number.isFinite(value.uptime)) {
         return null;
     }
     return {uptime: value.uptime};
 }
 
-interface IHealthResult {
-    ready?: boolean;
-    health?: {
-        openFileDirect?: string;
-        electronAPI?: string;
-    };
-}
-
-function parseHealthResult(value: unknown): IHealthResult | null {
+function parseHealthResult(value: unknown) {
     if (!isRecord(value)) {
         return null;
     }

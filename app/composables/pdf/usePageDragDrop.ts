@@ -65,7 +65,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return [page];
     }
 
-    function findScrollContainer(): HTMLElement | null {
+    function findScrollContainer() {
         const container = containerRef.value;
         if (!container) {
             return null;

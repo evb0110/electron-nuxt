@@ -14,32 +14,6 @@ import {
     SUPPORTED_IMAGE_EXTENSIONS as SHARED_SUPPORTED_IMAGE_EXTENSIONS,
 } from '@electron/image/pdf-combine-shared';
 
-interface ICombineWorkerProgressPayload {
-    type: 'progress';
-    processed: number;
-    total: number;
-    percent: number;
-    elapsedMs: number;
-    estimatedRemainingMs: number | null;
-}
-
-interface ICombineWorkerResultSuccessPayload {
-    type: 'result';
-    ok: true;
-    data: unknown;
-}
-
-interface ICombineWorkerResultErrorPayload {
-    type: 'result';
-    ok: false;
-    error: string;
-}
-
-type TCombineWorkerPayload =
-    | ICombineWorkerProgressPayload
-    | ICombineWorkerResultSuccessPayload
-    | ICombineWorkerResultErrorPayload;
-
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
     total: number;
@@ -49,6 +23,26 @@ export interface ICreatePdfFromInputPathsProgress {
 }
 
 interface ICreatePdfFromInputPathsOptions {onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;}
+
+type TCombineWorkerPayload =
+    | {
+        type: 'progress';
+        processed: number;
+        total: number;
+        percent: number;
+        elapsedMs: number;
+        estimatedRemainingMs: number | null;
+    }
+    | {
+        type: 'result';
+        ok: true;
+        data: unknown;
+    }
+    | {
+        type: 'result';
+        ok: false;
+        error: string;
+    };
 
 const logger = createLogger('pdf-conversion');
 const __dirname = dirname(fileURLToPath(import.meta.url));

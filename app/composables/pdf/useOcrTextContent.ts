@@ -1,4 +1,5 @@
 import type { PageViewport } from 'pdfjs-dist';
+import { safeDestr } from 'destr';
 import type { IPdfRawDims } from '@app/types/pdf';
 import { getElectronAPI } from '@app/utils/electron';
 import type { IOcrWord } from '@app/types/shared';
@@ -10,29 +11,7 @@ const RTL_OCR_LANGUAGES: ReadonlySet<string> = new Set([
 ] as const);
 type TOcrTextDirection = 'ltr' | 'rtl';
 type TOcrRotation = 0 | 90 | 180 | 270;
-type TJsonRecord = Record<string, unknown>;
 const SERVER_ASCENT_RATIO_FALLBACK = 0.8;
-
-function isRecord(value: unknown): value is TJsonRecord {
-    return typeof value === 'object' && value !== null;
-}
-
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
-
-function isOcrWord(value: unknown): value is IOcrWord {
-    if (!isRecord(value)) {
-        return false;
-    }
-    return (
-        typeof value.text === 'string'
-        && isFiniteNumber(value.x)
-        && isFiniteNumber(value.y)
-        && isFiniteNumber(value.width)
-        && isFiniteNumber(value.height)
-    );
-}
 
 /**
  * OCR index v2 manifest schema
@@ -95,60 +74,9 @@ interface ITextContent {
     lang: string | null;
 }
 
-function isOcrManifest(value: unknown): value is IOcrManifest {
-    if (!isRecord(value) || value.pageBox !== 'crop') {
-        return false;
-    }
-    if (!isFiniteNumber(value.version) || !isFiniteNumber(value.createdAt) || !isFiniteNumber(value.pageCount)) {
-        return false;
-    }
-
-    if (!isRecord(value.source) || typeof value.source.pdfPath !== 'string') {
-        return false;
-    }
-
-    if (!isRecord(value.ocr) || value.ocr.engine !== 'tesseract') {
-        return false;
-    }
-    if (!Array.isArray(value.ocr.languages) || !value.ocr.languages.every(lang => typeof lang === 'string')) {
-        return false;
-    }
-    if (!isFiniteNumber(value.ocr.renderDpi)) {
-        return false;
-    }
-
-    if (!isRecord(value.pages)) {
-        return false;
-    }
-    return Object.values(value.pages).every((page) => isRecord(page) && typeof page.path === 'string');
-}
-
-function isOcrPageData(value: unknown): value is IOcrPageData {
-    if (!isRecord(value)) {
-        return false;
-    }
-    if (!isFiniteNumber(value.pageNumber)) {
-        return false;
-    }
-    if (value.rotation !== 0 && value.rotation !== 90 && value.rotation !== 180 && value.rotation !== 270) {
-        return false;
-    }
-    if (!isRecord(value.render) || !isFiniteNumber(value.render.dpi)) {
-        return false;
-    }
-    if (!isRecord(value.render.imagePx) || !isFiniteNumber(value.render.imagePx.w) || !isFiniteNumber(value.render.imagePx.h)) {
-        return false;
-    }
-    if (typeof value.text !== 'string') {
-        return false;
-    }
-    return Array.isArray(value.words) && value.words.every(isOcrWord);
-}
-
-function parseJsonWithGuard<T>(json: string, guard: (value: unknown) => value is T): T | null {
+function parseJsonAs<T>(json: string) {
     try {
-        const parsed = JSON.parse(json);
-        return guard(parsed) ? parsed : null;
+        return safeDestr<T>(json);
     } catch {
         return null;
     }
@@ -242,7 +170,7 @@ export const useOcrTextContent = () => {
             }
 
             const json = await api.readTextFile(manifestPath);
-            const manifest = parseJsonWithGuard(json, isOcrManifest);
+            const manifest = parseJsonAs<IOcrManifest>(json);
             if (!manifest) {
                 throw new Error('Invalid OCR manifest payload');
             }
@@ -288,7 +216,7 @@ export const useOcrTextContent = () => {
 
         try {
             const json = await api.readTextFile(pagePath);
-            const pageData = parseJsonWithGuard(json, isOcrPageData);
+            const pageData = parseJsonAs<IOcrPageData>(json);
             if (!pageData) {
                 throw new Error(`Invalid OCR page payload for page ${pageNumber}`);
             }

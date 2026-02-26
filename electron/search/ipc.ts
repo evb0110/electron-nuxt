@@ -65,7 +65,6 @@ const SEARCH_WORKER_IDLE_TTL_MS = (() => {
 })();
 
 type TSearchMatch = ISearchResponse['results'][number];
-type TSearchExcerpt = TSearchMatch['excerpt'];
 
 function assertNever(value: never): never {
     throw new Error(`Unhandled search worker message: ${JSON.stringify(value)}`);
@@ -79,7 +78,7 @@ function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
 }
 
-function parseSearchExcerpt(value: unknown): TSearchExcerpt | null {
+function parseSearchExcerpt(value: unknown) {
     if (!isRecord(value)) {
         return null;
     }
@@ -101,7 +100,7 @@ function parseSearchExcerpt(value: unknown): TSearchExcerpt | null {
     };
 }
 
-function parseSearchMatch(value: unknown): TSearchMatch | null {
+function parseSearchMatch(value: unknown) {
     if (!isRecord(value)) {
         return null;
     }
@@ -128,7 +127,7 @@ function parseSearchMatch(value: unknown): TSearchMatch | null {
     };
 }
 
-function parseSearchResponse(value: unknown): ISearchResponse | null {
+function parseSearchResponse(value: unknown) {
     if (!isRecord(value) || !Array.isArray(value.results) || typeof value.truncated !== 'boolean') {
         return null;
     }
