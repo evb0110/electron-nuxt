@@ -142,7 +142,7 @@ function enableGlobalSelectionListener() {
                 if (anchorParent) {
                     anchorParent.insertBefore(
                         endOfContent,
-                        modifyStart ? anchor as Node : (anchor as Element).nextSibling,
+                        modifyStart ? anchor : (anchor as Element).nextSibling,
                     );
                 }
             }

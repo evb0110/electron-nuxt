@@ -40,6 +40,7 @@ import {
     listAllSessionNames,
     listRunningSessions,
     markSessionStarting,
+    parseElectronRunCommandRequest,
     projectRoot,
     readSessionLogTail,
     sessionDir,
@@ -719,9 +720,10 @@ export async function startSession(forceClean = false) {
         const pushDevtoolsEvent = (entry: ISessionState['devtoolsEvents'][number]) => {
             pushBounded(devtoolsEvents, entry, MAX_DEVTOOLS_EVENTS);
         };
+        type TConsoleEntry = ISessionState['consoleMessages'][number];
 
         page.on('console', (msg) => {
-            const entry = {
+            const entry: TConsoleEntry = {
                 type: msg.type(),
                 text: msg.text(),
                 timestamp: Date.now(),
@@ -767,7 +769,7 @@ export async function startSession(forceClean = false) {
         });
 
         page.on('error', (error) => {
-            const entry = {
+            const entry: TConsoleEntry = {
                 type: 'error',
                 text: `[PAGE ERROR] ${error.message}`,
                 timestamp: Date.now(),
@@ -783,7 +785,7 @@ export async function startSession(forceClean = false) {
 
         page.on('pageerror', (error) => {
             const message = error instanceof Error ? error.message : String(error);
-            const entry = {
+            const entry: TConsoleEntry = {
                 type: 'error',
                 text: `[PAGE CRASH] ${message}`,
                 timestamp: Date.now(),
@@ -885,14 +887,11 @@ export async function startSession(forceClean = false) {
             });
             req.on('end', async () => {
                 try {
-                    const {
-                        command,
-                        args,
-                    } = JSON.parse(body) as {
-                        command: string;
-                        args: unknown[] 
-                    };
-                    const result = await handleCommand(command, args);
+                    const requestPayload = parseElectronRunCommandRequest(JSON.parse(body));
+                    if (!requestPayload) {
+                        throw new Error('Malformed command payload');
+                    }
+                    const result = await handleCommand(requestPayload.command, requestPayload.args);
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({
                         success: true,

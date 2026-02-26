@@ -30,6 +30,11 @@ import {
     getTesseractThreadLimit,
 } from '../../utils/concurrency';
 import type {
+    IOcrWorkerStartPayload,
+    TOcrWorkerCompleteResult,
+    TOcrWorkerInboundMessage,
+    TOcrWorkerLogMessage,
+    TOcrWorkerOutboundMessage,
     IOcrPageWithWords,
     IOcrPdfPageRequest,
     IWorkerPaths,
@@ -54,17 +59,159 @@ import {
 } from '@electron/ocr/worker/index-writer';
 import { runCommand } from '@electron/ocr/worker/run-command';
 
-const paths = workerData as IWorkerPaths;
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function toStringArray(value: unknown): string[] | null {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+    if (!value.every(item => typeof item === 'string')) {
+        return null;
+    }
+    return value;
+}
+
+function decodeUint8Array(value: unknown): Uint8Array | null {
+    if (value instanceof Uint8Array) {
+        return value;
+    }
+    if (value instanceof ArrayBuffer) {
+        return new Uint8Array(value);
+    }
+    if (ArrayBuffer.isView(value)) {
+        return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    }
+    return null;
+}
+
+function parsePdfPageRequest(value: unknown): IOcrPdfPageRequest | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    if (typeof value.pageNumber !== 'number' || !Number.isFinite(value.pageNumber)) {
+        return null;
+    }
+    const languages = toStringArray(value.languages);
+    if (!languages) {
+        return null;
+    }
+    return {
+        pageNumber: value.pageNumber,
+        languages,
+    };
+}
+
+function parseStartPayload(value: unknown): IOcrWorkerStartPayload | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const originalPdfData = decodeUint8Array(value.originalPdfData);
+    if (!originalPdfData) {
+        return null;
+    }
+
+    if (!Array.isArray(value.pages)) {
+        return null;
+    }
+    const pages: IOcrPdfPageRequest[] = [];
+    for (const page of value.pages) {
+        const parsedPage = parsePdfPageRequest(page);
+        if (!parsedPage) {
+            return null;
+        }
+        pages.push(parsedPage);
+    }
+
+    const workingCopyPath = typeof value.workingCopyPath === 'string'
+        ? value.workingCopyPath
+        : undefined;
+    const renderDpi = typeof value.renderDpi === 'number' && Number.isFinite(value.renderDpi)
+        ? value.renderDpi
+        : undefined;
+
+    return {
+        originalPdfData,
+        pages,
+        workingCopyPath,
+        renderDpi,
+    };
+}
+
+function parseInboundMessage(value: unknown): TOcrWorkerInboundMessage | null {
+    if (!isRecord(value) || value.type !== 'start' || typeof value.jobId !== 'string') {
+        return null;
+    }
+
+    const data = parseStartPayload(value.data);
+    if (!data) {
+        return null;
+    }
+
+    return {
+        type: 'start',
+        jobId: value.jobId,
+        data,
+    };
+}
+
+function readRequiredPath(
+    data: Record<string, unknown>,
+    key: keyof IWorkerPaths,
+): string {
+    const value = data[key];
+    if (typeof value !== 'string' || value.trim().length === 0) {
+        throw new Error(`Invalid OCR workerData.${String(key)} path`);
+    }
+    return value;
+}
+
+function readOptionalPath(
+    data: Record<string, unknown>,
+    key: keyof IWorkerPaths,
+): string | undefined {
+    const value = data[key];
+    if (value === undefined) {
+        return undefined;
+    }
+    if (typeof value !== 'string' || value.trim().length === 0) {
+        return undefined;
+    }
+    return value;
+}
+
+function resolveWorkerPaths(rawWorkerData: unknown): IWorkerPaths {
+    if (!isRecord(rawWorkerData)) {
+        throw new Error('Invalid OCR workerData payload');
+    }
+    return {
+        tesseractBinary: readRequiredPath(rawWorkerData, 'tesseractBinary'),
+        tessdataPath: readRequiredPath(rawWorkerData, 'tessdataPath'),
+        pdftoppmBinary: readRequiredPath(rawWorkerData, 'pdftoppmBinary'),
+        pdftotextBinary: readRequiredPath(rawWorkerData, 'pdftotextBinary'),
+        pdfimagesBinary: readOptionalPath(rawWorkerData, 'pdfimagesBinary'),
+        popplerDataDir: readOptionalPath(rawWorkerData, 'popplerDataDir'),
+        popplerFontConfigDir: readOptionalPath(rawWorkerData, 'popplerFontConfigDir'),
+        qpdfBinary: readRequiredPath(rawWorkerData, 'qpdfBinary'),
+        unpaperBinary: readOptionalPath(rawWorkerData, 'unpaperBinary'),
+        tempDir: readRequiredPath(rawWorkerData, 'tempDir'),
+    };
+}
+
+const paths = resolveWorkerPaths(workerData);
+
 const log: TWorkerLog = (level, message) => {
     const timestamp = new Date().toISOString();
-    parentPort?.postMessage({
+    const payload: TOcrWorkerLogMessage = {
         type: 'log',
         level,
         message: `[${timestamp}] [ocr-worker] ${message}`,
-    });
+    };
+    parentPort?.postMessage(payload);
 };
 
 function buildPopplerEnv() {
@@ -147,7 +294,7 @@ async function preparePdfForPoppler(
 }
 
 function sendProgress(jobId: string, currentPage: number, processedCount: number, totalPages: number) {
-    parentPort?.postMessage({
+    const payload: TOcrWorkerOutboundMessage = {
         type: 'progress',
         jobId,
         progress: {
@@ -156,31 +303,30 @@ function sendProgress(jobId: string, currentPage: number, processedCount: number
             processedCount,
             totalPages,
         },
-    });
+    };
+    parentPort?.postMessage(payload);
 }
 
-function sendComplete(jobId: string, result: {
-    success: boolean;
-    pdfData: Uint8Array | null;
-    pdfPath?: string;
-    requiresCleanupAck?: boolean;
-    errors: string[];
-}) {
-    const normalizedPdfData = result.pdfData
+function sendComplete(jobId: string, result: TOcrWorkerCompleteResult) {
+    const normalizedPdfData = result.success && result.pdfData
         ? (result.pdfData.buffer instanceof ArrayBuffer ? result.pdfData : result.pdfData.slice())
         : null;
+    const normalizedResult: TOcrWorkerCompleteResult = result.success
+        ? {
+            ...result,
+            pdfData: normalizedPdfData,
+        }
+        : result;
     const transferList: ArrayBuffer[] = [];
     if (normalizedPdfData && normalizedPdfData.buffer instanceof ArrayBuffer) {
         transferList.push(normalizedPdfData.buffer);
     }
-    parentPort?.postMessage({
+    const payload: TOcrWorkerOutboundMessage = {
         type: 'complete',
         jobId,
-        result: {
-            ...result,
-            pdfData: normalizedPdfData,
-        },
-    }, transferList);
+        result: normalizedResult,
+    };
+    parentPort?.postMessage(payload, transferList);
 }
 
 async function processOcrJob(
@@ -455,24 +601,23 @@ async function processOcrJob(
     }
 }
 
-parentPort?.on('message', async (message: {
-    type: 'start';
-    jobId: string;
-    data: {
-        originalPdfData: Uint8Array;
-        pages: IOcrPdfPageRequest[];
-        workingCopyPath?: string;
-        renderDpi?: number;
-    };
-}) => {
-    if (message.type === 'start') {
-        await processOcrJob(
-            message.jobId,
-            message.data.originalPdfData,
-            message.data.pages,
-            message.data.workingCopyPath,
-            message.data.renderDpi,
-        );
+parentPort?.on('message', async (rawMessage: unknown) => {
+    const message = parseInboundMessage(rawMessage);
+    if (!message) {
+        log('warn', 'Ignoring malformed inbound OCR worker message');
+        return;
+    }
+
+    switch (message.type) {
+        case 'start':
+            await processOcrJob(
+                message.jobId,
+                message.data.originalPdfData,
+                message.data.pages,
+                message.data.workingCopyPath,
+                message.data.renderDpi,
+            );
+            return;
     }
 });
 

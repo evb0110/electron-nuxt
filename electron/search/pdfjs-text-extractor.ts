@@ -5,7 +5,6 @@ import '@electron/search/dom-polyfill';
 // Must use the legacy build — the default build uses DOMMatrix and other
 // browser-only APIs that don't exist in Node.js worker threads.
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 import { createLogger } from '@electron/utils/logger';
 
 const log = createLogger('pdfjs-text-extractor');
@@ -102,7 +101,7 @@ export async function extractTextWithPdfjs(
             for (const item of content.items) {
                 throwIfAborted(signal);
                 if ('str' in item) {
-                    const textItem = item as TextItem;
+                    const textItem = item;
                     parts.push(textItem.str);
                     if (textItem.hasEOL) {
                         parts.push('\n');

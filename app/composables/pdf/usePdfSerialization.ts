@@ -276,7 +276,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             return new Uint8Array(await doc.save());
         }
 
-        const nums = doc.context.obj([]) as PDFArray;
+        const nums = doc.context.obj([]);
         const styleName = PDFName.of('S');
         const prefixName = PDFName.of('P');
         const startName = PDFName.of('St');
@@ -286,7 +286,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         for (const range of normalizedRanges) {
             nums.push(PDFNumber.of(range.startPage - 1));
 
-            const labelDict = doc.context.obj({}) as PDFDict;
+            const labelDict = doc.context.obj({});
             labelDict.set(typeName, pageLabelName);
             if (range.style) {
                 labelDict.set(styleName, PDFName.of(range.style));
@@ -301,7 +301,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             nums.push(labelDict);
         }
 
-        const pageLabelsDict = doc.context.obj({Nums: nums}) as PDFDict;
+        const pageLabelsDict = doc.context.obj({Nums: nums});
 
         doc.catalog.set(pageLabelsName, pageLabelsDict);
         return new Uint8Array(await doc.save());

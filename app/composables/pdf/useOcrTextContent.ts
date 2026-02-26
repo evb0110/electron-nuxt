@@ -4,10 +4,35 @@ import { getElectronAPI } from '@app/utils/electron';
 import type { IOcrWord } from '@app/types/shared';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
-const RTL_OCR_LANGUAGES = new Set([
+const RTL_OCR_LANGUAGES: ReadonlySet<string> = new Set([
     'heb',
     'syr',
-]);
+] as const);
+type TOcrTextDirection = 'ltr' | 'rtl';
+type TOcrRotation = 0 | 90 | 180 | 270;
+type TJsonRecord = Record<string, unknown>;
+const SERVER_ASCENT_RATIO_FALLBACK = 0.8;
+
+function isRecord(value: unknown): value is TJsonRecord {
+    return typeof value === 'object' && value !== null;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isOcrWord(value: unknown): value is IOcrWord {
+    if (!isRecord(value)) {
+        return false;
+    }
+    return (
+        typeof value.text === 'string'
+        && isFiniteNumber(value.x)
+        && isFiniteNumber(value.y)
+        && isFiniteNumber(value.width)
+        && isFiniteNumber(value.height)
+    );
+}
 
 /**
  * OCR index v2 manifest schema
@@ -31,7 +56,7 @@ interface IOcrManifest {
  */
 interface IOcrPageData {
     pageNumber: number;
-    rotation: 0 | 90 | 180 | 270;
+    rotation: TOcrRotation;
     render: {
         dpi: number;
         imagePx: {
@@ -48,7 +73,7 @@ interface IOcrPageData {
  */
 interface ITextItem {
     str: string;
-    dir: string;
+    dir: TOcrTextDirection;
     transform: number[]; // [a, b, c, d, tx, ty]
     width: number;
     height: number;
@@ -68,6 +93,65 @@ interface ITextContent {
         vertical: boolean;
     }>;
     lang: string | null;
+}
+
+function isOcrManifest(value: unknown): value is IOcrManifest {
+    if (!isRecord(value) || value.pageBox !== 'crop') {
+        return false;
+    }
+    if (!isFiniteNumber(value.version) || !isFiniteNumber(value.createdAt) || !isFiniteNumber(value.pageCount)) {
+        return false;
+    }
+
+    if (!isRecord(value.source) || typeof value.source.pdfPath !== 'string') {
+        return false;
+    }
+
+    if (!isRecord(value.ocr) || value.ocr.engine !== 'tesseract') {
+        return false;
+    }
+    if (!Array.isArray(value.ocr.languages) || !value.ocr.languages.every(lang => typeof lang === 'string')) {
+        return false;
+    }
+    if (!isFiniteNumber(value.ocr.renderDpi)) {
+        return false;
+    }
+
+    if (!isRecord(value.pages)) {
+        return false;
+    }
+    return Object.values(value.pages).every((page) => isRecord(page) && typeof page.path === 'string');
+}
+
+function isOcrPageData(value: unknown): value is IOcrPageData {
+    if (!isRecord(value)) {
+        return false;
+    }
+    if (!isFiniteNumber(value.pageNumber)) {
+        return false;
+    }
+    if (value.rotation !== 0 && value.rotation !== 90 && value.rotation !== 180 && value.rotation !== 270) {
+        return false;
+    }
+    if (!isRecord(value.render) || !isFiniteNumber(value.render.dpi)) {
+        return false;
+    }
+    if (!isRecord(value.render.imagePx) || !isFiniteNumber(value.render.imagePx.w) || !isFiniteNumber(value.render.imagePx.h)) {
+        return false;
+    }
+    if (typeof value.text !== 'string') {
+        return false;
+    }
+    return Array.isArray(value.words) && value.words.every(isOcrWord);
+}
+
+function parseJsonWithGuard<T>(json: string, guard: (value: unknown) => value is T): T | null {
+    try {
+        const parsed = JSON.parse(json);
+        return guard(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -98,7 +182,7 @@ export const useOcrTextContent = () => {
 
         while (cache.size > maxEntries) {
             const oldestKey = cache.keys().next().value;
-            if (!oldestKey) {
+            if (typeof oldestKey !== 'string') {
                 break;
             }
             cache.delete(oldestKey);
@@ -116,13 +200,13 @@ export const useOcrTextContent = () => {
         }
 
         if (typeof document === 'undefined') {
-            return 0.8; // Server-side fallback
+            return SERVER_ASCENT_RATIO_FALLBACK;
         }
 
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-            return 0.8; // Fallback if canvas not available
+            return SERVER_ASCENT_RATIO_FALLBACK;
         }
 
         ctx.font = '100px sans-serif';
@@ -158,7 +242,10 @@ export const useOcrTextContent = () => {
             }
 
             const json = await api.readTextFile(manifestPath);
-            const manifest = JSON.parse(json) as IOcrManifest;
+            const manifest = parseJsonWithGuard(json, isOcrManifest);
+            if (!manifest) {
+                throw new Error('Invalid OCR manifest payload');
+            }
             setLruCacheEntry(
                 manifestCache,
                 cacheKey,
@@ -201,7 +288,10 @@ export const useOcrTextContent = () => {
 
         try {
             const json = await api.readTextFile(pagePath);
-            const pageData = JSON.parse(json) as IOcrPageData;
+            const pageData = parseJsonWithGuard(json, isOcrPageData);
+            if (!pageData) {
+                throw new Error(`Invalid OCR page payload for page ${pageNumber}`);
+            }
             setLruCacheEntry(
                 pageCache,
                 cacheKey,
@@ -233,7 +323,7 @@ export const useOcrTextContent = () => {
         ocrPage: IOcrPageData,
         viewport: PageViewport,
         isLastInLine: boolean,
-        textDir: string,
+        textDir: TOcrTextDirection,
     ): ITextItem {
         const { render } = ocrPage;
         const ascentRatio = getAscentRatio();
@@ -328,7 +418,7 @@ export const useOcrTextContent = () => {
         }
 
         const isRtl = manifest.ocr.languages.some(lang => RTL_OCR_LANGUAGES.has(lang));
-        const textDir = isRtl ? 'rtl' : 'ltr';
+        const textDir: TOcrTextDirection = isRtl ? 'rtl' : 'ltr';
 
         const pageData = await loadPageData(workingCopyPath, pageNumber, manifest);
         if (!pageData || !pageData.words || pageData.words.length === 0) {

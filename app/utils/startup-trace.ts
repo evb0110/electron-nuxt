@@ -33,7 +33,7 @@ function getStartupState() {
         };
     }
 
-    return startupWindow[STARTUP_STATE_KEY]!;
+    return startupWindow[STARTUP_STATE_KEY];
 }
 
 function isStartupTraceEnabled() {
@@ -43,7 +43,7 @@ function isStartupTraceEnabled() {
 
     const startupWindow = window as Window & {[STARTUP_TRACE_ENABLED_KEY]?: boolean;};
     if (typeof startupWindow[STARTUP_TRACE_ENABLED_KEY] === 'boolean') {
-        return startupWindow[STARTUP_TRACE_ENABLED_KEY]!;
+        return startupWindow[STARTUP_TRACE_ENABLED_KEY];
     }
 
     return false;
@@ -56,7 +56,7 @@ function getStartupEvents() {
         startupWindow[STARTUP_TRACE_EVENTS_KEY] = [];
     }
 
-    return startupWindow[STARTUP_TRACE_EVENTS_KEY]!;
+    return startupWindow[STARTUP_TRACE_EVENTS_KEY];
 }
 
 function stringifyDetails(details?: Record<string, unknown>) {

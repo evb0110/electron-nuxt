@@ -6,7 +6,8 @@ import { useWorkspaceFileSwitch } from '@app/composables/page/useWorkspaceFileSw
 import { usePageFileOperations } from '@app/composables/usePageFileOperations';
 import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/types';
 import type { TOpenFileResult } from '@app/types/electron-api';
-import {hasElectronAPI} from '@app/utils/electron';
+import type { TPdfSource } from '@app/types/pdf';
+import { hasElectronAPI } from '@app/utils/electron';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 export const useWorkspaceFileLifecycleController = () => {
@@ -161,7 +162,7 @@ export const useWorkspaceFileLifecycleController = () => {
 };
 
 interface IWorkspaceFileOperationControllerDeps {
-    pdfSrc: Ref<unknown>;
+    pdfSrc: Ref<TPdfSource | null>;
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;
     isExportingDocx: Ref<boolean>;

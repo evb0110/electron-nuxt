@@ -13,6 +13,11 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import { ensureTessdataLanguages } from '@electron/ocr/language-models';
 import { getOcrToolPaths } from '@electron/ocr/paths';
+import type {
+    IOcrPdfPageRequest,
+    TOcrWorkerInboundMessage,
+    TOcrWorkerOutboundMessage,
+} from '@electron/ocr/worker/types';
 import { createLogger } from '@electron/utils/logger';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -26,11 +31,6 @@ const OCR_WORKER_POOL_SIZE = (() => {
     }
     return parsed;
 })();
-
-interface IOcrPdfPageRequest {
-    pageNumber: number;
-    languages: string[];
-}
 
 interface IOcrQueuedJob {
     jobId: string;
@@ -58,26 +58,6 @@ interface IOcrPendingResultFile {
     createdAtMs: number;
     cleanupTimer: NodeJS.Timeout | null;
 }
-
-type TWorkerMessage = {
-    type: 'progress' | 'complete' | 'log';
-    jobId?: string;
-    progress?: {
-        requestId: string;
-        currentPage: number;
-        processedCount: number;
-        totalPages: number;
-    };
-    result?: {
-        success: boolean;
-        pdfData: Uint8Array | null;
-        pdfPath?: string;
-        requiresCleanupAck?: boolean;
-        errors: string[];
-    };
-    level?: string;
-    message?: string;
-};
 
 const activeJobs = new Map<string, IOcrActiveJob>();
 const queuedJobs: IOcrQueuedJob[] = [];
@@ -127,6 +107,128 @@ const OCR_MODEL_PREP_TIMEOUT_MS = (() => {
     return parsed;
 })();
 const registeredSenderCleanupIds = new Set<number>();
+
+function assertNever(value: never): never {
+    throw new Error(`Unhandled OCR worker outbound message: ${JSON.stringify(value)}`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isStringArray(value: unknown): value is string[] {
+    return Array.isArray(value) && value.every(item => typeof item === 'string');
+}
+
+function decodeWorkerPdfData(value: unknown): Uint8Array | null | undefined {
+    if (value === null) {
+        return null;
+    }
+    if (value instanceof Uint8Array) {
+        return value;
+    }
+    if (value instanceof ArrayBuffer) {
+        return new Uint8Array(value);
+    }
+    if (ArrayBuffer.isView(value)) {
+        return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    }
+    return undefined;
+}
+
+function parseWorkerMessage(message: unknown): TOcrWorkerOutboundMessage | null {
+    if (!isRecord(message) || typeof message.type !== 'string') {
+        return null;
+    }
+
+    switch (message.type) {
+        case 'log':
+            if (
+                (message.level === 'debug' || message.level === 'warn' || message.level === 'error')
+                && typeof message.message === 'string'
+            ) {
+                return {
+                    type: 'log',
+                    level: message.level,
+                    message: message.message,
+                };
+            }
+            return null;
+        case 'progress':
+            if (!isRecord(message.progress)) {
+                return null;
+            }
+            if (
+                typeof message.jobId === 'string'
+                && typeof message.progress.requestId === 'string'
+                && typeof message.progress.currentPage === 'number'
+                && Number.isFinite(message.progress.currentPage)
+                && typeof message.progress.processedCount === 'number'
+                && Number.isFinite(message.progress.processedCount)
+                && typeof message.progress.totalPages === 'number'
+                && Number.isFinite(message.progress.totalPages)
+            ) {
+                return {
+                    type: 'progress',
+                    jobId: message.jobId,
+                    progress: {
+                        requestId: message.progress.requestId,
+                        currentPage: message.progress.currentPage,
+                        processedCount: message.progress.processedCount,
+                        totalPages: message.progress.totalPages,
+                    },
+                };
+            }
+            return null;
+        case 'complete':
+            if (!isRecord(message.result)) {
+                return null;
+            }
+            if (typeof message.jobId !== 'string' || typeof message.result.success !== 'boolean' || !isStringArray(message.result.errors)) {
+                return null;
+            }
+
+            if (message.result.success) {
+                const pdfData = decodeWorkerPdfData(message.result.pdfData);
+                if (pdfData === undefined) {
+                    return null;
+                }
+                return {
+                    type: 'complete',
+                    jobId: message.jobId,
+                    result: {
+                        success: true,
+                        pdfData,
+                        pdfPath: typeof message.result.pdfPath === 'string' ? message.result.pdfPath : undefined,
+                        requiresCleanupAck: typeof message.result.requiresCleanupAck === 'boolean'
+                            ? message.result.requiresCleanupAck
+                            : undefined,
+                        errors: message.result.errors,
+                    },
+                };
+            }
+
+            if (message.result.pdfData !== null) {
+                return null;
+            }
+
+            return {
+                type: 'complete',
+                jobId: message.jobId,
+                result: {
+                    success: false,
+                    pdfData: null,
+                    errors: message.result.errors,
+                },
+            };
+        default:
+            return null;
+    }
+}
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+    return isRecord(error) && ('code' in error);
+}
 
 function asTransferableBytes(bytes: Uint8Array) {
     if (
@@ -245,7 +347,7 @@ async function removeResultFile(path: string) {
     try {
         await unlink(path);
     } catch (err) {
-        const code = (err as NodeJS.ErrnoException)?.code;
+        const code = isErrnoException(err) ? err.code : undefined;
         if (code !== 'ENOENT') {
             log.warn(`Failed to cleanup OCR temp result file "${path}": ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -473,45 +575,52 @@ function finalizeActiveJob(jobId: string) {
 function handleWorkerMessage(
     jobId: string,
     webContentsId: number,
-    message: TWorkerMessage,
+    message: TOcrWorkerOutboundMessage,
 ) {
     const window = getJobWindow(webContentsId);
 
-    if (message.type === 'log') {
-        const logLevel = message.level || 'debug';
-        if (logLevel === 'warn') {
-            log.warn(message.message || '');
-        } else if (logLevel === 'error') {
-            log.error(`[worker-error] ${message.message || ''}`);
-        } else {
-            log.debug(`[worker] ${message.message || ''}`);
+    switch (message.type) {
+        case 'log':
+            if (message.level === 'warn') {
+                log.warn(message.message);
+            } else if (message.level === 'error') {
+                log.error(`[worker-error] ${message.message}`);
+            } else {
+                log.debug(`[worker] ${message.message}`);
+            }
+            return;
+        case 'progress':
+            if (message.jobId !== jobId) {
+                log.warn(`Ignoring OCR progress for mismatched job id "${message.jobId}" (expected "${jobId}")`);
+                return;
+            }
+            safeSendToWindow(window, 'ocr:progress', message.progress);
+            return;
+        case 'complete': {
+            if (message.jobId !== jobId) {
+                log.warn(`Ignoring OCR completion for mismatched job id "${message.jobId}" (expected "${jobId}")`);
+                return;
+            }
+            if (message.result.success && message.result.pdfPath) {
+                trackPendingResultFile(jobId, webContentsId, message.result.pdfPath);
+                void evictStaleResultFiles();
+            }
+
+            safeSendToWindow(window, 'ocr:complete', {
+                requestId: jobId,
+                ...message.result,
+            });
+
+            const job = activeJobs.get(jobId);
+            if (job) {
+                job.completed = true;
+                job.terminatedByUs = true;
+                void job.worker.terminate();
+            }
+            return;
         }
-        return;
-    }
-
-    if (message.type === 'progress' && message.progress) {
-        safeSendToWindow(window, 'ocr:progress', message.progress);
-        return;
-    }
-
-    if (message.type === 'complete' && message.result) {
-        if (message.result.success && message.result.pdfPath) {
-            trackPendingResultFile(jobId, webContentsId, message.result.pdfPath);
-            void evictStaleResultFiles();
-        }
-
-        safeSendToWindow(window, 'ocr:complete', {
-            requestId: jobId,
-            ...message.result,
-        });
-
-        const job = activeJobs.get(jobId);
-        if (job) {
-            job.completed = true;
-            job.terminatedByUs = true;
-            void job.worker.terminate();
-        }
-        return;
+        default:
+            assertNever(message);
     }
 }
 
@@ -555,8 +664,13 @@ function startQueuedJob(job: IOcrQueuedJob) {
     activeJob.watchdogTimer = watchdog;
     logQueueDepth(`OCR job ${job.jobId} activated`);
 
-    worker.on('message', (message: TWorkerMessage) => {
-        handleWorkerMessage(job.jobId, job.webContentsId, message);
+    worker.on('message', (message: unknown) => {
+        const parsedMessage = parseWorkerMessage(message);
+        if (!parsedMessage) {
+            log.warn(`Ignoring malformed OCR worker message for job ${job.jobId}`);
+            return;
+        }
+        handleWorkerMessage(job.jobId, job.webContentsId, parsedMessage);
     });
 
     worker.on('error', (err: Error) => {
@@ -594,7 +708,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
 
     try {
         const transferPdfData = asTransferableBytes(job.originalPdfData);
-        worker.postMessage({
+        const startMessage: TOcrWorkerInboundMessage = {
             type: 'start',
             jobId: job.jobId,
             data: {
@@ -603,7 +717,11 @@ function startQueuedJob(job: IOcrQueuedJob) {
                 workingCopyPath: job.workingCopyPath,
                 renderDpi: job.renderDpi,
             },
-        }, [transferPdfData.buffer as ArrayBuffer]);
+        };
+        const transferList = transferPdfData.buffer instanceof ArrayBuffer
+            ? [transferPdfData.buffer]
+            : [];
+        worker.postMessage(startMessage, transferList);
     } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         sendJobFailure(job, `Failed to post OCR job to worker: ${errMsg}`);

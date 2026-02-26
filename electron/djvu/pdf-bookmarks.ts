@@ -58,7 +58,7 @@ export async function embedBookmarksIntoPdf(
 
         const pageCount = doc.getPageCount();
         const nodes: INodeBuild[] = items.map((item) => {
-            const dict = doc.context.obj({}) as PDFDict;
+            const dict = doc.context.obj({});
             dict.set(titleName, PDFHexString.fromText(item.title));
 
             if (typeof item.pageIndex === 'number' && item.pageIndex >= 0 && item.pageIndex < pageCount) {
@@ -120,7 +120,7 @@ export async function embedBookmarksIntoPdf(
         };
     }
 
-    const outlinesDict = doc.context.obj({}) as PDFDict;
+    const outlinesDict = doc.context.obj({});
     outlinesDict.set(typeName, PDFName.of('Outlines'));
     const outlinesRef = doc.context.register(outlinesDict);
 

@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import type { TAnnotationTool } from '@app/types/annotations';
+import type { TPdfSource } from '@app/types/pdf';
 
 const mocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),
@@ -23,7 +24,7 @@ function cast<T>(obj: unknown): T {
 function createDeps() {
     return {
         isActive: ref(true),
-        pdfSrc: ref('/tmp/a.pdf'),
+        pdfSrc: ref<TPdfSource | null>(new Blob([], { type: 'application/pdf' })),
         showSettings: ref(false),
         annotationTool: ref<TAnnotationTool>('none'),
         annotationPlacingPageNote: ref(false),

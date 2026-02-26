@@ -2,6 +2,8 @@ import type { Ref } from 'vue';
 import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/types';
 import type { TOpenFileResult } from '@app/types/electron-api';
 import type { ICloseFileFromUiOptions } from '@app/types/workspace-expose';
+import type { TPdfSource } from '@app/types/pdf';
+import type { IRecentFile } from '@app/types/shared';
 import { waitUntilIdle } from '@app/utils/async-helpers';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -11,7 +13,7 @@ const OPEN_SETTLE_MAX_ATTEMPTS = 160;
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
 export interface IPageFileOperationsDeps {
-    pdfSrc: Ref<unknown>;
+    pdfSrc: Ref<TPdfSource | null>;
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;
     isExportingDocx: Ref<boolean>;
@@ -260,7 +262,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         closeAllDropdowns();
     }
 
-    async function openRecentFile(file: { originalPath: string }) {
+    async function openRecentFile(file: Pick<IRecentFile, 'originalPath'>) {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openRecentFile invoked', {path: file.originalPath});
         await handleOpenFileDirectWithPersist(file.originalPath);
     }
