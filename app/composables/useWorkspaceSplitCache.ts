@@ -1,4 +1,3 @@
-import { ref } from 'vue';
 import type { TSplitPayload } from '@app/types/split-payload';
 
 interface IWorkspaceSplitCacheEntry {

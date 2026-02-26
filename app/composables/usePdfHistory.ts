@@ -1,8 +1,4 @@
-import {
-    nextTick,
-    ref,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import { until } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 

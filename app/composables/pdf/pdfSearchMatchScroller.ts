@@ -1,4 +1,3 @@
-import { nextTick } from 'vue';
 import { getPageContainer } from '@app/composables/pdf/pdfPageBufferManager';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
 

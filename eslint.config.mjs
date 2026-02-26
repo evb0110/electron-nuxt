@@ -132,6 +132,14 @@ export default withNuxt(
                 },
             ],
             '@typescript-eslint/require-await': 'error',
+            '@typescript-eslint/no-restricted-imports': [
+                'error',
+                {paths: [{
+                    name: 'vue',
+                    message: 'Vue APIs are auto-imported by Nuxt. Use them directly without importing. Type imports (import type) are still allowed.',
+                    allowTypeImports: true,
+                }]},
+            ],
         },
     },
     {
@@ -309,6 +317,14 @@ export default withNuxt(
                     selector: 'TSAsExpression[expression.type="TSAsExpression"][expression.typeAnnotation.type="TSUnknownKeyword"]',
                     message: 'Avoid "as unknown as" double assertion. Use a type guard, generic parameter, or fix the underlying type instead.',
                 },
+            ],
+            '@typescript-eslint/no-restricted-imports': [
+                'error',
+                {paths: [{
+                    name: 'vue',
+                    message: 'Vue APIs are auto-imported by Nuxt. Use them directly without importing. Type imports (import type) are still allowed.',
+                    allowTypeImports: true,
+                }]},
             ],
             'custom/vue-boolean-prop-shorthand': 'error',
             'custom/brace-return-after-if': 'error',

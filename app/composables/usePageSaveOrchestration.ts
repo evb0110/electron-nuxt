@@ -1,7 +1,6 @@
-import {
-    computed,
-    type Ref,
-    type ShallowRef,
+import type {
+    Ref,
+    ShallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {

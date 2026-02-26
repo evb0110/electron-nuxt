@@ -10,7 +10,6 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 const {

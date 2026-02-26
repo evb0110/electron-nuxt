@@ -1,9 +1,4 @@
-import {
-    ref,
-    computed,
-    toValue,
-    type MaybeRefOrGetter,
-} from 'vue';
+import type { MaybeRefOrGetter } from 'vue';
 import type { TFitMode } from '@app/types/pdf';
 import type { TPdfViewMode } from '@app/types/shared';
 import { getViewColumnCount } from '@app/utils/pdf-view-mode';

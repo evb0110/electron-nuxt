@@ -1,8 +1,4 @@
-import {
-    computed,
-    ref,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import {
     onClickOutside,
     useEventListener,

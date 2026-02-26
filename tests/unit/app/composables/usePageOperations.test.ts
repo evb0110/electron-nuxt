@@ -1,5 +1,4 @@
 import {
-    afterEach,
     beforeEach,
     describe,
     expect,
@@ -23,6 +22,12 @@ const loggerError = vi.fn();
 vi.mock('@app/utils/electron', () => ({getElectronAPI: () => ({ pageOps: pageOpsApi })}));
 
 vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {error: (...args: unknown[]) => loggerError(...args)}}));
+
+vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({
+    t: (key: string) => `msg:${key}`,
+    setLocale: vi.fn(async () => {}),
+    loadLocaleMessages: vi.fn(async () => {}),
+})}));
 
 function deferred<T>() {
     let resolve: ((value: T | PromiseLike<T>) => void) | null = null;
@@ -58,15 +63,6 @@ function createHarness(path: string | null = '/tmp/work.pdf') {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('useTypedI18n', () => ({
-        t: (key: string) => `msg:${key}`,
-        setLocale: vi.fn(async () => {}),
-        loadLocaleMessages: vi.fn(async () => {}),
-    }));
-});
-
-afterEach(() => {
-    vi.unstubAllGlobals();
 });
 
 describe('usePageOperations', () => {

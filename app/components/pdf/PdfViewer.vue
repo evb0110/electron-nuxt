@@ -74,15 +74,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    nextTick,
-    onBeforeUnmount,
-    ref,
-    shallowRef,
-    watch,
-    watchEffect,
-} from 'vue';
+
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { AnnotationEditorParamsType } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
@@ -1904,7 +1896,7 @@ defineExpose({
     }
 
     ::selection {
-        background: rgb(0 0 255 / 0.25);
+        background: var(--app-pdf-text-selection-bg);
     }
 
     br::selection {
@@ -1945,11 +1937,11 @@ defineExpose({
     }
 
     .linkAnnotation > a {
-        background: rgb(255 255 0 / 0);
+        background: var(--app-pdf-link-bg);
         transition: background 150ms ease;
 
         &:hover {
-            background: rgb(255 255 0 / 0.2);
+            background: var(--app-pdf-link-hover-bg);
         }
     }
 }
@@ -2117,7 +2109,7 @@ defineExpose({
 
 .pdf-viewer-container--dark {
     .text-layer ::selection {
-        background: rgb(255 200 0 / 0.35);
+        background: var(--app-pdf-text-selection-bg);
     }
 
     /* stylelint-disable no-descending-specificity -- dark mode filter targets different properties than drag mode */

@@ -1,18 +1,17 @@
 import {
-    afterEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 
-describe('useTypedI18n', () => {
-    afterEach(() => {
-        vi.unstubAllGlobals();
-    });
+const useI18nMock = vi.fn();
 
+vi.mock('vue-i18n', () => ({useI18n: (...args: unknown[]) => useI18nMock(...args)}));
+
+describe('useTypedI18n', () => {
     it('exposes safe locale methods when i18n composer does not provide them', async () => {
-        vi.stubGlobal('useI18n', () => ({ t: (key: string) => key }));
+        useI18nMock.mockReturnValue({ t: (key: string) => key });
 
         const { useTypedI18n } = await import('@app/composables/useTypedI18n');
         const i18n = useTypedI18n();
@@ -25,11 +24,11 @@ describe('useTypedI18n', () => {
         const setLocale = vi.fn(async (_locale: string) => {});
         const loadLocaleMessages = vi.fn(async (_locale: string) => {});
 
-        vi.stubGlobal('useI18n', () => ({
+        useI18nMock.mockReturnValue({
             t: (key: string) => key,
             setLocale,
             loadLocaleMessages,
-        }));
+        });
 
         const { useTypedI18n } = await import('@app/composables/useTypedI18n');
         const i18n = useTypedI18n();
@@ -42,7 +41,7 @@ describe('useTypedI18n', () => {
     });
 
     it('types translation keys from schema', async () => {
-        vi.stubGlobal('useI18n', () => ({ t: (key: string) => key }));
+        useI18nMock.mockReturnValue({ t: (key: string) => key });
 
         const { useTypedI18n } = await import('@app/composables/useTypedI18n');
         const i18n = useTypedI18n();

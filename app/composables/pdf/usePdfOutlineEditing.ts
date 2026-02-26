@@ -1,4 +1,3 @@
-import { ref } from 'vue';
 import type {
     IBookmarkItem,
     TBookmarkDisplayMode,
@@ -10,8 +9,6 @@ import {
     collectBookmarkIds,
     normalizeBookmarkColor,
 } from '@app/utils/pdf-outline-helpers';
-import type { TTranslateFn } from '@app/i18n/locales';
-
 export const usePdfOutlineEditing = (
     bookmarks: Ref<IBookmarkItem[]>,
     activeItemId: Ref<string | null>,
@@ -29,8 +26,8 @@ export const usePdfOutlineEditing = (
     currentPage: Ref<number>,
     emitBookmarksChange: () => void,
     createBookmarkId: () => string,
-    t: TTranslateFn,
 ) => {
+    const { t } = useTypedI18n();
     const editingItemId = ref<string | null>(null);
 
     const flatBookmarks = computed(() => {

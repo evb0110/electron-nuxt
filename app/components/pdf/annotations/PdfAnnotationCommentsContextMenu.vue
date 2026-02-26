@@ -35,7 +35,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/composables/pdf/annotations/types';
 
 interface IProps {

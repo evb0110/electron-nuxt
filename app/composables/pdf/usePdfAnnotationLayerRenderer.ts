@@ -13,10 +13,9 @@ import type {
     AnnotationEditorUIManager,
     PDFDocumentProxy,
 } from 'pdfjs-dist';
-import {
-    toValue,
-    type MaybeRefOrGetter,
-    type Ref,
+import type {
+    MaybeRefOrGetter,
+    Ref,
 } from 'vue';
 import { defaultDocument } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browser-logger';

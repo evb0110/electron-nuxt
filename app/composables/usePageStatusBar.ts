@@ -1,8 +1,4 @@
-import {
-    computed,
-    type Ref,
-} from 'vue';
-import type { TTranslateFn } from '@app/i18n/locales';
+import type { Ref } from 'vue';
 import {
     getElectronAPI,
     hasElectronAPI,
@@ -10,7 +6,6 @@ import {
 import { formatBytes } from '@app/utils/formatters';
 
 export interface IPageStatusBarDeps {
-    t: TTranslateFn;
     pdfSrc: Ref<unknown>;
     pdfData: Ref<Uint8Array | null>;
     originalPath: Ref<string | null>;
@@ -24,7 +19,6 @@ export interface IPageStatusBarDeps {
 
 export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
     const {
-        t,
         pdfSrc,
         pdfData,
         originalPath,
@@ -35,6 +29,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         isHistoryBusy,
         handleSave,
     } = deps;
+    const { t } = useTypedI18n();
 
     const statusFilePath = computed(() => originalPath.value ?? workingCopyPath.value ?? t('status.noFileOpen'));
     const statusShowInFolderPath = computed(() => {

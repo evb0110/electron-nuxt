@@ -1,8 +1,4 @@
-import {
-    ref,
-    computed,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import {
     syncRef,
     useStorage,
@@ -210,7 +206,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         contextMenuDeleteActionLabel,
         closeAnnotationContextMenu,
         showAnnotationContextMenu,
-    } = useAnnotationContextMenu({ t });
+    } = useAnnotationContextMenu();
 
     const {
         pageContextMenu,
@@ -479,7 +475,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleStatusSaveClick,
         handleStatusShowInFolderClick,
     } = usePageStatusBar({
-        t,
         pdfSrc,
         pdfData,
         originalPath,
@@ -601,7 +596,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         djvuSourcePath,
         openBatchProgress,
         showSettings,
-        t,
         emitUpdateTab: (updates) => emit('update-tab', updates),
         emitOpenSettings: () => emit('open-settings'),
         onOpenDjvuError: (error) => {

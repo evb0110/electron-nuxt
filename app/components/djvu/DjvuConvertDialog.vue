@@ -100,11 +100,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    ref,
-    computed,
-    watch,
-} from 'vue';
+
 import { getElectronAPI } from '@app/utils/electron';
 import { BrowserLogger } from '@app/utils/browser-logger';
 

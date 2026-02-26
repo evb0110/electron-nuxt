@@ -1,7 +1,4 @@
-import {
-    ref,
-    toRaw,
-} from 'vue';
+
 import {
     DEFAULT_SETTINGS,
     sanitizeSettings,

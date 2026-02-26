@@ -1,9 +1,4 @@
-import {
-    computed,
-    onUnmounted,
-    ref,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 export type TSnipState = 'idle' | 'selecting' | 'copying' | 'success' | 'error';

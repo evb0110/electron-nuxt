@@ -1,7 +1,4 @@
-import {
-    computed,
-    ref,
-} from 'vue';
+
 import type { ITab } from '@app/types/tabs';
 import type {
     IEditorGroupRect,

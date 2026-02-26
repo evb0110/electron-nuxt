@@ -10,3 +10,4 @@ dist/
 .vercel
 .playwright-cli/
 .tmp/
+auto-imports.d.ts

@@ -1,8 +1,4 @@
-import {
-    computed,
-    nextTick,
-    ref,
-} from 'vue';
+
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@app/types/shared';

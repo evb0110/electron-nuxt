@@ -1,7 +1,17 @@
 import { defineConfig } from 'vitest/config';
 import { resolve } from 'path';
+import AutoImport from 'unplugin-auto-import/vite';
 
 export default defineConfig({
+    plugins: [
+        AutoImport({
+            imports: [
+                'vue',
+                { 'vue-i18n': ['useI18n'] },
+            ],
+            dirs: ['app/composables/**'],
+        }),
+    ],
     resolve: {
         alias: {
             '@app': resolve(__dirname, 'app'),

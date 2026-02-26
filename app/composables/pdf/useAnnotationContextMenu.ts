@@ -1,8 +1,4 @@
-import {
-    ref,
-    computed,
-} from 'vue';
-import type { TTranslateFn } from '@app/i18n/locales';
+
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
 
@@ -18,8 +14,8 @@ interface IAnnotationContextMenuState {
     pageY: number | null;
 }
 
-export const useAnnotationContextMenu = (deps: {t: TTranslateFn;}) => {
-    const { t } = deps;
+export const useAnnotationContextMenu = () => {
+    const { t } = useTypedI18n();
     const { clampToViewport } = useContextMenuPosition();
 
     const annotationContextMenu = ref<IAnnotationContextMenuState>({

@@ -1,7 +1,4 @@
-import {
-    ref,
-    shallowRef,
-} from 'vue';
+
 import * as pdfjsLib from 'pdfjs-dist';
 import type {
     PDFDataRangeTransport,

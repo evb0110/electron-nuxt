@@ -158,6 +158,18 @@ export default {
         'copyLogs': 'Copier les journaux',
         'logsCopied': 'Journaux copiés',
         'logsCopyFailed': 'Échec de la copie des journaux',
+        'languageName': {
+            'eng': 'Anglais',
+            'fra': 'Français',
+            'deu': 'Allemand',
+            'tur': 'Turc',
+            'ell': 'Grec (moderne)',
+            'grc': 'Grec (ancien)',
+            'kmr': 'Kurmandji',
+            'rus': 'Russe',
+            'heb': 'Hébreu',
+            'syr': 'Syriaque',
+        },
     },
     'djvu': {
         'loadingPages': 'Chargement des pages... {current}/{total}',

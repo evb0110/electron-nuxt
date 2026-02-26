@@ -209,7 +209,6 @@ import type {
     TFitMode,
     TPdfViewMode,
 } from '@app/types/shared';
-import { nextTick } from 'vue';
 import { ZOOM } from '@app/constants/pdf-layout';
 
 const { t } = useTypedI18n();

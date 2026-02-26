@@ -1,7 +1,4 @@
-import {
-    watchEffect,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import {
     getElectronAPI,
     hasElectronAPI,

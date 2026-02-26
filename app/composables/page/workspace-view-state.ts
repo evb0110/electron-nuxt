@@ -1,7 +1,4 @@
-import {
-    computed,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import type { TFitMode } from '@app/types/shared';
 import type {

@@ -169,6 +169,13 @@
     --app-pdf-context-menu-panel-action-fg: var(--ui-text-highlighted);
     --app-pdf-context-menu-panel-action-hover-bg: color-mix(in srgb, var(--ui-bg-muted) 55%, var(--ui-bg) 45%);
     --app-pdf-context-menu-panel-action-border: var(--ui-border);
+    --app-pdf-thumbnail-shadow: 0 1px 4px rgb(0 0 0 / 0.1), 0 0 1px rgb(0 0 0 / 0.06);
+    --app-pdf-thumbnail-shadow-active: 0 2px 8px rgb(0 0 0 / 0.14), 0 0 1px rgb(0 0 0 / 0.08);
+    --app-pdf-outline-range-indicator: oklch(76% 0.18 74);
+    --app-pdf-shape-selection-stroke: var(--ui-primary);
+    --app-pdf-text-selection-bg: rgb(0 0 255 / 0.25);
+    --app-pdf-link-hover-bg: rgb(255 255 0 / 0.2);
+    --app-pdf-link-bg: rgb(255 255 0 / 0);
 
     --app-scrollbar-size: 12px;
     --app-scrollbar-track: transparent;
@@ -279,6 +286,12 @@
     --app-pdf-context-menu-panel-action-hover-bg: color-mix(in srgb, var(--ui-bg-elevated) 62%, var(--ui-bg) 38%);
     --app-pdf-context-menu-panel-action-border: color-mix(in oklab, var(--ui-border) 82%, transparent 18%);
     --app-notes-item-selected-ring: 0 0 0 1px color-mix(in srgb, var(--ui-primary) 42%, transparent 58%);
+    --app-pdf-thumbnail-shadow: 0 1px 4px rgb(0 0 0 / 0.25), 0 0 1px rgb(0 0 0 / 0.15);
+    --app-pdf-thumbnail-shadow-active: 0 2px 8px rgb(0 0 0 / 0.35), 0 0 1px rgb(0 0 0 / 0.2);
+    --app-pdf-outline-range-indicator: oklch(72% 0.15 74);
+    --app-pdf-text-selection-bg: rgb(255 200 0 / 0.35);
+    --app-pdf-link-hover-bg: rgb(255 255 0 / 0.25);
+    --app-pdf-link-bg: rgb(255 255 0 / 0);
 }
 
 .app-scrollbar {

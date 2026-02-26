@@ -1,8 +1,4 @@
-import {
-    watch,
-    type Ref,
-} from 'vue';
-import type { TTranslationKey } from '@app/i18n/locales';
+import type { Ref } from 'vue';
 import type { TTabUpdate } from '@app/types/tabs';
 
 interface IWorkspaceWindowTitleState {
@@ -47,7 +43,6 @@ interface IWorkspaceUiSyncDeps {
     isDjvuMode: Ref<boolean>;
     djvuSourcePath: Ref<string | null>;
     showSettings: Ref<boolean>;
-    t: (key: TTranslationKey, params?: Record<string, string | number>) => string;
     emitUpdateTab: (updates: TTabUpdate) => void;
     emitOpenSettings: () => void;
     onOpenDjvuError?: (error: unknown) => void;
@@ -86,21 +81,20 @@ export function resolveWorkspaceTabUpdate(state: IWorkspaceTabState): TTabUpdate
     };
 }
 
-function resolvePendingOpenDisplayName(
-    progress: IOpenBatchProgressState | null,
-    t: (key: TTranslationKey, params?: Record<string, string | number>) => string,
-) {
-    if (!progress || progress.total <= 0) {
-        return null;
+export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
+    const { t } = useTypedI18n();
+
+    function resolvePendingOpenDisplayName(progress: IOpenBatchProgressState | null) {
+        if (!progress || progress.total <= 0) {
+            return null;
+        }
+
+        return t('tabs.preparingBatch', {
+            processed: Math.min(Math.max(0, progress.processed), progress.total),
+            total: progress.total,
+        });
     }
 
-    return t('tabs.preparingBatch', {
-        processed: Math.min(Math.max(0, progress.processed), progress.total),
-        total: progress.total,
-    });
-}
-
-export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
     watch(deps.pendingDjvu, async (djvuPath) => {
         if (!djvuPath) {
             return;
@@ -135,7 +129,7 @@ export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
         () => {
             deps.emitUpdateTab(resolveWorkspaceTabUpdate({
                 fileName: deps.fileName.value,
-                pendingOpenDisplayName: resolvePendingOpenDisplayName(deps.openBatchProgress.value, deps.t),
+                pendingOpenDisplayName: resolvePendingOpenDisplayName(deps.openBatchProgress.value),
                 originalPath: deps.originalPath.value,
                 isDirty: deps.isDirty.value,
                 isDjvuMode: deps.isDjvuMode.value,

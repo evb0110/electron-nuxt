@@ -121,13 +121,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    nextTick,
-    ref,
-    toRefs,
-    watch,
-} from 'vue';
+
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     IPdfBookmarkEntry,

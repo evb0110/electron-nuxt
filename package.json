@@ -126,6 +126,7 @@
     "tailwindcss": "^4.1.18",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
+    "unplugin-auto-import": "^21.0.0",
     "utif": "^3.1.0",
     "vitest": "^4.0.18",
     "wait-on": "^9.0.3"

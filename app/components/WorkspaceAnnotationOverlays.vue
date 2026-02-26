@@ -116,14 +116,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    onBeforeUnmount,
-    onMounted,
-    ref,
-    shallowRef,
-    watch,
-} from 'vue';
+
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,

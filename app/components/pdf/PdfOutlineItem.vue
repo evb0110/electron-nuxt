@@ -121,12 +121,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    nextTick,
-    ref,
-    toRef,
-    watch,
-} from 'vue';
+
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     IBookmarkItem,
@@ -441,7 +436,7 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
 }
 
 .pdf-bookmark-item-row.is-style-range-start {
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, #f59e0b 52%, transparent 48%);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-pdf-outline-range-indicator) 52%, transparent 48%);
 }
 
 .pdf-bookmark-item-drag-handle {

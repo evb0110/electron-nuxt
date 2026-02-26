@@ -1,7 +1,4 @@
-import {
-    computed,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import { usePdfFile } from '@app/composables/usePdfFile';
 import { useDjvu } from '@app/composables/useDjvu';
 import { useRecentFiles } from '@app/composables/useRecentFiles';

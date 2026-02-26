@@ -3,7 +3,6 @@ import {
     useMutationObserver,
     useResizeObserver,
 } from '@vueuse/core';
-import { nextTick } from 'vue';
 
 const MAX_COLLAPSE_TIER = 5;
 const LIVE_RESIZE_MAX_TIER = 3;

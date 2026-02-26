@@ -53,14 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    nextTick,
-    onBeforeUnmount,
-    onMounted,
-    ref,
-    watch,
-} from 'vue';
+
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { NOTE_WINDOW } from '@app/constants/pdf-layout';
 

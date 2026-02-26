@@ -1,8 +1,4 @@
-import {
-    computed,
-    type Ref,
-    inject,
-} from 'vue';
+import type { Ref } from 'vue';
 import type { IBookmarkItem } from '@app/types/pdf-outline';
 import { PDF_OUTLINE_TREE_KEY } from '@app/composables/pdf/usePdfOutlineKeys';
 

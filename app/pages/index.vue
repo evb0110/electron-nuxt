@@ -226,16 +226,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    nextTick,
-    onMounted,
-    onUnmounted,
-    ref,
-    shallowRef,
-    triggerRef,
-    watch,
-} from 'vue';
+
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     getElectronAPI,
@@ -347,10 +338,7 @@ const {
     confirmDirtyTabClose,
     requestDirtyTabCloseConfirmation,
     resolveDirtyTabCloseDialog,
-} = useDirtyTabCloseDialog({
-    tabs,
-    t,
-});
+} = useDirtyTabCloseDialog({tabs});
 
 const isTabTransitionBusy = computed(() => activeTabTransitions.value > 0);
 const showFallbackToolbar = computed(() => (

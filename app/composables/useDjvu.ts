@@ -1,7 +1,4 @@
-import {
-    ref,
-    onUnmounted,
-} from 'vue';
+
 import { getElectronAPI } from '@app/utils/electron';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
 import { BrowserLogger } from '@app/utils/browser-logger';

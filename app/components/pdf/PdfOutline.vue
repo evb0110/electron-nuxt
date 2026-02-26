@@ -93,13 +93,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    computed,
-    onBeforeUnmount,
-    provide,
-    ref,
-    watch,
-} from 'vue';
+
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     IBookmarkItem,
@@ -273,7 +267,6 @@ const editing = usePdfOutlineEditing(
     currentPageRef,
     emitBookmarksChange,
     createBookmarkId,
-    t,
 );
 
 provide(PDF_OUTLINE_TREE_KEY, {

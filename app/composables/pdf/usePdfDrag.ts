@@ -1,4 +1,3 @@
-import { ref } from 'vue';
 
 export const usePdfDrag = (dragModeEnabled: () => boolean) => {
     const isDragging = ref(false);

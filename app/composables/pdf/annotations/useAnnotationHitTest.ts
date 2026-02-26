@@ -1,7 +1,4 @@
-import {
-    ref,
-    type Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
     ISpatialIndexEntry,
