@@ -1841,6 +1841,8 @@ defineExpose({
     getSelectedShape,
     applyStampImage,
     invalidatePages,
+    suppressAnnotationId: annotations.commentSync.suppressAnnotationId,
+    removeAnnotationFromDom: commentCrud.removeAnnotationFromDom,
     captureRegionToClipboard: regionSnip.startCaptureSession,
     isCapturingRegion: regionSnip.isActive,
     requestScrollToCurrentResult,

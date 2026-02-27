@@ -24,6 +24,8 @@ interface IPdfViewerForAnnotationActions {
     highlightSelection: () => Promise<boolean>;
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
+    suppressAnnotationId: (id: string) => void;
+    removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     selectedShapeId: { value: string | null };
     updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
     getSelectedShape: () => IShapeAnnotation | null;
@@ -74,6 +76,8 @@ export interface IPageAnnotationActionsDeps {
         persistWorkingCopy?: boolean;
     }) => Promise<void>;
     waitForPdfReload: (page: number) => Promise<void>;
+    removeAnnotationFromCache: (stableKey: string) => void;
+    persistPdfDataSilently: (data: Uint8Array) => Promise<void>;
 }
 
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
@@ -423,21 +427,47 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         // editor layer. uiManager.delete() operates on the editor layer and
         // may falsely report success. Always attempt embedded-level fallback.
         if (!deleted || comment.source === 'pdf') {
-            BrowserLogger.debug('annotations', 'Attempting PDF-level embedded delete fallback', {
-                stableKey: comment.stableKey,
-                source: comment.source,
-                annotationId: comment.annotationId ?? null,
-            });
-            const updatedData = await deps.deleteEmbeddedByRef(comment);
-            if (updatedData) {
-                const pageToRestore = currentPage.value;
-                const restorePromise = waitForPdfReload(pageToRestore);
-                await loadPdfFromData(updatedData, {
-                    pushHistory: true,
-                    persistWorkingCopy: !!workingCopyPath.value,
-                });
-                await restorePromise;
+            if (comment.annotationId) {
+                // Optimistic path — instant visual removal, no PDF reload
+                pdfViewerRef.value.suppressAnnotationId(comment.annotationId);
+                pdfViewerRef.value.removeAnnotationFromDom(comment);
+                deps.removeAnnotationFromCache(comment.stableKey);
                 deleted = true;
+
+                // Background: persist to PDF bytes and working copy
+                deps.deleteEmbeddedByRef(comment).then((updatedData) => {
+                    if (updatedData) {
+                        deps.persistPdfDataSilently(updatedData).catch((err) => {
+                            BrowserLogger.warn('annotations', 'Background persist after optimistic delete failed', {
+                                stableKey: comment.stableKey,
+                                error: err instanceof Error ? err.message : String(err),
+                            });
+                        });
+                    }
+                }).catch((err) => {
+                    BrowserLogger.warn('annotations', 'Background embedded delete failed', {
+                        stableKey: comment.stableKey,
+                        error: err instanceof Error ? err.message : String(err),
+                    });
+                });
+            } else {
+                // Fallback for annotations without ID — use reload path
+                BrowserLogger.debug('annotations', 'Attempting PDF-level embedded delete fallback (reload)', {
+                    stableKey: comment.stableKey,
+                    source: comment.source,
+                    annotationId: null,
+                });
+                const updatedData = await deps.deleteEmbeddedByRef(comment);
+                if (updatedData) {
+                    const pageToRestore = currentPage.value;
+                    const restorePromise = waitForPdfReload(pageToRestore);
+                    await loadPdfFromData(updatedData, {
+                        pushHistory: true,
+                        persistWorkingCopy: !!workingCopyPath.value,
+                    });
+                    await restorePromise;
+                    deleted = true;
+                }
             }
         }
         if (!deleted) {
