@@ -5,4 +5,4 @@ export {
     type IPageOpsInsertResult,
     type IPageOpsResult,
     type TPageOpsRotationAngle,
-} from './contract';
+} from '@electron/features/page-ops/contract';
