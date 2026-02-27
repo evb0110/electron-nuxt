@@ -3,6 +3,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 export interface IFileOperationsDeps {
     isSaving: Ref<boolean>;
@@ -75,6 +76,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         if (annotationNoteWindowsCount.value > 0) {
             const savedNotes = await persistAllAnnotationNotes(true);
             if (!savedNotes) {
+                BrowserLogger.warn('workspace', 'Save aborted because annotation note persistence failed');
                 return;
             }
         }
@@ -133,6 +135,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         if (annotationNoteWindowsCount.value > 0) {
             const savedNotes = await persistAllAnnotationNotes(true);
             if (!savedNotes) {
+                BrowserLogger.warn('workspace', 'Save As aborted because annotation note persistence failed');
                 return;
             }
         }
