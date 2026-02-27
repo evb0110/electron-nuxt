@@ -571,6 +571,33 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         const resolvedComment = resolveCommentForDelete(comment) ?? comment;
         const editor = findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
         if (!editor) {
+            const candidateIds = uniq([
+                ...getCommentCandidateIds(comment),
+                ...getCommentCandidateIds(resolvedComment),
+            ]);
+            const editorCountsByPage = annotationUiManager.value
+                ? Array.from({ length: Math.max(0, numPages.value) }, (_, pageIndex) => ({
+                    pageIndex,
+                    count: Array.from(annotationUiManager.value?.getEditors(pageIndex) ?? []).length,
+                }))
+                : [];
+            const nonEmptyPages = editorCountsByPage
+                .filter(entry => entry.count > 0)
+                .slice(0, 8);
+            const totalEditors = editorCountsByPage.reduce((sum, entry) => sum + entry.count, 0);
+            BrowserLogger.warn('annotations', 'updateAnnotationComment: unable to resolve editor for note persistence', {
+                stableKey: comment.stableKey,
+                source: comment.source,
+                annotationId: comment.annotationId ?? null,
+                resolvedStableKey: resolvedComment.stableKey,
+                resolvedSource: resolvedComment.source,
+                resolvedAnnotationId: resolvedComment.annotationId ?? null,
+                pageNumber: comment.pageNumber,
+                candidateIds,
+                totalPages: numPages.value,
+                totalEditors,
+                nonEmptyPages,
+            });
             return false;
         }
 
