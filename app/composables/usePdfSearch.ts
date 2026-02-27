@@ -283,7 +283,6 @@ export const usePdfSearch = () => {
         }
 
         cancelScheduledSearch();
-        await cancelActiveSearch();
         const runId = ++searchRunId;
 
         if (trimmedQuery.length < MIN_QUERY_LENGTH) {

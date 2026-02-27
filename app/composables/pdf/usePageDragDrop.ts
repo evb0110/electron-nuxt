@@ -17,6 +17,15 @@ interface IPageDragDropDeps {
     onExternalFileDrop?: (afterPage: number, filePaths: string[]) => void;
 }
 
+interface IDragReorderContext {
+    total: number;
+    sortedPages: number[];
+    restPages: number[];
+    nonDraggedPrefixBySlot: number[];
+    originalRestInsertIndex: number;
+    canBeNoOp: boolean;
+}
+
 export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     const {
         containerRef,
@@ -38,6 +47,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     let clickSkip = false;
     let stopMouseMoveListener: (() => void) | null = null;
     let stopMouseUpListener: (() => void) | null = null;
+    let dragReorderContext: IDragReorderContext | null = null;
     const autoScrollContainer = ref<HTMLElement | null>(null);
     const autoScrollStep = ref(0);
 
@@ -102,33 +112,84 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return thumbs.length;
     }
 
-    function buildNewOrder(insertAt: number, pages: number[]) {
+    function createDragReorderContext(pages: number[]): IDragReorderContext | null {
         const total = totalPages.value;
         if (pages.length === 0 || total === 0) {
             return null;
         }
 
-        const dragSet = new Set(pages);
-        const rest: number[] = [];
+        const sortedPages = [...pages].sort((a, b) => a - b);
+        const dragSet = new Set(sortedPages);
+        const restPages: number[] = [];
+        const nonDraggedPrefixBySlot = new Array<number>(total + 1);
+        nonDraggedPrefixBySlot[0] = 0;
+
         for (let i = 1; i <= total; i++) {
-            if (!dragSet.has(i)) rest.push(i);
-        }
+            const previous = nonDraggedPrefixBySlot[i - 1] ?? 0;
+            const isDragged = dragSet.has(i);
+            nonDraggedPrefixBySlot[i] = previous + (isDragged ? 0 : 1);
 
-        let idx = 0;
-        for (let i = 0; i < insertAt && i < total; i++) {
-            if (!dragSet.has(i + 1)) idx++;
-        }
-
-        const sorted = [...pages].sort((a, b) => a - b);
-        const order = [...rest];
-        order.splice(idx, 0, ...sorted);
-
-        for (let i = 0; i < order.length; i++) {
-            if (order[i] !== i + 1) {
-                return order;
+            if (!isDragged) {
+                restPages.push(i);
             }
         }
-        return null;
+
+        const firstDraggedPage = sortedPages[0]!;
+        const originalRestInsertIndex = nonDraggedPrefixBySlot[firstDraggedPage - 1] ?? 0;
+        const canBeNoOp = sortedPages.every(
+            (page, index) => page === firstDraggedPage + index,
+        );
+
+        return {
+            total,
+            sortedPages,
+            restPages,
+            nonDraggedPrefixBySlot,
+            originalRestInsertIndex,
+            canBeNoOp,
+        };
+    }
+
+    function resolveRestInsertIndex(
+        insertAt: number,
+        context: IDragReorderContext,
+    ) {
+        const clamped = Math.max(0, Math.min(context.total, Math.floor(insertAt)));
+        return context.nonDraggedPrefixBySlot[clamped] ?? 0;
+    }
+
+    function canApplyReorder(
+        insertAt: number,
+        context: IDragReorderContext | null,
+    ) {
+        if (!context) {
+            return false;
+        }
+
+        const restInsertIndex = resolveRestInsertIndex(insertAt, context);
+        if (!context.canBeNoOp) {
+            return true;
+        }
+
+        return restInsertIndex !== context.originalRestInsertIndex;
+    }
+
+    function buildNewOrder(
+        insertAt: number,
+        context: IDragReorderContext | null,
+    ) {
+        if (!context) {
+            return null;
+        }
+
+        const restInsertIndex = resolveRestInsertIndex(insertAt, context);
+        if (context.canBeNoOp && restInsertIndex === context.originalRestInsertIndex) {
+            return null;
+        }
+
+        const order = [...context.restPages];
+        order.splice(restInsertIndex, 0, ...context.sortedPages);
+        return order;
     }
 
     function updateAutoScroll(clientY: number) {
@@ -186,14 +247,15 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             }
 
             isDragging.value = true;
-            draggedPages.value = getDragPages(startPage);
+            const pages = getDragPages(startPage);
+            draggedPages.value = pages;
+            dragReorderContext = createDragReorderContext(pages);
             document.body.style.cursor = 'grabbing';
             document.body.style.userSelect = 'none';
         }
 
         const raw = calcDropIndex(e.clientY);
-        const order = buildNewOrder(raw, draggedPages.value);
-        dropInsertIndex.value = order !== null ? raw : null;
+        dropInsertIndex.value = canApplyReorder(raw, dragReorderContext) ? raw : null;
         updateAutoScroll(e.clientY);
     }
 
@@ -210,13 +272,14 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         clickSkip = true;
 
         if (dropInsertIndex.value !== null) {
-            const order = buildNewOrder(dropInsertIndex.value, draggedPages.value);
+            const order = buildNewOrder(dropInsertIndex.value, dragReorderContext);
             if (order) onReorder(order);
         }
 
         isDragging.value = false;
         draggedPages.value = [];
         dropInsertIndex.value = null;
+        dragReorderContext = null;
     }
 
     function handleMouseDown(e: MouseEvent, page: number) {
@@ -230,6 +293,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         startX = e.clientX;
         startY = e.clientY;
         startPage = page;
+        dragReorderContext = null;
         cleanupWindowDragListeners();
         stopMouseMoveListener = useEventListener(window, 'mousemove', onMove);
         stopMouseUpListener = useEventListener(window, 'mouseup', onUp);

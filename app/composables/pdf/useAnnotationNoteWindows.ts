@@ -752,6 +752,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         const byAnnotationIdPage = new Map<string, IAnnotationCommentSummary>();
         const byUidPage = new Map<string, IAnnotationCommentSummary>();
         const byIdPageSource = new Map<string, IAnnotationCommentSummary>();
+        const byPage = new Map<number, IAnnotationCommentSummary[]>();
+        const byPageText = new Map<number, Map<string, IAnnotationCommentSummary[]>>();
 
         for (const comment of noteComments) {
             if (comment.stableKey) {
@@ -770,6 +772,31 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 `${comment.id}:${comment.pageIndex}:${comment.source}`,
                 comment,
             );
+
+            const pageCandidates = byPage.get(comment.pageIndex);
+            if (pageCandidates) {
+                pageCandidates.push(comment);
+            } else {
+                byPage.set(comment.pageIndex, [comment]);
+            }
+
+            const normalizedText = comment.text.trim().toLowerCase();
+            if (!normalizedText) {
+                continue;
+            }
+
+            let textCandidatesByPage = byPageText.get(comment.pageIndex);
+            if (!textCandidatesByPage) {
+                textCandidatesByPage = new Map<string, IAnnotationCommentSummary[]>();
+                byPageText.set(comment.pageIndex, textCandidatesByPage);
+            }
+
+            const textCandidates = textCandidatesByPage.get(normalizedText);
+            if (textCandidates) {
+                textCandidates.push(comment);
+            } else {
+                textCandidatesByPage.set(normalizedText, [comment]);
+            }
         }
 
         function findUpdatedComment(noteComment: IAnnotationCommentSummary) {
@@ -804,7 +831,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
 
         function findLogicalFallback(noteComment: IAnnotationCommentSummary) {
             const exactText = noteComment.text.trim().toLowerCase();
-            const pageMatches = noteComments.filter(candidate => candidate.pageIndex === noteComment.pageIndex);
+            const pageMatches = byPage.get(noteComment.pageIndex) ?? [];
             if (pageMatches.length === 0) {
                 return null;
             }
@@ -818,10 +845,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 return null;
             }
 
-            const textMatches = pageMatches.filter((candidate) => {
-                const candidateText = candidate.text.trim().toLowerCase();
-                return candidateText.length > 0 && candidateText === exactText;
-            });
+            const textMatches = byPageText
+                .get(noteComment.pageIndex)
+                ?.get(exactText) ?? [];
             if (textMatches.length === 1) {
                 return textMatches[0] ?? null;
             }

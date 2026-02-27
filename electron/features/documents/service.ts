@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron';
 import {
     handleCreateWorkingCopyFromData,
+    handleCreateWorkingCopyFromPath,
     handleOpenPdfDialog,
     handleOpenPdfDirect,
     handleOpenPdfDirectBatch,
@@ -48,6 +49,8 @@ export function createDocumentsService(): IDocumentsService {
         openPdfDirectBatch: (event, filePaths, requestId) => handleOpenPdfDirectBatch(event, filePaths, requestId),
         createWorkingCopyFromData: (event, fileName, data, originalPath) =>
             handleCreateWorkingCopyFromData(event, fileName, data, originalPath),
+        createWorkingCopyFromPath: (event, sourcePath, originalPath) =>
+            handleCreateWorkingCopyFromPath(event, sourcePath, originalPath),
         savePdfAs: (event, workingPath) => handleSavePdfAs(event, workingPath),
         savePdfDialog: (event, suggestedName) => handleSavePdfDialog(event, suggestedName),
         saveDocxAs: (event, workingPath) => handleSaveDocxAs(event, workingPath),

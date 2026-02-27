@@ -4,11 +4,19 @@ export type TTextLayerRun =
         span: HTMLSpanElement;
         textNode: Text | null;
         startOffset: number;
+        endOffset: number;
     }
     | {
         kind: 'br';
         startOffset: number;
+        endOffset: number;
     };
+
+export interface IHighlightMatchRange {
+    start: number;
+    end: number;
+    isCurrent: boolean;
+}
 
 export function buildTextLayerIndex(textLayerDiv: HTMLElement): {
     text: string;
@@ -29,6 +37,7 @@ export function buildTextLayerIndex(textLayerDiv: HTMLElement): {
             runs.push({
                 kind: 'br',
                 startOffset: offset,
+                endOffset: offset + 1,
             });
             textParts.push('\n');
             offset += 1;
@@ -46,6 +55,7 @@ export function buildTextLayerIndex(textLayerDiv: HTMLElement): {
                 span,
                 textNode,
                 startOffset: offset,
+                endOffset: offset + text.length,
             });
             textParts.push(text);
             offset += text.length;
@@ -67,23 +77,69 @@ export function buildTextLayerIndex(textLayerDiv: HTMLElement): {
     };
 }
 
+export function buildRunMatchOverlaps(
+    runs: TTextLayerRun[],
+    matches: IHighlightMatchRange[],
+): IHighlightMatchRange[][] {
+    const overlaps = Array.from(
+        { length: runs.length },
+        () => [] as IHighlightMatchRange[],
+    );
+
+    if (runs.length === 0 || matches.length === 0) {
+        return overlaps;
+    }
+
+    let runIndex = 0;
+
+    for (const match of matches) {
+        while (
+            runIndex < runs.length
+            && runs[runIndex]!.endOffset <= match.start
+        ) {
+            runIndex += 1;
+        }
+
+        if (runIndex >= runs.length) {
+            break;
+        }
+
+        for (let i = runIndex; i < runs.length; i += 1) {
+            const run = runs[i]!;
+            if (run.startOffset >= match.end) {
+                break;
+            }
+
+            if (run.kind !== 'span') {
+                continue;
+            }
+
+            if (run.endOffset <= match.start) {
+                continue;
+            }
+
+            overlaps[i]!.push(match);
+        }
+    }
+
+    return overlaps;
+}
+
 export function highlightTextInSpan(
     span: HTMLSpanElement,
     spanStartOffset: number,
-    matches: Array<{
-        start: number;
-        end: number;
-        isCurrent: boolean;
-    }>,
+    matches: IHighlightMatchRange[],
     highlightClass: string,
     highlightCurrentClass: string,
+    precomputedMatches?: IHighlightMatchRange[],
 ): HTMLElement[] {
     const text = span.textContent ?? '';
     const spanEndOffset = spanStartOffset + text.length;
 
-    const relevantMatches = matches.filter(
-        (m) => m.start < spanEndOffset && m.end > spanStartOffset,
-    );
+    const relevantMatches = precomputedMatches
+        ?? matches.filter(
+            (m) => m.start < spanEndOffset && m.end > spanStartOffset,
+        );
 
     if (relevantMatches.length === 0) {
         return [];

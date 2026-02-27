@@ -38,9 +38,8 @@ export interface IOcrFileResult {
 }
 
 export interface IOcrWorkerStartPayload {
-    originalPdfData: Uint8Array;
+    sourcePdfPath: string;
     pages: IOcrPdfPageRequest[];
-    workingCopyPath?: string;
     renderDpi?: number;
 }
 
@@ -60,14 +59,12 @@ interface IOcrWorkerProgressPayload {
 export type TOcrWorkerCompleteResult =
     | {
         success: true;
-        pdfData: Uint8Array | null;
-        pdfPath?: string;
-        requiresCleanupAck?: boolean;
+        pdfPath: string;
+        requiresCleanupAck: boolean;
         errors: string[];
     }
     | {
         success: false;
-        pdfData: null;
         errors: string[];
     };
 

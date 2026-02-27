@@ -270,7 +270,6 @@ const { t } = useTypedI18n();
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
-    pdfData: Uint8Array | null;
     currentPage: number;
     totalPages: number;
     workingCopyPath: string | null;
@@ -391,10 +390,10 @@ async function handleCopyLogs() {
 }
 
 function handleRunOcr() {
-    if (!props.pdfDocument || !props.pdfData) {
+    if (!props.pdfDocument || !props.workingCopyPath) {
         return;
     }
-    runOcr(props.pdfDocument, props.pdfData, props.currentPage, props.totalPages, props.workingCopyPath);
+    runOcr(props.currentPage, props.totalPages, props.workingCopyPath);
 }
 
 function handleCancel() {

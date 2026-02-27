@@ -12,6 +12,11 @@ export interface IDocumentsService {
         data: Uint8Array,
         originalPath?: string,
     ) => Promise<string>;
+    createWorkingCopyFromPath: (
+        event: IpcMainInvokeEvent,
+        sourcePath: string,
+        originalPath?: string,
+    ) => Promise<string>;
     savePdfAs: (event: IpcMainInvokeEvent, workingPath: string) => Promise<string | null>;
     savePdfDialog: (event: IpcMainInvokeEvent, suggestedName: string) => Promise<string | null>;
     saveDocxAs: (event: IpcMainInvokeEvent, workingPath: string) => Promise<string | null>;

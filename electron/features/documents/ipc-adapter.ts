@@ -26,6 +26,11 @@ export function registerDocumentsIpcAdapter(
         (event: IpcMainInvokeEvent, fileName: string, data: Uint8Array, originalPath?: string) =>
             service.createWorkingCopyFromData(event, fileName, data, originalPath),
     );
+    registrar.handle(
+        DOCUMENTS_CHANNELS.createWorkingCopyFromPath,
+        (event: IpcMainInvokeEvent, sourcePath: string, originalPath?: string) =>
+            service.createWorkingCopyFromPath(event, sourcePath, originalPath),
+    );
     registrar.handle(DOCUMENTS_CHANNELS.savePdfAs, (event: IpcMainInvokeEvent, workingPath: string) =>
         service.savePdfAs(event, workingPath),
     );

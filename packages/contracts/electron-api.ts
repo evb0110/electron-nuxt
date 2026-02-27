@@ -51,7 +51,6 @@ interface IOcrResultFileAckResult {
 interface IOcrCompleteResult {
     requestId: string;
     success: boolean;
-    pdfData: Uint8Array | null;
     pdfPath?: string;
     requiresCleanupAck?: boolean;
     errors: string[];
@@ -275,6 +274,7 @@ export interface IDocumentsCapability {
     writeFile: (path: string, data: Uint8Array) => Promise<boolean>;
     writeDocxFile: (path: string, data: Uint8Array) => Promise<boolean>;
     createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: string) => Promise<string>;
+    createWorkingCopyFromPath: (sourcePath: string, originalPath?: string) => Promise<string>;
     saveFile: (path: string) => Promise<boolean>;
     cleanupFile: (path: string) => Promise<void>;
     cleanupOcrTemp: (path: string) => Promise<void>;
@@ -333,13 +333,12 @@ export interface IOcrCapability {
     getLanguages: () => Promise<IOcrLanguage[]>;
     acknowledgeResultFile: (requestId: string, pdfPath?: string) => Promise<IOcrResultFileAckResult>;
     createSearchablePdf: (
-        originalPdfData: Uint8Array,
+        sourcePdfPath: string,
         pages: Array<{
             pageNumber: number;
             languages: string[];
         }>,
         requestId: string,
-        workingCopyPath?: string | null,
         renderDpi?: number,
     ) => Promise<IOcrJobStartResult>;
     onProgress: (callback: (progress: IOcrProgress) => void) => () => void;

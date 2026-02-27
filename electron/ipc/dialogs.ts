@@ -28,6 +28,7 @@ import { allowDocxWritePath } from '@electron/ipc/docxExportPaths';
 import {
     createWorkingCopy,
     createWorkingCopyFromData,
+    createWorkingCopyFromPath,
     workingCopyMap,
 } from '@electron/ipc/workingCopy';
 import { te } from '@electron/i18n';
@@ -221,6 +222,28 @@ export async function handleCreateWorkingCopyFromData(
     return createWorkingCopyFromData(
         normalizedName,
         data,
+        typeof originalPath === 'string' && originalPath.trim().length > 0
+            ? originalPath.trim()
+            : undefined,
+    );
+}
+
+export async function handleCreateWorkingCopyFromPath(
+    _event: Electron.IpcMainInvokeEvent,
+    sourcePath: string,
+    originalPath?: string,
+): Promise<string> {
+    const normalizedSourcePath = typeof sourcePath === 'string' ? sourcePath.trim() : '';
+    if (!normalizedSourcePath) {
+        throw new Error('Invalid source path');
+    }
+
+    if (!existsSync(normalizedSourcePath)) {
+        throw new Error(`File not found: ${normalizedSourcePath}`);
+    }
+
+    return createWorkingCopyFromPath(
+        normalizedSourcePath,
         typeof originalPath === 'string' && originalPath.trim().length > 0
             ? originalPath.trim()
             : undefined,

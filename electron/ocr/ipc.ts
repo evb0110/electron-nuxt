@@ -3,7 +3,6 @@ import {
     BrowserWindow,
     ipcMain,
 } from 'electron';
-import { existsSync } from 'fs';
 import { extname } from 'path';
 import { runOcr } from '@electron/ocr/tesseract';
 import {
@@ -38,7 +37,7 @@ import {
     validateRecognizeBatchPayload,
     validateRecognizeRequest,
 } from '@electron/ocr/contracts';
-import { resolveAllowedWritePath } from '@electron/utils/path-validator';
+import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 
 const log = createLogger('ocr-ipc');
 
@@ -233,18 +232,14 @@ async function handleOcrValidateTools() {
     }
 }
 
-async function validateOcrWorkingCopyPath(workingCopyPath: string): Promise<string> {
-    const resolvedPath = await resolveAllowedWritePath(workingCopyPath);
+async function validateOcrSourcePdfPath(sourcePdfPath: string): Promise<string> {
+    const resolvedPath = await resolveAllowedReadPath(sourcePdfPath);
     if (!resolvedPath) {
-        throw new OcrPayloadValidationError('workingCopyPath must be inside the temporary working directory');
+        throw new OcrPayloadValidationError('sourcePdfPath must be inside the temporary working directory');
     }
 
     if (extname(resolvedPath).toLowerCase() !== '.pdf') {
-        throw new OcrPayloadValidationError('workingCopyPath must point to a PDF file');
-    }
-
-    if (!existsSync(resolvedPath)) {
-        throw new OcrPayloadValidationError(`workingCopyPath not found: ${resolvedPath}`);
+        throw new OcrPayloadValidationError('sourcePdfPath must point to a PDF file');
     }
 
     return resolvedPath;
@@ -252,10 +247,9 @@ async function validateOcrWorkingCopyPath(workingCopyPath: string): Promise<stri
 
 async function handleOcrCreateSearchablePdf(
     event: IpcMainInvokeEvent,
-    originalPdfDataPayload: unknown,
+    sourcePdfPathPayload: unknown,
     pagesPayload: unknown,
     requestIdPayload: unknown,
-    workingCopyPathPayload?: unknown,
     renderDpiPayload?: unknown,
 ): Promise<{
     started: boolean;
@@ -267,23 +261,19 @@ async function handleOcrCreateSearchablePdf(
 
     try {
         const payload = validateCreateSearchablePdfPayload(
-            originalPdfDataPayload,
+            sourcePdfPathPayload,
             pagesPayload,
             requestIdPayload,
-            workingCopyPathPayload,
             renderDpiPayload,
         );
 
         jobId = payload.requestId;
-        const validatedWorkingCopyPath = payload.workingCopyPath
-            ? await validateOcrWorkingCopyPath(payload.workingCopyPath)
-            : undefined;
+        const validatedSourcePdfPath = await validateOcrSourcePdfPath(payload.sourcePdfPath);
         const result = await handleOcrCreateSearchablePdfAsync(
             event,
-            payload.originalPdfData,
+            validatedSourcePdfPath,
             payload.pages,
             payload.requestId,
-            validatedWorkingCopyPath,
             payload.renderDpi,
         );
 

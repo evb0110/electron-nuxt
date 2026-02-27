@@ -8,7 +8,10 @@ import {
     join,
 } from 'path';
 import { existsSync } from 'fs';
-import { unlink } from 'fs/promises';
+import {
+    stat,
+    unlink,
+} from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import { uniq } from 'es-toolkit/array';
@@ -37,9 +40,8 @@ const OCR_WORKER_POOL_SIZE = (() => {
 interface IOcrQueuedJob {
     jobId: string;
     webContentsId: number;
-    originalPdfData: Uint8Array;
+    sourcePdfPath: string;
     pages: IOcrPdfPageRequest[];
-    workingCopyPath?: string;
     renderDpi?: number;
     queuedAtMs: number;
     requestedBytes: number;
@@ -122,22 +124,6 @@ function isStringArray(value: unknown): value is string[] {
     return Array.isArray(value) && value.every(item => typeof item === 'string');
 }
 
-function decodeWorkerPdfData(value: unknown): Uint8Array | null | undefined {
-    if (value === null) {
-        return null;
-    }
-    if (value instanceof Uint8Array) {
-        return value;
-    }
-    if (value instanceof ArrayBuffer) {
-        return new Uint8Array(value);
-    }
-    if (ArrayBuffer.isView(value)) {
-        return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-    }
-    return undefined;
-}
-
 function parseWorkerMessage(message: unknown): TOcrWorkerOutboundMessage | null {
     if (!isRecord(message) || typeof message.type !== 'string') {
         return null;
@@ -191,8 +177,13 @@ function parseWorkerMessage(message: unknown): TOcrWorkerOutboundMessage | null 
             }
 
             if (message.result.success) {
-                const pdfData = decodeWorkerPdfData(message.result.pdfData);
-                if (pdfData === undefined) {
+                const normalizedPdfPath = typeof message.result.pdfPath === 'string'
+                    ? message.result.pdfPath.trim()
+                    : '';
+                if (normalizedPdfPath.length === 0) {
+                    return null;
+                }
+                if (typeof message.result.requiresCleanupAck !== 'boolean') {
                     return null;
                 }
                 return {
@@ -200,18 +191,11 @@ function parseWorkerMessage(message: unknown): TOcrWorkerOutboundMessage | null 
                     jobId: message.jobId,
                     result: {
                         success: true,
-                        pdfData,
-                        pdfPath: typeof message.result.pdfPath === 'string' ? message.result.pdfPath : undefined,
-                        requiresCleanupAck: typeof message.result.requiresCleanupAck === 'boolean'
-                            ? message.result.requiresCleanupAck
-                            : undefined,
+                        pdfPath: normalizedPdfPath,
+                        requiresCleanupAck: message.result.requiresCleanupAck,
                         errors: message.result.errors,
                     },
                 };
-            }
-
-            if (message.result.pdfData !== null) {
-                return null;
             }
 
             return {
@@ -219,7 +203,6 @@ function parseWorkerMessage(message: unknown): TOcrWorkerOutboundMessage | null 
                 jobId: message.jobId,
                 result: {
                     success: false,
-                    pdfData: null,
                     errors: message.result.errors,
                 },
             };
@@ -230,17 +213,6 @@ function parseWorkerMessage(message: unknown): TOcrWorkerOutboundMessage | null 
 
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
     return isRecord(error) && ('code' in error);
-}
-
-function asTransferableBytes(bytes: Uint8Array) {
-    if (
-        bytes.buffer instanceof ArrayBuffer
-        && bytes.byteOffset === 0
-        && bytes.byteLength === bytes.buffer.byteLength
-    ) {
-        return bytes;
-    }
-    return bytes.slice();
 }
 
 export function safeSendToWindow(
@@ -421,12 +393,19 @@ function ensureQueueCapacity(additionalBytes: number) {
     return { ok: true };
 }
 
-function estimateRequestBytes(
-    originalPdfData: Uint8Array,
+async function estimateRequestBytes(
+    sourcePdfPath: string,
     pages: IOcrPdfPageRequest[],
 ) {
     const averagePageOverhead = 32 * 1024;
-    return originalPdfData.byteLength + (pages.length * averagePageOverhead);
+    let sourcePdfBytes = 0;
+    try {
+        sourcePdfBytes = (await stat(sourcePdfPath)).size;
+    } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.warn(`Failed to stat OCR source PDF "${sourcePdfPath}" for queue estimation: ${errMsg}`);
+    }
+    return sourcePdfBytes + (pages.length * averagePageOverhead);
 }
 
 function logQueueDepth(context: string) {
@@ -526,12 +505,28 @@ function registerSenderCleanup(event: IpcMainInvokeEvent) {
     }
 
     registeredSenderCleanupIds.add(senderId);
-    const cleanup = () => {
-        cancelJobsForSender(senderId, 'Renderer disconnected');
+    let didCleanup = false;
+    const cleanup = (reason: string) => {
+        if (didCleanup) {
+            return;
+        }
+        didCleanup = true;
+        cancelJobsForSender(senderId, reason);
         registeredSenderCleanupIds.delete(senderId);
+
+        event.sender.removeListener('destroyed', handleDestroyed);
+        event.sender.removeListener('render-process-gone', handleRenderProcessGone);
     };
 
-    event.sender.once('destroyed', cleanup);
+    const handleDestroyed = () => {
+        cleanup('Renderer destroyed');
+    };
+    const handleRenderProcessGone = () => {
+        cleanup('Renderer process gone');
+    };
+
+    event.sender.once('destroyed', handleDestroyed);
+    event.sender.once('render-process-gone', handleRenderProcessGone);
 }
 
 function sendJobFailure(job: IOcrQueuedJob, error: string) {
@@ -539,7 +534,6 @@ function sendJobFailure(job: IOcrQueuedJob, error: string) {
     safeSendToWindow(window, 'ocr:complete', {
         requestId: job.jobId,
         success: false,
-        pdfData: null,
         errors: [error],
     });
 }
@@ -579,7 +573,7 @@ function handleWorkerMessage(
                 log.warn(`Ignoring OCR completion for mismatched job id "${message.jobId}" (expected "${jobId}")`);
                 return;
             }
-            if (message.result.success && message.result.pdfPath) {
+            if (message.result.success) {
                 trackPendingResultFile(jobId, webContentsId, message.result.pdfPath);
                 void evictStaleResultFiles();
             }
@@ -685,21 +679,16 @@ function startQueuedJob(job: IOcrQueuedJob) {
     });
 
     try {
-        const transferPdfData = asTransferableBytes(job.originalPdfData);
         const startMessage: TOcrWorkerInboundMessage = {
             type: 'start',
             jobId: job.jobId,
             data: {
-                originalPdfData: transferPdfData,
+                sourcePdfPath: job.sourcePdfPath,
                 pages: job.pages,
-                workingCopyPath: job.workingCopyPath,
                 renderDpi: job.renderDpi,
             },
         };
-        const transferList = transferPdfData.buffer instanceof ArrayBuffer
-            ? [transferPdfData.buffer]
-            : [];
-        worker.postMessage(startMessage, transferList);
+        worker.postMessage(startMessage);
     } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         sendJobFailure(job, `Failed to post OCR job to worker: ${errMsg}`);
@@ -730,17 +719,16 @@ function dispatchQueuedJobs() {
 
 export async function handleOcrCreateSearchablePdfAsync(
     event: IpcMainInvokeEvent,
-    originalPdfData: Uint8Array,
+    sourcePdfPath: string,
     pages: IOcrPdfPageRequest[],
     requestId: string,
-    workingCopyPath?: string,
     renderDpi?: number,
 ): Promise<{
     started: boolean;
     jobId: string;
     error?: string;
 }> {
-    log.debug(`handleOcrCreateSearchablePdfAsync called: pdfLen=${originalPdfData.length}, pages=${pages.length}, reqId=${requestId}, dpi=${renderDpi}`);
+    log.debug(`handleOcrCreateSearchablePdfAsync called: sourcePdfPath=${sourcePdfPath}, pages=${pages.length}, reqId=${requestId}, dpi=${renderDpi}`);
 
     try {
         registerSenderCleanup(event);
@@ -763,7 +751,7 @@ export async function handleOcrCreateSearchablePdfAsync(
             };
         }
 
-        const requestBytes = estimateRequestBytes(originalPdfData, pages);
+        const requestBytes = await estimateRequestBytes(sourcePdfPath, pages);
         const capacityResult = ensureQueueCapacity(requestBytes);
         if (!capacityResult.ok) {
             return {
@@ -801,9 +789,8 @@ export async function handleOcrCreateSearchablePdfAsync(
         const queuedJob: IOcrQueuedJob = {
             jobId: requestId,
             webContentsId: event.sender.id,
-            originalPdfData,
+            sourcePdfPath,
             pages,
-            workingCopyPath,
             renderDpi,
             queuedAtMs: Date.now(),
             requestedBytes: requestBytes,

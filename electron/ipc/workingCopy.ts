@@ -81,6 +81,32 @@ export async function createWorkingCopy(originalPath: string): Promise<string> {
     return workingPath;
 }
 
+export async function createWorkingCopyFromPath(
+    sourcePath: string,
+    originalPath?: string,
+): Promise<string> {
+    const normalizedSourcePath = typeof sourcePath === 'string' ? sourcePath.trim() : '';
+    if (!normalizedSourcePath) {
+        throw new Error('Invalid source path');
+    }
+
+    const workDir = createWorkingDirectory();
+    const fileName = basename(normalizedSourcePath);
+    const normalizedName = fileName.toLowerCase().endsWith('.pdf')
+        ? fileName
+        : `${fileName}.pdf`;
+    const workingPath = join(workDir, normalizedName);
+
+    await copyFileCopyOnWrite(normalizedSourcePath, workingPath);
+
+    const mappedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
+        ? originalPath.trim()
+        : normalizedSourcePath;
+    workingCopyMap.set(workingPath, mappedOriginalPath);
+
+    return workingPath;
+}
+
 export async function createWorkingCopyFromData(
     fileName: string,
     data: Uint8Array,
