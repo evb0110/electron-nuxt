@@ -1064,6 +1064,14 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             if (!resolvedEditor) {
                 return false;
             }
+
+            // Prevent PDF.js from removing this editor during mode transitions.
+            // When updateMode switches away from FREETEXT, commitOrRemove() fires on
+            // the active editor.  If isEmpty() returns true the editor self-destructs,
+            // but we need it alive so the save path can find it via getEditors() later.
+            // Override isEmpty() to keep the editor registered in the UIManager.
+            resolvedEditor.isEmpty = () => false;
+
             resolvedEditor.__evbResolvedPageIndex = pageIndex;
             resolvedEditor.__evbPlacementAttemptId = diagnosticsContext?.attemptId ?? null;
 
