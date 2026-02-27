@@ -222,6 +222,16 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
         const targetRef = resolveCommentPdfRefInDocument(document, comment);
         if (!targetRef) {
+            BrowserLogger.warn('annotations', 'updateEmbeddedAnnotationByRef: unable to resolve PDF annotation reference', {
+                stableKey: comment.stableKey,
+                source: comment.source,
+                annotationId: comment.annotationId ?? null,
+                id: comment.id,
+                pageIndex: comment.pageIndex,
+                subtype: comment.subtype ?? null,
+                hasMarkerRect: Boolean(comment.markerRect),
+                textLength: comment.text.trim().length,
+            });
             return false;
         }
 
