@@ -430,75 +430,62 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 break;
             }
 
+            async function tryEmbeddedUpdate(reason: 'direct' | 'after-materialize') {
+                const embeddedCandidate = findMatchingAnnotationComment(targetComment) ?? targetComment;
+                const result = await updateEmbeddedAnnotationByRef(embeddedCandidate, nextText);
+                if (!(result instanceof Uint8Array)) {
+                    return false;
+                }
+                BrowserLogger.debug('annotations', 'Persisted note through embedded PDF update', {
+                    stableKey,
+                    reason,
+                    source: embeddedCandidate.source,
+                    annotationId: embeddedCandidate.annotationId ?? null,
+                });
+                const pageToRestore = currentPage.value;
+                const restorePromise = waitForPdfReload(pageToRestore);
+                await loadPdfFromData(result, {
+                    pushHistory: true,
+                    persistWorkingCopy: !!workingCopyPath.value,
+                });
+                await restorePromise;
+                targetComment = findMatchingAnnotationComment(embeddedCandidate) ?? embeddedCandidate;
+                return true;
+            }
+
             if (!saved && !force) {
                 note.saveMode = 'embedded';
                 return true;
             }
 
-            let embeddedTarget = findMatchingAnnotationComment(targetComment) ?? targetComment;
-            let canUseEmbeddedFallback = Boolean(embeddedTarget.annotationId);
-            if (!saved && canUseEmbeddedFallback) {
-                const result = await updateEmbeddedAnnotationByRef(embeddedTarget, nextText);
-                if (result instanceof Uint8Array) {
-                    const pageToRestore = currentPage.value;
-                    const restorePromise = waitForPdfReload(pageToRestore);
-                    await loadPdfFromData(result, {
-                        pushHistory: true,
-                        persistWorkingCopy: !!workingCopyPath.value,
-                    });
-                    await restorePromise;
-                    saved = true;
-                }
+            if (!saved) {
+                saved = await tryEmbeddedUpdate('direct');
             }
 
-            if (!saved && force && !canUseEmbeddedFallback) {
-                BrowserLogger.debug('annotations', 'Materializing editor note to obtain embedded annotation reference', {
+            if (!saved && force) {
+                BrowserLogger.debug('annotations', 'Materializing PDF before retrying embedded note update', {
                     stableKey,
                     source: targetComment.source,
                     annotationId: targetComment.annotationId ?? null,
                 });
                 const materialized = await serializeCurrentPdfForEmbeddedFallback();
-                if (materialized) {
-                    const matchAfterMaterialize = findMatchingAnnotationComment(targetComment);
-                    if (matchAfterMaterialize?.annotationId) {
-                        embeddedTarget = matchAfterMaterialize;
-                        canUseEmbeddedFallback = true;
-                    } else {
-                        BrowserLogger.warn('annotations', 'Materialized note still has no embedded reference', {
-                            stableKey,
-                            source: targetComment.source,
-                            annotationId: targetComment.annotationId ?? null,
-                        });
-                    }
+                if (!materialized) {
+                    BrowserLogger.warn('annotations', 'Failed to materialize PDF before embedded note retry', {
+                        stableKey,
+                        source: targetComment.source,
+                        annotationId: targetComment.annotationId ?? null,
+                    });
+                } else {
+                    saved = await tryEmbeddedUpdate('after-materialize');
                 }
             }
 
-            if (!saved && force && canUseEmbeddedFallback) {
-                BrowserLogger.debug('annotations', 'Attempting embedded note save fallback', {
-                    stableKey,
-                    annotationId: embeddedTarget.annotationId,
-                    source: embeddedTarget.source,
-                });
-                const latestAfterMaterialize = findMatchingAnnotationComment(embeddedTarget) ?? embeddedTarget;
-                const result = await updateEmbeddedAnnotationByRef(latestAfterMaterialize, nextText);
-                if (result instanceof Uint8Array) {
-                    const pageToRestore = currentPage.value;
-                    const restorePromise = waitForPdfReload(pageToRestore);
-                    await loadPdfFromData(result, {
-                        pushHistory: true,
-                        persistWorkingCopy: !!workingCopyPath.value,
-                    });
-                    await restorePromise;
-                    saved = true;
-                }
-            }
             if (!saved) {
                 BrowserLogger.warn('annotations', 'Failed to persist annotation note', {
                     stableKey,
                     force,
                     source: targetComment.source,
                     annotationId: targetComment.annotationId ?? null,
-                    hasEmbeddedRef: canUseEmbeddedFallback,
                 });
                 note.error = t('errors.annotation.updateNote');
                 return false;
