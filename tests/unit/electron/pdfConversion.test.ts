@@ -55,6 +55,7 @@ vi.mock('worker_threads', () => ({Worker: class {
         if (mocks.workerState.mode === 'success' && event === 'message') {
             setTimeout(() => {
                 callback({
+                    type: 'result',
                     ok: true,
                     data: new Uint8Array([
                         7,
