@@ -23,6 +23,7 @@ export interface IFileOperationsDeps {
     hasAnnotationChanges: () => boolean;
     rewriteMarkupSubtypes: (data: Uint8Array) => Promise<Uint8Array>;
     serializeShapeAnnotations: (data: Uint8Array) => Promise<Uint8Array>;
+    rewriteFreeTextNoteRects: (data: Uint8Array) => Promise<Uint8Array>;
     rewritePageLabels: (data: Uint8Array) => Promise<Uint8Array>;
     rewriteBookmarks: (data: Uint8Array) => Promise<Uint8Array>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
@@ -49,6 +50,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         hasAnnotationChanges,
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
+        rewriteFreeTextNoteRects,
         rewritePageLabels,
         rewriteBookmarks,
         persistAllAnnotationNotes,
@@ -89,6 +91,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     if (rawData) {
                         let data = await rewriteMarkupSubtypes(rawData);
                         data = await serializeShapeAnnotations(data);
+                        data = await rewriteFreeTextNoteRects(data);
                         data = await rewritePageLabels(data);
                         data = await rewriteBookmarks(data);
                         const saved = await saveFile(data);
@@ -113,6 +116,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             const rawData = await saveDocumentWithRetry();
             if (rawData) {
                 let data = await rewriteMarkupSubtypes(rawData);
+                data = await rewriteFreeTextNoteRects(data);
                 data = await rewritePageLabels(data);
                 data = await rewriteBookmarks(data);
                 const saved = await saveFile(data);
@@ -148,6 +152,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 if (rawData) {
                     let data = await rewriteMarkupSubtypes(rawData);
                     data = await serializeShapeAnnotations(data);
+                    data = await rewriteFreeTextNoteRects(data);
                     data = await rewritePageLabels(data);
                     data = await rewriteBookmarks(data);
                     outPath = await saveWorkingCopyAs(data);

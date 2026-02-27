@@ -15,7 +15,10 @@ import type {
 } from '@app/types/annotations';
 import type { IPdfPageLabelRange } from '@app/types/pdf';
 import { markerRectIoU } from '@app/composables/pdf/pdfAnnotationUtils';
-import { normalizeMarkerRectFromDict } from '@app/utils/pdf-dict';
+import {
+    normalizeMarkerRectFromDict,
+    getPdfDictContents,
+} from '@app/utils/pdf-dict';
 import {
     isImplicitDefaultPageLabels,
     normalizePageLabelRanges,
@@ -209,6 +212,152 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         return serializeShapeAnnotationsToDoc(data, getAllShapes());
     }
 
+    async function rewriteFreeTextNoteRects(data: Uint8Array): Promise<Uint8Array> {
+        const freetextComments = annotationComments.value.filter(
+            c => c.markerRect
+                && c.subtype
+                && (c.subtype.toLowerCase() === 'freetext' || c.subtype.toLowerCase() === 'typewriter')
+                && c.hasNote,
+        );
+
+        if (freetextComments.length === 0) {
+            return data;
+        }
+
+        const doc = await loadPdfDocument(data, 'rewriting FreeText note rects');
+        if (!doc) {
+            return data;
+        }
+
+        const subtypeName = PDFName.of('Subtype');
+        const freeTextName = PDFName.of('FreeText');
+        const rectName = PDFName.of('Rect');
+        const popupName = PDFName.of('Popup');
+        const apName = PDFName.of('AP');
+        let modified = false;
+
+        const pages = doc.getPages();
+        for (const [
+            pageIndex,
+            page,
+        ] of pages.entries()) {
+            const pageComments = freetextComments.filter(c => c.pageIndex === pageIndex);
+            if (pageComments.length === 0) {
+                continue;
+            }
+
+            const {
+                width: pageWidth,
+                height: pageHeight,
+            } = page.getSize();
+            if (pageWidth <= 0 || pageHeight <= 0) {
+                continue;
+            }
+
+            const annots = page.node.Annots();
+            if (!(annots instanceof PDFArray)) {
+                continue;
+            }
+
+            for (let i = 0; i < annots.size(); i++) {
+                const value = annots.get(i);
+                const ref = value instanceof PDFRef ? value : null;
+                if (!ref) {
+                    continue;
+                }
+
+                const dict = doc.context.lookupMaybe(ref, PDFDict);
+                if (!dict) {
+                    continue;
+                }
+
+                const currentSubtype = dict.get(subtypeName);
+                if (!(currentSubtype instanceof PDFName) || currentSubtype !== freeTextName) {
+                    continue;
+                }
+
+                const hasPopup = Boolean(dict.get(popupName));
+                if (!hasPopup) {
+                    continue;
+                }
+
+                const dictRect = normalizeMarkerRectFromDict(dict, pageWidth, pageHeight);
+                const refTag = `${ref.objectNumber}R${ref.generationNumber}`;
+                const dictText = getPdfDictContents(dict).trim().toLowerCase();
+
+                let bestMatch: {
+                    comment: IAnnotationCommentSummary;
+                    score: number;
+                } | null = null;
+                for (const comment of pageComments) {
+                    if (comment.annotationId === refTag) {
+                        bestMatch = {
+                            comment,
+                            score: 100,
+                        };
+                        break;
+                    }
+
+                    const iou = dictRect ? markerRectIoU(dictRect, comment.markerRect) : 0;
+                    if (iou > 0.05) {
+                        if (!bestMatch || iou > bestMatch.score) {
+                            bestMatch = {
+                                comment,
+                                score: iou,
+                            };
+                        }
+                        continue;
+                    }
+
+                    if (dictText.length > 0 && comment.text) {
+                        const commentText = comment.text.trim().toLowerCase();
+                        if (dictText === commentText) {
+                            bestMatch = {
+                                comment,
+                                score: 50,
+                            };
+                            break;
+                        }
+                    }
+                }
+
+                if (!bestMatch) {
+                    const singleComment = pageComments.length === 1 ? pageComments[0] : null;
+                    if (singleComment) {
+                        bestMatch = {
+                            comment: singleComment,
+                            score: 1,
+                        };
+                    } else {
+                        continue;
+                    }
+                }
+
+                const markerRect = bestMatch.comment.markerRect!;
+                const pdfLeft = markerRect.left * pageWidth;
+                const pdfBottom = (1 - markerRect.top - markerRect.height) * pageHeight;
+                const pdfRight = (markerRect.left + markerRect.width) * pageWidth;
+                const pdfTop = (1 - markerRect.top) * pageHeight;
+
+                dict.set(rectName, doc.context.obj([
+                    PDFNumber.of(pdfLeft),
+                    PDFNumber.of(pdfBottom),
+                    PDFNumber.of(pdfRight),
+                    PDFNumber.of(pdfTop),
+                ]));
+
+                dict.delete(apName);
+                modified = true;
+            }
+        }
+
+        if (!modified) {
+            return data;
+        }
+
+        return new Uint8Array(await doc.save());
+    }
+
     async function updateEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary, text: string) {
         const sourceData = await getSourcePdfData();
         if (!sourceData) {
@@ -321,6 +470,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         getSourcePdfData,
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
+        rewriteFreeTextNoteRects,
         updateEmbeddedAnnotationByRef,
         deleteEmbeddedAnnotationByRef,
         rewritePageLabels,

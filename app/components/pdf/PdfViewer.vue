@@ -70,6 +70,16 @@
             @pointer-end="regionSnip.onPointerEnd"
             @cancel="regionSnip.cancelCapture"
         />
+        <template v-for="[pageNum, markers] in markersByPage" :key="`markers-${pageNum}`">
+            <Teleport v-if="markerLayerTargets.get(pageNum)" :to="markerLayerTargets.get(pageNum)!">
+                <PdfCommentMarkerLayer
+                    :page-number="pageNum"
+                    :markers="markers"
+                    @open-note="handleMarkerOpenNote"
+                    @context-menu="handleMarkerContextMenu"
+                />
+            </Teleport>
+        </template>
     </div>
 </template>
 
@@ -80,6 +90,7 @@ import { AnnotationEditorParamsType } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import PdfViewerPage from '@app/components/pdf/PdfViewerPage.vue';
 import PdfRegionSnipOverlay from '@app/components/pdf/PdfRegionSnipOverlay.vue';
+import PdfCommentMarkerLayer from '@app/components/pdf/annotations/PdfCommentMarkerLayer.vue';
 import { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import { usePdfDrag } from '@app/composables/pdf/usePdfDrag';
 import { usePdfPageRenderer } from '@app/composables/pdf/usePdfPageRenderer';
@@ -507,6 +518,37 @@ const annotations = useAnnotationOrchestrator({
 
 const highlightComposable = annotations.highlight;
 const commentCrud = annotations.crud;
+const markersByPage = annotations.markersByPage;
+
+const markerLayerTargets = computed<Map<number, HTMLElement>>(() => {
+    const container = viewerContainer.value;
+    if (!container) {
+        return new Map();
+    }
+    const targets = new Map<number, HTMLElement>();
+    for (const pageNumber of markersByPage.value.keys()) {
+        const pageEl = container.querySelector<HTMLElement>(
+            `.page_container[data-page="${pageNumber}"]`,
+        );
+        if (pageEl) {
+            targets.set(pageNumber, pageEl);
+        }
+    }
+    return targets;
+});
+
+function handleMarkerOpenNote(comment: IAnnotationCommentSummary) {
+    activeCommentStableKey.value = comment.stableKey;
+    emit('annotation-open-note', comment);
+}
+
+function handleMarkerContextMenu(comment: IAnnotationCommentSummary, event: MouseEvent) {
+    activeCommentStableKey.value = comment.stableKey;
+    emit(
+        'annotation-context-menu',
+        highlightComposable.buildAnnotationContextMenuPayload(comment, event.clientX, event.clientY),
+    );
+}
 
 const {
     shouldShowSkeleton,
@@ -1638,7 +1680,7 @@ function handleViewerMouseDown(event: MouseEvent) {
     if (
         event.target instanceof HTMLElement &&
         event.target.closest(
-            '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-annotation-has-note-target, .pdf-annotation-has-comment, .annotationLayer .popupTriggerArea, .annotation-layer .popupTriggerArea',
+            '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, .pdf-annotation-has-note-target, .pdf-annotation-has-comment, .annotationLayer .popupTriggerArea, .annotation-layer .popupTriggerArea',
         )
     ) {
         event.preventDefault();

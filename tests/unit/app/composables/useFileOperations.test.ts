@@ -44,6 +44,10 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
                 ...data,
                 3,
             ])),
+            rewriteFreeTextNoteRects: vi.fn(async (data: Uint8Array) => new Uint8Array([
+                ...data,
+                6,
+            ])),
             rewritePageLabels: vi.fn(async (data: Uint8Array) => new Uint8Array([
                 ...data,
                 4,
@@ -77,6 +81,7 @@ describe('useFileOperations', () => {
         expect(deps.saveDocument).toHaveBeenCalledOnce();
         expect(deps.rewriteMarkupSubtypes).toHaveBeenCalledOnce();
         expect(deps.serializeShapeAnnotations).toHaveBeenCalledOnce();
+        expect(deps.rewriteFreeTextNoteRects).toHaveBeenCalledOnce();
         expect(deps.rewritePageLabels).toHaveBeenCalledOnce();
         expect(deps.rewriteBookmarks).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
@@ -85,6 +90,7 @@ describe('useFileOperations', () => {
             1,
             2,
             3,
+            6,
             4,
             5,
         ]);
@@ -121,6 +127,7 @@ describe('useFileOperations', () => {
         expect(deps.saveDocument).toHaveBeenCalledOnce();
         expect(deps.rewriteMarkupSubtypes).toHaveBeenCalledOnce();
         expect(deps.serializeShapeAnnotations).toHaveBeenCalledOnce();
+        expect(deps.rewriteFreeTextNoteRects).toHaveBeenCalledOnce();
         expect(deps.rewritePageLabels).toHaveBeenCalledOnce();
         expect(deps.rewriteBookmarks).toHaveBeenCalledOnce();
         expect(saveWorkingCopyAs).toHaveBeenCalledOnce();
@@ -128,6 +135,7 @@ describe('useFileOperations', () => {
             1,
             2,
             3,
+            6,
             4,
             5,
         ]);

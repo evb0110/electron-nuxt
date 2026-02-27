@@ -22,6 +22,7 @@ function createDeps() {
 
     const rewriteMarkupSubtypes = vi.fn(async (data: Uint8Array) => data);
     const serializeShapeAnnotations = vi.fn(async (data: Uint8Array) => data);
+    const rewriteFreeTextNoteRects = vi.fn(async (data: Uint8Array) => data);
     const rewritePageLabels = vi.fn(async (data: Uint8Array) => data);
     const rewriteBookmarks = vi.fn(async (data: Uint8Array) => data);
 
@@ -47,6 +48,7 @@ function createDeps() {
         hasAnnotationChanges: vi.fn(() => false),
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
+        rewriteFreeTextNoteRects,
         rewritePageLabels,
         rewriteBookmarks,
         persistAllAnnotationNotes: vi.fn(async () => true),

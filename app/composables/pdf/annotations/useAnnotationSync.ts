@@ -332,6 +332,8 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                     const id = annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`;
                     const annotationId = annotation.id ?? null;
                     const hasLinkedPopup = Boolean(annotation.popupRef) || Boolean(popupAnnotation);
+                    const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
+                    const isFreeTextNote = normalizedSubtype === 'freetext' && hasLinkedPopup;
                     const summaryKey = identity.computeSummaryStableKey({
                         id,
                         pageIndex: pageNumber - 1,
@@ -371,7 +373,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                         annotationId,
                         source: 'pdf',
                         hasNote: Boolean(
-                            isTextMarkupSubtype(subtype)
+                            (isTextMarkupSubtype(subtype) || isFreeTextNote)
                             && (hasLinkedPopup || text.trim().length > 0),
                         ),
                         markerRect: toMarkerRectFromPdfRect(
@@ -380,7 +382,6 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                         ),
                     };
 
-                    const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
                     if (
                         annotationId
                         && (normalizedSubtype === 'underline'

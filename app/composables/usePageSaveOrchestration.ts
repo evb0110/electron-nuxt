@@ -99,6 +99,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     const {
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
+        rewriteFreeTextNoteRects,
         updateEmbeddedAnnotationByRef: updateEmbeddedByRef,
         deleteEmbeddedAnnotationByRef: deleteEmbeddedByRef,
         rewritePageLabels,
@@ -134,6 +135,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         hasAnnotationChanges,
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
+        rewriteFreeTextNoteRects,
         rewritePageLabels,
         rewriteBookmarks: (data) => rewriteBookmarks(data, {
             bookmarksDirty,
