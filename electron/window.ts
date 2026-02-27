@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import { config } from '@electron/config';
 import {
     startServer,
+    stopServer,
     waitForServer,
 } from '@electron/server';
 import { setupContentSecurityPolicy } from '@electron/security/csp';
@@ -188,12 +189,18 @@ function attachShowLifecycle(window: BrowserWindow) {
     let hasShownWindow = false;
     let pendingShowTimeout: NodeJS.Timeout | null = null;
     let forceShowTimeout: NodeJS.Timeout | null = null;
+    let runtimeServerLoadRetried = false;
 
     const SHOW_DEBOUNCE_MS = 0;
     const FORCE_SHOW_MS = config.isDev ? 5_000 : 15_000;
     const STABILITY_WINDOW_MS = config.isDev ? 200 : 500;
     let lastNavigationTime = 0;
     let stabilityCheckTimeout: NodeJS.Timeout | null = null;
+    const isRuntimeServerUrl = (value: string) => (
+        value === config.server.url
+        || value === `${config.server.url}/`
+        || value.startsWith(`${config.server.url}/`)
+    );
 
     const logNavEvent = (event: string, details?: Record<string, unknown>) => {
         if (config.isDev) {
@@ -358,8 +365,47 @@ function attachShowLifecycle(window: BrowserWindow) {
         scheduleShow();
     };
 
-    const onFailLoad = (_event: unknown, errorCode: number, errorDescription: string, validatedURL: string) => {
+    const onFailLoad = (
+        _event: unknown,
+        errorCode: number,
+        errorDescription: string,
+        validatedURL: string,
+        isMainFrame?: boolean,
+    ) => {
+        if (isMainFrame === false) {
+            return;
+        }
         logger.error(`Failed to load URL: ${validatedURL} (code=${errorCode}, desc=${errorDescription})`);
+
+        const shouldRetryRuntimeServerLoad = (
+            !config.isDev
+            && !runtimeServerLoadRetried
+            && errorCode === -102
+            && isRuntimeServerUrl(validatedURL)
+        );
+        if (shouldRetryRuntimeServerLoad) {
+            runtimeServerLoadRetried = true;
+            logger.warn('Runtime server connection refused during window load; restarting runtime server and retrying once');
+
+            void (async () => {
+                try {
+                    stopServer();
+                    serverReadyPromise = null;
+                    await ensureWindowRuntimeReady();
+                    await window.loadURL(config.server.url);
+                    logger.info('Recovered window load after runtime server restart');
+                } catch (error) {
+                    logger.error(
+                        `Failed runtime server restart/retry after load refusal: ${
+                            error instanceof Error ? error.message : String(error)
+                        }`,
+                    );
+                    await showWindowNow();
+                }
+            })();
+            return;
+        }
+
         void showWindowNow();
     };
 

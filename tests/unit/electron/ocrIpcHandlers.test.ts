@@ -11,7 +11,6 @@ type TRegisteredHandler = (...args: unknown[]) => unknown;
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
     ipcHandle: vi.fn<(channel: string, handler: TRegisteredHandler) => void>(),
-    existsSync: vi.fn<(path: string) => boolean>(),
     runOcr: vi.fn(),
     handleOcrCreateSearchablePdfAsync: vi.fn(),
     handleOcrCancel: vi.fn(),
@@ -25,7 +24,7 @@ const mocks = vi.hoisted(() => ({
     getOcrConcurrency: vi.fn(),
     getTesseractThreadLimit: vi.fn(),
     getSequentialProgressPage: vi.fn(),
-    resolveAllowedWritePath: vi.fn<(path: string) => Promise<string | null>>(),
+    resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(),
 }));
 
 vi.mock('electron', () => ({
@@ -35,8 +34,6 @@ vi.mock('electron', () => ({
         mocks.handlers.set(channel, handler);
     } },
 }));
-vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
-
 vi.mock('@electron/ocr/tesseract', () => ({runOcr: mocks.runOcr}));
 
 vi.mock('@electron/ocr/paths', () => ({
@@ -57,7 +54,7 @@ vi.mock('@electron/utils/concurrency', () => ({
     getTesseractThreadLimit: mocks.getTesseractThreadLimit,
     getSequentialProgressPage: mocks.getSequentialProgressPage,
 }));
-vi.mock('@electron/utils/path-validator', () => ({resolveAllowedWritePath: mocks.resolveAllowedWritePath}));
+vi.mock('@electron/utils/path-validator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 
 vi.mock('@electron/ocr/jobManager', () => ({
     handleOcrCreateSearchablePdfAsync: mocks.handleOcrCreateSearchablePdfAsync,
@@ -85,8 +82,7 @@ describe('registerOcrHandlers', () => {
     beforeEach(() => {
         mocks.handlers.clear();
         vi.clearAllMocks();
-        mocks.existsSync.mockReturnValue(true);
-        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/working-copy.pdf');
+        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/working-copy.pdf');
 
         mocks.getOcrToolPaths.mockReturnValue({
             tesseract: '/mock/tesseract',
@@ -160,11 +156,7 @@ describe('registerOcrHandlers', () => {
         const handler = getHandler('ocr:createSearchablePdf');
         const result = await handler(
             {sender: {id: 11}},
-            new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
+            '/tmp/working-copy.pdf',
             [{
                 pageNumber: 1,
                 languages: ['eng'],
@@ -201,7 +193,7 @@ describe('registerOcrHandlers', () => {
         const handler = getHandler('ocr:createSearchablePdf');
         const result = await handler(
             {sender: {id: 12}},
-            new Uint8Array([1]),
+            '/tmp/working-copy.pdf',
             [{
                 pageNumber: 1,
                 languages: ['eng'],
@@ -232,7 +224,7 @@ describe('registerOcrHandlers', () => {
         const handler = getHandler('ocr:createSearchablePdf');
         const result = await handler(
             {sender: {id: 13}},
-            new Uint8Array([1]),
+            '/tmp/working-copy.pdf',
             [{
                 pageNumber: 1,
                 languages: ['eng'],
@@ -253,19 +245,18 @@ describe('registerOcrHandlers', () => {
         });
     });
 
-    it('rejects disallowed workingCopyPath before queuing OCR worker job', async () => {
-        mocks.resolveAllowedWritePath.mockResolvedValue(null);
+    it('rejects disallowed sourcePdfPath before queuing OCR worker job', async () => {
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
 
         const handler = getHandler('ocr:createSearchablePdf');
         const result = await handler(
             {sender: {id: 14}},
-            new Uint8Array([1]),
+            '/tmp/outside.pdf',
             [{
                 pageNumber: 1,
                 languages: ['eng'],
             }],
             'job-invalid-working-copy-path',
-            '/tmp/outside.pdf',
         ) as {
             started: boolean;
             errorEnvelope?: {
@@ -276,7 +267,7 @@ describe('registerOcrHandlers', () => {
         };
 
         expect(result.started).toBe(false);
-        expect(result.error).toContain('workingCopyPath');
+        expect(result.error).toContain('sourcePdfPath');
         expect(result.errorEnvelope).toMatchObject({
             code: 'OCR_INVALID_PAYLOAD',
             retryable: false,
