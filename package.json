@@ -56,7 +56,14 @@
     "check:architecture:dep-graph": "node scripts/architecture/dep-graph.mjs --output=.tmp/dep-graph.json",
     "check:architecture:boundaries": "node scripts/architecture/boundary-check.mjs",
     "check:architecture": "pnpm run check:architecture:dep-graph && pnpm run check:architecture:boundaries",
-    "preversion": "pnpm validate && pnpm test && pnpm run check:resources:matrix"
+    "preversion": "pnpm validate && pnpm test && pnpm run check:resources:matrix",
+    "gate:fast": "pnpm run lint:fix && pnpm run typecheck",
+    "gate:full": "pnpm run validate && pnpm test",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,mts,vue}": "eslint --fix --max-warnings=0",
+    "app/**/*.{vue,scss}": "stylelint --fix"
   },
   "dependencies": {
     "@babel/parser": "7.28.5",
@@ -119,7 +126,9 @@
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import": "^2.32.0",
     "fast-png": "^8.0.0",
+    "husky": "^9.1.7",
     "knip": "^5.83.1",
+    "lint-staged": "^16.2.7",
     "nuxt": "^4.0.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.530",
@@ -130,9 +139,9 @@
     "stylelint-config-recommended-vue": "^1.6.1",
     "stylelint-config-standard-scss": "^16.0.0",
     "tailwindcss": "^4.1.18",
+    "tsx": "^4.19.0",
     "type-coverage": "^2.29.7",
     "type-fest": "^5.4.4",
-    "tsx": "^4.19.0",
     "typescript": "^5.9.3",
     "unplugin-auto-import": "^21.0.0",
     "utif": "^3.1.0",
