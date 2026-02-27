@@ -3,6 +3,7 @@ import {
     ipcMain,
     dialog,
 } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'fs';
 import {
     rename,
@@ -259,7 +260,7 @@ async function prepareInsertionSourcePdf(
     const tempSourcePdfPath = join(
         workingCopyPath,
         '..',
-        `insert-source-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`,
+        `insert-source-${randomUUID()}.pdf`,
     );
     await writeFile(tempSourcePdfPath, mergedPdf);
 
@@ -287,7 +288,7 @@ async function insertPagesFromSourcePaths(
 ) {
     const qpdf = getOcrToolPaths().qpdf;
     const dir = join(workingCopyPath, '..');
-    const id = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const id = `tmp-${randomUUID()}`;
     const tempPath = join(dir, `${id}.pdf`);
 
     const {

@@ -3,6 +3,7 @@ import {
     BrowserWindow,
     ipcMain,
 } from 'electron';
+import { randomUUID } from 'node:crypto';
 import type { IAppUpdateStatus } from '@app/types/electron-api';
 import {
     dirname,
@@ -10,6 +11,7 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
+import { uniq } from 'es-toolkit/array';
 import { config } from '@electron/config';
 import {
     registerIpcHandlers,
@@ -51,7 +53,7 @@ if (automationUserDataDir) {
 
 const logger = createLogger('main');
 const startupStartedAt = Date.now();
-const startupSessionId = `${startupStartedAt}-${Math.random().toString(36).slice(2, 8)}`;
+const startupSessionId = `${startupStartedAt}-${randomUUID()}`;
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 
 function logStartupPhase(phase: string) {
@@ -178,19 +180,9 @@ function collectSupportedPathsFromArgs(args: string[]): string[] {
 }
 
 function queueOpenRequest(paths: string[]) {
-    const seen = new Set<string>();
-    const normalizedPaths = paths
+    const normalizedPaths = uniq(paths
         .map(path => path.trim())
-        .filter((path) => {
-            if (path.length === 0) {
-                return false;
-            }
-            if (seen.has(path)) {
-                return false;
-            }
-            seen.add(path);
-            return true;
-        });
+        .filter(path => path.length > 0));
     if (normalizedPaths.length === 0) {
         return;
     }
@@ -201,21 +193,8 @@ function collectMergedPendingPaths() {
     if (pendingOpenRequests.length === 0) {
         return [];
     }
-
-    const seen = new Set<string>();
-    const mergedPaths: string[] = [];
-
-    while (pendingOpenRequests.length > 0) {
-        const batch = pendingOpenRequests.shift()!;
-        for (const path of batch) {
-            if (seen.has(path)) {
-                continue;
-            }
-            seen.add(path);
-            mergedPaths.push(path);
-        }
-    }
-
+    const mergedPaths = uniq(pendingOpenRequests.flat());
+    pendingOpenRequests.length = 0;
     return mergedPaths;
 }
 

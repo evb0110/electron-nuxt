@@ -121,7 +121,7 @@ export const useOcr = () => {
             });
         });
 
-        const requestId = `ocr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const requestId = `ocr-${crypto.randomUUID()}`;
         activeRequestId.value = requestId;
         BrowserLogger.info('ocr', 'Request created', {
             requestId,

@@ -9,6 +9,7 @@ import {
     type ILatestReleaseResponse,
     type IReleaseInstaller,
 } from '~~/shared/releases';
+import { retry } from 'es-toolkit/function';
 
 interface IGithubReleaseAsset {
     id: number
@@ -78,18 +79,19 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
 
     let installers = toInstallers(release);
     if (!installers.length) {
-        for (let attempt = 0; attempt < 2; attempt++) {
-            await new Promise(resolve => setTimeout(resolve, 450 * (attempt + 1)));
-
-            try {
+        try {
+            await retry(async () => {
                 release = await fetchLatestRelease();
                 installers = toInstallers(release);
-                if (installers.length) {
-                    break;
+                if (!installers.length) {
+                    throw new Error('No installers in latest release response');
                 }
-            } catch {
-                break;
-            }
+            }, {
+                retries: 2,
+                delay: (attempt) => 450 * attempt,
+            });
+        } catch {
+            // Keep initial empty installers response on transient follow-up failures.
         }
     }
 

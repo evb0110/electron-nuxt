@@ -227,6 +227,9 @@
 
 <script setup lang="ts">
 
+import { useTimeoutFn } from '@vueuse/core';
+import { uniq } from 'es-toolkit/array';
+import { withTimeout } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     getElectronAPI,
@@ -518,23 +521,22 @@ applyFallbackToolbarSnapshot(createDefaultToolbarSnapshot());
 
 
 let isMutatingGhosts = false;
-let ghostExpiryTimer: ReturnType<typeof setTimeout> | null = null;
 const GHOST_EXPIRY_MS = 200;
+const {
+    start: startGhostExpiryTimer,
+    stop: stopGhostExpiryTimer,
+} = useTimeoutFn(() => {
+    clearToolbarGhostNodes();
+    syncToolbarTeleportPresence();
+}, GHOST_EXPIRY_MS, { immediate: false });
 
 function clearGhostExpiryTimer() {
-    if (ghostExpiryTimer !== null) {
-        clearTimeout(ghostExpiryTimer);
-        ghostExpiryTimer = null;
-    }
+    stopGhostExpiryTimer();
 }
 
 function scheduleGhostExpiry() {
     clearGhostExpiryTimer();
-    ghostExpiryTimer = setTimeout(() => {
-        ghostExpiryTimer = null;
-        clearToolbarGhostNodes();
-        syncToolbarTeleportPresence();
-    }, GHOST_EXPIRY_MS);
+    startGhostExpiryTimer();
 }
 
 function clearToolbarGhostNodes() {
@@ -697,20 +699,23 @@ async function waitForWorkspace(tabId: string, timeoutMs = WORKSPACE_REF_WAIT_TI
     if (existingWorkspace) {
         return existingWorkspace;
     }
+    let waiter: ((workspace: IWorkspaceExpose) => void) | null = null;
 
-    return new Promise<IWorkspaceExpose | null>((resolve) => {
-        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const cleanupWaiter = () => {
+        if (!waiter) {
+            return;
+        }
+        const activeWaiters = pendingWorkspaceWaiters.get(tabId);
+        activeWaiters?.delete(waiter);
+        if (activeWaiters && activeWaiters.size === 0) {
+            pendingWorkspaceWaiters.delete(tabId);
+        }
+        waiter = null;
+    };
 
-        const finish = (workspace: IWorkspaceExpose | null) => {
-            if (timeoutId !== null) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
-            }
+    const waiterPromise = new Promise<IWorkspaceExpose>((resolve) => {
+        waiter = (workspace: IWorkspaceExpose) => {
             resolve(workspace);
-        };
-
-        const waiter = (workspace: IWorkspaceExpose) => {
-            finish(workspace);
         };
 
         const waiters = pendingWorkspaceWaiters.get(tabId);
@@ -721,29 +726,28 @@ async function waitForWorkspace(tabId: string, timeoutMs = WORKSPACE_REF_WAIT_TI
         }
 
         const currentWorkspace = workspaceRefs.value.get(tabId) ?? null;
-        if (currentWorkspace) {
+        if (currentWorkspace && waiter) {
             const currentWaiters = pendingWorkspaceWaiters.get(tabId);
             currentWaiters?.delete(waiter);
             if (currentWaiters && currentWaiters.size === 0) {
                 pendingWorkspaceWaiters.delete(tabId);
             }
-            finish(currentWorkspace);
-            return;
+            waiter = null;
+            resolve(currentWorkspace);
         }
-
-        timeoutId = setTimeout(() => {
-            const activeWaiters = pendingWorkspaceWaiters.get(tabId);
-            activeWaiters?.delete(waiter);
-            if (activeWaiters && activeWaiters.size === 0) {
-                pendingWorkspaceWaiters.delete(tabId);
-            }
-            BrowserLogger.warn('tabs', 'Workspace did not mount in time', {
-                tabId,
-                timeoutMs,
-            });
-            finish(null);
-        }, timeoutMs);
     });
+
+    try {
+        return await withTimeout(() => waiterPromise, timeoutMs);
+    } catch {
+        BrowserLogger.warn('tabs', 'Workspace did not mount in time', {
+            tabId,
+            timeoutMs,
+        });
+        return null;
+    } finally {
+        cleanupWaiter();
+    }
 }
 
 function removeTabFromState(tabId: string) {
@@ -879,19 +883,14 @@ function scoreTabDocumentReadiness(tabId: string) {
 }
 
 function pickBestTabCandidate(tabIds: Array<string | null | undefined>) {
-    const uniqueTabIds: string[] = [];
-    const seen = new Set<string>();
-    for (const tabId of tabIds) {
-        if (!tabId || seen.has(tabId) || !getTabById(tabId)) {
-            continue;
-        }
-        seen.add(tabId);
-        uniqueTabIds.push(tabId);
-    }
+    const uniqueTabIds = uniq(tabIds.filter((tabId): tabId is string => Boolean(tabId)));
 
     let bestTabId: string | null = null;
     let bestScore = -1;
     for (const tabId of uniqueTabIds) {
+        if (!getTabById(tabId)) {
+            continue;
+        }
         const score = scoreTabDocumentReadiness(tabId);
         if (score > bestScore) {
             bestScore = score;
@@ -1810,11 +1809,7 @@ function handleTabMoveDirection(
     void moveActiveTab(direction);
 }
 
-const {
-    handleWindowDragOver,
-    handleWindowDrop,
-    cleanup: cleanupExternalFileDrop,
-} = useExternalFileDrop({ openPathInAppropriateTab });
+const { cleanup: cleanupExternalFileDrop } = useExternalFileDrop({ openPathInAppropriateTab });
 
 const {
     loadRecentFiles,
@@ -1844,8 +1839,6 @@ useTabsShellBindings({
     clearRecentFiles,
     loadRecentFiles,
     ensureAtLeastOneTab,
-    handleWindowDragOver,
-    handleWindowDrop,
     openSettings: () => {
         showSettings.value = true;
     },

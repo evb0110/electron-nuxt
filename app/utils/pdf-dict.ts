@@ -1,4 +1,5 @@
 import type {PDFDict} from 'pdf-lib';
+import { clamp } from 'es-toolkit/math';
 import {
     PDFArray,
     PDFHexString,
@@ -79,9 +80,9 @@ export function normalizeMarkerRectFromDict(
     const top = 1 - (maxY / pageHeight);
 
     return {
-        left: Math.max(0, Math.min(1, left)),
-        top: Math.max(0, Math.min(1, top)),
-        width: Math.max(0, Math.min(1, width)),
-        height: Math.max(0, Math.min(1, height)),
+        left: clamp(left, 0, 1),
+        top: clamp(top, 0, 1),
+        width: clamp(width, 0, 1),
+        height: clamp(height, 0, 1),
     };
 }

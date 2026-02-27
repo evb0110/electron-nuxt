@@ -19,6 +19,7 @@ import puppeteer, {
     type Page,
 } from 'puppeteer-core';
 import { safeDestr } from 'destr';
+import { uniq } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
 import { createCommandHandler } from './commands';
 import {
@@ -88,7 +89,7 @@ function isViteOptimizeDepError(error: unknown) {
 }
 
 async function killProcessTreeForPids(pids: number[], graceMs = 1200) {
-    for (const pid of Array.from(new Set(pids))) {
+    for (const pid of uniq(pids)) {
         await killProcessTree(pid, graceMs);
     }
 }

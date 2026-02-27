@@ -166,6 +166,7 @@
 <script setup lang="ts">
 
 import { useResizeObserver } from '@vueuse/core';
+import { clamp } from 'es-toolkit/math';
 import type {
     IShapeAnnotation,
     TShapeType,
@@ -272,8 +273,8 @@ function getNormalizedCoords(event: PointerEvent) {
     if (rect.width <= 0 || rect.height <= 0) {
         return null;
     }
-    const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+    const x = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+    const y = clamp((event.clientY - rect.top) / rect.height, 0, 1);
     return {
         x,
         y, 

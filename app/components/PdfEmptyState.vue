@@ -109,6 +109,7 @@
 
 <script setup lang="ts">
 import { formatRelativeTime } from '@app/utils/formatters';
+import { clamp } from 'es-toolkit/math';
 
 interface IRecentFile {
     originalPath: string;
@@ -163,7 +164,7 @@ function displayProcessedCount(processed: number, total: number) {
         return 0;
     }
 
-    return Math.min(Math.max(0, Math.round(processed)), total);
+    return clamp(Math.round(processed), 0, total);
 }
 
 function formatEtaDuration(etaMs: number | null) {

@@ -1,4 +1,5 @@
 
+import { clamp } from 'es-toolkit/math';
 import {
     getElectronAPI,
     hasElectronAPI,
@@ -163,7 +164,7 @@ export const usePdfFile = () => {
                 openBatchProgress.value = {
                     processed: Math.max(0, progress.processed),
                     total: Math.max(0, progress.total),
-                    percent: Math.max(0, Math.min(100, progress.percent)),
+                    percent: clamp(progress.percent, 0, 100),
                     elapsedMs: Math.max(0, progress.elapsedMs),
                     estimatedRemainingMs: typeof progress.estimatedRemainingMs === 'number'
                         ? Math.max(0, progress.estimatedRemainingMs)

@@ -1,4 +1,5 @@
 import type { IpcMainInvokeEvent } from 'electron';
+import { randomUUID } from 'node:crypto';
 import {
     app,
     ipcMain,
@@ -11,6 +12,7 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
+import { clamp } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/logger';
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
@@ -54,7 +56,7 @@ const SEARCH_WORKER_MAX_ACTIVE = (() => {
     if (!Number.isFinite(parsed)) {
         return 8;
     }
-    return Math.min(Math.max(parsed, 1), 256);
+    return clamp(parsed, 1, 256);
 })();
 const SEARCH_WORKER_IDLE_TTL_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS ?? `${60 * 1000}`, 10);
@@ -576,7 +578,7 @@ async function handlePdfSearch(
     const senderId = event.sender.id;
     const state = ensureSenderState(event, senderId);
     const requestId = request.requestId?.trim()
-        || `search-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        || `search-${randomUUID()}`;
 
     if (state.activeRequestId && state.activeRequestId !== requestId) {
         cancelRequest(state, state.activeRequestId);

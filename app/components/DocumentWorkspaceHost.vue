@@ -64,6 +64,8 @@
 
 <script setup lang="ts">
 
+import { withTimeout } from 'es-toolkit/promise';
+import { until } from '@vueuse/core';
 import type { TOpenFileResult } from '@app/types/electron-api';
 import type { IRecentFile } from '@app/types/shared';
 import type { TTabUpdate } from '@app/types/tabs';
@@ -310,12 +312,6 @@ async function runWhileOpeningDocument(run: () => Promise<void>) {
     }
 }
 
-function sleep(ms: number) {
-    return new Promise<void>((resolve) => {
-        setTimeout(resolve, ms);
-    });
-}
-
 async function preloadWorkspaceComponent(reason: string) {
     if (workspacePreloadPromise) {
         return workspacePreloadPromise;
@@ -350,20 +346,17 @@ async function preloadWorkspaceComponent(reason: string) {
 }
 
 async function waitForWorkspaceMount(timeoutMs = WORKSPACE_MOUNT_TIMEOUT_MS) {
-    const start = Date.now();
-    while (Date.now() - start <= timeoutMs) {
-        if (hasWorkspaceChunkLoadError.value) {
-            return null;
-        }
-
-        const workspace = mountedWorkspace.value;
-        if (workspace) {
-            return workspace;
-        }
-        await nextTick();
-        await sleep(16);
+    try {
+        return await withTimeout(async () => {
+            await until(() => mountedWorkspace.value || hasWorkspaceChunkLoadError.value).toBeTruthy();
+            if (hasWorkspaceChunkLoadError.value) {
+                return null;
+            }
+            return mountedWorkspace.value;
+        }, timeoutMs);
+    } catch {
+        return null;
     }
-    return null;
 }
 
 async function ensureWorkspaceLoaded(reason: string) {

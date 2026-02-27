@@ -3,6 +3,7 @@ import { LOCALE_DEFINITIONS as appLocaleDefinitions } from '../app/i18n/locale-d
 import { LOCALE_MESSAGES as appLocaleMessages } from '../app/i18n/locales';
 import { EN_MESSAGE_SCHEMA as appSchema } from '../app/i18n/message-schema';
 import { LOCALE_CODES as landingLocaleCodes } from '../landing/app/i18n/locale-codes';
+import { difference } from 'es-toolkit/array';
 import {
     LOCALE_DEFINITIONS as landingLocaleDefinitions,
     LOCALE_MESSAGES as landingLocaleMessages,
@@ -58,8 +59,8 @@ function hasStringPath(node: unknown, dottedPath: string): boolean {
 }
 
 function diffKeys(expected: Set<string>, actual: Set<string>) {
-    const missing = Array.from(expected).filter((key) => !actual.has(key)).sort();
-    const extra = Array.from(actual).filter((key) => !expected.has(key)).sort();
+    const missing = difference(Array.from(expected), Array.from(actual)).sort();
+    const extra = difference(Array.from(actual), Array.from(expected)).sort();
 
     return {
         missing,
@@ -112,8 +113,8 @@ function assertLocaleMetadataParity(
     errors: string[],
 ) {
     const definitionCodes = localeDefinitions.map((definition) => definition.code);
-    const missingDefinitions = localeCodes.filter((code) => !definitionCodes.includes(code));
-    const extraDefinitions = definitionCodes.filter((code) => !localeCodes.includes(code));
+    const missingDefinitions = difference(Array.from(localeCodes), definitionCodes);
+    const extraDefinitions = difference(definitionCodes, Array.from(localeCodes));
 
     if (missingDefinitions.length > 0 || extraDefinitions.length > 0) {
         errors.push(

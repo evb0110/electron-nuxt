@@ -1,7 +1,7 @@
 /* eslint-disable no-restricted-imports */
 import type { TLocale } from './locale-codes';
 
-export interface ILocaleDefinition {
+interface ILocaleDefinition {
     code: TLocale;
     file: `${TLocale}.ts`;
     name: string;

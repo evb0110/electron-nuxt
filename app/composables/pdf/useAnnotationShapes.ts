@@ -10,11 +10,8 @@ import type {
     IAnnotationSettings,
 } from '@app/types/annotations';
 
-let shapeIdCounter = 0;
-
 function generateShapeId() {
-    shapeIdCounter += 1;
-    return `shape-${Date.now()}-${shapeIdCounter}`;
+    return `shape-${crypto.randomUUID()}`;
 }
 
 export function isShapeTool(tool: TAnnotationTool): tool is TShapeType {

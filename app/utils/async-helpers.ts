@@ -1,4 +1,4 @@
-import { delay } from 'es-toolkit/promise';
+import { until } from '@vueuse/core';
 
 interface IWaitUntilIdleOptions {
     delayMs?: number;
@@ -13,9 +13,14 @@ export async function waitUntilIdle(
         delayMs = 25,
         maxAttempts = 120,
     } = options;
-    let attempts = 0;
-    while (isBusy() && attempts < maxAttempts) {
-        await delay(delayMs);
-        attempts += 1;
+    const timeout = Math.max(0, delayMs * maxAttempts);
+    if (timeout === 0) {
+        return;
+    }
+
+    try {
+        await until(() => !isBusy()).toBe(true, { timeout });
+    } catch {
+        // Preserve previous behavior: idle wait is best-effort and never throws.
     }
 }

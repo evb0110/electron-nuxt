@@ -202,6 +202,11 @@
 </template>
 
 <script setup lang="ts">
+import { useTimeoutFn } from '@vueuse/core';
+import {
+    groupBy,
+    minBy,
+} from 'es-toolkit/array';
 import {
     buildAbsoluteUrl,
     normalizeSiteUrl,
@@ -475,8 +480,27 @@ const releaseDateLabel = computed(() => {
     return new Intl.DateTimeFormat(locale.value, { dateStyle: 'long' }).format(publishedDate);
 });
 
+const pendingDownloadIframes = new Set<HTMLIFrameElement>();
+const {
+    start: startIframeCleanup,
+    stop: stopIframeCleanup,
+} = useTimeoutFn(() => {
+    for (const iframe of pendingDownloadIframes) {
+        iframe.remove();
+    }
+    pendingDownloadIframes.clear();
+}, 60_000, { immediate: false });
+
 onMounted(async () => {
     clientProfile.value = await detectClientProfile();
+});
+
+onBeforeUnmount(() => {
+    stopIframeCleanup();
+    for (const iframe of pendingDownloadIframes) {
+        iframe.remove();
+    }
+    pendingDownloadIframes.clear();
 });
 
 async function detectClientProfile(): Promise<IUserAgentProfile> {
@@ -510,7 +534,9 @@ function triggerIframeDownload(url: string) {
     iframe.style.display = 'none';
     document.body.appendChild(iframe);
     iframe.src = url;
-    setTimeout(() => iframe.remove(), 60_000);
+    pendingDownloadIframes.add(iframe);
+    stopIframeCleanup();
+    startIframeCleanup();
 }
 
 function trackDownload(installer: IReleaseInstaller) {
@@ -604,35 +630,17 @@ function selectPreferredInstallers(assets: IReleaseInstaller[]): IReleaseInstall
     }
 
     const formatOrder = INSTALLER_EXTENSION_ORDER[first.platform] || INSTALLER_EXTENSION_ORDER.unknown;
-
-    const byArch = new Map<TReleaseArch, IReleaseInstaller[]>();
-    for (const asset of assets) {
-        const arch = effectiveArch(asset);
-        const group = byArch.get(arch) || [];
-        group.push(asset);
-        byArch.set(arch, group);
-    }
+    const byArch = groupBy(assets, asset => effectiveArch(asset));
 
     const result: IReleaseInstaller[] = [];
-    for (const [
-        , archAssets,
-    ] of byArch) {
-        const firstOfArch = archAssets[0];
-        if (!firstOfArch) continue;
-
-        let best = firstOfArch;
-        let bestRank = formatOrder.indexOf(best.extension);
-        if (bestRank === -1) bestRank = 999;
-
-        for (const asset of archAssets.slice(1)) {
-            let rank = formatOrder.indexOf(asset.extension);
-            if (rank === -1) rank = 999;
-            if (rank < bestRank) {
-                best = asset;
-                bestRank = rank;
-            }
+    for (const archAssets of Object.values(byArch)) {
+        const preferred = minBy(archAssets, asset => {
+            const rank = formatOrder.indexOf(asset.extension);
+            return rank === -1 ? Number.POSITIVE_INFINITY : rank;
+        });
+        if (preferred) {
+            result.push(preferred);
         }
-        result.push(best);
     }
 
     return result;

@@ -1,4 +1,5 @@
 import {
+    useDebounceFn,
     useEventListener,
     useMutationObserver,
     useResizeObserver,
@@ -15,7 +16,6 @@ export const useToolbarOverflow = () => {
     const collapseTier = ref(0);
 
     let frameId: number | null = null;
-    let settleTimerId: number | null = null;
     let isRecalculating = false;
     let needsRecalculation = false;
     let suppressMutationEvents = false;
@@ -166,6 +166,10 @@ export const useToolbarOverflow = () => {
         }
     }
 
+    const runSettledRecalculation = useDebounceFn(() => {
+        void runRecalculation(true);
+    }, RESIZE_SETTLE_MS);
+
     function scheduleRecalculation() {
         if (typeof window === 'undefined') {
             return;
@@ -184,15 +188,7 @@ export const useToolbarOverflow = () => {
             frameId = null;
             void runRecalculation(false);
         });
-
-        if (settleTimerId !== null) {
-            window.clearTimeout(settleTimerId);
-        }
-
-        settleTimerId = window.setTimeout(() => {
-            settleTimerId = null;
-            void runRecalculation(true);
-        }, RESIZE_SETTLE_MS);
+        runSettledRecalculation();
     }
 
     watch(toolbarRef, () => {
@@ -226,9 +222,6 @@ export const useToolbarOverflow = () => {
     onBeforeUnmount(() => {
         if (frameId !== null && typeof window !== 'undefined') {
             window.cancelAnimationFrame(frameId);
-        }
-        if (settleTimerId !== null && typeof window !== 'undefined') {
-            window.clearTimeout(settleTimerId);
         }
     });
 

@@ -50,7 +50,7 @@ export type TOcrWorkerInboundMessage = {
     data: IOcrWorkerStartPayload;
 };
 
-export interface IOcrWorkerProgressPayload {
+interface IOcrWorkerProgressPayload {
     requestId: string;
     currentPage: number;
     processedCount: number;

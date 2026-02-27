@@ -1,7 +1,7 @@
 import { join } from 'path';
 import { app } from 'electron';
 import {
-    mkdir,
+    mkdtemp,
     rm,
 } from 'fs/promises';
 import { convertDjvuPageToImage } from '@electron/djvu/convert';
@@ -54,8 +54,7 @@ export async function estimateSizes(
         },
     ];
 
-    const tempDir = join(app.getPath('temp'), `djvu-estimate-${Date.now()}`);
-    await mkdir(tempDir, { recursive: true });
+    const tempDir = await mkdtemp(join(app.getPath('temp'), 'djvu-estimate-'));
 
     const estimates: IDjvuSizeEstimate[] = [];
 

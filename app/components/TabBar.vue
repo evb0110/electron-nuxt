@@ -74,7 +74,10 @@
 
 <script setup lang="ts">
 
-import { useEventListener } from '@vueuse/core';
+import {
+    onClickOutside,
+    useEventListener,
+} from '@vueuse/core';
 import type { ITab } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/composables/useTabDragReorder';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
@@ -443,13 +446,8 @@ useEventListener(window, 'keydown', (event) => {
     }
 });
 
-useEventListener(window, 'pointerdown', (event) => {
+onClickOutside(contextMenuRef, () => {
     if (!contextMenu.value.visible) {
-        return;
-    }
-
-    const target = event.target instanceof Node ? event.target : null;
-    if (target && contextMenuRef.value?.contains(target)) {
         return;
     }
     closeTabContextMenu();

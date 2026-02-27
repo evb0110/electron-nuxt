@@ -22,8 +22,6 @@ interface IUseTabsShellBindingsOptions {
     clearRecentFiles: () => Promise<void>;
     loadRecentFiles: () => Promise<void>;
     ensureAtLeastOneTab: () => void;
-    handleWindowDragOver: (event: DragEvent) => void;
-    handleWindowDrop: (event: DragEvent) => void;
     openSettings: () => void;
     checkForUpdates: () => Promise<void> | void;
     splitEditor: (direction: TGroupDirection) => Promise<void> | void;
@@ -46,8 +44,6 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
         clearRecentFiles,
         loadRecentFiles,
         ensureAtLeastOneTab,
-        handleWindowDragOver,
-        handleWindowDrop,
         openSettings,
         checkForUpdates,
         splitEditor,
@@ -115,8 +111,6 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
 
         if (typeof window !== 'undefined') {
             (window as Window & { __openFileDirect?: (path: string) => Promise<void> }).__openFileDirect = openPathInAppropriateTab;
-            windowListenerCleanups.push(useEventListener(window, 'dragover', handleWindowDragOver));
-            windowListenerCleanups.push(useEventListener(window, 'drop', handleWindowDrop));
         }
 
         if (hasElectronAPI()) {

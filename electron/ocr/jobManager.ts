@@ -11,6 +11,8 @@ import { existsSync } from 'fs';
 import { unlink } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
+import { uniq } from 'es-toolkit/array';
+import { withTimeout } from 'es-toolkit/promise';
 import { ensureTessdataLanguages } from '@electron/ocr/language-models';
 import { getOcrToolPaths } from '@electron/ocr/paths';
 import type {
@@ -239,30 +241,6 @@ function asTransferableBytes(bytes: Uint8Array) {
         return bytes;
     }
     return bytes.slice();
-}
-
-function withTimeout<T>(
-    promise: Promise<T>,
-    timeoutMs: number,
-    errorMessage: string,
-): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-            reject(new Error(errorMessage));
-        }, timeoutMs);
-        timeout.unref?.();
-
-        promise.then(
-            (result) => {
-                clearTimeout(timeout);
-                resolve(result);
-            },
-            (error) => {
-                clearTimeout(timeout);
-                reject(error);
-            },
-        );
-    });
 }
 
 export function safeSendToWindow(
@@ -795,7 +773,7 @@ export async function handleOcrCreateSearchablePdfAsync(
             };
         }
 
-        const languages = Array.from(new Set(pages.flatMap(page => page.languages)));
+        const languages = uniq(pages.flatMap(page => page.languages));
         const tessdataDir = getOcrToolPaths().tessdata;
         const missingLanguages = languages.filter(languageCode =>
             !existsSync(join(tessdataDir, `${languageCode}.traineddata`)),
@@ -803,11 +781,14 @@ export async function handleOcrCreateSearchablePdfAsync(
         if (missingLanguages.length > 0) {
             log.warn(`Missing OCR language models in ${tessdataDir}; downloading: ${missingLanguages.join(', ')}`);
         }
-        await withTimeout(
-            ensureTessdataLanguages(languages),
-            OCR_MODEL_PREP_TIMEOUT_MS,
-            `OCR model preparation timed out after ${OCR_MODEL_PREP_TIMEOUT_MS}ms`,
-        );
+        try {
+            await withTimeout(() => ensureTessdataLanguages(languages), OCR_MODEL_PREP_TIMEOUT_MS);
+        } catch (error) {
+            if (error instanceof Error && error.name === 'TimeoutError') {
+                throw new Error(`OCR model preparation timed out after ${OCR_MODEL_PREP_TIMEOUT_MS}ms`);
+            }
+            throw error;
+        }
 
         if (event.sender.isDestroyed()) {
             return {

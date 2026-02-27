@@ -1,4 +1,5 @@
 import { join } from 'path';
+import { randomUUID } from 'node:crypto';
 import {
     rename,
     unlink,
@@ -17,7 +18,7 @@ function getQpdfBinary() {
 
 function makeTempPath(workingCopyPath: string) {
     const dir = join(workingCopyPath, '..');
-    const id = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const id = `tmp-${randomUUID()}`;
     return join(dir, `${id}.pdf`);
 }
 

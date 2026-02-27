@@ -1,10 +1,11 @@
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import { clamp } from 'es-toolkit/math';
 
 export function clamp01(value: number) {
     if (!Number.isFinite(value)) {
         return 0;
     }
-    return Math.max(0, Math.min(1, value));
+    return clamp(value, 0, 1);
 }
 
 export function normalizeMarkerRect(rect: IAnnotationMarkerRect | null | undefined): IAnnotationMarkerRect | null {
@@ -19,12 +20,12 @@ export function normalizeMarkerRect(rect: IAnnotationMarkerRect | null | undefin
         return null;
     }
 
-    const clampedLeft = Math.min(1, Math.max(0, left));
-    const clampedTop = Math.min(1, Math.max(0, top));
+    const clampedLeft = clamp(left, 0, 1);
+    const clampedTop = clamp(top, 0, 1);
     const maxWidth = 1 - clampedLeft;
     const maxHeight = 1 - clampedTop;
-    const clampedWidth = Math.min(maxWidth, Math.max(0, width));
-    const clampedHeight = Math.min(maxHeight, Math.max(0, height));
+    const clampedWidth = clamp(width, 0, maxWidth);
+    const clampedHeight = clamp(height, 0, maxHeight);
     if (clampedWidth <= 0 || clampedHeight <= 0) {
         return null;
     }

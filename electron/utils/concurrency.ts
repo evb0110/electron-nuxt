@@ -2,6 +2,7 @@ import {
     availableParallelism,
     cpus,
 } from 'os';
+import { limitAsync } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 
 function parsePositiveInt(value: string | undefined): number | null {
@@ -46,20 +47,13 @@ export async function forEachConcurrent<T>(
     concurrency: number,
     fn: (item: T, index: number) => Promise<void>,
 ): Promise<void> {
+    if (items.length === 0) {
+        return;
+    }
+
     const workerCount = Math.max(1, Math.min(concurrency, items.length));
-    let nextIndex = 0;
-
-    const workers = Array.from({ length: workerCount }, async () => {
-        while (true) {
-            const index = nextIndex++;
-            if (index >= items.length) {
-                return;
-            }
-            await fn(items[index]!, index);
-        }
-    });
-
-    await Promise.all(workers);
+    const limited = limitAsync(fn, workerCount);
+    await Promise.all(items.map((item, index) => limited(item, index)));
 }
 
 export function getSequentialProgressPage(

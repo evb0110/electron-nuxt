@@ -1,6 +1,7 @@
 import type { IScrollSnapshot } from '@app/types/pdf';
 import { getPageContainerByNumber } from '@app/composables/pdf/pdfScrollVisibility';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { clamp } from 'es-toolkit/math';
 
 const PAGE_NUMBER_BASE = 10;
 const SNAPSHOT_LOG_THROTTLE_MS = 420;
@@ -15,23 +16,19 @@ interface IAnchorPageSnapshot {
     pageYOutsideOffsetPx: number | null;
 }
 
-function clampToRange(value: number, min: number, max: number) {
-    return Math.min(max, Math.max(min, value));
-}
-
 function getViewportAnchorCoordinate(value: number | null | undefined, fallback: number, limit: number) {
     const normalizedLimit = Math.max(limit, 0);
     const normalizedValue = typeof value === 'number' && Number.isFinite(value)
         ? value
         : fallback;
-    return clampToRange(normalizedValue, 0, normalizedLimit);
+    return clamp(normalizedValue, 0, normalizedLimit);
 }
 
 function getNormalizedRatio(value: number | null | undefined, fallback: number) {
     const normalizedValue = typeof value === 'number' && Number.isFinite(value)
         ? value
         : fallback;
-    return clampToRange(normalizedValue, 0, 1);
+    return clamp(normalizedValue, 0, 1);
 }
 
 function getPageWidth(pageElement: HTMLElement) {
@@ -86,8 +83,8 @@ function getAnchorPageSnapshot(
         const pageHeight = getPageHeight(pageElement);
         return {
             page: pageNumber,
-            pageXRatio: clampToRange((anchorContentX - pageLeft) / pageWidth, 0, 1),
-            pageYRatio: clampToRange((anchorContentY - pageTop) / pageHeight, 0, 1),
+            pageXRatio: clamp((anchorContentX - pageLeft) / pageWidth, 0, 1),
+            pageYRatio: clamp((anchorContentY - pageTop) / pageHeight, 0, 1),
             insidePage: true,
             pageYOutsideEdge: 'inside',
             pageYOutsideOffsetPx: null,
@@ -328,7 +325,7 @@ export function restoreScrollFromSnapshot(
             snapshot.centerX / snapshot.width,
         );
         const targetLeft = contentXRatio * newWidth - anchorViewportXForRatio;
-        container.scrollLeft = clampToRange(targetLeft, 0, maxScrollLeft);
+        container.scrollLeft = clamp(targetLeft, 0, maxScrollLeft);
         BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-horizontal-ratio', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] horizontal-ratio', {
             targetLeft,
             beforeScrollLeft,
@@ -366,21 +363,21 @@ export function restoreScrollFromSnapshot(
                 typeof snapshot.anchorPageXRatio === 'number'
                 && Number.isFinite(snapshot.anchorPageXRatio)
                     ? anchorInsidePage
-                        ? clampToRange(snapshot.anchorPageXRatio, 0, 1)
+                        ? clamp(snapshot.anchorPageXRatio, 0, 1)
                         : snapshot.anchorPageXRatio
                     : 0;
             const pageYRatio =
                 typeof snapshot.anchorPageYRatio === 'number'
                 && Number.isFinite(snapshot.anchorPageYRatio)
                     ? anchorInsidePage
-                        ? clampToRange(snapshot.anchorPageYRatio, 0, 1)
+                        ? clamp(snapshot.anchorPageYRatio, 0, 1)
                         : snapshot.anchorPageYRatio
                     : (
                         typeof snapshot.anchorOffsetRatio === 'number'
                         && Number.isFinite(snapshot.anchorOffsetRatio)
                     )
                         ? anchorInsidePage
-                            ? clampToRange(snapshot.anchorOffsetRatio, 0, 1)
+                            ? clamp(snapshot.anchorOffsetRatio, 0, 1)
                             : snapshot.anchorOffsetRatio
                         : 0;
             const pageYOutsideEdge = snapshot.anchorPageYOutsideEdge === 'above'
@@ -399,14 +396,14 @@ export function restoreScrollFromSnapshot(
                 && pageYOutsideOffsetPx !== null
                 && pageYOutsideOffsetPx <= MAX_PAGE_OUTSIDE_ANCHOR_OFFSET_PX;
             const effectivePageYRatio = !anchorInsidePage && !canApplyOutsideOffset
-                ? clampToRange(pageYRatio, 0, 1)
+                ? clamp(pageYRatio, 0, 1)
                 : pageYRatio;
 
             if (restoreHorizontal) {
                 const maxScrollLeft = Math.max(0, newWidth - container.clientWidth);
                 const targetLeft =
                     anchorPageElement.offsetLeft + pageXRatio * safeWidth - anchorViewportX;
-                container.scrollLeft = clampToRange(targetLeft, 0, maxScrollLeft);
+                container.scrollLeft = clamp(targetLeft, 0, maxScrollLeft);
                 BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-horizontal-page-anchor', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] horizontal-page-anchor', {
                     anchorPageNumber,
                     pageXRatio,
@@ -426,7 +423,7 @@ export function restoreScrollFromSnapshot(
                         && pageYOutsideEdge === 'below'
                         ? anchorPageElement.offsetTop + safeHeight + pageYOutsideOffsetPx - anchorViewportY
                         : anchorPageElement.offsetTop + effectivePageYRatio * safeHeight - anchorViewportY;
-                container.scrollTop = clampToRange(targetTop, 0, maxScrollTop);
+                container.scrollTop = clamp(targetTop, 0, maxScrollTop);
                 BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-vertical-page-anchor', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] vertical-page-anchor', {
                     anchorPageNumber,
                     pageYRatio,
@@ -471,7 +468,7 @@ export function restoreScrollFromSnapshot(
         snapshot.centerY / snapshot.height,
     );
     const targetTop = contentYRatio * newHeight - anchorViewportYForRatio;
-    container.scrollTop = clampToRange(targetTop, 0, maxScrollTop);
+    container.scrollTop = clamp(targetTop, 0, maxScrollTop);
     BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-vertical-ratio', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] vertical-ratio', {
         targetTop,
         beforeScrollTop,

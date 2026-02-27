@@ -1,3 +1,5 @@
+import { uniq } from 'es-toolkit/array';
+
 type TOcrErrorCode =
     | 'OCR_INVALID_PAYLOAD'
     | 'OCR_INTERNAL_ERROR'
@@ -133,7 +135,7 @@ function asLanguages(value: unknown, fieldName: string) {
     }
 
     const parsed = value.map((languageCode, index) => asString(languageCode, `${fieldName}[${index}]`, 32));
-    return Array.from(new Set(parsed));
+    return uniq(parsed);
 }
 
 function asRecognizePageRequest(payload: unknown, fieldName: string): IOcrRecognizePageRequest {

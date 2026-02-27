@@ -58,6 +58,7 @@ import {
     useEventListener,
     useResizeObserver,
 } from '@vueuse/core';
+import { clamp } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IAnnotationNotePosition } from '@app/composables/pdf/annotations/types';
 import { NOTE_WINDOW } from '@app/constants/pdf-layout';
@@ -265,8 +266,8 @@ function clampSize(nextWidth: number, nextHeight: number) {
     const maxWidth = Math.max(NOTE_WINDOW.MIN_WIDTH, window.innerWidth - (NOTE_WINDOW.MARGIN * 2));
     const maxHeight = Math.max(NOTE_WINDOW.MIN_HEIGHT, window.innerHeight - (NOTE_WINDOW.MARGIN * 2));
     return {
-        width: Math.max(NOTE_WINDOW.MIN_WIDTH, Math.min(maxWidth, Math.round(nextWidth))),
-        height: Math.max(NOTE_WINDOW.MIN_HEIGHT, Math.min(maxHeight, Math.round(nextHeight))),
+        width: clamp(Math.round(nextWidth), NOTE_WINDOW.MIN_WIDTH, maxWidth),
+        height: clamp(Math.round(nextHeight), NOTE_WINDOW.MIN_HEIGHT, maxHeight),
     };
 }
 
@@ -280,8 +281,8 @@ function clampPosition(x: number, y: number, nextWidth: number, nextHeight: numb
     const maxX = Math.max(NOTE_WINDOW.MARGIN, window.innerWidth - nextWidth - NOTE_WINDOW.MARGIN);
     const maxY = Math.max(NOTE_WINDOW.MARGIN, window.innerHeight - nextHeight - NOTE_WINDOW.MARGIN);
     return {
-        x: Math.round(Math.min(maxX, Math.max(NOTE_WINDOW.MARGIN, x))),
-        y: Math.round(Math.min(maxY, Math.max(NOTE_WINDOW.MARGIN, y))),
+        x: Math.round(clamp(x, NOTE_WINDOW.MARGIN, maxX)),
+        y: Math.round(clamp(y, NOTE_WINDOW.MARGIN, maxY)),
     };
 }
 

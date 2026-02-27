@@ -1,3 +1,4 @@
+import { useDropZone } from '@vueuse/core';
 import {
     getElectronAPI,
     hasElectronAPI,
@@ -87,43 +88,17 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
         }
     }
 
-    function handleWindowDragOver(event: DragEvent) {
+    function shouldHandleDropEvent(event: DragEvent) {
         if (disposed) {
-            return;
+            return false;
         }
-
         if (event.defaultPrevented || isSidebarDropArea(event)) {
-            return;
+            return false;
         }
-
-        if (!hasExternalFilePayload(event.dataTransfer)) {
-            return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.dataTransfer) {
-            event.dataTransfer.dropEffect = 'copy';
-        }
+        return hasExternalFilePayload(event.dataTransfer);
     }
 
-    function handleWindowDrop(event: DragEvent) {
-        if (disposed) {
-            return;
-        }
-
-        if (event.defaultPrevented || isSidebarDropArea(event)) {
-            return;
-        }
-
-        if (!hasExternalFilePayload(event.dataTransfer)) {
-            return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-
-        const paths = getDroppedDocumentPaths(event.dataTransfer);
+    function enqueueDroppedPaths(paths: string[]) {
         if (paths.length === 0) {
             return;
         }
@@ -138,6 +113,31 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
             });
     }
 
+    useDropZone(typeof window !== 'undefined' ? document : null, {
+        dataTypes: ['Files'],
+        preventDefaultForUnhandled: true,
+        onOver: (_files, event) => {
+            if (!shouldHandleDropEvent(event)) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.dataTransfer) {
+                event.dataTransfer.dropEffect = 'copy';
+            }
+        },
+        onDrop: (_files, event) => {
+            if (!shouldHandleDropEvent(event)) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            enqueueDroppedPaths(getDroppedDocumentPaths(event.dataTransfer));
+        },
+    });
+
     function cleanup() {
         if (disposed) {
             return;
@@ -147,9 +147,5 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
         queue = Promise.resolve();
     }
 
-    return {
-        handleWindowDragOver,
-        handleWindowDrop,
-        cleanup,
-    };
+    return { cleanup };
 }

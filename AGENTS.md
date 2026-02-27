@@ -39,16 +39,10 @@ If unrelated changes are already present in the worktree, leave them alone:
 - Only touch files required for the current task
 - You may proceed with your own work without asking — just don't interfere with those changes
 
-## Commit and Push
-
-Commit and push after every major verified change.
+## Quality gates
 
 1. Run quality gates once the task is complete: `pnpm lint && pnpm typecheck` — do NOT run these after every small change, it slows you down massively
 2. Fix any lint or type errors before committing
-3. Stage only the files you changed (not `git add -A`)
-4. Commit with a clear message focused on "why"
-5. Push to the remote branch
-6. Unless the user asks you to commit everything, only commit changes you made
 
 ## Cross-Arch Checks
 
