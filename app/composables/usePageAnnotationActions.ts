@@ -414,13 +414,30 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             pageNumber: comment.pageNumber,
         });
         setAnnotationNoteWindowError(comment.stableKey, null);
-        const deleted = await pdfViewerRef.value.deleteAnnotationComment(comment);
+        let deleted = await pdfViewerRef.value.deleteAnnotationComment(comment);
         BrowserLogger.debug('annotations', 'Delete annotation comment viewer result', {
             stableKey: comment.stableKey,
             deleted,
         });
+        if (!deleted && (comment.source === 'pdf' || comment.annotationId)) {
+            BrowserLogger.debug('annotations', 'Attempting PDF-level embedded delete fallback', {
+                stableKey: comment.stableKey,
+                annotationId: comment.annotationId ?? null,
+            });
+            const updatedData = await deps.deleteEmbeddedByRef(comment);
+            if (updatedData) {
+                const pageToRestore = currentPage.value;
+                const restorePromise = waitForPdfReload(pageToRestore);
+                await loadPdfFromData(updatedData, {
+                    pushHistory: true,
+                    persistWorkingCopy: !!workingCopyPath.value,
+                });
+                await restorePromise;
+                deleted = true;
+            }
+        }
         if (!deleted) {
-            BrowserLogger.warn('annotations', 'Delete annotation comment failed in viewer without reload fallback', {
+            BrowserLogger.warn('annotations', 'Delete annotation comment failed after all fallbacks', {
                 stableKey: comment.stableKey,
                 source: comment.source,
                 annotationId: comment.annotationId ?? null,

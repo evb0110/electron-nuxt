@@ -987,7 +987,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         const inlineIndicators = getInlineIndicators();
 
         const customIndicator = target.closest<HTMLElement>(
-            '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker',
+            '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button',
         );
         if (customIndicator) {
             const inlineTarget = customIndicator.closest<HTMLElement>(
@@ -1020,7 +1020,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         }
 
         const explicitCommentTrigger = event.target.closest<HTMLElement>(
-            '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .annotationLayer .popupTriggerArea, .annotation-layer .popupTriggerArea',
+            '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, .annotationLayer .popupTriggerArea, .annotation-layer .popupTriggerArea',
         );
         if (!explicitCommentTrigger) {
             return;

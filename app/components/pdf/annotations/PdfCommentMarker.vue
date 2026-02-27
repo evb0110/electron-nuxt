@@ -122,4 +122,8 @@ function handleContextMenu(event: MouseEvent) {
     border-color: var(--app-pdf-comment-marker-badge-border-active);
     box-shadow: var(--app-pdf-comment-marker-badge-shadow-active);
 }
+
+.pdf-comment-marker-button:global(.pdf-comment-focus-pulse) {
+    animation: inline-comment-focus-pulse 0.9s ease-out;
+}
 </style>

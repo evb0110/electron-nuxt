@@ -20,6 +20,7 @@ import { useAnnotationToolState } from '@app/composables/pdf/annotations/useAnno
 import { useAnnotationHighlight } from '@app/composables/pdf/annotations/useAnnotationHighlight';
 import { useAnnotationCrud } from '@app/composables/pdf/annotations/useAnnotationCrud';
 import { useFreeTextResize } from '@app/composables/pdf/useFreeTextResize';
+import { useAnnotationMarkerViewModel } from '@app/composables/pdf/annotations/useAnnotationMarkerViewModel';
 
 interface IUseAnnotationOrchestratorOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -172,15 +173,14 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         syncInlineCommentIndicators: () => inlineIndicators.syncInlineCommentIndicators(),
     });
 
-    const inlineIndicators = {
-        syncInlineCommentIndicators: () => {},
-        debouncedSyncInlineCommentIndicators: () => {},
-        pulseCommentIndicator: (_stableKey: string) => {},
-        resolveCommentFromIndicatorElement: (_element: HTMLElement) => null as IAnnotationCommentSummary | null,
-        findCommentFromInlineTarget: (_target: HTMLElement) => null as IAnnotationCommentSummary | null,
-        attachInlineCommentMarkerObserver: () => {},
-        cleanup: () => {},
-    };
+    const {
+        markersByPage,
+        inlineIndicators,
+    } = useAnnotationMarkerViewModel({
+        viewerContainer,
+        annotationCommentsCache,
+        activeCommentStableKey,
+    });
 
     const highlight = useAnnotationHighlight({
         viewerContainer,
@@ -227,6 +227,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         editor,
         commentSync,
         inlineIndicators,
+        markersByPage,
         highlight,
         crud,
     };

@@ -329,7 +329,7 @@ function collectInlineTriggerIdentity(viewportRoot: HTMLElement | null | undefin
     }
 
     const markers = viewportRoot.querySelectorAll<HTMLElement>(
-        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, [data-comment-stable-keys], [data-comment-stable-key]',
+        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, [data-comment-stable-keys], [data-comment-stable-key]',
     );
     markers.forEach((marker) => {
         const directStableKey = marker.dataset.commentStableKey?.trim();
@@ -350,7 +350,7 @@ function collectInlineTriggerIdentity(viewportRoot: HTMLElement | null | undefin
     });
 
     viewportRoot.querySelectorAll<HTMLElement>(
-        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .annotationCommentButton, .popupTriggerArea',
+        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, .annotationCommentButton, .popupTriggerArea',
     ).forEach((marker) => {
         const point = toPageNormalizedPoint(marker);
         if (point) {

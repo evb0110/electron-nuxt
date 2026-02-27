@@ -36,9 +36,17 @@ export function updateAnnotationTextByRef(
     }
 
     const modifiedAt = toPdfDateString(new Date());
-    let updated = setAnnotationDictContents(targetDict, text, modifiedAt);
-
     const targetSubtype = normalizeAnnotationSubtypeToken(getPdfDictSubtype(targetDict));
+
+    // FreeText Contents are rendered visually on the canvas by PDF.js.
+    // For note-style FreeText annotations (those with a linked Popup),
+    // write text only to the Popup to prevent canvas text leakage.
+    const isFreeTextWithPopup = targetSubtype === 'freetext'
+        && Boolean(targetDict.get(PDFName.of('Popup')));
+    let updated = isFreeTextWithPopup
+        ? false
+        : setAnnotationDictContents(targetDict, text, modifiedAt);
+
     const popupValue = targetDict.get(PDFName.of('Popup'));
     if (popupValue instanceof PDFRef) {
         updated = setAnnotationDictContents(doc.context.lookupMaybe(popupValue, PDFDict) ?? null, text, modifiedAt) || updated;
@@ -48,10 +56,20 @@ export function updateAnnotationTextByRef(
 
     if (targetSubtype === 'popup') {
         const parentValue = targetDict.get(PDFName.of('Parent'));
-        if (parentValue instanceof PDFRef) {
-            updated = setAnnotationDictContents(doc.context.lookupMaybe(parentValue, PDFDict) ?? null, text, modifiedAt) || updated;
-        } else if (parentValue instanceof PDFDict) {
-            updated = setAnnotationDictContents(parentValue, text, modifiedAt) || updated;
+        const parentDict = parentValue instanceof PDFRef
+            ? doc.context.lookupMaybe(parentValue, PDFDict) ?? null
+            : parentValue instanceof PDFDict
+                ? parentValue
+                : null;
+        // Skip propagating text to FreeText parents — PDF.js renders
+        // FreeText Contents on the canvas, causing visible text leakage
+        // for note-style FreeText annotations where text belongs only
+        // in the popup.
+        const parentSubtype = normalizeAnnotationSubtypeToken(
+            parentDict ? getPdfDictSubtype(parentDict) : null,
+        );
+        if (parentDict && parentSubtype !== 'freetext') {
+            updated = setAnnotationDictContents(parentDict, text, modifiedAt) || updated;
         }
     }
 

@@ -1065,12 +1065,36 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 return false;
             }
 
-            // Prevent PDF.js from removing this editor during mode transitions.
-            // When updateMode switches away from FREETEXT, commitOrRemove() fires on
-            // the active editor.  If isEmpty() returns true the editor self-destructs,
-            // but we need it alive so the save path can find it via getEditors() later.
-            // Override isEmpty() to keep the editor registered in the UIManager.
+            // Prevent PDF.js from removing this empty FreeText editor during mode
+            // transitions.  When updateMode switches away from FREETEXT,
+            // commitOrRemove() fires on the active editor.  If isEmpty() returns true
+            // the editor self-destructs, but we need it alive so the save path can
+            // locate it via getEditors() later.
+            //
+            // Insert a zero-width space into editorDiv so that:
+            //  1. isEmpty() naturally returns false (innerText is non-empty after trim)
+            //  2. PDF.js serializes the editor with non-empty value + rect into the PDF
+            //  3. The annotation round-trips correctly on reopen
+            const editorDiv = resolvedEditor.div?.querySelector<HTMLElement>('[contenteditable]')
+                ?? (resolvedEditor as { editorDiv?: HTMLElement }).editorDiv;
+            if (editorDiv) {
+                editorDiv.textContent = '\u200B';
+            }
             resolvedEditor.isEmpty = () => false;
+
+            // The ZWS content auto-sizes the editorDiv to a nearly zero-width rect.
+            // When PDF.js serializes via getPDFRect(), it uses editor.width/height
+            // (normalized 0–1 fractions of page dimensions).  A zero-area rect causes
+            // toMarkerRectFromPdfRect → normalizeMarkerRect to return null on reopen,
+            // making the marker invisible.  Set a minimum size matching the standard
+            // note anchor area so the annotation round-trips with a valid marker rect.
+            const MIN_NOTE_EDITOR_SIZE = DEFAULT_POINT_MARKER_SIZE;
+            if ((resolvedEditor.width ?? 0) < MIN_NOTE_EDITOR_SIZE) {
+                resolvedEditor.width = MIN_NOTE_EDITOR_SIZE;
+            }
+            if ((resolvedEditor.height ?? 0) < MIN_NOTE_EDITOR_SIZE) {
+                resolvedEditor.height = MIN_NOTE_EDITOR_SIZE;
+            }
 
             resolvedEditor.__evbResolvedPageIndex = pageIndex;
             resolvedEditor.__evbPlacementAttemptId = diagnosticsContext?.attemptId ?? null;

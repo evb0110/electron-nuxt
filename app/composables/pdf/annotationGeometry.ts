@@ -38,6 +38,8 @@ export function normalizeMarkerRect(rect: IAnnotationMarkerRect | null | undefin
     };
 }
 
+const MIN_POINT_MARKER_SIZE = 0.0016;
+
 export function toMarkerRectFromPdfRect(
     rect: number[] | null | undefined,
     pageView: number[] | null | undefined,
@@ -65,11 +67,31 @@ export function toMarkerRectFromPdfRect(
         return null;
     }
 
+    let normLeft = (minX - xMin) / pageWidth;
+    let normTop = (yMax - maxY) / pageHeight;
+    let normWidth = (maxX - minX) / pageWidth;
+    let normHeight = (maxY - minY) / pageHeight;
+
+    // Degenerate (zero-area) rects occur when a FreeText annotation is serialized
+    // with minimal content (e.g. ZWS placeholder for sticky-note style comments).
+    // Expand to a minimum point-marker size centered on the annotation position so
+    // the annotation still produces a valid markerRect for the overlay system.
+    if (normWidth < MIN_POINT_MARKER_SIZE) {
+        const centerX = normLeft + normWidth / 2;
+        normLeft = centerX - MIN_POINT_MARKER_SIZE / 2;
+        normWidth = MIN_POINT_MARKER_SIZE;
+    }
+    if (normHeight < MIN_POINT_MARKER_SIZE) {
+        const centerY = normTop + normHeight / 2;
+        normTop = centerY - MIN_POINT_MARKER_SIZE / 2;
+        normHeight = MIN_POINT_MARKER_SIZE;
+    }
+
     return normalizeMarkerRect({
-        left: (minX - xMin) / pageWidth,
-        top: (yMax - maxY) / pageHeight,
-        width: (maxX - minX) / pageWidth,
-        height: (maxY - minY) / pageHeight,
+        left: normLeft,
+        top: normTop,
+        width: normWidth,
+        height: normHeight,
     });
 }
 
