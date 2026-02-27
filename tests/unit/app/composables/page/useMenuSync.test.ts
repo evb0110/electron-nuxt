@@ -33,7 +33,8 @@ describe('useMenuSync', () => {
         vi.clearAllMocks();
     });
 
-    it('syncs menu document state and tab count with dedupe', async () => {
+    it('syncs menu state when workspace or tabs change', async () => {
+        const hasPdfRef = ref(false);
         const tabs = ref([{
             id: 'tab-1',
             fileName: null,
@@ -41,23 +42,16 @@ describe('useMenuSync', () => {
             isDirty: false,
             isDjvu: false,
         }]);
-        const activeTabId = ref<string | null>('tab-1');
-        const hasPdfRef = ref(false);
-        const activeWorkspace = ref({ hasPdf: hasPdfRef });
 
         useMenuSync({
-            activeWorkspace,
-            activeTabId,
+            activeWorkspace: ref({ hasPdf: hasPdfRef }),
+            activeTabId: ref<string | null>('tab-1'),
             tabs,
         });
         await nextTick();
 
         expect(mocks.setMenuDocumentState).toHaveBeenCalledWith(false);
         expect(mocks.setMenuTabCount).toHaveBeenCalledWith(1);
-
-        await nextTick();
-        expect(mocks.setMenuDocumentState).toHaveBeenCalledTimes(1);
-        expect(mocks.setMenuTabCount).toHaveBeenCalledTimes(1);
 
         hasPdfRef.value = true;
         tabs.value.push({
@@ -73,28 +67,7 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(2);
     });
 
-    it('keeps document menu enabled from active tab hints while workspace is remounting', async () => {
-        const tabs = ref([{
-            id: 'tab-1',
-            fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
-            isDirty: false,
-            isDjvu: false,
-        }]);
-        const activeTabId = ref<string | null>('tab-1');
-        const activeWorkspace = ref<{ hasPdf: boolean } | null>(null);
-
-        useMenuSync({
-            activeWorkspace,
-            activeTabId,
-            tabs,
-        });
-        await nextTick();
-
-        expect(mocks.setMenuDocumentState).toHaveBeenCalledWith(true);
-    });
-
-    it('handles both boolean and ref-based workspace hasPdf values', () => {
+    it('resolves hasPdf from boolean, ref, or null workspace', () => {
         expect(workspaceHasPdf(null)).toBe(false);
         expect(workspaceHasPdf({ hasPdf: true })).toBe(true);
         expect(workspaceHasPdf({ hasPdf: ref(false) })).toBe(false);

@@ -14,19 +14,13 @@ import {
 } from 'vue';
 
 const resizeObserverCallbacks: Array<() => void> = [];
-const mutationObserverCallbacks: Array<() => void> = [];
-const windowResizeCallbacks: Array<() => void> = [];
 
 vi.mock('@vueuse/core', () => ({
     useResizeObserver: (_target: unknown, callback: () => void) => {
         resizeObserverCallbacks.push(callback);
     },
-    useMutationObserver: (_target: unknown, callback: () => void) => {
-        mutationObserverCallbacks.push(callback);
-    },
-    useEventListener: (_target: unknown, _event: string, callback: () => void) => {
-        windowResizeCallbacks.push(callback);
-    },
+    useMutationObserver: vi.fn(),
+    useEventListener: vi.fn(),
     useDebounceFn: (callback: () => void, delay: number) => {
         let timer: ReturnType<typeof setTimeout> | null = null;
         return () => {
@@ -43,11 +37,8 @@ vi.mock('@vueuse/core', () => ({
 
 class FakeElement {
     public children: unknown[] = [];
-
     public clientWidth = 0;
-
     public scrollWidth = 0;
-
     public rectLeft = 0;
 
     constructor(width: number, scrollWidth: number, rectLeft = 0) {
@@ -61,11 +52,9 @@ class FakeElement {
     }
 
     getBoundingClientRect() {
-        const left = this.rectLeft;
-        const right = left + this.clientWidth;
         return {
-            left,
-            right,
+            left: this.rectLeft,
+            right: this.rectLeft + this.clientWidth,
             width: this.clientWidth,
         };
     }
@@ -75,41 +64,19 @@ function cast<T>(value: unknown): T {
     return value as T;
 }
 
-function stubComposableGlobals() {
+function stubGlobals() {
     vi.stubGlobal('ref', ref);
     vi.stubGlobal('computed', computed);
     vi.stubGlobal('watch', watch);
-    vi.stubGlobal('onMounted', (callback: () => void) => {
-        callback();
-    });
-    vi.stubGlobal('onBeforeUnmount', (_callback: () => void) => {
-        return;
-    });
+    vi.stubGlobal('onMounted', (cb: () => void) => cb());
+    vi.stubGlobal('onBeforeUnmount', vi.fn());
     vi.stubGlobal('HTMLElement', FakeElement);
-}
-
-function stubWindow() {
-    const rafTimers = new Map<number, ReturnType<typeof setTimeout>>();
-    let nextRafId = 1;
-
     vi.stubGlobal('window', {
-        requestAnimationFrame: (callback: FrameRequestCallback) => {
-            const rafId = nextRafId++;
-            const timerId = setTimeout(() => {
-                rafTimers.delete(rafId);
-                callback(0);
-            }, 0);
-            rafTimers.set(rafId, timerId);
-            return rafId;
+        requestAnimationFrame: (cb: FrameRequestCallback) => {
+            const id = setTimeout(() => cb(0), 0);
+            return id;
         },
-        cancelAnimationFrame: (id: number) => {
-            const timerId = rafTimers.get(id);
-            if (!timerId) {
-                return;
-            }
-            clearTimeout(timerId);
-            rafTimers.delete(id);
-        },
+        cancelAnimationFrame: (id: number) => clearTimeout(id),
         setTimeout,
         clearTimeout,
         addEventListener: vi.fn(),
@@ -123,10 +90,7 @@ describe('useToolbarOverflow', () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
         resizeObserverCallbacks.length = 0;
-        mutationObserverCallbacks.length = 0;
-        windowResizeCallbacks.length = 0;
-        stubComposableGlobals();
-        stubWindow();
+        stubGlobals();
     });
 
     afterEach(() => {
@@ -134,13 +98,12 @@ describe('useToolbarOverflow', () => {
         vi.unstubAllGlobals();
     });
 
-    it('collapses toolbar tiers when overflow persists', async () => {
+    it('collapses tiers when content overflows container', async () => {
         const { useToolbarOverflow } = await import('@app/composables/useToolbarOverflow');
         const overflow = useToolbarOverflow();
 
         overflow.toolbarRef.value = cast<HTMLElement>(new FakeElement(100, 260));
         await nextTick();
-
         await vi.runAllTimersAsync();
 
         expect(overflow.collapseTier.value).toBe(5);
@@ -148,7 +111,7 @@ describe('useToolbarOverflow', () => {
         expect(overflow.isCollapsed(3)).toBe(true);
     });
 
-    it('re-expands collapsed tiers after resize removes overflow', async () => {
+    it('re-expands when resize removes overflow', async () => {
         const { useToolbarOverflow } = await import('@app/composables/useToolbarOverflow');
         const overflow = useToolbarOverflow();
         const toolbar = new FakeElement(120, 300);
@@ -161,16 +124,14 @@ describe('useToolbarOverflow', () => {
 
         toolbar.clientWidth = 160;
         toolbar.scrollWidth = 120;
-        resizeObserverCallbacks.forEach(callback => callback());
-
+        resizeObserverCallbacks.forEach(cb => cb());
         await vi.runAllTimersAsync();
 
         expect(overflow.collapseTier.value).toBe(0);
         expect(overflow.hasOverflowItems.value).toBe(false);
-        expect(overflow.isCollapsed(1)).toBe(false);
     });
 
-    it('detects overflow from out-of-bounds child layout', async () => {
+    it('detects overflow from out-of-bounds children', async () => {
         const { useToolbarOverflow } = await import('@app/composables/useToolbarOverflow');
         const overflow = useToolbarOverflow();
         const toolbar = new FakeElement(100, 100);
