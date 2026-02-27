@@ -75,12 +75,6 @@ describe('useOcr', () => {
 
         const ocr = useOcr();
         const runPromise = ocr.runOcr(
-            {} as never,
-            new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
             1,
             1,
             '/tmp/work.pdf',

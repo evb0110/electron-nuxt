@@ -6,6 +6,7 @@ import type {
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     buildTextLayerIndex,
+    buildRunMatchOverlaps,
     highlightTextInSpan,
     clearDomHighlights,
     scrollToHighlight,
@@ -226,6 +227,7 @@ export const usePdfSearchHighlight = () => {
             ...m,
             isCurrent: index === currentIndexOnPage,
         }));
+        const runOverlaps = buildRunMatchOverlaps(runs, matchesWithCurrent);
 
         if (isHighlightDebugEnabled() && matchRanges.length !== pageMatches.matches.length && backendIndexOnPage !== -1) {
             BrowserLogger.warn('pdf-highlight', 'Text-layer match count differs from backend results', {
@@ -241,7 +243,8 @@ export const usePdfSearchHighlight = () => {
         if (canUseHighlightAPI() && getHighlightMode() === 'css') {
             const currentRanges: Range[] = [];
 
-            for (const run of runs) {
+            for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
+                const run = runs[runIndex]!;
                 if (run.kind !== 'span') {
                     continue;
                 }
@@ -250,7 +253,17 @@ export const usePdfSearchHighlight = () => {
                     continue;
                 }
 
-                const ranges = createHighlightRangesInSpan(run.textNode, run.startOffset, matchesWithCurrent);
+                const overlaps = runOverlaps[runIndex];
+                if (!overlaps || overlaps.length === 0) {
+                    continue;
+                }
+
+                const ranges = createHighlightRangesInSpan(
+                    run.textNode,
+                    run.startOffset,
+                    matchesWithCurrent,
+                    overlaps,
+                );
                 ranges.forEach((rangeEntry, idx) => {
                     const {
                         range,
@@ -277,12 +290,25 @@ export const usePdfSearchHighlight = () => {
         const allHighlightElements: HTMLElement[] = [];
         const currentMatchElements: HTMLElement[] = [];
 
-        for (const run of runs) {
+        for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
+            const run = runs[runIndex]!;
             if (run.kind !== 'span') {
                 continue;
             }
 
-            const elements = highlightTextInSpan(run.span, run.startOffset, matchesWithCurrent, HIGHLIGHT_CLASS, HIGHLIGHT_CURRENT_CLASS);
+            const overlaps = runOverlaps[runIndex];
+            if (!overlaps || overlaps.length === 0) {
+                continue;
+            }
+
+            const elements = highlightTextInSpan(
+                run.span,
+                run.startOffset,
+                matchesWithCurrent,
+                HIGHLIGHT_CLASS,
+                HIGHLIGHT_CURRENT_CLASS,
+                overlaps,
+            );
             allHighlightElements.push(...elements);
 
             elements.forEach((el) => {

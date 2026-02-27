@@ -40,8 +40,22 @@ const SEARCH_INDEX_CACHE_TTL_MS = (() => {
     }
     return parsed;
 })();
+const CANCELLED_REQUESTS_MAX_ENTRIES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_CANCELLED_REQUESTS_MAX_ENTRIES ?? '256', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 256;
+    }
+    return Math.min(parsed, 8_192);
+})();
+const CANCELLED_REQUEST_TTL_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_CANCELLED_REQUEST_TTL_MS ?? `${2 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 1_000) {
+        return 2 * 60 * 1000;
+    }
+    return parsed;
+})();
 const indexCache = new Map<string, TCachedIndex>();
-const cancelledRequests = new Set<string>();
+const cancelledRequests = new Map<string, number>();
 const requestAbortControllers = new Map<string, AbortController>();
 const progressSentAt = new Map<string, number>();
 const log = createLogger('search-worker');
@@ -176,7 +190,49 @@ function buildExcerpt(
 }
 
 function isCancelled(requestId: string) {
-    return cancelledRequests.has(requestId);
+    const expiresAt = cancelledRequests.get(requestId);
+    if (expiresAt === undefined) {
+        return false;
+    }
+    if (expiresAt <= Date.now()) {
+        cancelledRequests.delete(requestId);
+        return false;
+    }
+    return true;
+}
+
+function pruneCancelledRequests(now = Date.now()) {
+    for (const [
+        requestId,
+        expiresAt,
+    ] of cancelledRequests.entries()) {
+        if (expiresAt <= now) {
+            cancelledRequests.delete(requestId);
+        }
+    }
+
+    if (cancelledRequests.size <= CANCELLED_REQUESTS_MAX_ENTRIES) {
+        return;
+    }
+
+    const overflowCount = cancelledRequests.size - CANCELLED_REQUESTS_MAX_ENTRIES;
+    for (let index = 0; index < overflowCount; index += 1) {
+        const oldestRequestId = cancelledRequests.keys().next().value;
+        if (typeof oldestRequestId !== 'string') {
+            break;
+        }
+        cancelledRequests.delete(oldestRequestId);
+    }
+}
+
+function markRequestCancelled(requestId: string) {
+    const now = Date.now();
+    pruneCancelledRequests(now);
+    if (cancelledRequests.has(requestId)) {
+        cancelledRequests.delete(requestId);
+    }
+    cancelledRequests.set(requestId, now + CANCELLED_REQUEST_TTL_MS);
+    pruneCancelledRequests(now);
 }
 
 function createAbortError() {
@@ -369,6 +425,7 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
     const abortController = new AbortController();
     requestAbortControllers.set(requestId, abortController);
     const { signal } = abortController;
+    pruneCancelledRequests();
 
     try {
         progressSentAt.delete(requestId);
@@ -511,11 +568,12 @@ parentPort?.on('message', (rawMessage: unknown) => {
 
     switch (message.type) {
         case 'cancel':
-            cancelledRequests.add(message.requestId);
+            markRequestCancelled(message.requestId);
             requestAbortControllers.get(message.requestId)?.abort();
             return;
         case 'reset-cache':
             indexCache.clear();
+            pruneCancelledRequests();
             return;
         case 'search':
             void processSearchRequest(message.payload);

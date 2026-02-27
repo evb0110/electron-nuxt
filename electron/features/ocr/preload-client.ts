@@ -3,6 +3,7 @@ import type {
     IpcRendererEvent,
 } from 'electron';
 import {
+    assertAbsolutePath,
     assertNonEmptyString,
     assertOptionalAbsolutePath,
 } from '@contracts/ipc-assertions';
@@ -43,20 +44,18 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer) {
         ),
 
         createSearchablePdf: (
-            originalPdfData: Uint8Array,
+            sourcePdfPath: string,
             pages: Array<{
                 pageNumber: number;
                 languages: string[];
             }>,
             requestId: string,
-            workingCopyPath?: string | null,
             renderDpi?: number,
         ) => ipcRenderer.invoke(
             OCR_CHANNELS.createSearchablePdf,
-            originalPdfData,
+            assertAbsolutePath(sourcePdfPath, 'ocrCreateSearchablePdf.sourcePdfPath'),
             pages,
-            requestId,
-            workingCopyPath,
+            assertRequestId(requestId, 'ocrCreateSearchablePdf.requestId'),
             renderDpi,
         ),
 
@@ -79,7 +78,6 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer) {
         onComplete: (callback: (result: {
             requestId: string;
             success: boolean;
-            pdfData: Uint8Array | null;
             pdfPath?: string;
             requiresCleanupAck?: boolean;
             errors: string[];
@@ -87,7 +85,6 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer) {
             const handler = (_event: IpcRendererEvent, result: {
                 requestId: string;
                 success: boolean;
-                pdfData: Uint8Array | null;
                 pdfPath?: string;
                 requiresCleanupAck?: boolean;
                 errors: string[];

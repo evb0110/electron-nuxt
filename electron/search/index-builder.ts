@@ -305,7 +305,9 @@ export async function buildSearchIndex(
         pageData.forEach((page) => {
             throwIfAborted(signal);
             const textFromOcr = page.text?.trim() ?? '';
-            const textFromWords = page.words.map(w => w.text).join(' ').trim();
+            const textFromWords = textFromOcr
+                ? ''
+                : page.words.map(w => w.text).join(' ').trim();
             const text = textFromOcr || textFromWords;
             const previous = pagesByNumber.get(page.pageNumber);
             pagesByNumber.set(page.pageNumber, {

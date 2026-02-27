@@ -25,11 +25,7 @@ describe('useWorkspaceSplitCache', () => {
             kind: 'pdfSnapshot',
             fileName: 'sample.pdf',
             originalPath: '/tmp/sample.pdf',
-            data: new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
+            snapshotPath: '/tmp/pdf-work-test/sample.pdf',
             isDirty: false,
             currentPage: 7,
         });

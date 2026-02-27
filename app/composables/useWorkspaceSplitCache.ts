@@ -34,7 +34,7 @@ function clonePayload(payload: TSplitPayload): TSplitPayload {
         kind: 'pdfSnapshot',
         fileName: payload.fileName,
         originalPath: payload.originalPath,
-        data: payload.data.slice(),
+        snapshotPath: payload.snapshotPath,
         isDirty: payload.isDirty,
         currentPage: payload.currentPage,
         totalPages: payload.totalPages,

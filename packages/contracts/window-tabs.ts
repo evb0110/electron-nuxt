@@ -9,7 +9,7 @@ export interface IPdfSnapshotSplitPayload {
     kind: 'pdfSnapshot';
     fileName: string;
     originalPath: string | null;
-    data: Uint8Array;
+    snapshotPath: string;
     isDirty: boolean;
     currentPage?: number;
     totalPages?: number;

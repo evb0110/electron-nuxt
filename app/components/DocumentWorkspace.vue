@@ -39,7 +39,6 @@
                 <template #ocr="{ isCollapsed }">
                     <OcrPopup
                         :pdf-document="pdfDocument"
-                        :pdf-data="pdfData"
                         :current-page="currentPage"
                         :total-pages="totalPages"
                         :working-copy-path="workingCopyPath"
@@ -418,7 +417,6 @@ const w = useWorkspaceOrchestration({
 const {
     pdfSrc,
     pdfError,
-    pdfData,
     workingCopyPath,
     pdfDocument,
     isDjvuMode,

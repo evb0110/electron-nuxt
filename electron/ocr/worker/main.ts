@@ -5,7 +5,7 @@
  * preventing UI freezing during long-running OCR operations.
  *
  * Communication protocol:
- * - Receives: { type: 'start', jobId, data: { originalPdfData, pages, workingCopyPath } }
+ * - Receives: { type: 'start', jobId, data: { sourcePdfPath, pages, renderDpi } }
  * - Sends: { type: 'progress', jobId, progress: {...} }
  * - Sends: { type: 'complete', jobId, result: {...} }
  * - Sends: { type: 'log', level, message }
@@ -20,7 +20,6 @@ import {
     readFile,
     stat,
     unlink,
-    writeFile,
 } from 'fs/promises';
 import { join } from 'path';
 import { uniq } from 'es-toolkit/array';
@@ -75,19 +74,6 @@ function toStringArray(value: unknown) {
     return value;
 }
 
-function decodeUint8Array(value: unknown) {
-    if (value instanceof Uint8Array) {
-        return value;
-    }
-    if (value instanceof ArrayBuffer) {
-        return new Uint8Array(value);
-    }
-    if (ArrayBuffer.isView(value)) {
-        return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-    }
-    return null;
-}
-
 function parsePdfPageRequest(value: unknown) {
     if (!isRecord(value)) {
         return null;
@@ -109,8 +95,7 @@ function parseStartPayload(value: unknown) {
     if (!isRecord(value)) {
         return null;
     }
-    const originalPdfData = decodeUint8Array(value.originalPdfData);
-    if (!originalPdfData) {
+    if (typeof value.sourcePdfPath !== 'string' || value.sourcePdfPath.trim().length === 0) {
         return null;
     }
 
@@ -126,17 +111,13 @@ function parseStartPayload(value: unknown) {
         pages.push(parsedPage);
     }
 
-    const workingCopyPath = typeof value.workingCopyPath === 'string'
-        ? value.workingCopyPath
-        : undefined;
     const renderDpi = typeof value.renderDpi === 'number' && Number.isFinite(value.renderDpi)
         ? value.renderDpi
         : undefined;
 
     return {
-        originalPdfData,
+        sourcePdfPath: value.sourcePdfPath.trim(),
         pages,
-        workingCopyPath,
         renderDpi,
     };
 }
@@ -307,32 +288,18 @@ function sendProgress(jobId: string, currentPage: number, processedCount: number
 }
 
 function sendComplete(jobId: string, result: TOcrWorkerCompleteResult) {
-    const normalizedPdfData = result.success && result.pdfData
-        ? (result.pdfData.buffer instanceof ArrayBuffer ? result.pdfData : result.pdfData.slice())
-        : null;
-    const normalizedResult: TOcrWorkerCompleteResult = result.success
-        ? {
-            ...result,
-            pdfData: normalizedPdfData,
-        }
-        : result;
-    const transferList: ArrayBuffer[] = [];
-    if (normalizedPdfData && normalizedPdfData.buffer instanceof ArrayBuffer) {
-        transferList.push(normalizedPdfData.buffer);
-    }
     const payload: TOcrWorkerOutboundMessage = {
         type: 'complete',
         jobId,
-        result: normalizedResult,
+        result,
     };
-    parentPort?.postMessage(payload, transferList);
+    parentPort?.postMessage(payload);
 }
 
 async function processOcrJob(
     jobId: string,
-    originalPdfData: Uint8Array,
+    sourcePdfPath: string,
     pages: IOcrPdfPageRequest[],
-    workingCopyPath?: string,
     renderDpi?: number,
 ) {
     const tempFiles = new Set<string>();
@@ -344,29 +311,18 @@ async function processOcrJob(
     };
 
     try {
-        log('debug', `Processing OCR job ${jobId}: pdfLen=${originalPdfData.length}, pages=${pages.length}`);
+        const sourceStat = await stat(sourcePdfPath);
+        if (sourceStat.size <= 0) {
+            throw new Error(`Source PDF is empty: ${sourcePdfPath}`);
+        }
+        log('debug', `Processing OCR job ${jobId}: sourcePath=${sourcePdfPath}, pdfBytes=${sourceStat.size}, pages=${pages.length}`);
 
         const errors: string[] = [];
         const sessionId = `ocr-${randomUUID()}`;
 
-        const originalPdfPath = trackTempFile(join(paths.tempDir, `${sessionId}-original.pdf`));
-        await writeFile(originalPdfPath, originalPdfData);
-        const writtenFileSize = (await stat(originalPdfPath)).size;
-
-        if (writtenFileSize !== originalPdfData.length) {
-            const errMsg = `PDF file size mismatch: wrote ${writtenFileSize} bytes but expected ${originalPdfData.length}`;
-            log('debug', `ERROR: ${errMsg}`);
-            sendComplete(jobId, {
-                success: false,
-                pdfData: null,
-                errors: [errMsg],
-            });
-            return;
-        }
-
         const ocrPageData: IOcrPageWithWords[] = [];
         const ocrPdfMap: Map<number, string> = new Map();
-        const popplerSourcePdfPath = await preparePdfForPoppler(originalPdfPath, sessionId, trackTempFile);
+        const popplerSourcePdfPath = await preparePdfForPoppler(sourcePdfPath, sessionId, trackTempFile);
         const popplerEnv = buildPopplerEnv();
         if (popplerEnv) {
             log(
@@ -486,7 +442,6 @@ async function processOcrJob(
             log('error', `OCR failed to produce searchable output. errors=${errors.join(' | ') || 'none'}`);
             sendComplete(jobId, {
                 success: false,
-                pdfData: null,
                 errors,
             });
             return;
@@ -494,12 +449,12 @@ async function processOcrJob(
 
         const ocrPageNumbers = Array.from(ocrPdfMap.keys()).sort((a, b) => a - b);
         const maxOcrPage = ocrPageNumbers[ocrPageNumbers.length - 1] ?? 1;
-        const pageCount = await getPageCount(paths.qpdfBinary, originalPdfPath, maxOcrPage);
+        const pageCount = await getPageCount(paths.qpdfBinary, sourcePdfPath, maxOcrPage);
 
         let mergedPdfPath: string;
         try {
             mergedPdfPath = await assembleSearchablePdf(
-                originalPdfPath,
+                sourcePdfPath,
                 ocrPdfMap,
                 pageCount,
                 paths.tempDir,
@@ -513,23 +468,18 @@ async function processOcrJob(
             errors.push(`Failed to merge OCR'd pages with original PDF: ${errMsg}`);
             sendComplete(jobId, {
                 success: false,
-                pdfData: null,
                 errors,
             });
             return;
         }
-
-        const mergedPdfBuffer = await readFile(mergedPdfPath);
         const allLanguages = uniq(targetPages.flatMap(p => p.languages));
         let validatedWorkingCopyPath: string | undefined;
 
-        if (workingCopyPath) {
-            try {
-                validatedWorkingCopyPath = await resolveSafeOcrIndexBasePath(workingCopyPath, paths.tempDir);
-            } catch (pathErr) {
-                const pathErrMsg = pathErr instanceof Error ? pathErr.message : String(pathErr);
-                log('warn', `Rejected OCR index path "${workingCopyPath}": ${pathErrMsg}`);
-            }
+        try {
+            validatedWorkingCopyPath = await resolveSafeOcrIndexBasePath(sourcePdfPath, paths.tempDir);
+        } catch (pathErr) {
+            const pathErrMsg = pathErr instanceof Error ? pathErr.message : String(pathErr);
+            log('warn', `Rejected OCR index path "${sourcePdfPath}": ${pathErrMsg}`);
         }
 
         if (validatedWorkingCopyPath) {
@@ -548,42 +498,28 @@ async function processOcrJob(
             }
         }
 
-        if (validatedWorkingCopyPath || !workingCopyPath) {
-            const indexPath = validatedWorkingCopyPath || originalPdfPath;
+        if (validatedWorkingCopyPath) {
             try {
-                await writeOcrIndexV1(indexPath, ocrPageData, pageCount);
-                if (!workingCopyPath) {
-                    trackTempFile(`${indexPath}.index.json`);
-                }
+                await writeOcrIndexV1(validatedWorkingCopyPath, ocrPageData, pageCount);
             } catch {
                 // Non-blocking - don't fail OCR if index save fails
             }
         } else {
-            log('warn', 'Skipping OCR index writes due to invalid working copy path');
+            log('warn', 'Skipping OCR index writes due to invalid source PDF path');
         }
 
-        if (mergedPdfBuffer.length > 50 * 1024 * 1024) {
-            keepFiles.add(mergedPdfPath);
-            sendComplete(jobId, {
-                success: true,
-                pdfData: null,
-                pdfPath: mergedPdfPath,
-                requiresCleanupAck: true,
-                errors,
-            });
-        } else {
-            sendComplete(jobId, {
-                success: true,
-                pdfData: new Uint8Array(mergedPdfBuffer),
-                errors,
-            });
-        }
+        keepFiles.add(mergedPdfPath);
+        sendComplete(jobId, {
+            success: true,
+            pdfPath: mergedPdfPath,
+            requiresCleanupAck: true,
+            errors,
+        });
     } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         log('error', `CRITICAL ERROR in processOcrJob: ${errMsg}`);
         sendComplete(jobId, {
             success: false,
-            pdfData: null,
             errors: [`Critical error: ${errMsg}`],
         });
     } finally {
@@ -611,9 +547,8 @@ parentPort?.on('message', async (rawMessage: unknown) => {
         case 'start':
             await processOcrJob(
                 message.jobId,
-                message.data.originalPdfData,
+                message.data.sourcePdfPath,
                 message.data.pages,
-                message.data.workingCopyPath,
                 message.data.renderDpi,
             );
             return;

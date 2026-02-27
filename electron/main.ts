@@ -90,7 +90,8 @@ const SUPPORTED_EXTENSIONS = new Set([
     '.webp',
     '.gif',
 ]);
-const pendingOpenRequests: string[][] = [];
+const pendingExternalOpenPaths: string[] = [];
+const pendingExternalOpenPathSet = new Set<string>();
 const readyWindowIds = new Set<number>();
 let defaultViewerPromptShown = false;
 let defaultViewerPromptTimer: NodeJS.Timeout | null = null;
@@ -101,6 +102,13 @@ let ensureWindowForExternalOpenPromise: Promise<void> | null = null;
 let hasHandledInitialExternalOpenDispatch = false;
 const EXTERNAL_OPEN_BATCH_WINDOW_MS = 800;
 const EXTERNAL_OPEN_MAX_BATCH_WAIT_MS = 10_000;
+const EXTERNAL_OPEN_PENDING_MAX_PATHS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_EXTERNAL_OPEN_PENDING_MAX_PATHS ?? '256', 10);
+    if (!Number.isFinite(parsed) || parsed < 8) {
+        return 256;
+    }
+    return Math.min(parsed, 4_096);
+})();
 
 function isMainWindowRendererReady() {
     const mainWindow = getMainWindow();
@@ -186,15 +194,50 @@ function queueOpenRequest(paths: string[]) {
     if (normalizedPaths.length === 0) {
         return;
     }
-    pendingOpenRequests.push(normalizedPaths);
+
+    let coalescedCount = 0;
+    let droppedCount = 0;
+    for (const normalizedPath of normalizedPaths) {
+        if (pendingExternalOpenPathSet.has(normalizedPath)) {
+            coalescedCount += 1;
+            const existingIndex = pendingExternalOpenPaths.indexOf(normalizedPath);
+            if (existingIndex >= 0) {
+                pendingExternalOpenPaths.splice(existingIndex, 1);
+            } else {
+                pendingExternalOpenPathSet.delete(normalizedPath);
+            }
+        }
+
+        pendingExternalOpenPaths.push(normalizedPath);
+        pendingExternalOpenPathSet.add(normalizedPath);
+
+        while (pendingExternalOpenPaths.length > EXTERNAL_OPEN_PENDING_MAX_PATHS) {
+            const droppedPath = pendingExternalOpenPaths.shift();
+            if (!droppedPath) {
+                break;
+            }
+            pendingExternalOpenPathSet.delete(droppedPath);
+            droppedCount += 1;
+        }
+    }
+
+    if (coalescedCount > 0) {
+        logger.debug(`Coalesced ${coalescedCount} duplicate external open path(s)`);
+    }
+    if (droppedCount > 0) {
+        logger.warn(
+            `External open queue exceeded cap (${EXTERNAL_OPEN_PENDING_MAX_PATHS}); dropped ${droppedCount} oldest path(s)`,
+        );
+    }
 }
 
 function collectMergedPendingPaths() {
-    if (pendingOpenRequests.length === 0) {
+    if (pendingExternalOpenPaths.length === 0) {
         return [];
     }
-    const mergedPaths = uniq(pendingOpenRequests.flat());
-    pendingOpenRequests.length = 0;
+    const mergedPaths = pendingExternalOpenPaths.slice();
+    pendingExternalOpenPaths.length = 0;
+    pendingExternalOpenPathSet.clear();
     return mergedPaths;
 }
 

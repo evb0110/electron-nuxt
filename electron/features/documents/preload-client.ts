@@ -99,6 +99,12 @@ export function createDocumentsPreloadClient(ipcRenderer: IpcRenderer) {
                 assertWriteData(data, 'createWorkingCopyFromData.data'),
                 assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromData.originalPath'),
             ),
+        createWorkingCopyFromPath: (sourcePath: string, originalPath?: string) =>
+            ipcRenderer.invoke(
+                DOCUMENTS_CHANNELS.createWorkingCopyFromPath,
+                assertAbsolutePath(sourcePath, 'createWorkingCopyFromPath.sourcePath'),
+                assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath'),
+            ),
         saveFile: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileSave, path),
         cleanupFile: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileCleanup, path),
         cleanupOcrTemp: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, path),

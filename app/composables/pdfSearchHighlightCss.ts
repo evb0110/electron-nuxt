@@ -50,13 +50,19 @@ export function createHighlightRangesInSpan(
         end: number;
         isCurrent: boolean;
     }>,
+    precomputedMatches?: Array<{
+        start: number;
+        end: number;
+        isCurrent: boolean;
+    }>,
 ): THighlightRange[] {
     const text = textNode.nodeValue ?? '';
     const spanEndOffset = spanStartOffset + text.length;
 
-    const relevantMatches = matches.filter(
-        (m) => m.start < spanEndOffset && m.end > spanStartOffset,
-    );
+    const relevantMatches = precomputedMatches
+        ?? matches.filter(
+            (m) => m.start < spanEndOffset && m.end > spanStartOffset,
+        );
 
     if (relevantMatches.length === 0) {
         return [];

@@ -685,14 +685,45 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             };
         }
 
+        const normalizedCurrentPage = normalizeSplitPayloadPage(currentPage.value) ?? 1;
+        if (!hasElectronAPI()) {
+            return { kind: 'empty' };
+        }
+
+        const api = getElectronAPI();
+        const normalizedFileName = fileName.value ?? 'document.pdf';
+
+        if (workingCopyPath.value && !hasPendingTabChanges.value) {
+            try {
+                const snapshotPath = await api.documents.createWorkingCopyFromPath(
+                    workingCopyPath.value,
+                    originalPath.value ?? undefined,
+                );
+                return {
+                    kind: 'pdfSnapshot',
+                    fileName: normalizedFileName,
+                    originalPath: originalPath.value,
+                    snapshotPath,
+                    isDirty: false,
+                    currentPage: normalizedCurrentPage,
+                    totalPages: normalizeSplitPayloadTotalPages(totalPages.value, normalizedCurrentPage),
+                };
+            } catch (error) {
+                BrowserLogger.warn('workspace', 'Failed to create split payload from working copy path', {
+                    path: workingCopyPath.value,
+                    error,
+                });
+            }
+        }
+
         let snapshot = await pdfViewerRef.value?.saveDocument?.() ?? null;
         if (!snapshot && pdfData.value) {
             snapshot = pdfData.value.slice();
         }
 
-        if (!snapshot && workingCopyPath.value && hasElectronAPI()) {
+        if (!snapshot && workingCopyPath.value) {
             try {
-                snapshot = await getElectronAPI().documents.readFile(workingCopyPath.value);
+                snapshot = await api.documents.readFile(workingCopyPath.value);
             } catch (error) {
                 BrowserLogger.warn('workspace', 'Failed to read working copy for split payload', {
                     path: workingCopyPath.value,
@@ -705,12 +736,16 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             return { kind: 'empty' };
         }
 
-        const normalizedCurrentPage = normalizeSplitPayloadPage(currentPage.value) ?? 1;
+        const snapshotPath = await api.documents.createWorkingCopyFromData(
+            normalizedFileName,
+            snapshot,
+            originalPath.value ?? undefined,
+        );
         return {
             kind: 'pdfSnapshot',
-            fileName: fileName.value ?? 'document.pdf',
+            fileName: normalizedFileName,
             originalPath: originalPath.value,
-            data: snapshot.slice(),
+            snapshotPath,
             isDirty: hasPendingTabChanges.value,
             currentPage: normalizedCurrentPage,
             totalPages: normalizeSplitPayloadTotalPages(totalPages.value, normalizedCurrentPage),
@@ -745,23 +780,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             : null;
 
         if (!hasElectronAPI()) {
-            await loadPdfFromData(payload.data.slice(), {
-                pushHistory: true,
-                persistWorkingCopy: false,
-            });
-            originalPath.value = payload.originalPath;
-            if (payload.isDirty) {
-                markDirty();
-            }
-        } else {
-            const workingPath = await getElectronAPI().documents.createWorkingCopyFromData(
-                payload.fileName,
-                payload.data,
-                payload.originalPath ?? undefined,
-            );
-            await loadPdfFromPath(workingPath, { markDirty: payload.isDirty });
-            originalPath.value = payload.originalPath;
+            return;
         }
+
+        await loadPdfFromPath(payload.snapshotPath, { markDirty: payload.isDirty });
+        originalPath.value = payload.originalPath;
 
         if (restorePagePromise) {
             await restorePagePromise;

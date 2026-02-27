@@ -3,6 +3,7 @@ export const DOCUMENTS_CHANNELS = {
     openPdfDirect: 'dialog:openPdfDirect',
     openPdfDirectBatch: 'dialog:openPdfDirectBatch',
     createWorkingCopyFromData: 'working-copy:createFromData',
+    createWorkingCopyFromPath: 'working-copy:createFromPath',
     savePdfAs: 'dialog:savePdfAs',
     savePdfDialog: 'dialog:savePdfDialog',
     saveDocxAs: 'dialog:saveDocxAs',

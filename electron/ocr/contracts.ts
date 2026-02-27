@@ -32,17 +32,15 @@ interface IOcrRecognizeBatchPayload {
 }
 
 interface IOcrCreateSearchablePdfPayload {
-    originalPdfData: Uint8Array;
+    sourcePdfPath: string;
     pages: IOcrCreatePdfPageRequest[];
     requestId: string;
-    workingCopyPath?: string;
     renderDpi?: number;
 }
 
 const MAX_PAGE_NUMBER = 1_000_000;
 const MAX_LANGUAGES_PER_PAGE = 16;
 const MAX_IMAGE_BYTES = 128 * 1024 * 1024;
-const MAX_PDF_BYTES = 512 * 1024 * 1024;
 const MAX_BATCH_PAGES = 5_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
@@ -189,10 +187,9 @@ export function validateRecognizeBatchPayload(
 }
 
 export function validateCreateSearchablePdfPayload(
-    originalPdfDataPayload: unknown,
+    sourcePdfPathPayload: unknown,
     pagesPayload: unknown,
     requestIdPayload: unknown,
-    workingCopyPathPayload?: unknown,
     renderDpiPayload?: unknown,
 ): IOcrCreateSearchablePdfPayload {
     if (!Array.isArray(pagesPayload) || pagesPayload.length === 0) {
@@ -202,15 +199,10 @@ export function validateCreateSearchablePdfPayload(
         throw new OcrPayloadValidationError(`pages exceeds maximum size (${MAX_BATCH_PAGES})`);
     }
 
-    const workingCopyPath = workingCopyPathPayload == null
-        ? undefined
-        : asString(workingCopyPathPayload, 'workingCopyPath', 4_096);
-
     return {
-        originalPdfData: toUint8Array(originalPdfDataPayload, 'originalPdfData', MAX_PDF_BYTES),
+        sourcePdfPath: asString(sourcePdfPathPayload, 'sourcePdfPath', 4_096),
         pages: pagesPayload.map((page, index) => asCreatePdfPageRequest(page, `pages[${index}]`)),
         requestId: asRequestId(requestIdPayload, 'requestId'),
-        workingCopyPath,
         renderDpi: asOptionalDpi(renderDpiPayload, 'renderDpi'),
     };
 }
