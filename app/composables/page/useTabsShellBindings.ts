@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
 import type { TGroupDirection } from '@app/types/editor-groups';
-import type { TWindowTabsAction } from '@app/types/window-tab-transfer';
+import type { TWindowTabsAction } from '@contracts/window-tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import {
     getElectronAPI,
@@ -135,7 +135,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
             traceRendererStartup('tabs shell menu bindings registered');
             void nextTick(() => {
                 traceRendererStartup('tabs shell dispatching app:rendererReady');
-                electronApi.notifyRendererReady();
+                electronApi.windowTabs.notifyRendererReady();
             });
         }
 

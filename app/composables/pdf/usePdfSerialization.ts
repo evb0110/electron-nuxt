@@ -93,7 +93,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         let sourceData = pdfData.value ? pdfData.value.slice() : null;
         if (!sourceData && workingCopyPath.value && hasElectronAPI()) {
             try {
-                const buffer = await getElectronAPI().readFile(workingCopyPath.value);
+                const buffer = await getElectronAPI().documents.readFile(workingCopyPath.value);
                 sourceData = new Uint8Array(buffer);
             } catch (error) {
                 BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Failed to read working copy for serialization', {

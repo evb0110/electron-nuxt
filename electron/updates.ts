@@ -10,7 +10,7 @@ import type {
 import type {
     IAppUpdateStatus,
     TAppUpdateCheckOrigin,
-} from '@app/types/electron-api';
+} from '@contracts/electron-api';
 import { config } from '@electron/config';
 import {
     loadSettings,

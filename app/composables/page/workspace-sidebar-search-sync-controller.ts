@@ -3,7 +3,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     TFitMode,
     TPdfViewMode,
-} from '@app/types/shared';
+} from '@contracts/shared';
 import { useDropdownManager } from '@app/composables/useDropdownManager';
 import { usePdfSearch } from '@app/composables/usePdfSearch';
 import { usePageSearch } from '@app/composables/usePageSearch';

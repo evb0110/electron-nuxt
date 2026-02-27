@@ -1,8 +1,8 @@
 import { execFile } from 'child_process';
 import { existsSync } from 'fs';
 import {
-    readdir,
     readFile,
+    readdir,
     stat,
 } from 'fs/promises';
 import { join } from 'path';

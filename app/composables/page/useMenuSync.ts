@@ -53,7 +53,7 @@ export function useMenuSync(deps: IUseMenuSyncDeps) {
             return;
         }
         lastSyncedMenuDocumentState = hasDocument;
-        void getElectronAPI().setMenuDocumentState(hasDocument);
+        void getElectronAPI().documents.setMenuDocumentState(hasDocument);
     }
 
     function syncMenuTabCount() {
@@ -67,7 +67,7 @@ export function useMenuSync(deps: IUseMenuSyncDeps) {
         }
 
         lastSyncedMenuTabCount = tabCount;
-        void getElectronAPI().setMenuTabCount(tabCount);
+        void getElectronAPI().documents.setMenuTabCount(tabCount);
     }
 
     watchEffect(() => {

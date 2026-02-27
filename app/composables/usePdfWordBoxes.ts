@@ -100,12 +100,12 @@ export const usePdfWordBoxes = () => {
             const pageFile = `page-${String(pageNumber).padStart(4, '0')}.json`;
             const pagePath = `${workingCopyPath}.ocr/${pageFile}`;
 
-            const exists = await api.fileExists(pagePath);
+            const exists = await api.documents.fileExists(pagePath);
             if (!exists) {
                 return null;
             }
 
-            const content = await api.readTextFile(pagePath);
+            const content = await api.documents.readTextFile(pagePath);
             return safeDestr<IOcrIndexV2Page>(content);
         } catch (error) {
             BrowserLogger.warn('ocr-debug', 'Failed to load OCR page data', error);

@@ -1,8 +1,8 @@
-import type { IElectronAPI } from '@app/types/electron-api';
+import type { IElectronAPI } from '@contracts/electron-api';
 import type { Ref } from 'vue';
 import type { TGroupDirection } from '@app/types/editor-groups';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
-import type { TWindowTabsAction } from '@app/types/window-tab-transfer';
+import type { TWindowTabsAction } from '@contracts/window-tabs';
 
 interface ITabsMenuBindingDeps {
     activeWorkspace: Ref<IWorkspaceExpose | null>;
@@ -33,109 +33,109 @@ export function registerTabsMenuBindings(
 ) {
     const api = electronApi as Partial<IElectronAPI>;
     return [
-        api.onMenuOpenPdf?.(() => {
+        api.documents?.onMenuOpenPdf?.(() => {
             void deps.activeWorkspace.value?.handleOpenFileFromUi();
         }),
-        api.onMenuSave?.(() => {
+        api.documents?.onMenuSave?.(() => {
             void deps.activeWorkspace.value?.handleSave();
         }),
-        api.onMenuSaveAs?.(() => {
+        api.documents?.onMenuSaveAs?.(() => {
             void deps.activeWorkspace.value?.handleSaveAs();
         }),
-        api.onMenuExportDocx?.(() => {
+        api.documents?.onMenuExportDocx?.(() => {
             void deps.activeWorkspace.value?.handleExportDocx();
         }),
-        api.onMenuExportImages?.(() => {
+        api.documents?.onMenuExportImages?.(() => {
             void deps.activeWorkspace.value?.handleExportImages();
         }),
-        api.onMenuExportMultiPageTiff?.(() => {
+        api.documents?.onMenuExportMultiPageTiff?.(() => {
             void deps.activeWorkspace.value?.handleExportMultiPageTiff();
         }),
-        api.onMenuUndo?.(() => {
+        api.documents?.onMenuUndo?.(() => {
             deps.activeWorkspace.value?.handleUndo();
         }),
-        api.onMenuRedo?.(() => {
+        api.documents?.onMenuRedo?.(() => {
             deps.activeWorkspace.value?.handleRedo();
         }),
-        api.onMenuZoomIn?.(() => {
+        api.documents?.onMenuZoomIn?.(() => {
             deps.activeWorkspace.value?.handleZoomIn();
         }),
-        api.onMenuZoomOut?.(() => {
+        api.documents?.onMenuZoomOut?.(() => {
             deps.activeWorkspace.value?.handleZoomOut();
         }),
-        api.onMenuActualSize?.(() => {
+        api.documents?.onMenuActualSize?.(() => {
             deps.activeWorkspace.value?.handleActualSize();
         }),
-        api.onMenuFitWidth?.(() => {
+        api.documents?.onMenuFitWidth?.(() => {
             deps.activeWorkspace.value?.handleFitWidth();
         }),
-        api.onMenuFitHeight?.(() => {
+        api.documents?.onMenuFitHeight?.(() => {
             deps.activeWorkspace.value?.handleFitHeight();
         }),
-        api.onMenuViewModeSingle?.(() => {
+        api.documents?.onMenuViewModeSingle?.(() => {
             deps.activeWorkspace.value?.handleViewModeSingle();
         }),
-        api.onMenuViewModeFacing?.(() => {
+        api.documents?.onMenuViewModeFacing?.(() => {
             deps.activeWorkspace.value?.handleViewModeFacing();
         }),
-        api.onMenuViewModeFacingFirstSingle?.(() => {
+        api.documents?.onMenuViewModeFacingFirstSingle?.(() => {
             deps.activeWorkspace.value?.handleViewModeFacingFirstSingle();
         }),
-        api.onMenuOpenRecentFile?.((path: string) => {
+        api.documents?.onMenuOpenRecentFile?.((path: string) => {
             void deps.openPathInAppropriateTab(path);
         }),
-        api.onMenuOpenExternalPaths?.((paths: string[]) => {
+        api.documents?.onMenuOpenExternalPaths?.((paths: string[]) => {
             void deps.openPathsInAppropriateTab(paths);
         }),
-        api.onMenuClearRecentFiles?.(() => {
+        api.documents?.onMenuClearRecentFiles?.(() => {
             void deps.clearRecentFiles();
             void deps.loadRecentFiles();
         }),
-        api.onMenuOpenSettings?.(() => {
+        api.settings?.onMenuOpenSettings?.(() => {
             deps.openSettings();
         }),
-        api.onMenuCheckForUpdates?.(() => {
+        api.updates?.onMenuCheckForUpdates?.(() => {
             void deps.checkForUpdates();
         }),
-        api.onMenuDeletePages?.(() => {
+        api.documents?.onMenuDeletePages?.(() => {
             deps.activeWorkspace.value?.handleDeletePages();
         }),
-        api.onMenuExtractPages?.(() => {
+        api.documents?.onMenuExtractPages?.(() => {
             deps.activeWorkspace.value?.handleExtractPages();
         }),
-        api.onMenuRotateCw?.(() => {
+        api.documents?.onMenuRotateCw?.(() => {
             deps.activeWorkspace.value?.handleRotateCw();
         }),
-        api.onMenuRotateCcw?.(() => {
+        api.documents?.onMenuRotateCcw?.(() => {
             deps.activeWorkspace.value?.handleRotateCcw();
         }),
-        api.onMenuInsertPages?.(() => {
+        api.documents?.onMenuInsertPages?.(() => {
             deps.activeWorkspace.value?.handleInsertPages();
         }),
-        api.onMenuConvertToPdf?.(() => {
+        api.djvu?.onMenuConvertToPdf?.(() => {
             deps.activeWorkspace.value?.handleConvertToPdf();
         }),
-        api.onMenuNewTab?.(() => {
+        api.windowTabs?.onMenuNewTab?.(() => {
             deps.createTab();
         }),
-        api.onMenuCloseTab?.(() => {
+        api.windowTabs?.onMenuCloseTab?.(() => {
             if (deps.activeTabId.value) {
                 void deps.handleCloseTab(deps.activeTabId.value);
             }
         }),
-        api.onMenuSplitEditor?.((direction) => {
+        api.windowTabs?.onMenuSplitEditor?.((direction) => {
             void deps.splitEditor(direction);
         }),
-        api.onMenuFocusEditorGroup?.((direction) => {
+        api.windowTabs?.onMenuFocusEditorGroup?.((direction) => {
             deps.focusGroup(direction);
         }),
-        api.onMenuMoveTabToGroup?.((direction) => {
+        api.windowTabs?.onMenuMoveTabToGroup?.((direction) => {
             void deps.moveActiveTab(direction);
         }),
-        api.onMenuCopyTabToGroup?.((direction) => {
+        api.windowTabs?.onMenuCopyTabToGroup?.((direction) => {
             void deps.copyActiveTab(direction);
         }),
-        api.tabs?.onWindowAction((action) => {
+        api.windowTabs?.onWindowAction((action) => {
             void deps.handleWindowTabsAction(action);
         }),
     ].filter((cleanup): cleanup is () => void => typeof cleanup === 'function');

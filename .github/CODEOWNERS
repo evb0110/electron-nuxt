@@ -1,0 +1,4 @@
+# Architecture and boundary-owned surfaces
+/packages/contracts/ @evb
+/app/modules/* @evb
+/electron/features/* @evb

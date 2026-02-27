@@ -2,8 +2,8 @@
 import {
     DEFAULT_SETTINGS,
     sanitizeSettings,
-} from '@app/shared/settings-sanitizer';
-import type { ISettingsData } from '@app/types/shared';
+} from '@contracts/settings';
+import type { ISettingsData } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     getElectronAPI,

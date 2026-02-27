@@ -1,4 +1,4 @@
-import type { IRecentFile } from '@app/types/shared';
+import type { IRecentFile } from '@contracts/shared';
 import { until } from '@vueuse/core';
 import {
     getElectronAPI,
@@ -57,7 +57,7 @@ export const useRecentFiles = () => {
             isLoading.value = true;
             error.value = null;
             try {
-                recentFiles.value = await getElectronAPI().recentFiles.get();
+                recentFiles.value = await getElectronAPI().documents.recentFiles.get();
             } catch (e) {
                 error.value = e instanceof Error ? e.message : t('errors.recent.load');
             } finally {
@@ -76,7 +76,7 @@ export const useRecentFiles = () => {
 
         error.value = null;
         try {
-            await getElectronAPI().openPdfDirect(file.originalPath);
+            await getElectronAPI().documents.openPdfDirect(file.originalPath);
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
         }
@@ -89,7 +89,7 @@ export const useRecentFiles = () => {
 
         error.value = null;
         try {
-            await getElectronAPI().recentFiles.remove(file.originalPath);
+            await getElectronAPI().documents.recentFiles.remove(file.originalPath);
             await loadRecentFiles();
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.recent.remove');
@@ -103,7 +103,7 @@ export const useRecentFiles = () => {
 
         error.value = null;
         try {
-            await getElectronAPI().recentFiles.clear();
+            await getElectronAPI().documents.recentFiles.clear();
             recentFiles.value = [];
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.recent.clear');

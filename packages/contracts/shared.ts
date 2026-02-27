@@ -1,0 +1,36 @@
+import type { TLocale } from '@i18n-core';
+
+export interface IRecentFile {
+    originalPath: string;
+    fileName: string;
+    timestamp: number;
+    fileSize?: number;
+}
+
+export interface IOcrLanguage {
+    code: string;
+    script: 'latin' | 'cyrillic' | 'greek' | 'rtl';
+}
+
+export interface IOcrWord {
+    text: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export type TFitMode = 'width' | 'height';
+export type TPdfViewMode = 'single' | 'facing' | 'facing-first-single';
+
+export type TAppTheme = 'light' | 'dark';
+export type TAppLocale = TLocale;
+
+export interface ISettingsData {
+    version: number;
+    authorName: string;
+    theme: TAppTheme;
+    locale: TAppLocale;
+    suppressDefaultViewerPrompt?: boolean;
+    skippedUpdateVersion?: string;
+}

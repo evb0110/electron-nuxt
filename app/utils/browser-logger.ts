@@ -3,7 +3,7 @@
  * Logs to console and can be easily grepped in browser devtools
  */
 import { STORAGE_KEYS } from '@app/constants/storage-keys';
-import type { IRendererLogEntry } from '@app/types/electron-api';
+import type { IRendererLogEntry } from '@contracts/electron-api';
 
 type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TLazyValue = unknown | (() => unknown);
@@ -117,10 +117,10 @@ function forwardToMain(entry: IRendererLogEntry) {
     }
 
     try {
-        const electronAPI = (window as Window & {electronAPI?: {rendererLog?: (payload: IRendererLogEntry) => void;};}).electronAPI;
+        const electronAPI = (window as Window & {electronAPI?: {settings?: {rendererLog?: (payload: IRendererLogEntry) => void;};};}).electronAPI;
 
-        if (typeof electronAPI?.rendererLog === 'function') {
-            electronAPI.rendererLog(entry);
+        if (typeof electronAPI?.settings?.rendererLog === 'function') {
+            electronAPI.settings.rendererLog(entry);
         }
     } catch {
         // Ignore IPC bridge failures in browser logger

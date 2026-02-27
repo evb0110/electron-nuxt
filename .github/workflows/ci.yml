@@ -29,6 +29,12 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      - name: Architecture dependency graph
+        run: node scripts/architecture/dep-graph.mjs --output=.tmp/architecture-dep-graph.json
+
+      - name: Architecture boundary check (required)
+        run: node scripts/architecture/boundary-check.mjs
+
       - name: Locale parity check
         run: pnpm run check:locales
 

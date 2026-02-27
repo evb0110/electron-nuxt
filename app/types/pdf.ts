@@ -2,13 +2,15 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
-import type { IOcrWord } from '@app/types/shared';
+import type { IOcrWord } from '@contracts/shared';
 
 export type {
     IOcrWord,
     TFitMode,
     TPdfViewMode,
-} from '@app/types/shared';
+} from '@contracts/shared';
+
+export type {IPdfBookmarkEntry} from '@contracts/pdf';
 
 export interface IContentInsets {
     top: number;
@@ -101,16 +103,6 @@ export interface IPdfPageLabelRange {
 export interface IPdfPageRange {
     startPage: number;
     endPage: number;
-}
-
-export interface IPdfBookmarkEntry {
-    title: string;
-    pageIndex: number | null;
-    namedDest: string | null;
-    bold: boolean;
-    italic: boolean;
-    color: string | null;
-    items: IPdfBookmarkEntry[];
 }
 
 /**

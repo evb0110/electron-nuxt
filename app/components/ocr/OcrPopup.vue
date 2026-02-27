@@ -262,7 +262,7 @@
 <script setup lang="ts">
 import { useTimeoutFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TTranslationKey } from '@app/i18n/locales';
+import type { TTranslationKey } from '@i18n-core/locales';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/electron';
 
@@ -355,7 +355,7 @@ async function handleCopyLogs() {
 
     try {
         const api = getElectronAPI();
-        const debugLogs = await api.getDebugLogs();
+        const debugLogs = await api.settings.getDebugLogs();
         const selectedLanguages = settings.value.selectedLanguages.length > 0
             ? settings.value.selectedLanguages.join(',')
             : '-';

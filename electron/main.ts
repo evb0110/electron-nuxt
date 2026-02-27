@@ -4,7 +4,7 @@ import {
     ipcMain,
 } from 'electron';
 import { randomUUID } from 'node:crypto';
-import type { IAppUpdateStatus } from '@app/types/electron-api';
+import type { IAppUpdateStatus } from '@contracts/electron-api';
 import {
     dirname,
     extname,

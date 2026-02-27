@@ -1,5 +1,7 @@
 import withNuxt from './.nuxt/eslint.config.mjs';
 import stylistic from '@stylistic/eslint-plugin';
+import fs from 'node:fs';
+import path from 'node:path';
 import customPlugin from './eslint-plugin-custom.mjs';
 
 const stylisticRules = {
@@ -61,6 +63,48 @@ const strictTypeRules = {
     ],
 };
 
+const FEATURE_PUBLIC_ENTRYPOINT_EXCEPTIONS = [
+    './index.ts',
+    './index.tsx',
+    './index.js',
+    './index.mjs',
+    './public.ts',
+    './public.tsx',
+    './public.js',
+    './public.mjs',
+    './public/index.ts',
+    './public/index.tsx',
+    './public/index.js',
+    './public/index.mjs',
+];
+
+function readFeatureDirectories(relativeRoot) {
+    const absoluteRoot = path.join(import.meta.dirname, relativeRoot);
+    if (!fs.existsSync(absoluteRoot)) {
+        return [];
+    }
+
+    return fs.readdirSync(absoluteRoot, { withFileTypes: true })
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name);
+}
+
+function createCrossFeatureZones(relativeRoot, zoneMessagePrefix) {
+    const features = readFeatureDirectories(relativeRoot);
+    if (features.length < 2) {
+        return [];
+    }
+
+    return features.map(targetFeature => ({
+        target: `./${relativeRoot}/${targetFeature}`,
+        from: features
+            .filter(feature => feature !== targetFeature)
+            .map(feature => `./${relativeRoot}/${feature}`),
+        except: FEATURE_PUBLIC_ENTRYPOINT_EXCEPTIONS,
+        message: `${zoneMessagePrefix} cross-feature imports must use public entrypoints.`,
+    }));
+}
+
 export default withNuxt(
     {ignores: [
         '**/.devkit/**',
@@ -86,12 +130,46 @@ export default withNuxt(
             '@typescript-eslint/no-inferrable-types': 'error',
             'no-return-await': 'error',
             'import/no-relative-parent-imports': 'error',
+            'import/no-cycle': [
+                'error',
+                {
+                    ignoreExternal: true,
+                    maxDepth: Infinity,
+                },
+            ],
+            'import/no-restricted-paths': [
+                'error',
+                {
+                    basePath: import.meta.dirname,
+                    zones: [
+                        {
+                            target: './electron',
+                            from: './app',
+                            message: 'electron/** must not import app/**.',
+                        },
+                        {
+                            target: './landing',
+                            from: './app',
+                            message: 'landing/** must not import app/**.',
+                        },
+                        {
+                            target: './app/services',
+                            from: './app/composables',
+                            message: 'app/services/** must not import app/composables/**.',
+                        },
+                        ...createCrossFeatureZones('app/modules', 'app/modules'),
+                        ...createCrossFeatureZones('electron/features', 'electron/features'),
+                    ],
+                },
+            ],
             'no-restricted-imports': [
                 'error',
-                {patterns: [{
-                    group: ['./*'],
-                    message: 'Use absolute imports with @app/ or @electron/ prefix instead of relative imports',
-                }]},
+                {patterns: [
+                    {
+                        group: ['./*'],
+                        message: 'Use absolute imports with @app/ or @electron/ prefix instead of relative imports',
+                    },
+                ]},
             ],
             'no-restricted-syntax': [
                 'error',
@@ -108,6 +186,15 @@ export default withNuxt(
             'custom/import-specifier-newline': 'error',
             'custom/destructuring-property-newline': 'error',
             ...stylisticRules,
+        },
+    },
+    {
+        files: [
+            'packages/**/*.ts',
+            'scripts/**/*.mjs',
+        ],
+        rules: {
+            'no-restricted-imports': 'off',
         },
     },
     {

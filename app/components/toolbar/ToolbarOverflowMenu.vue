@@ -198,7 +198,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TPdfViewMode } from '@app/types/shared';
+import type { TPdfViewMode } from '@contracts/shared';
 
 const { t } = useTypedI18n();
 

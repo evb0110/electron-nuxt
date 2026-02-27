@@ -1,6 +1,6 @@
 import type { MaybeRefOrGetter } from 'vue';
 import type { TFitMode } from '@app/types/pdf';
-import type { TPdfViewMode } from '@app/types/shared';
+import type { TPdfViewMode } from '@contracts/shared';
 import { getViewColumnCount } from '@app/utils/pdf-view-mode';
 import { BrowserLogger } from '@app/utils/browser-logger';
 

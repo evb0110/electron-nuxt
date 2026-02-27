@@ -46,7 +46,7 @@
                 :disabled="!canCopySelection"
                 @click="emit('copy-selection-text')"
             >
-                {{ t('contextMenu.copySelectionToClipboard') }}
+                {{ t('contextMenu.copyTextToClipboard') }}
             </button>
             <button
                 type="button"
@@ -95,7 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TAnnotationTool } from '@app/composables/pdf/annotations/types';
+import type { TAnnotationTool } from '@app/types/annotations';
 
 interface IContextMenuState {
     visible: boolean;

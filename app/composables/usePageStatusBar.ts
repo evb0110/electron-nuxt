@@ -132,7 +132,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
 
         try {
-            await getElectronAPI().showItemInFolder(path);
+            await getElectronAPI().documents.showItemInFolder(path);
         } catch {
             // Ignore failures; status bar action is best-effort.
         }

@@ -7,18 +7,16 @@ import it from '../locales/it';
 import nl from '../locales/nl';
 import pt from '../locales/pt';
 import ru from '../locales/ru';
-import { LOCALE_DEFINITIONS } from '../../../app/i18n/locale-definitions';
 import type { EN_MESSAGE_SCHEMA } from './message-schema';
 import {
     DEFAULT_LOCALE,
     LOCALE_CODES,
+    LOCALE_DEFINITIONS,
     type TLocale,
-} from './locale-codes';
-import type {
-    TLocaleSchemaFrom,
-    TTranslationKeyFromNode,
-    TTranslationParamsFromSchema,
-} from '../../../app/i18n/schema-types';
+    type TLocaleSchemaFrom,
+    type TTranslationKeyFromNode,
+    type TTranslationParamsFromSchema,
+} from '@i18n-core';
 
 export {
     DEFAULT_LOCALE,

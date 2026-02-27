@@ -43,14 +43,14 @@ export const useDocxExport = () => {
                 return false;
             }
 
-            const outPath = await getElectronAPI().saveDocxAs(workingPath);
+            const outPath = await getElectronAPI().documents.saveDocxAs(workingPath);
             if (!outPath) {
                 return false;
             }
 
             const hasRtl = selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
             const docxBytes = createDocxFromText(text, hasRtl);
-            await getElectronAPI().writeDocxFile(outPath, docxBytes);
+            await getElectronAPI().documents.writeDocxFile(outPath, docxBytes);
             return true;
         } catch (error) {
             docxExportError.value = localizeOcrError(error, 'errors.ocr.exportDocx');

@@ -109,7 +109,7 @@
 import type {
     TAppLocale,
     TAppTheme,
-} from '@app/types/shared';
+} from '@contracts/shared';
 
 const open = defineModel<boolean>('open', { required: true });
 

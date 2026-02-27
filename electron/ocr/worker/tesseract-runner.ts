@@ -4,7 +4,7 @@ import {
     stat,
     unlink,
 } from 'fs/promises';
-import type { IOcrWord } from '../../../app/types/shared';
+import type { IOcrWord } from '@contracts/shared';
 import type { IOcrFileResult } from '@electron/ocr/worker/types';
 import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseract-language-config';
 

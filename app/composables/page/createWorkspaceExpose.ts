@@ -1,10 +1,10 @@
 import type { Ref } from 'vue';
-import type { TOpenFileResult } from '@app/types/electron-api';
+import type { TOpenFileResult } from '@contracts/electron-api';
 import { ZOOM } from '@app/constants/pdf-layout';
 import type {
     TFitMode,
     TPdfViewMode,
-} from '@app/types/shared';
+} from '@contracts/shared';
 import type {
     ICloseFileFromUiOptions,
     IWorkspaceExpose,

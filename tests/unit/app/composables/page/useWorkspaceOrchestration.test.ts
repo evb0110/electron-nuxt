@@ -468,7 +468,7 @@ beforeEach(() => {
 describe('useWorkspaceOrchestration', () => {
     it('wires controllers and clears docx errors when OCR dropdown opens', async () => {
         const { sidebar } = createDefaults();
-        const { useWorkspaceOrchestration } = await import('@app/composables/page/useWorkspaceOrchestration');
+        const { useWorkspaceOrchestration } = await import('@app/modules/workspace-shell/service');
 
         const emit = vi.fn();
         const orchestration = useWorkspaceOrchestration({
@@ -490,7 +490,7 @@ describe('useWorkspaceOrchestration', () => {
         lifecycle.isDjvuMode.value = true;
         lifecycle.djvuSourcePath.value = '/tmp/source.djvu';
 
-        const { useWorkspaceOrchestration } = await import('@app/composables/page/useWorkspaceOrchestration');
+        const { useWorkspaceOrchestration } = await import('@app/modules/workspace-shell/service');
         const orchestration = useWorkspaceOrchestration({
             isActive: ref(true),
             emit: vi.fn(),
@@ -519,7 +519,7 @@ describe('useWorkspaceOrchestration', () => {
         sidebar.pdfViewerRef.value.saveDocument.mockResolvedValue(null);
         lifecycle.pdfData.value = null;
 
-        const { useWorkspaceOrchestration } = await import('@app/composables/page/useWorkspaceOrchestration');
+        const { useWorkspaceOrchestration } = await import('@app/modules/workspace-shell/service');
         const orchestration = useWorkspaceOrchestration({
             isActive: ref(true),
             emit: vi.fn(),
@@ -547,7 +547,7 @@ describe('useWorkspaceOrchestration', () => {
         const { lifecycle } = createDefaults();
         hasElectronApiMock.mockReturnValue(false);
 
-        const { useWorkspaceOrchestration } = await import('@app/composables/page/useWorkspaceOrchestration');
+        const { useWorkspaceOrchestration } = await import('@app/modules/workspace-shell/service');
         const orchestration = useWorkspaceOrchestration({
             isActive: ref(true),
             emit: vi.fn(),
@@ -586,7 +586,7 @@ describe('useWorkspaceOrchestration', () => {
         const { lifecycle } = createDefaults();
         hasElectronApiMock.mockReturnValue(true);
 
-        const { useWorkspaceOrchestration } = await import('@app/composables/page/useWorkspaceOrchestration');
+        const { useWorkspaceOrchestration } = await import('@app/modules/workspace-shell/service');
         const orchestration = useWorkspaceOrchestration({
             isActive: ref(true),
             emit: vi.fn(),

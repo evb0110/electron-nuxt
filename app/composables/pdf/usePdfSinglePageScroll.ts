@@ -4,7 +4,7 @@ import type {
 } from 'vue';
 import { useDebounceFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from '@app/types/pdf';
-import type { TPdfViewMode } from '@app/types/shared';
+import type { TPdfViewMode } from '@contracts/shared';
 import { runGuardedTask } from '@app/utils/async-guard';
 import { stepBySpread } from '@app/utils/pdf-view-mode';
 import { logPdfNav } from '@app/utils/pdf-nav-log';

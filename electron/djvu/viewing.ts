@@ -19,7 +19,7 @@ import {
     PDFDocument,
     rgb,
 } from 'pdf-lib';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@contracts/pdf';
 import {
     cancelConversion,
     convertDjvuToPdf,

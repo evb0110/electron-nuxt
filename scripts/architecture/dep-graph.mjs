@@ -1,0 +1,302 @@
+#!/usr/bin/env node
+
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import process from 'node:process';
+import { fileURLToPath } from 'node:url';
+
+const INTERNAL_ROOTS = [
+    'app',
+    'electron',
+    'landing',
+    'packages/contracts',
+    'packages/i18n-core',
+    'packages/release-selection',
+];
+
+const SOURCE_EXTENSIONS = [
+    '.ts',
+    '.tsx',
+    '.mts',
+    '.cts',
+    '.js',
+    '.jsx',
+    '.mjs',
+    '.cjs',
+    '.vue',
+];
+
+const IMPORT_PATTERNS = [
+    /\bimport\s+[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu,
+    /\bexport\s+[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu,
+    /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
+];
+
+function toPosixPath(filePath) {
+    return filePath.split(path.sep).join('/');
+}
+
+async function pathExists(filePath) {
+    try {
+        await fs.access(filePath);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function isSourceFile(filePath) {
+    return SOURCE_EXTENSIONS.includes(path.extname(filePath));
+}
+
+async function collectFiles(rootDir, relDir = '') {
+    const scanDir = path.join(rootDir, relDir);
+    if (!(await pathExists(scanDir))) {
+        return [];
+    }
+
+    const entries = await fs.readdir(scanDir, { withFileTypes: true });
+    const files = await Promise.all(entries.map(async entry => {
+        const nextRel = relDir ? path.join(relDir, entry.name) : entry.name;
+        const abs = path.join(rootDir, nextRel);
+        if (entry.isDirectory()) {
+            return collectFiles(rootDir, nextRel);
+        }
+
+        if (entry.isFile() && isSourceFile(abs)) {
+            return [toPosixPath(nextRel)];
+        }
+
+        return [];
+    }));
+
+    return files.flat();
+}
+
+function extractImportSpecifiers(sourceText) {
+    const specifiers = [];
+    for (const pattern of IMPORT_PATTERNS) {
+        for (const match of sourceText.matchAll(pattern)) {
+            specifiers.push(match[1]);
+        }
+    }
+    return specifiers;
+}
+
+async function resolveWithExtensions(projectRoot, basePath) {
+    const candidates = [
+        basePath,
+        ...SOURCE_EXTENSIONS.map(extension => `${basePath}${extension}`),
+        ...SOURCE_EXTENSIONS.map(extension => path.join(basePath, `index${extension}`)),
+    ];
+
+    for (const candidate of candidates) {
+        const absoluteCandidate = path.join(projectRoot, candidate);
+        if (await pathExists(absoluteCandidate)) {
+            return toPosixPath(candidate);
+        }
+    }
+
+    return null;
+}
+
+async function resolveSpecifier({
+    sourceFile,
+    specifier,
+    projectRoot,
+}) {
+    if (specifier.startsWith('@app/')) {
+        return resolveWithExtensions(projectRoot, specifier.replace('@app/', 'app/'));
+    }
+
+    if (specifier === '@contracts') {
+        return resolveWithExtensions(projectRoot, 'packages/contracts/index');
+    }
+
+    if (specifier.startsWith('@contracts/')) {
+        return resolveWithExtensions(projectRoot, specifier.replace('@contracts/', 'packages/contracts/'));
+    }
+
+    if (specifier.startsWith('@electron/')) {
+        return resolveWithExtensions(projectRoot, specifier.replace('@electron/', 'electron/'));
+    }
+
+    if (specifier === '@i18n-core') {
+        return resolveWithExtensions(projectRoot, 'packages/i18n-core/index');
+    }
+
+    if (specifier.startsWith('@i18n-core/')) {
+        return resolveWithExtensions(projectRoot, specifier.replace('@i18n-core/', 'packages/i18n-core/'));
+    }
+
+    if (specifier === '@release-selection') {
+        return resolveWithExtensions(projectRoot, 'packages/release-selection/index');
+    }
+
+    if (specifier.startsWith('@release-selection/')) {
+        return resolveWithExtensions(projectRoot, specifier.replace('@release-selection/', 'packages/release-selection/'));
+    }
+
+    if (specifier.startsWith('./') || specifier.startsWith('../')) {
+        const sourceDir = path.dirname(sourceFile);
+        const resolved = toPosixPath(path.normalize(path.join(sourceDir, specifier)));
+        return resolveWithExtensions(projectRoot, resolved);
+    }
+
+    if (
+        specifier.startsWith('app/')
+        || specifier.startsWith('electron/')
+        || specifier.startsWith('landing/')
+        || specifier.startsWith('packages/contracts/')
+        || specifier.startsWith('packages/i18n-core/')
+        || specifier.startsWith('packages/release-selection/')
+    ) {
+        return resolveWithExtensions(projectRoot, specifier);
+    }
+
+    return null;
+}
+
+function collectRootsFromArgv(argv) {
+    const rootArg = argv.find(argument => argument.startsWith('--roots='));
+    if (!rootArg) {
+        return INTERNAL_ROOTS;
+    }
+
+    const requestedRoots = rootArg
+        .slice('--roots='.length)
+        .split(',')
+        .map(value => value.trim())
+        .filter(Boolean);
+
+    return requestedRoots
+        .map(root => toPosixPath(path.normalize(root)))
+        .filter(root => !path.isAbsolute(root))
+        .filter(Boolean);
+}
+
+function parseOutputArg(argv) {
+    const outputArg = argv.find(argument => argument.startsWith('--output='));
+    return outputArg ? outputArg.slice('--output='.length) : null;
+}
+
+function parseFormatArg(argv) {
+    const formatArg = argv.find(argument => argument.startsWith('--format='));
+    if (!formatArg) {
+        return 'json';
+    }
+
+    const format = formatArg.slice('--format='.length).toLowerCase();
+    return format === 'md' ? 'md' : 'json';
+}
+
+function isInternalPath(filePath) {
+    return INTERNAL_ROOTS.some(root => filePath === root || filePath.startsWith(`${root}/`));
+}
+
+function toMarkdown(graph) {
+    const lines = [
+        '# Dependency Graph',
+        '',
+        `- Generated: ${new Date().toISOString()}`,
+        `- Nodes: ${graph.nodes.length}`,
+        `- Edges: ${graph.edges.length}`,
+        '',
+        '## Edges',
+    ];
+
+    for (const edge of graph.edges) {
+        lines.push(`- \`${edge.source}\` -> \`${edge.target}\` (\`${edge.specifier}\`)`);
+    }
+
+    return `${lines.join('\n')}\n`;
+}
+
+export async function buildDependencyGraph({
+    projectRoot = process.cwd(),
+    roots = INTERNAL_ROOTS,
+} = {}) {
+    const normalizedRoots = roots.map(root => toPosixPath(path.normalize(root)));
+    const files = (
+        await Promise.all(normalizedRoots.map(root => collectFiles(projectRoot, root)))
+    )
+        .flat()
+        .sort();
+
+    const nodes = [];
+    const edges = [];
+
+    for (const file of files) {
+        const absFile = path.join(projectRoot, file);
+        const sourceText = await fs.readFile(absFile, 'utf8');
+        const imports = extractImportSpecifiers(sourceText);
+        const resolvedImports = await Promise.all(imports.map(async specifier => {
+            const target = await resolveSpecifier({
+                sourceFile: file,
+                specifier,
+                projectRoot,
+            });
+            return {
+                specifier,
+                target,
+            };
+        }));
+
+        const internalImports = resolvedImports.filter(entry => entry.target && isInternalPath(entry.target));
+        nodes.push({
+            file,
+            imports: internalImports,
+        });
+
+        for (const item of internalImports) {
+            edges.push({
+                source: file,
+                target: item.target,
+                specifier: item.specifier,
+            });
+        }
+    }
+
+    return {
+        nodes,
+        edges, 
+    };
+}
+
+async function runCli() {
+    const argv = process.argv.slice(2);
+    const projectRoot = process.cwd();
+    const roots = collectRootsFromArgv(argv);
+    const output = parseOutputArg(argv);
+    const format = parseFormatArg(argv);
+
+    const graph = await buildDependencyGraph({
+        projectRoot,
+        roots,
+    });
+
+    const payload = format === 'md'
+        ? toMarkdown(graph)
+        : `${JSON.stringify(graph, null, 2)}\n`;
+
+    if (output) {
+        const outputPath = path.isAbsolute(output)
+            ? output
+            : path.join(projectRoot, output);
+        await fs.mkdir(path.dirname(outputPath), { recursive: true });
+        await fs.writeFile(outputPath, payload, 'utf8');
+    } else {
+        process.stdout.write(payload);
+    }
+}
+
+const isDirectCliRun = process.argv[1]
+    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (isDirectCliRun) {
+    runCli().catch(error => {
+        console.error('[dep-graph] Failed to build dependency graph.');
+        console.error(error);
+        process.exit(1);
+    });
+}

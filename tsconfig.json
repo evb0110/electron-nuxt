@@ -12,7 +12,13 @@
         "baseUrl": ".",
         "paths": {
             "@app/*": ["app/*"],
-            "@electron/*": ["electron/*"]
+            "@contracts": ["packages/contracts/index.ts"],
+            "@contracts/*": ["packages/contracts/*"],
+            "@electron/*": ["electron/*"],
+            "@i18n-core": ["packages/i18n-core/index.ts"],
+            "@i18n-core/*": ["packages/i18n-core/*"],
+            "@release-selection": ["packages/release-selection/index.ts"],
+            "@release-selection/*": ["packages/release-selection/*"]
         }
     }
 }

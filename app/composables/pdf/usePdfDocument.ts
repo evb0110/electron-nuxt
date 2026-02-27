@@ -85,7 +85,7 @@ export const usePdfDocument = () => {
                 const api = getElectronAPI();
                 const length = src.size;
                 const initialLen = Math.min(1024 * 1024, length);
-                const initialData = await api.readFileRange(src.path, 0, initialLen);
+                const initialData = await api.documents.readFileRange(src.path, 0, initialLen);
 
                 const TransportCtor = (
                     pdfjsLib as typeof pdfjsLib & {PDFDataRangeTransport?: TPdfDataRangeTransportCtor;}
@@ -115,7 +115,7 @@ export const usePdfDocument = () => {
                         if (version !== renderVersion) {
                             return;
                         }
-                        const chunk = await api.readFileRange(src.path, begin, end - begin);
+                        const chunk = await api.documents.readFileRange(src.path, begin, end - begin);
                         activeRangeTransport.onDataRange(begin, chunk);
                     } catch (error) {
                         // Best-effort: surface the error to PDF.js if supported.

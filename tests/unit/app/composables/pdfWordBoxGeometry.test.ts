@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { IOcrWord } from '@app/types/shared';
+import type { IOcrWord } from '@contracts/shared';
 
 vi.mock('@app/constants/storage-keys', () => ({STORAGE_KEYS: {OCR_DEBUG_BOXES: 'pdfOcrDebugBoxes'}}));
 

@@ -8,7 +8,7 @@ import {
     recommendInstaller,
     type ILatestReleaseResponse,
     type IReleaseInstaller,
-} from '~~/shared/releases';
+} from '@release-selection';
 import { retry } from 'es-toolkit/function';
 
 interface IGithubReleaseAsset {
