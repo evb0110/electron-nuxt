@@ -2,6 +2,7 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/composables/pdf/pdfAnnotationUtils';
 import { normalizeMarkerRect } from '@app/composables/pdf/pdfAnnotationUtils';
+import { uniq } from 'es-toolkit/array';
 
 export interface IEditorTargetMatch {
     editor: IPdfjsEditor;
@@ -69,13 +70,12 @@ function editorIdsLikelyMatch(
 }
 
 export function getCommentCandidateIds(comment: IAnnotationCommentSummary) {
-    return [
+    return uniq([
         comment.uid,
         comment.annotationId,
         comment.id,
     ]
-        .filter((id): id is string => typeof id === 'string' && id.length > 0)
-        .filter((id, index, arr) => arr.indexOf(id) === index);
+        .filter((id): id is string => typeof id === 'string' && id.length > 0));
 }
 
 export function findEditorForComment(

@@ -4,6 +4,7 @@ import type {
     IPdfSearchMatch,
     TSearchDirection,
 } from '@app/types/pdf';
+import { useDebounceFn } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     getElectronAPI,
@@ -49,7 +50,6 @@ export const usePdfSearch = () => {
     } | undefined>(undefined);
     const isTruncated = ref(false);
     let searchRunId = 0;
-    let scheduledTimeout: ReturnType<typeof setTimeout> | null = null;
     let scheduledResolve: ((applied: boolean) => void) | null = null;
     let progressCleanup: (() => void) | null = null;
     let activeRequestId: string | null = null;
@@ -73,12 +73,33 @@ export const usePdfSearch = () => {
         searchProgress.value = undefined;
     }
 
-    function cancelScheduledSearch() {
-        if (scheduledTimeout) {
-            clearTimeout(scheduledTimeout);
-            scheduledTimeout = null;
-        }
+    const debouncedPerformSearch = useDebounceFn(async (payload: {
+        runId: number;
+        query: string;
+        pdfPath: string;
+        pageCount?: number;
+    }) => {
+        const resolver = scheduledResolve;
+        scheduledResolve = null;
 
+        try {
+            await performSearch(
+                payload.runId,
+                payload.query,
+                payload.pdfPath,
+                payload.pageCount,
+            );
+        } catch (error) {
+            BrowserLogger.warn('pdf-search', 'Search failed', {
+                query: payload.query,
+                error,
+            });
+        } finally {
+            resolver?.(payload.runId === searchRunId);
+        }
+    }, SEARCH_DEBOUNCE_MS);
+
+    function cancelScheduledSearch() {
         if (scheduledResolve) {
             scheduledResolve(false);
             scheduledResolve = null;
@@ -117,7 +138,7 @@ export const usePdfSearch = () => {
             return;
         }
 
-        const requestId = `search-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const requestId = `search-${crypto.randomUUID()}`;
 
         try {
             isSearching.value = true;
@@ -282,20 +303,12 @@ export const usePdfSearch = () => {
 
         return new Promise<boolean>((resolve) => {
             scheduledResolve = resolve;
-            scheduledTimeout = setTimeout(async () => {
-                scheduledTimeout = null;
-                scheduledResolve = null;
-                try {
-                    await performSearch(runId, trimmedQuery, pdfPath, pageCount);
-                } catch (error) {
-                    BrowserLogger.warn('pdf-search', 'Search failed', {
-                        query: trimmedQuery,
-                        error, 
-                    });
-                } finally {
-                    resolve(runId === searchRunId);
-                }
-            }, SEARCH_DEBOUNCE_MS);
+            debouncedPerformSearch({
+                runId,
+                query: trimmedQuery,
+                pdfPath,
+                pageCount,
+            });
         });
     }
 

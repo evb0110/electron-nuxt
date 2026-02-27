@@ -657,7 +657,7 @@ function handleToolbarRedo() {
 }
 
 function handleToolbarToggleSidebar() {
-    const attemptId = `sidebar-toggle-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const attemptId = `sidebar-toggle-${crypto.randomUUID()}`;
     const beforePage = currentPage.value;
     const beforeSidebar = showSidebar.value;
     const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;

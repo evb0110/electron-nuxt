@@ -1,28 +1,12 @@
 import { vi } from 'vitest';
+import { flattenObject } from 'es-toolkit/object';
 import enMessages from '@app/locales/en';
 
-interface IMessageNode {[key: string]: IMessageNode | string;}
-
-const collectMessageKeys = (
-    node: IMessageNode,
-    prefix = '',
-    keys: Set<string> = new Set(),
-) => {
-    for (const [
-        key,
-        value,
-    ] of Object.entries(node)) {
-        const path = prefix ? `${prefix}.${key}` : key;
-        if (typeof value === 'string') {
-            keys.add(path);
-            continue;
-        }
-        collectMessageKeys(value, path, keys);
-    }
-    return keys;
-};
-
-const EN_TRANSLATION_KEYS = collectMessageKeys(enMessages as IMessageNode);
+const EN_TRANSLATION_KEYS = new Set(
+    Object.entries(flattenObject(enMessages))
+        .filter(entry => typeof entry[1] === 'string')
+        .map(entry => entry[0]),
+);
 
 const translate = (key: string) => {
     if (!EN_TRANSLATION_KEYS.has(key)) {

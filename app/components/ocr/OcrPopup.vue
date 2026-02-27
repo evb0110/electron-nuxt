@@ -260,6 +260,7 @@
 </template>
 
 <script setup lang="ts">
+import { useTimeoutFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TTranslationKey } from '@app/i18n/locales';
 import { BrowserLogger } from '@app/utils/browser-logger';
@@ -312,7 +313,12 @@ const isExporting = computed(() => props.isExportingDocx ?? false);
 const effectiveError = computed(() => error.value ?? props.externalError ?? null);
 const isCopyingLogs = ref(false);
 const copyLogsState = ref<'idle' | 'copied' | 'failed'>('idle');
-let copyLogsStateResetTimer: ReturnType<typeof setTimeout> | null = null;
+const {
+    start: startCopyLogsStateReset,
+    stop: stopCopyLogsStateReset,
+} = useTimeoutFn(() => {
+    copyLogsState.value = 'idle';
+}, 2500, { immediate: false });
 
 const copyLogsTooltip = computed(() => {
     if (copyLogsState.value === 'copied') {
@@ -331,20 +337,12 @@ watch(isOpen, (value) => {
 });
 
 onBeforeUnmount(() => {
-    if (copyLogsStateResetTimer) {
-        clearTimeout(copyLogsStateResetTimer);
-        copyLogsStateResetTimer = null;
-    }
+    stopCopyLogsStateReset();
 });
 
 function scheduleCopyLogsStateReset() {
-    if (copyLogsStateResetTimer) {
-        clearTimeout(copyLogsStateResetTimer);
-    }
-    copyLogsStateResetTimer = setTimeout(() => {
-        copyLogsState.value = 'idle';
-        copyLogsStateResetTimer = null;
-    }, 2500);
+    stopCopyLogsStateReset();
+    startCopyLogsStateReset();
 }
 
 async function handleCopyLogs() {

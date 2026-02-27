@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { retry } from 'es-toolkit/function';
 import { ref } from 'vue';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
@@ -40,14 +41,19 @@ function deferred<T>() {
 }
 
 async function waitForCondition(condition: () => boolean, timeoutMs = 300) {
-    const started = Date.now();
-    while (Date.now() - started <= timeoutMs) {
-        if (condition()) {
-            return;
-        }
-        await new Promise(resolve => setTimeout(resolve, 5));
+    const intervalMs = 5;
+    try {
+        await retry(async () => {
+            if (!condition()) {
+                throw new Error('Condition not met');
+            }
+        }, {
+            retries: Math.max(0, Math.ceil(timeoutMs / intervalMs) - 1),
+            delay: intervalMs,
+        });
+    } catch {
+        throw new Error('Timed out waiting for condition');
     }
-    throw new Error('Timed out waiting for condition');
 }
 
 function createHarness() {

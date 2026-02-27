@@ -4,16 +4,13 @@ import {
     type IPdfPageRange,
     type TPageLabelStyle,
 } from '@app/types/pdf';
+import { clamp } from 'es-toolkit/math';
 
 type TNonNullPageLabelStyle = Exclude<TPageLabelStyle, null>;
 const PAGE_LABEL_STYLE_SET = new Set<TNonNullPageLabelStyle>(PAGE_LABEL_STYLE_VALUES);
 
 function isNonNullPageLabelStyle(style: unknown): style is TNonNullPageLabelStyle {
     return typeof style === 'string' && PAGE_LABEL_STYLE_SET.has(style as TNonNullPageLabelStyle);
-}
-
-function clamp(value: number, min: number, max: number) {
-    return Math.max(min, Math.min(max, value));
 }
 
 function toPositiveInt(value: unknown, fallback: number) {

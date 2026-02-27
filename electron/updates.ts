@@ -157,27 +157,21 @@ async function writeSkippedVersion(version: string | null) {
 }
 
 async function fetchLatestMetadataVersion() {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), METADATA_REQUEST_TIMEOUT_MS);
-    try {
-        const response = await fetch(config.updates.metadataUrl, {
-            headers: {accept: 'application/json'},
-            signal: controller.signal,
-        });
+    const response = await fetch(config.updates.metadataUrl, {
+        headers: {accept: 'application/json'},
+        signal: AbortSignal.timeout(METADATA_REQUEST_TIMEOUT_MS),
+    });
 
-        if (!response.ok) {
-            throw new Error(`Metadata endpoint responded with ${response.status}`);
-        }
-
-        const payload = await response.json() as ILandingLatestReleaseResponse;
-        const latestTag = normalizeVersion(payload.release?.tag);
-        if (!latestTag) {
-            throw new Error('Metadata endpoint did not return release.tag');
-        }
-        return latestTag;
-    } finally {
-        clearTimeout(timeout);
+    if (!response.ok) {
+        throw new Error(`Metadata endpoint responded with ${response.status}`);
     }
+
+    const payload = await response.json() as ILandingLatestReleaseResponse;
+    const latestTag = normalizeVersion(payload.release?.tag);
+    if (!latestTag) {
+        throw new Error('Metadata endpoint did not return release.tag');
+    }
+    return latestTag;
 }
 
 function scheduleNextPoll() {

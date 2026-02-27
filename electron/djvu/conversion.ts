@@ -2,6 +2,7 @@ import {
     BrowserWindow,
     app,
 } from 'electron';
+import { randomUUID } from 'node:crypto';
 import type { IpcMainInvokeEvent } from 'electron';
 import {
     mkdir,
@@ -42,8 +43,9 @@ export async function handleDjvuConvertToPdf(
     error?: string;
 }> {
     const window = BrowserWindow.fromWebContents(event.sender);
-    const jobId = `djvu-convert-${Date.now()}`;
-    const imageDir = join(app.getPath('temp'), `djvu-images-${Date.now()}`);
+    const conversionId = randomUUID();
+    const jobId = `djvu-convert-${conversionId}`;
+    const imageDir = join(app.getPath('temp'), `djvu-images-${conversionId}`);
     logger.info(`[${jobId}] Converting DjVu to PDF: ${djvuPath} -> ${outputPath}`);
 
     try {

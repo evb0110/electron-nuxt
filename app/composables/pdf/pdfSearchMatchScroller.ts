@@ -1,5 +1,6 @@
 import { getPageContainer } from '@app/composables/pdf/pdfPageBufferManager';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
+import { delay } from 'es-toolkit/promise';
 
 interface ICurrentSearchMatch {pageIndex: number;}
 
@@ -25,12 +26,6 @@ interface IPendingRequestToken {
 const SEARCH_SCROLL_RETRY_DELAY_MS = 40;
 const SEARCH_SCROLL_WAIT_TIMEOUT_MS = 1500;
 const SEARCH_SCROLL_SETTLE_MS = 120;
-
-function delay(ms: number) {
-    return new Promise<void>((resolve) => {
-        setTimeout(resolve, ms);
-    });
-}
 
 export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) {
     let requestCounter = 0;

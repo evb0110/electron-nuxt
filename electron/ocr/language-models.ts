@@ -1,4 +1,5 @@
 import { homedir } from 'os';
+import { randomUUID } from 'node:crypto';
 import {
     copyFileSync,
     existsSync,
@@ -17,6 +18,7 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
+import { delay } from 'es-toolkit/promise';
 import { createLogger } from '@electron/utils/logger';
 
 const log = createLogger('ocr-language-models');
@@ -70,10 +72,6 @@ function normalizeLanguageCodes(languageCodes: string[]): string[] {
         }
     }
     return Array.from(deduped);
-}
-
-function delay(ms: number) {
-    return new Promise<void>(resolve => setTimeout(resolve, ms));
 }
 
 class LanguageModelDownloadError extends Error {
@@ -276,13 +274,10 @@ async function seedBundledModels(runtimeDir: string) {
 }
 
 async function precheckLanguageDownload(languageCode: string, languageUrl: string) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), PRECHECK_TIMEOUT_MS);
-
     try {
         const response = await fetch(languageUrl, {
             method: 'HEAD',
-            signal: controller.signal,
+            signal: AbortSignal.timeout(PRECHECK_TIMEOUT_MS),
         });
 
         if (!response.ok) {
@@ -297,8 +292,6 @@ async function precheckLanguageDownload(languageCode: string, languageUrl: strin
         log.warn(
             `Skipping OCR model precheck strictness for ${languageCode}: ${classified.message}. Continuing with download attempts.`,
         );
-    } finally {
-        clearTimeout(timeout);
     }
 }
 
@@ -309,18 +302,15 @@ async function downloadLanguageModel(languageCode: string, runtimeDir: string) {
     }
 
     const languageUrl = `${DOWNLOAD_BASE_URL}/${encodeURIComponent(languageCode)}.traineddata`;
-    const tempPath = `${modelPath}.download-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempPath = `${modelPath}.download-${randomUUID()}`;
     await precheckLanguageDownload(languageCode, languageUrl);
 
     for (let attempt = 1; attempt <= DOWNLOAD_RETRIES; attempt++) {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
-
         try {
             log.info(`Downloading OCR model ${languageCode} (attempt ${attempt}/${DOWNLOAD_RETRIES})`);
             const response = await fetch(languageUrl, {
                 method: 'GET',
-                signal: controller.signal,
+                signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
             });
 
             if (!response.ok) {
@@ -354,7 +344,6 @@ async function downloadLanguageModel(languageCode: string, runtimeDir: string) {
             log.warn(`Download retry scheduled for OCR model ${languageCode}: ${classified.message}`);
             await delay(RETRY_DELAY_MS * attempt);
         } finally {
-            clearTimeout(timeout);
             await rm(tempPath, { force: true }).catch(() => {});
         }
     }

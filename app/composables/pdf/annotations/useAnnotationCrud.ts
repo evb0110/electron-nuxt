@@ -10,6 +10,7 @@ import {
     useTimeoutFn,
     tryOnScopeDispose,
 } from '@vueuse/core';
+import { uniq } from 'es-toolkit/array';
 import type {
     IAnnotationCommentSummary,
     TAnnotationTool,
@@ -181,7 +182,6 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
     } = options;
 
     const focusPulseTimers: Array<ReturnType<typeof useTimeoutFn>> = [];
-    let notePlacementAttemptCounter = 0;
 
     tryOnScopeDispose(() => {
         focusPulseTimers.forEach(t => t.stop());
@@ -193,8 +193,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
     }
 
     function nextNotePlacementAttemptId() {
-        notePlacementAttemptCounter += 1;
-        return `note-${Date.now().toString(36)}-${notePlacementAttemptCounter}`;
+        return `note-${crypto.randomUUID()}`;
     }
 
     function setActiveCommentAndSync(stableKey: string | null) {
@@ -835,15 +834,23 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
             normalizedSummary.uid,
             normalizedSummary.id,
         ]
-            .filter((id): id is string => typeof id === 'string' && id.length > 0)
-            .filter((id, i, arr) => arr.indexOf(id) === i);
+            .filter((id): id is string => typeof id === 'string' && id.length > 0);
+        const uniqueCandidateIds = uniq(candidateIds);
 
         const cached = annotationCommentsCache.value.find(
             c => c.pageIndex === match.pageIndex
-                && (candidateIds.includes(c.annotationId ?? '') || candidateIds.includes(c.uid ?? '') || candidateIds.includes(c.id)),
+                && (
+                    uniqueCandidateIds.includes(c.annotationId ?? '')
+                    || uniqueCandidateIds.includes(c.uid ?? '')
+                    || uniqueCandidateIds.includes(c.id)
+                ),
         )
             ?? annotationCommentsCache.value.find(
-                c => candidateIds.includes(c.annotationId ?? '') || candidateIds.includes(c.uid ?? '') || candidateIds.includes(c.id),
+                c => (
+                    uniqueCandidateIds.includes(c.annotationId ?? '')
+                    || uniqueCandidateIds.includes(c.uid ?? '')
+                    || uniqueCandidateIds.includes(c.id)
+                ),
             )
             ?? null;
 

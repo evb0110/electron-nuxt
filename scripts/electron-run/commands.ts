@@ -761,7 +761,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
 
                 const beforeState = await readViewerState();
                 const triggerToken = await page.evaluate((path: string, triggerTimeoutMs: number) => {
-                    const token = `open-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                    const token = `open-${crypto.randomUUID()}`;
                     (window as any).__electronRunOpenPdfTrigger = {
                         token,
                         status: 'pending',

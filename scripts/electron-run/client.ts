@@ -29,8 +29,6 @@ export async function sendCommand(
         }
 
         let data: ReturnType<typeof parseElectronRunCommandResponse> = null;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
 
         try {
             const res = await fetch(`http://localhost:${info.port}`, {
@@ -40,7 +38,7 @@ export async function sendCommand(
                     command,
                     args, 
                 }),
-                signal: controller.signal,
+                signal: AbortSignal.timeout(requestTimeoutMs),
             });
             data = parseElectronRunCommandResponse(await res.json());
             if (!data) {
@@ -56,8 +54,6 @@ export async function sendCommand(
             }
             await delay(250);
             continue;
-        } finally {
-            clearTimeout(timeoutId);
         }
 
         if (!data.success) {

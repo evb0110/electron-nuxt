@@ -2,6 +2,7 @@ import {
     BrowserWindow,
     app,
 } from 'electron';
+import { randomUUID } from 'node:crypto';
 import type { IpcMainInvokeEvent } from 'electron';
 import {
     readFile,
@@ -310,7 +311,7 @@ async function buildSkeletonPdf(
         addSkeletonPage(doc, width, height);
     }
 
-    const skeletonPath = join(app.getPath('temp'), `djvu-skeleton-${Date.now()}.pdf`);
+    const skeletonPath = join(app.getPath('temp'), `djvu-skeleton-${randomUUID()}.pdf`);
     await writeFile(skeletonPath, new Uint8Array(await doc.save()));
     return skeletonPath;
 }
@@ -338,7 +339,7 @@ async function backgroundConvertAll(
             .then(sexp => parseDjvuOutline(sexp))
             .catch(() => [] as IPdfBookmarkEntry[]);
 
-        fullPdfPath = join(app.getPath('temp'), `djvu-full-${Date.now()}.pdf`);
+        fullPdfPath = join(app.getPath('temp'), `djvu-full-${randomUUID()}.pdf`);
         const windowId = window?.id;
         if (typeof windowId === 'number') {
             trackDjvuTempPdfPath(windowId, fullPdfPath);
@@ -493,7 +494,8 @@ export async function handleDjvuOpenForViewing(
 
     cancelActiveViewingJob();
 
-    const jobId = `djvu-view-${Date.now()}`;
+    const openId = randomUUID();
+    const jobId = `djvu-view-${openId}`;
     logger.info(`[${jobId}] Opening DjVu for viewing: ${djvuPath}`);
     let tempPage1Path: string | null = null;
     let initialPdfPath: string | null = null;
@@ -503,7 +505,7 @@ export async function handleDjvuOpenForViewing(
 
         tempPage1Path = join(
             app.getPath('temp'),
-            `djvu-page1-${Date.now()}.pdf`,
+            `djvu-page1-${openId}.pdf`,
         );
         const page1PdfPath = tempPage1Path;
         if (typeof windowId === 'number') {

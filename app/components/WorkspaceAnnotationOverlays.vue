@@ -129,6 +129,7 @@ import {
 import type { IAnnotationNotePosition } from '@app/composables/pdf/annotations/types';
 import { NOTE_WINDOW } from '@app/constants/pdf-layout';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { clamp } from 'es-toolkit/math';
 
 interface IAnnotationNoteWindowEntry {
     comment: IAnnotationCommentSummary;
@@ -272,10 +273,6 @@ function parseStableKeyIdentity(stableKey: string) {
     };
 }
 
-function clampUnit(value: number) {
-    return Math.max(0, Math.min(1, value));
-}
-
 function isFloatingIndicatorEligible(comment: IAnnotationCommentSummary) {
     const subtype = (comment.subtype ?? '').trim().toLowerCase();
     if (subtype === 'link') {
@@ -313,8 +310,8 @@ function toPageNormalizedPoint(element: HTMLElement) {
     const rect = element.getBoundingClientRect();
     return {
         pageNumber: pageNumberRaw,
-        x: clampUnit(((rect.left + (rect.width / 2)) - pageRect.left) / pageRect.width),
-        y: clampUnit(((rect.top + (rect.height / 2)) - pageRect.top) / pageRect.height),
+        x: clamp(((rect.left + (rect.width / 2)) - pageRect.left) / pageRect.width, 0, 1),
+        y: clamp(((rect.top + (rect.height / 2)) - pageRect.top) / pageRect.height, 0, 1),
     };
 }
 
@@ -422,8 +419,8 @@ function inlineIdentityMatchesNote(
 
     const markerRect = getNoteMarkerRect(note);
     if (markerRect) {
-        const noteAnchorX = clampUnit(markerRect.left + markerRect.width);
-        const noteAnchorY = clampUnit(markerRect.top);
+        const noteAnchorX = clamp(markerRect.left + markerRect.width, 0, 1);
+        const noteAnchorY = clamp(markerRect.top, 0, 1);
         const hasNearbyInlineMarker = inlineIdentity.markerPoints.some((point) => {
             if (point.pageNumber !== note.comment.pageNumber) {
                 return false;

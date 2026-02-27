@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { TTabUpdate } from '@app/types/tabs';
+import { clamp } from 'es-toolkit/math';
 
 interface IWorkspaceWindowTitleState {
     isDjvuMode: boolean;
@@ -90,7 +91,7 @@ export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
         }
 
         return t('tabs.preparingBatch', {
-            processed: Math.min(Math.max(0, progress.processed), progress.total),
+            processed: clamp(progress.processed, 0, progress.total),
             total: progress.total,
         });
     }

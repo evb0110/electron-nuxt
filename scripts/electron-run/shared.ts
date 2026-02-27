@@ -18,6 +18,8 @@ import type {
 } from 'puppeteer-core';
 import type { MergeExclusive } from 'type-fest';
 import { safeDestr } from 'destr';
+import { uniq } from 'es-toolkit/array';
+import { delay } from 'es-toolkit/promise';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -320,7 +322,7 @@ export async function killPids(
         exclude.add(process.ppid);
     }
 
-    const uniquePids = Array.from(new Set(pids));
+    const uniquePids = uniq(pids);
     for (const pid of uniquePids) {
         if (exclude.has(pid)) {
             continue;
@@ -329,12 +331,6 @@ export async function killPids(
             process.kill(pid, signal);
         } catch {}
     }
-}
-
-function sleep(ms: number) {
-    return new Promise<void>((resolve) => {
-        setTimeout(resolve, ms);
-    });
 }
 
 function collectDescendantPidsUnix(rootPid: number) {
@@ -431,10 +427,10 @@ export async function killProcessTree(pid: number, graceMs = 1500): Promise<void
     }
 
     const descendants = collectDescendantPidsUnix(pid);
-    const targets = Array.from(new Set([
+    const targets = uniq([
         ...descendants,
         pid,
-    ]));
+    ]);
     await killPids(targets, { signal: 'SIGTERM' });
 
     if (graceMs > 0) {
@@ -444,7 +440,7 @@ export async function killProcessTree(pid: number, graceMs = 1500): Promise<void
             if (!alive) {
                 return;
             }
-            await sleep(80);
+            await delay(80);
         }
     }
 

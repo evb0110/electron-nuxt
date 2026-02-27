@@ -15,6 +15,7 @@ import {
     parentPort,
     workerData,
 } from 'worker_threads';
+import { randomUUID } from 'node:crypto';
 import {
     readFile,
     stat,
@@ -346,7 +347,7 @@ async function processOcrJob(
         log('debug', `Processing OCR job ${jobId}: pdfLen=${originalPdfData.length}, pages=${pages.length}`);
 
         const errors: string[] = [];
-        const sessionId = `ocr-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const sessionId = `ocr-${randomUUID()}`;
 
         const originalPdfPath = trackTempFile(join(paths.tempDir, `${sessionId}-original.pdf`));
         await writeFile(originalPdfPath, originalPdfData);

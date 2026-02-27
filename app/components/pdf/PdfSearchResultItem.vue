@@ -48,7 +48,7 @@ const props = defineProps<IProps>();
 const emit = defineEmits<{(e: 'activate'): void;}>();
 
 const textRef = ref<HTMLSpanElement | null>(null);
-const highlightId = `search-${Math.random().toString(36).slice(2)}`;
+const highlightId = `search-${crypto.randomUUID()}`;
 
 const fullText = computed(() => {
     if (!props.result.excerpt) {

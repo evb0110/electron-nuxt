@@ -1,15 +1,37 @@
 import {
     afterEach,
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
+import { delay } from 'es-toolkit/promise';
 import { useExternalFileDrop } from '@app/composables/page/useExternalFileDrop';
 
 function cast<T>(obj: unknown): T {
     return obj as T;
 }
+
+interface ICapturedDropZoneOptions {
+    onDrop?: (files: File[] | null, event: DragEvent) => void;
+    onOver?: (files: File[] | null, event: DragEvent) => void;
+}
+
+let capturedDropZoneOptions: ICapturedDropZoneOptions = {};
+
+vi.mock('@vueuse/core', () => ({ useDropZone: vi.fn((_target: unknown, options?: ICapturedDropZoneOptions | ((files: File[] | null, event: DragEvent) => void)) => {
+    if (typeof options === 'function') {
+        capturedDropZoneOptions = { onDrop: options };
+    } else {
+        capturedDropZoneOptions = options ?? {};
+    }
+
+    return {
+        files: { value: null },
+        isOverDropZone: { value: false },
+    };
+}) }));
 
 function createDragEvent(paths: string[], types: string[] = ['Files']) {
     const files = paths.map((_path, index) => ({ name: `file-${index}` })) as File[];
@@ -30,12 +52,14 @@ function createDragEvent(paths: string[], types: string[] = ['Files']) {
 async function flushDropQueue() {
     await Promise.resolve();
     await Promise.resolve();
-    await new Promise<void>((resolve) => {
-        setTimeout(() => resolve(), 0);
-    });
+    await delay(0);
 }
 
 describe('useExternalFileDrop', () => {
+    beforeEach(() => {
+        capturedDropZoneOptions = {};
+    });
+
     afterEach(() => {
         vi.unstubAllGlobals();
     });
@@ -53,8 +77,8 @@ describe('useExternalFileDrop', () => {
             }) },
         });
 
-        const { handleWindowDrop } = useExternalFileDrop({ openPathInAppropriateTab });
-        handleWindowDrop(createDragEvent([
+        useExternalFileDrop({ openPathInAppropriateTab });
+        capturedDropZoneOptions.onDrop?.(null, createDragEvent([
             '/docs/a.pdf',
             '/docs/b.djvu',
         ]));
@@ -73,17 +97,14 @@ describe('useExternalFileDrop', () => {
             electronAPI: { getPathForFile: vi.fn(() => '/docs/readme.txt') },
         });
 
-        const {
-            handleWindowDragOver,
-            handleWindowDrop,
-        } = useExternalFileDrop({ openPathInAppropriateTab });
+        useExternalFileDrop({ openPathInAppropriateTab });
 
         const nonFileEvent = createDragEvent(['/docs/readme.txt'], ['text/plain']);
-        handleWindowDragOver(nonFileEvent);
-        handleWindowDrop(nonFileEvent);
+        capturedDropZoneOptions.onOver?.(null, nonFileEvent);
+        capturedDropZoneOptions.onDrop?.(null, nonFileEvent);
 
         const fileEvent = createDragEvent(['/docs/readme.txt']);
-        handleWindowDrop(fileEvent);
+        capturedDropZoneOptions.onDrop?.(null, fileEvent);
         await Promise.resolve();
 
         expect(nonFileEvent.preventDefault).not.toHaveBeenCalled();
@@ -111,12 +132,9 @@ describe('useExternalFileDrop', () => {
             }) },
         });
 
-        const {
-            handleWindowDrop,
-            cleanup,
-        } = useExternalFileDrop({ openPathInAppropriateTab });
+        const { cleanup } = useExternalFileDrop({ openPathInAppropriateTab });
 
-        handleWindowDrop(createDragEvent([
+        capturedDropZoneOptions.onDrop?.(null, createDragEvent([
             '/docs/a.pdf',
             '/docs/b.djvu',
         ]));

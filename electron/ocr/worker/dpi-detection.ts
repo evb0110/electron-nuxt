@@ -1,5 +1,6 @@
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { runCommand } from '@electron/ocr/worker/run-command';
+import { clamp } from 'es-toolkit/math';
 
 const PDFIMAGES_TIMEOUT_MS = 30 * 1000;
 
@@ -59,5 +60,5 @@ export function clampDpi(value: number) {
     if (!Number.isFinite(value)) {
         return 300;
     }
-    return Math.min(1200, Math.max(72, Math.round(value)));
+    return clamp(Math.round(value), 72, 1200);
 }

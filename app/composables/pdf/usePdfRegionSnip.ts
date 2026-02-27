@@ -1,5 +1,10 @@
 import type { Ref } from 'vue';
+import {
+    useEventListener,
+    useTimeoutFn,
+} from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { clamp } from 'es-toolkit/math';
 
 export type TSnipState = 'idle' | 'selecting' | 'copying' | 'success' | 'error';
 
@@ -118,10 +123,6 @@ function toClientRect(rect: DOMRect): IClientRect {
         right: rect.right,
         bottom: rect.bottom,
     };
-}
-
-function clamp(value: number, min: number, max: number) {
-    return Math.max(min, Math.min(max, value));
 }
 
 function collectCanvasSources(viewerContainer: HTMLElement): ICanvasSource[] {
@@ -282,13 +283,16 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
     } | null = null;
     let pendingResolver: ((result: boolean) => void) | null = null;
     let cleanupEscapeListener: (() => void) | null = null;
-    let successTimer: ReturnType<typeof setTimeout> | null = null;
+    const {
+        start: startSuccessTimer,
+        stop: stopSuccessTimer,
+    } = useTimeoutFn(() => {
+        resetOverlayVisuals();
+        resolveSession(true);
+    }, 850, { immediate: false });
 
     function clearSuccessTimer() {
-        if (successTimer) {
-            clearTimeout(successTimer);
-            successTimer = null;
-        }
+        stopSuccessTimer();
     }
 
     function detachEscapeListener() {
@@ -331,10 +335,7 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
             cancelCapture();
         };
 
-        window.addEventListener('keydown', onKeyDown, true);
-        cleanupEscapeListener = () => {
-            window.removeEventListener('keydown', onKeyDown, true);
-        };
+        cleanupEscapeListener = useEventListener(window, 'keydown', onKeyDown, { capture: true });
     }
 
     function updateSelectionFromPointer(
@@ -411,10 +412,7 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
             setSuccessVisuals(outputRect, payload.overlayRect);
 
             clearSuccessTimer();
-            successTimer = setTimeout(() => {
-                resetOverlayVisuals();
-                resolveSession(true);
-            }, 850);
+            startSuccessTimer();
         } catch (error) {
             BrowserLogger.debug('pdf-snip', 'Failed to copy selected PDF region', error);
             state.value = 'error';

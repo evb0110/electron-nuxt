@@ -5,6 +5,8 @@ import {
     vi,
     beforeEach,
 } from 'vitest';
+import { retry } from 'es-toolkit/function';
+import { withTimeout } from 'es-toolkit/promise';
 
 const mockElectronAPI = {
     onOcrProgress: vi.fn(),
@@ -32,14 +34,19 @@ async function waitForCondition(
     condition: () => boolean,
     timeoutMs = 500,
 ) {
-    const started = Date.now();
-    while (Date.now() - started <= timeoutMs) {
-        if (condition()) {
-            return;
-        }
-        await new Promise(resolve => setTimeout(resolve, 5));
+    const intervalMs = 5;
+    try {
+        await retry(async () => {
+            if (!condition()) {
+                throw new Error('Condition not met');
+            }
+        }, {
+            retries: Math.max(0, Math.ceil(timeoutMs / intervalMs) - 1),
+            delay: intervalMs,
+        });
+    } catch {
+        throw new Error('Timed out waiting for condition');
     }
-    throw new Error('Timed out waiting for condition');
 }
 
 describe('useOcr', () => {
@@ -76,12 +83,15 @@ describe('useOcr', () => {
         await waitForCondition(() => mockElectronAPI.ocrCreateSearchablePdf.mock.calls.length > 0);
         ocr.cancelOcr();
 
-        const settled = await Promise.race([
-            runPromise.then(() => 'resolved'),
-            new Promise<'timeout'>((resolve) => {
-                setTimeout(() => resolve('timeout'), 100);
-            }),
-        ]);
+        const settled = await withTimeout(
+            () => runPromise.then(() => 'resolved' as const),
+            100,
+        ).catch((error: unknown) => {
+            if (error instanceof Error && error.name === 'TimeoutError') {
+                return 'timeout' as const;
+            }
+            throw error;
+        });
 
         expect(settled).toBe('resolved');
         expect(mockElectronAPI.ocrCancel).toHaveBeenCalledTimes(1);

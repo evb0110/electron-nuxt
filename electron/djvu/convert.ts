@@ -1,7 +1,7 @@
 import { spawn } from 'child_process';
 import type { ChildProcess } from 'child_process';
 import {
-    mkdir,
+    mkdtemp,
     readFile,
     rm,
     stat,
@@ -84,13 +84,11 @@ async function convertDjvuToPdfWithRanges(
         };
     }
 
-    const tempDir = join(tmpdir(), `djvu-pages-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const tempDir = await mkdtemp(join(tmpdir(), 'djvu-pages-'));
     const chunkPaths = Array.from({ length: totalPages }, (_, index) => join(tempDir, `page-${index + 1}.pdf`));
     const completedPages = new Set<number>();
     const pageQueue = Array.from({ length: totalPages }, (_, index) => index + 1);
     let firstError: string | null = null;
-
-    await mkdir(tempDir, { recursive: true });
 
     try {
         async function worker(workerIndex: number) {

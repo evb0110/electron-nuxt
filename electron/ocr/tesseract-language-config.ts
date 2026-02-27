@@ -1,3 +1,8 @@
+import {
+    partition,
+    uniq,
+} from 'es-toolkit/array';
+
 const RTL_LANGUAGE_CODES = new Set([
     'heb',
     'syr',
@@ -32,27 +37,12 @@ interface ITesseractLanguageConfig {
     hasRtl: boolean;
 }
 
-function dedupeLanguages(languages: string[]): string[] {
-    const seen = new Set<string>();
-    const deduped: string[] = [];
-
-    for (const code of languages) {
-        if (!code || seen.has(code)) {
-            continue;
-        }
-        seen.add(code);
-        deduped.push(code);
-    }
-
-    return deduped;
-}
-
 export function isRtlOcrLanguage(code: string): boolean {
     return RTL_LANGUAGE_CODES.has(code);
 }
 
 export function resolveTesseractLanguageConfig(languages: string[]): ITesseractLanguageConfig {
-    const deduped = dedupeLanguages(languages);
+    const deduped = uniq(languages.filter(Boolean));
     const hasRtl = deduped.some(isRtlOcrLanguage);
 
     if (!hasRtl) {
@@ -63,9 +53,13 @@ export function resolveTesseractLanguageConfig(languages: string[]): ITesseractL
         };
     }
 
+    const [
+        rtlLanguages,
+        nonRtlLanguages,
+    ] = partition(deduped, isRtlOcrLanguage);
     const rtlFirst = [
-        ...deduped.filter(isRtlOcrLanguage),
-        ...deduped.filter((code) => !isRtlOcrLanguage(code)),
+        ...rtlLanguages,
+        ...nonRtlLanguages,
     ];
 
     return {

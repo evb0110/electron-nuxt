@@ -5,6 +5,7 @@ import {
     PDFName,
     PDFRef,
 } from 'pdf-lib';
+import { clamp } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { markerRectIoU } from '@app/composables/pdf/pdfAnnotationUtils';
 import {
@@ -94,7 +95,7 @@ function findCommentRefByGeneratedId(doc: PDFDocument, comment: IAnnotationComme
         return null;
     }
 
-    const pageIndex = Math.max(0, Math.min(pageNumber - 1, doc.getPageCount() - 1));
+    const pageIndex = clamp(pageNumber - 1, 0, doc.getPageCount() - 1);
     const page = doc.getPages()[pageIndex];
     if (!page) {
         return null;
@@ -118,7 +119,7 @@ export function resolveCommentPdfRefInDocument(doc: PDFDocument, comment: IAnnot
         return byGeneratedId;
     }
 
-    const pageIndex = Math.max(0, Math.min(comment.pageIndex, doc.getPageCount() - 1));
+    const pageIndex = clamp(comment.pageIndex, 0, doc.getPageCount() - 1);
     const page = doc.getPages()[pageIndex];
     if (!page) {
         return null;
@@ -137,10 +138,10 @@ export function resolveCommentPdfRefInDocument(doc: PDFDocument, comment: IAnnot
     const commentAuthor = normalizeComparableText(comment.author);
     const commentRect = comment.markerRect
         ? {
-            left: Math.max(0, Math.min(1, comment.markerRect.left)),
-            top: Math.max(0, Math.min(1, comment.markerRect.top)),
-            width: Math.max(0, Math.min(1, comment.markerRect.width)),
-            height: Math.max(0, Math.min(1, comment.markerRect.height)),
+            left: clamp(comment.markerRect.left, 0, 1),
+            top: clamp(comment.markerRect.top, 0, 1),
+            width: clamp(comment.markerRect.width, 0, 1),
+            height: clamp(comment.markerRect.height, 0, 1),
         }
         : null;
 

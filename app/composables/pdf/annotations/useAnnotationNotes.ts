@@ -1,9 +1,9 @@
 import type { Ref } from 'vue';
 import {
+    until,
     useDebounceFn,
     tryOnScopeDispose,
 } from '@vueuse/core';
-import { delay } from 'es-toolkit/promise';
 import type {
     IAnnotationCommentSummary,
     IAnnotationNotePosition,
@@ -444,10 +444,10 @@ export const useAnnotationNotes = (deps: IAnnotationNoteWindowDeps) => {
 
         if (saveIfDirty) {
             if (note.saving) {
-                let attempts = 0;
-                while (note.saving && attempts < 20) {
-                    await delay(25);
-                    attempts += 1;
+                try {
+                    await until(() => !note.saving).toBe(true, { timeout: 500 });
+                } catch (error) {
+                    void error;
                 }
             }
             const saved = await persistAnnotationNote(stableKey, true);

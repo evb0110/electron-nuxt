@@ -1151,7 +1151,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         diagnosticsContext?: INotePlacementDiagnosticsContext,
     ) {
         const attemptId = diagnosticsContext?.attemptId
-            ?? `note-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            ?? `note-${crypto.randomUUID()}`;
         const viewer = viewerContainer.value;
         const viewerScrollSnapshot = (
             viewer

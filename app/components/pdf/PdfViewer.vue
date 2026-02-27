@@ -87,7 +87,10 @@ import { usePdfScale } from '@app/composables/pdf/usePdfScale';
 import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
 import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
-import { range } from 'es-toolkit/math';
+import {
+    clamp,
+    range,
+} from 'es-toolkit/math';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { usePdfViewerCore } from '@app/composables/pdf/usePdfViewerCore';
@@ -1077,11 +1080,7 @@ function normalizeWheelZoomDelta(event: WheelEvent, container: HTMLElement) {
 }
 
 function clampZoomLevel(level: number) {
-    return Math.min(ZOOM.MAX, Math.max(ZOOM.MIN, level));
-}
-
-function clampToRange(value: number, min: number, max: number) {
-    return Math.min(max, Math.max(min, value));
+    return clamp(level, ZOOM.MIN, ZOOM.MAX);
 }
 
 function summarizeWheelEventForDebug(event: WheelEvent) {
@@ -1357,12 +1356,12 @@ function handleViewerModifierWheelZoom(event: WheelEvent) {
     }
 
     const containerRect = container.getBoundingClientRect();
-    const eventAnchorX = clampToRange(
+    const eventAnchorX = clamp(
         event.clientX - containerRect.left,
         0,
         Math.max(container.clientWidth, 0),
     );
-    const eventAnchorY = clampToRange(
+    const eventAnchorY = clamp(
         event.clientY - containerRect.top,
         0,
         Math.max(container.clientHeight, 0),

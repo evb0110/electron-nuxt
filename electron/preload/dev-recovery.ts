@@ -215,7 +215,7 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
     }
 
     function scheduleReload(reason: string) {
-        const reloadId = `reload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const reloadId = `reload-${crypto.randomUUID()}`;
         const baseEvent = {
             timestamp: Date.now(),
             reason,
