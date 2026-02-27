@@ -55,6 +55,19 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         loadRecentFiles,
     } = deps;
 
+    async function saveDocumentWithRetry(maxAttempts = 4, retryDelayMs = 50) {
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+            const data = await saveDocument();
+            if (data) {
+                return data;
+            }
+            if (attempt < maxAttempts - 1) {
+                await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+            }
+        }
+        return null;
+    }
+
     async function handleSave() {
         if (isSaving.value || isSavingAs.value) {
             return;
@@ -70,7 +83,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             if (workingCopyPath.value) {
                 const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value;
                 if (shouldSerialize) {
-                    const rawData = await saveDocument();
+                    const rawData = await saveDocumentWithRetry();
                     if (rawData) {
                         let data = await rewriteMarkupSubtypes(rawData);
                         data = await serializeShapeAnnotations(data);
@@ -95,7 +108,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 return;
             }
 
-            const rawData = await saveDocument();
+            const rawData = await saveDocumentWithRetry();
             if (rawData) {
                 let data = await rewriteMarkupSubtypes(rawData);
                 data = await rewritePageLabels(data);
@@ -128,7 +141,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             let outPath: string | null = null;
             const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value;
             if (shouldSerialize) {
-                const rawData = await saveDocument();
+                const rawData = await saveDocumentWithRetry();
                 if (rawData) {
                     let data = await rewriteMarkupSubtypes(rawData);
                     data = await serializeShapeAnnotations(data);
