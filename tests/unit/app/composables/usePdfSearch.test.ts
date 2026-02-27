@@ -8,12 +8,13 @@ import {
 } from 'vitest';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 
-const mockElectronAPI = {
-    onPdfSearchProgress: vi.fn(),
-    pdfSearch: vi.fn(),
-    pdfSearchCancel: vi.fn(),
-    pdfSearchResetCache: vi.fn(),
+const mockSearch = {
+    onProgress: vi.fn(),
+    run: vi.fn(),
+    cancel: vi.fn(),
+    resetCache: vi.fn(),
 };
+const mockElectronAPI = { search: mockSearch };
 
 const hasElectronApiMock = vi.fn(() => true);
 
@@ -27,8 +28,8 @@ describe('usePdfSearch', () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
         hasElectronApiMock.mockReturnValue(true);
-        mockElectronAPI.onPdfSearchProgress.mockReturnValue(vi.fn());
-        mockElectronAPI.pdfSearch.mockResolvedValue({
+        mockSearch.onProgress.mockReturnValue(vi.fn());
+        mockSearch.run.mockResolvedValue({
             results: [],
             truncated: false,
         });
@@ -48,7 +49,7 @@ describe('usePdfSearch', () => {
         expect(search.results.value).toEqual([]);
         expect(search.currentResultIndex.value).toBe(-1);
         expect(search.isSearching.value).toBe(false);
-        expect(mockElectronAPI.pdfSearch).not.toHaveBeenCalled();
+        expect(mockSearch.run).not.toHaveBeenCalled();
     });
 
     it('maps backend matches to result and page match state after debounce', async () => {
@@ -59,12 +60,12 @@ describe('usePdfSearch', () => {
             total: number;
         }) => void) | null = null;
 
-        mockElectronAPI.onPdfSearchProgress.mockImplementation((listener) => {
+        mockSearch.onProgress.mockImplementation((listener) => {
             progressListener = listener;
             return progressUnsubscribe;
         });
 
-        mockElectronAPI.pdfSearch.mockImplementation(async (_pdfPath, _query, options) => {
+        mockSearch.run.mockImplementation(async (_pdfPath, _query, options) => {
             progressListener?.({
                 requestId: options.requestId,
                 processed: 3,
@@ -151,7 +152,7 @@ describe('usePdfSearch', () => {
             truncated: boolean;
         }) => void = () => {};
 
-        mockElectronAPI.pdfSearch.mockImplementation(async (_pdfPath, _query, options) => {
+        mockSearch.run.mockImplementation(async (_pdfPath, _query, options) => {
             requestId = options.requestId;
             return new Promise<{
                 results: unknown[];
@@ -167,12 +168,12 @@ describe('usePdfSearch', () => {
         const searchPromise = search.search('alpha', '/tmp/work.pdf');
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
 
-        expect(mockElectronAPI.pdfSearch).toHaveBeenCalledOnce();
+        expect(mockSearch.run).toHaveBeenCalledOnce();
         expect(requestId).toContain('search-');
 
         search.clearSearch();
 
-        expect(mockElectronAPI.pdfSearchCancel).toHaveBeenCalledWith(requestId);
+        expect(mockSearch.cancel).toHaveBeenCalledWith(requestId);
         expect(search.searchQuery.value).toBe('');
         expect(search.results.value).toEqual([]);
 
@@ -183,6 +184,6 @@ describe('usePdfSearch', () => {
         await searchPromise;
 
         search.resetSearchCache();
-        expect(mockElectronAPI.pdfSearchResetCache).toHaveBeenCalledOnce();
+        expect(mockSearch.resetCache).toHaveBeenCalledOnce();
     });
 });

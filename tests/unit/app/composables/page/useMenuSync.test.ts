@@ -22,10 +22,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@app/utils/electron', () => ({
     hasElectronAPI: () => mocks.hasElectronAPI(),
-    getElectronAPI: () => ({
+    getElectronAPI: () => ({documents: {
         setMenuDocumentState: mocks.setMenuDocumentState,
         setMenuTabCount: mocks.setMenuTabCount,
-    }),
+    }}),
 }));
 
 describe('useMenuSync', () => {

@@ -8,17 +8,23 @@ import {
 import { retry } from 'es-toolkit/function';
 import { withTimeout } from 'es-toolkit/promise';
 
-const mockElectronAPI = {
-    onOcrProgress: vi.fn(),
-    onOcrComplete: vi.fn(),
-    ocrCreateSearchablePdf: vi.fn(),
-    ocrCancel: vi.fn(),
-    ocrGetLanguages: vi.fn(),
-    ocrAcknowledgeResultFile: vi.fn(),
+const mockOcr = {
+    onProgress: vi.fn(),
+    onComplete: vi.fn(),
+    createSearchablePdf: vi.fn(),
+    cancel: vi.fn(),
+    getLanguages: vi.fn(),
+    acknowledgeResultFile: vi.fn(),
+};
+const mockDocuments = {
     saveDocxAs: vi.fn(),
     writeDocxFile: vi.fn(),
     readFile: vi.fn(),
     cleanupOcrTemp: vi.fn(),
+};
+const mockElectronAPI = {
+    ocr: mockOcr,
+    documents: mockDocuments, 
 };
 
 vi.mock('@app/utils/electron', () => ({getElectronAPI: () => mockElectronAPI}));
@@ -52,20 +58,20 @@ async function waitForCondition(
 describe('useOcr', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mockElectronAPI.onOcrProgress.mockReturnValue(vi.fn());
-        mockElectronAPI.onOcrComplete.mockReturnValue(vi.fn());
-        mockElectronAPI.ocrCreateSearchablePdf.mockResolvedValue({
+        mockOcr.onProgress.mockReturnValue(vi.fn());
+        mockOcr.onComplete.mockReturnValue(vi.fn());
+        mockOcr.createSearchablePdf.mockResolvedValue({
             started: true,
             jobId: 'job-1',
         });
-        mockElectronAPI.ocrCancel.mockResolvedValue({ canceled: true });
+        mockOcr.cancel.mockResolvedValue({ canceled: true });
     });
 
     it('settles runOcr when canceled before completion', async () => {
         const progressUnsubscribe = vi.fn();
         const completeUnsubscribe = vi.fn();
-        mockElectronAPI.onOcrProgress.mockReturnValue(progressUnsubscribe);
-        mockElectronAPI.onOcrComplete.mockReturnValue(completeUnsubscribe);
+        mockOcr.onProgress.mockReturnValue(progressUnsubscribe);
+        mockOcr.onComplete.mockReturnValue(completeUnsubscribe);
 
         const ocr = useOcr();
         const runPromise = ocr.runOcr(
@@ -80,7 +86,7 @@ describe('useOcr', () => {
             '/tmp/work.pdf',
         );
 
-        await waitForCondition(() => mockElectronAPI.ocrCreateSearchablePdf.mock.calls.length > 0);
+        await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
         ocr.cancelOcr();
 
         const settled = await withTimeout(
@@ -94,7 +100,7 @@ describe('useOcr', () => {
         });
 
         expect(settled).toBe('resolved');
-        expect(mockElectronAPI.ocrCancel).toHaveBeenCalledTimes(1);
+        expect(mockOcr.cancel).toHaveBeenCalledTimes(1);
         expect(progressUnsubscribe).toHaveBeenCalledTimes(1);
         expect(completeUnsubscribe).toHaveBeenCalledTimes(1);
         expect(ocr.progress.value.isRunning).toBe(false);

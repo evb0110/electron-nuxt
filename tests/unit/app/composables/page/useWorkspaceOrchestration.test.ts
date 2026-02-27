@@ -35,10 +35,10 @@ const createSerializeCurrentPdfForEmbeddedFallbackMock = vi.fn();
 const detectAnnotationChangesMock = vi.fn(() => false);
 
 const hasElectronApiMock = vi.fn(() => false);
-const electronApiMock = {
+const electronApiMock = {documents: {
     readFile: vi.fn(),
     createWorkingCopyFromData: vi.fn(),
-};
+}};
 
 const syncRefMock = vi.fn();
 const useStorageMock = vi.fn(() => ref('0'));
@@ -451,12 +451,12 @@ beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
     hasElectronApiMock.mockReturnValue(false);
-    electronApiMock.readFile.mockResolvedValue(new Uint8Array([
+    electronApiMock.documents.readFile.mockResolvedValue(new Uint8Array([
         4,
         5,
         6,
     ]));
-    electronApiMock.createWorkingCopyFromData.mockResolvedValue('/tmp/working-copy.pdf');
+    electronApiMock.documents.createWorkingCopyFromData.mockResolvedValue('/tmp/working-copy.pdf');
     detectAnnotationChangesMock.mockReturnValue(false);
 
     vi.stubGlobal('useSettings', () => ({settings: ref({
@@ -527,7 +527,7 @@ describe('useWorkspaceOrchestration', () => {
 
         const payload = await orchestration.captureSplitPayload();
 
-        expect(electronApiMock.readFile).toHaveBeenCalledWith('/tmp/working-copy.pdf');
+        expect(electronApiMock.documents.readFile).toHaveBeenCalledWith('/tmp/working-copy.pdf');
         expect(payload).toEqual({
             kind: 'pdfSnapshot',
             fileName: 'work.pdf',
@@ -604,7 +604,7 @@ describe('useWorkspaceOrchestration', () => {
             currentPage: 4,
         });
 
-        expect(electronApiMock.createWorkingCopyFromData).toHaveBeenCalledWith(
+        expect(electronApiMock.documents.createWorkingCopyFromData).toHaveBeenCalledWith(
             'restored.pdf',
             new Uint8Array([
                 1,

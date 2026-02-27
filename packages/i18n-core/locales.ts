@@ -11,7 +11,6 @@ import {
     DEFAULT_LOCALE,
     type TLocale,
 } from './locale-codes';
-import { LOCALE_DEFINITIONS as LOCALE_DEFINITIONS_LIST } from './locale-definitions';
 import type {
     TLocaleSchemaFrom,
     TTranslationKeyFromNode,
@@ -22,7 +21,6 @@ export {
     DEFAULT_LOCALE,
     type TLocale,
 };
-export const LOCALE_DEFINITIONS = LOCALE_DEFINITIONS_LIST;
 
 type TBaseLocaleSchema = typeof EN_MESSAGE_SCHEMA;
 export type TLocaleSchema = TLocaleSchemaFrom<TBaseLocaleSchema>;

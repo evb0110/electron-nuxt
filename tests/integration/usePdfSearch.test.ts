@@ -17,17 +17,17 @@ interface IProgressPayload {
 const mocks = vi.hoisted(() => {
     let progressHandler: ((payload: IProgressPayload) => void) | null = null;
 
-    const api = {
-        pdfSearch: vi.fn(),
-        pdfSearchCancel: vi.fn(async () => true),
-        pdfSearchResetCache: vi.fn(async () => true),
-        onPdfSearchProgress: vi.fn((handler: (payload: IProgressPayload) => void) => {
+    const api = {search: {
+        run: vi.fn(),
+        cancel: vi.fn(async () => ({ canceled: true })),
+        resetCache: vi.fn(async () => true),
+        onProgress: vi.fn((handler: (payload: IProgressPayload) => void) => {
             progressHandler = handler;
             return () => {
                 progressHandler = null;
             };
         }),
-    };
+    }};
 
     return {
         api,
@@ -55,7 +55,7 @@ describe('usePdfSearch', () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
 
-        mocks.api.pdfSearch.mockResolvedValue({
+        mocks.api.search.run.mockResolvedValue({
             truncated: false,
             results: [
                 {
@@ -96,7 +96,7 @@ describe('usePdfSearch', () => {
         expect(applied).toBe(false);
         expect(search.results.value).toEqual([]);
         expect(search.currentResultIndex.value).toBe(-1);
-        expect(mocks.api.pdfSearch).not.toHaveBeenCalled();
+        expect(mocks.api.search.run).not.toHaveBeenCalled();
     });
 
     it('runs debounced backend search and builds page matches', async () => {
@@ -110,7 +110,7 @@ describe('usePdfSearch', () => {
         const applied = await promise;
 
         expect(applied).toBe(true);
-        expect(mocks.api.pdfSearch).toHaveBeenCalledWith('/tmp/doc.pdf', 'term', {
+        expect(mocks.api.search.run).toHaveBeenCalledWith('/tmp/doc.pdf', 'term', {
             requestId: expect.stringContaining('search-'),
             pageCount: 20,
         });
@@ -145,6 +145,6 @@ describe('usePdfSearch', () => {
 
         search.resetSearchCache();
         expect(search.results.value).toEqual([]);
-        expect(mocks.api.pdfSearchResetCache).toHaveBeenCalledOnce();
+        expect(mocks.api.search.resetCache).toHaveBeenCalledOnce();
     });
 });

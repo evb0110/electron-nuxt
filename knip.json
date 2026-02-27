@@ -8,21 +8,26 @@
         "app/composables/**/*.ts",
         "app/utils/**/*.ts",
         "app/constants/**/*.ts",
+        "app/locales/*.ts",
+        "app/i18n/**/*.ts",
         "electron/main.ts",
         "electron/preload.ts",
         "electron/image/pdf-combine-worker.ts",
         "electron/ocr/worker/main.ts",
         "electron/search/worker.ts",
+        "packages/*/index.ts",
         "scripts/**/*.{ts,mjs,cjs}"
     ],
     "project": [
         "app/**/*.{ts,vue}",
         "electron/**/*.ts",
+        "packages/**/*.ts",
         "scripts/**/*.{ts,mjs,cjs}"
     ],
     "paths": {
         "@app/*": ["app/*"],
-        "@electron/*": ["electron/*"]
+        "@electron/*": ["electron/*"],
+        "@contracts/*": ["packages/contracts/*"]
     },
     "ignore": [
         "app/types/*.d.ts",

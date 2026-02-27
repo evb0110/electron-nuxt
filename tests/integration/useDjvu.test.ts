@@ -31,9 +31,11 @@ const mockElectronAPI = {
         cancel: vi.fn(),
         cleanupTemp: vi.fn(),
     },
-    setWindowTitle: vi.fn(),
-    savePdfDialog: vi.fn(),
-    openPdfDirect: vi.fn(),
+    documents: {
+        setWindowTitle: vi.fn(),
+        savePdfDialog: vi.fn(),
+        openPdfDirect: vi.fn(),
+    },
 };
 
 vi.mock('@app/utils/electron', () => ({getElectronAPI: () => mockElectronAPI}));
@@ -126,7 +128,7 @@ describe('useDjvu', () => {
             );
 
             expect(loadPdf).toHaveBeenCalledWith('/tmp/converted.pdf');
-            expect(mockElectronAPI.setWindowTitle).toHaveBeenCalled();
+            expect(mockElectronAPI.documents.setWindowTitle).toHaveBeenCalled();
             expect(djvu.isLoadingPages.value).toBe(false);
         });
 
