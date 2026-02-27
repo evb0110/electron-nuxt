@@ -10,6 +10,34 @@ export interface IEditorTargetMatch {
     targetAnnotationId: string | null;
 }
 
+function parseStableKeyCandidates(stableKey: string | null | undefined) {
+    if (!stableKey) {
+        return [];
+    }
+
+    const normalized = stableKey.trim();
+    if (!normalized) {
+        return [];
+    }
+
+    const uidMatch = normalized.match(/^uid:\d+:(.+)$/);
+    if (uidMatch?.[1]) {
+        return [uidMatch[1]];
+    }
+
+    const annotationMatch = normalized.match(/^ann:\d+:(.+)$/);
+    if (annotationMatch?.[1]) {
+        return [annotationMatch[1]];
+    }
+
+    const sourceMatch = normalized.match(/^src:[^:]+:\d+:(.+)$/);
+    if (sourceMatch?.[1]) {
+        return [sourceMatch[1]];
+    }
+
+    return [];
+}
+
 function normalizeEditorIdToken(value: string | number | null | undefined): string | null {
     if (value === null || value === undefined) {
         return null;
@@ -71,6 +99,7 @@ function editorIdsLikelyMatch(
 
 export function getCommentCandidateIds(comment: IAnnotationCommentSummary) {
     return uniq([
+        ...parseStableKeyCandidates(comment.stableKey),
         comment.uid,
         comment.annotationId,
         comment.id,

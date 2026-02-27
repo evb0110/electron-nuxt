@@ -36,7 +36,7 @@
     "knip": "knip",
     "typecheck:coverage": "type-coverage --config .typecoveragerc.json",
     "gate:quality": "pnpm run lint && pnpm run typecheck && pnpm run typecheck:coverage",
-    "validate": "pnpm run gate:quality && pnpm run build:strict && pnpm run knip",
+    "validate": "pnpm run gate:quality && pnpm run build:strict && pnpm run knip && pnpm run check:architecture",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
@@ -53,6 +53,9 @@
     "check:locales": "pnpm exec tsx scripts/check-locales.ts",
     "check:icons:bundle": "pnpm exec tsx scripts/check-icon-bundle.ts",
     "check:packaged:startup:mac:arm64": "bash scripts/verify-packaged-startup.sh mac arm64",
+    "check:architecture:dep-graph": "node scripts/architecture/dep-graph.mjs --output=.tmp/dep-graph.json",
+    "check:architecture:boundaries": "node scripts/architecture/boundary-check.mjs",
+    "check:architecture": "pnpm run check:architecture:dep-graph && pnpm run check:architecture:boundaries",
     "preversion": "pnpm validate && pnpm test && pnpm run check:resources:matrix"
   },
   "dependencies": {

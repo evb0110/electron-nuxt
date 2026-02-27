@@ -26,6 +26,25 @@ const SOURCE_EXTENSIONS = [
     '.vue',
 ];
 
+const IGNORED_DIRECTORY_NAMES = new Set([
+    'node_modules',
+    '.nuxt',
+    'nuxt-output',
+    '.output',
+    'dist',
+    'dist-electron',
+    '.git',
+    '.idea',
+    '.tmp',
+    '.cache',
+    'coverage',
+]);
+
+const IGNORED_PATH_SEGMENTS = new Set([
+    '.pnpm',
+    '.ignored',
+]);
+
 const IMPORT_PATTERNS = [
     /\bimport\s+[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu,
     /\bexport\s+[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu,
@@ -46,7 +65,25 @@ async function pathExists(filePath) {
 }
 
 function isSourceFile(filePath) {
+    if (
+        filePath.endsWith('.d.ts')
+        || filePath.endsWith('.d.mts')
+        || filePath.endsWith('.d.cts')
+    ) {
+        return false;
+    }
     return SOURCE_EXTENSIONS.includes(path.extname(filePath));
+}
+
+function shouldSkipDirectory(relDir) {
+    if (!relDir) {
+        return false;
+    }
+    const segments = toPosixPath(relDir).split('/').filter(Boolean);
+    return segments.some(segment => (
+        IGNORED_DIRECTORY_NAMES.has(segment)
+        || IGNORED_PATH_SEGMENTS.has(segment)
+    ));
 }
 
 async function collectFiles(rootDir, relDir = '') {
@@ -60,6 +97,9 @@ async function collectFiles(rootDir, relDir = '') {
         const nextRel = relDir ? path.join(relDir, entry.name) : entry.name;
         const abs = path.join(rootDir, nextRel);
         if (entry.isDirectory()) {
+            if (shouldSkipDirectory(nextRel)) {
+                return [];
+            }
             return collectFiles(rootDir, nextRel);
         }
 
