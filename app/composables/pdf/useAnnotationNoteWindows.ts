@@ -10,6 +10,7 @@ import {
     selectPreferredAnnotationComment,
 } from '@app/composables/pdf/annotationNoteWindowHelpers';
 import { runGuardedTask } from '@app/utils/async-guard';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 export {
     annotationCommentsMatch,
@@ -390,6 +391,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
 
         const current = note.comment;
+        const latestComment = findMatchingAnnotationComment(current) ?? current;
         const nextText = note.text;
         // Even forced persistence should skip true no-op updates.
         // Otherwise Save/Save As can materialize and reload the PDF despite no text change.
@@ -408,14 +410,35 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         note.saving = true;
         note.error = null;
         try {
-            const savedInViewer = updateAnnotationCommentInViewer(current, nextText);
-            let saved = savedInViewer;
+            let targetComment = latestComment;
+            let saved = false;
+
+            // Prefer the latest synchronized summary first; stale note-window identity
+            // can miss live editors and trigger unnecessary embedded fallback reloads.
+            const saveCandidates = targetComment === current
+                ? [current]
+                : [
+                    targetComment,
+                    current,
+                ];
+            for (const candidate of saveCandidates) {
+                if (!updateAnnotationCommentInViewer(candidate, nextText)) {
+                    continue;
+                }
+                targetComment = candidate;
+                saved = true;
+                break;
+            }
+
             if (!saved && !force) {
                 note.saveMode = 'embedded';
                 return true;
             }
-            if (!saved) {
-                const result = await updateEmbeddedAnnotationByRef(current, nextText);
+
+            const embeddedTarget = findMatchingAnnotationComment(targetComment) ?? targetComment;
+            const canUseEmbeddedFallback = Boolean(embeddedTarget.annotationId);
+            if (!saved && canUseEmbeddedFallback) {
+                const result = await updateEmbeddedAnnotationByRef(embeddedTarget, nextText);
                 if (result instanceof Uint8Array) {
                     const pageToRestore = currentPage.value;
                     const restorePromise = waitForPdfReload(pageToRestore);
@@ -427,10 +450,17 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                     saved = true;
                 }
             }
-            if (!saved && force) {
+
+            if (!saved && force && canUseEmbeddedFallback) {
+                BrowserLogger.debug('annotations', 'Materializing PDF for embedded note save fallback', {
+                    stableKey,
+                    annotationId: embeddedTarget.annotationId,
+                    source: embeddedTarget.source,
+                });
                 const materialized = await serializeCurrentPdfForEmbeddedFallback();
                 if (materialized) {
-                    const result = await updateEmbeddedAnnotationByRef(current, nextText);
+                    const latestAfterMaterialize = findMatchingAnnotationComment(embeddedTarget) ?? embeddedTarget;
+                    const result = await updateEmbeddedAnnotationByRef(latestAfterMaterialize, nextText);
                     if (result instanceof Uint8Array) {
                         const pageToRestore = currentPage.value;
                         const restorePromise = waitForPdfReload(pageToRestore);
@@ -444,6 +474,13 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 }
             }
             if (!saved) {
+                BrowserLogger.warn('annotations', 'Failed to persist annotation note', {
+                    stableKey,
+                    force,
+                    source: targetComment.source,
+                    annotationId: targetComment.annotationId ?? null,
+                    hasEmbeddedRef: canUseEmbeddedFallback,
+                });
                 note.error = t('errors.annotation.updateNote');
                 return false;
             }
@@ -452,7 +489,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 saved && note.saveMode === 'embedded' ? 'embedded' : 'auto';
 
             const localUpdated: IAnnotationCommentSummary = {
-                ...current,
+                ...targetComment,
                 text: nextText,
                 modifiedAt: Date.now(),
             };
@@ -460,7 +497,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             note.text = nextText;
             note.lastSavedText = nextText;
 
-            const latest = findMatchingAnnotationComment(current);
+            const latest = findMatchingAnnotationComment(targetComment);
             if (latest && latest.text === nextText) {
                 note.comment = latest;
                 note.text = latest.text || '';
