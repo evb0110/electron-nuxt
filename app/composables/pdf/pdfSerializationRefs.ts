@@ -74,6 +74,18 @@ function parseAnnotationRefFromStableKey(stableKey: string | null | undefined) {
     return parsePdfJsAnnotationRef(match[1]);
 }
 
+function isNoteLikeAnnotationSubtype(
+    subtype: string | null | undefined,
+) {
+    const normalized = normalizeAnnotationSubtypeToken(subtype);
+    return (
+        normalized === 'text'
+        || normalized === 'freetext'
+        || normalized === 'typewriter'
+        || normalized === 'note'
+    );
+}
+
 function resolveCommentPdfRef(comment: IAnnotationCommentSummary) {
     return (
         parsePdfJsAnnotationRef(comment.annotationId ?? comment.id)
@@ -149,6 +161,8 @@ export function resolveCommentPdfRefInDocument(doc: PDFDocument, comment: IAnnot
         ref: PDFRef;
         score: number;
     } | null = null;
+    let secondBestScore = Number.NEGATIVE_INFINITY;
+    const noteLikeRefs: PDFRef[] = [];
 
     for (let index = 0; index < annots.size(); index += 1) {
         const value = annots.get(index);
@@ -164,6 +178,9 @@ export function resolveCommentPdfRefInDocument(doc: PDFDocument, comment: IAnnot
         const subtype = normalizeAnnotationSubtypeToken(getPdfDictSubtype(dict));
         if (subtype === 'popup') {
             continue;
+        }
+        if (isNoteLikeAnnotationSubtype(subtype)) {
+            noteLikeRefs.push(value);
         }
 
         const popupDict = getPdfPopupDict(doc, dict);
@@ -216,12 +233,39 @@ export function resolveCommentPdfRefInDocument(doc: PDFDocument, comment: IAnnot
         }
 
         if (!bestMatch || score > bestMatch.score) {
+            if (bestMatch) {
+                secondBestScore = Math.max(secondBestScore, bestMatch.score);
+            }
             bestMatch = {
                 ref: value,
                 score,
             };
+            continue;
+        }
+        secondBestScore = Math.max(secondBestScore, score);
+    }
+
+    if (bestMatch && bestMatch.score >= 2) {
+        return bestMatch.ref;
+    }
+
+    const isEditorWithoutExplicitRef = comment.source === 'editor' && !comment.annotationId;
+    if (isEditorWithoutExplicitRef) {
+        if (noteLikeRefs.length === 1) {
+            return noteLikeRefs[0] ?? null;
+        }
+
+        if (
+            bestMatch
+            && bestMatch.score >= 0.5
+            && (
+                secondBestScore === Number.NEGATIVE_INFINITY
+                || (bestMatch.score - secondBestScore) >= 1.5
+            )
+        ) {
+            return bestMatch.ref;
         }
     }
 
-    return bestMatch && bestMatch.score >= 2 ? bestMatch.ref : null;
+    return null;
 }
