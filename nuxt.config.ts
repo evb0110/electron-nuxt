@@ -2,7 +2,7 @@ import {fileURLToPath} from 'node:url';
 import {
     DEFAULT_LOCALE,
     LOCALE_DEFINITIONS,
-} from './app/i18n/locales';
+} from './packages/i18n-core';
 
 export default defineNuxtConfig({
     modules: [
@@ -26,6 +26,13 @@ export default defineNuxtConfig({
     devServer: {port: 3235},
 
     colorMode: {preference: 'light'},
+
+    alias: {
+        '@app': fileURLToPath(new URL('./app', import.meta.url)),
+        '@contracts': fileURLToPath(new URL('./packages/contracts', import.meta.url)),
+        '@i18n-core': fileURLToPath(new URL('./packages/i18n-core', import.meta.url)),
+        '@release-selection': fileURLToPath(new URL('./packages/release-selection', import.meta.url)),
+    },
 
     sourcemap: {
         server: false,
@@ -151,7 +158,6 @@ export default defineNuxtConfig({
     },
 
     vite: {
-        resolve: {alias: {'@app': fileURLToPath(new URL('./app', import.meta.url))}},
         build: {
             // Electron desktop bundle tolerates larger chunks, but still split heavy vendors to keep rebuilds snappier.
             chunkSizeWarningLimit: 1400,

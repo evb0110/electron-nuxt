@@ -18,7 +18,7 @@ import {
     usePdfSinglePageScroll,
     type TWheelDirection,
 } from '@app/composables/pdf/usePdfSinglePageScroll';
-import type { TPdfViewMode } from '@app/types/shared';
+import type { TPdfViewMode } from '@contracts/shared';
 
 function cast<T>(obj: unknown): T {
     return obj as T;

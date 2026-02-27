@@ -1,9 +1,9 @@
 import type { Ref } from 'vue';
 import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/types';
-import type { TOpenFileResult } from '@app/types/electron-api';
+import type { TOpenFileResult } from '@contracts/electron-api';
 import type { ICloseFileFromUiOptions } from '@app/types/workspace-expose';
 import type { TPdfSource } from '@app/types/pdf';
-import type { IRecentFile } from '@app/types/shared';
+import type { IRecentFile } from '@contracts/shared';
 import { waitUntilIdle } from '@app/utils/async-helpers';
 import { BrowserLogger } from '@app/utils/browser-logger';
 

@@ -128,6 +128,15 @@ The OCR pipeline spawns parallel Tesseract processes. Two environment variables 
 └──────────────────────────────────────────────────────────────┘
 ```
 
+### Architecture Guardrails
+
+- `electron/**` must not import `app/**`
+- `landing/**` must not import `app/**`
+- `app/services/**` must not import `app/composables/**`
+- Cross-feature imports under `app/modules/*` and `electron/features/*` must go through public entrypoints (`index`/`public`)
+- Import cycles fail lint (`import/no-cycle`)
+- CI enforces boundaries through `scripts/architecture/dep-graph.mjs` and `scripts/architecture/boundary-check.mjs`
+
 ### Project Layout
 
 ```

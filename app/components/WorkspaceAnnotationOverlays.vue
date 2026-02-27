@@ -117,6 +117,8 @@
 
 <script setup lang="ts">
 
+import PdfAnnotationContextMenu from '@app/components/pdf/annotations/PdfAnnotationContextMenu.vue';
+import PdfAnnotationNoteWindow from '@app/components/pdf/annotations/PdfAnnotationNoteWindow.vue';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,

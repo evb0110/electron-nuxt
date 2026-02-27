@@ -1,5 +1,6 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import type { IPdfjsEditor } from '@app/composables/pdf/pdfAnnotationUtils';
+
+interface IPdfjsEditor extends Record<string, unknown> {}
 
 type TUiManagerSelectedEditor = Parameters<
     AnnotationEditorUIManager['setSelected']

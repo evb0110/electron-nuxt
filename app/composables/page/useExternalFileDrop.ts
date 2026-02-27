@@ -39,7 +39,7 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
             continue;
         }
 
-        const path = electronApi.getPathForFile(file);
+        const path = electronApi.documents.getPathForFile(file);
         if (!path || seen.has(path)) {
             continue;
         }

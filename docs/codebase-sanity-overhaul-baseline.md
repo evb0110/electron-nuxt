@@ -39,3 +39,8 @@ pnpm run build:electron
 - Workspace and PDF UI orchestration reduced into explicit domain controllers.
 - Deduplicated scroll/context-menu primitives and safer pdf.js adapter boundaries.
 - CI/release parity enforces quality gates before packaging.
+
+## Architecture Baseline Addendum (February 27, 2026)
+- Boundary enforcement is now codified in ESLint and CI (not documentation-only).
+- Dependency graph + boundary checks live in `scripts/architecture/dep-graph.mjs` and `scripts/architecture/boundary-check.mjs`.
+- Reference policy document: `docs/architecture-boundary-baseline.md`.

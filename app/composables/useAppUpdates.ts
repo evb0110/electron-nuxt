@@ -2,7 +2,7 @@
 import type {
     IAppUpdateStatus,
     TAppUpdatePhase,
-} from '@app/types/electron-api';
+} from '@contracts/electron-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     getElectronAPI,

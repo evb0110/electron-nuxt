@@ -93,7 +93,7 @@ import {
 } from 'es-toolkit/math';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
-import { usePdfViewerCore } from '@app/composables/pdf/usePdfViewerCore';
+import { usePdfViewerCore } from '@app/modules/pdf-viewer-runtime/service';
 import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
 import {

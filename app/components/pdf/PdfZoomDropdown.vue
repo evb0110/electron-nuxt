@@ -208,7 +208,7 @@
 import type {
     TFitMode,
     TPdfViewMode,
-} from '@app/types/shared';
+} from '@contracts/shared';
 import { ZOOM } from '@app/constants/pdf-layout';
 
 const { t } = useTypedI18n();

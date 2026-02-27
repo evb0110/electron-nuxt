@@ -13,9 +13,9 @@ export async function loadOcrText(workingCopyPath: string): Promise<string | nul
     try {
         const api = getElectronAPI();
         const manifestPath = `${workingCopyPath}.ocr/manifest.json`;
-        const exists = await api.fileExists(manifestPath);
+        const exists = await api.documents.fileExists(manifestPath);
         if (exists) {
-            const manifestJson = await api.readTextFile(manifestPath);
+            const manifestJson = await api.documents.readTextFile(manifestPath);
             const manifest = safeDestr<IOcrManifestIndex>(manifestJson);
 
             const pageEntries = Object.entries(manifest.pages ?? {})
@@ -33,7 +33,7 @@ export async function loadOcrText(workingCopyPath: string): Promise<string | nul
 
             for (const entry of pageEntries) {
                 const pagePath = `${workingCopyPath}.ocr/${entry.path}`;
-                const pageJson = await api.readTextFile(pagePath);
+                const pageJson = await api.documents.readTextFile(pagePath);
                 const pageData = safeDestr<IOcrPageTextEntry>(pageJson);
                 if (pageData?.text) {
                     texts.push(pageData.text.trim());
@@ -45,12 +45,12 @@ export async function loadOcrText(workingCopyPath: string): Promise<string | nul
         }
 
         const legacyIndexPath = `${workingCopyPath}.index.json`;
-        const legacyExists = await api.fileExists(legacyIndexPath);
+        const legacyExists = await api.documents.fileExists(legacyIndexPath);
         if (!legacyExists) {
             return null;
         }
 
-        const indexJson = await api.readTextFile(legacyIndexPath);
+        const indexJson = await api.documents.readTextFile(legacyIndexPath);
         const index = safeDestr<ILegacyOcrIndex>(indexJson);
 
         const legacyTexts = (index.pages ?? [])

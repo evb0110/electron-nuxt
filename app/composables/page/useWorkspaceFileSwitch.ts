@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { TOpenFileResult } from '@app/types/electron-api';
+import type { TOpenFileResult } from '@contracts/electron-api';
 
 interface IWorkspaceFileSwitchDeps {
     workingCopyPath: Ref<string | null>;

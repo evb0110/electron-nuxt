@@ -120,7 +120,7 @@ import type {
     TEditorLayoutNode,
     TGroupOrientation,
 } from '@app/types/editor-groups';
-import type { TOpenFileResult } from '@app/types/electron-api';
+import type { TOpenFileResult } from '@contracts/electron-api';
 import { hasDocumentMountHint } from '@app/composables/page/workspace-host-mounting';
 
 defineOptions({name: 'EditorGroupsGrid'});

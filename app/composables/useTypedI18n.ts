@@ -1,7 +1,7 @@
 import type {
     TLocale,
     TTranslateFn,
-} from '@app/i18n/locales';
+} from '@i18n-core/locales';
 
 interface ILocaleComposerMethods {
     setLocale: (locale: TLocale) => Promise<void>;

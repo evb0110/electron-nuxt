@@ -1,9 +1,9 @@
-import type { TOpenFileResult } from '@app/types/electron-api';
-import type { TSplitPayload } from '@app/types/split-payload';
+import type { TOpenFileResult } from '@contracts/electron-api';
+import type { TSplitPayload } from '@contracts/window-tabs';
 import type {
     TFitMode,
     TPdfViewMode,
-} from '@app/types/shared';
+} from '@contracts/shared';
 
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;

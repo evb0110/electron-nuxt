@@ -329,7 +329,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
                 continue;
             }
 
-            const filePath = electronApi.getPathForFile(file);
+            const filePath = electronApi.documents.getPathForFile(file);
             if (!filePath || seen.has(filePath) || !isSupportedFilePath(filePath)) {
                 continue;
             }

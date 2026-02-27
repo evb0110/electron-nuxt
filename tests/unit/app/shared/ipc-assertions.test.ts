@@ -9,7 +9,7 @@ import {
     assertNonEmptyString,
     assertOptionalAbsolutePath,
     isLikelyAbsolutePath,
-} from '@app/shared/ipc-assertions';
+} from '@contracts/ipc-assertions';
 
 describe('ipc-assertions', () => {
     it('trims and validates non-empty strings', () => {

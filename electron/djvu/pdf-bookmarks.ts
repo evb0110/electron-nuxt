@@ -8,7 +8,7 @@ import type {
     PDFDict,
     PDFRef,
 } from 'pdf-lib';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@contracts/pdf';
 
 export async function embedBookmarksIntoPdf(
     pdfData: Uint8Array,

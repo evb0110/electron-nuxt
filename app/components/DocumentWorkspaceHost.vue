@@ -66,10 +66,10 @@
 
 import { withTimeout } from 'es-toolkit/promise';
 import { until } from '@vueuse/core';
-import type { TOpenFileResult } from '@app/types/electron-api';
-import type { IRecentFile } from '@app/types/shared';
+import type { TOpenFileResult } from '@contracts/electron-api';
+import type { IRecentFile } from '@contracts/shared';
 import type { TTabUpdate } from '@app/types/tabs';
-import type { TSplitPayload } from '@app/types/split-payload';
+import type { TSplitPayload } from '@contracts/window-tabs';
 import type {
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,

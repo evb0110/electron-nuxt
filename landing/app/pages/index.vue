@@ -225,7 +225,7 @@ import {
     type IReleaseInstaller,
     type IUserAgentProfile,
     type TReleasePlatform,
-} from '~~/shared/releases';
+} from '@release-selection';
 
 interface INavigatorUADataLike {
     platform?: string

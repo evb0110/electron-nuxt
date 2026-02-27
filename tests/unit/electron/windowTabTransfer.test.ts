@@ -9,7 +9,7 @@ import {
 import type {
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
-} from '@app/types/window-tab-transfer';
+} from '@contracts/window-tabs';
 
 vi.mock('@electron/window', () => ({
     createAppWindow: vi.fn(),

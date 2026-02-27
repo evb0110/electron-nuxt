@@ -1,4 +1,4 @@
-import type { IElectronAPI } from '@app/types/electron-api';
+import type { IElectronAPI } from '@contracts/electron-api';
 
 declare global {
     interface Window {

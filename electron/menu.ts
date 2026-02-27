@@ -8,7 +8,7 @@ import {
     Menu,
 } from 'electron';
 import { basename } from 'path';
-import type { TWindowTabsAction } from '@app/types/window-tab-transfer';
+import type { TWindowTabsAction } from '@contracts/window-tabs';
 import { config } from '@electron/config';
 import { getRecentFilesSync } from '@electron/recent-files';
 import { te } from '@electron/i18n';

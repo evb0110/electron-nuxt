@@ -115,7 +115,7 @@ export const usePdfSearch = () => {
         activeRequestId = null;
 
         try {
-            await getElectronAPI().pdfSearchCancel(requestIdToCancel);
+            await getElectronAPI().search.cancel(requestIdToCancel);
         } catch (error) {
             BrowserLogger.debug('pdf-search', 'Failed to cancel active search', {
                 requestId: requestIdToCancel,
@@ -153,7 +153,7 @@ export const usePdfSearch = () => {
             const searchId = requestId;
             activeRequestId = requestId;
 
-            progressCleanup = api.onPdfSearchProgress((progress: IBackendSearchProgress) => {
+            progressCleanup = api.search.onProgress((progress: IBackendSearchProgress) => {
                 if (runId !== searchRunId) {
                     return;
                 }
@@ -166,7 +166,7 @@ export const usePdfSearch = () => {
                 };
             });
 
-            const response = await api.pdfSearch(pdfPath, query, {
+            const response = await api.search.run(pdfPath, query, {
                 requestId,
                 pageCount,
             }) as IBackendSearchResponse;
@@ -353,7 +353,7 @@ export const usePdfSearch = () => {
         clearSearch();
         if (hasElectronAPI()) {
             const api = getElectronAPI();
-            void api.pdfSearchResetCache();
+            void api.search.resetCache();
         }
     }
 

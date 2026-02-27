@@ -86,7 +86,7 @@ import type {
     ITabContextAvailability,
     TTabContextCommand,
 } from '@app/types/tab-context-menu';
-import type { IWindowTabTargetWindow } from '@app/types/window-tab-transfer';
+import type { IWindowTabTargetWindow } from '@contracts/window-tabs';
 import {
     getElectronAPI,
     hasElectronAPI,
@@ -390,7 +390,7 @@ async function loadWindowTransferTargets() {
     }
 
     try {
-        windowTransferTargets.value = await getElectronAPI().tabs.listTargetWindows();
+        windowTransferTargets.value = await getElectronAPI().windowTabs.listTargetWindows();
     } catch {
         windowTransferTargets.value = [];
     }

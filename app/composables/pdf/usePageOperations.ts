@@ -84,7 +84,7 @@ export const usePageOperations = (deps: {
             shouldReload: true,
             run: async (path) => {
                 const api = getElectronAPI();
-                return api.pageOps.delete(path, [...pages], totalPages);
+                return api.documents.pageOps.delete(path, [...pages], totalPages);
             },
         });
     }
@@ -99,7 +99,7 @@ export const usePageOperations = (deps: {
             errorKey: 'errors.pageOps.extract',
             run: async (path) => {
                 const api = getElectronAPI();
-                return api.pageOps.extract(path, [...pages]);
+                return api.documents.pageOps.extract(path, [...pages]);
             },
             isSuccessful: result => result.success && !result.canceled,
         });
@@ -116,7 +116,7 @@ export const usePageOperations = (deps: {
             shouldReload: true,
             run: async (path) => {
                 const api = getElectronAPI();
-                return api.pageOps.rotate(path, [...pages], angle);
+                return api.documents.pageOps.rotate(path, [...pages], angle);
             },
         });
     }
@@ -128,7 +128,7 @@ export const usePageOperations = (deps: {
             shouldReload: true,
             run: async (path) => {
                 const api = getElectronAPI();
-                return api.pageOps.insert(path, totalPages, afterPage);
+                return api.documents.pageOps.insert(path, totalPages, afterPage);
             },
         });
     }
@@ -140,7 +140,7 @@ export const usePageOperations = (deps: {
             shouldReload: true,
             run: async (path) => {
                 const api = getElectronAPI();
-                return api.pageOps.insertFile(path, totalPages, afterPage, sourcePaths);
+                return api.documents.pageOps.insertFile(path, totalPages, afterPage, sourcePaths);
             },
         });
     }
@@ -156,7 +156,7 @@ export const usePageOperations = (deps: {
             shouldReload: true,
             run: async (path) => {
                 const api = getElectronAPI();
-                return api.pageOps.reorder(path, [...newOrder]);
+                return api.documents.pageOps.reorder(path, [...newOrder]);
             },
         });
     }

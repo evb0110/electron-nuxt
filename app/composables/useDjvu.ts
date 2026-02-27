@@ -249,7 +249,7 @@ export const useDjvu = () => {
 
             // loadPdfFromPath overwrites the window title with the temp filename;
             // restore it to the DjVu source filename
-            await api.setWindowTitle(djvuFileName);
+            await api.documents.setWindowTitle(djvuFileName);
 
             if (pageCount > 1) {
                 isLoadingPages.value = true;
@@ -270,7 +270,7 @@ export const useDjvu = () => {
 
                             enterDjvuMode(djvuPath, event.pdfPath);
                             await loadPdfFromPath(event.pdfPath);
-                            await api.setWindowTitle(djvuFileName);
+                            await api.documents.setWindowTitle(djvuFileName);
 
                             if (savedPage > 1 && setPage) {
                                 setPage(savedPage);
@@ -308,7 +308,7 @@ export const useDjvu = () => {
 
         const suggestedName = (djvuSourcePath.value.split(/[\\/]/).pop() ?? t('djvu.documentFallback'))
             .replace(/\.djvu?$/i, '.pdf');
-        const savePath = await api.savePdfDialog(suggestedName);
+        const savePath = await api.documents.savePdfDialog(suggestedName);
         if (!savePath) {
             return;
         }
@@ -359,10 +359,10 @@ export const useDjvu = () => {
                 }
             }
 
-            const openResult = await api.openPdfDirect(result.pdfPath);
+            const openResult = await api.documents.openPdfDirect(result.pdfPath);
             if (openResult && openResult.kind === 'pdf') {
                 await loadPdfFromPath(openResult.workingPath);
-                await api.setWindowTitle(result.pdfPath.split(/[\\/]/).pop() ?? t('djvu.pdfFallback'));
+                await api.documents.setWindowTitle(result.pdfPath.split(/[\\/]/).pop() ?? t('djvu.pdfFallback'));
             }
         } finally {
             activeConvertJobId.value = null;

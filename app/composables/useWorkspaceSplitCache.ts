@@ -1,4 +1,4 @@
-import type { TSplitPayload } from '@app/types/split-payload';
+import type { TSplitPayload } from '@contracts/window-tabs';
 
 interface IWorkspaceSplitCacheEntry {
     payload: TSplitPayload;

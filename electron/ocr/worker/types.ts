@@ -1,4 +1,4 @@
-import type { IOcrWord } from '../../../app/types/shared';
+import type { IOcrWord } from '@contracts/shared';
 
 export interface IWorkerPaths {
     tesseractBinary: string;

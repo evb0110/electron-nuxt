@@ -10,7 +10,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import { join } from 'path';
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@contracts/pdf';
 import {
     cancelConversion,
     convertAllPagesToImages,

@@ -2,7 +2,7 @@ import type { PageViewport } from 'pdfjs-dist';
 import { safeDestr } from 'destr';
 import type { IPdfRawDims } from '@app/types/pdf';
 import { getElectronAPI } from '@app/utils/electron';
-import type { IOcrWord } from '@app/types/shared';
+import type { IOcrWord } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 const RTL_OCR_LANGUAGES: ReadonlySet<string> = new Set([
@@ -158,7 +158,7 @@ export const useOcrTextContent = () => {
         const manifestPath = `${workingCopyPath}.ocr/manifest.json`;
 
         try {
-            const exists = await api.fileExists(manifestPath);
+            const exists = await api.documents.fileExists(manifestPath);
             if (!exists) {
                 setLruCacheEntry(
                     manifestCache,
@@ -169,7 +169,7 @@ export const useOcrTextContent = () => {
                 return null;
             }
 
-            const json = await api.readTextFile(manifestPath);
+            const json = await api.documents.readTextFile(manifestPath);
             const manifest = parseJsonAs<IOcrManifest>(json);
             if (!manifest) {
                 throw new Error('Invalid OCR manifest payload');
@@ -215,7 +215,7 @@ export const useOcrTextContent = () => {
         const pagePath = `${workingCopyPath}.ocr/${pageMapping.path}`;
 
         try {
-            const json = await api.readTextFile(pagePath);
+            const json = await api.documents.readTextFile(pagePath);
             const pageData = parseJsonAs<IOcrPageData>(json);
             if (!pageData) {
                 throw new Error(`Invalid OCR page payload for page ${pageNumber}`);

@@ -4,7 +4,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import { join } from 'path';
-import type { IOcrWord } from '@app/types/shared';
+import type { IOcrWord } from '@contracts/shared';
 import { extractTextFromPdf } from '@electron/search/pdf-text-extractor';
 import { extractTextWithPdfjs } from '@electron/search/pdfjs-text-extractor';
 import { createLogger } from '@electron/utils/logger';

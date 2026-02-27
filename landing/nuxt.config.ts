@@ -1,6 +1,9 @@
-/* eslint-disable no-restricted-imports */
-import { LOCALE_DEFINITIONS } from './app/i18n/locales';
-import { DEFAULT_LOCALE } from './app/i18n/locale-codes';
+import {fileURLToPath} from 'node:url';
+ 
+import {
+    DEFAULT_LOCALE,
+    LOCALE_DEFINITIONS,
+} from '../packages/i18n-core';
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -12,6 +15,12 @@ export default defineNuxtConfig({
     devtools: { enabled: true },
 
     css: ['~/assets/css/main.css'],
+
+    alias: {
+        '@contracts': fileURLToPath(new URL('../packages/contracts', import.meta.url)),
+        '@i18n-core': fileURLToPath(new URL('../packages/i18n-core', import.meta.url)),
+        '@release-selection': fileURLToPath(new URL('../packages/release-selection', import.meta.url)),
+    },
 
     runtimeConfig: {
         databaseUrl: process.env.DATABASE_URL,

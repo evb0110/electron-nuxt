@@ -77,7 +77,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         isExportInProgress.value = true;
         try {
             const api = getElectronAPI();
-            await api.exportPdfToImages(workingCopyPath.value, pageNumbers);
+            await api.documents.exportPdfToImages(workingCopyPath.value, pageNumbers);
         } catch (error) {
             BrowserLogger.error('workspace', 'export images failed', error);
         } finally {
@@ -93,7 +93,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         isExportInProgress.value = true;
         try {
             const api = getElectronAPI();
-            await api.exportPdfToMultiPageTiff(workingCopyPath.value, pageNumbers);
+            await api.documents.exportPdfToMultiPageTiff(workingCopyPath.value, pageNumbers);
         } catch (error) {
             BrowserLogger.error('workspace', 'export multi-page tiff failed', error);
         } finally {

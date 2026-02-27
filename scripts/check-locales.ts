@@ -1,14 +1,15 @@
-import { LOCALE_CODES as appLocaleCodes } from '../app/i18n/locale-codes';
-import { LOCALE_DEFINITIONS as appLocaleDefinitions } from '../app/i18n/locale-definitions';
-import { LOCALE_MESSAGES as appLocaleMessages } from '../app/i18n/locales';
-import { EN_MESSAGE_SCHEMA as appSchema } from '../app/i18n/message-schema';
-import { LOCALE_CODES as landingLocaleCodes } from '../landing/app/i18n/locale-codes';
-import { difference } from 'es-toolkit/array';
 import {
-    LOCALE_DEFINITIONS as landingLocaleDefinitions,
-    LOCALE_MESSAGES as landingLocaleMessages,
-} from '../landing/app/i18n/locales';
-import { EN_MESSAGE_SCHEMA as landingSchema } from '../landing/app/i18n/message-schema';
+    LOCALE_CODES,
+    LOCALE_DEFINITIONS,
+} from '@i18n-core';
+import path from 'node:path';
+import {
+    fileURLToPath,
+    pathToFileURL,
+} from 'node:url';
+import appSchema from '../app/locales/en';
+import { difference } from 'es-toolkit/array';
+import landingSchema from '../landing/app/locales/en';
 
 interface ILocaleDefinitionLike {code: string;}
 
@@ -123,24 +124,54 @@ function assertLocaleMetadataParity(
     }
 }
 
-const errors: string[] = [];
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(scriptDirectory, '..');
 
-assertLocaleMetadataParity('app', appLocaleCodes, appLocaleDefinitions, errors);
-assertLocaleMetadataParity('landing', landingLocaleCodes, landingLocaleDefinitions, errors);
+async function loadLocaleMessages(relativeDirectory: string): Promise<Record<string, unknown>> {
+    const entries = await Promise.all(LOCALE_CODES.map(async (localeCode) => {
+        const localePath = path.join(projectRoot, relativeDirectory, `${localeCode}.ts`);
+        const localeModule = await import(pathToFileURL(localePath).href) as {default?: unknown;};
+        return [
+            localeCode,
+            localeModule.default,
+        ] as const;
+    }));
 
-if (!hasStringPath(appSchema, 'contextMenu.copySelectionToClipboard')) {
-    errors.push('App schema is missing required key "contextMenu.copySelectionToClipboard"');
+    return Object.fromEntries(entries);
 }
 
-assertParity('app', appSchema, appLocaleMessages as Record<string, unknown>, errors);
-assertParity('landing', landingSchema, landingLocaleMessages as Record<string, unknown>, errors);
+async function main() {
+    const errors: string[] = [];
+    const [
+        appLocaleMessages,
+        landingLocaleMessages,
+    ] = await Promise.all([
+        loadLocaleMessages('app/locales'),
+        loadLocaleMessages('landing/app/locales'),
+    ]);
 
-if (errors.length > 0) {
-    console.error('Locale parity check failed:\n');
-    for (const error of errors) {
-        console.error(`- ${error}`);
+    assertLocaleMetadataParity('app', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
+    assertLocaleMetadataParity('landing', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
+
+    if (!hasStringPath(appSchema, 'contextMenu.copySelectionToClipboard')) {
+        errors.push('App schema is missing required key "contextMenu.copySelectionToClipboard"');
     }
-    process.exit(1);
+
+    assertParity('app', appSchema, appLocaleMessages, errors);
+    assertParity('landing', landingSchema, landingLocaleMessages, errors);
+
+    if (errors.length > 0) {
+        console.error('Locale parity check failed:\n');
+        for (const error of errors) {
+            console.error(`- ${error}`);
+        }
+        process.exit(1);
+    }
+
+    console.log('Locale parity check passed for app and landing locales.');
 }
 
-console.log('Locale parity check passed for app and landing locales.');
+main().catch((error) => {
+    console.error('Failed to check locale parity:', error);
+    process.exit(1);
+});

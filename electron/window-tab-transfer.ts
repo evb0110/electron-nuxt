@@ -4,7 +4,7 @@ import type {
     IWindowTabTransferAck,
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
-} from '@app/types/window-tab-transfer';
+} from '@contracts/window-tabs';
 import {
     createAppWindow,
     getWindowById,

@@ -6,7 +6,7 @@ import {
 import type { BrowserWindow } from 'electron';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
-import type { ISettingsData } from '@app/types/shared';
+import type { ISettingsData } from '@contracts/shared';
 import {
     loadSettings,
     saveSettings,

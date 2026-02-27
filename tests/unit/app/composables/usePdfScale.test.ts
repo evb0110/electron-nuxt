@@ -6,7 +6,7 @@ import {
 import { ref } from 'vue';
 import { usePdfScale } from '@app/composables/pdf/usePdfScale';
 import type { TFitMode } from '@app/types/pdf';
-import type { TPdfViewMode } from '@app/types/shared';
+import type { TPdfViewMode } from '@contracts/shared';
 
 function createContainer(
     width: number,

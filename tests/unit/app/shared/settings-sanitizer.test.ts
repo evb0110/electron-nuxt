@@ -8,7 +8,7 @@ import {
     normalizeLocale,
     normalizeTheme,
     sanitizeSettings,
-} from '@app/shared/settings-sanitizer';
+} from '@contracts/settings';
 
 describe('settings-sanitizer', () => {
     it('returns defaults when settings payload is missing', () => {

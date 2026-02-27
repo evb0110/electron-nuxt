@@ -1,4 +1,4 @@
-import type { IPdfBookmarkEntry } from '@app/types/pdf';
+import type { IPdfBookmarkEntry } from '@contracts/pdf';
 
 /**
  * Parse DjVu S-expression outline into bookmark entries.

@@ -10,7 +10,7 @@ import {
     getOcrToolPaths,
     validateOcrTools,
 } from '@electron/ocr/paths';
-import type { IOcrLanguage } from '@app/types/shared';
+import type { IOcrLanguage } from '@contracts/shared';
 import { createLogger } from '@electron/utils/logger';
 import {
     forEachConcurrent,

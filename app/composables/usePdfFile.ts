@@ -6,7 +6,7 @@ import {
 } from '@app/utils/electron';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type { TPdfSource } from '@app/types/pdf';
-import type { TOpenFileResult } from '@app/types/electron-api';
+import type { TOpenFileResult } from '@contracts/electron-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface IOpenBatchProgressState {
@@ -46,7 +46,7 @@ export const usePdfFile = () => {
 
     async function pickFileToOpen() {
         const api = getElectronAPI();
-        return api.openPdfDialog();
+        return api.documents.openPdfDialog();
     }
 
     async function openFile(preSelected?: TOpenFileResult) {
@@ -80,7 +80,7 @@ export const usePdfFile = () => {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect started', { path });
         try {
             const api = getElectronAPI();
-            const result = await api.openPdfDirect(path);
+            const result = await api.documents.openPdfDirect(path);
             if (!result) {
                 error.value = t('errors.file.invalid');
                 BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'openPdfDirect returned null', { path });
@@ -156,7 +156,7 @@ export const usePdfFile = () => {
                 estimatedRemainingMs: null,
             };
 
-            const stopProgress = api.onOpenPdfDirectBatchProgress((progress) => {
+            const stopProgress = api.documents.onOpenPdfDirectBatchProgress((progress) => {
                 if (progress.requestId !== requestId) {
                     return;
                 }
@@ -174,7 +174,7 @@ export const usePdfFile = () => {
 
             let result: TOpenFileResult | null = null;
             try {
-                result = await api.openPdfDirectBatch(normalizedPaths, requestId);
+                result = await api.documents.openPdfDirectBatch(normalizedPaths, requestId);
             } finally {
                 stopProgress();
             }
@@ -237,7 +237,7 @@ export const usePdfFile = () => {
         // This prevents an inconsistent UI where the tab shows metadata
         // (filename, dirty dot) but the content area shows the empty state
         // because pdfSrc was never set due to a failed read.
-        const { size } = await api.statFile(path);
+        const { size } = await api.documents.statFile(path);
 
         let newPdfData: Uint8Array | null;
         let newPdfSrc: TPdfSource;
@@ -250,7 +250,7 @@ export const usePdfFile = () => {
                 size,
             };
         } else {
-            const buffer = await api.readFile(path);
+            const buffer = await api.documents.readFile(path);
             const data = new Uint8Array(buffer);
             newPdfData = data;
             newPdfSrc = new Blob([data], { type: 'application/pdf' });
@@ -286,7 +286,7 @@ export const usePdfFile = () => {
         if (prevPath && prevPath !== path) {
             clearOcrCache(prevPath);
             try {
-                await api.cleanupFile(prevPath);
+                await api.documents.cleanupFile(prevPath);
             } catch (cleanupError) {
                 BrowserLogger.warn('pdf-file', 'Failed to cleanup previous working copy', {
                     path: prevPath,
@@ -340,7 +340,7 @@ export const usePdfFile = () => {
 
         if (persist && workingCopyPath.value) {
             const api = getElectronAPI();
-            await api.writeFile(workingCopyPath.value, snapshot);
+            await api.documents.writeFile(workingCopyPath.value, snapshot);
         }
     }
 
@@ -370,9 +370,9 @@ export const usePdfFile = () => {
 
             const api = getElectronAPI();
             // First update the working copy with latest data
-            await api.writeFile(workingCopyPath.value, data);
+            await api.documents.writeFile(workingCopyPath.value, data);
             // Then save working copy back to original location
-            await api.saveFile(workingCopyPath.value);
+            await api.documents.saveFile(workingCopyPath.value);
             isDirty.value = false;
             historyCleanIndex.value = historyIndex.value;
             syncDirtyFromHistory();
@@ -394,7 +394,7 @@ export const usePdfFile = () => {
             }
 
             const api = getElectronAPI();
-            await api.saveFile(workingCopyPath.value);
+            await api.documents.saveFile(workingCopyPath.value);
             isDirty.value = false;
             historyCleanIndex.value = historyIndex.value;
             syncDirtyFromHistory();
@@ -412,9 +412,9 @@ export const usePdfFile = () => {
         try {
             const api = getElectronAPI();
             if (data) {
-                await api.writeFile(workingCopyPath.value, data);
+                await api.documents.writeFile(workingCopyPath.value, data);
             }
-            const savedPath = await api.savePdfAs(workingCopyPath.value);
+            const savedPath = await api.documents.savePdfAs(workingCopyPath.value);
             if (savedPath) {
                 originalPath.value = savedPath;
                 requiresSaveAsOnFirstSave.value = false;
@@ -451,7 +451,7 @@ export const usePdfFile = () => {
         if (pathToCleanup && hasElectronAPI()) {
             const api = getElectronAPI();
             try {
-                await api.cleanupFile(pathToCleanup);
+                await api.documents.cleanupFile(pathToCleanup);
             } catch (cleanupError) {
                 BrowserLogger.warn('pdf-file', 'Failed to cleanup closed working copy', {
                     path: pathToCleanup,
