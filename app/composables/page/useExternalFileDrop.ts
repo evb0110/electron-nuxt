@@ -113,7 +113,9 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
             });
     }
 
-    useDropZone(typeof window !== 'undefined' ? document : null, {
+    const dropTarget = typeof document !== 'undefined' ? document : null;
+
+    useDropZone(dropTarget, {
         dataTypes: ['Files'],
         preventDefaultForUnhandled: true,
         onOver: (_files, event) => {

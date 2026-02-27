@@ -27,6 +27,18 @@ vi.mock('@vueuse/core', () => ({
     useEventListener: (_target: unknown, _event: string, callback: () => void) => {
         windowResizeCallbacks.push(callback);
     },
+    useDebounceFn: (callback: () => void, delay: number) => {
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        return () => {
+            if (timer) {
+                clearTimeout(timer);
+            }
+            timer = setTimeout(() => {
+                timer = null;
+                callback();
+            }, delay);
+        };
+    },
 }));
 
 class FakeElement {
