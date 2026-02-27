@@ -135,7 +135,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
             traceRendererStartup('tabs shell menu bindings registered');
             void nextTick(() => {
                 traceRendererStartup('tabs shell dispatching app:rendererReady');
-                electronApi.windowTabs.notifyRendererReady();
+                electronApi.windowTabs?.notifyRendererReady();
             });
         }
 

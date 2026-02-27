@@ -95,6 +95,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openBatchProgress,
         loadPdfFromPath,
         loadPdfFromData,
+        persistPdfDataSilently,
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,
@@ -459,6 +460,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         deleteEmbeddedByRef,
         loadPdfFromData,
         waitForPdfReload,
+        removeAnnotationFromCache: (stableKey: string) => {
+            annotationComments.value = annotationComments.value.filter(c => c.stableKey !== stableKey);
+        },
+        persistPdfDataSilently,
     });
 
     const {

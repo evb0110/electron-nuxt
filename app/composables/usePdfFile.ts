@@ -358,6 +358,17 @@ export const usePdfFile = () => {
         }
     }
 
+    async function persistPdfDataSilently(data: Uint8Array) {
+        const snapshot = data.slice();
+        pdfData.value = snapshot;
+        pushHistorySnapshot(snapshot);
+
+        if (workingCopyPath.value) {
+            const api = getElectronAPI();
+            await api.documents.writeFile(workingCopyPath.value, snapshot);
+        }
+    }
+
     async function saveFile(data: Uint8Array) {
         if (!workingCopyPath.value) {
             return false;
@@ -511,6 +522,7 @@ export const usePdfFile = () => {
         openFileDirectBatch,
         loadPdfFromPath,
         loadPdfFromData,
+        persistPdfDataSilently,
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,

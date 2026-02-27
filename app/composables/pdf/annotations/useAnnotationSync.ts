@@ -100,6 +100,19 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
     let syncToken = 0;
     const pendingCommentEditorKeys = new Set<string>();
     const trackedCreatedEditors = new WeakSet<object>();
+    const suppressedAnnotationIds = new Set<string>();
+
+    function suppressAnnotationId(id: string) {
+        suppressedAnnotationIds.add(id);
+    }
+
+    function clearSuppressedAnnotationIds() {
+        suppressedAnnotationIds.clear();
+    }
+
+    watch(pdfDocument, () => {
+        clearSuppressedAnnotationIds();
+    });
 
     function toEditorSummary(
         editor: IPdfjsEditor,
@@ -294,6 +307,9 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
 
                 const popupById = new Map<string, (typeof pageAnnotations)[number]>();
                 pageAnnotations.forEach((annotation) => {
+                    if (annotation.id && suppressedAnnotationIds.has(annotation.id)) {
+                        return;
+                    }
                     if (
                         annotation.id
                         && managerWithDeletedLookup?.isDeletedAnnotationElement?.(annotation.id)
@@ -310,6 +326,9 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                 });
 
                 pageAnnotations.forEach((annotation, annotationIndex) => {
+                    if (annotation.id && suppressedAnnotationIds.has(annotation.id)) {
+                        return;
+                    }
                     if (
                         annotation.id
                         && managerWithDeletedLookup?.isDeletedAnnotationElement?.(annotation.id)
@@ -479,5 +498,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         setActiveCommentStableKey,
         incrementSyncToken,
         clearSyncState,
+        suppressAnnotationId,
+        clearSuppressedAnnotationIds,
     };
 }

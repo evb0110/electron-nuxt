@@ -27,6 +27,8 @@ export interface IPdfViewerExpose {
     focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
+    suppressAnnotationId: (id: string) => void;
+    removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
     getAllShapes: () => IShapeAnnotation[];
     loadShapes: (shapes: IShapeAnnotation[]) => void;

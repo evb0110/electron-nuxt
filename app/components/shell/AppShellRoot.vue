@@ -1006,7 +1006,7 @@ watch(activeWindowTitle, (title) => {
     if (!hasElectronAPI()) {
         return;
     }
-    void getElectronAPI().documents.setWindowTitle(title);
+    void getElectronAPI().documents?.setWindowTitle(title);
 }, { immediate: true });
 
 watch(activeWorkspace, (workspace) => {
@@ -1894,7 +1894,7 @@ onMounted(() => {
     void ensureUpdatesInitialized();
 
     if (hasElectronAPI()) {
-        incomingTabTransferCleanup = getElectronAPI().windowTabs.onIncomingTransfer((transfer) => {
+        incomingTabTransferCleanup = getElectronAPI().windowTabs?.onIncomingTransfer((transfer) => {
             void handleIncomingTabTransfer(transfer);
         });
     }
