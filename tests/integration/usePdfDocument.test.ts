@@ -53,7 +53,7 @@ const pdfjsState: {
 
 vi.mock('pdfjs-dist', () => pdfjsState);
 
-const electronApi = {readFileRange: vi.fn()};
+const electronApi = {documents: {readFileRange: vi.fn()}};
 
 vi.mock('@app/utils/electron', () => ({getElectronAPI: () => electronApi}));
 
@@ -78,7 +78,7 @@ describe('usePdfDocument range loading', () => {
 
     it('loads a PDF through range transport and populates document state', async () => {
         const size = (1024 * 1024 * 2) + 13;
-        electronApi.readFileRange.mockResolvedValue(new Uint8Array([
+        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -117,7 +117,7 @@ describe('usePdfDocument range loading', () => {
 
     it('returns null and clears loading when PDF.js range transport API is unavailable', async () => {
         pdfjsState.PDFDataRangeTransport = undefined;
-        electronApi.readFileRange.mockResolvedValue(new Uint8Array([
+        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
@@ -140,7 +140,7 @@ describe('usePdfDocument range loading', () => {
     });
 
     it('returns null and clears loading when initial range read fails', async () => {
-        electronApi.readFileRange.mockRejectedValue(new Error('read failed'));
+        electronApi.documents.readFileRange.mockRejectedValue(new Error('read failed'));
 
         const documentState = usePdfDocument();
         const result = await documentState.loadPdf({

@@ -16,6 +16,9 @@ export default defineConfig({
         alias: {
             '@app': resolve(__dirname, 'app'),
             '@electron': resolve(__dirname, 'electron'),
+            '@contracts': resolve(__dirname, 'packages/contracts'),
+            '@i18n-core': resolve(__dirname, 'packages/i18n-core'),
+            '@release-selection': resolve(__dirname, 'packages/release-selection'),
         },
     },
     test: {

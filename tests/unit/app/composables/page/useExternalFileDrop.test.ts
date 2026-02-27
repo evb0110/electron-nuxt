@@ -69,12 +69,12 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: { getPathForFile: vi.fn((file: { name: string }) => {
+            electronAPI: { documents: { getPathForFile: vi.fn((file: { name: string }) => {
                 if (file.name === 'file-0') {
                     return '/docs/a.pdf';
                 }
                 return '/docs/b.djvu';
-            }) },
+            }) } },
         });
 
         useExternalFileDrop({ openPathInAppropriateTab });
@@ -94,7 +94,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: { getPathForFile: vi.fn(() => '/docs/readme.txt') },
+            electronAPI: { documents: { getPathForFile: vi.fn(() => '/docs/readme.txt') } },
         });
 
         useExternalFileDrop({ openPathInAppropriateTab });
@@ -124,12 +124,12 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: { getPathForFile: vi.fn((file: { name: string }) => {
+            electronAPI: { documents: { getPathForFile: vi.fn((file: { name: string }) => {
                 if (file.name === 'file-0') {
                     return '/docs/a.pdf';
                 }
                 return '/docs/b.djvu';
-            }) },
+            }) } },
         });
 
         const { cleanup } = useExternalFileDrop({ openPathInAppropriateTab });
