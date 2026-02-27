@@ -79,7 +79,8 @@ export function setSelectedEditor(
     uiManager: AnnotationEditorUIManager,
     editor: unknown,
 ) {
-    uiManager.setSelected(editor as unknown as TUiManagerSelectedEditor);
+    const setSelected = uiManager.setSelected as (value: TUiManagerSelectedEditor) => void;
+    setSelected(editor as TUiManagerSelectedEditor);
 }
 
 export function getEditorByUidFromLayer(
