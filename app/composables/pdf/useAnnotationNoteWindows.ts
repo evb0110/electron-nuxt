@@ -435,8 +435,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 return true;
             }
 
-            const embeddedTarget = findMatchingAnnotationComment(targetComment) ?? targetComment;
-            const canUseEmbeddedFallback = Boolean(embeddedTarget.annotationId);
+            let embeddedTarget = findMatchingAnnotationComment(targetComment) ?? targetComment;
+            let canUseEmbeddedFallback = Boolean(embeddedTarget.annotationId);
             if (!saved && canUseEmbeddedFallback) {
                 const result = await updateEmbeddedAnnotationByRef(embeddedTarget, nextText);
                 if (result instanceof Uint8Array) {
@@ -451,26 +451,45 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 }
             }
 
+            if (!saved && force && !canUseEmbeddedFallback) {
+                BrowserLogger.debug('annotations', 'Materializing editor note to obtain embedded annotation reference', {
+                    stableKey,
+                    source: targetComment.source,
+                    annotationId: targetComment.annotationId ?? null,
+                });
+                const materialized = await serializeCurrentPdfForEmbeddedFallback();
+                if (materialized) {
+                    const matchAfterMaterialize = findMatchingAnnotationComment(targetComment);
+                    if (matchAfterMaterialize?.annotationId) {
+                        embeddedTarget = matchAfterMaterialize;
+                        canUseEmbeddedFallback = true;
+                    } else {
+                        BrowserLogger.warn('annotations', 'Materialized note still has no embedded reference', {
+                            stableKey,
+                            source: targetComment.source,
+                            annotationId: targetComment.annotationId ?? null,
+                        });
+                    }
+                }
+            }
+
             if (!saved && force && canUseEmbeddedFallback) {
-                BrowserLogger.debug('annotations', 'Materializing PDF for embedded note save fallback', {
+                BrowserLogger.debug('annotations', 'Attempting embedded note save fallback', {
                     stableKey,
                     annotationId: embeddedTarget.annotationId,
                     source: embeddedTarget.source,
                 });
-                const materialized = await serializeCurrentPdfForEmbeddedFallback();
-                if (materialized) {
-                    const latestAfterMaterialize = findMatchingAnnotationComment(embeddedTarget) ?? embeddedTarget;
-                    const result = await updateEmbeddedAnnotationByRef(latestAfterMaterialize, nextText);
-                    if (result instanceof Uint8Array) {
-                        const pageToRestore = currentPage.value;
-                        const restorePromise = waitForPdfReload(pageToRestore);
-                        await loadPdfFromData(result, {
-                            pushHistory: true,
-                            persistWorkingCopy: !!workingCopyPath.value,
-                        });
-                        await restorePromise;
-                        saved = true;
-                    }
+                const latestAfterMaterialize = findMatchingAnnotationComment(embeddedTarget) ?? embeddedTarget;
+                const result = await updateEmbeddedAnnotationByRef(latestAfterMaterialize, nextText);
+                if (result instanceof Uint8Array) {
+                    const pageToRestore = currentPage.value;
+                    const restorePromise = waitForPdfReload(pageToRestore);
+                    await loadPdfFromData(result, {
+                        pushHistory: true,
+                        persistWorkingCopy: !!workingCopyPath.value,
+                    });
+                    await restorePromise;
+                    saved = true;
                 }
             }
             if (!saved) {
