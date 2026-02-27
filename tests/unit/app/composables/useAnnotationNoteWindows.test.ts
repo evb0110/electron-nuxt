@@ -204,4 +204,68 @@ describe('useAnnotationNoteWindows', () => {
         );
         expect(deps.loadPdfFromData).toHaveBeenCalledTimes(1);
     });
+
+    it('waits for post-materialization annotation sync before rematching embedded ref', async () => {
+        const comment = createComment({
+            id: 'editor:0:pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: null,
+            uid: 'pdfjs_internal_editor_0',
+            source: 'editor',
+            text: '',
+        });
+        const {
+            deps,
+            windows,
+        } = createHarness(comment);
+
+        deps.updateAnnotationCommentInViewer.mockReturnValue(false);
+        deps.serializeCurrentPdfForEmbeddedFallback.mockImplementation(async () => {
+            setTimeout(() => {
+                deps.annotationComments.value = [
+                    comment,
+                    createComment({
+                        id: '25R',
+                        stableKey: 'ann:0:25R',
+                        source: 'pdf',
+                        annotationId: '25R',
+                        uid: null,
+                        text: '',
+                    }),
+                ];
+            }, 120);
+            return true;
+        });
+        deps.updateEmbeddedAnnotationByRef.mockImplementation(async (target, text) => {
+            if (target.annotationId === '25R' && text === 'Delayed sync text') {
+                return new Uint8Array([
+                    9,
+                    9,
+                    9,
+                ]);
+            }
+            return false;
+        });
+
+        windows.handleOpenAnnotationNote(comment);
+        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
+        expect(note).not.toBeNull();
+        if (!note) {
+            return;
+        }
+
+        note.text = 'Delayed sync text';
+        const saved = await windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', true);
+
+        expect(saved).toBe(true);
+        expect(deps.serializeCurrentPdfForEmbeddedFallback).toHaveBeenCalledTimes(1);
+        expect(deps.updateEmbeddedAnnotationByRef).toHaveBeenCalledWith(
+            expect.objectContaining({
+                annotationId: '25R',
+                source: 'pdf',
+            }),
+            'Delayed sync text',
+        );
+        expect(deps.loadPdfFromData).toHaveBeenCalledTimes(1);
+    });
 });
