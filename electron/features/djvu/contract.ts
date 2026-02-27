@@ -14,7 +14,7 @@ export const DJVU_EVENT_CHANNELS = {
     menuConvertToPdf: 'menu:convertToPdf',
 } as const;
 
-export interface IDjvuProgress {
+interface IDjvuProgress {
     jobId: string;
     phase: 'converting' | 'bookmarks' | 'loading';
     current?: number;
@@ -22,7 +22,7 @@ export interface IDjvuProgress {
     percent: number;
 }
 
-export interface IDjvuInfo {
+interface IDjvuInfo {
     pageCount: number;
     sourceDpi: number;
     hasBookmarks: boolean;
@@ -30,7 +30,7 @@ export interface IDjvuInfo {
     metadata: Record<string, string>;
 }
 
-export interface IDjvuSizeEstimate {
+interface IDjvuSizeEstimate {
     subsample: number;
     label: string;
     description: string;
@@ -38,12 +38,12 @@ export interface IDjvuSizeEstimate {
     estimatedBytes: number;
 }
 
-export interface IDjvuConvertOptions {
+interface IDjvuConvertOptions {
     subsample?: number;
     preserveBookmarks?: boolean;
 }
 
-export interface IDjvuOpenResult {
+interface IDjvuOpenResult {
     success: boolean;
     pdfPath?: string;
     pageCount?: number;
@@ -51,25 +51,25 @@ export interface IDjvuOpenResult {
     error?: string;
 }
 
-export interface IDjvuConvertResult {
+interface IDjvuConvertResult {
     success: boolean;
     pdfPath?: string;
     jobId?: string;
     error?: string;
 }
 
-export interface IDjvuViewingReadyEvent {
+interface IDjvuViewingReadyEvent {
     pdfPath: string;
     isPartial: boolean;
     jobId?: string;
 }
 
-export interface IDjvuViewingErrorEvent {
+interface IDjvuViewingErrorEvent {
     error: string;
     jobId?: string;
 }
 
-export interface IDjvuCapability {
+interface IDjvuCapability {
     openForViewing: (djvuPath: string) => Promise<IDjvuOpenResult>;
     convertToPdf: (djvuPath: string, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuConvertResult>;
     cancel: (jobId: string) => Promise<{ canceled: boolean }>;

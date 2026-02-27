@@ -7,25 +7,25 @@ export const PAGE_OPS_CHANNELS = {
     rotate: 'page-ops:rotate',
 } as const;
 
-export type TPageOpsRotationAngle = 90 | 180 | 270;
+type TPageOpsRotationAngle = 90 | 180 | 270;
 
-export interface IPageOpsResult {
+interface IPageOpsResult {
     success: boolean;
     pageCount?: number;
 }
 
-export interface IPageOpsExtractResult {
+interface IPageOpsExtractResult {
     success: boolean;
     canceled?: boolean;
     destPath?: string;
 }
 
-export interface IPageOpsInsertResult {
+interface IPageOpsInsertResult {
     success: boolean;
     canceled?: boolean;
 }
 
-export interface IPageOpsCapability {
+interface IPageOpsCapability {
     delete: (workingCopyPath: string, pages: number[], totalPages: number) => Promise<IPageOpsResult>;
     extract: (workingCopyPath: string, pages: number[]) => Promise<IPageOpsExtractResult>;
     reorder: (workingCopyPath: string, newOrder: number[]) => Promise<IPageOpsResult>;

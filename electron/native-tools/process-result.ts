@@ -14,7 +14,7 @@ export function createAbortError() {
     return error;
 }
 
-export function truncateForError(text: string, maxLen = 1200) {
+function truncateForError(text: string, maxLen = 1200) {
     const normalized = text.trim();
     if (normalized.length <= maxLen) {
         return normalized;

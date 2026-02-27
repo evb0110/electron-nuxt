@@ -17,43 +17,43 @@ export const OCR_EVENT_CHANNELS = {
     complete: 'ocr:complete',
 } as const;
 
-export interface IOcrRecognizeRequest {
+interface IOcrRecognizeRequest {
     pageNumber: number;
     imageData: Uint8Array;
     languages: string[];
 }
 
-export interface IOcrRecognizeResult {
+interface IOcrRecognizeResult {
     pageNumber: number;
     success: boolean;
     text: string;
     error?: string;
 }
 
-export interface IOcrProgress {
+interface IOcrProgress {
     requestId: string;
     currentPage: number;
     processedCount: number;
     totalPages: number;
 }
 
-export interface IOcrJobStartResult {
+interface IOcrJobStartResult {
     started: boolean;
     jobId: string;
     error?: string;
 }
 
-export interface IOcrResultFileAckResult {
+interface IOcrResultFileAckResult {
     cleaned: boolean;
     error?: string;
 }
 
-export interface IOcrCreateSearchablePdfPage {
+interface IOcrCreateSearchablePdfPage {
     pageNumber: number;
     languages: string[];
 }
 
-export interface IOcrCompleteResult {
+interface IOcrCompleteResult {
     requestId: string;
     success: boolean;
     pdfData: Uint8Array | null;
@@ -62,20 +62,20 @@ export interface IOcrCompleteResult {
     errors: string[];
 }
 
-export interface IPreprocessingValidationResult {
+interface IPreprocessingValidationResult {
     valid: boolean;
     available: string[];
     missing: string[];
 }
 
-export interface IPreprocessPageResult {
+interface IPreprocessPageResult {
     success: boolean;
     imageData: Uint8Array;
     message?: string;
     error?: string;
 }
 
-export interface IOcrCapability {
+interface IOcrCapability {
     recognize: (request: IOcrRecognizeRequest) => Promise<IOcrRecognizeResult>;
     recognizeBatch: (
         pages: IOcrRecognizeRequest[],

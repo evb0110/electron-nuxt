@@ -6,7 +6,7 @@ export const SEARCH_CHANNELS = {
 
 export const SEARCH_EVENT_CHANNELS = {progress: 'pdf:search:progress'} as const;
 
-export interface IPdfSearchExcerpt {
+interface IPdfSearchExcerpt {
     prefix: boolean;
     suffix: boolean;
     before: string;
@@ -14,7 +14,7 @@ export interface IPdfSearchExcerpt {
     after: string;
 }
 
-export interface IPdfSearchResult {
+interface IPdfSearchResult {
     pageNumber: number;
     pageMatchIndex?: number;
     matchIndex: number;
@@ -23,18 +23,18 @@ export interface IPdfSearchResult {
     excerpt: IPdfSearchExcerpt;
 }
 
-export interface IPdfSearchResponse {
+interface IPdfSearchResponse {
     results: IPdfSearchResult[];
     truncated: boolean;
 }
 
-export interface IPdfSearchProgress {
+interface IPdfSearchProgress {
     requestId: string;
     processed: number;
     total: number;
 }
 
-export interface ISearchCapability {
+interface ISearchCapability {
     run: (
         pdfPath: string,
         query: string,

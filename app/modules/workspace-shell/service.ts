@@ -41,7 +41,7 @@ import { useWorkspaceViewState } from '@app/composables/page/workspace-view-stat
 import { useDocxExport } from '@app/composables/useDocxExport';
 import type { TSplitPayload } from '@contracts/window-tabs';
 
-export interface IWorkspaceOrchestrationDeps {
+interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
     emit: {
         (e: 'update-tab', updates: TTabUpdate): void;

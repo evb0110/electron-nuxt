@@ -52,7 +52,7 @@ export interface IOpenDjvuResult {
 
 export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 
-export interface IOpenPdfDirectBatchProgress {
+interface IOpenPdfDirectBatchProgress {
     requestId: string;
     processed: number;
     total: number;
@@ -61,13 +61,13 @@ export interface IOpenPdfDirectBatchProgress {
     estimatedRemainingMs: number | null;
 }
 
-export interface IExportPdfToImagesResult {
+interface IExportPdfToImagesResult {
     success: boolean;
     canceled?: boolean;
     outputPaths?: string[];
 }
 
-export interface IExportPdfToMultiPageTiffResult {
+interface IExportPdfToMultiPageTiffResult {
     success: boolean;
     canceled?: boolean;
     outputPath?: string;

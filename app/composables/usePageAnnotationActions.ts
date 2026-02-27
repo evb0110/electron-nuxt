@@ -419,9 +419,13 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             stableKey: comment.stableKey,
             deleted,
         });
-        if (!deleted && (comment.source === 'pdf' || comment.annotationId)) {
+        // PDF-sourced annotations render via the annotation layer, not the
+        // editor layer. uiManager.delete() operates on the editor layer and
+        // may falsely report success. Always attempt embedded-level fallback.
+        if (!deleted || comment.source === 'pdf') {
             BrowserLogger.debug('annotations', 'Attempting PDF-level embedded delete fallback', {
                 stableKey: comment.stableKey,
+                source: comment.source,
                 annotationId: comment.annotationId ?? null,
             });
             const updatedData = await deps.deleteEmbeddedByRef(comment);
