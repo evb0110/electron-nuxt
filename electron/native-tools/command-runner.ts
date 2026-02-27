@@ -11,7 +11,7 @@ import {
     prependDirectoryToPath,
 } from '@electron/native-tools/tool-registry';
 
-export interface IRunCommandOptions {
+interface IRunCommandOptions {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
     timeoutMs?: number;

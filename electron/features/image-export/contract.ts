@@ -3,7 +3,7 @@ export const IMAGE_EXPORT_CHANNELS = {
     exportMultiPageTiff: 'pdf-export:multipage-tiff',
 } as const;
 
-export interface IImageExportCapability {
+interface IImageExportCapability {
     exportPdfToImages: (workingCopyPath: string, pageNumbers?: number[]) => Promise<{
         success: boolean;
         canceled?: boolean;

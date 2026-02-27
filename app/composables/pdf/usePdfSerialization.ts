@@ -395,6 +395,10 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     async function deleteEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary) {
         const sourceData = await getSourcePdfData();
         if (!sourceData) {
+            BrowserLogger.warn(PDF_SERIALIZATION_LOG_SECTION, 'deleteEmbeddedByRef: no source data', {
+                hasPdfData: Boolean(pdfData.value),
+                hasWorkingCopy: Boolean(workingCopyPath.value),
+            });
             return null;
         }
 
@@ -405,15 +409,35 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
         const targetRef = resolveCommentPdfRefInDocument(document, comment);
         if (!targetRef) {
+            BrowserLogger.warn(PDF_SERIALIZATION_LOG_SECTION, 'deleteEmbeddedByRef: unable to resolve ref', {
+                stableKey: comment.stableKey,
+                source: comment.source,
+                annotationId: comment.annotationId ?? null,
+                id: comment.id,
+                pageIndex: comment.pageIndex,
+                subtype: comment.subtype ?? null,
+                textLength: comment.text?.trim().length ?? 0,
+                hasMarkerRect: Boolean(comment.markerRect),
+            });
             return null;
         }
 
         const refsToDelete = collectAnnotationRefsToDelete(document, targetRef);
         const removed = removeAnnotationRefsFromPages(document, refsToDelete);
         if (!removed) {
+            BrowserLogger.warn(PDF_SERIALIZATION_LOG_SECTION, 'deleteEmbeddedByRef: refs not found in page annots', {
+                stableKey: comment.stableKey,
+                targetRef: targetRef.toString(),
+                refsToDelete: refsToDelete.length,
+            });
             return null;
         }
 
+        BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'deleteEmbeddedByRef: success', {
+            stableKey: comment.stableKey,
+            targetRef: targetRef.toString(),
+            refsDeleted: refsToDelete.length,
+        });
         return new Uint8Array(await document.save());
     }
 

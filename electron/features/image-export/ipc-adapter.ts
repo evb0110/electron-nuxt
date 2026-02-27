@@ -6,7 +6,7 @@ import { IMAGE_EXPORT_CHANNELS } from '@electron/features/image-export/contract'
 import {createImageExportService} from '@electron/features/image-export/service';
 import type { IImageExportService } from '@electron/features/image-export/ports';
 
-export interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
+interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
 
 export function registerImageExportIpcAdapter(
     registrar: IIpcMainHandleRegistrar,

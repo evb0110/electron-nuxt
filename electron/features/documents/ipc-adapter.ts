@@ -6,7 +6,7 @@ import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import {createDocumentsService} from '@electron/features/documents/service';
 import type { IDocumentsService } from '@electron/features/documents/ports';
 
-export interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
+interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
 
 export function registerDocumentsIpcAdapter(
     registrar: IIpcMainHandleRegistrar,

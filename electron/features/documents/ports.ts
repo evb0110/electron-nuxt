@@ -2,20 +2,20 @@ import type { IpcMainInvokeEvent } from 'electron';
 import type { IRecentFile } from '@contracts/shared';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
 
-export interface IDocumentsMenuPort {
+interface IDocumentsMenuPort {
     setDocumentState: (windowId: number, hasDocument: boolean) => void;
     setTabCount: (windowId: number, tabCount: number) => void;
     updateRecentFilesMenu: () => void;
 }
 
-export interface IDocumentsRecentFilesPort {
+interface IDocumentsRecentFilesPort {
     get: () => Promise<IRecentFile[]>;
     add: (path: string) => Promise<void>;
     remove: (path: string) => Promise<void>;
     clear: () => Promise<void>;
 }
 
-export interface IDocumentsDialogsPort {
+interface IDocumentsDialogsPort {
     openPdfDialog: () => Promise<TOpenFileResult | null>;
     openPdfDirect: (event: IpcMainInvokeEvent, filePath: string) => Promise<TOpenFileResult | null>;
     openPdfDirectBatch: (
@@ -36,7 +36,7 @@ export interface IDocumentsDialogsPort {
     showItemInFolder: (event: IpcMainInvokeEvent, filePath: string) => boolean;
 }
 
-export interface IDocumentsFileOpsPort {
+interface IDocumentsFileOpsPort {
     read: (event: IpcMainInvokeEvent, filePath: string) => Promise<Uint8Array>;
     stat: (event: IpcMainInvokeEvent, filePath: string) => Promise<{ size: number }>;
     readRange: (event: IpcMainInvokeEvent, filePath: string, offset: number, length: number) => Promise<Uint8Array>;
@@ -47,7 +47,7 @@ export interface IDocumentsFileOpsPort {
     cleanupOcrTemp: (event: IpcMainInvokeEvent, filePath: string) => Promise<void>;
 }
 
-export interface IDocumentsWorkingCopyPort {
+interface IDocumentsWorkingCopyPort {
     save: (event: IpcMainInvokeEvent, workingPath: string) => Promise<boolean>;
     cleanup: (workingPath: string) => void;
 }
