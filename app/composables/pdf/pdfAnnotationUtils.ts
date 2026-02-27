@@ -56,6 +56,7 @@ export interface IPdfjsEditor {
     focusCommentButton?: () => void;
     remove?: () => void;
     delete?: () => void;
+    isEmpty?: () => boolean;
 }
 
 export interface IAnnotationContextMenuPayload {
