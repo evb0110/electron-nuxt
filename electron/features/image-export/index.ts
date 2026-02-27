@@ -1,4 +1,4 @@
 export {
     IMAGE_EXPORT_CHANNELS,
     type IImageExportCapability,
-} from './contract';
+} from '@electron/features/image-export/contract';
