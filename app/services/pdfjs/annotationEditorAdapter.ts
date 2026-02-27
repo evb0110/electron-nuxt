@@ -1,6 +1,15 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 
-interface IPdfjsEditor extends Record<string, unknown> {}
+interface IPdfjsEditor {
+    id?: string;
+    uid?: string;
+    annotationElementId?: string | null;
+    parentPageIndex?: number;
+    div?: HTMLElement;
+    toggleComment?: (isSelected: boolean, visibility?: boolean) => void;
+    remove?: () => void;
+    delete?: () => void;
+}
 
 type TUiManagerSelectedEditor = Parameters<
     AnnotationEditorUIManager['setSelected']
@@ -68,9 +77,9 @@ function hasGetEditorByUid(
 
 export function setSelectedEditor(
     uiManager: AnnotationEditorUIManager,
-    editor: IPdfjsEditor,
+    editor: unknown,
 ) {
-    uiManager.setSelected(editor as TUiManagerSelectedEditor);
+    uiManager.setSelected(editor as unknown as TUiManagerSelectedEditor);
 }
 
 export function getEditorByUidFromLayer(
