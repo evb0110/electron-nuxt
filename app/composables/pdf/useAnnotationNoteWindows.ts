@@ -305,6 +305,31 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         return best.candidate;
     }
 
+    async function waitForEmbeddedFallbackComment(
+        noteComment: IAnnotationCommentSummary,
+        nextText: string,
+        lastSavedText: string,
+    ) {
+        const MAX_WAIT_MS = 650;
+        const POLL_INTERVAL_MS = 50;
+        const startedAt = Date.now();
+
+        while (Date.now() - startedAt <= MAX_WAIT_MS) {
+            const current = findMatchingAnnotationComment(noteComment) ?? noteComment;
+            const rematched = findEmbeddedFallbackComment(
+                current,
+                nextText,
+                lastSavedText,
+            );
+            if (rematched) {
+                return rematched;
+            }
+            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+        }
+
+        return null;
+    }
+
     function isSameAnnotationComment(
         left: IAnnotationCommentSummary,
         right: IAnnotationCommentSummary,
@@ -569,7 +594,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                         annotationId: targetComment.annotationId ?? null,
                     });
                 } else {
-                    const rematched = findEmbeddedFallbackComment(
+                    const rematched = await waitForEmbeddedFallbackComment(
                         findMatchingAnnotationComment(targetComment) ?? targetComment,
                         nextText,
                         note.lastSavedText,
