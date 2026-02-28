@@ -5,7 +5,7 @@ import type {
 } from '@electron/features/search/ports';
 
 export function createSearchService(): ISearchService {
-    return {registerHandlers: (_registrar: IIpcMainRegistrar) => {
-        registerSearchHandlers();
+    return {registerHandlers: (registrar: IIpcMainRegistrar) => {
+        registerSearchHandlers(registrar);
     }};
 }

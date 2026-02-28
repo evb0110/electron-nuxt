@@ -5,7 +5,7 @@ import type {
 } from '@electron/features/djvu/ports';
 
 export function createDjvuService(): IDjvuService {
-    return {registerHandlers: (_registrar: IIpcMainRegistrar) => {
-        registerDjvuHandlers();
+    return {registerHandlers: (registrar: IIpcMainRegistrar) => {
+        registerDjvuHandlers(registrar);
     }};
 }

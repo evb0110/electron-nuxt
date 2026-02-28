@@ -32,23 +32,27 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     menuSave: 'menu:save',
     menuSaveAs: 'menu:saveAs',
     menuExportDocx: 'menu:exportDocx',
+    menuExportImages: 'menu:exportImages',
+    menuExportMultiPageTiff: 'menu:exportMultiPageTiff',
+    menuZoomIn: 'menu:zoomIn',
+    menuZoomOut: 'menu:zoomOut',
+    menuActualSize: 'menu:actualSize',
+    menuFitWidth: 'menu:fitWidth',
+    menuFitHeight: 'menu:fitHeight',
+    menuViewModeSingle: 'menu:viewModeSingle',
+    menuViewModeFacing: 'menu:viewModeFacing',
+    menuViewModeFacingFirstSingle: 'menu:viewModeFacingFirstSingle',
+    menuUndo: 'menu:undo',
+    menuRedo: 'menu:redo',
+    menuDeletePages: 'menu:deletePages',
+    menuExtractPages: 'menu:extractPages',
+    menuRotateCw: 'menu:rotateCw',
+    menuRotateCcw: 'menu:rotateCcw',
+    menuInsertPages: 'menu:insertPages',
     menuOpenRecentFile: 'menu:openRecentFile',
     menuOpenExternalPaths: 'menu:openExternalPaths',
     menuClearRecentFiles: 'menu:clearRecentFiles',
     openPdfDirectBatchProgress: 'dialog:openPdfDirectBatch:progress',
 } as const;
 
-export interface IOpenPdfResult {
-    kind: 'pdf';
-    workingPath: string;
-    originalPath: string;
-    isGenerated?: boolean;
-}
-
-export interface IOpenDjvuResult {
-    kind: 'djvu';
-    workingPath: '';
-    originalPath: string;
-}
-
-export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
+export type { TOpenFileResult } from '@contracts/electron-api';

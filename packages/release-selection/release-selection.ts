@@ -29,6 +29,13 @@ const NON_INSTALLER_SUFFIXES = [
     '.yaml',
 ];
 
+export const INSTALLER_PLATFORM_ORDER: TReleasePlatform[] = [
+    'macos',
+    'windows',
+    'linux',
+    'unknown',
+];
+
 const PREFERRED_EXTENSION_ORDER: Record<TReleasePlatform, string[]> = {
     macos: [
         'dmg',
@@ -65,6 +72,13 @@ const EXTENSION_LABEL: Record<string, string> = {
     rpm: 'RPM',
     'tar.gz': 'TAR.GZ',
     zip: 'ZIP',
+};
+
+const INSTALLER_ARCH_ORDER: Record<TReleaseArch, number> = {
+    x64: 0,
+    arm64: 1,
+    universal: 2,
+    unknown: 3,
 };
 
 export function getAssetExtension(assetName: string): string {
@@ -355,6 +369,79 @@ export function formatInstallerLabel(asset: IReleaseInstaller): string {
     }
 
     return `${platform} (${extension})`;
+}
+
+function effectiveArch(asset: IReleaseInstaller): TReleaseArch {
+    return asset.arch === 'unknown' ? 'x64' : asset.arch;
+}
+
+export function formatInstallerVariantLabel(asset: IReleaseInstaller): string {
+    const arch = formatArch(effectiveArch(asset));
+    const extension = formatExtension(asset.extension);
+
+    if (arch) {
+        return `${arch} (${extension})`;
+    }
+
+    return extension;
+}
+
+export function selectPreferredInstallers(assets: IReleaseInstaller[]): IReleaseInstaller[] {
+    const first = assets[0];
+    if (!first) {
+        return assets;
+    }
+
+    const formatOrder = PREFERRED_EXTENSION_ORDER[first.platform] || PREFERRED_EXTENSION_ORDER.unknown;
+    const assetsByArch = new Map<TReleaseArch, IReleaseInstaller[]>();
+
+    for (const asset of assets) {
+        const arch = effectiveArch(asset);
+        const existing = assetsByArch.get(arch);
+        if (existing) {
+            existing.push(asset);
+        } else {
+            assetsByArch.set(arch, [asset]);
+        }
+    }
+
+    const result: IReleaseInstaller[] = [];
+    for (const archAssets of assetsByArch.values()) {
+        let preferredAsset: IReleaseInstaller | null = null;
+        let preferredRank = Number.POSITIVE_INFINITY;
+
+        for (const asset of archAssets) {
+            const index = formatOrder.indexOf(asset.extension);
+            const rank = index === -1 ? Number.POSITIVE_INFINITY : index;
+            if (rank < preferredRank) {
+                preferredRank = rank;
+                preferredAsset = asset;
+            }
+        }
+
+        if (preferredAsset) {
+            result.push(preferredAsset);
+        }
+    }
+
+    return result;
+}
+
+export function compareInstallersForSelect(left: IReleaseInstaller, right: IReleaseInstaller): number {
+    const extensionPreference = PREFERRED_EXTENSION_ORDER[left.platform] || PREFERRED_EXTENSION_ORDER.unknown;
+    const extensionDiff = extensionRank(left.extension, extensionPreference) - extensionRank(right.extension, extensionPreference);
+    if (extensionDiff !== 0) {
+        return extensionDiff;
+    }
+
+    const leftArchRank = INSTALLER_ARCH_ORDER[left.arch];
+    const rightArchRank = INSTALLER_ARCH_ORDER[right.arch];
+    const archDiff = leftArchRank - rightArchRank;
+    if (archDiff !== 0) {
+        return archDiff;
+    }
+
+    return left.name.localeCompare(right.name);
 }
 
 export function formatFileSize(bytes: number): string {

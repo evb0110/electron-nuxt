@@ -1,7 +1,7 @@
 import { existsSync } from 'fs';
 import { createLogger } from '@electron/utils/logger';
 import { runCommand } from '@electron/utils/exec';
-import { getOcrToolPaths } from '../ocr/paths';
+import { getNativeToolPaths } from '@electron/native-tools/paths';
 
 const log = createLogger('pdf-text-extractor');
 
@@ -46,7 +46,7 @@ export async function extractTextFromPdf(
     const { signal } = options;
     throwIfAborted(signal);
 
-    const { pdftotext } = getOcrToolPaths();
+    const { pdftotext } = getNativeToolPaths();
     log.debug(`Using pdftotext at: ${pdftotext}`);
 
     // Check if the resolved path exists (if it's an absolute path)

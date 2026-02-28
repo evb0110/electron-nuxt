@@ -22,12 +22,12 @@ import {
 } from 'path';
 import { uniq } from 'es-toolkit/array';
 import * as utifModule from 'utif';
-import { getOcrToolPaths } from '@electron/ocr/paths';
+import { getNativeToolPaths } from '@electron/native-tools/paths';
 import {
     detectSourceDpi,
     clampDpi,
 } from '@electron/ocr/worker/dpi-detection';
-import { runCommand } from '@electron/ocr/worker/run-command';
+import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { createLogger } from '@electron/utils/logger';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
@@ -168,7 +168,7 @@ async function moveFile(sourcePath: string, targetPath: string) {
 async function renderPdfToTempPages(pdfPath: string, format: TImageExportFormat): Promise<IRenderedPageFile[]> {
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-export-'));
     const prefix = join(tempDir, 'page');
-    const paths = getOcrToolPaths();
+    const paths = getNativeToolPaths();
 
     const detectedDpi = await detectSourceDpi(
         pdfPath,
@@ -178,7 +178,7 @@ async function renderPdfToTempPages(pdfPath: string, format: TImageExportFormat)
     const renderDpi = clampDpi(detectedDpi ?? 300);
 
     try {
-        await runCommand(paths.pdftoppm, [
+        await runNativeToolCommand(paths.pdftoppm, [
             toPdftoppmFormatArg(format),
             '-r',
             String(renderDpi),
@@ -245,10 +245,10 @@ async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOpt
 
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-export-scope-'));
     const subsetPdfPath = join(tempDir, 'subset.pdf');
-    const qpdf = getOcrToolPaths().qpdf;
+    const qpdf = getNativeToolPaths().qpdf;
 
     try {
-        await runCommand(qpdf, [
+        await runNativeToolCommand(qpdf, [
             pdfPath,
             '--pages',
             pdfPath,

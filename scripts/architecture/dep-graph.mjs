@@ -9,8 +9,10 @@ const INTERNAL_ROOTS = [
     'app',
     'electron',
     'landing',
+    'scripts',
     'packages/contracts',
     'packages/i18n-core',
+    'packages/i18n-app',
     'packages/release-selection',
 ];
 
@@ -49,6 +51,29 @@ const IMPORT_PATTERNS = [
     /\bimport\s+[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu,
     /\bexport\s+[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/gu,
     /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
+];
+
+const INTERNAL_LIKE_PREFIXES = [
+    '@app/',
+    '@contracts',
+    '@contracts/',
+    '@electron/',
+    '@i18n-core',
+    '@i18n-core/',
+    '@i18n-app',
+    '@i18n-app/',
+    '@release-selection',
+    '@release-selection/',
+    'app/',
+    'electron/',
+    'landing/',
+    'scripts/',
+    'packages/contracts/',
+    'packages/i18n-core/',
+    'packages/i18n-app/',
+    'packages/release-selection/',
+    '~/',
+    '~~/',
 ];
 
 function toPosixPath(filePath) {
@@ -140,6 +165,24 @@ async function resolveWithExtensions(projectRoot, basePath) {
     return null;
 }
 
+function isWithinRoot(filePath, root) {
+    return filePath === root || filePath.startsWith(`${root}/`);
+}
+
+function getNuxtSourceRootForFile(sourceFile) {
+    if (isWithinRoot(sourceFile, 'landing')) {
+        return 'landing';
+    }
+    if (isWithinRoot(sourceFile, 'app')) {
+        return 'app';
+    }
+    return null;
+}
+
+function isInternalLikeSpecifier(specifier) {
+    return INTERNAL_LIKE_PREFIXES.some(prefix => specifier.startsWith(prefix));
+}
+
 async function resolveSpecifier({
     sourceFile,
     specifier,
@@ -169,12 +212,40 @@ async function resolveSpecifier({
         return resolveWithExtensions(projectRoot, specifier.replace('@i18n-core/', 'packages/i18n-core/'));
     }
 
+    if (specifier === '@i18n-app') {
+        return resolveWithExtensions(projectRoot, 'packages/i18n-app/index');
+    }
+
+    if (specifier.startsWith('@i18n-app/')) {
+        return resolveWithExtensions(projectRoot, specifier.replace('@i18n-app/', 'packages/i18n-app/'));
+    }
+
     if (specifier === '@release-selection') {
         return resolveWithExtensions(projectRoot, 'packages/release-selection/index');
     }
 
     if (specifier.startsWith('@release-selection/')) {
         return resolveWithExtensions(projectRoot, specifier.replace('@release-selection/', 'packages/release-selection/'));
+    }
+
+    if (specifier.startsWith('~/')) {
+        const sourceRoot = getNuxtSourceRootForFile(sourceFile);
+        if (sourceRoot === 'landing') {
+            return resolveWithExtensions(projectRoot, `landing/app/${specifier.slice(2)}`);
+        }
+        if (sourceRoot === 'app') {
+            return resolveWithExtensions(projectRoot, `app/${specifier.slice(2)}`);
+        }
+    }
+
+    if (specifier.startsWith('~~/')) {
+        const sourceRoot = getNuxtSourceRootForFile(sourceFile);
+        if (sourceRoot === 'landing') {
+            return resolveWithExtensions(projectRoot, `landing/${specifier.slice(3)}`);
+        }
+        if (sourceRoot === 'app') {
+            return resolveWithExtensions(projectRoot, specifier.slice(3));
+        }
     }
 
     if (specifier.startsWith('./') || specifier.startsWith('../')) {
@@ -189,6 +260,7 @@ async function resolveSpecifier({
         || specifier.startsWith('landing/')
         || specifier.startsWith('packages/contracts/')
         || specifier.startsWith('packages/i18n-core/')
+        || specifier.startsWith('packages/i18n-app/')
         || specifier.startsWith('packages/release-selection/')
     ) {
         return resolveWithExtensions(projectRoot, specifier);
@@ -265,6 +337,7 @@ export async function buildDependencyGraph({
 
     const nodes = [];
     const edges = [];
+    const unresolvedInternalImports = [];
 
     for (const file of files) {
         const absFile = path.join(projectRoot, file);
@@ -288,6 +361,19 @@ export async function buildDependencyGraph({
             imports: internalImports,
         });
 
+        for (const item of resolvedImports) {
+            if (item.target) {
+                continue;
+            }
+            if (!isInternalLikeSpecifier(item.specifier)) {
+                continue;
+            }
+            unresolvedInternalImports.push({
+                source: file,
+                specifier: item.specifier,
+            });
+        }
+
         for (const item of internalImports) {
             edges.push({
                 source: file,
@@ -299,7 +385,8 @@ export async function buildDependencyGraph({
 
     return {
         nodes,
-        edges, 
+        edges,
+        unresolvedInternalImports,
     };
 }
 

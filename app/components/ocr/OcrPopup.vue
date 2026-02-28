@@ -262,7 +262,7 @@
 <script setup lang="ts">
 import { useTimeoutFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TTranslationKey } from '@i18n-core/locales';
+import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/electron';
 

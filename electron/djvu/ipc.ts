@@ -1,5 +1,8 @@
 import { ipcMain } from 'electron';
-import type { IpcMainInvokeEvent } from 'electron';
+import type {
+    IpcMain,
+    IpcMainInvokeEvent,
+} from 'electron';
 import { estimateSizes } from '@electron/djvu/estimate';
 import {
     getDjvuHasText,
@@ -80,13 +83,15 @@ async function handleDjvuCleanupTemp(
     }
 }
 
-export function registerDjvuHandlers() {
-    ipcMain.handle('djvu:openForViewing', handleDjvuOpenForViewing);
-    ipcMain.handle('djvu:convertToPdf', handleDjvuConvertToPdf);
-    ipcMain.handle('djvu:cancel', handleDjvuCancel);
-    ipcMain.handle('djvu:getInfo', handleDjvuGetInfo);
-    ipcMain.handle('djvu:estimateSizes', handleDjvuEstimateSizes);
-    ipcMain.handle('djvu:cleanupTemp', handleDjvuCleanupTemp);
+interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
+
+export function registerDjvuHandlers(registrar: IIpcMainHandleRegistrar = ipcMain) {
+    registrar.handle('djvu:openForViewing', handleDjvuOpenForViewing);
+    registrar.handle('djvu:convertToPdf', handleDjvuConvertToPdf);
+    registrar.handle('djvu:cancel', handleDjvuCancel);
+    registrar.handle('djvu:getInfo', handleDjvuGetInfo);
+    registrar.handle('djvu:estimateSizes', handleDjvuEstimateSizes);
+    registrar.handle('djvu:cleanupTemp', handleDjvuCleanupTemp);
 
     if (process.env.EVB_DJVU_SWEEP_STALE_TEMP !== '0') {
         void sweepStaleDjvuTempPdfs().catch((error: unknown) => {

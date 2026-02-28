@@ -127,39 +127,39 @@ export function createDocumentsPreloadClient(ipcRenderer: IpcRenderer) {
         onMenuExportDocx: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
             onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuExportDocx, callback),
         onMenuExportImages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:exportImages', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuExportImages, callback),
         onMenuExportMultiPageTiff: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:exportMultiPageTiff', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuExportMultiPageTiff, callback),
         onMenuZoomIn: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:zoomIn', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuZoomIn, callback),
         onMenuZoomOut: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:zoomOut', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuZoomOut, callback),
         onMenuActualSize: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:actualSize', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuActualSize, callback),
         onMenuFitWidth: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:fitWidth', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuFitWidth, callback),
         onMenuFitHeight: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:fitHeight', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuFitHeight, callback),
         onMenuViewModeSingle: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:viewModeSingle', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle, callback),
         onMenuViewModeFacing: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:viewModeFacing', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing, callback),
         onMenuViewModeFacingFirstSingle: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:viewModeFacingFirstSingle', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle, callback),
         onMenuUndo: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:undo', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuUndo, callback),
         onMenuRedo: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:redo', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuRedo, callback),
         onMenuDeletePages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:deletePages', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuDeletePages, callback),
         onMenuExtractPages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:extractPages', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuExtractPages, callback),
         onMenuRotateCw: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:rotateCw', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuRotateCw, callback),
         onMenuRotateCcw: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:rotateCcw', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuRotateCcw, callback),
         onMenuInsertPages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, 'menu:insertPages', callback),
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuInsertPages, callback),
         onMenuOpenRecentFile: (callback: (filePath: string) => void): IMenuEventUnsubscribe =>
             onSingleArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile, callback),
         onMenuOpenExternalPaths: (callback: (paths: string[]) => void): IMenuEventUnsubscribe =>

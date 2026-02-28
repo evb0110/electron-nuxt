@@ -204,25 +204,24 @@
 <script setup lang="ts">
 import { useTimeoutFn } from '@vueuse/core';
 import {
-    groupBy,
-    minBy,
-} from 'es-toolkit/array';
-import {
     buildAbsoluteUrl,
     normalizeSiteUrl,
 } from '~~/shared/seo';
 import {
+    compareInstallersForSelect,
     formatArch,
-    formatExtension,
     formatFileSize,
     formatInstallerLabel,
+    formatInstallerVariantLabel,
     formatPlatform,
+    INSTALLER_PLATFORM_ORDER,
     parseArchitectureHint,
     parsePlatformHint,
     parseUserAgent,
     recommendInstaller,
-    type TReleaseArch,
+    selectPreferredInstallers,
     type IReleaseInstaller,
+    type TReleaseArch,
     type IUserAgentProfile,
     type TReleasePlatform,
 } from '@release-selection';
@@ -277,46 +276,6 @@ const clientProfile = ref<IUserAgentProfile>({
     platform: 'unknown',
     arch: 'unknown',
 });
-
-const INSTALLER_PLATFORM_ORDER: TReleasePlatform[] = [
-    'macos',
-    'windows',
-    'linux',
-    'unknown',
-];
-
-const INSTALLER_EXTENSION_ORDER: Record<TReleasePlatform, string[]> = {
-    macos: [
-        'dmg',
-        'pkg',
-        'zip',
-    ],
-    windows: [
-        'exe',
-        'msi',
-    ],
-    linux: [
-        'deb',
-        'appimage',
-        'rpm',
-        'tar.gz',
-        'zip',
-    ],
-    unknown: [
-        'dmg',
-        'exe',
-        'deb',
-        'appimage',
-        'zip',
-    ],
-};
-
-const INSTALLER_ARCH_ORDER: Record<TReleaseArch, number> = {
-    x64: 0,
-    arm64: 1,
-    universal: 2,
-    unknown: 3,
-};
 
 const {
     data: releaseData,
@@ -592,67 +551,5 @@ function installerPlatformLabel(platform: TReleasePlatform): string {
     }
 
     return formatPlatform(platform);
-}
-
-function compareInstallersForSelect(left: IReleaseInstaller, right: IReleaseInstaller): number {
-    const extensionDiff = installerExtensionRank(left) - installerExtensionRank(right);
-    if (extensionDiff !== 0) {
-        return extensionDiff;
-    }
-
-    const archDiff = INSTALLER_ARCH_ORDER[left.arch] - INSTALLER_ARCH_ORDER[right.arch];
-    if (archDiff !== 0) {
-        return archDiff;
-    }
-
-    return left.name.localeCompare(right.name);
-}
-
-function effectiveArch(asset: IReleaseInstaller): TReleaseArch {
-    return asset.arch === 'unknown' ? 'x64' : asset.arch;
-}
-
-function formatInstallerVariantLabel(asset: IReleaseInstaller): string {
-    const arch = formatArch(effectiveArch(asset));
-    const extension = formatExtension(asset.extension);
-
-    if (arch) {
-        return `${arch} (${extension})`;
-    }
-
-    return extension;
-}
-
-function selectPreferredInstallers(assets: IReleaseInstaller[]): IReleaseInstaller[] {
-    const first = assets[0];
-    if (!first) {
-        return assets;
-    }
-
-    const formatOrder = INSTALLER_EXTENSION_ORDER[first.platform] || INSTALLER_EXTENSION_ORDER.unknown;
-    const byArch = groupBy(assets, asset => effectiveArch(asset));
-
-    const result: IReleaseInstaller[] = [];
-    for (const archAssets of Object.values(byArch)) {
-        const preferred = minBy(archAssets, asset => {
-            const rank = formatOrder.indexOf(asset.extension);
-            return rank === -1 ? Number.POSITIVE_INFINITY : rank;
-        });
-        if (preferred) {
-            result.push(preferred);
-        }
-    }
-
-    return result;
-}
-
-function installerExtensionRank(asset: IReleaseInstaller): number {
-    const preferenceOrder = INSTALLER_EXTENSION_ORDER[asset.platform] || INSTALLER_EXTENSION_ORDER.unknown;
-    const index = preferenceOrder.indexOf(asset.extension);
-    if (index !== -1) {
-        return index;
-    }
-
-    return preferenceOrder.length + 4;
 }
 </script>

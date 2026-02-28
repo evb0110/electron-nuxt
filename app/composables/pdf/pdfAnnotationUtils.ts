@@ -6,7 +6,7 @@ import type {
 import type {
     TTranslateFn,
     TTranslationKey,
-} from '@i18n-core/locales';
+} from '@i18n-app';
 import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
 
 export {

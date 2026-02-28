@@ -31,6 +31,7 @@ export default defineNuxtConfig({
         '@app': fileURLToPath(new URL('./app', import.meta.url)),
         '@contracts': fileURLToPath(new URL('./packages/contracts', import.meta.url)),
         '@i18n-core': fileURLToPath(new URL('./packages/i18n-core', import.meta.url)),
+        '@i18n-app': fileURLToPath(new URL('./packages/i18n-app', import.meta.url)),
         '@release-selection': fileURLToPath(new URL('./packages/release-selection', import.meta.url)),
     },
 

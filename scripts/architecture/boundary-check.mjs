@@ -88,6 +88,56 @@ function checkEdge(edge) {
         }));
     }
 
+    if (matchesRoot(source, 'landing') && matchesRoot(target, 'electron')) {
+        violations.push(createViolation({
+            rule: 'landing-to-electron',
+            source,
+            target,
+            specifier,
+            message: 'Landing code must not import electron runtime code.',
+        }));
+    }
+
+    if (matchesRoot(source, 'electron') && matchesRoot(target, 'landing')) {
+        violations.push(createViolation({
+            rule: 'electron-to-landing',
+            source,
+            target,
+            specifier,
+            message: 'Electron code must not import landing runtime code.',
+        }));
+    }
+
+    if (matchesRoot(source, 'packages') && matchesRoot(target, 'app')) {
+        violations.push(createViolation({
+            rule: 'packages-to-app',
+            source,
+            target,
+            specifier,
+            message: 'Shared packages must not import app runtime code.',
+        }));
+    }
+
+    if (matchesRoot(source, 'packages') && matchesRoot(target, 'electron')) {
+        violations.push(createViolation({
+            rule: 'packages-to-electron',
+            source,
+            target,
+            specifier,
+            message: 'Shared packages must not import electron runtime code.',
+        }));
+    }
+
+    if (matchesRoot(source, 'packages') && matchesRoot(target, 'landing')) {
+        violations.push(createViolation({
+            rule: 'packages-to-landing',
+            source,
+            target,
+            specifier,
+            message: 'Shared packages must not import landing runtime code.',
+        }));
+    }
+
     if (matchesRoot(source, 'app/services') && matchesRoot(target, 'app/composables')) {
         violations.push(createViolation({
             rule: 'services-to-composables',
@@ -95,6 +145,16 @@ function checkEdge(edge) {
             target,
             specifier,
             message: 'app/services must not depend on app/composables.',
+        }));
+    }
+
+    if (matchesRoot(source, 'scripts') && matchesRoot(target, 'electron')) {
+        violations.push(createViolation({
+            rule: 'scripts-to-electron',
+            source,
+            target,
+            specifier,
+            message: 'scripts/** must not import electron runtime code.',
         }));
     }
 
@@ -147,10 +207,24 @@ async function run() {
     const graph = await buildDependencyGraph({projectRoot: process.cwd()});
 
     const violations = graph.edges.flatMap(checkEdge);
+    const unresolvedInternalImports = graph.unresolvedInternalImports ?? [];
 
-    if (violations.length > 0) {
+    if (violations.length > 0 || unresolvedInternalImports.length > 0) {
         console.error('Architecture boundary check failed.');
-        console.error(formatViolations(violations));
+        if (violations.length > 0) {
+            console.error(formatViolations(violations));
+        }
+        if (unresolvedInternalImports.length > 0) {
+            console.error('Unresolved internal imports detected:');
+            for (const [
+                index,
+                unresolved,
+            ] of unresolvedInternalImports.entries()) {
+                console.error(
+                    `${index + 1}. source: ${unresolved.source}\n   import: ${unresolved.specifier}`,
+                );
+            }
+        }
         process.exit(1);
     }
 

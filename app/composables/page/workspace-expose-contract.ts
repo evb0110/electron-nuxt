@@ -1,8 +1,14 @@
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type {
+    IWorkspaceExpose,
+    IWorkspaceExportPort,
+    IWorkspaceFilePort,
+    IWorkspacePageOpsPort,
+    IWorkspaceSplitTransferPort,
+    IWorkspaceUiPort,
+    IWorkspaceViewPort,
+} from '@app/types/workspace-expose';
 
-type TWorkspaceExposeMethod = keyof Omit<IWorkspaceExpose, 'hasPdf'>;
-
-export const REQUIRED_WORKSPACE_EXPOSE_METHODS = [
+const FILE_PORT_METHODS = [
     'handleSave',
     'handleSaveAs',
     'handleUndo',
@@ -12,9 +18,15 @@ export const REQUIRED_WORKSPACE_EXPOSE_METHODS = [
     'handleOpenFileDirectBatchWithPersist',
     'handleOpenFileWithResult',
     'handleCloseFileFromUi',
+] as const satisfies ReadonlyArray<keyof IWorkspaceFilePort>;
+
+const EXPORT_PORT_METHODS = [
     'handleExportDocx',
     'handleExportImages',
     'handleExportMultiPageTiff',
+] as const satisfies ReadonlyArray<keyof IWorkspaceExportPort>;
+
+const VIEW_PORT_METHODS = [
     'handleZoomIn',
     'handleZoomOut',
     'handleFitWidth',
@@ -29,16 +41,36 @@ export const REQUIRED_WORKSPACE_EXPOSE_METHODS = [
     'handleViewModeSingle',
     'handleViewModeFacing',
     'handleViewModeFacingFirstSingle',
+] as const satisfies ReadonlyArray<keyof IWorkspaceViewPort>;
+
+const PAGE_OPS_METHODS = [
     'handleDeletePages',
     'handleExtractPages',
     'handleRotateCw',
     'handleRotateCcw',
     'handleInsertPages',
     'handleConvertToPdf',
+] as const satisfies ReadonlyArray<keyof IWorkspacePageOpsPort>;
+
+const SPLIT_TRANSFER_METHODS = [
     'captureSplitPayload',
     'restoreSplitPayload',
+] as const satisfies ReadonlyArray<keyof IWorkspaceSplitTransferPort>;
+
+const UI_METHODS = [
     'closeAllDropdowns',
     'getToolbarSnapshot',
+] as const satisfies ReadonlyArray<keyof IWorkspaceUiPort>;
+
+type TWorkspaceExposeMethod = keyof Omit<IWorkspaceExpose, 'hasPdf'>;
+
+export const REQUIRED_WORKSPACE_EXPOSE_METHODS = [
+    ...FILE_PORT_METHODS,
+    ...EXPORT_PORT_METHODS,
+    ...VIEW_PORT_METHODS,
+    ...PAGE_OPS_METHODS,
+    ...SPLIT_TRANSFER_METHODS,
+    ...UI_METHODS,
 ] as const satisfies readonly TWorkspaceExposeMethod[];
 
 function isRecord(value: unknown): value is Record<string, unknown> {

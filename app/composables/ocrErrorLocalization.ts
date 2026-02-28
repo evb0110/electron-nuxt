@@ -1,4 +1,4 @@
-import type { TTranslationKey } from '@i18n-core/locales';
+import type { TTranslationKey } from '@i18n-app';
 
 const REMOTE_METHOD_PREFIX_RE = /^Error invoking remote method '[^']+':\s*/u;
 

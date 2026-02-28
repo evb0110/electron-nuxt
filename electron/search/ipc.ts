@@ -1,4 +1,7 @@
-import type { IpcMainInvokeEvent } from 'electron';
+import type {
+    IpcMain,
+    IpcMainInvokeEvent,
+} from 'electron';
 import { randomUUID } from 'node:crypto';
 import {
     app,
@@ -655,14 +658,16 @@ function handlePdfSearchCancel(
     return { canceled: true };
 }
 
-export function registerSearchHandlers() {
+interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
+
+export function registerSearchHandlers(registrar: IIpcMainHandleRegistrar = ipcMain) {
     log.info(
         'Registering search IPC handlers '
         + `(requestTimeoutMs=${SEARCH_REQUEST_TIMEOUT_MS}, idleTtlMs=${SEARCH_WORKER_IDLE_TTL_MS}, maxActive=${SEARCH_WORKER_MAX_ACTIVE})`,
     );
-    ipcMain.handle('pdf:search', handlePdfSearch);
-    ipcMain.handle('pdf:search:cancel', handlePdfSearchCancel);
-    ipcMain.handle('pdf:search:resetCache', () => {
+    registrar.handle('pdf:search', handlePdfSearch);
+    registrar.handle('pdf:search:cancel', handlePdfSearchCancel);
+    registrar.handle('pdf:search:resetCache', () => {
         for (const state of senderSearchStates.values()) {
             try {
                 state.worker.postMessage({type: 'reset-cache'} satisfies TSearchWorkerInboundMessage);

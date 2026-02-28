@@ -33,7 +33,7 @@ export interface IWorkspaceToolbarSnapshot {
 
 export interface ICloseFileFromUiOptions {persist?: boolean;}
 
-export interface IWorkspaceExpose {
+export interface IWorkspaceFilePort {
     handleSave: () => Promise<void>;
     handleSaveAs: () => Promise<void>;
     handleUndo: () => void;
@@ -43,10 +43,15 @@ export interface IWorkspaceExpose {
     handleOpenFileDirectBatchWithPersist: (paths: string[]) => Promise<void>;
     handleOpenFileWithResult: (result: TOpenFileResult) => Promise<void>;
     handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<void>;
+}
+
+export interface IWorkspaceExportPort {
     handleExportDocx: () => Promise<void>;
     handleExportImages: () => Promise<void>;
     handleExportMultiPageTiff: () => Promise<void>;
-    hasPdf: { value: boolean } | boolean;
+}
+
+export interface IWorkspaceViewPort {
     handleZoomIn: () => void;
     handleZoomOut: () => void;
     handleFitWidth: () => void;
@@ -61,14 +66,34 @@ export interface IWorkspaceExpose {
     handleViewModeSingle: () => void;
     handleViewModeFacing: () => void;
     handleViewModeFacingFirstSingle: () => void;
+}
+
+export interface IWorkspacePageOpsPort {
     handleDeletePages: () => void;
     handleExtractPages: () => void;
     handleRotateCw: () => void;
     handleRotateCcw: () => void;
     handleInsertPages: () => void;
     handleConvertToPdf: () => void;
+}
+
+export interface IWorkspaceSplitTransferPort {
     captureSplitPayload: () => Promise<TSplitPayload>;
     restoreSplitPayload: (payload: TSplitPayload) => Promise<void>;
+}
+
+export interface IWorkspaceUiPort {
     closeAllDropdowns: () => void;
     getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
 }
+
+export interface IWorkspaceStatePort {hasPdf: {value: boolean;} | boolean;}
+
+export interface IWorkspaceExpose extends
+    IWorkspaceFilePort,
+    IWorkspaceExportPort,
+    IWorkspaceViewPort,
+    IWorkspacePageOpsPort,
+    IWorkspaceSplitTransferPort,
+    IWorkspaceUiPort,
+    IWorkspaceStatePort {}

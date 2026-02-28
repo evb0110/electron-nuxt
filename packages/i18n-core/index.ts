@@ -12,3 +12,10 @@ export type {
     TTranslationMessageFromSchema,
     TTranslationParamsFromSchema,
 } from './schema-types';
+
+export type {
+    ILocaleComposerMethods,
+    TTypedI18nComposer,
+} from './typed-composer';
+
+export { createTypedI18nComposer } from './typed-composer';
