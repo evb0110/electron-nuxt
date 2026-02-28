@@ -19,6 +19,8 @@ interface IUseAnnotationMarkerViewModelOptions {
     activeCommentStableKey: Ref<string | null>;
 }
 
+const MAX_FREETEXT_NOTE_MARKER_SIZE = 0.02;
+
 function buildPreview(comment: IAnnotationCommentSummary): string {
     const text = comment.text?.trim();
     if (!text) {
@@ -52,13 +54,36 @@ function pickPrimaryComment(
         .sort((a, b) => (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0))[0]!;
 }
 
+function isMarkerEligibleComment(comment: IAnnotationCommentSummary) {
+    if (comment.hasNote !== true) {
+        return false;
+    }
+
+    const rect = normalizeMarkerRect(comment.markerRect);
+    if (!rect) {
+        return false;
+    }
+
+    const subtype = (comment.subtype ?? '').trim().toLowerCase();
+    if (subtype === 'freetext' || subtype === 'typewriter') {
+        // Regular text annotations are also FreeText/Typewriter, but sticky notes
+        // use a point-like anchor rect. Keep markers only for that anchor shape.
+        return (
+            rect.width <= MAX_FREETEXT_NOTE_MARKER_SIZE
+            && rect.height <= MAX_FREETEXT_NOTE_MARKER_SIZE
+        );
+    }
+
+    return true;
+}
+
 function computeMarkersByPage(
     comments: IAnnotationCommentSummary[],
     activeKey: string | null,
     viewerContainer: HTMLElement | null,
 ): Map<number, IMarkerViewModel[]> {
     const result = new Map<number, IMarkerViewModel[]>();
-    const withRect = comments.filter(c => c.hasNote === true && normalizeMarkerRect(c.markerRect) !== null);
+    const withRect = comments.filter(isMarkerEligibleComment);
 
     if (withRect.length === 0) {
         return result;

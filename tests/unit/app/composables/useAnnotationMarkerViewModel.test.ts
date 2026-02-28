@@ -34,7 +34,7 @@ function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnn
 }
 
 describe('useAnnotationMarkerViewModel', () => {
-    it('renders markers for note annotations and excludes non-note drawing annotations', () => {
+    it('renders marker for sticky-note anchors and excludes non-note drawing annotations', () => {
         const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([
             createComment({
                 id: 'sticky-1',
@@ -43,6 +43,12 @@ describe('useAnnotationMarkerViewModel', () => {
                 hasNote: true,
                 subtype: 'Typewriter',
                 text: 'Sticky note text',
+                markerRect: {
+                    left: 0.1,
+                    top: 0.1,
+                    width: 0.0016,
+                    height: 0.0016,
+                },
             }),
             createComment({
                 id: 'draw-1',
@@ -69,5 +75,31 @@ describe('useAnnotationMarkerViewModel', () => {
         const pageMarkers = markersByPage.value.get(1) ?? [];
         expect(pageMarkers).toHaveLength(1);
         expect(pageMarkers[0]?.annotation.stableKey).toBe('ann:0:sticky-1');
+    });
+
+    it('excludes regular FreeText/Typewriter text annotations from marker layer', () => {
+        const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([createComment({
+            id: 'text-1',
+            stableKey: 'ann:0:text-1',
+            annotationId: 'text-1',
+            hasNote: true,
+            subtype: 'Typewriter',
+            kindLabel: 'Inline Note',
+            markerRect: {
+                left: 0.24,
+                top: 0.18,
+                width: 0.22,
+                height: 0.09,
+            },
+        })]);
+
+        const { markersByPage } = useAnnotationMarkerViewModel({
+            viewerContainer: ref<HTMLElement | null>(null),
+            annotationCommentsCache,
+            activeCommentStableKey: ref<string | null>(null),
+        });
+
+        const pageMarkers = markersByPage.value.get(1) ?? [];
+        expect(pageMarkers).toHaveLength(0);
     });
 });

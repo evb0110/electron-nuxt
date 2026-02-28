@@ -284,6 +284,9 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
     };
 
     const automationUserDataDir = electronUserDataPath();
+    const interactiveTerminal = process.stdin.isTTY === true && process.stdout.isTTY === true;
+    const defaultAutomationNoFocus = interactiveTerminal ? '0' : '1';
+    const defaultAutomationHideWindow = interactiveTerminal ? '0' : '1';
     const electronPath = join(projectRoot, 'node_modules/.bin/electron');
     const electron = spawn(electronPath, [
         `--remote-debugging-port=${cdpPort}`,
@@ -300,8 +303,8 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
         env: {
             ...process.env,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
-            EVB_AUTOMATION_NO_FOCUS: process.env.EVB_AUTOMATION_NO_FOCUS ?? '1',
-            EVB_AUTOMATION_HIDE_WINDOW: process.env.EVB_AUTOMATION_HIDE_WINDOW ?? '1',
+            EVB_AUTOMATION_NO_FOCUS: process.env.EVB_AUTOMATION_NO_FOCUS ?? defaultAutomationNoFocus,
+            EVB_AUTOMATION_HIDE_WINDOW: process.env.EVB_AUTOMATION_HIDE_WINDOW ?? defaultAutomationHideWindow,
             EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
             EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),
             ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
