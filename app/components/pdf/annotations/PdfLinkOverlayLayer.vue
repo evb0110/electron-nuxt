@@ -13,7 +13,8 @@
             }"
             target="_blank"
             rel="noopener noreferrer"
-            @click.prevent="handleClick(link)"
+            @pointerdown="onPointerDown"
+            @click.prevent="handleClick($event, link)"
         />
     </div>
 </template>
@@ -27,7 +28,29 @@ import {
 
 defineProps<{links: ILinkAnnotation[];}>();
 
-function handleClick(link: ILinkAnnotation) {
+const DRAG_THRESHOLD_PX = 5;
+let pointerDownPos: {
+    x: number;
+    y: number 
+} | null = null;
+
+function onPointerDown(event: PointerEvent) {
+    pointerDownPos = {
+        x: event.clientX,
+        y: event.clientY, 
+    };
+}
+
+function handleClick(event: MouseEvent, link: ILinkAnnotation) {
+    if (pointerDownPos) {
+        const dx = event.clientX - pointerDownPos.x;
+        const dy = event.clientY - pointerDownPos.y;
+        if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) {
+            pointerDownPos = null;
+            return;
+        }
+    }
+    pointerDownPos = null;
     if (hasElectronAPI()) {
         getElectronAPI().shell.openExternal(link.url);
     } else {
