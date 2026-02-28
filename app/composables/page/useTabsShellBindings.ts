@@ -111,6 +111,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
 
         if (typeof window !== 'undefined') {
             (window as Window & { __openFileDirect?: (path: string) => Promise<void> }).__openFileDirect = openPathInAppropriateTab;
+            (window as Window & { __handleSave?: () => Promise<void> }).__handleSave = () => activeWorkspace.value?.handleSave() ?? Promise.resolve();
         }
 
         if (hasElectronAPI()) {

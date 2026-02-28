@@ -366,14 +366,6 @@ export const usePdfFile = () => {
         if (workingCopyPath.value) {
             const api = getElectronAPI();
             await api.documents.writeFile(workingCopyPath.value, snapshot);
-            // Also persist back to the original file so the deletion
-            // survives reopening without an explicit Ctrl+S save.
-            if (!requiresSaveAsOnFirstSave.value) {
-                await api.documents.saveFile(workingCopyPath.value);
-                isDirty.value = false;
-                historyCleanIndex.value = historyIndex.value;
-                syncDirtyFromHistory();
-            }
         }
     }
 

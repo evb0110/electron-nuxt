@@ -430,7 +430,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         // editor layer. uiManager.delete() operates on the editor layer and
         // may falsely report success. Always attempt embedded-level fallback.
         if (!deleted || comment.source === 'pdf') {
-            if (comment.annotationId) {
+            if (comment.annotationId && pdfViewerRef.value) {
                 // Optimistic path — instant visual removal, no PDF reload
                 pdfViewerRef.value.suppressAnnotationId(comment.annotationId);
                 pdfViewerRef.value.removeAnnotationFromDom(comment);
