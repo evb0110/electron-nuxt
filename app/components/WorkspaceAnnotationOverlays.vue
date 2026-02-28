@@ -53,6 +53,7 @@
             :to="openNoteAnchorTargets[note.comment.stableKey]"
         >
             <button
+                v-show="!openAnchorHiddenKeys.has(note.comment.stableKey)"
                 type="button"
                 class="pdf-note-open-anchor"
                 :style="getMinimizedIndicatorStyle(note)"
@@ -194,6 +195,18 @@ const openNoteAnchors = computed(() => {
         && Boolean(getNoteMarkerRect(note)),
     );
 });
+const openAnchorHiddenKeys = computed<Set<string>>(() => {
+    void indicatorDomTick.value;
+    const viewportRoot = props.annotationViewportRoot;
+    const inlineIdentity = collectInlineTriggerIdentity(viewportRoot);
+    const hidden = new Set<string>();
+    for (const note of openNoteAnchors.value) {
+        if (inlineIdentityMatchesNote(inlineIdentity, note)) {
+            hidden.add(note.comment.stableKey);
+        }
+    }
+    return hidden;
+});
 const anchoredAnnotationNoteWindows = computed(() => {
     void indicatorDomTick.value;
     const viewportRoot = props.annotationViewportRoot;
@@ -329,10 +342,11 @@ function collectInlineTriggerIdentity(viewportRoot: HTMLElement | null | undefin
     }
 
     const markers = viewportRoot.querySelectorAll<HTMLElement>(
-        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, [data-comment-stable-keys], [data-comment-stable-key]',
+        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, [data-comment-stable-keys], [data-comment-stable-key], [data-stable-key]',
     );
     markers.forEach((marker) => {
-        const directStableKey = marker.dataset.commentStableKey?.trim();
+        const directStableKey = marker.dataset.commentStableKey?.trim()
+            || marker.dataset.stableKey?.trim();
         if (directStableKey) {
             identity.stableKeys.add(directStableKey);
         }
@@ -478,31 +492,60 @@ interface IConnectorLine {
 const connectorLines = shallowRef<IConnectorLine[]>([]);
 let connectorRafId: number | null = null;
 
+function getMarkerCenter(
+    stableKey: string,
+    note: IAnnotationNoteWindowEntry,
+    pageContainer: HTMLElement,
+): {
+    cx: number;
+    cy: number;
+} | null {
+    const markerEl = pageContainer.querySelector<HTMLElement>(
+        `.pdf-comment-marker-button[data-stable-key="${CSS.escape(stableKey)}"]`,
+    );
+    if (markerEl) {
+        const r = markerEl.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+            return {
+                cx: r.left + r.width / 2,
+                cy: r.top + r.height / 2,
+            };
+        }
+    }
+
+    const markerRect = getNoteMarkerRect(note);
+    if (!markerRect) {
+        return null;
+    }
+    const pageRect = pageContainer.getBoundingClientRect();
+    if (pageRect.width <= 0 || pageRect.height <= 0) {
+        return null;
+    }
+    return {
+        cx: pageRect.left + ((markerRect.left + markerRect.width / 2) * pageRect.width),
+        cy: pageRect.top + ((markerRect.top + markerRect.height / 2) * pageRect.height),
+    };
+}
+
 function computeConnectorLines(): IConnectorLine[] {
     const targets = openNoteAnchorTargets.value;
     const lines: IConnectorLine[] = [];
     for (const note of openNoteAnchors.value) {
-        const markerRect = getNoteMarkerRect(note);
-        if (!markerRect) {
-            continue;
-        }
-        const position = props.annotationNotePositions[note.comment.stableKey];
+        const stableKey = note.comment.stableKey;
+        const position = props.annotationNotePositions[stableKey];
         if (!position) {
             continue;
         }
 
-        const pageContainer = targets[note.comment.stableKey];
+        const pageContainer = targets[stableKey];
         if (!pageContainer) {
             continue;
         }
 
-        const pageRect = pageContainer.getBoundingClientRect();
-        if (pageRect.width <= 0 || pageRect.height <= 0) {
+        const marker = getMarkerCenter(stableKey, note, pageContainer);
+        if (!marker) {
             continue;
         }
-
-        const markerCx = pageRect.left + ((markerRect.left + markerRect.width / 2) * pageRect.width);
-        const markerCy = pageRect.top + ((markerRect.top + markerRect.height / 2) * pageRect.height);
 
         const noteW = position.width ?? NOTE_WINDOW.DEFAULT_WIDTH;
         const noteH = position.height ?? NOTE_WINDOW.DEFAULT_HEIGHT;
@@ -510,8 +553,8 @@ function computeConnectorLines(): IConnectorLine[] {
         const noteCy = position.y + noteH / 2;
 
         lines.push({
-            stableKey: note.comment.stableKey,
-            path: `M ${markerCx} ${markerCy} L ${noteCx} ${noteCy}`,
+            stableKey,
+            path: `M ${marker.cx} ${marker.cy} L ${noteCx} ${noteCy}`,
         });
     }
     return lines;

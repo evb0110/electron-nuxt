@@ -49,6 +49,7 @@ export interface IPageSaveOrchestrationDeps {
     saveWorkingCopy: () => Promise<boolean>;
     saveWorkingCopyAs: (data?: Uint8Array) => Promise<string | null>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
+    consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
     loadRecentFiles: () => void;
     clearOcrCache: (path: string) => void;
     loadPdfFromData: (data: Uint8Array, opts?: {
@@ -89,6 +90,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         saveWorkingCopy,
         saveWorkingCopyAs,
         persistAllAnnotationNotes,
+        consumePendingEmbeddedTextUpdates,
         loadRecentFiles,
         clearOcrCache,
         loadPdfFromData,
@@ -100,6 +102,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
         rewriteFreeTextNoteRects,
+        rewriteEmbeddedNoteTexts,
         updateEmbeddedAnnotationByRef: updateEmbeddedByRef,
         deleteEmbeddedAnnotationByRef: deleteEmbeddedByRef,
         rewritePageLabels,
@@ -143,7 +146,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             totalPages,
             untitledLabel: t('bookmarks.untitled'),
         }),
+        rewriteEmbeddedNoteTexts,
         persistAllAnnotationNotes,
+        consumePendingEmbeddedTextUpdates,
         annotationNoteWindowsCount,
         loadRecentFiles,
     });

@@ -33,14 +33,6 @@ function createHarness(comment = createComment()) {
         updateAnnotationCommentInViewer: vi.fn<
             (comment: IAnnotationCommentSummary, text: string) => boolean
         >(() => true),
-        updateEmbeddedAnnotationByRef: vi.fn<
-            (comment: IAnnotationCommentSummary, text: string) => Promise<Uint8Array | false>
-        >(async () => false as Uint8Array | false),
-        serializeCurrentPdfForEmbeddedFallback: vi.fn(async () => true),
-        loadPdfFromData: vi.fn(async () => {}),
-        workingCopyPath: ref<string | null>('/tmp/working.pdf'),
-        currentPage: ref(1),
-        waitForPdfReload: vi.fn(async () => {}),
     };
 
     return {
@@ -58,19 +50,14 @@ describe('useAnnotationNoteWindows', () => {
 
         windows.handleOpenAnnotationNote(createComment());
 
-        const saved = await windows.persistAnnotationNote('note-1:0', true);
+        const saved = await windows.persistAllAnnotationNotes(true);
 
         expect(saved).toBe(true);
         expect(deps.updateAnnotationCommentInViewer).not.toHaveBeenCalled();
-        expect(deps.serializeCurrentPdfForEmbeddedFallback).not.toHaveBeenCalled();
-        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
     });
 
     it('does not materialize a full PDF reload when force-saving viewer-backed note edits', async () => {
-        const {
-            deps,
-            windows,
-        } = createHarness();
+        const { windows } = createHarness();
 
         windows.handleOpenAnnotationNote(createComment());
         const note = windows.findAnnotationNoteWindow('note-1:0');
@@ -80,19 +67,13 @@ describe('useAnnotationNoteWindows', () => {
         }
 
         note.text = 'Updated text';
-        const saved = await windows.persistAnnotationNote('note-1:0', true);
+        const saved = windows.persistAnnotationNote('note-1:0', true);
 
         expect(saved).toBe(true);
-        expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledWith(
-            expect.objectContaining({ stableKey: 'note-1:0' }),
-            'Updated text',
-        );
-        expect(deps.serializeCurrentPdfForEmbeddedFallback).not.toHaveBeenCalled();
-        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
         expect(note.lastSavedText).toBe('Updated text');
     });
 
-    it('materializes and rematches to embedded ref when editor-only note has no live editor handle', async () => {
+    it('defers embedded text update to serialization pipeline when auto path fails', () => {
         const comment = createComment({
             id: 'editor:0:pdfjs_internal_editor_0',
             stableKey: 'uid:0:pdfjs_internal_editor_0',
@@ -106,81 +87,6 @@ describe('useAnnotationNoteWindows', () => {
         } = createHarness(comment);
 
         deps.updateAnnotationCommentInViewer.mockReturnValue(false);
-        deps.serializeCurrentPdfForEmbeddedFallback.mockImplementation(async () => {
-            deps.annotationComments.value = [
-                comment,
-                createComment({
-                    id: '17R',
-                    stableKey: 'ann:0:17R',
-                    source: 'pdf',
-                    annotationId: '17R',
-                    uid: null,
-                    text: '',
-                }),
-            ];
-            return true;
-        });
-        deps.updateEmbeddedAnnotationByRef.mockImplementation(async (target, text) => {
-            if (target.annotationId === '17R' && text === 'Unsaved sticky note text') {
-                return new Uint8Array([
-                    1,
-                    2,
-                    3,
-                ]);
-            }
-            return false;
-        });
-        windows.handleOpenAnnotationNote(comment);
-        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
-        expect(note).not.toBeNull();
-        if (!note) {
-            return;
-        }
-
-        note.text = 'Unsaved sticky note text';
-        const saved = await windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', true);
-
-        expect(saved).toBe(true);
-        expect(deps.serializeCurrentPdfForEmbeddedFallback).toHaveBeenCalledTimes(1);
-        expect(deps.updateEmbeddedAnnotationByRef).toHaveBeenCalledWith(
-            expect.objectContaining({
-                annotationId: '17R',
-                source: 'pdf',
-            }),
-            'Unsaved sticky note text',
-        );
-        expect(deps.loadPdfFromData).toHaveBeenCalledTimes(1);
-    });
-
-    it('uses heuristic embedded ref resolution after materialization when no explicit ref is available', async () => {
-        const comment = createComment({
-            id: 'editor:0:pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
-            annotationId: null,
-            uid: 'pdfjs_internal_editor_0',
-            source: 'editor',
-        });
-        const {
-            deps,
-            windows,
-        } = createHarness(comment);
-
-        deps.updateAnnotationCommentInViewer.mockReturnValue(false);
-        deps.serializeCurrentPdfForEmbeddedFallback.mockResolvedValue(true);
-        deps.updateEmbeddedAnnotationByRef.mockImplementation(async (target, text) => {
-            if (
-                target.stableKey === 'uid:0:pdfjs_internal_editor_0'
-                && target.annotationId === null
-                && text === 'Unsaved sticky note text'
-            ) {
-                return new Uint8Array([
-                    1,
-                    2,
-                    3,
-                ]);
-            }
-            return false;
-        });
 
         windows.handleOpenAnnotationNote(comment);
         const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
@@ -190,82 +96,67 @@ describe('useAnnotationNoteWindows', () => {
         }
 
         note.text = 'Unsaved sticky note text';
-        const saved = await windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', true);
+        const saved = windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', true);
 
         expect(saved).toBe(true);
-        expect(deps.serializeCurrentPdfForEmbeddedFallback).toHaveBeenCalledTimes(1);
-        expect(deps.updateEmbeddedAnnotationByRef).toHaveBeenCalledWith(
-            expect.objectContaining({
-                stableKey: 'uid:0:pdfjs_internal_editor_0',
-                annotationId: null,
-                source: 'editor',
-            }),
-            'Unsaved sticky note text',
-        );
-        expect(deps.loadPdfFromData).toHaveBeenCalledTimes(1);
+        expect(note.saveMode).toBe('embedded');
+        expect(note.lastSavedText).toBe('Unsaved sticky note text');
+
+        const pending = windows.consumePendingEmbeddedTextUpdates();
+        expect(pending).not.toBeNull();
+        expect(pending!.get('uid:0:pdfjs_internal_editor_0')).toBe('Unsaved sticky note text');
     });
 
-    it('waits for post-materialization annotation sync before rematching embedded ref', async () => {
-        const comment = createComment({
-            id: 'editor:0:pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
-            annotationId: null,
-            uid: 'pdfjs_internal_editor_0',
-            source: 'editor',
-            text: '',
-        });
+    it('returns null from consumePendingEmbeddedTextUpdates when nothing is pending', () => {
+        const { windows } = createHarness();
+
+        const pending = windows.consumePendingEmbeddedTextUpdates();
+        expect(pending).toBeNull();
+    });
+
+    it('clears pending updates after consume', () => {
+        const comment = createComment();
         const {
             deps,
             windows,
         } = createHarness(comment);
 
         deps.updateAnnotationCommentInViewer.mockReturnValue(false);
-        deps.serializeCurrentPdfForEmbeddedFallback.mockImplementation(async () => {
-            setTimeout(() => {
-                deps.annotationComments.value = [
-                    comment,
-                    createComment({
-                        id: '25R',
-                        stableKey: 'ann:0:25R',
-                        source: 'pdf',
-                        annotationId: '25R',
-                        uid: null,
-                        text: '',
-                    }),
-                ];
-            }, 120);
-            return true;
-        });
-        deps.updateEmbeddedAnnotationByRef.mockImplementation(async (target, text) => {
-            if (target.annotationId === '25R' && text === 'Delayed sync text') {
-                return new Uint8Array([
-                    9,
-                    9,
-                    9,
-                ]);
-            }
-            return false;
-        });
 
         windows.handleOpenAnnotationNote(comment);
-        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
-        expect(note).not.toBeNull();
+        const note = windows.findAnnotationNoteWindow('note-1:0');
         if (!note) {
             return;
         }
+        note.text = 'Changed';
+        windows.persistAnnotationNote('note-1:0', true);
 
-        note.text = 'Delayed sync text';
-        const saved = await windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', true);
+        const first = windows.consumePendingEmbeddedTextUpdates();
+        expect(first).not.toBeNull();
+
+        const second = windows.consumePendingEmbeddedTextUpdates();
+        expect(second).toBeNull();
+    });
+
+    it('sets saveMode to embedded when auto path fails without force', () => {
+        const comment = createComment();
+        const {
+            deps,
+            windows,
+        } = createHarness(comment);
+
+        deps.updateAnnotationCommentInViewer.mockReturnValue(false);
+
+        windows.handleOpenAnnotationNote(comment);
+        const note = windows.findAnnotationNoteWindow('note-1:0');
+        if (!note) {
+            return;
+        }
+        note.text = 'Changed';
+        const saved = windows.persistAnnotationNote('note-1:0', false);
 
         expect(saved).toBe(true);
-        expect(deps.serializeCurrentPdfForEmbeddedFallback).toHaveBeenCalledTimes(1);
-        expect(deps.updateEmbeddedAnnotationByRef).toHaveBeenCalledWith(
-            expect.objectContaining({
-                annotationId: '25R',
-                source: 'pdf',
-            }),
-            'Delayed sync text',
-        );
-        expect(deps.loadPdfFromData).toHaveBeenCalledTimes(1);
+        expect(note.saveMode).toBe('embedded');
+        expect(windows.consumePendingEmbeddedTextUpdates()).toBeNull();
     });
 });

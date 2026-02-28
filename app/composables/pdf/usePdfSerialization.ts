@@ -585,11 +585,73 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         return new Uint8Array(await doc.save());
     }
 
+    async function rewriteEmbeddedNoteTexts(
+        data: Uint8Array,
+        pendingTexts: Map<string, string>,
+    ): Promise<Uint8Array> {
+        if (pendingTexts.size === 0) {
+            return data;
+        }
+
+        const commentsByKey = new Map<string, IAnnotationCommentSummary>();
+        for (const comment of annotationComments.value) {
+            if (pendingTexts.has(comment.stableKey)) {
+                commentsByKey.set(comment.stableKey, comment);
+            }
+        }
+
+        if (commentsByKey.size === 0) {
+            BrowserLogger.warn(
+                PDF_SERIALIZATION_LOG_SECTION,
+                'rewriteEmbeddedNoteTexts: no matching comments found',
+                { pendingKeys: [...pendingTexts.keys()] },
+            );
+            return data;
+        }
+
+        const doc = await loadPdfDocument(data, 'rewriting embedded note texts');
+        if (!doc) {
+            return data;
+        }
+
+        let modified = false;
+        for (const [
+            stableKey,
+            text,
+        ] of pendingTexts) {
+            const comment = commentsByKey.get(stableKey);
+            if (!comment) {
+                continue;
+            }
+
+            const targetRef = resolveCommentPdfRefInDocument(doc, comment);
+            if (!targetRef) {
+                BrowserLogger.warn(PDF_SERIALIZATION_LOG_SECTION, 'rewriteEmbeddedNoteTexts: unable to resolve ref', {
+                    stableKey,
+                    source: comment.source,
+                    annotationId: comment.annotationId ?? null,
+                });
+                continue;
+            }
+
+            if (updateAnnotationTextByRef(doc, targetRef, text)) {
+                modified = true;
+            }
+        }
+
+        if (!modified) {
+            return data;
+        }
+
+        return new Uint8Array(await doc.save());
+    }
+
     return {
         getSourcePdfData,
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
         rewriteFreeTextNoteRects,
+        rewriteEmbeddedNoteTexts,
         updateEmbeddedAnnotationByRef,
         deleteEmbeddedAnnotationByRef,
         rewritePageLabels,

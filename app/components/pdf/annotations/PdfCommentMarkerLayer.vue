@@ -15,6 +15,7 @@
             :top-percent="marker.topPercent"
             @open-note="emit('openNote', $event)"
             @context-menu="(comment, event) => emit('contextMenu', comment, event)"
+            @move-marker="(comment, rect) => emit('moveMarker', comment, rect)"
         />
     </div>
 </template>
@@ -22,6 +23,7 @@
 <script setup lang="ts">
 import type {
     IAnnotationCommentSummary,
+    IAnnotationMarkerRect,
     IMarkerViewModel,
 } from '@app/composables/pdf/annotations/types';
 import PdfCommentMarker from '@app/components/pdf/annotations/PdfCommentMarker.vue';
@@ -34,6 +36,7 @@ defineProps<{
 const emit = defineEmits<{
     openNote: [comment: IAnnotationCommentSummary];
     contextMenu: [comment: IAnnotationCommentSummary, event: MouseEvent];
+    moveMarker: [comment: IAnnotationCommentSummary, markerRect: IAnnotationMarkerRect];
 }>();
 </script>
 

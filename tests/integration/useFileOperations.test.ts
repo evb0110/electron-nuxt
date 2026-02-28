@@ -51,7 +51,9 @@ function createDeps() {
         rewriteFreeTextNoteRects,
         rewritePageLabels,
         rewriteBookmarks,
+        rewriteEmbeddedNoteTexts: vi.fn(async (data: Uint8Array) => data),
         persistAllAnnotationNotes: vi.fn(async () => true),
+        consumePendingEmbeddedTextUpdates: vi.fn(() => null),
         annotationNoteWindowsCount: ref(0),
         loadRecentFiles: vi.fn(),
     };
