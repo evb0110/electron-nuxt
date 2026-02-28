@@ -31,8 +31,7 @@
     },
     "ignore": [
         "app/types/*.d.ts",
-        "electron/types/utif.d.ts",
-        ".nuxt/**"
+        "electron/types/utif.d.ts"
     ],
     "ignoreDependencies": [
         "@iconify-json/circle-flags",
@@ -66,7 +65,6 @@
         "radix3",
         "sass-embedded",
         "source-map-js",
-        "tailwindcss",
         "ufo",
         "uncrypto",
         "unhead",

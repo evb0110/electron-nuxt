@@ -289,7 +289,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             const editorLayer = annotationEditorLayers.get(pageNumber);
             const drawLayer =
                 drawLayers.get(pageNumber) ??
-        new DrawLayer({ pageIndex: pageNumber - 1 });
+        new DrawLayer();
 
             const canvasHost =
                 container.querySelector<HTMLDivElement>('.page_canvas');
