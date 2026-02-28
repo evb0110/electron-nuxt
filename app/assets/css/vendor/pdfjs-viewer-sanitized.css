@@ -885,6 +885,9 @@
       }
 
 .textLayer{
+  --csstools-color-scheme--light:initial;
+  color-scheme:only light;
+
   position:absolute;
   text-align:initial;
   inset:0;
@@ -5113,8 +5116,16 @@
       gap:16px;
     }
 
-.popupMenu{
+button.hasPopupMenu[aria-expanded="true"] + menu{
+    visibility:visible;
+  }
 
+button.hasPopupMenu[aria-expanded="false"] + menu{
+    visibility:hidden;
+  }
+
+.popupMenu{
+  --menuitem-checkmark-icon:url('/pdfjs/images/checkmark.svg');
   --menu-mark-icon-size:0;
   --menu-icon-size:16px;
   --menuitem-gap:5px;
@@ -5231,6 +5242,7 @@
   top:1px;
   margin:0;
   padding:5px;
+  box-sizing:border-box;
 
   background:var(--menu-bg);
   background-blend-mode:var(--menu-background-blend-mode);
@@ -5370,7 +5382,8 @@
   --treeitem-selected-color:var(--csstools-light-dark-toggle--104, rgb(0 0 0 / 0.9));
   --csstools-light-dark-toggle--105:var(--csstools-color-scheme--light) rgb(255 255 255 / 0.25);
   --treeitem-selected-bg-color:var(--csstools-light-dark-toggle--105, rgb(0 0 0 / 0.25));
-
+  --treeitem-expanded-icon:url('/pdfjs/images/treeitem-expanded.svg');
+  --treeitem-collapsed-icon:url('/pdfjs/images/treeitem-collapsed.svg');
 }
 
 @supports (color: light-dark(red, red)) and (color: rgb(0 0 0 / 0)){
@@ -5496,13 +5509,13 @@
     }
 
 .sidebar{
-  --csstools-light-dark-toggle--132:var(--csstools-color-scheme--light) #23222b;
-  --sidebar-bg-color:var(--csstools-light-dark-toggle--132, #fff);
-  --csstools-light-dark-toggle--133:var(--csstools-color-scheme--light) rgb(251 251 254 / 0.1);
-  --sidebar-border-color:var(--csstools-light-dark-toggle--133, rgb(21 20 26 / 0.1));
-  --csstools-light-dark-toggle--134:var(--csstools-color-scheme--light) rgb(0 0 0 / 0.2);
-  --csstools-light-dark-toggle--135:var(--csstools-color-scheme--light) rgb(0 0 0 / 0.4);
-  --sidebar-box-shadow:0 0.25px 0.75px var(--csstools-light-dark-toggle--134, rgb(0 0 0 / 0.05)), 0 2px 6px 0 var(--csstools-light-dark-toggle--135, rgb(0 0 0 / 0.1));
+  --csstools-light-dark-toggle--135:var(--csstools-color-scheme--light) #23222b;
+  --sidebar-bg-color:var(--csstools-light-dark-toggle--135, #fff);
+  --csstools-light-dark-toggle--136:var(--csstools-color-scheme--light) rgb(251 251 254 / 0.1);
+  --sidebar-border-color:var(--csstools-light-dark-toggle--136, rgb(21 20 26 / 0.1));
+  --csstools-light-dark-toggle--137:var(--csstools-color-scheme--light) rgb(0 0 0 / 0.2);
+  --csstools-light-dark-toggle--138:var(--csstools-color-scheme--light) rgb(0 0 0 / 0.4);
+  --sidebar-box-shadow:0 0.25px 0.75px var(--csstools-light-dark-toggle--137, rgb(0 0 0 / 0.05)), 0 2px 6px 0 var(--csstools-light-dark-toggle--138, rgb(0 0 0 / 0.1));
   --sidebar-backdrop-filter:none;
   --sidebar-border-radius:8px;
   --sidebar-padding:5px;
@@ -5510,8 +5523,8 @@
   --sidebar-max-width:632px;
   --sidebar-width:239px;
   --resizer-width:4px;
-  --csstools-light-dark-toggle--136:var(--csstools-color-scheme--light) #00cadb;
-  --resizer-hover-bg-color:var(--csstools-light-dark-toggle--136, #0062fa);
+  --csstools-light-dark-toggle--139:var(--csstools-color-scheme--light) #00cadb;
+  --resizer-hover-bg-color:var(--csstools-light-dark-toggle--139, #0062fa);
 }
 
 @supports (color: light-dark(red, red)){
@@ -5539,15 +5552,15 @@
 @supports not (color: light-dark(tan, tan)){
 
 .sidebar *{
-  --csstools-light-dark-toggle--132:var(--csstools-color-scheme--light) #23222b;
-  --sidebar-bg-color:var(--csstools-light-dark-toggle--132, #fff);
-  --csstools-light-dark-toggle--133:var(--csstools-color-scheme--light) rgb(251 251 254 / 0.1);
-  --sidebar-border-color:var(--csstools-light-dark-toggle--133, rgb(21 20 26 / 0.1));
-  --csstools-light-dark-toggle--134:var(--csstools-color-scheme--light) rgb(0 0 0 / 0.2);
-  --csstools-light-dark-toggle--135:var(--csstools-color-scheme--light) rgb(0 0 0 / 0.4);
-  --sidebar-box-shadow:0 0.25px 0.75px var(--csstools-light-dark-toggle--134, rgb(0 0 0 / 0.05)), 0 2px 6px 0 var(--csstools-light-dark-toggle--135, rgb(0 0 0 / 0.1));
-  --csstools-light-dark-toggle--136:var(--csstools-color-scheme--light) #00cadb;
-  --resizer-hover-bg-color:var(--csstools-light-dark-toggle--136, #0062fa);
+  --csstools-light-dark-toggle--135:var(--csstools-color-scheme--light) #23222b;
+  --sidebar-bg-color:var(--csstools-light-dark-toggle--135, #fff);
+  --csstools-light-dark-toggle--136:var(--csstools-color-scheme--light) rgb(251 251 254 / 0.1);
+  --sidebar-border-color:var(--csstools-light-dark-toggle--136, rgb(21 20 26 / 0.1));
+  --csstools-light-dark-toggle--137:var(--csstools-color-scheme--light) rgb(0 0 0 / 0.2);
+  --csstools-light-dark-toggle--138:var(--csstools-color-scheme--light) rgb(0 0 0 / 0.4);
+  --sidebar-box-shadow:0 0.25px 0.75px var(--csstools-light-dark-toggle--137, rgb(0 0 0 / 0.05)), 0 2px 6px 0 var(--csstools-light-dark-toggle--138, rgb(0 0 0 / 0.1));
+  --csstools-light-dark-toggle--139:var(--csstools-color-scheme--light) #00cadb;
+  --resizer-hover-bg-color:var(--csstools-light-dark-toggle--139, #0062fa);
   }
 }
 
@@ -5574,6 +5587,7 @@
   max-width:var(--sidebar-max-width);
   -webkit-backdrop-filter:var(--sidebar-backdrop-filter);
           backdrop-filter:var(--sidebar-backdrop-filter);
+  box-sizing:border-box;
 }
 
 .sidebar .sidebarResizer{
@@ -5625,8 +5639,8 @@
   --page-border:9px solid transparent;
   --spreadHorizontalWrapped-margin-LR:-3.5px;
   --loading-icon-delay:400ms;
-  --csstools-light-dark-toggle--137:var(--csstools-color-scheme--light) #0df;
-  --focus-ring-color:var(--csstools-light-dark-toggle--137, #0060df);
+  --csstools-light-dark-toggle--140:var(--csstools-color-scheme--light) #0df;
+  --focus-ring-color:var(--csstools-light-dark-toggle--140, #0060df);
   --focus-ring-outline:2px solid var(--focus-ring-color);
 }
 
@@ -5639,8 +5653,8 @@
 @supports not (color: light-dark(tan, tan)){
 
 :root *{
-  --csstools-light-dark-toggle--137:var(--csstools-color-scheme--light) #0df;
-  --focus-ring-color:var(--csstools-light-dark-toggle--137, #0060df);
+  --csstools-light-dark-toggle--140:var(--csstools-color-scheme--light) #0df;
+  --focus-ring-color:var(--csstools-light-dark-toggle--140, #0060df);
   }
 }
 
