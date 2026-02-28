@@ -1,4 +1,5 @@
 import type { TPdfViewMode } from '@contracts/shared';
+import { clamp } from 'es-toolkit/math';
 
 export type TSpreadStepDirection = -1 | 1;
 
@@ -56,7 +57,7 @@ export function getSpreadStartForPage(
     viewMode: TPdfViewMode,
     totalPages: number,
 ): number {
-    const clampedPage = Math.max(1, Math.min(page, Math.max(1, totalPages)));
+    const clampedPage = clamp(page, 1, Math.max(1, totalPages));
     if (viewMode === 'single' || totalPages <= 1) {
         return clampedPage;
     }
@@ -90,19 +91,19 @@ export function stepBySpread(
         const previous = spreadStart;
 
         if (viewMode === 'single') {
-            spreadStart = Math.max(minStart, Math.min(maxStart, spreadStart + direction));
+            spreadStart = clamp(spreadStart + direction, minStart, maxStart);
         } else if (viewMode === 'facing') {
-            spreadStart = Math.max(minStart, Math.min(maxStart, spreadStart + direction * 2));
+            spreadStart = clamp(spreadStart + direction * 2, minStart, maxStart);
         } else if (direction > 0) {
             spreadStart = spreadStart === 1 ? 2 : spreadStart + 2;
-            spreadStart = Math.max(minStart, Math.min(maxStart, spreadStart));
+            spreadStart = clamp(spreadStart, minStart, maxStart);
         } else {
             if (spreadStart === 2) {
                 spreadStart = 1;
             } else {
                 spreadStart = spreadStart - 2;
             }
-            spreadStart = Math.max(minStart, Math.min(maxStart, spreadStart));
+            spreadStart = clamp(spreadStart, minStart, maxStart);
         }
 
         if (spreadStart === previous) {

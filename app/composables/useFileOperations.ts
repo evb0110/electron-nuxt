@@ -3,6 +3,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { retry } from 'es-toolkit/function';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 export interface IFileOperationsDeps {
@@ -59,16 +60,20 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     } = deps;
 
     async function saveDocumentWithRetry(maxAttempts = 4, retryDelayMs = 50) {
-        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-            const data = await saveDocument();
-            if (data) {
+        try {
+            return await retry(async () => {
+                const data = await saveDocument();
+                if (!data) {
+                    throw new Error('saveDocument returned no data');
+                }
                 return data;
-            }
-            if (attempt < maxAttempts - 1) {
-                await new Promise(resolve => setTimeout(resolve, retryDelayMs));
-            }
+            }, {
+                retries: maxAttempts,
+                delay: retryDelayMs,
+            });
+        } catch {
+            return null;
         }
-        return null;
     }
 
     async function handleSave() {

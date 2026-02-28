@@ -4,6 +4,7 @@ import type {
     TReleaseArch,
     TReleasePlatform,
 } from '@contracts';
+import { orderBy } from 'es-toolkit/array';
 
 const INSTALLER_EXTENSIONS = new Set([
     'appimage',
@@ -216,20 +217,30 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
     const preferredScopedAssets = platformScopedAssets.filter(asset => extensionPreference.includes(asset.extension));
     const candidateAssets = preferredScopedAssets.length ? preferredScopedAssets : platformScopedAssets;
 
-    const sorted = [...candidateAssets].sort((left, right) => {
+    const sorted = orderBy(candidateAssets, [
+        asset => extensionRank(asset.extension, extensionPreference),
+        asset => architectureRank(asset.arch, profile.arch),
+        asset => knownPlatformRank(asset.platform),
+    ], [
+        'asc',
+        'asc',
+        'asc',
+    ]);
+
+    sorted.sort((left, right) => {
         const extensionDiff = extensionRank(left.extension, extensionPreference) - extensionRank(right.extension, extensionPreference);
         if (extensionDiff !== 0) {
-            return extensionDiff;
+            return 0;
         }
 
         const archDiff = architectureRank(left.arch, profile.arch) - architectureRank(right.arch, profile.arch);
         if (archDiff !== 0) {
-            return archDiff;
+            return 0;
         }
 
         const knownPlatformDiff = knownPlatformRank(left.platform) - knownPlatformRank(right.platform);
         if (knownPlatformDiff !== 0) {
-            return knownPlatformDiff;
+            return 0;
         }
 
         return left.name.localeCompare(right.name);

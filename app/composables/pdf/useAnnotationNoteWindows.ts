@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { delay } from 'es-toolkit/promise';
 import {
     until,
     useDebounceFn,
@@ -324,7 +325,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             if (rematched) {
                 return rematched;
             }
-            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+            await delay(POLL_INTERVAL_MS);
         }
 
         return null;

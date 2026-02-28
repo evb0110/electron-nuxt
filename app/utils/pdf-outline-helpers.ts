@@ -1,4 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { clamp } from 'es-toolkit/math';
 import type {
     IBookmarkItem,
     IBookmarkLocation,
@@ -50,7 +51,7 @@ export function convertOutlineColorToHex(color: ArrayLike<number> | null | undef
         if (!Number.isFinite(numeric)) {
             return 0;
         }
-        return Math.max(0, Math.min(255, Math.round(numeric)));
+        return clamp(Math.round(numeric), 0, 255);
     });
 
     return `#${rgb.map(value => value.toString(16).padStart(2, '0')).join('')}`;
