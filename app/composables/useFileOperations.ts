@@ -27,7 +27,9 @@ export interface IFileOperationsDeps {
     rewriteFreeTextNoteRects: (data: Uint8Array) => Promise<Uint8Array>;
     rewritePageLabels: (data: Uint8Array) => Promise<Uint8Array>;
     rewriteBookmarks: (data: Uint8Array) => Promise<Uint8Array>;
+    rewriteEmbeddedNoteTexts: (data: Uint8Array, pendingTexts: Map<string, string>) => Promise<Uint8Array>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
+    consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
     annotationNoteWindowsCount: Ref<number>;
     loadRecentFiles: () => void;
 }
@@ -54,7 +56,9 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         rewriteFreeTextNoteRects,
         rewritePageLabels,
         rewriteBookmarks,
+        rewriteEmbeddedNoteTexts,
         persistAllAnnotationNotes,
+        consumePendingEmbeddedTextUpdates,
         annotationNoteWindowsCount,
         loadRecentFiles,
     } = deps;
@@ -87,16 +91,20 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 return;
             }
         }
+        const pendingTexts = consumePendingEmbeddedTextUpdates();
         isSaving.value = true;
         try {
             if (workingCopyPath.value) {
-                const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value;
+                const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || !!pendingTexts;
                 if (shouldSerialize) {
                     const rawData = await saveDocumentWithRetry();
                     if (rawData) {
                         let data = await rewriteMarkupSubtypes(rawData);
                         data = await serializeShapeAnnotations(data);
                         data = await rewriteFreeTextNoteRects(data);
+                        if (pendingTexts) {
+                            data = await rewriteEmbeddedNoteTexts(data, pendingTexts);
+                        }
                         data = await rewritePageLabels(data);
                         data = await rewriteBookmarks(data);
                         const saved = await saveFile(data);
@@ -122,6 +130,9 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             if (rawData) {
                 let data = await rewriteMarkupSubtypes(rawData);
                 data = await rewriteFreeTextNoteRects(data);
+                if (pendingTexts) {
+                    data = await rewriteEmbeddedNoteTexts(data, pendingTexts);
+                }
                 data = await rewritePageLabels(data);
                 data = await rewriteBookmarks(data);
                 const saved = await saveFile(data);
@@ -148,16 +159,20 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 return;
             }
         }
+        const pendingTexts = consumePendingEmbeddedTextUpdates();
         isSavingAs.value = true;
         try {
             let outPath: string | null = null;
-            const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value;
+            const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || !!pendingTexts;
             if (shouldSerialize) {
                 const rawData = await saveDocumentWithRetry();
                 if (rawData) {
                     let data = await rewriteMarkupSubtypes(rawData);
                     data = await serializeShapeAnnotations(data);
                     data = await rewriteFreeTextNoteRects(data);
+                    if (pendingTexts) {
+                        data = await rewriteEmbeddedNoteTexts(data, pendingTexts);
+                    }
                     data = await rewritePageLabels(data);
                     data = await rewriteBookmarks(data);
                     outPath = await saveWorkingCopyAs(data);

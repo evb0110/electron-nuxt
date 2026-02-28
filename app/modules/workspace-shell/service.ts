@@ -27,10 +27,7 @@ import {
 } from '@app/composables/page/workspace-file-lifecycle-controller';
 import { useWorkspaceSidebarSearchSyncController } from '@app/composables/page/workspace-sidebar-search-sync-controller';
 import { setupWorkspaceUiSyncWatchers } from '@app/composables/page/workspace-ui-sync';
-import {
-    createSerializeCurrentPdfForEmbeddedFallback,
-    hasAnnotationChanges as detectAnnotationChanges,
-} from '@app/composables/page/workspace-annotation-utils';
+import { hasAnnotationChanges as detectAnnotationChanges } from '@app/composables/page/workspace-annotation-utils';
 import type { TOpenFileResult } from '@contracts/electron-api';
 import type { TTabUpdate } from '@app/types/tabs';
 import {
@@ -285,7 +282,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isAnySaving,
         isExportingDocx,
         canSave,
-        updateEmbeddedByRef,
         deleteEmbeddedByRef,
     } = usePageSaveOrchestration({
         pdfData,
@@ -318,6 +314,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         saveWorkingCopy,
         saveWorkingCopyAs,
         persistAllAnnotationNotes: (force: boolean) => persistAllAnnotationNotes(force),
+        consumePendingEmbeddedTextUpdates: () => consumePendingEmbeddedTextUpdates(),
         loadRecentFiles,
         clearOcrCache: (path: string) => clearOcrCache(path),
         loadPdfFromData,
@@ -369,13 +366,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         redo,
     });
 
-    const serializeCurrentPdfForEmbeddedFallback = createSerializeCurrentPdfForEmbeddedFallback({
-        pdfViewerRef,
-        currentPage,
-        workingCopyPath,
-        waitForPdfReload,
-        loadPdfFromData,
-    });
 
     const {
         annotationNoteWindows,
@@ -394,16 +384,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         setAnnotationNoteWindowError,
         bringAnnotationNoteToFront,
         isSameAnnotationComment,
+        consumePendingEmbeddedTextUpdates,
     } = useAnnotationNoteWindows({
         annotationComments,
         markAnnotationDirty,
         updateAnnotationCommentInViewer: (comment, text) => pdfViewerRef.value?.updateAnnotationComment(comment, text) ?? false,
-        updateEmbeddedAnnotationByRef: updateEmbeddedByRef,
-        serializeCurrentPdfForEmbeddedFallback,
-        loadPdfFromData,
-        workingCopyPath,
-        currentPage,
-        waitForPdfReload,
     });
 
     const hasPendingTabChanges = computed(() => (

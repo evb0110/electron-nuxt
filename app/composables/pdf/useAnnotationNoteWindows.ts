@@ -1,5 +1,4 @@
 import type { Ref } from 'vue';
-import { delay } from 'es-toolkit/promise';
 import {
     until,
     useDebounceFn,
@@ -38,21 +37,6 @@ export interface IAnnotationNoteWindowDeps {
         comment: IAnnotationCommentSummary,
         text: string,
     ) => boolean;
-    updateEmbeddedAnnotationByRef: (
-        comment: IAnnotationCommentSummary,
-        text: string,
-    ) => Promise<Uint8Array | false>;
-    serializeCurrentPdfForEmbeddedFallback: () => Promise<boolean>;
-    loadPdfFromData: (
-        data: Uint8Array,
-        options: {
-            pushHistory: boolean;
-            persistWorkingCopy: boolean;
-        },
-    ) => Promise<void>;
-    workingCopyPath: Ref<string | null>;
-    currentPage: Ref<number>;
-    waitForPdfReload: (page: number) => Promise<void>;
 }
 
 export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
@@ -62,12 +46,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         annotationComments,
         markAnnotationDirty,
         updateAnnotationCommentInViewer,
-        updateEmbeddedAnnotationByRef,
-        serializeCurrentPdfForEmbeddedFallback,
-        loadPdfFromData,
-        workingCopyPath,
-        currentPage,
-        waitForPdfReload,
     } = deps;
 
     const annotationNoteWindows = ref<IAnnotationNoteWindowState[]>([]);
@@ -78,6 +56,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         string,
         ReturnType<typeof useDebounceFn>
     >();
+    const pendingEmbeddedTextUpdates = new Map<string, string>();
     let annotationNoteOrderCounter = 0;
 
     const sortedAnnotationNoteWindows = computed(() =>
@@ -225,112 +204,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         ) ?? null;
     }
 
-    function hasExplicitEmbeddedReference(comment: IAnnotationCommentSummary) {
-        if (comment.annotationId && comment.annotationId.trim().length > 0) {
-            return true;
-        }
-        if (comment.source === 'pdf') {
-            return true;
-        }
-        if (/^ann:\d+:.+$/i.test(comment.stableKey)) {
-            return true;
-        }
-        return /^pdf-\d+-\d+$/.test(comment.id);
-    }
-
-    function findEmbeddedFallbackComment(
-        noteComment: IAnnotationCommentSummary,
-        nextText: string,
-        lastSavedText: string,
-    ) {
-        const noteCandidates = annotationComments.value.filter(candidate =>
-            isCommentEligibleForNoteWindow(candidate),
-        );
-        const embeddedCandidates = noteCandidates.filter(candidate =>
-            hasExplicitEmbeddedReference(candidate),
-        );
-        if (embeddedCandidates.length === 0) {
-            return null;
-        }
-
-        const targetNextText = nextText.trim().toLowerCase();
-        const targetPreviousText = lastSavedText.trim().toLowerCase();
-        const noteSubtype = (noteComment.subtype ?? '').trim().toLowerCase();
-
-        const ranked = embeddedCandidates
-            .map((candidate) => {
-                let score = 0;
-                if (candidate.pageIndex === noteComment.pageIndex) {
-                    score += 4;
-                }
-                if (annotationCommentsMatch(candidate, noteComment)) {
-                    score += 5;
-                }
-                if (commentsLikelyReferToSameNote(candidate, noteComment)) {
-                    score += 3;
-                }
-                const candidateSubtype = (candidate.subtype ?? '').trim().toLowerCase();
-                if (noteSubtype && candidateSubtype && noteSubtype === candidateSubtype) {
-                    score += 2;
-                }
-                const candidateText = candidate.text.trim().toLowerCase();
-                if (targetPreviousText && candidateText === targetPreviousText) {
-                    score += 3;
-                } else if (targetNextText && candidateText === targetNextText) {
-                    score += 1;
-                }
-                if (candidate.source === 'pdf') {
-                    score += 1;
-                }
-                if (candidate.annotationId) {
-                    score += 1;
-                }
-                return {
-                    candidate,
-                    score,
-                };
-            })
-            .sort((left, right) => right.score - left.score);
-
-        const best = ranked[0];
-        if (!best) {
-            return null;
-        }
-        const second = ranked[1];
-        if (best.score < 5) {
-            return null;
-        }
-        if (second && best.score - second.score < 1) {
-            return null;
-        }
-        return best.candidate;
-    }
-
-    async function waitForEmbeddedFallbackComment(
-        noteComment: IAnnotationCommentSummary,
-        nextText: string,
-        lastSavedText: string,
-    ) {
-        const MAX_WAIT_MS = 650;
-        const POLL_INTERVAL_MS = 50;
-        const startedAt = Date.now();
-
-        while (Date.now() - startedAt <= MAX_WAIT_MS) {
-            const current = findMatchingAnnotationComment(noteComment) ?? noteComment;
-            const rematched = findEmbeddedFallbackComment(
-                current,
-                nextText,
-                lastSavedText,
-            );
-            if (rematched) {
-                return rematched;
-            }
-            await delay(POLL_INTERVAL_MS);
-        }
-
-        return null;
-    }
-
     function isSameAnnotationComment(
         left: IAnnotationCommentSummary,
         right: IAnnotationCommentSummary,
@@ -438,7 +311,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return existing;
         }
         const saver = useDebounceFn(() => {
-            runGuardedTask(() => persistAnnotationNote(stableKey, false), {
+            runGuardedTask(() => Promise.resolve(persistAnnotationNote(stableKey, false)), {
                 scope: 'annotations',
                 message: `Failed to persist annotation note for ${stableKey}`,
             });
@@ -485,7 +358,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         };
     }
 
-    async function persistAnnotationNote(stableKey: string, force = false) {
+    function persistAnnotationNote(stableKey: string, force = false) {
         const note = findAnnotationNoteWindow(stableKey);
         if (!note) {
             return true;
@@ -531,92 +404,25 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 break;
             }
 
-            async function tryEmbeddedUpdate(reason: 'direct' | 'after-materialize' | 'after-materialize-heuristic') {
-                const embeddedCandidate = findMatchingAnnotationComment(targetComment) ?? targetComment;
-                const result = await updateEmbeddedAnnotationByRef(embeddedCandidate, nextText);
-                if (!(result instanceof Uint8Array)) {
-                    return false;
-                }
-                BrowserLogger.debug('annotations', 'Persisted note through embedded PDF update', {
-                    stableKey,
-                    reason,
-                    source: embeddedCandidate.source,
-                    annotationId: embeddedCandidate.annotationId ?? null,
-                });
-                const pageToRestore = currentPage.value;
-                const restorePromise = waitForPdfReload(pageToRestore);
-                await loadPdfFromData(result, {
-                    pushHistory: true,
-                    persistWorkingCopy: !!workingCopyPath.value,
-                });
-                await restorePromise;
-                targetComment = findMatchingAnnotationComment(embeddedCandidate) ?? embeddedCandidate;
-                return true;
-            }
-
             if (!saved && !force) {
                 note.saveMode = 'embedded';
                 return true;
             }
 
-            if (!saved && !hasExplicitEmbeddedReference(targetComment)) {
-                const embeddedFallbackComment = findEmbeddedFallbackComment(
-                    targetComment,
-                    nextText,
-                    note.lastSavedText,
-                );
-                if (embeddedFallbackComment) {
-                    BrowserLogger.debug('annotations', 'Resolved embedded fallback candidate before forced note persistence', {
-                        stableKey,
-                        source: embeddedFallbackComment.source,
-                        annotationId: embeddedFallbackComment.annotationId ?? null,
-                    });
-                    targetComment = embeddedFallbackComment;
-                }
-            }
-
-            if (!saved && hasExplicitEmbeddedReference(targetComment)) {
-                saved = await tryEmbeddedUpdate('direct');
-            }
-
+            // When force=true (called from handleSave), defer embedded text
+            // updates to the serialization pipeline instead of reloading the
+            // entire document. handleSave will call rewriteEmbeddedNoteTexts()
+            // which applies these deferred text changes without triggering a
+            // visible re-render.
             if (!saved && force) {
-                // Some PDF.js note flows expose comments without a live editor handle.
-                // Materialize once, then rematch against synchronized PDF comments to obtain a stable ref.
-                BrowserLogger.debug('annotations', 'Materializing PDF before retrying note persistence', {
+                pendingEmbeddedTextUpdates.set(stableKey, nextText);
+                BrowserLogger.debug('annotations', 'Deferred embedded note text update to serialization pipeline', {
                     stableKey,
                     source: targetComment.source,
                     annotationId: targetComment.annotationId ?? null,
                 });
-                const materialized = await serializeCurrentPdfForEmbeddedFallback();
-                if (!materialized) {
-                    BrowserLogger.warn('annotations', 'Failed to materialize PDF before note retry', {
-                        stableKey,
-                        source: targetComment.source,
-                        annotationId: targetComment.annotationId ?? null,
-                    });
-                } else {
-                    const rematched = await waitForEmbeddedFallbackComment(
-                        findMatchingAnnotationComment(targetComment) ?? targetComment,
-                        nextText,
-                        note.lastSavedText,
-                    );
-                    if (rematched) {
-                        targetComment = rematched;
-                    }
-                    const hasExplicitReference = hasExplicitEmbeddedReference(targetComment);
-                    if (!hasExplicitReference) {
-                        BrowserLogger.warn('annotations', 'Materialized note still has no embedded reference; retrying with heuristic ref resolution', {
-                            stableKey,
-                            source: targetComment.source,
-                            annotationId: targetComment.annotationId ?? null,
-                        });
-                    }
-                    saved = await tryEmbeddedUpdate(
-                        hasExplicitReference
-                            ? 'after-materialize'
-                            : 'after-materialize-heuristic',
-                    );
-                }
+                saved = true;
+                note.saveMode = 'embedded';
             }
 
             if (!saved) {
@@ -661,10 +467,11 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
     }
 
+    // eslint-disable-next-line @typescript-eslint/require-await -- return type must remain Promise<boolean> for callers
     async function persistAllAnnotationNotes(force = false) {
         const notes = [...annotationNoteWindows.value];
         for (const note of notes) {
-            const saved = await persistAnnotationNote(note.comment.stableKey, force);
+            const saved = persistAnnotationNote(note.comment.stableKey, force);
             if (!saved) {
                 return false;
             }
@@ -690,7 +497,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                     void error;
                 }
             }
-            const saved = await persistAnnotationNote(stableKey, true);
+            const saved = persistAnnotationNote(stableKey, true);
             if (!saved) {
                 setAnnotationNoteWindowError(
                     stableKey,
@@ -864,7 +671,14 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             if (!updated) {
                 return;
             }
-            const preferred = selectPreferredAnnotationComment(note.comment, updated);
+            let preferred = selectPreferredAnnotationComment(note.comment, updated);
+
+            if (updated.markerRect && updated.markerRect !== preferred.markerRect) {
+                preferred = {
+                    ...preferred,
+                    markerRect: updated.markerRect,
+                };
+            }
 
             const savedText = note.lastSavedText.trim();
             const updatedText = updated.text.trim();
@@ -896,6 +710,15 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         });
     });
 
+    function consumePendingEmbeddedTextUpdates() {
+        if (pendingEmbeddedTextUpdates.size === 0) {
+            return null;
+        }
+        const updates = new Map(pendingEmbeddedTextUpdates);
+        pendingEmbeddedTextUpdates.clear();
+        return updates;
+    }
+
     return {
         annotationNoteWindows,
         annotationNotePositions,
@@ -918,5 +741,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         isSameAnnotationComment,
         findMatchingAnnotationComment,
         selectPreferredAnnotationComment,
+        consumePendingEmbeddedTextUpdates,
     };
 };

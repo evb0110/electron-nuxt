@@ -9,7 +9,7 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "start": "pnpm run build:electron && electron .",
-    "dev": "nuxt prepare && pnpm run build:electron && tsx scripts/electron-run.ts start",
+    "dev": "pnpm electron:run stop --session=default && nuxt prepare && pnpm run build:electron && tsx scripts/electron-run.ts start",
     "dev:clean": "pnpm run clean:cache && nuxt prepare && pnpm run build:electron && tsx scripts/electron-run.ts start",
     "dev:nuxt": "nuxt dev",
     "dev:quick": "pnpm run build:electron && tsx scripts/electron-run.ts start",

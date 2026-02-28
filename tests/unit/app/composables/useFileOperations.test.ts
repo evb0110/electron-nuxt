@@ -57,6 +57,8 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
                 5,
             ])),
             persistAllAnnotationNotes: vi.fn(async (_force: boolean) => true),
+            rewriteEmbeddedNoteTexts: vi.fn(async (data: Uint8Array) => data),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => null),
             annotationNoteWindowsCount: ref(0),
             loadRecentFiles: vi.fn(),
             ...overrides,

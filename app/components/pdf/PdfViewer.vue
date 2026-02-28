@@ -77,6 +77,7 @@
                     :markers="markers"
                     @open-note="handleMarkerOpenNote"
                     @context-menu="handleMarkerContextMenu"
+                    @move-marker="handleMarkerMove"
                 />
             </Teleport>
         </template>
@@ -131,6 +132,7 @@ import { isStandaloneSpreadPage } from '@app/utils/pdf-view-mode';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
+    IAnnotationMarkerRect,
     IAnnotationSettings,
     IShapeAnnotation,
     TAnnotationTool,
@@ -218,6 +220,7 @@ const resizeTransitionVisible = ref(false);
 const annotationUiManager = shallowRef<AnnotationEditorUIManager | null>(null);
 const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
+const pendingMarkerMoves = new Map<string, IAnnotationMarkerRect>();
 const activeCommentStableKey = ref<string | null>(null);
 const regionSnip = usePdfRegionSnip({ viewerContainer });
 const PDF_VIEWER_LOADER_ICON_SIZE_PX = 20;
@@ -512,7 +515,24 @@ const annotations = useAnnotationOrchestrator({
     updateVisibleRange,
     emitAnnotationModified: () => emit('annotation-modified'),
     emitAnnotationState: (state) => emit('annotation-state', state),
-    emitAnnotationComments: (comments) => emit('annotation-comments', comments),
+    emitAnnotationComments: (comments) => {
+        if (pendingMarkerMoves.size > 0) {
+            const merged = comments.map((c) => {
+                const rect = pendingMarkerMoves.get(c.stableKey);
+                if (!rect) {
+                    return c;
+                }
+                return {
+                    ...c,
+                    markerRect: rect,
+                };
+            });
+            annotationCommentsCache.value = merged;
+            emit('annotation-comments', merged);
+            return;
+        }
+        emit('annotation-comments', comments);
+    },
     emitAnnotationOpenNote: (comment) => emit('annotation-open-note', comment),
     emitAnnotationContextMenu: (payload) => emit('annotation-context-menu', payload),
     emitAnnotationToolAutoReset: () => emit('annotation-tool-auto-reset'),
@@ -572,6 +592,23 @@ function handleMarkerContextMenu(comment: IAnnotationCommentSummary, event: Mous
         'annotation-context-menu',
         highlightComposable.buildAnnotationContextMenuPayload(comment, event.clientX, event.clientY),
     );
+}
+
+function handleMarkerMove(comment: IAnnotationCommentSummary, markerRect: IAnnotationMarkerRect) {
+    const index = annotationCommentsCache.value.findIndex(c => c.stableKey === comment.stableKey);
+    if (index === -1) {
+        return;
+    }
+    pendingMarkerMoves.set(comment.stableKey, markerRect);
+    const updated = {
+        ...annotationCommentsCache.value[index]!,
+        markerRect,
+    };
+    const next = [...annotationCommentsCache.value];
+    next[index] = updated;
+    annotationCommentsCache.value = next;
+    emit('annotation-comments', next);
+    emit('annotation-modified');
 }
 
 const {
@@ -1708,6 +1745,7 @@ function handleViewerMouseDown(event: MouseEvent) {
         )
     ) {
         event.preventDefault();
+        return;
     }
     cancelPendingSearchScroll();
     handleDragStart(event);
@@ -1868,8 +1906,10 @@ defineExpose({
     suppressAnnotationId: annotations.commentSync.suppressAnnotationId,
     removeAnnotationFromDom: commentCrud.removeAnnotationFromDom,
     removeAnnotationFromInternalCache: (stableKey: string) => {
+        pendingMarkerMoves.delete(stableKey);
         annotationCommentsCache.value = annotationCommentsCache.value.filter(c => c.stableKey !== stableKey);
     },
+    clearPendingMarkerMoves: () => pendingMarkerMoves.clear(),
     captureRegionToClipboard: regionSnip.startCaptureSession,
     isCapturingRegion: regionSnip.isActive,
     requestScrollToCurrentResult,
