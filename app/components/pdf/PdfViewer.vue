@@ -2123,7 +2123,6 @@ defineExpose({
     .text-layer span,
     .text-layer br,
     .annotation-layer a,
-    .pdf-link-overlay,
     .annotation-editor-layer,
     .annotationEditorLayer,
     .page_container,
