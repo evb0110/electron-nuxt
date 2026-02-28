@@ -19,7 +19,25 @@
                 leadingIcon: 'size-3.5 shrink-0',
             }"
             class="shrink-0"
-        />
+        >
+            <template #leading="{ item }">
+                <UTooltip
+                    v-if="isCompact"
+                    :text="item.title"
+                    :delay-duration="300"
+                >
+                    <UIcon
+                        :name="item.icon"
+                        class="size-3.5 shrink-0"
+                    />
+                </UTooltip>
+                <UIcon
+                    v-else
+                    :name="item.icon"
+                    class="size-3.5 shrink-0"
+                />
+            </template>
+        </UTabs>
         <div class="relative min-h-0 flex-1 overflow-hidden overflow-y-auto [&>*]:w-full app-scrollbar">
             <PdfAnnotationsPanel
                 v-show="activeTab === 'annotations'"
@@ -306,7 +324,7 @@ const allTabs: IPdfSidebarTabItem[] = [
     {
         value: 'annotations',
         label: '',
-        icon: 'i-lucide-sticky-note',
+        icon: 'i-lucide-message-square',
         title: '',
     },
     {

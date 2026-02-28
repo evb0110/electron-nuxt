@@ -4,6 +4,16 @@ import {
     LOCALE_DEFINITIONS,
 } from './packages/i18n-core';
 
+interface IImportsContextEntry {
+    from: string;
+    name: string;
+}
+
+function isInvalidNuxtUiResizableImport(entry: IImportsContextEntry) {
+    return entry.name === 'options'
+        && entry.from.includes('@nuxt/ui/dist/runtime/composables/useResizable');
+}
+
 export default defineNuxtConfig({
     modules: [
         '@nuxt/eslint',
@@ -26,6 +36,20 @@ export default defineNuxtConfig({
     devServer: {port: 3235},
 
     colorMode: {preference: 'light'},
+
+    hooks: {
+        // Nuxt UI's scanner can leak a non-exported `options` symbol from useResizable into #imports.
+        // Removing it here prevents runtime ESM import errors during app bootstrap.
+        'imports:extend': (imports) => {
+            for (let index = imports.length - 1; index >= 0; index -= 1) {
+                const entry = imports[index] as IImportsContextEntry | undefined;
+                if (!entry || !isInvalidNuxtUiResizableImport(entry)) {
+                    continue;
+                }
+                imports.splice(index, 1);
+            }
+        },
+    },
 
     alias: {
         '@app': fileURLToPath(new URL('./app', import.meta.url)),

@@ -3,9 +3,10 @@
         v-if="isActive || shapes.length > 0 || drawingShape"
         ref="svgRef"
         class="pdf-shape-overlay"
+        :class="{ 'is-tool-active': isActive }"
         :viewBox="`0 0 1 1`"
         preserveAspectRatio="none"
-        @pointerdown.prevent="handlePointerDown"
+        @pointerdown="handlePointerDown"
         @pointermove="handlePointerMove"
         @pointerup="handlePointerUp"
         @pointerleave="handlePointerUp"
@@ -318,6 +319,7 @@ function handlePointerDown(event: PointerEvent) {
         emit('select-shape', null);
         return;
     }
+    event.preventDefault();
     const coords = getNormalizedCoords(event);
     if (!coords) {
         return;
@@ -373,7 +375,11 @@ function handleShapeContextMenu(id: string, event: MouseEvent) {
     pointer-events: none;
 }
 
-.pdf-shape-overlay[viewBox] {
+.pdf-shape-overlay.is-tool-active {
+    pointer-events: auto;
+}
+
+.pdf-shape-overlay > g {
     pointer-events: auto;
 }
 
