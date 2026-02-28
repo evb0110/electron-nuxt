@@ -464,6 +464,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             annotationComments.value = annotationComments.value.filter(c => c.stableKey !== stableKey);
         },
         persistPdfDataSilently,
+        markAnnotationSaved,
+        resetAnnotationStorageModified: () => {
+            pdfDocument.value?.annotationStorage?.resetModified();
+        },
     });
 
     const {

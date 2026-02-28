@@ -3,21 +3,29 @@ import {
     PDFArray,
     PDFDict,
     PDFName,
+    PDFNumber,
     PDFRef,
 } from 'pdf-lib';
 import { clamp } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { markerRectIoU } from '@app/composables/pdf/pdfAnnotationUtils';
 import {
+    normalizePageRotation,
+    toMarkerRectFromPdfRect,
+} from '@app/composables/pdf/annotationGeometry';
+import {
     getPdfStringValue,
     getPdfDictSubtype,
     getPdfDictContents,
-    normalizeMarkerRectFromDict,
 } from '@app/utils/pdf-dict';
 import {
     normalizeAnnotationSubtypeToken,
     normalizeComparableText,
 } from '@app/utils/text-normalization';
+
+const RECT_NAME = PDFName.of('Rect');
+const CROP_BOX_NAME = PDFName.of('CropBox');
+const MEDIA_BOX_NAME = PDFName.of('MediaBox');
 
 function getPdfDictAuthor(dict: PDFDict | null) {
     if (!dict) {
@@ -38,6 +46,88 @@ export function getPdfPopupDict(doc: PDFDocument, dict: PDFDict | null) {
         return doc.context.lookupMaybe(popupValue, PDFDict) ?? null;
     }
     return null;
+}
+
+function numberFromPdfBox(box: PDFArray, index: number) {
+    const value = box.get(index);
+    return value instanceof PDFNumber ? value.asNumber() : null;
+}
+
+function resolvePdfPageView(page: ReturnType<PDFDocument['getPages']>[number]) {
+    const fallbackSize = page.getSize();
+    if (fallbackSize.width <= 0 || fallbackSize.height <= 0) {
+        return null;
+    }
+
+    const fallbackView: [number, number, number, number] = [
+        0,
+        0,
+        fallbackSize.width,
+        fallbackSize.height,
+    ];
+
+    const box = (
+        page.node.lookupMaybe(CROP_BOX_NAME, PDFArray)
+        ?? page.node.lookupMaybe(MEDIA_BOX_NAME, PDFArray)
+    );
+    if (!(box instanceof PDFArray) || box.size() < 4) {
+        return fallbackView;
+    }
+
+    const x1 = numberFromPdfBox(box, 0);
+    const y1 = numberFromPdfBox(box, 1);
+    const x2 = numberFromPdfBox(box, 2);
+    const y2 = numberFromPdfBox(box, 3);
+    if (
+        x1 === null
+        || y1 === null
+        || x2 === null
+        || y2 === null
+    ) {
+        return fallbackView;
+    }
+
+    const minX = Math.min(x1, x2);
+    const minY = Math.min(y1, y2);
+    const maxX = Math.max(x1, x2);
+    const maxY = Math.max(y1, y2);
+    if ((maxX - minX) <= 0 || (maxY - minY) <= 0) {
+        return fallbackView;
+    }
+
+    return [
+        minX,
+        minY,
+        maxX,
+        maxY,
+    ];
+}
+
+function readPdfRectFromDict(dict: PDFDict) {
+    const rect = dict.lookupMaybe(RECT_NAME, PDFArray);
+    if (!(rect instanceof PDFArray) || rect.size() < 4) {
+        return null;
+    }
+
+    const x1 = numberFromPdfBox(rect, 0);
+    const y1 = numberFromPdfBox(rect, 1);
+    const x2 = numberFromPdfBox(rect, 2);
+    const y2 = numberFromPdfBox(rect, 3);
+    if (
+        x1 === null
+        || y1 === null
+        || x2 === null
+        || y2 === null
+    ) {
+        return null;
+    }
+
+    return [
+        x1,
+        y1,
+        x2,
+        y2,
+    ];
 }
 
 export function parsePdfJsAnnotationRef(annotationId: string | null | undefined) {
@@ -120,9 +210,86 @@ function findCommentRefByGeneratedId(doc: PDFDocument, comment: IAnnotationComme
     return value instanceof PDFRef ? value : null;
 }
 
+function refsEqualByTag(left: PDFRef | null, right: PDFRef | null) {
+    if (!left || !right) {
+        return false;
+    }
+    return left.toString() === right.toString();
+}
+
+function canResolveExplicitRefOnPage(
+    doc: PDFDocument,
+    page: ReturnType<PDFDocument['getPages']>[number],
+    explicitRef: PDFRef,
+) {
+    const annots = page.node.Annots();
+    if (!(annots instanceof PDFArray)) {
+        return false;
+    }
+
+    const explicitTag = explicitRef.toString();
+    for (let index = 0; index < annots.size(); index += 1) {
+        const value = annots.get(index);
+        if (value instanceof PDFRef && value.toString() === explicitTag) {
+            return true;
+        }
+    }
+
+    const explicitDict = doc.context.lookupMaybe(explicitRef, PDFDict);
+    if (!explicitDict) {
+        return false;
+    }
+
+    const explicitParent = (() => {
+        const value = explicitDict.get(PDFName.of('Parent'));
+        return value instanceof PDFRef ? value : null;
+    })();
+    const explicitPopup = (() => {
+        const value = explicitDict.get(PDFName.of('Popup'));
+        return value instanceof PDFRef ? value : null;
+    })();
+
+    for (let index = 0; index < annots.size(); index += 1) {
+        const value = annots.get(index);
+        if (!(value instanceof PDFRef)) {
+            continue;
+        }
+        if (refsEqualByTag(value, explicitParent) || refsEqualByTag(value, explicitPopup)) {
+            return true;
+        }
+
+        const dict = doc.context.lookupMaybe(value, PDFDict);
+        if (!dict) {
+            continue;
+        }
+
+        const parent = (() => {
+            const parentValue = dict.get(PDFName.of('Parent'));
+            return parentValue instanceof PDFRef ? parentValue : null;
+        })();
+        const popup = (() => {
+            const popupValue = dict.get(PDFName.of('Popup'));
+            return popupValue instanceof PDFRef ? popupValue : null;
+        })();
+
+        if (refsEqualByTag(parent, explicitRef) || refsEqualByTag(popup, explicitRef)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 export function resolveCommentPdfRefInDocument(doc: PDFDocument, comment: IAnnotationCommentSummary) {
+    const pageIndex = clamp(comment.pageIndex, 0, doc.getPageCount() - 1);
+    const page = doc.getPages()[pageIndex];
+    if (!page) {
+        return null;
+    }
+    const annots = page.node.Annots();
+
     const explicitRef = resolveCommentPdfRef(comment);
-    if (explicitRef) {
+    if (explicitRef && canResolveExplicitRefOnPage(doc, page, explicitRef)) {
         return explicitRef;
     }
 
@@ -131,20 +298,15 @@ export function resolveCommentPdfRefInDocument(doc: PDFDocument, comment: IAnnot
         return byGeneratedId;
     }
 
-    const pageIndex = clamp(comment.pageIndex, 0, doc.getPageCount() - 1);
-    const page = doc.getPages()[pageIndex];
-    if (!page) {
-        return null;
-    }
-
-    const annots = page.node.Annots();
     if (!(annots instanceof PDFArray) || annots.size() === 0) {
         return null;
     }
 
-    const pageSize = page.getSize();
-    const pageWidth = pageSize.width;
-    const pageHeight = pageSize.height;
+    const pageView = resolvePdfPageView(page);
+    if (!pageView) {
+        return null;
+    }
+    const pageRotation = normalizePageRotation(page.getRotation().angle);
     const commentSubtype = normalizeAnnotationSubtypeToken(comment.subtype);
     const commentText = normalizeComparableText(comment.text);
     const commentAuthor = normalizeComparableText(comment.author);
@@ -190,7 +352,11 @@ export function resolveCommentPdfRefInDocument(doc: PDFDocument, comment: IAnnot
         const candidateAuthor = normalizeComparableText(
             getPdfDictAuthor(dict) || getPdfDictAuthor(popupDict),
         );
-        const candidateRect = normalizeMarkerRectFromDict(dict, pageWidth, pageHeight);
+        const candidateRect = toMarkerRectFromPdfRect(
+            readPdfRectFromDict(dict),
+            pageView,
+            pageRotation,
+        );
 
         let score = 0;
         if (commentSubtype) {

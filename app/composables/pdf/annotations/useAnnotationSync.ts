@@ -17,7 +17,6 @@ import {
     hasEditorCommentPayload,
     parsePdfDateTimestamp,
     toCssColor,
-    toMarkerRectFromPdfRect,
     toMarkerRectFromEditor,
     getAnnotationCommentText,
     getAnnotationAuthor,
@@ -27,6 +26,11 @@ import {
     isTextMarkupSubtype,
     normalizeMarkerRect,
 } from '@app/composables/pdf/pdfAnnotationUtils';
+import {
+    normalizePageRotation,
+    toMarkerRectFromEditorRect,
+    toMarkerRectFromPdfRect,
+} from '@app/composables/pdf/annotationGeometry';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { runGuardedTask } from '@app/utils/async-guard';
 
@@ -137,7 +141,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
 
         const text = typeof textOverride === 'string'
             ? textOverride
-            : getCommentText(editor).trim();
+            : getCommentText(editor);
 
         const resolvedSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex)
             ?? detectEditorSubtype(editor);
@@ -170,7 +174,23 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         const hasNote = hasEditorCommentPayload(editor)
             || pendingCommentEditorKeys.has(pendingKey);
 
-        const markerRectFromEditor = toMarkerRectFromEditor(editor);
+        const editorRotation = normalizePageRotation(
+            (editor as {
+                pageRotation?: number;
+                rotation?: number;
+            }).pageRotation
+            ?? (editor as { rotation?: number }).rotation
+            ?? 0,
+        );
+        const directEditorRect = normalizeMarkerRect({
+            left: editor.x ?? Number.NaN,
+            top: editor.y ?? Number.NaN,
+            width: editor.width ?? Number.NaN,
+            height: editor.height ?? Number.NaN,
+        });
+        const markerRectFromEditor = directEditorRect
+            ? toMarkerRectFromEditorRect(directEditorRect, editorRotation)
+            : toMarkerRectFromEditor(editor);
         const pendingAnchorRect = normalizeMarkerRect(editor.__evbPendingAnchorRect ?? null);
         const markerDistanceFromPending = markerRectCenterDistance(markerRectFromEditor, pendingAnchorRect);
         const shouldUsePendingAnchor = Boolean(
@@ -260,7 +280,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                 for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
                     for (const editor of uiManager.getEditors(pageIndex)) {
                         const normalizedEditor = editor as IPdfjsEditor;
-                        const text = getCommentText(normalizedEditor).trim();
+                        const text = getCommentText(normalizedEditor);
                         const summary = toEditorSummary(normalizedEditor, pageIndex, text, sourceOrder);
                         sourceOrder += 1;
                         const hydrated = identity.hydrateSummaryFromMemory(summary);
@@ -291,11 +311,13 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                     popupRef?: string | null;
                 }> = [];
                 let pageView: number[] | null = null;
+                let pageRotation = normalizePageRotation(0);
 
                 try {
                     const page = await doc.getPage(pageNumber);
                     pageAnnotations = await page.getAnnotations();
                     pageView = (page as { view?: number[] }).view ?? null;
+                    pageRotation = normalizePageRotation((page as { rotate?: number }).rotate ?? 0);
                 } catch (error) {
                     BrowserLogger.debug(
                         'annotations',
@@ -346,7 +368,11 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                     const popupText = popupAnnotation
                         ? getAnnotationCommentText(popupAnnotation)
                         : '';
-                    const text = annotationText || popupText;
+                    const text = annotationText.trim().length > 0
+                        ? annotationText
+                        : popupText.length > 0
+                            ? popupText
+                            : annotationText;
                     const subtype = annotation.subtype ?? null;
                     const id = annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`;
                     const annotationId = annotation.id ?? null;
@@ -398,6 +424,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                         markerRect: toMarkerRectFromPdfRect(
                             annotation.rect ?? popupAnnotation?.rect,
                             pageView,
+                            pageRotation,
                         ),
                     };
 

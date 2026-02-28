@@ -16,9 +16,11 @@ import type {
 import type { IPdfPageLabelRange } from '@app/types/pdf';
 import { markerRectIoU } from '@app/composables/pdf/pdfAnnotationUtils';
 import {
-    normalizeMarkerRectFromDict,
-    getPdfDictContents,
-} from '@app/utils/pdf-dict';
+    normalizePageRotation,
+    toMarkerRectFromPdfRect,
+    toPdfRectFromMarkerRect,
+} from '@app/composables/pdf/annotationGeometry';
+import { getPdfDictContents } from '@app/utils/pdf-dict';
 import {
     isImplicitDefaultPageLabels,
     normalizePageLabelRanges,
@@ -56,6 +58,89 @@ const MARKUP_SUBTYPE_TO_PDF_NAME: Record<TMarkupSubtype, string> = {
 };
 
 const PDF_SERIALIZATION_LOG_SECTION = 'pdf-serialization';
+const RECT_NAME = PDFName.of('Rect');
+
+function numberFromPdfBox(box: PDFArray, index: number) {
+    const value = box.get(index);
+    return value instanceof PDFNumber ? value.asNumber() : null;
+}
+
+function resolvePdfPageView(page: ReturnType<PDFDocument['getPages']>[number]) {
+    const fallbackSize = page.getSize();
+    if (fallbackSize.width <= 0 || fallbackSize.height <= 0) {
+        return null;
+    }
+
+    const fallbackView: [number, number, number, number] = [
+        0,
+        0,
+        fallbackSize.width,
+        fallbackSize.height,
+    ];
+
+    const box = (
+        page.node.lookupMaybe(PDFName.of('CropBox'), PDFArray)
+        ?? page.node.lookupMaybe(PDFName.of('MediaBox'), PDFArray)
+    );
+    if (!(box instanceof PDFArray) || box.size() < 4) {
+        return fallbackView;
+    }
+
+    const x1 = numberFromPdfBox(box, 0);
+    const y1 = numberFromPdfBox(box, 1);
+    const x2 = numberFromPdfBox(box, 2);
+    const y2 = numberFromPdfBox(box, 3);
+    if (
+        x1 === null
+        || y1 === null
+        || x2 === null
+        || y2 === null
+    ) {
+        return fallbackView;
+    }
+
+    const minX = Math.min(x1, x2);
+    const minY = Math.min(y1, y2);
+    const maxX = Math.max(x1, x2);
+    const maxY = Math.max(y1, y2);
+    if ((maxX - minX) <= 0 || (maxY - minY) <= 0) {
+        return fallbackView;
+    }
+
+    return [
+        minX,
+        minY,
+        maxX,
+        maxY,
+    ];
+}
+
+function readPdfRectFromDict(dict: PDFDict): [number, number, number, number] | null {
+    const rect = dict.lookupMaybe(RECT_NAME, PDFArray);
+    if (!(rect instanceof PDFArray) || rect.size() < 4) {
+        return null;
+    }
+
+    const x1 = numberFromPdfBox(rect, 0);
+    const y1 = numberFromPdfBox(rect, 1);
+    const x2 = numberFromPdfBox(rect, 2);
+    const y2 = numberFromPdfBox(rect, 3);
+    if (
+        x1 === null
+        || y1 === null
+        || x2 === null
+        || y2 === null
+    ) {
+        return null;
+    }
+
+    return [
+        x1,
+        y1,
+        x2,
+        y2,
+    ];
+}
 
 export interface IPdfSerializationDeps {
     pdfData: Ref<Uint8Array | null>;
@@ -133,10 +218,11 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             page,
         ] of pages.entries()) {
             const pageHints = subtypeHintsByPage.get(pageIndex) ?? [];
-            const {
-                width: pageWidth,
-                height: pageHeight,
-            } = page.getSize();
+            const pageView = resolvePdfPageView(page);
+            if (!pageView) {
+                continue;
+            }
+            const pageRotation = normalizePageRotation(page.getRotation().angle);
             const annots = page.node.Annots();
             if (!(annots instanceof PDFArray)) {
                 continue;
@@ -162,7 +248,11 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 const refTag = `${ref.objectNumber}R${ref.generationNumber}`;
                 let targetSubtype = overrides?.get(refTag) ?? null;
                 if (!targetSubtype && pageHints.length > 0) {
-                    const markerRect = normalizeMarkerRectFromDict(dict, pageWidth, pageHeight);
+                    const markerRect = toMarkerRectFromPdfRect(
+                        readPdfRectFromDict(dict),
+                        pageView,
+                        pageRotation,
+                    );
                     let bestMatch: {
                         score: number;
                         hint: (typeof pageHints)[number];
@@ -246,13 +336,11 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 continue;
             }
 
-            const {
-                width: pageWidth,
-                height: pageHeight,
-            } = page.getSize();
-            if (pageWidth <= 0 || pageHeight <= 0) {
+            const pageView = resolvePdfPageView(page);
+            if (!pageView) {
                 continue;
             }
+            const pageRotation = normalizePageRotation(page.getRotation().angle);
 
             const annots = page.node.Annots();
             if (!(annots instanceof PDFArray)) {
@@ -281,7 +369,11 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                     continue;
                 }
 
-                const dictRect = normalizeMarkerRectFromDict(dict, pageWidth, pageHeight);
+                const dictRect = toMarkerRectFromPdfRect(
+                    readPdfRectFromDict(dict),
+                    pageView,
+                    pageRotation,
+                );
                 const refTag = `${ref.objectNumber}R${ref.generationNumber}`;
                 const dictText = getPdfDictContents(dict).trim().toLowerCase();
 
@@ -333,17 +425,20 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                     }
                 }
 
-                const markerRect = bestMatch.comment.markerRect!;
-                const pdfLeft = markerRect.left * pageWidth;
-                const pdfBottom = (1 - markerRect.top - markerRect.height) * pageHeight;
-                const pdfRight = (markerRect.left + markerRect.width) * pageWidth;
-                const pdfTop = (1 - markerRect.top) * pageHeight;
+                const pdfRect = toPdfRectFromMarkerRect(
+                    bestMatch.comment.markerRect,
+                    pageView,
+                    pageRotation,
+                );
+                if (!pdfRect) {
+                    continue;
+                }
 
                 dict.set(rectName, doc.context.obj([
-                    PDFNumber.of(pdfLeft),
-                    PDFNumber.of(pdfBottom),
-                    PDFNumber.of(pdfRight),
-                    PDFNumber.of(pdfTop),
+                    PDFNumber.of(pdfRect[0]),
+                    PDFNumber.of(pdfRect[1]),
+                    PDFNumber.of(pdfRect[2]),
+                    PDFNumber.of(pdfRect[3]),
                 ]));
 
                 dict.delete(apName);

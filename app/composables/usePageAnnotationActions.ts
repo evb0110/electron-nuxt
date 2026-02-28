@@ -26,6 +26,7 @@ interface IPdfViewerForAnnotationActions {
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     suppressAnnotationId: (id: string) => void;
     removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
+    removeAnnotationFromInternalCache: (stableKey: string) => void;
     selectedShapeId: { value: string | null };
     updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
     getSelectedShape: () => IShapeAnnotation | null;
@@ -78,6 +79,8 @@ export interface IPageAnnotationActionsDeps {
     waitForPdfReload: (page: number) => Promise<void>;
     removeAnnotationFromCache: (stableKey: string) => void;
     persistPdfDataSilently: (data: Uint8Array) => Promise<void>;
+    markAnnotationSaved: () => void;
+    resetAnnotationStorageModified: () => void;
 }
 
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
@@ -431,25 +434,29 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 // Optimistic path — instant visual removal, no PDF reload
                 pdfViewerRef.value.suppressAnnotationId(comment.annotationId);
                 pdfViewerRef.value.removeAnnotationFromDom(comment);
+                pdfViewerRef.value.removeAnnotationFromInternalCache(comment.stableKey);
                 deps.removeAnnotationFromCache(comment.stableKey);
                 deleted = true;
 
-                // Background: persist to PDF bytes and working copy
-                deps.deleteEmbeddedByRef(comment).then((updatedData) => {
+                // Persist: rewrite PDF bytes without the annotation, then save to disk
+                try {
+                    const updatedData = await deps.deleteEmbeddedByRef(comment);
                     if (updatedData) {
-                        deps.persistPdfDataSilently(updatedData).catch((err) => {
-                            BrowserLogger.warn('annotations', 'Background persist after optimistic delete failed', {
-                                stableKey: comment.stableKey,
-                                error: err instanceof Error ? err.message : String(err),
-                            });
+                        await deps.persistPdfDataSilently(updatedData);
+                        deps.markAnnotationSaved();
+                        deps.resetAnnotationStorageModified();
+                    } else {
+                        BrowserLogger.warn('annotations', 'Embedded delete returned no data', {
+                            stableKey: comment.stableKey,
+                            annotationId: comment.annotationId,
                         });
                     }
-                }).catch((err) => {
-                    BrowserLogger.warn('annotations', 'Background embedded delete failed', {
+                } catch (err) {
+                    BrowserLogger.warn('annotations', 'Embedded delete or persist failed', {
                         stableKey: comment.stableKey,
                         error: err instanceof Error ? err.message : String(err),
                     });
-                });
+                }
             } else {
                 // Fallback for annotations without ID — use reload path
                 BrowserLogger.debug('annotations', 'Attempting PDF-level embedded delete fallback (reload)', {

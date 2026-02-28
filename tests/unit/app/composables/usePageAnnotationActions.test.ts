@@ -68,6 +68,7 @@ function createHarness() {
         deleteAnnotationComment: vi.fn(async (_comment: IAnnotationCommentSummary) => true),
         suppressAnnotationId: vi.fn(),
         removeAnnotationFromDom: vi.fn(),
+        removeAnnotationFromInternalCache: vi.fn(),
         selectedShapeId: { value: 'shape-1' as string | null },
         updateShape: vi.fn(),
         getSelectedShape: vi.fn(() => null),
@@ -114,6 +115,8 @@ function createHarness() {
         waitForPdfReload: vi.fn(async (_page: number) => {}),
         removeAnnotationFromCache: vi.fn(),
         persistPdfDataSilently: vi.fn(async () => {}),
+        markAnnotationSaved: vi.fn(),
+        resetAnnotationStorageModified: vi.fn(),
     };
 
     return {
