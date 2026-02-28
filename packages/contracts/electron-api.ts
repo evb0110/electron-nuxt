@@ -395,6 +395,8 @@ export interface IWindowTabsCapability extends IWindowTabsApi {
 
 export interface IDjvuCapability extends IDjvuAPI {onMenuConvertToPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;}
 
+export interface IShellCapability {openExternal: (url: string) => Promise<void>;}
+
 export interface IElectronAPI {
     documents: IDocumentsCapability;
     ocr: IOcrCapability;
@@ -403,4 +405,5 @@ export interface IElectronAPI {
     settings: ISettingsCapability;
     updates: IUpdatesCapability;
     windowTabs: IWindowTabsCapability;
+    shell: IShellCapability;
 }

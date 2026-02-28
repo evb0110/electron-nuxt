@@ -7,7 +7,10 @@ import {
     groupBy,
     keyBy,
 } from 'es-toolkit/array';
-import type { IAnnotationCommentSummary } from '@app/composables/pdf/annotations/types';
+import type {
+    IAnnotationCommentSummary,
+    ILinkAnnotation,
+} from '@app/composables/pdf/annotations/types';
 
 interface IUseAnnotationStoreOptions {
     emitAnnotationComments?: (comments: IAnnotationCommentSummary[]) => void;
@@ -21,12 +24,17 @@ export function useAnnotationStore(options: IUseAnnotationStoreOptions = {}) {
     } = options;
 
     const annotations = ref<IAnnotationCommentSummary[]>([]);
+    const linkAnnotations = ref<ILinkAnnotation[]>([]);
     const activeAnnotationKey = ref<string | null>(null);
 
     let pendingDebounceCancel: (() => void) | null = null;
 
     const byPage = computed(() =>
         groupBy(annotations.value, comment => comment.pageNumber),
+    );
+
+    const linksByPage = computed(() =>
+        groupBy(linkAnnotations.value, link => link.pageNumber),
     );
 
     const byKey = computed(() =>
@@ -62,6 +70,10 @@ export function useAnnotationStore(options: IUseAnnotationStoreOptions = {}) {
             pendingDebounceCancel = null;
         }
         annotations.value = comments;
+    }
+
+    function setLinkAnnotations(links: ILinkAnnotation[]) {
+        linkAnnotations.value = links;
     }
 
     function updateAnnotation(
@@ -100,16 +112,20 @@ export function useAnnotationStore(options: IUseAnnotationStoreOptions = {}) {
 
     function clear() {
         annotations.value = [];
+        linkAnnotations.value = [];
         activeAnnotationKey.value = null;
     }
 
     return {
         annotations,
+        linkAnnotations,
         activeAnnotationKey,
         byPage,
+        linksByPage,
         byKey,
         activeAnnotation,
         setAnnotations,
+        setLinkAnnotations,
         updateAnnotation,
         removeAnnotation,
         setActiveKey,

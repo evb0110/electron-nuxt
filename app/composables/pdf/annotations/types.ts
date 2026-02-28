@@ -10,6 +10,7 @@ export type {
     IAnnotationMarkerRect,
     IAnnotationSettings,
     IAnnotationEditorState,
+    ILinkAnnotation,
     IShapeAnnotation,
     TAnnotationTool,
     TMarkupSubtype,

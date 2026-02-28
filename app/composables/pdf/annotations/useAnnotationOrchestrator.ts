@@ -9,10 +9,12 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
     IAnnotationSettings,
+    ILinkAnnotation,
     TAnnotationTool,
     IAnnotationContextMenuPayload,
 } from '@app/composables/pdf/annotations/types';
 import type { PDFDocumentProxy } from '@app/types/pdf';
+import { groupBy } from 'es-toolkit/array';
 import { useAnnotationIdentity } from '@app/composables/pdf/annotations/useAnnotationIdentity';
 import { useAnnotationSync } from '@app/composables/pdf/annotations/useAnnotationSync';
 import { useAnnotationEditorBridge } from '@app/composables/pdf/annotations/useAnnotationEditorBridge';
@@ -101,6 +103,11 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
 
     const identity = useAnnotationIdentity(annotationCommentsCache);
 
+    const linkAnnotations = ref<ILinkAnnotation[]>([]);
+    const linksByPage = computed(() =>
+        groupBy(linkAnnotations.value, link => link.pageNumber),
+    );
+
     const freeTextResize = useFreeTextResize({
         getAnnotationUiManager: () => annotationUiManager.value,
         getNumPages: () => numPages.value,
@@ -166,6 +173,9 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
                 annotationCommentsCache.value = comments;
                 emitAnnotationComments(comments);
             },
+            setLinkAnnotations: (links: ILinkAnnotation[]) => {
+                linkAnnotations.value = links;
+            },
             setActiveKey: (key: string | null) => {
                 activeCommentStableKey.value = key;
             },
@@ -228,6 +238,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         commentSync,
         inlineIndicators,
         markersByPage,
+        linksByPage,
         highlight,
         crud,
     };

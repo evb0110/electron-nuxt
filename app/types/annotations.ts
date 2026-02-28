@@ -61,6 +61,13 @@ export interface IAnnotationMarkerRect {
     height: number;
 }
 
+export interface ILinkAnnotation {
+    id: string;
+    pageNumber: number;
+    url: string;
+    rect: IAnnotationMarkerRect;
+}
+
 export interface IAnnotationCommentSummary {
     id: string;
     stableKey: string;

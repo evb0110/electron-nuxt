@@ -19,6 +19,10 @@ import type {
 } from 'vue';
 import { defaultDocument } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 
 interface IAnnotationEditorLayerProto {
     disable?: (...args: unknown[]) => unknown;
@@ -213,13 +217,19 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             addLinkAttributes: (
                 link: HTMLAnchorElement,
                 url: string,
-                newWindow?: boolean,
+                _newWindow?: boolean,
             ) => {
                 link.href = url;
-                if (newWindow) {
-                    link.target = '_blank';
-                    link.rel = 'noopener noreferrer';
-                }
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    if (hasElectronAPI()) {
+                        getElectronAPI().shell.openExternal(url);
+                    } else {
+                        window.open(url, '_blank', 'noopener,noreferrer');
+                    }
+                });
             },
             getDestinationHash: () => '#',
             getAnchorUrl: () => '#',
