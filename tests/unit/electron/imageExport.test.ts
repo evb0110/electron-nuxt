@@ -35,12 +35,12 @@ interface IUtifModule {
 
 const mocks = vi.hoisted(() => ({runCommand: vi.fn()}));
 
-vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: () => ({
+vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => ({
     pdftoppm: '/mock/pdftoppm',
     qpdf: '/mock/qpdf',
 })}));
 
-vi.mock('@electron/ocr/worker/run-command', () => ({runCommand: mocks.runCommand}));
+vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: mocks.runCommand}));
 
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),
