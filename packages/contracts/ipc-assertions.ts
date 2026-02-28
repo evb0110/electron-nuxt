@@ -1,11 +1,17 @@
+import {
+    isNil,
+    isString,
+} from 'es-toolkit/predicate';
+import { trim } from 'es-toolkit/string';
+
 export const MAX_IPC_PATH_LENGTH = 4_096;
 
 export function assertNonEmptyString(value: unknown, fieldName: string, maxLength = MAX_IPC_PATH_LENGTH) {
-    if (typeof value !== 'string') {
+    if (!isString(value)) {
         throw new Error(`${fieldName} must be a string`);
     }
 
-    const normalized = value.trim();
+    const normalized = trim(value);
     if (!normalized) {
         throw new Error(`${fieldName} must not be empty`);
     }
@@ -34,11 +40,11 @@ export function assertAbsolutePath(value: unknown, fieldName: string) {
 }
 
 export function assertOptionalAbsolutePath(value: unknown, fieldName: string) {
-    if (value === undefined || value === null) {
+    if (isNil(value)) {
         return undefined;
     }
 
-    if (typeof value === 'string' && value.trim().length === 0) {
+    if (isString(value) && trim(value).length === 0) {
         return undefined;
     }
 

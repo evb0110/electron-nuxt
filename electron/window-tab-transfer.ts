@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { clamp } from 'es-toolkit/math';
 import type {
     IWindowTabIncomingTransfer,
     IWindowTabTransferAck,
@@ -40,7 +41,7 @@ function normalizeTimeout(timeoutMs: number | undefined) {
     if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
         return DEFAULT_TRANSFER_TIMEOUT_MS;
     }
-    return Math.max(1, Math.floor(timeoutMs));
+    return clamp(Math.floor(timeoutMs), 1, Number.MAX_SAFE_INTEGER);
 }
 
 export class WindowTabTransferBroker {

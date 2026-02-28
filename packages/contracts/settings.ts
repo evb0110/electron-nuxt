@@ -3,6 +3,11 @@ import {
     LOCALE_CODES,
     type TLocale,
 } from '@i18n-core';
+import {
+    isBoolean,
+    isString,
+} from 'es-toolkit/predicate';
+import { trim } from 'es-toolkit/string';
 import type { ISettingsData } from './shared';
 
 export const DEFAULT_SETTINGS: ISettingsData = {
@@ -23,7 +28,7 @@ export function normalizeTheme(theme: unknown): ISettingsData['theme'] {
 }
 
 export function normalizeLocale(locale: unknown): TLocale {
-    if (typeof locale !== 'string') {
+    if (!isString(locale)) {
         return DEFAULT_LOCALE;
     }
 
@@ -33,14 +38,14 @@ export function normalizeLocale(locale: unknown): TLocale {
 export function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined): ISettingsData {
     return {
         version: typeof raw?.version === 'number' ? raw.version : DEFAULT_SETTINGS.version,
-        authorName: typeof raw?.authorName === 'string' ? raw.authorName : DEFAULT_SETTINGS.authorName,
+        authorName: isString(raw?.authorName) ? raw.authorName : DEFAULT_SETTINGS.authorName,
         theme: normalizeTheme(raw?.theme),
         locale: normalizeLocale(raw?.locale),
-        suppressDefaultViewerPrompt: typeof raw?.suppressDefaultViewerPrompt === 'boolean'
+        suppressDefaultViewerPrompt: isBoolean(raw?.suppressDefaultViewerPrompt)
             ? raw.suppressDefaultViewerPrompt
             : undefined,
-        skippedUpdateVersion: typeof raw?.skippedUpdateVersion === 'string' && raw.skippedUpdateVersion.trim()
-            ? raw.skippedUpdateVersion.trim()
+        skippedUpdateVersion: isString(raw?.skippedUpdateVersion) && trim(raw.skippedUpdateVersion)
+            ? trim(raw.skippedUpdateVersion)
             : undefined,
     };
 }
