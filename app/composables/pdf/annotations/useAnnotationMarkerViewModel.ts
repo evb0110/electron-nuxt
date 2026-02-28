@@ -58,7 +58,7 @@ function computeMarkersByPage(
     viewerContainer: HTMLElement | null,
 ): Map<number, IMarkerViewModel[]> {
     const result = new Map<number, IMarkerViewModel[]>();
-    const withRect = comments.filter(c => normalizeMarkerRect(c.markerRect) !== null);
+    const withRect = comments.filter(c => c.hasNote === true && normalizeMarkerRect(c.markerRect) !== null);
 
     if (withRect.length === 0) {
         return result;
