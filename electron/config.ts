@@ -65,4 +65,11 @@ export const config = {
         pollIntervalMs: parsePositiveInt(process.env.EVB_UPDATES_POLL_INTERVAL_MS, 6 * 60 * 60 * 1000),
         initialDelayMs: parsePositiveInt(process.env.EVB_UPDATES_INITIAL_DELAY_MS, 2 * 60 * 1000),
     },
+
+    automation: {
+        noFocus: process.env.EVB_AUTOMATION_NO_FOCUS === '1',
+        hideWindow: process.env.EVB_AUTOMATION_HIDE_WINDOW
+            ? process.env.EVB_AUTOMATION_HIDE_WINDOW === '1'
+            : process.env.EVB_AUTOMATION_NO_FOCUS === '1',
+    },
 } as const;

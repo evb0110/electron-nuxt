@@ -230,12 +230,32 @@ function attachShowLifecycle(window: BrowserWindow) {
             return;
         }
 
+        if (config.automation.hideWindow) {
+            // Automation windows stay hidden so local desktop focus is never disrupted.
+            return;
+        }
+
         if (!window.isMaximized()) {
             window.maximize();
         }
         if (!window.isVisible()) {
-            window.show();
+            if (config.automation.noFocus) {
+                // Keep E2E windows out of focus so local work is not interrupted.
+                const showInactive = (window as BrowserWindow & { showInactive?: () => void; }).showInactive;
+                if (typeof showInactive === 'function') {
+                    showInactive.call(window);
+                } else {
+                    window.show();
+                }
+            } else {
+                window.show();
+            }
         }
+
+        if (config.automation.noFocus) {
+            return;
+        }
+
         window.focus();
 
         if (process.platform === 'darwin') {
@@ -468,7 +488,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         mainWindowId = window.id;
     }
 
-    if (!window.isMaximized()) {
+    if (!config.automation.hideWindow && !window.isMaximized()) {
         window.maximize();
     }
 

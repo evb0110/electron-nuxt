@@ -104,10 +104,10 @@ dmg:
     width: 600
     height: 540
   contents:
-    - x: 170
-      y: 185
-    - x: 430
-      y: 185
+    - x: 160
+      y: 240
+    - x: 440
+      y: 240
       type: link
       path: /Applications
 

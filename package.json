@@ -40,6 +40,8 @@
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
+    "test:e2e:electron": "pnpm run build:electron && vitest run --config vitest.electron-e2e.config.ts",
+    "test:e2e:electron:watch": "vitest --config vitest.electron-e2e.config.ts",
     "electron:run": "tsx scripts/electron-run.ts",
     "dist": "pnpm run build && electron-builder",
     "dist:mac": "pnpm run build && electron-builder --mac",

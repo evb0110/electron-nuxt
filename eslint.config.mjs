@@ -108,7 +108,11 @@ function createCrossFeatureZones(relativeRoot, zoneMessagePrefix) {
 export default withNuxt(
     {ignores: [
         '**/.devkit/**',
-        '*.config.*',
+        'eslint.config.mjs',
+        'stylelint.config.mjs',
+        'nuxt.config.ts',
+        'landing/nuxt.config.ts',
+        'landing/drizzle.config.ts',
     ]},
     {
         plugins: {
@@ -378,6 +382,7 @@ export default withNuxt(
         }},
         rules: {
             ...strictTypeRules,
+            'no-restricted-imports': 'off',
             '@typescript-eslint/array-type': [
                 'error',
                 {

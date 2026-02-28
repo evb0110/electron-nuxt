@@ -300,6 +300,8 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
         env: {
             ...process.env,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
+            EVB_AUTOMATION_NO_FOCUS: process.env.EVB_AUTOMATION_NO_FOCUS ?? '1',
+            EVB_AUTOMATION_HIDE_WINDOW: process.env.EVB_AUTOMATION_HIDE_WINDOW ?? '1',
             EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
             EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),
             ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
