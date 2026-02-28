@@ -1,47 +1,37 @@
 <template>
-    <section class="notes-section notes-tools">
-        <header class="notes-section-header">
-            <h3 class="notes-section-title">{{ t('annotations.create') }}</h3>
-            <p class="notes-section-description">{{ t('annotations.createDescription') }}</p>
-        </header>
-
-        <button
-            type="button"
-            class="tool-button tool-button--select"
-            :class="{ 'is-active': tool === 'none' }"
-            @click="emit('set-tool', 'none')"
-        >
-            <UIcon name="i-lucide-mouse-pointer" class="tool-button-icon" />
-            <span class="tool-button-label">{{ t('annotations.cursor') }}</span>
-        </button>
-
-        <div class="grid grid-cols-2 gap-1.5">
+    <div class="annotation-toolbar">
+        <div v-if="activeToolItem" class="active-tool-banner">
+            <UIcon :name="activeToolItem.icon" class="active-tool-banner-icon" />
+            <span class="active-tool-banner-label">{{ activeToolItem.label }}</span>
             <button
-                v-for="toolItem in toolItems"
-                :key="toolItem.id"
                 type="button"
-                class="tool-button"
-                :class="{ 'is-active': tool === toolItem.id }"
-                @click="emit('set-tool', tool === toolItem.id ? 'none' : toolItem.id)"
+                class="active-tool-banner-close"
+                :aria-label="t('annotations.closeTool')"
+                @click="emit('set-tool', 'none')"
             >
-                <UIcon :name="toolItem.icon" class="tool-button-icon" />
-                <span class="tool-button-label">{{ toolItem.label }}</span>
+                <UIcon name="i-lucide-x" />
             </button>
         </div>
 
-        <label class="keep-active-toggle">
-            <input
-                type="checkbox"
-                :checked="keepActive"
-                @change="emit('update:keep-active', ($event.target as HTMLInputElement).checked)"
-            />
-            {{ t('annotations.keepActive') }}
-        </label>
-
-        <p class="annotation-exit-hint">
-            {{ t('annotations.exitModeHint') }}
-        </p>
-    </section>
+        <div class="tool-grid">
+            <UTooltip
+                v-for="toolItem in toolItems"
+                :key="toolItem.id"
+                :text="toolItem.label"
+                :delay-duration="400"
+            >
+                <button
+                    type="button"
+                    class="tool-button"
+                    :class="{ 'is-active': tool === toolItem.id }"
+                    :data-tool="toolItem.id"
+                    @click="emit('set-tool', tool === toolItem.id ? 'none' : toolItem.id)"
+                >
+                    <UIcon :name="toolItem.icon" class="tool-button-icon" />
+                </button>
+            </UTooltip>
+        </div>
+    </div>
 </template>
 
 <script setup lang="ts">
@@ -53,22 +43,15 @@ interface IToolItem {
     icon: string;
 }
 
-interface IProps {
-    tool: TAnnotationTool;
-    keepActive: boolean;
-}
+interface IProps { tool: TAnnotationTool }
 
 const { t } = useTypedI18n();
 
 const props = defineProps<IProps>();
 
-const emit = defineEmits<{
-    (e: 'set-tool', tool: TAnnotationTool): void;
-    (e: 'update:keep-active', value: boolean): void;
-}>();
+const emit = defineEmits<{ (e: 'set-tool', tool: TAnnotationTool): void }>();
 
 const tool = computed(() => props.tool);
-const keepActive = computed(() => props.keepActive);
 
 const toolItems = computed<IToolItem[]>(() => [
     {
@@ -117,59 +100,80 @@ const toolItems = computed<IToolItem[]>(() => [
         icon: 'i-lucide-arrow-up-right',
     },
 ]);
+
+const activeToolItem = computed(() => {
+    if (tool.value === 'none') {
+        return null;
+    }
+    return toolItems.value.find(item => item.id === tool.value) ?? null;
+});
 </script>
 
 <style scoped>
-.notes-section {
-    border: 1px solid var(--app-notes-section-border);
-    border-radius: var(--app-notes-section-radius);
-    background: var(--app-notes-section-bg);
-    padding: var(--app-notes-section-padding);
+.annotation-toolbar {
     display: flex;
     flex-direction: column;
-    gap: var(--app-notes-section-gap);
-    box-shadow: var(--app-notes-section-shadow);
+    gap: 0.5rem;
 }
 
-.notes-section-header {
+.active-tool-banner {
     display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.55rem;
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--ui-primary) 12%, var(--ui-bg) 88%);
+    border: 1px solid color-mix(in srgb, var(--ui-primary) 40%, var(--ui-border) 60%);
+    color: var(--ui-text-highlighted);
 }
 
-.notes-section-title {
-    margin: 0;
-    font-size: var(--app-notes-section-title-size);
-    line-height: var(--app-notes-section-title-line-height);
-    letter-spacing: var(--app-notes-section-title-letter-spacing);
-    text-transform: uppercase;
-    color: var(--app-notes-section-title-color);
+.active-tool-banner-icon {
+    font-size: 0.9rem;
+    color: var(--ui-primary);
 }
 
-.notes-section-description {
-    margin: 0;
-    font-size: var(--app-notes-section-description-size);
-    line-height: var(--app-notes-section-description-line-height);
-    color: var(--app-notes-section-description-color);
+.active-tool-banner-label {
+    flex: 1 1 auto;
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.active-tool-banner-close {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border: none;
+    border-radius: 0.3rem;
+    background: transparent;
+    color: var(--ui-text-muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.active-tool-banner-close:hover {
+    background: color-mix(in srgb, var(--ui-primary) 18%, transparent);
+    color: var(--ui-text-highlighted);
+}
+
+.tool-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.3rem;
 }
 
 .tool-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.35rem;
     border: 1px solid var(--ui-border);
     border-radius: 0.5rem;
     background: var(--ui-bg);
     color: var(--ui-text-muted);
-    font-size: 0.8rem;
-    font-weight: 600;
     min-height: 2.1rem;
     cursor: pointer;
-}
-
-.tool-button--select {
-    width: 100%;
 }
 
 .tool-button:hover {
@@ -185,29 +189,5 @@ const toolItems = computed<IToolItem[]>(() => [
 
 .tool-button-icon {
     font-size: 0.95rem;
-}
-
-.tool-button-label {
-    white-space: nowrap;
-}
-
-.keep-active-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    font-size: 0.82rem;
-    color: var(--ui-text-muted);
-    cursor: pointer;
-}
-
-.keep-active-toggle input[type="checkbox"] {
-    accent-color: var(--ui-primary);
-}
-
-.annotation-exit-hint {
-    margin: 0;
-    font-size: 0.76rem;
-    line-height: 1.35;
-    color: var(--ui-text-toned);
 }
 </style>

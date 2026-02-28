@@ -37,16 +37,12 @@ export function useWorkspaceViewState(deps: IWorkspaceViewStateDeps) {
             || deps.annotationEditorState.value.hasSomethingToUndo
             || deps.annotationEditorState.value.hasSomethingToRedo,
     );
-    const isAnnotationPanelOpen = computed(
-        () => deps.showSidebar.value && deps.sidebarTab.value === 'annotations',
-    );
     const annotationCursorMode = computed(() => {
         if (deps.dragMode.value) {
             return false;
         }
 
-        return isAnnotationPanelOpen.value
-            || deps.annotationTool.value !== 'none'
+        return deps.annotationTool.value !== 'none'
             || deps.annotationEditorState.value.hasSelectedEditor;
     });
     const canUndo = computed(() => (

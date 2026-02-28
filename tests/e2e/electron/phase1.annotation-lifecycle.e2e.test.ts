@@ -68,7 +68,7 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
         expect(afterDeleteCount).toBeLessThan(createdCount);
 
         const activeTool = await getActiveToolLabel(page);
-        expect(activeTool).toBe('Select');
+        expect(activeTool).toBeNull();
         expect(getFixtureName(fixturePath).includes('phase1-')).toBe(true);
     });
 });

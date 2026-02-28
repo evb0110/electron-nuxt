@@ -96,6 +96,8 @@ export default {
         'whereNotesDescription': 'Pages contenant des notes textuelles.',
         'page': 'Page',
         'noteCount': '{count} note | {count} notes',
+        'notes': 'Notes',
+        'closeTool': 'Désactiver l\'outil',
         'notesList': 'Liste des notes',
         'searchNotes': 'Rechercher notes, auteur, page...',
         'openNote': 'Ouvrir la note',

@@ -407,18 +407,55 @@ export async function openAnnotationsTab(page: Page, timeoutMs = DEFAULT_TIMEOUT
     }, {timeout: timeoutMs});
 }
 
+const TOOL_LABEL_TO_ID: Record<string, string> = {
+    'Draw': 'draw',
+    'Text': 'text',
+    'Highlight': 'highlight',
+    'Underline': 'underline',
+    'Strikethrough': 'strikethrough',
+    'Rectangle': 'rectangle',
+    'Circle': 'circle',
+    'Line': 'line',
+    'Arrow': 'arrow',
+};
+
+function resolveToolId(label: string): string | null {
+    if (label === 'Select') {
+        return null;
+    }
+    return TOOL_LABEL_TO_ID[label] ?? label.toLowerCase();
+}
+
 export async function clickAnnotationTool(page: Page, label: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await openAnnotationsTab(page, timeoutMs);
     await waitForViewerInteractive(page, timeoutMs);
 
-    const point = await findVisiblePointInActiveHost(page, '.notes-panel .tool-button .tool-button-label', label);
+    const toolId = resolveToolId(label);
+
+    if (toolId === null) {
+        await page.evaluate(() => {
+            const host = Array.from(document.querySelectorAll('.workspace-host'))
+                .find((candidate) => {
+                    const element = candidate as HTMLElement;
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return style.display !== 'none' && rect.width > 100 && rect.height > 100;
+                }) as HTMLElement | undefined;
+            const activeBtn = host?.querySelector<HTMLButtonElement>('.notes-panel .tool-button.is-active');
+            activeBtn?.click();
+        });
+        return;
+    }
+
+    const selector = `.notes-panel .tool-button[data-tool="${toolId}"]`;
+    const point = await findVisiblePointInActiveHost(page, selector);
     if (!point) {
         throw new Error(`Annotation tool not found: ${label}`);
     }
 
     await page.mouse.click(point.x, point.y);
     const waitUntilActive = async (waitTimeout: number) => {
-        await page.waitForFunction((expectedLabel: string) => {
+        await page.waitForFunction((expectedToolId: string) => {
             const host = Array.from(document.querySelectorAll('.workspace-host'))
                 .find((candidate) => {
                     const element = candidate as HTMLElement;
@@ -429,16 +466,15 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
             if (!host) {
                 return false;
             }
-            const activeLabel = host.querySelector('.notes-panel .tool-button.is-active .tool-button-label');
-            return (activeLabel?.textContent ?? '').trim() === expectedLabel;
-        }, {timeout: waitTimeout}, label);
+            const activeBtn = host.querySelector('.notes-panel .tool-button.is-active');
+            return activeBtn?.getAttribute('data-tool') === expectedToolId;
+        }, {timeout: waitTimeout}, toolId);
     };
 
     try {
         await waitUntilActive(Math.min(timeoutMs, 4_000));
     } catch {
-        // Fallback path: click tool button in page context directly.
-        await page.evaluate((expectedLabel: string) => {
+        await page.evaluate((expectedToolId: string) => {
             const host = Array.from(document.querySelectorAll('.workspace-host'))
                 .find((candidate) => {
                     const element = candidate as HTMLElement;
@@ -446,11 +482,9 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
                     const style = window.getComputedStyle(element);
                     return style.display !== 'none' && rect.width > 100 && rect.height > 100;
                 }) as HTMLElement | undefined;
-            const labelNode = Array.from(host?.querySelectorAll('.notes-panel .tool-button .tool-button-label') ?? [])
-                .find(node => (node.textContent ?? '').trim() === expectedLabel);
-            const button = labelNode?.closest('button') as HTMLButtonElement | null;
+            const button = host?.querySelector<HTMLButtonElement>(`.notes-panel .tool-button[data-tool="${expectedToolId}"]`);
             button?.click();
-        }, label);
+        }, toolId);
         await waitUntilActive(Math.max(4_000, timeoutMs));
     }
 }
@@ -458,7 +492,7 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
 export async function setAnnotationColor(page: Page, colorHex: string) {
     await openAnnotationsTab(page);
 
-    const updated = await page.evaluate((nextColor: string) => {
+    const updated = await page.evaluate((targetColor: string) => {
         const host = Array.from(document.querySelectorAll('.workspace-host'))
             .find((candidate) => {
                 const element = candidate as HTMLElement;
@@ -466,17 +500,18 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
                 const style = window.getComputedStyle(element);
                 return style.display !== 'none' && rect.width > 100 && rect.height > 100;
             }) as HTMLElement | undefined;
-        const input = host?.querySelector<HTMLInputElement>('#annotation-color-input');
-        if (!input) {
+        const swatches = Array.from(host?.querySelectorAll<HTMLButtonElement>('.notes-panel .swatch') ?? []);
+        const normalise = (c: string) => c.toLowerCase().trim();
+        const swatch = swatches.find((btn) => normalise(btn.title) === normalise(targetColor));
+        if (!swatch) {
             return false;
         }
-        input.value = nextColor;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
+        swatch.click();
         return true;
     }, colorHex);
 
     if (!updated) {
-        throw new Error('Annotation color input not found');
+        throw new Error('Annotation color swatch not found');
     }
 }
 
@@ -489,7 +524,7 @@ export async function getActiveToolLabel(page: Page) {
                 const style = window.getComputedStyle(element);
                 return style.display !== 'none' && rect.width > 100 && rect.height > 100;
             }) as HTMLElement | undefined;
-        return (host?.querySelector('.notes-panel .tool-button.is-active .tool-button-label')?.textContent ?? '').trim() || null;
+        return host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null;
     });
 }
 
@@ -672,7 +707,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                     return style.display !== 'none' && rect.width > 100 && rect.height > 100;
                 }) as HTMLElement | undefined;
             return {
-                activeTool: (host?.querySelector('.notes-panel .tool-button.is-active .tool-button-label')?.textContent ?? '').trim(),
+                activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? '',
                 pageCount: host?.querySelectorAll('.page_container').length ?? 0,
                 textLayerCount: host?.querySelectorAll('.text-layer, .textLayer').length ?? 0,
                 freeTextCount: host?.querySelectorAll('.freeTextEditor').length ?? 0,
