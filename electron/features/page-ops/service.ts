@@ -5,7 +5,7 @@ import type {
 } from '@electron/features/page-ops/ports';
 
 export function createPageOpsService(): IPageOpsService {
-    return {registerHandlers: (_registrar: IIpcMainRegistrar) => {
-        registerPageOpsHandlers();
+    return {registerHandlers: (registrar: IIpcMainRegistrar) => {
+        registerPageOpsHandlers(registrar);
     }};
 }

@@ -18,7 +18,7 @@ import {
     buildDjvuRuntimeEnv,
     getDjvuToolPaths,
 } from '@electron/djvu/paths';
-import { getOcrToolPaths } from '@electron/ocr/paths';
+import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
 import { describeProcessExitCode } from '@electron/utils/process-exit';
 
@@ -274,7 +274,7 @@ async function mergePdfChunks(
     outputPath: string,
     mergeJobId: string,
 ) {
-    const { qpdf } = getOcrToolPaths();
+    const { qpdf } = getNativeToolPaths();
     const qpdfResult = await runProcess(
         mergeJobId,
         qpdf,

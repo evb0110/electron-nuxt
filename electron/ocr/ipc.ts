@@ -1,4 +1,7 @@
-import type { IpcMainInvokeEvent } from 'electron';
+import type {
+    IpcMain,
+    IpcMainInvokeEvent,
+} from 'electron';
 import {
     BrowserWindow,
     ipcMain,
@@ -343,14 +346,16 @@ async function handleOcrAcknowledgeResultFileValidated(
     }
 }
 
-export function registerOcrHandlers() {
-    ipcMain.handle('ocr:recognize', handleOcrRecognize);
-    ipcMain.handle('ocr:recognizeBatch', handleOcrRecognizeBatch);
-    ipcMain.handle('ocr:createSearchablePdf', handleOcrCreateSearchablePdf);
-    ipcMain.handle('ocr:cancel', handleOcrCancelValidated);
-    ipcMain.handle('ocr:ackResultFile', handleOcrAcknowledgeResultFileValidated);
-    ipcMain.handle('ocr:getLanguages', handleOcrGetLanguages);
-    ipcMain.handle('ocr:validateTools', handleOcrValidateTools);
-    ipcMain.handle('preprocessing:validate', handlePreprocessingValidate);
-    ipcMain.handle('preprocessing:preprocessPage', handlePreprocessPage);
+interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
+
+export function registerOcrHandlers(registrar: IIpcMainHandleRegistrar = ipcMain) {
+    registrar.handle('ocr:recognize', handleOcrRecognize);
+    registrar.handle('ocr:recognizeBatch', handleOcrRecognizeBatch);
+    registrar.handle('ocr:createSearchablePdf', handleOcrCreateSearchablePdf);
+    registrar.handle('ocr:cancel', handleOcrCancelValidated);
+    registrar.handle('ocr:ackResultFile', handleOcrAcknowledgeResultFileValidated);
+    registrar.handle('ocr:getLanguages', handleOcrGetLanguages);
+    registrar.handle('ocr:validateTools', handleOcrValidateTools);
+    registrar.handle('preprocessing:validate', handlePreprocessingValidate);
+    registrar.handle('preprocessing:preprocessPage', handlePreprocessPage);
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@evb/i18n-core",
+  "name": "@evb/i18n-app",
   "private": true,
   "type": "module",
   "exports": {

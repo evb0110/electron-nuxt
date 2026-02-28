@@ -11,6 +11,7 @@ import type {
     IAppUpdateStatus,
     TAppUpdateCheckOrigin,
 } from '@contracts/electron-api';
+import type { ILatestReleaseResponse } from '@contracts';
 import { config } from '@electron/config';
 import {
     loadSettings,
@@ -19,8 +20,6 @@ import {
 import { createLogger } from '@electron/utils/logger';
 
 const { autoUpdater } = electronUpdater;
-
-interface ILandingLatestReleaseResponse {release?: {tag?: string;};}
 
 const logger = createLogger('updates');
 const UPDATER_SUPPORTED_PLATFORMS = new Set([
@@ -166,7 +165,7 @@ async function fetchLatestMetadataVersion() {
         throw new Error(`Metadata endpoint responded with ${response.status}`);
     }
 
-    const payload = await response.json() as ILandingLatestReleaseResponse;
+    const payload = await response.json() as Partial<ILatestReleaseResponse>;
     const latestTag = normalizeVersion(payload.release?.tag);
     if (!latestTag) {
         throw new Error('Metadata endpoint did not return release.tag');

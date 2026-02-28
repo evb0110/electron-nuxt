@@ -153,9 +153,39 @@ export default withNuxt(
                             message: 'landing/** must not import app/**.',
                         },
                         {
+                            target: './landing',
+                            from: './electron',
+                            message: 'landing/** must not import electron/**.',
+                        },
+                        {
+                            target: './electron',
+                            from: './landing',
+                            message: 'electron/** must not import landing/**.',
+                        },
+                        {
                             target: './app/services',
                             from: './app/composables',
                             message: 'app/services/** must not import app/composables/**.',
+                        },
+                        {
+                            target: './packages',
+                            from: './app',
+                            message: 'packages/** must not import app/**.',
+                        },
+                        {
+                            target: './packages',
+                            from: './electron',
+                            message: 'packages/** must not import electron/**.',
+                        },
+                        {
+                            target: './packages',
+                            from: './landing',
+                            message: 'packages/** must not import landing/**.',
+                        },
+                        {
+                            target: './scripts',
+                            from: './electron',
+                            message: 'scripts/** must not import electron/**.',
                         },
                         ...createCrossFeatureZones('app/modules', 'app/modules'),
                         ...createCrossFeatureZones('electron/features', 'electron/features'),
@@ -168,6 +198,14 @@ export default withNuxt(
                     {
                         group: ['./*'],
                         message: 'Use absolute imports with @app/ or @electron/ prefix instead of relative imports',
+                    },
+                    {
+                        group: [
+                            '@i18n-core/*',
+                            '@i18n-app/*',
+                            '@release-selection/*',
+                        ],
+                        message: 'Import shared packages via their root entrypoint to keep package APIs slim.',
                     },
                 ]},
             ],

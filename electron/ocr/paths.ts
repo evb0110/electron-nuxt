@@ -14,12 +14,12 @@ import {
 } from '@electron/ocr/language-models';
 import { resolvePlatformArchTag } from '@electron/utils/platform-arch';
 
-interface IOcrPaths {
+export interface IOcrPaths {
     binary: string;
     tessdata: string;
 }
 
-interface IOcrToolPaths {
+export interface IOcrToolPaths {
     tesseract: string;
     tessdata: string;
     pdftoppm: string;
@@ -31,7 +31,7 @@ interface IOcrToolPaths {
     unpaper?: string;
 }
 
-interface IToolValidationResult {
+export interface IToolValidationResult {
     valid: boolean;
     tools: {
         tesseract: {

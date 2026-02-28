@@ -98,6 +98,7 @@
 <script setup lang="ts">
 
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import PdfAnnotationCommentsContextMenu from '@app/components/pdf/annotations/PdfAnnotationCommentsContextMenu.vue';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
 import {
     isTextNoteComment,

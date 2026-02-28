@@ -20,14 +20,12 @@
         "forceConsistentCasingInFileNames": true,
         "baseUrl": "..",
         "paths": {
-            "@app/*": ["app/*"],
             "@contracts": ["packages/contracts/index.ts"],
             "@contracts/*": ["packages/contracts/*"],
             "@electron/*": ["electron/*"],
             "@i18n-core": ["packages/i18n-core/index.ts"],
-            "@i18n-core/*": ["packages/i18n-core/*"],
-            "@release-selection": ["packages/release-selection/index.ts"],
-            "@release-selection/*": ["packages/release-selection/*"]
+            "@i18n-app": ["packages/i18n-app/index.ts"],
+            "@release-selection": ["packages/release-selection/index.ts"]
         },
         "types": ["node"]
     },

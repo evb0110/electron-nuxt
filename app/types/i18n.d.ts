@@ -2,7 +2,7 @@ import type { Composer } from 'vue-i18n';
 import type {
     TLocale,
     TLocaleSchema,
-} from '@i18n-core/locales';
+} from '@i18n-app';
 
 declare module 'vue-i18n' {
     export interface DefineLocaleMessage extends TLocaleSchema {}

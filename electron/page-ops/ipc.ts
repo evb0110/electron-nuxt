@@ -3,6 +3,7 @@ import {
     ipcMain,
     dialog,
 } from 'electron';
+import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'fs';
 import {
@@ -30,8 +31,8 @@ import {
 import type { TRotationAngle } from '@electron/page-ops/qpdf';
 import { createLogger } from '@electron/utils/logger';
 import { te } from '@electron/i18n';
-import { runCommand } from '@electron/ocr/worker/run-command';
-import { getOcrToolPaths } from '@electron/ocr/paths';
+import { runNativeToolCommand } from '@electron/native-tools/exec';
+import { getNativeToolPaths } from '@electron/native-tools/paths';
 
 const log = createLogger('page-ops-ipc');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -286,7 +287,7 @@ async function insertPagesFromSourcePaths(
     sourcePaths: string[],
     afterPage: number,
 ) {
-    const qpdf = getOcrToolPaths().qpdf;
+    const qpdf = getNativeToolPaths().qpdf;
     const dir = join(workingCopyPath, '..');
     const id = `tmp-${randomUUID()}`;
     const tempPath = join(dir, `${id}.pdf`);
@@ -316,7 +317,7 @@ async function insertPagesFromSourcePaths(
             '--',
             tempPath,
         ];
-        await runCommand(qpdf, args, {
+        await runNativeToolCommand(qpdf, args, {
             timeoutMs: QPDF_TIMEOUT_MS,
             commandLabel: 'qpdf(insert-pages)',
         });
@@ -387,11 +388,13 @@ async function handlePageOpsInsertFile(
     return {success: true};
 }
 
-export function registerPageOpsHandlers() {
-    ipcMain.handle('page-ops:delete', handlePageOpsDelete);
-    ipcMain.handle('page-ops:extract', handlePageOpsExtract);
-    ipcMain.handle('page-ops:reorder', handlePageOpsReorder);
-    ipcMain.handle('page-ops:insert', handlePageOpsInsert);
-    ipcMain.handle('page-ops:insert-file', handlePageOpsInsertFile);
-    ipcMain.handle('page-ops:rotate', handlePageOpsRotate);
+interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
+
+export function registerPageOpsHandlers(registrar: IIpcMainHandleRegistrar = ipcMain) {
+    registrar.handle('page-ops:delete', handlePageOpsDelete);
+    registrar.handle('page-ops:extract', handlePageOpsExtract);
+    registrar.handle('page-ops:reorder', handlePageOpsReorder);
+    registrar.handle('page-ops:insert', handlePageOpsInsert);
+    registrar.handle('page-ops:insert-file', handlePageOpsInsertFile);
+    registrar.handle('page-ops:rotate', handlePageOpsRotate);
 }

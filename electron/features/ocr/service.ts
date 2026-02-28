@@ -5,7 +5,7 @@ import type {
 } from '@electron/features/ocr/ports';
 
 export function createOcrService(): IOcrService {
-    return {registerHandlers: (_registrar: IIpcMainRegistrar) => {
-        registerOcrHandlers();
+    return {registerHandlers: (registrar: IIpcMainRegistrar) => {
+        registerOcrHandlers(registrar);
     }};
 }

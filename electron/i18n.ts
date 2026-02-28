@@ -4,7 +4,7 @@ import {
     type TLocale,
     type TTranslationKey,
     type TTranslationParams,
-} from '@i18n-core/locales';
+} from '@i18n-app';
 import { getCurrentLocaleSync } from '@electron/settings';
 
 type TMessageParams = Record<string, string | number>;

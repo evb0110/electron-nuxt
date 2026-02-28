@@ -6,4 +6,6 @@ export {
     type TTranslateFn,
     type TTranslationKey,
     type TTranslationParams,
-} from '@i18n-app';
+} from './locales';
+
+export { EN_MESSAGE_SCHEMA } from './message-schema';

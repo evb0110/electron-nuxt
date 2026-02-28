@@ -80,7 +80,7 @@ interface IPdfSearchExcerpt {
 
 interface IPdfSearchResult {
     pageNumber: number;
-    pageMatchIndex?: number;
+    pageMatchIndex: number;
     matchIndex: number;
     startOffset: number;
     endOffset: number;
@@ -249,13 +249,7 @@ interface IOpenDjvuResult {
 
 export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 
-export interface IDocumentsCapability {
-    openPdfDialog: () => Promise<TOpenFileResult | null>;
-    openPdfDirect: (path: string) => Promise<TOpenFileResult | null>;
-    openPdfDirectBatch: (paths: string[], requestId?: string) => Promise<TOpenFileResult | null>;
-    savePdfAs: (workingCopyPath: string) => Promise<string | null>;
-    savePdfDialog: (suggestedName: string) => Promise<string | null>;
-    saveDocxAs: (workingCopyPath: string) => Promise<string | null>;
+export interface IImageExportCapability {
     exportPdfToImages: (workingCopyPath: string, pageNumbers?: number[]) => Promise<{
         success: boolean;
         canceled?: boolean;
@@ -266,20 +260,11 @@ export interface IDocumentsCapability {
         canceled?: boolean;
         outputPath?: string;
     }>;
-    readFile: (path: string) => Promise<Uint8Array>;
-    statFile: (path: string) => Promise<{ size: number }>;
-    readFileRange: (path: string, offset: number, length: number) => Promise<Uint8Array>;
-    readTextFile: (path: string) => Promise<string>;
-    fileExists: (path: string) => Promise<boolean>;
-    writeFile: (path: string, data: Uint8Array) => Promise<boolean>;
-    writeDocxFile: (path: string, data: Uint8Array) => Promise<boolean>;
-    createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: string) => Promise<string>;
-    createWorkingCopyFromPath: (sourcePath: string, originalPath?: string) => Promise<string>;
-    saveFile: (path: string) => Promise<boolean>;
-    cleanupFile: (path: string) => Promise<void>;
-    cleanupOcrTemp: (path: string) => Promise<void>;
-    setWindowTitle: (title: string) => Promise<void>;
-    showItemInFolder: (path: string) => Promise<boolean>;
+}
+
+export interface IPageOpsCapability {pageOps: IPageOpsAPI;}
+
+export interface IDocumentsMenuCapability {
     setMenuDocumentState: (hasDocument: boolean) => Promise<void>;
     setMenuTabCount: (tabCount: number) => Promise<void>;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
@@ -307,6 +292,29 @@ export interface IDocumentsCapability {
     onMenuOpenExternalPaths: (callback: (paths: string[]) => void) => IMenuEventUnsubscribe;
     onMenuClearRecentFiles: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onOpenPdfDirectBatchProgress: (callback: (progress: IOpenPdfDirectBatchProgress) => void) => IMenuEventUnsubscribe;
+}
+
+export interface IDocumentsFileCapability {
+    openPdfDialog: () => Promise<TOpenFileResult | null>;
+    openPdfDirect: (path: string) => Promise<TOpenFileResult | null>;
+    openPdfDirectBatch: (paths: string[], requestId?: string) => Promise<TOpenFileResult | null>;
+    savePdfAs: (workingCopyPath: string) => Promise<string | null>;
+    savePdfDialog: (suggestedName: string) => Promise<string | null>;
+    saveDocxAs: (workingCopyPath: string) => Promise<string | null>;
+    readFile: (path: string) => Promise<Uint8Array>;
+    statFile: (path: string) => Promise<{ size: number }>;
+    readFileRange: (path: string, offset: number, length: number) => Promise<Uint8Array>;
+    readTextFile: (path: string) => Promise<string>;
+    fileExists: (path: string) => Promise<boolean>;
+    writeFile: (path: string, data: Uint8Array) => Promise<boolean>;
+    writeDocxFile: (path: string, data: Uint8Array) => Promise<boolean>;
+    createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: string) => Promise<string>;
+    createWorkingCopyFromPath: (sourcePath: string, originalPath?: string) => Promise<string>;
+    saveFile: (path: string) => Promise<boolean>;
+    cleanupFile: (path: string) => Promise<void>;
+    cleanupOcrTemp: (path: string) => Promise<void>;
+    setWindowTitle: (title: string) => Promise<void>;
+    showItemInFolder: (path: string) => Promise<boolean>;
 
     recentFiles: {
         get: () => Promise<IRecentFile[]>;
@@ -315,10 +323,14 @@ export interface IDocumentsCapability {
         clear: () => Promise<void>;
     };
 
-    pageOps: IPageOpsAPI;
-
     getPathForFile: (file: File) => string;
 }
+
+export interface IDocumentsCapability extends
+    IDocumentsFileCapability,
+    IDocumentsMenuCapability,
+    IImageExportCapability,
+    IPageOpsCapability {}
 
 export interface IOcrCapability {
     recognize: (request: IOcrRecognizeRequest) => Promise<IOcrRecognizeResult>;

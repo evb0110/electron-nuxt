@@ -1,33 +1,12 @@
-import type { Ref } from 'vue';
 import type {
     TLocale,
     TTranslateFn,
 } from '~/i18n/locales';
+import { createTypedI18nComposer } from '@i18n-core';
 
-interface ILocaleComposerMethods {
-    setLocale: (locale: TLocale) => Promise<void>;
-    loadLocaleMessages: (locale: TLocale) => Promise<void>;
-}
-
-interface ITypedI18nComposer extends ILocaleComposerMethods {
-    t: TTranslateFn;
-    locale: Ref<string>;
-}
-
-export function useTypedI18n(): ITypedI18nComposer {
+export function useTypedI18n() {
     const composer = useI18n();
-    const localeComposer = composer as Partial<ILocaleComposerMethods>;
-    const setLocale = async (locale: TLocale) => {
-        await localeComposer.setLocale?.(locale);
-    };
-    const loadLocaleMessages = async (locale: TLocale) => {
-        await localeComposer.loadLocaleMessages?.(locale);
-    };
-    return {
-        ...composer,
-        t: composer.t as TTranslateFn,
-        locale: composer.locale,
-        setLocale,
-        loadLocaleMessages,
-    };
+    return createTypedI18nComposer<typeof composer, TTranslateFn, TLocale>(composer);
 }
+
+export type TLandingTypedI18nComposer = ReturnType<typeof useTypedI18n>;

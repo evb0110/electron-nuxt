@@ -5,15 +5,15 @@ import {
     unlink,
 } from 'fs/promises';
 import { existsSync } from 'fs';
-import { runCommand } from '@electron/ocr/worker/run-command';
-import { getOcrToolPaths } from '@electron/ocr/paths';
+import { runNativeToolCommand } from '@electron/native-tools/exec';
+import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
 
 const log = createLogger('page-ops-qpdf');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 
 function getQpdfBinary() {
-    return getOcrToolPaths().qpdf;
+    return getNativeToolPaths().qpdf;
 }
 
 function makeTempPath(workingCopyPath: string) {
@@ -67,7 +67,7 @@ export async function extractPages(
         '--',
         destPath,
     ];
-    await runCommand(qpdf, args, {
+    await runNativeToolCommand(qpdf, args, {
         timeoutMs: QPDF_TIMEOUT_MS,
         commandLabel: 'qpdf(extract-pages)',
     });
@@ -95,7 +95,7 @@ export async function deletePages(
             '--',
             tempPath,
         ];
-        await runCommand(qpdf, args, {
+        await runNativeToolCommand(qpdf, args, {
             timeoutMs: QPDF_TIMEOUT_MS,
             commandLabel: 'qpdf(delete-pages)',
         });
@@ -124,7 +124,7 @@ export async function reorderPages(
             '--',
             tempPath,
         ];
-        await runCommand(qpdf, args, {
+        await runNativeToolCommand(qpdf, args, {
             timeoutMs: QPDF_TIMEOUT_MS,
             commandLabel: 'qpdf(reorder-pages)',
         });
@@ -153,7 +153,7 @@ export async function rotatePages(
             `--rotate=+${angle}:${formatPageList(pages)}`,
             tempPath,
         ];
-        await runCommand(qpdf, args, {
+        await runNativeToolCommand(qpdf, args, {
             timeoutMs: QPDF_TIMEOUT_MS,
             commandLabel: 'qpdf(rotate-pages)',
         });
