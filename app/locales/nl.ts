@@ -96,6 +96,8 @@ export default {
         'whereNotesDescription': 'Pagina\'s die tekstuele notities bevatten.',
         'page': 'Pagina',
         'noteCount': '{count} notitie | {count} notities',
+        'notes': 'Notities',
+        'closeTool': 'Hulpmiddel deactiveren',
         'notesList': 'Notitielijst',
         'searchNotes': 'Zoek notities, auteur, pagina...',
         'openNote': 'Notitie openen',

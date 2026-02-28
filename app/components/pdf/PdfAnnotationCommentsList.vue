@@ -1,105 +1,73 @@
 <template>
-    <section class="notes-section notes-list-section" @click="closeContextMenu">
-        <UCollapsible v-model:open="collapsibleOpen" :unmount-on-hide="false">
-            <template #default="{ open }">
-                <button
-                    type="button"
-                    class="notes-list-trigger"
-                    :aria-expanded="open ? 'true' : 'false'"
-                >
-                    <span class="notes-list-trigger-meta">
-                        <h3 class="notes-section-title">{{ t('annotations.notesList') }}</h3>
-                        <span class="notes-count">{{ filteredComments.length }}</span>
-                    </span>
-                    <UIcon
-                        name="i-lucide-chevron-down"
-                        class="notes-list-chevron"
-                        :class="{ 'is-open': open }"
-                    />
-                </button>
-            </template>
+    <div class="notes-list-section">
+        <div class="notes-list-header">
+            <span class="notes-list-title">{{ t('annotations.notes') }}</span>
+            <span class="notes-count">({{ filteredComments.length }})</span>
+            <button
+                type="button"
+                class="notes-header-btn"
+                :aria-label="t('annotations.placeNoteOnPage')"
+                @click="emit('place-note')"
+            >
+                <UIcon name="i-lucide-message-square-plus" />
+            </button>
+            <button
+                type="button"
+                class="notes-header-btn"
+                :aria-label="t('annotations.searchNotes')"
+                @click="searchVisible = !searchVisible"
+            >
+                <UIcon name="i-lucide-search" />
+            </button>
+        </div>
 
-            <template #content>
-                <input
-                    v-model.trim="query"
-                    type="search"
-                    class="notes-search"
-                    :placeholder="t('annotations.searchNotes')"
-                />
-
-                <div class="notes-list app-scrollbar" @click.self="selectedStableKey = null">
-                    <button
-                        v-for="comment in filteredComments"
-                        :key="comment.stableKey"
-                        type="button"
-                        class="note-item"
-                        :class="{ 'is-selected': selectedStableKey === comment.stableKey }"
-                        @click="selectComment(comment)"
-                        @dblclick.prevent.stop="openComment(comment)"
-                        @contextmenu.prevent.stop="openItemContextMenu($event, comment)"
-                    >
-                        <span class="note-item-top">
-                            <span class="note-item-page">{{ t('annotations.page') }} {{ comment.pageNumber }}</span>
-                            <span class="note-item-type">{{ commentTypeLabel(comment) }}</span>
-                        </span>
-                        <span class="note-item-text">{{ notePreview(comment) }}</span>
-                        <span class="note-item-meta">
-                            <span>{{ comment.author || authorName || t('annotations.unknownAuthor') }}</span>
-                            <span v-if="comment.modifiedAt">{{ formatTime(comment.modifiedAt) }}</span>
-                        </span>
-                    </button>
-
-                    <p v-if="filteredComments.length === 0" class="notes-empty">
-                        {{ t('annotations.noNotesFound') }}
-                    </p>
-                </div>
-
-                <div class="selection-actions">
-                    <button
-                        type="button"
-                        class="selection-action"
-                        :disabled="!selectedComment"
-                        @click="openSelectedComment"
-                    >
-                        {{ t('annotations.openNote') }}
-                    </button>
-                    <button
-                        type="button"
-                        class="selection-action"
-                        :disabled="!canCopySelectedComment"
-                        @click="copySelectedComment"
-                    >
-                        {{ t('annotations.copyText') }}
-                    </button>
-                    <button
-                        type="button"
-                        class="selection-action is-danger"
-                        :disabled="!selectedComment"
-                        @click="deleteSelectedComment"
-                    >
-                        {{ t('annotations.delete') }}
-                    </button>
-                </div>
-            </template>
-        </UCollapsible>
-
-        <PdfAnnotationCommentsContextMenu
-            :visible="contextMenu.visible"
-            :x="contextMenu.x"
-            :y="contextMenu.y"
-            :comment="contextMenu.comment"
-            @open="openContextComment"
-            @copy="copyContextComment"
-            @delete="deleteContextComment"
+        <input
+            v-if="searchVisible"
+            v-model.trim="query"
+            type="search"
+            class="notes-search"
+            :placeholder="t('annotations.searchNotes')"
         />
-    </section>
+
+        <div class="notes-list app-scrollbar">
+            <button
+                v-for="comment in filteredComments"
+                :key="comment.stableKey"
+                type="button"
+                class="note-item"
+                :class="{ 'is-active': activeCommentStableKey === comment.stableKey }"
+                @click="focusComment(comment)"
+                @dblclick.prevent.stop="openComment(comment)"
+            >
+                <span class="note-item-top">
+                    <span class="note-item-page">{{ t('annotations.page') }} {{ comment.pageNumber }}</span>
+                    <span class="note-item-type">{{ commentTypeLabel(comment) }}</span>
+                    <button
+                        type="button"
+                        class="note-item-delete"
+                        :aria-label="t('annotations.delete')"
+                        @click.stop="emit('delete-comment', comment)"
+                    >
+                        <UIcon name="i-lucide-trash-2" />
+                    </button>
+                </span>
+                <span class="note-item-text">{{ notePreview(comment) }}</span>
+                <span class="note-item-meta">
+                    <span>{{ comment.author || authorName || t('annotations.unknownAuthor') }}</span>
+                    <span v-if="comment.modifiedAt">{{ formatTime(comment.modifiedAt) }}</span>
+                </span>
+            </button>
+
+            <p v-if="filteredComments.length === 0" class="notes-empty">
+                {{ t('annotations.noNotesFound') }}
+            </p>
+        </div>
+    </div>
 </template>
 
 <script setup lang="ts">
 
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import PdfAnnotationCommentsContextMenu from '@app/components/pdf/annotations/PdfAnnotationCommentsContextMenu.vue';
-import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
 import {
     isTextNoteComment,
     compareComments,
@@ -113,32 +81,18 @@ interface IProps {
 }
 
 const { t } = useTypedI18n();
-const { clampToViewport } = useContextMenuPosition();
 
 const props = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'focus-comment', comment: IAnnotationCommentSummary): void;
     (e: 'open-note', comment: IAnnotationCommentSummary): void;
-    (e: 'copy-comment', comment: IAnnotationCommentSummary): void;
     (e: 'delete-comment', comment: IAnnotationCommentSummary): void;
+    (e: 'place-note'): void;
 }>();
 
 const query = ref('');
-const selectedStableKey = ref<string | null>(null);
-const collapsibleOpen = ref(false);
-
-const contextMenu = ref<{
-    visible: boolean;
-    x: number;
-    y: number;
-    comment: IAnnotationCommentSummary | null;
-}>({
-    visible: false,
-    x: 0,
-    y: 0,
-    comment: null,
-});
+const searchVisible = ref(false);
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
@@ -146,45 +100,10 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
 });
 
 const authorName = computed(() => props.authorName ?? null);
-
-function closeContextMenu() {
-    contextMenu.value = {
-        visible: false,
-        x: 0,
-        y: 0,
-        comment: null,
-    };
-}
-
-watch(
-    () => props.activeCommentStableKey,
-    (stableKey) => {
-        selectedStableKey.value = stableKey ?? null;
-        if (stableKey) {
-            collapsibleOpen.value = true;
-        }
-    },
-    { immediate: true },
-);
+const activeCommentStableKey = computed(() => props.activeCommentStableKey ?? null);
 
 const sortedComments = computed(() => props.comments.slice().sort(compareComments));
 const noteComments = computed(() => sortedComments.value.filter(isTextNoteComment));
-
-watch(
-    () => props.comments.map(c => c.stableKey),
-    () => {
-        if (!selectedStableKey.value) {
-            return;
-        }
-        const stillExists = props.comments.some(comment => (
-            comment.stableKey === selectedStableKey.value
-            && isTextNoteComment(comment)
-        ));
-        if (!stillExists) {
-            selectedStableKey.value = null;
-        }
-    },
-);
 
 const filteredComments = computed(() => {
     const normalizedQuery = query.value.trim().toLowerCase();
@@ -245,147 +164,63 @@ function formatTime(timestamp: number) {
     return timeFormatter.format(timestamp);
 }
 
-function selectComment(comment: IAnnotationCommentSummary) {
-    selectedStableKey.value = comment.stableKey;
+function focusComment(comment: IAnnotationCommentSummary) {
     emit('focus-comment', comment);
-    closeContextMenu();
 }
 
 function openComment(comment: IAnnotationCommentSummary) {
-    selectedStableKey.value = comment.stableKey;
     emit('focus-comment', comment);
     emit('open-note', comment);
-    closeContextMenu();
-}
-
-const selectedComment = computed(() => {
-    if (!selectedStableKey.value) {
-        return null;
-    }
-    return noteComments.value.find(comment => comment.stableKey === selectedStableKey.value) ?? null;
-});
-
-const canCopySelectedComment = computed(() => {
-    const comment = selectedComment.value;
-    return Boolean(comment && comment.text.trim().length > 0);
-});
-
-function openSelectedComment() {
-    if (!selectedComment.value) {
-        return;
-    }
-    openComment(selectedComment.value);
-}
-
-function copySelectedComment() {
-    if (!selectedComment.value || !selectedComment.value.text.trim()) {
-        return;
-    }
-    emit('copy-comment', selectedComment.value);
-}
-
-function deleteSelectedComment() {
-    if (!selectedComment.value) {
-        return;
-    }
-    emit('delete-comment', selectedComment.value);
-    selectedStableKey.value = null;
-}
-
-function openContextComment() {
-    if (!contextMenu.value.comment) {
-        return;
-    }
-    openComment(contextMenu.value.comment);
-}
-
-function openItemContextMenu(event: MouseEvent, comment: IAnnotationCommentSummary) {
-    selectedStableKey.value = comment.stableKey;
-    const clamped = clampToViewport(event.clientX, event.clientY, 168, 120);
-
-    contextMenu.value = {
-        visible: true,
-        x: clamped.x,
-        y: clamped.y,
-        comment,
-    };
-}
-
-function copyContextComment() {
-    if (!contextMenu.value.comment || !contextMenu.value.comment.text.trim()) {
-        return;
-    }
-    emit('copy-comment', contextMenu.value.comment);
-    closeContextMenu();
-}
-
-function deleteContextComment() {
-    if (!contextMenu.value.comment) {
-        return;
-    }
-    emit('delete-comment', contextMenu.value.comment);
-    closeContextMenu();
 }
 
 </script>
 
 <style scoped>
-.notes-section {
-    border: 1px solid var(--app-notes-section-border);
-    border-radius: var(--app-notes-section-radius);
-    background: var(--app-notes-section-bg);
-    padding: var(--app-notes-section-padding);
+.notes-list-section {
     display: flex;
     flex-direction: column;
-    gap: var(--app-notes-section-gap);
-    box-shadow: var(--app-notes-section-shadow);
+    gap: 0.5rem;
+    flex: 1 1 0;
+    min-height: 0;
 }
 
-.notes-section-title {
-    margin: 0;
-    font-size: var(--app-notes-section-title-size);
-    line-height: var(--app-notes-section-title-line-height);
-    letter-spacing: var(--app-notes-section-title-letter-spacing);
-    text-transform: uppercase;
-    color: var(--app-notes-section-title-color);
-}
-
-.notes-list-trigger {
-    width: 100%;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    padding: 0;
-    display: inline-flex;
+.notes-list-header {
+    display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.55rem;
-    cursor: pointer;
+    gap: 0.35rem;
 }
 
-.notes-list-trigger-meta {
-    min-width: 0;
-    flex: 1 1 auto;
-    display: inline-flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.55rem;
-}
-
-.notes-list-chevron {
-    flex: 0 0 auto;
-    font-size: 0.95rem;
-    color: var(--ui-text-toned);
-    transition: transform 0.18s ease;
-}
-
-.notes-list-chevron.is-open {
-    transform: rotate(180deg);
+.notes-list-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--ui-text-highlighted);
 }
 
 .notes-count {
-    font-size: 0.88rem;
-    font-weight: 700;
+    font-size: 0.78rem;
+    color: var(--ui-text-muted);
+}
+
+.notes-header-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border: none;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: var(--ui-text-muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.notes-header-btn:first-of-type {
+    margin-left: auto;
+}
+
+.notes-header-btn:hover {
+    background: color-mix(in srgb, var(--ui-border) 40%, transparent);
     color: var(--ui-text-highlighted);
 }
 
@@ -400,8 +235,8 @@ function deleteContextComment() {
 }
 
 .notes-list {
-    max-height: 20rem;
-    min-height: 7rem;
+    flex: 1 1 0;
+    min-height: 5rem;
     overflow: auto;
     display: flex;
     flex-direction: column;
@@ -410,6 +245,7 @@ function deleteContextComment() {
 }
 
 .note-item {
+    position: relative;
     border: 1px solid var(--ui-border);
     border-radius: 0.55rem;
     background: var(--ui-bg);
@@ -422,7 +258,7 @@ function deleteContextComment() {
     cursor: pointer;
 }
 
-.note-item.is-selected {
+.note-item.is-active {
     border-color: color-mix(in srgb, var(--ui-primary) 75%, var(--ui-border) 25%);
     box-shadow: var(--app-notes-item-selected-ring);
 }
@@ -442,6 +278,32 @@ function deleteContextComment() {
 
 .note-item-type {
     color: var(--ui-text-muted);
+}
+
+.note-item-delete {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: var(--ui-text-muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.note-item-delete:hover {
+    background: color-mix(in srgb, var(--ui-error) 15%, transparent);
+    color: var(--ui-error);
+}
+
+.note-item:hover .note-item-delete {
+    opacity: 1;
 }
 
 .note-item-text {
@@ -471,31 +333,5 @@ function deleteContextComment() {
     padding: 0.65rem;
     font-size: 0.8rem;
     color: var(--ui-text-muted);
-}
-
-.selection-actions {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.4rem;
-}
-
-.selection-action {
-    border: 1px solid var(--ui-border);
-    border-radius: 0.45rem;
-    background: var(--ui-bg);
-    color: var(--ui-text-highlighted);
-    min-height: 2rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.selection-action:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
-}
-
-.selection-action.is-danger {
-    color: color-mix(in srgb, var(--ui-error) 65%, var(--ui-text-highlighted) 35%);
 }
 </style>

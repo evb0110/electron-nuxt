@@ -1,21 +1,5 @@
 <template>
-    <section class="notes-section notes-style">
-        <header class="notes-section-header">
-            <h3 class="notes-section-title">{{ t('annotations.style') }}</h3>
-            <p class="notes-section-description">{{ t('annotations.styleDescription') }}</p>
-        </header>
-
-        <div class="style-row">
-            <label class="style-label" for="annotation-color-input">{{ t('annotations.color') }}</label>
-            <input
-                id="annotation-color-input"
-                class="style-color"
-                type="color"
-                :value="activeToolColor"
-                @input="handleColorInput(($event.target as HTMLInputElement).value)"
-            />
-        </div>
-
+    <div v-if="tool !== 'none'" class="annotation-style-editor">
         <div class="swatch-row">
             <button
                 v-for="swatch in colorSwatches"
@@ -77,7 +61,7 @@
                 </button>
             </div>
         </div>
-    </section>
+    </div>
 </template>
 
 <script setup lang="ts">
@@ -152,26 +136,6 @@ function updateSetting<K extends keyof IAnnotationSettings>(key: K, value: IAnno
         value,
     });
 }
-
-const activeToolColor = computed(() => {
-    if (props.tool === 'draw') {
-        return props.settings.inkColor;
-    }
-    if (props.tool === 'text') {
-        return props.settings.textColor;
-    }
-    if (props.tool === 'underline') {
-        return props.settings.underlineColor;
-    }
-    if (props.tool === 'strikethrough') {
-        return props.settings.strikethroughColor;
-    }
-    if (isShapeTool(props.tool)) {
-        return props.settings.shapeColor;
-    }
-
-    return props.settings.highlightColor;
-});
 
 const activeWidthControl = computed<IWidthControl | null>(() => {
     if (props.tool === 'draw') {
@@ -295,37 +259,10 @@ function applyDrawStyle(style: TDrawStyle) {
 </script>
 
 <style scoped>
-.notes-section {
-    border: 1px solid var(--app-notes-section-border);
-    border-radius: var(--app-notes-section-radius);
-    background: var(--app-notes-section-bg);
-    padding: var(--app-notes-section-padding);
+.annotation-style-editor {
     display: flex;
     flex-direction: column;
-    gap: var(--app-notes-section-gap);
-    box-shadow: var(--app-notes-section-shadow);
-}
-
-.notes-section-header {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-}
-
-.notes-section-title {
-    margin: 0;
-    font-size: var(--app-notes-section-title-size);
-    line-height: var(--app-notes-section-title-line-height);
-    letter-spacing: var(--app-notes-section-title-letter-spacing);
-    text-transform: uppercase;
-    color: var(--app-notes-section-title-color);
-}
-
-.notes-section-description {
-    margin: 0;
-    font-size: var(--app-notes-section-description-size);
-    line-height: var(--app-notes-section-description-line-height);
-    color: var(--app-notes-section-description-color);
+    gap: 0.5rem;
 }
 
 .style-row {
@@ -337,15 +274,6 @@ function applyDrawStyle(style: TDrawStyle) {
 .style-label {
     font-size: 0.8rem;
     color: var(--ui-text-muted);
-}
-
-.style-color {
-    width: 100%;
-    height: 2rem;
-    border-radius: 0.45rem;
-    border: 1px solid var(--ui-border);
-    background: transparent;
-    cursor: pointer;
 }
 
 .swatch-row {

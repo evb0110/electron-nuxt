@@ -96,6 +96,8 @@ export default {
         'whereNotesDescription': 'Seiten, die Textnotizen enthalten.',
         'page': 'Seite',
         'noteCount': '{count} Notiz | {count} Notizen',
+        'notes': 'Notizen',
+        'closeTool': 'Werkzeug deaktivieren',
         'notesList': 'Notizenliste',
         'searchNotes': 'Notizen, Autor, Seite suchen...',
         'openNote': 'Notiz öffnen',

@@ -96,6 +96,8 @@ export default {
         'whereNotesDescription': 'Страницы, содержащие текстовые заметки.',
         'page': 'Стр.',
         'noteCount': '{count} заметка | {count} заметки | {count} заметок',
+        'notes': 'Заметки',
+        'closeTool': 'Деактивировать инструмент',
         'notesList': 'Список заметок',
         'searchNotes': 'Поиск заметок, автора, страницы...',
         'openNote': 'Открыть заметку',

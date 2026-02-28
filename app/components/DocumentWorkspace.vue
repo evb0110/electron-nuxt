@@ -188,8 +188,8 @@
                     @update:selected-thumbnail-pages="handleSelectedThumbnailPagesUpdate"
                     @annotation-focus-comment="handleAnnotationFocusComment"
                     @annotation-open-note="handleOpenAnnotationNote"
-                    @annotation-copy-comment="handleCopyAnnotationComment"
                     @annotation-delete-comment="handleDeleteAnnotationComment"
+                    @annotation-place-note="handleStartPlaceNote"
                     @bookmarks-change="handleBookmarksChange"
                     @update:bookmark-edit-mode="bookmarkEditMode = $event"
                     @page-context-menu="showPageContextMenu"
@@ -535,6 +535,7 @@ const {
     shapePropertiesPopover,
     selectedShapeForProperties,
     handleQuickNoteAction,
+    handleStartPlaceNote,
     handleAnnotationFocusComment,
     handleAnnotationCommentClick,
     handleOpenAnnotationNote,
@@ -549,7 +550,6 @@ const {
     createContextMenuFreeNote,
     createContextMenuSelectionNote,
     createContextMenuMarkup,
-    handleCopyAnnotationComment,
     handleDeleteAnnotationComment,
     statusFilePath,
     statusFileSizeLabel,

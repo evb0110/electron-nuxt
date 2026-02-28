@@ -15,6 +15,7 @@ import {
     startElectronE2ESession,
 } from './helpers/session-harness';
 import {
+    clickAnnotationTool,
     clickFirstLinkOverlay,
     countFreeTextEditorsOnPage,
     createFreeTextAnnotation,
@@ -54,7 +55,8 @@ describe('Electron E2E - Phase 2 (Interactions, Settings, Multi-Page, Links)', (
         await waitForPdfLoaded(page);
         await openAnnotationsTab(page);
 
-        await setAnnotationColor(page, '#ff0000');
+        await clickAnnotationTool(page, 'Text');
+        await setAnnotationColor(page, '#ef4444');
         await createFreeTextAnnotation(page, `phase2-style-${Date.now()}`);
 
         const textColor = await getFirstFreeTextComputedColor(page);

@@ -52,8 +52,8 @@
                 @update-setting="emit('annotation-setting', $event)"
                 @focus-comment="emit('annotation-focus-comment', $event)"
                 @open-note="emit('annotation-open-note', $event)"
-                @copy-comment="emit('annotation-copy-comment', $event)"
                 @delete-comment="emit('annotation-delete-comment', $event)"
+                @place-note="emit('annotation-place-note')"
             />
 
             <div
@@ -217,8 +217,8 @@ const emit = defineEmits<{
     }): void;
     (e: 'annotation-focus-comment', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-open-note', comment: IAnnotationCommentSummary): void;
-    (e: 'annotation-copy-comment', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-delete-comment', comment: IAnnotationCommentSummary): void;
+    (e: 'annotation-place-note'): void;
     (e: 'bookmarks-change', payload: {
         bookmarks: IPdfBookmarkEntry[];
         dirty: boolean;
@@ -285,9 +285,18 @@ watch(
     async ([
         isOpen,
         activeSidebarTab,
+    ], [
+        wasOpen,
+        previousTab,
     ]) => {
         if (isOpen && activeSidebarTab === 'search') {
             await focusSearch();
+        }
+
+        const leftAnnotations = previousTab === 'annotations' && activeSidebarTab !== 'annotations';
+        const sidebarClosed = wasOpen && !isOpen;
+        if (leftAnnotations || sidebarClosed) {
+            emit('update:annotation-tool', 'none');
         }
     },
     { flush: 'post' },
