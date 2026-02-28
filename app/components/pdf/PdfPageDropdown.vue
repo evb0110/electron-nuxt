@@ -29,13 +29,15 @@
                 :style="pageDisplayStyle"
                 @click="startEditing"
             >
-                <span class="page-controls-indicator">{{ pageIndicator }}</span>
+                <span class="page-controls-current">{{ pageIndicator }}</span>
                 <span
                     v-if="showTotalInDisplay"
-                    :class="['page-controls-separator', { 'is-hidden': !hasPages }]"
-                >
-                    &nbsp;/ {{ totalPages }}
-                </span>
+                    :class="['page-controls-slash', { 'is-hidden': !hasPages }]"
+                >/</span>
+                <span
+                    v-if="showTotalInDisplay"
+                    :class="['page-controls-total', { 'is-hidden': !hasPages }]"
+                >{{ totalPages }}</span>
             </button>
             <div v-else class="page-controls-display is-editing" :style="pageDisplayStyle">
                 <input
@@ -48,10 +50,12 @@
                 />
                 <span
                     v-if="showTotalInDisplay"
-                    :class="['page-controls-separator', { 'is-hidden': !hasPages }]"
-                >
-                    &nbsp;/ {{ totalPages }}
-                </span>
+                    :class="['page-controls-slash', { 'is-hidden': !hasPages }]"
+                >/</span>
+                <span
+                    v-if="showTotalInDisplay"
+                    :class="['page-controls-total', { 'is-hidden': !hasPages }]"
+                >{{ totalPages }}</span>
             </div>
         </div>
 
@@ -244,9 +248,9 @@ onClickOutside(pageControlsRef, () => {
 }
 
 .page-controls-display {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: flex-end;
     padding: 0 0.5rem;
     width: var(--page-display-width-ch);
     min-width: var(--page-display-width-ch);
@@ -276,28 +280,38 @@ onClickOutside(pageControlsRef, () => {
     background-color: var(--app-toolbar-control-hover-bg);
 }
 
-.page-controls-indicator,
-.page-controls-inline-input,
-.page-controls-separator {
+.page-controls-current,
+.page-controls-total,
+.page-controls-slash,
+.page-controls-inline-input {
     font-size: 0.875rem;
     font-variant-numeric: tabular-nums;
     color: var(--ui-text);
     white-space: nowrap;
 }
 
-.page-controls-separator.is-hidden {
-    visibility: hidden;
-}
-
-.page-controls-indicator {
+.page-controls-current {
+    text-align: right;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
+.page-controls-slash {
+    text-align: center;
+    padding: 0 0.15rem;
+}
+
+.page-controls-slash.is-hidden,
+.page-controls-total.is-hidden {
+    visibility: hidden;
+}
+
+.page-controls-total {
+    text-align: left;
+}
+
 .page-controls-inline-input {
-    flex: 1 1 auto;
-    width: 100%;
     font-family: inherit;
     background: transparent;
     border: none;
