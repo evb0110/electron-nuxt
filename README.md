@@ -96,8 +96,48 @@ pnpm dist:linux      # Linux only
 pnpm lint            # ESLint + Stylelint (with auto-fix)
 pnpm typecheck       # TypeScript (app + Electron)
 pnpm test            # Vitest (unit + integration)
+pnpm test:e2e:electron        # Electron annotation E2E suite (phases 1-3)
+pnpm test:e2e:electron:watch  # Watch mode for Electron E2E suite
 pnpm validate        # lint + typecheck + build + knip (dead code)
 ```
+
+### Electron E2E (Annotations)
+
+The annotation E2E suite lives in `tests/e2e/electron` and currently covers:
+
+- Phase 1: annotation lifecycle (create/edit/delete FreeText)
+- Phase 2: interactions/settings/links/multi-page scenarios
+- Phase 3: undo/redo + save/reload persistence
+
+Run the full suite:
+
+```bash
+pnpm run test:e2e:electron
+```
+
+Run one phase:
+
+```bash
+pnpm vitest run --config vitest.electron-e2e.config.ts tests/e2e/electron/phase2.annotation-interactions.e2e.test.ts
+```
+
+Automation sessions are configured to avoid disrupting desktop focus:
+
+- `EVB_AUTOMATION_NO_FOCUS=1` (default for `electron:run` session manager)
+- `EVB_AUTOMATION_HIDE_WINDOW=1` (default for `electron:run` session manager)
+
+For local visual debugging, temporarily opt in to a visible window:
+
+```bash
+EVB_AUTOMATION_HIDE_WINDOW=0 pnpm run test:e2e:electron
+```
+
+### Commit Hooks
+
+The repository hooks run E2E as part of the commit pipeline:
+
+- `.husky/pre-commit` runs `pnpm exec lint-staged` and `pnpm run test:e2e:electron`
+- `.husky/pre-push` runs `pnpm run test:e2e:electron` and `pnpm run check:architecture`
 
 ### OCR Tuning
 
@@ -159,6 +199,7 @@ resources/            Bundled native binaries per platform/arch
 tests/
   unit/               Vitest unit tests
   integration/        Playwright integration tests
+  e2e/electron/       Vitest + Puppeteer Electron annotation E2E tests
 scripts/              Build, packaging, and verification scripts
 ```
 
@@ -174,7 +215,7 @@ scripts/              Build, packaging, and verification scripts
 | DjVu | DjVulibre (native binary) |
 | Pages | QPDF (native binary) |
 | Build | esbuild, electron-builder |
-| Test | Vitest, Playwright |
+| Test | Vitest, Playwright, Puppeteer (Electron E2E) |
 | Lint | ESLint, Stylelint, Knip |
 
 ## License

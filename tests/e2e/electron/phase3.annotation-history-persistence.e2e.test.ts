@@ -1,0 +1,83 @@
+import { delay } from 'es-toolkit/promise';
+import {
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import {
+    copyProjectFixture,
+    readPdfAnnotationSummary,
+} from './helpers/fixtures';
+import { startElectronE2ESession } from './helpers/session-harness';
+import {
+    clickToolbarButtonWhenEnabled,
+    clickAnnotationTool,
+    createFreeTextAnnotation,
+    getFreeTextEditorCount,
+    openAnnotationsTab,
+    openPdfInApp,
+    saveViaWindowHandle,
+    waitForPdfLoaded,
+} from './helpers/viewer-helpers';
+
+describe('Electron E2E - Phase 3 (Undo/Redo + Persistence)', () => {
+    it('undoes/redoes an annotation and persists it across app restart', async () => {
+        const fixturePath = copyProjectFixture('generated-text.pdf', `phase3-persistence-${Date.now()}.pdf`);
+        const summaryBefore = await readPdfAnnotationSummary(fixturePath);
+
+        const primarySession = await startElectronE2ESession(`e2e-phase3-primary-${Date.now()}`);
+
+        try {
+            await openPdfInApp(primarySession.page, fixturePath);
+            await waitForPdfLoaded(primarySession.page);
+            await openAnnotationsTab(primarySession.page);
+
+            const baselineCount = await getFreeTextEditorCount(primarySession.page);
+            const createdCount = await createFreeTextAnnotation(primarySession.page, `phase3-note-${Date.now()}`);
+            expect(createdCount).toBeGreaterThan(baselineCount);
+            await clickAnnotationTool(primarySession.page, 'Select');
+            await clickToolbarButtonWhenEnabled(primarySession.page, 'Undo', 6_000);
+            await delay(400);
+            const undoCount = await getFreeTextEditorCount(primarySession.page);
+            expect(undoCount).toBeLessThan(createdCount);
+
+            await clickToolbarButtonWhenEnabled(primarySession.page, 'Redo', 6_000);
+            await delay(400);
+            const redoCount = await getFreeTextEditorCount(primarySession.page);
+            expect(redoCount).toBeGreaterThanOrEqual(createdCount);
+
+            await saveViaWindowHandle(primarySession.page);
+        } finally {
+            await primarySession.stop();
+        }
+
+        const summaryAfterSave = await readPdfAnnotationSummary(fixturePath);
+        expect(summaryAfterSave.total).toBeGreaterThanOrEqual(summaryBefore.total);
+        expect(summaryAfterSave.bySubtype.FreeText ?? 0).toBeGreaterThan(summaryBefore.bySubtype.FreeText ?? 0);
+
+        const reloadSession = await startElectronE2ESession(`e2e-phase3-reload-${Date.now()}`);
+        try {
+            await openPdfInApp(reloadSession.page, fixturePath);
+            await waitForPdfLoaded(reloadSession.page);
+
+            const restoredAnnotationNodes = await reloadSession.page.evaluate(() => {
+                const host = Array.from(document.querySelectorAll('.workspace-host'))
+                    .find((candidate) => {
+                        const element = candidate as HTMLElement;
+                        const rect = element.getBoundingClientRect();
+                        const style = window.getComputedStyle(element);
+                        return style.display !== 'none' && rect.width > 100 && rect.height > 100;
+                    }) as HTMLElement | undefined;
+                if (!host) {
+                    return 0;
+                }
+                const selector = '[data-annotation-id], .freeTextEditor, .pdf-comment-marker-button';
+                return host.querySelectorAll(selector).length;
+            });
+
+            expect(restoredAnnotationNodes).toBeGreaterThan(0);
+        } finally {
+            await reloadSession.stop();
+        }
+    });
+});

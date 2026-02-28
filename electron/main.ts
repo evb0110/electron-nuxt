@@ -52,6 +52,19 @@ if (automationUserDataDir) {
 }
 
 const logger = createLogger('main');
+if (process.platform === 'darwin' && config.automation.noFocus) {
+    try {
+        // Keep automation sessions from becoming the active foreground app on macOS.
+        app.setActivationPolicy('accessory');
+    } catch (error) {
+        logger.warn(
+            `Failed to switch activation policy for automation mode: ${
+                error instanceof Error ? error.message : String(error)
+            }`,
+        );
+    }
+}
+
 const startupStartedAt = Date.now();
 const startupSessionId = `${startupStartedAt}-${randomUUID()}`;
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -258,6 +271,11 @@ function focusMainWindow() {
     if (window.isMinimized()) {
         window.restore();
     }
+
+    if (config.automation.noFocus) {
+        return;
+    }
+
     window.focus();
 }
 
@@ -352,6 +370,10 @@ function scheduleFlushPendingFiles() {
 }
 
 function maybePromptForDefaultViewer() {
+    if (config.automation.noFocus) {
+        return;
+    }
+
     if (defaultViewerPromptShown) {
         return;
     }
@@ -472,6 +494,10 @@ async function init() {
     });
 
     app.on('activate', () => {
+        if (config.automation.noFocus) {
+            return;
+        }
+
         if (!hasWindows()) {
             readyWindowIds.clear();
             void createWindow();
@@ -486,6 +512,17 @@ async function init() {
     logStartupPhase('Creating main window');
     await createWindow();
     logStartupPhase('Main window creation requested');
+
+    if (config.automation.noFocus && process.platform === 'darwin') {
+        try {
+            if (app.dock) {
+                app.dock.hide();
+            }
+        } catch (error) {
+            logger.warn(`Failed to hide dock in automation mode: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        app.hide();
+    }
 
     void (async () => {
         try {
