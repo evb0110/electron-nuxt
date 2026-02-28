@@ -87,7 +87,7 @@ export interface IWorkspaceUiPort {
     getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
 }
 
-export interface IWorkspaceStatePort {hasPdf: {value: boolean;} | boolean;}
+interface IWorkspaceStatePort {hasPdf: {value: boolean;} | boolean;}
 
 export interface IWorkspaceExpose extends
     IWorkspaceFilePort,
