@@ -152,6 +152,29 @@
     stroke-width: 0 !important;
 }
 
+/* Prevent double-painted editor-origin markup after reload:
+   when the non-editing editor layer is visible, hide matching
+   annotation-layer editor replicas to keep highlight intensity stable. */
+.pdfViewer .page:has(
+    .annotationEditorLayer.nonEditing:not([hidden]),
+    .annotation-editor-layer.nonEditing:not([hidden])
+) .annotationLayer .editorAnnotation,
+.pdfViewer .page:has(
+    .annotationEditorLayer.nonEditing:not([hidden]),
+    .annotation-editor-layer.nonEditing:not([hidden])
+) .annotation-layer .editorAnnotation,
+.pdf-viewer-container .page:has(
+    .annotationEditorLayer.nonEditing:not([hidden]),
+    .annotation-editor-layer.nonEditing:not([hidden])
+) .annotationLayer .editorAnnotation,
+.pdf-viewer-container .page:has(
+    .annotationEditorLayer.nonEditing:not([hidden]),
+    .annotation-editor-layer.nonEditing:not([hidden])
+) .annotation-layer .editorAnnotation {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
 /* Hide native PDF.js popup trigger bubbles; custom inline note anchors
    provide the single source of truth for note interaction. */
 .pdfViewer .annotationLayer .popupTriggerArea,
