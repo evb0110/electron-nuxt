@@ -289,6 +289,10 @@ export function isPopupSubtype(subtype: string | null | undefined) {
     return (subtype ?? '').trim().toLowerCase() === 'popup';
 }
 
+export function isLinkSubtype(subtype: string | null | undefined) {
+    return (subtype ?? '').trim().toLowerCase() === 'link';
+}
+
 export function detectEditorSubtype(editor: IPdfjsEditor | null | undefined) {
     if (!editor) {
         return null;

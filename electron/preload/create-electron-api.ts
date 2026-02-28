@@ -123,6 +123,8 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 onNoArgEvent(ipcRenderer, 'menu:checkForUpdates', callback),
         },
 
+        shell: {openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)},
+
         windowTabs: {
             closeCurrentWindow: () => ipcRenderer.invoke('window:closeCurrent'),
             notifyRendererReady: () => {

@@ -7,6 +7,7 @@ import { debounce } from 'es-toolkit/function';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     IAnnotationCommentSummary,
+    ILinkAnnotation,
     TMarkupSubtype,
     IPdfjsEditor,
 } from '@app/composables/pdf/annotations/types';
@@ -22,6 +23,7 @@ import {
     getAnnotationAuthor,
     annotationKindLabelFromSubtype,
     isPopupSubtype,
+    isLinkSubtype,
     detectEditorSubtype,
     isTextMarkupSubtype,
     normalizeMarkerRect,
@@ -70,6 +72,7 @@ interface ISyncMarkupSubtype {
 
 interface ISyncStore {
     setAnnotations: (comments: IAnnotationCommentSummary[]) => void;
+    setLinkAnnotations: (links: ILinkAnnotation[]) => void;
     setActiveKey: (key: string | null) => void;
 }
 
@@ -263,12 +266,14 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                 identity.clearMemory();
                 markupSubtype.clearOverrides();
                 store.setAnnotations([]);
+                store.setLinkAnnotations([]);
                 syncInlineCommentIndicators();
                 return;
             }
 
             const localToken = ++syncToken;
             const commentsByKey = new Map<string, IAnnotationCommentSummary>();
+            const collectedLinks: ILinkAnnotation[] = [];
             let sourceOrder = 0;
 
             const uiManager = annotationUiManager.value;
@@ -358,6 +363,21 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                         return;
                     }
                     if (isPopupSubtype(annotation.subtype)) {
+                        return;
+                    }
+                    if (isLinkSubtype(annotation.subtype)) {
+                        const url = (annotation as { url?: string }).url;
+                        if (url && annotation.rect) {
+                            const rect = toMarkerRectFromPdfRect(annotation.rect, pageView, pageRotation);
+                            if (rect) {
+                                collectedLinks.push({
+                                    id: annotation.id ?? `link-${pageNumber}-${annotationIndex}`,
+                                    pageNumber,
+                                    url,
+                                    rect,
+                                });
+                            }
+                        }
                         return;
                     }
 
@@ -465,6 +485,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
             });
 
             store.setAnnotations(comments);
+            store.setLinkAnnotations(collectedLinks);
             markupSubtype.syncMarkupSubtypePresentationForEditors();
             syncInlineCommentIndicators();
         } catch (error) {

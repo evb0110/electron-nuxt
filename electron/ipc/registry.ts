@@ -1,6 +1,7 @@
 import {
     BrowserWindow,
     ipcMain,
+    shell,
 } from 'electron';
 import type { ISettingsData } from '@contracts/shared';
 import type {
@@ -183,6 +184,17 @@ function registerCoreIpcHandlers() {
     ipcMain.handle('updates:install', () => installDownloadedUpdate());
     ipcMain.handle('updates:defer', () => deferDownloadedUpdate());
     ipcMain.handle('updates:skipVersion', (_event, version: string) => skipUpdateVersion(version));
+
+    ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+        const parsed = new URL(url);
+        if ([
+            'http:',
+            'https:',
+            'mailto:',
+        ].includes(parsed.protocol)) {
+            await shell.openExternal(url);
+        }
+    });
 }
 
 export function registerIpcHandlers() {

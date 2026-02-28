@@ -80,6 +80,11 @@
                 />
             </Teleport>
         </template>
+        <template v-for="(links, pageNum) in linksByPage" :key="`links-${pageNum}`">
+            <Teleport v-if="linkLayerTargets.get(Number(pageNum))" :to="linkLayerTargets.get(Number(pageNum))!">
+                <PdfLinkOverlayLayer :links="links" />
+            </Teleport>
+        </template>
     </div>
 </template>
 
@@ -91,6 +96,7 @@ import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import PdfViewerPage from '@app/components/pdf/PdfViewerPage.vue';
 import PdfRegionSnipOverlay from '@app/components/pdf/PdfRegionSnipOverlay.vue';
 import PdfCommentMarkerLayer from '@app/components/pdf/annotations/PdfCommentMarkerLayer.vue';
+import PdfLinkOverlayLayer from '@app/components/pdf/annotations/PdfLinkOverlayLayer.vue';
 import { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import { usePdfDrag } from '@app/composables/pdf/usePdfDrag';
 import { usePdfPageRenderer } from '@app/composables/pdf/usePdfPageRenderer';
@@ -519,6 +525,7 @@ const annotations = useAnnotationOrchestrator({
 const highlightComposable = annotations.highlight;
 const commentCrud = annotations.crud;
 const markersByPage = annotations.markersByPage;
+const linksByPage = annotations.linksByPage;
 
 const markerLayerTargets = computed<Map<number, HTMLElement>>(() => {
     const container = viewerContainer.value;
@@ -527,6 +534,23 @@ const markerLayerTargets = computed<Map<number, HTMLElement>>(() => {
     }
     const targets = new Map<number, HTMLElement>();
     for (const pageNumber of markersByPage.value.keys()) {
+        const pageEl = container.querySelector<HTMLElement>(
+            `.page_container[data-page="${pageNumber}"]`,
+        );
+        if (pageEl) {
+            targets.set(pageNumber, pageEl);
+        }
+    }
+    return targets;
+});
+
+const linkLayerTargets = computed<Map<number, HTMLElement>>(() => {
+    const container = viewerContainer.value;
+    if (!container) {
+        return new Map();
+    }
+    const targets = new Map<number, HTMLElement>();
+    for (const pageNumber of Object.keys(linksByPage.value).map(Number)) {
         const pageEl = container.querySelector<HTMLElement>(
             `.page_container[data-page="${pageNumber}"]`,
         );
@@ -2099,6 +2123,7 @@ defineExpose({
     .text-layer span,
     .text-layer br,
     .annotation-layer a,
+    .pdf-link-overlay,
     .annotation-editor-layer,
     .annotationEditorLayer,
     .page_container,
