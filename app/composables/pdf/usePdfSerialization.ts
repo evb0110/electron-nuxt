@@ -324,6 +324,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         const rectName = PDFName.of('Rect');
         const popupName = PDFName.of('Popup');
         const apName = PDFName.of('AP');
+        const contentsName = PDFName.of('Contents');
         let modified = false;
 
         const pages = doc.getPages();
@@ -442,6 +443,16 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 ]));
 
                 dict.delete(apName);
+
+                // PDF.js writes popup.contents into the FreeText's Contents
+                // field during saveDocument().  Without an appearance stream,
+                // FreeTextAnnotation reads Contents as visible page text on
+                // reopen — causing note text to render both in the popup AND
+                // on the page canvas.  Replace Contents with a zero-width
+                // space so the editor stays non-empty (preventing auto-delete)
+                // but renders nothing visible.
+                dict.set(contentsName, PDFHexString.fromText('\u200B'));
+
                 modified = true;
             }
         }
