@@ -10,7 +10,7 @@ import type {
 import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
 
 export {
-    clamp01, normalizeMarkerRect, toMarkerRectFromPdfRect, markerRectIoU, rectIntersectionArea, rectIoU, rectCenterDistance, rectsIntersect, mergeMarkerRects, 
+    clamp01, normalizeMarkerRect, toMarkerRectFromPdfRect, toPdfRectFromMarkerRect, markerRectIoU, rectIntersectionArea, rectIoU, rectCenterDistance, rectsIntersect, mergeMarkerRects,
 } from '@app/composables/pdf/annotationGeometry';
 export {
     toCssColor, colorWithOpacity, escapeCssAttr, errorToLogText, commentPreviewText, commentPreviewFromRawText, 
@@ -205,15 +205,21 @@ export function getAnnotationCommentText(annotation: {
     contentsObj?: { str?: string | null };
     richText?: { str?: string | null };
 }) {
-    const rich = annotation.richText?.str?.trim();
-    if (rich) {
+    const rich = annotation.richText?.str;
+    if (typeof rich === 'string' && rich.trim().length > 0) {
         return rich;
     }
-    const structured = annotation.contentsObj?.str?.trim();
-    if (structured) {
+    const structured = annotation.contentsObj?.str;
+    if (typeof structured === 'string' && structured.trim().length > 0) {
         return structured;
     }
-    return annotation.contents?.trim() ?? '';
+    if (typeof rich === 'string' && rich.length > 0) {
+        return rich;
+    }
+    if (typeof structured === 'string' && structured.length > 0) {
+        return structured;
+    }
+    return annotation.contents ?? '';
 }
 
 export function getAnnotationAuthor(annotation: {

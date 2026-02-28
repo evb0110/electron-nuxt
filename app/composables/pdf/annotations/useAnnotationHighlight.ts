@@ -1112,36 +1112,71 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             resolvedEditor.__evbPendingAnchorRect = clickMarkerRect;
             commentSync.pendingCommentEditorKeys.add(identity.getEditorPendingKey(resolvedEditor, pageIndex));
 
-            const resolvedEditorWithComment = resolvedEditor as IPdfjsEditor & { editComment?: () => void };
-            if (typeof resolvedEditorWithComment.editComment === 'function') {
-                resolvedEditorWithComment.editComment();
-            } else {
-                const summary = commentSync.toEditorSummary(resolvedEditor, pageIndex, getCommentText(resolvedEditor));
-                let finalMarkerRect = summary.markerRect ?? clickMarkerRect;
-                const centerDistance = markerRectCenterDistance(summary.markerRect, clickMarkerRect);
-                const shouldUseClickAnchor = Boolean(
-                    clickMarkerRect
-                    && (!summary.markerRect || centerDistance > 0.14),
-                );
-                if (shouldUseClickAnchor) {
-                    finalMarkerRect = clickMarkerRect;
-                }
-                const summaryPageNumber = Number.isFinite(summary.pageNumber)
-                    ? summary.pageNumber
-                    : (summary.pageIndex + 1);
-                if (diagnosticsContext && summaryPageNumber !== pageNumber) {
-                    BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page mismatch: summary page differs from requested page', {
-                        attemptId: diagnosticsContext.attemptId ?? null,
-                        requestedPageNumber: pageNumber,
-                        summaryPageNumber,
-                        summaryPageIndex: summary.pageIndex,
-                        summaryStableKey: summary.stableKey,
-                    });
-                }
-                emitAnnotationOpenNote({
-                    ...summary,
-                    markerRect: finalMarkerRect,
+            const summary = commentSync.toEditorSummary(resolvedEditor, pageIndex, getCommentText(resolvedEditor));
+            let finalMarkerRect = summary.markerRect ?? clickMarkerRect;
+            const centerDistance = markerRectCenterDistance(summary.markerRect, clickMarkerRect);
+            const shouldUseClickAnchor = Boolean(
+                clickMarkerRect
+                && (!summary.markerRect || centerDistance > 0.14),
+            );
+            if (shouldUseClickAnchor) {
+                finalMarkerRect = clickMarkerRect;
+            }
+            const summaryPageNumber = Number.isFinite(summary.pageNumber)
+                ? summary.pageNumber
+                : (summary.pageIndex + 1);
+            if (diagnosticsContext && summaryPageNumber !== pageNumber) {
+                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page mismatch: summary page differs from requested page', {
+                    attemptId: diagnosticsContext.attemptId ?? null,
+                    requestedPageNumber: pageNumber,
+                    summaryPageNumber,
+                    summaryPageIndex: summary.pageIndex,
+                    summaryStableKey: summary.stableKey,
                 });
+            }
+            const summaryForNote = {
+                ...summary,
+                markerRect: finalMarkerRect,
+            };
+
+            try {
+                emitAnnotationOpenNote(summaryForNote);
+            } catch (error) {
+                const resolvedEditorWithComment = resolvedEditor as IPdfjsEditor & { editComment?: () => void };
+                if (typeof resolvedEditorWithComment.editComment !== 'function') {
+                    throw error;
+                }
+
+                const viewer = viewerContainer.value;
+                const snapshot = viewer
+                    ? {
+                        top: viewer.scrollTop,
+                        left: viewer.scrollLeft,
+                    }
+                    : null;
+                const restoreViewerScroll = () => {
+                    if (!viewer || !snapshot) {
+                        return;
+                    }
+                    viewer.scrollTop = snapshot.top;
+                    viewer.scrollLeft = snapshot.left;
+                };
+                const pinViewerScroll = () => {
+                    restoreViewerScroll();
+                    queueMicrotask(restoreViewerScroll);
+                    if (typeof window !== 'undefined') {
+                        window.requestAnimationFrame(() => {
+                            restoreViewerScroll();
+                            window.requestAnimationFrame(restoreViewerScroll);
+                        });
+                        window.setTimeout(restoreViewerScroll, 0);
+                        window.setTimeout(restoreViewerScroll, 48);
+                    }
+                };
+
+                pinViewerScroll();
+                resolvedEditorWithComment.editComment();
+                pinViewerScroll();
             }
             return true;
         } catch (error) {
@@ -1193,17 +1228,16 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             ? {
                 top: viewer.scrollTop,
                 left: viewer.scrollLeft,
-                clientHeight: viewer.clientHeight,
-                clientWidth: viewer.clientWidth,
             }
             : null;
         const enrichedDiagnosticsContext: INotePlacementDiagnosticsContext = {
             ...diagnosticsContext,
             attemptId,
         };
-        const monitorViewerJumpAfterPlacement = (created: boolean) => {
+        const pinViewerScrollAfterPlacement = (created: boolean) => {
             if (
-                !viewer
+                !created
+                || !viewer
                 || !viewerScrollSnapshot
                 || typeof viewer.scrollTop !== 'number'
                 || typeof viewer.scrollLeft !== 'number'
@@ -1211,14 +1245,9 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 return;
             }
 
-            const topThreshold = Math.max(160, viewerScrollSnapshot.clientHeight * 0.25);
-            const leftThreshold = Math.max(80, viewerScrollSnapshot.clientWidth * 0.2);
             const timeouts: Array<ReturnType<typeof setTimeout>> = [];
             const removeListeners: Array<() => void> = [];
             let userInteracted = false;
-            let restoreCount = 0;
-            let lastDriftTop = 0;
-            let lastDriftLeft = 0;
 
             const release = () => {
                 timeouts.splice(0).forEach(timeoutId => clearTimeout(timeoutId));
@@ -1230,54 +1259,28 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 timeouts.push(timeoutId);
             };
 
-            const restoreViewerScroll = (phase: string) => {
-                restoreCount += 1;
+            const restoreViewerScroll = () => {
+                if (userInteracted) {
+                    return;
+                }
                 viewer.scrollTop = viewerScrollSnapshot.top;
                 viewer.scrollLeft = viewerScrollSnapshot.left;
                 if (typeof window !== 'undefined') {
                     window.requestAnimationFrame(() => {
+                        if (userInteracted) {
+                            return;
+                        }
                         viewer.scrollTop = viewerScrollSnapshot.top;
                         viewer.scrollLeft = viewerScrollSnapshot.left;
                     });
                 }
                 scheduleTimeout(() => {
+                    if (userInteracted) {
+                        return;
+                    }
                     viewer.scrollTop = viewerScrollSnapshot.top;
                     viewer.scrollLeft = viewerScrollSnapshot.left;
-                }, 90);
-                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Detected large viewport jump after quick-note placement; restoring viewer scroll', {
-                    attemptId,
-                    phase,
-                    restoreCount,
-                    target: {
-                        top: roundForLog(viewerScrollSnapshot.top),
-                        left: roundForLog(viewerScrollSnapshot.left),
-                    },
-                    current: {
-                        top: roundForLog(viewer.scrollTop),
-                        left: roundForLog(viewer.scrollLeft),
-                    },
-                    driftTop: roundForLog(lastDriftTop),
-                    driftLeft: roundForLog(lastDriftLeft),
-                    topThreshold: roundForLog(topThreshold),
-                    leftThreshold: roundForLog(leftThreshold),
-                    created,
-                });
-            };
-
-            const sample = (phase: string) => {
-                if (!viewer) {
-                    return;
-                }
-                lastDriftTop = viewer.scrollTop - viewerScrollSnapshot.top;
-                lastDriftLeft = viewer.scrollLeft - viewerScrollSnapshot.left;
-                const shouldRestore = (
-                    Math.abs(lastDriftTop) >= topThreshold
-                    || Math.abs(lastDriftLeft) >= leftThreshold
-                );
-
-                if (shouldRestore && !userInteracted) {
-                    restoreViewerScroll(phase);
-                }
+                }, 32);
             };
 
             const registerUserIntentCancel = (
@@ -1302,46 +1305,27 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             registerUserIntentCancel('touchstart');
             registerUserIntentCancel('pointerdown');
 
-            sample('t+0ms');
+            restoreViewerScroll();
+            queueMicrotask(restoreViewerScroll);
             if (typeof window !== 'undefined') {
-                window.requestAnimationFrame(() => sample('raf'));
+                window.requestAnimationFrame(() => {
+                    restoreViewerScroll();
+                    window.requestAnimationFrame(restoreViewerScroll);
+                });
             }
             const checkpoints = [
-                {
-                    phase: 't+36ms',
-                    delayMs: 36,
-                },
-                {
-                    phase: 't+90ms',
-                    delayMs: 90,
-                },
-                {
-                    phase: 't+180ms',
-                    delayMs: 180,
-                },
-                {
-                    phase: 't+340ms',
-                    delayMs: 340,
-                },
-                {
-                    phase: 't+620ms',
-                    delayMs: 620,
-                },
-                {
-                    phase: 't+980ms',
-                    delayMs: 980,
-                },
-                {
-                    phase: 't+1360ms',
-                    delayMs: 1360,
-                },
+                0,
+                32,
+                96,
+                180,
+                320,
             ];
-            checkpoints.forEach((checkpoint) => {
-                scheduleTimeout(() => sample(checkpoint.phase), checkpoint.delayMs);
+            checkpoints.forEach((delayMs) => {
+                scheduleTimeout(() => restoreViewerScroll(), delayMs);
             });
             scheduleTimeout(() => {
                 release();
-            }, 1500);
+            }, 460);
         };
 
         const target = resolvePagePointTarget(clientX, clientY, targetElement, enrichedDiagnosticsContext);
@@ -1360,7 +1344,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         if (created) {
             setCommentPlacementMode(false);
         }
-        monitorViewerJumpAfterPlacement(created);
+        pinViewerScrollAfterPlacement(created);
         return created;
     }
 

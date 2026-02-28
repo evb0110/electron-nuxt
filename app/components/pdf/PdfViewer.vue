@@ -1843,6 +1843,9 @@ defineExpose({
     invalidatePages,
     suppressAnnotationId: annotations.commentSync.suppressAnnotationId,
     removeAnnotationFromDom: commentCrud.removeAnnotationFromDom,
+    removeAnnotationFromInternalCache: (stableKey: string) => {
+        annotationCommentsCache.value = annotationCommentsCache.value.filter(c => c.stableKey !== stableKey);
+    },
     captureRegionToClipboard: regionSnip.startCaptureSession,
     isCapturingRegion: regionSnip.isActive,
     requestScrollToCurrentResult,

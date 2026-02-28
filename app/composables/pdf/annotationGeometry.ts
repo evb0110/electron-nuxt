@@ -1,6 +1,21 @@
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { clamp } from 'es-toolkit/math';
 
+export type TPageRotation = 0 | 90 | 180 | 270;
+
+export function normalizePageRotation(value: number): TPageRotation {
+    if (!Number.isFinite(value)) {
+        return 0;
+    }
+
+    const snapped = Math.round(value / 90) * 90;
+    const normalized = ((snapped % 360) + 360) % 360;
+    if (normalized === 90 || normalized === 180 || normalized === 270) {
+        return normalized;
+    }
+    return 0;
+}
+
 export function clamp01(value: number) {
     if (!Number.isFinite(value)) {
         return 0;
@@ -40,9 +55,119 @@ export function normalizeMarkerRect(rect: IAnnotationMarkerRect | null | undefin
 
 const MIN_POINT_MARKER_SIZE = 0.0016;
 
+export function toMarkerRectFromEditorRect(
+    markerRect: IAnnotationMarkerRect | null | undefined,
+    pageRotation: TPageRotation = 0,
+): IAnnotationMarkerRect | null {
+    const normalized = normalizeMarkerRect(markerRect);
+    if (!normalized) {
+        return null;
+    }
+
+    const normalizedRotation = normalizePageRotation(pageRotation);
+    switch (normalizedRotation) {
+        case 90:
+            return normalizeMarkerRect({
+                left: 1 - normalized.top,
+                top: normalized.left,
+                width: normalized.width,
+                height: normalized.height,
+            });
+        case 180:
+            return normalizeMarkerRect({
+                left: 1 - normalized.left,
+                top: 1 - normalized.top,
+                width: normalized.width,
+                height: normalized.height,
+            });
+        case 270:
+            return normalizeMarkerRect({
+                left: normalized.top,
+                top: 1 - normalized.left,
+                width: normalized.width,
+                height: normalized.height,
+            });
+        default:
+            return normalized;
+    }
+}
+
+interface IPageRectBounds {
+    xMin: number;
+    yMin: number;
+    width: number;
+    height: number;
+}
+
+function toMarkerPointFromPdfPoint(
+    x: number,
+    y: number,
+    bounds: IPageRectBounds,
+    pageRotation: TPageRotation,
+) {
+    const normX = (x - bounds.xMin) / bounds.width;
+    const normY = (y - bounds.yMin) / bounds.height;
+
+    switch (pageRotation) {
+        case 90:
+            return {
+                x: normY,
+                y: normX,
+            };
+        case 180:
+            return {
+                x: 1 - normX,
+                y: normY,
+            };
+        case 270:
+            return {
+                x: 1 - normY,
+                y: 1 - normX,
+            };
+        default:
+            return {
+                x: normX,
+                y: 1 - normY,
+            };
+    }
+}
+
+function toPdfPointFromMarkerPoint(
+    markerX: number,
+    markerY: number,
+    bounds: IPageRectBounds,
+    pageRotation: TPageRotation,
+) {
+    let normX = markerX;
+    let normY = 1 - markerY;
+
+    switch (pageRotation) {
+        case 90:
+            normX = markerY;
+            normY = markerX;
+            break;
+        case 180:
+            normX = 1 - markerX;
+            normY = markerY;
+            break;
+        case 270:
+            normX = 1 - markerY;
+            normY = 1 - markerX;
+            break;
+        default:
+            break;
+    }
+
+    return {
+        x: bounds.xMin + normX * bounds.width,
+        y: bounds.yMin + normY * bounds.height,
+    };
+}
+
 export function toMarkerRectFromPdfRect(
     rect: number[] | null | undefined,
     pageView: number[] | null | undefined,
+    pageRotation: TPageRotation = 0,
 ): IAnnotationMarkerRect | null {
     if (!rect || rect.length < 4 || !pageView || pageView.length < 4) {
         return null;
@@ -67,10 +192,30 @@ export function toMarkerRectFromPdfRect(
         return null;
     }
 
-    let normLeft = (minX - xMin) / pageWidth;
-    let normTop = (yMax - maxY) / pageHeight;
-    let normWidth = (maxX - minX) / pageWidth;
-    let normHeight = (maxY - minY) / pageHeight;
+    const bounds: IPageRectBounds = {
+        xMin,
+        yMin,
+        width: pageWidth,
+        height: pageHeight,
+    };
+    const normalizedRotation = normalizePageRotation(pageRotation);
+
+    const cornerPoints = [
+        toMarkerPointFromPdfPoint(minX, minY, bounds, normalizedRotation),
+        toMarkerPointFromPdfPoint(minX, maxY, bounds, normalizedRotation),
+        toMarkerPointFromPdfPoint(maxX, minY, bounds, normalizedRotation),
+        toMarkerPointFromPdfPoint(maxX, maxY, bounds, normalizedRotation),
+    ];
+
+    const markerLeft = Math.min(...cornerPoints.map(point => point.x));
+    const markerTop = Math.min(...cornerPoints.map(point => point.y));
+    const markerRight = Math.max(...cornerPoints.map(point => point.x));
+    const markerBottom = Math.max(...cornerPoints.map(point => point.y));
+
+    let normLeft = markerLeft;
+    let normTop = markerTop;
+    let normWidth = markerRight - markerLeft;
+    let normHeight = markerBottom - markerTop;
 
     // Degenerate (zero-area) rects occur when a FreeText annotation is serialized
     // with minimal content (e.g. ZWS placeholder for sticky-note style comments).
@@ -93,6 +238,56 @@ export function toMarkerRectFromPdfRect(
         width: normWidth,
         height: normHeight,
     });
+}
+
+export function toPdfRectFromMarkerRect(
+    markerRect: IAnnotationMarkerRect | null | undefined,
+    pageView: number[] | null | undefined,
+    pageRotation: TPageRotation = 0,
+): [number, number, number, number] | null {
+    const normalized = normalizeMarkerRect(markerRect);
+    if (!normalized || !pageView || pageView.length < 4) {
+        return null;
+    }
+
+    const xMin = pageView[0] ?? 0;
+    const yMin = pageView[1] ?? 0;
+    const xMax = pageView[2] ?? 0;
+    const yMax = pageView[3] ?? 0;
+    const pageWidth = xMax - xMin;
+    const pageHeight = yMax - yMin;
+    if (!Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) || pageWidth <= 0 || pageHeight <= 0) {
+        return null;
+    }
+
+    const bounds: IPageRectBounds = {
+        xMin,
+        yMin,
+        width: pageWidth,
+        height: pageHeight,
+    };
+    const normalizedRotation = normalizePageRotation(pageRotation);
+    const markerRight = normalized.left + normalized.width;
+    const markerBottom = normalized.top + normalized.height;
+
+    const cornerPoints = [
+        toPdfPointFromMarkerPoint(normalized.left, normalized.top, bounds, normalizedRotation),
+        toPdfPointFromMarkerPoint(markerRight, normalized.top, bounds, normalizedRotation),
+        toPdfPointFromMarkerPoint(normalized.left, markerBottom, bounds, normalizedRotation),
+        toPdfPointFromMarkerPoint(markerRight, markerBottom, bounds, normalizedRotation),
+    ];
+
+    const minX = Math.min(...cornerPoints.map(point => point.x));
+    const minY = Math.min(...cornerPoints.map(point => point.y));
+    const maxX = Math.max(...cornerPoints.map(point => point.x));
+    const maxY = Math.max(...cornerPoints.map(point => point.y));
+
+    return [
+        minX,
+        minY,
+        maxX,
+        maxY,
+    ];
 }
 
 export function markerRectIoU(

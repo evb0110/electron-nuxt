@@ -602,6 +602,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         }
 
         const nextTrimmed = text.trim();
+        const nextRawLength = text.length;
         const previousText = getCommentText(editor);
         const previousTrimmed = previousText.trim();
         const editorPageIndex = Number.isFinite(editor.parentPageIndex)
@@ -618,7 +619,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
             return true;
         }
 
-        editor.comment = nextTrimmed.length > 0 ? text : '';
+        editor.comment = nextRawLength > 0 ? text : '';
         editor.addToAnnotationStorage?.();
 
         if (nextTrimmed.length > 0) {
