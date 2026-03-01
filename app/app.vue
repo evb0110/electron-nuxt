@@ -11,14 +11,48 @@
 
 <script setup lang="ts">
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { hasElectronAPI } from '@app/utils/electron';
 
 const {
     load: loadSettings,
     settings,
 } = useSettings();
+const { loadRecentFiles } = useRecentFiles();
 const { setLocale } = useTypedI18n();
 const colorMode = useColorMode();
 const DEV_RELOAD_EVENT_KEY = 'evb-viewer:dev:last-vite-reload-event';
+
+async function waitForNextPaintFrame() {
+    await new Promise<void>((resolve) => {
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => resolve());
+            return;
+        }
+
+        setTimeout(resolve);
+    });
+}
+
+async function preloadStartupContent() {
+    if (!import.meta.client) {
+        return;
+    }
+
+    const warmupStartedAt = performance.now();
+    BrowserLogger.debug('loader', 'Startup content warmup started', { hasElectronApi: hasElectronAPI() });
+
+    const warmupTasks: Array<Promise<unknown>> = [import('@app/components/DocumentWorkspace.vue')];
+
+    if (hasElectronAPI()) {
+        warmupTasks.push(loadRecentFiles());
+    }
+
+    const results = await Promise.allSettled(warmupTasks);
+    BrowserLogger.debug('loader', 'Startup content warmup settled', {
+        durationMs: Math.round(performance.now() - warmupStartedAt),
+        taskStates: results.map(result => result.status),
+    });
+}
 
 function installViteReloadDiagnostics() {
     if (!import.meta.dev || typeof window === 'undefined') {
@@ -75,6 +109,10 @@ onMounted(async () => {
     if (settings.value.theme) {
         colorMode.preference = settings.value.theme;
     }
+
+    await preloadStartupContent();
+    await nextTick();
+    await waitForNextPaintFrame();
 
     // Expose for testing (set after hydration/mount, not during module evaluation).
     if (typeof window !== 'undefined') {
