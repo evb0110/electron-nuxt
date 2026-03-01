@@ -5,6 +5,12 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      run_release:
+        description: 'Create/append GitHub release from built artifacts'
+        required: true
+        default: false
+        type: boolean
 
 jobs:
   build:
@@ -309,19 +315,26 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
+      - name: Decide whether to publish release
+        shell: bash
+        run: |
+          echo "SHOULD_RELEASE=${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.run_release) }}" >> "$GITHUB_ENV"
+
       - name: Download all artifacts
+        if: env.SHOULD_RELEASE == 'true'
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
 
       - name: Validate updater metadata paths
+        if: env.SHOULD_RELEASE == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -347,15 +360,20 @@ jobs:
           done
 
       - name: Create draft release
+        if: env.SHOULD_RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
           draft: false
           generate_release_notes: true
           files: artifacts/*
 
+      - name: Skip release publishing
+        if: env.SHOULD_RELEASE != 'true'
+        run: echo "Release publishing disabled for this workflow run."
+
   build_mac_intel:
     name: Build macOS Intel (non-blocking)
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: release
     runs-on: macos-15-intel
     permissions:
@@ -496,6 +514,7 @@ jobs:
           if-no-files-found: error
 
       - name: Append to release
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.run_release)
         uses: softprops/action-gh-release@v2
         with:
           files: |

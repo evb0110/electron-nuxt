@@ -15,6 +15,9 @@ const STARTUP_OVERLAY_STYLE_ID = 'evb-startup-overlay-style';
 const APP_READY_EVENT_NAME = 'evb:app-ready';
 const DEV_STARTUP_OVERLAY_SHOWN_KEY = 'evb-viewer:dev:startup-overlay-shown';
 const STARTUP_OVERLAY_SPINNER_SIZE_PX = 24;
+const STARTUP_OVERLAY_GAP_PX = 12;
+const STARTUP_OVERLAY_TEXT_FONT_SIZE_PX = 14;
+const STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX = 14;
 const DEV_STARTUP_OVERLAY_APP_READY_DELAY_MS = 2200;
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 const STARTUP_TRACE_ENABLED_KEY = '__EVB_STARTUP_TRACE__';
@@ -81,12 +84,14 @@ function ensureStartupOverlayStyles() {
     background: #f5f5f5;
     color: #475569;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1;
 }
 #${STARTUP_OVERLAY_ID} .evb-startup-overlay__inner {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 12px;
+    gap: ${STARTUP_OVERLAY_GAP_PX}px;
+    min-height: ${STARTUP_OVERLAY_SPINNER_SIZE_PX + STARTUP_OVERLAY_GAP_PX + STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX}px;
 }
 #${STARTUP_OVERLAY_ID} .evb-startup-overlay__spinner {
     width: ${STARTUP_OVERLAY_SPINNER_SIZE_PX}px;
@@ -105,8 +110,10 @@ function ensureStartupOverlayStyles() {
     transform: translateZ(0);
 }
 #${STARTUP_OVERLAY_ID} .evb-startup-overlay__text {
-    font-size: 14px;
+    font-size: ${STARTUP_OVERLAY_TEXT_FONT_SIZE_PX}px;
+    line-height: ${STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX}px;
     letter-spacing: 0.2px;
+    margin: 0;
 }
 @keyframes evb-startup-overlay-spin {
     from { transform: translateZ(0) rotate(0deg); }
