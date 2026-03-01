@@ -50,6 +50,7 @@
     "release:patch": "HUSKY=0 pnpm version patch && git push && git push --tags",
     "release:minor": "HUSKY=0 pnpm version minor && git push && git push --tags",
     "release:major": "HUSKY=0 pnpm version major && git push && git push --tags",
+    "gh:build:no-release": "gh workflow run build.yml -f run_release=false",
     "check:resources:matrix": "bash scripts/check-native-tools-source-matrix.sh",
     "check:resources:matrix:all": "bash scripts/check-native-tools-source-matrix.sh --all",
     "check:locales": "pnpm exec tsx scripts/check-locales.ts",
