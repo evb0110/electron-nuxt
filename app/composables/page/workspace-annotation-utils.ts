@@ -8,7 +8,7 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface IWorkspacePdfViewerForAnnotationUtils {
     saveDocument: () => Promise<Uint8Array | null>;
-    hasShapes?: { value: boolean };
+    hasShapes?: boolean;
     getAllShapes: () => IShapeAnnotation[];
 }
 
@@ -54,7 +54,7 @@ export function createSerializeCurrentPdfForEmbeddedFallback(deps: ISerializeEmb
 }
 
 export function hasAnnotationChanges(deps: IHasAnnotationChangesDeps) {
-    if (deps.pdfViewerRef.value?.hasShapes?.value) {
+    if (deps.pdfViewerRef.value?.hasShapes) {
         return true;
     }
 

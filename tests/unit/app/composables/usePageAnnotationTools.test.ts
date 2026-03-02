@@ -22,7 +22,7 @@ function createEditorState(overrides: Partial<IAnnotationEditorState> = {}): IAn
 function createHarness() {
     const viewer = {
         cancelCommentPlacement: vi.fn(),
-        selectedShapeId: { value: null as string | null },
+        selectedShapeId: null as string | null,
         updateShape: vi.fn(),
     };
 
@@ -66,7 +66,7 @@ describe('usePageAnnotationTools', () => {
             tools,
         } = createHarness();
 
-        viewer.selectedShapeId.value = 'shape-1';
+        viewer.selectedShapeId = 'shape-1';
 
         tools.handleAnnotationSettingChange({
             key: 'shapeStrokeWidth',
@@ -81,6 +81,22 @@ describe('usePageAnnotationTools', () => {
         expect(tools.annotationSettings.value.shapeFillColor).toBe('transparent');
         expect(viewer.updateShape).toHaveBeenNthCalledWith(1, 'shape-1', { strokeWidth: 5 });
         expect(viewer.updateShape).toHaveBeenNthCalledWith(2, 'shape-1', { fillColor: undefined });
+    });
+
+    it('updates selected shape when viewer exposes unwrapped selectedShapeId value', () => {
+        const {
+            viewer,
+            tools,
+        } = createHarness();
+
+        viewer.selectedShapeId = 'shape-public-instance';
+
+        tools.handleAnnotationSettingChange({
+            key: 'shapeColor',
+            value: '#10b981',
+        });
+
+        expect(viewer.updateShape).toHaveBeenCalledWith('shape-public-instance', { color: '#10b981' });
     });
 
     it('tracks dirty state across editor undo transitions and save/reset', () => {

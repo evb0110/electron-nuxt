@@ -69,7 +69,7 @@ function createHarness() {
         suppressAnnotationId: vi.fn(),
         removeAnnotationFromDom: vi.fn(),
         removeAnnotationFromInternalCache: vi.fn(),
-        selectedShapeId: { value: 'shape-1' as string | null },
+        selectedShapeId: 'shape-1' as string | null,
         updateShape: vi.fn(),
         getSelectedShape: vi.fn(() => null),
         saveDocument: vi.fn(async () => new Uint8Array([
@@ -184,6 +184,21 @@ describe('usePageAnnotationActions', () => {
             x: 52,
             y: 8,
         });
+    });
+
+    it('updates selected shape properties when selectedShapeId is exposed as unwrapped value', () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+
+        viewer.selectedShapeId = 'shape-1';
+
+        actions.handleShapePropertyUpdate({ strokeWidth: 7.5 });
+
+        expect(deps.annotationSettings.value.shapeStrokeWidth).toBe(7.5);
+        expect(viewer.updateShape).toHaveBeenCalledWith('shape-1', { strokeWidth: 7.5 });
     });
 
     it('creates markup from context menu and resets tool when keep-active is disabled', async () => {

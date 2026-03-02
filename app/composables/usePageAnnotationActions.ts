@@ -27,7 +27,7 @@ interface IPdfViewerForAnnotationActions {
     suppressAnnotationId: (id: string) => void;
     removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromInternalCache: (stableKey: string) => void;
-    selectedShapeId: { value: string | null };
+    selectedShapeId: string | null;
     updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
     getSelectedShape: () => IShapeAnnotation | null;
     saveDocument: () => Promise<Uint8Array | null>;
@@ -216,7 +216,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     function handleShapePropertyUpdate(updates: Partial<IShapeAnnotation>) {
-        const id = pdfViewerRef.value?.selectedShapeId?.value;
+        const id = pdfViewerRef.value?.selectedShapeId;
         if (!id) {
             return;
         }

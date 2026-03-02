@@ -10,7 +10,7 @@ export interface IPdfViewerExpose {
     getViewerContainer: () => HTMLElement | null;
     scrollToPage: (page: number) => void;
     captureRegionToClipboard: () => Promise<boolean>;
-    isCapturingRegion: { value: boolean };
+    isCapturingRegion: boolean;
     saveDocument: () => Promise<Uint8Array | null>;
     highlightSelection: () => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
@@ -35,8 +35,8 @@ export interface IPdfViewerExpose {
     loadShapes: (shapes: IShapeAnnotation[]) => void;
     clearShapes: () => void;
     deleteSelectedShape: () => void;
-    hasShapes: { value: boolean };
-    selectedShapeId: { value: string | null };
+    hasShapes: boolean;
+    selectedShapeId: string | null;
     updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
     getSelectedShape: () => IShapeAnnotation | null;
     applyStampImage: (file: File) => void;

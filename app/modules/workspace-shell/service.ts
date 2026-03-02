@@ -636,7 +636,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     // --- Helper functions ---
 
-    const isCapturingRegion = computed(() => pdfViewerRef.value?.isCapturingRegion.value ?? false);
+    const isCapturingRegion = computed(() => pdfViewerRef.value?.isCapturingRegion ?? false);
 
     function handleCaptureRegion() {
         if (!pdfViewerRef.value) {
