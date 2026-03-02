@@ -68,6 +68,7 @@
                         v-model="currentPage"
                         :open="pageDropdownOpen"
                         :total-pages="totalPages"
+                        :view-mode="viewMode"
                         :page-labels="pageLabels"
                         :disabled="!toolbarHasPdf"
                         :compact-level="collapseTier >= 5 ? 2 : collapseTier >= 4 ? 1 : 0"

@@ -1,65 +1,72 @@
 <template>
-    <div v-if="tool !== 'none'" class="annotation-style-editor">
-        <div class="swatch-row">
-            <button
-                v-for="swatch in colorSwatches"
-                :key="swatch"
-                type="button"
-                class="swatch"
-                :style="{ backgroundColor: swatch }"
-                :title="swatch"
-                @click="handleColorInput(swatch)"
-            />
-        </div>
-
-        <div v-if="activeWidthControl" class="style-row style-row-width">
-            <label class="style-label" for="annotation-width-input">
-                {{ activeWidthControl.label }} {{ activeWidthValue }}
-            </label>
-            <div class="style-width-control">
+    <div class="annotation-style-editor" :class="{ 'is-idle': tool === 'none' }">
+        <template v-if="tool !== 'none'">
+            <div class="swatch-row">
                 <button
+                    v-for="swatch in colorSwatches"
+                    :key="swatch"
                     type="button"
-                    class="style-step-button"
-                    :aria-label="t('annotations.decreaseWidth')"
-                    @click="nudgeWidth(-activeWidthControl.step)"
-                >
-                    -
-                </button>
-                <input
-                    id="annotation-width-input"
-                    class="style-range"
-                    type="range"
-                    :min="activeWidthControl.min"
-                    :max="activeWidthControl.max"
-                    :step="activeWidthControl.step"
-                    :value="activeWidthValue"
-                    @input="handleWidthInput(Number(($event.target as HTMLInputElement).value))"
+                    class="swatch"
+                    :style="{ backgroundColor: swatch }"
+                    :title="swatch"
+                    @click="handleColorInput(swatch)"
                 />
-                <button
-                    type="button"
-                    class="style-step-button"
-                    :aria-label="t('annotations.increaseWidth')"
-                    @click="nudgeWidth(activeWidthControl.step)"
-                >
-                    +
-                </button>
             </div>
-        </div>
 
-        <div v-if="tool === 'draw'" class="draw-style-row">
-            <span class="style-label">{{ t('annotations.penType') }}</span>
-            <div class="draw-style-list">
-                <button
-                    v-for="preset in drawStylePresets"
-                    :key="preset.id"
-                    type="button"
-                    class="draw-style-button"
-                    :class="{ 'is-active': activeDrawStyle === preset.id }"
-                    @click="applyDrawStyle(preset.id)"
-                >
-                    {{ preset.label }}
-                </button>
+            <div v-if="activeWidthControl" class="style-row style-row-width">
+                <label class="style-label" for="annotation-width-input">
+                    {{ activeWidthControl.label }} {{ activeWidthValue }}
+                </label>
+                <div class="style-width-control">
+                    <button
+                        type="button"
+                        class="style-step-button"
+                        :aria-label="t('annotations.decreaseWidth')"
+                        @click="nudgeWidth(-activeWidthControl.step)"
+                    >
+                        -
+                    </button>
+                    <input
+                        id="annotation-width-input"
+                        class="style-range"
+                        type="range"
+                        :min="activeWidthControl.min"
+                        :max="activeWidthControl.max"
+                        :step="activeWidthControl.step"
+                        :value="activeWidthValue"
+                        @input="handleWidthInput(Number(($event.target as HTMLInputElement).value))"
+                    />
+                    <button
+                        type="button"
+                        class="style-step-button"
+                        :aria-label="t('annotations.increaseWidth')"
+                        @click="nudgeWidth(activeWidthControl.step)"
+                    >
+                        +
+                    </button>
+                </div>
             </div>
+
+            <div v-if="tool === 'draw'" class="draw-style-row">
+                <span class="style-label">{{ t('annotations.penType') }}</span>
+                <div class="draw-style-list">
+                    <button
+                        v-for="preset in drawStylePresets"
+                        :key="preset.id"
+                        type="button"
+                        class="draw-style-button"
+                        :class="{ 'is-active': activeDrawStyle === preset.id }"
+                        @click="applyDrawStyle(preset.id)"
+                    >
+                        {{ preset.label }}
+                    </button>
+                </div>
+            </div>
+        </template>
+
+        <div v-else class="annotation-style-editor-idle" role="status" aria-live="polite">
+            <UIcon name="i-lucide-sliders-horizontal" class="annotation-style-editor-idle-icon" />
+            <span class="annotation-style-editor-idle-label">{{ t('annotations.styleDescription') }}</span>
         </div>
     </div>
 </template>
@@ -263,6 +270,27 @@ function applyDrawStyle(style: TDrawStyle) {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    min-height: 9rem;
+}
+
+.annotation-style-editor.is-idle {
+    justify-content: center;
+}
+
+.annotation-style-editor-idle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--ui-text-muted);
+}
+
+.annotation-style-editor-idle-icon {
+    font-size: 0.9rem;
+}
+
+.annotation-style-editor-idle-label {
+    font-size: 0.78rem;
+    line-height: 1.25;
 }
 
 .style-row {

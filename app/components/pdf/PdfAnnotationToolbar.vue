@@ -1,18 +1,5 @@
 <template>
     <div class="annotation-toolbar">
-        <div v-if="activeToolItem" class="active-tool-banner">
-            <UIcon :name="activeToolItem.icon" class="active-tool-banner-icon" />
-            <span class="active-tool-banner-label">{{ activeToolItem.label }}</span>
-            <button
-                type="button"
-                class="active-tool-banner-close"
-                :aria-label="t('annotations.closeTool')"
-                @click="emit('set-tool', 'none')"
-            >
-                <UIcon name="i-lucide-x" />
-            </button>
-        </div>
-
         <div class="tool-grid">
             <UTooltip
                 v-for="toolItem in toolItems"
@@ -25,9 +12,11 @@
                     class="tool-button"
                     :class="{ 'is-active': tool === toolItem.id }"
                     :data-tool="toolItem.id"
+                    :aria-pressed="tool === toolItem.id"
                     @click="emit('set-tool', tool === toolItem.id ? 'none' : toolItem.id)"
                 >
                     <UIcon :name="toolItem.icon" class="tool-button-icon" />
+                    <span v-if="tool === toolItem.id" class="tool-button-active-indicator" aria-hidden="true" />
                 </button>
             </UTooltip>
         </div>
@@ -101,61 +90,11 @@ const toolItems = computed<IToolItem[]>(() => [
     },
 ]);
 
-const activeToolItem = computed(() => {
-    if (tool.value === 'none') {
-        return null;
-    }
-    return toolItems.value.find(item => item.id === tool.value) ?? null;
-});
 </script>
 
 <style scoped>
 .annotation-toolbar {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.active-tool-banner {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.35rem 0.55rem;
-    border-radius: 0.5rem;
-    background: color-mix(in srgb, var(--ui-primary) 12%, var(--ui-bg) 88%);
-    border: 1px solid color-mix(in srgb, var(--ui-primary) 40%, var(--ui-border) 60%);
-    color: var(--ui-text-highlighted);
-}
-
-.active-tool-banner-icon {
-    font-size: 0.9rem;
-    color: var(--ui-primary);
-}
-
-.active-tool-banner-label {
-    flex: 1 1 auto;
-    font-size: 0.82rem;
-    font-weight: 600;
-}
-
-.active-tool-banner-close {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.4rem;
-    height: 1.4rem;
-    border: none;
-    border-radius: 0.3rem;
-    background: transparent;
-    color: var(--ui-text-muted);
-    font-size: 0.85rem;
-    cursor: pointer;
-}
-
-.active-tool-banner-close:hover {
-    background: color-mix(in srgb, var(--ui-primary) 18%, transparent);
-    color: var(--ui-text-highlighted);
+    display: block;
 }
 
 .tool-grid {
@@ -165,6 +104,7 @@ const activeToolItem = computed(() => {
 }
 
 .tool-button {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -185,9 +125,21 @@ const activeToolItem = computed(() => {
     border-color: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
     background: color-mix(in srgb, var(--ui-primary) 12%, var(--ui-bg) 88%);
     color: var(--ui-text-highlighted);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-primary) 24%, transparent);
 }
 
 .tool-button-icon {
     font-size: 0.95rem;
+}
+
+.tool-button-active-indicator {
+    position: absolute;
+    top: 0.32rem;
+    right: 0.32rem;
+    width: 0.36rem;
+    height: 0.36rem;
+    border-radius: 999px;
+    background: var(--ui-primary);
+    box-shadow: 0 0 0 1px var(--ui-bg);
 }
 </style>
