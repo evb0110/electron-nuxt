@@ -38,14 +38,11 @@ export function updateAnnotationTextByRef(
     const modifiedAt = toPdfDateString(new Date());
     const targetSubtype = normalizeAnnotationSubtypeToken(getPdfDictSubtype(targetDict));
 
-    // FreeText Contents are rendered visually on the canvas by PDF.js.
-    // For note-style FreeText annotations (those with a linked Popup),
-    // write text only to the Popup to prevent canvas text leakage.
-    const isFreeTextWithPopup = targetSubtype === 'freetext'
-        && Boolean(targetDict.get(PDFName.of('Popup')));
-    let updated = isFreeTextWithPopup
-        ? false
-        : setAnnotationDictContents(targetDict, text, modifiedAt);
+    // FreeText /Contents is safe to update because rewriteFreeTextNoteRects
+    // replaces the AP stream with a blank Form XObject, preventing the text
+    // from rendering on the canvas.  The Popup reads /Contents from its
+    // parent (the FreeText dict), so this also updates the popup text.
+    let updated = setAnnotationDictContents(targetDict, text, modifiedAt);
 
     const popupValue = targetDict.get(PDFName.of('Popup'));
     if (popupValue instanceof PDFRef) {
@@ -61,14 +58,7 @@ export function updateAnnotationTextByRef(
             : parentValue instanceof PDFDict
                 ? parentValue
                 : null;
-        // Skip propagating text to FreeText parents — PDF.js renders
-        // FreeText Contents on the canvas, causing visible text leakage
-        // for note-style FreeText annotations where text belongs only
-        // in the popup.
-        const parentSubtype = normalizeAnnotationSubtypeToken(
-            parentDict ? getPdfDictSubtype(parentDict) : null,
-        );
-        if (parentDict && parentSubtype !== 'freetext') {
+        if (parentDict) {
             updated = setAnnotationDictContents(parentDict, text, modifiedAt) || updated;
         }
     }

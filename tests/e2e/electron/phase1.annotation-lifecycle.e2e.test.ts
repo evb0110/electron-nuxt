@@ -5,10 +5,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    copyProjectFixture,
-    getFixtureName,
-} from './helpers/fixtures';
+import {copyProjectFixture} from './helpers/fixtures';
 import {
     type IElectronE2ESession,
     startElectronE2ESession,
@@ -47,7 +44,8 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
         await openAnnotationsTab(page);
 
         const baselineCount = await getFreeTextEditorCount(page);
-        const createdCount = await createFreeTextAnnotation(page, `Phase 1 free text ${Date.now()}`);
+        const typedText = `Phase 1 free text ${Date.now()}`;
+        const createdCount = await createFreeTextAnnotation(page, typedText);
         expect(createdCount).toBeGreaterThan(baselineCount);
 
         const latestText = await page.evaluate(() => {
@@ -62,14 +60,12 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
             const latest = editors[editors.length - 1];
             return (latest?.textContent ?? '').trim();
         });
-        expect(latestText.length).toBeGreaterThan(0);
+        expect(latestText).toContain('Phase 1 free text');
 
         const afterDeleteCount = await deleteLatestFreeTextAnnotation(page);
-        expect(afterDeleteCount).toBeLessThan(createdCount);
+        expect(afterDeleteCount).toBe(baselineCount);
 
         const activeTool = await getActiveToolLabel(page);
         expect(activeTool).toBeNull();
-        expect(getFixtureName(fixturePath).includes('phase1-')).toBe(true);
     });
 });
-

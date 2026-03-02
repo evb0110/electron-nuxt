@@ -680,8 +680,10 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 };
             }
 
-            const savedText = note.lastSavedText.trim();
-            const updatedText = updated.text.trim();
+            // Strip ZWS/BOM so the stale-empty guard compares real content only
+            // (legacy saves stored ZWS in /Contents — see docs/freetext-note-persistence.md)
+            const savedText = note.lastSavedText.replace(/[\u200B\uFEFF]/g, '').trim();
+            const updatedText = updated.text.replace(/[\u200B\uFEFF]/g, '').trim();
             const currentTimestamp = note.comment.modifiedAt ?? 0;
             const updatedTimestamp = updated.modifiedAt ?? 0;
             const staleEmptySync =

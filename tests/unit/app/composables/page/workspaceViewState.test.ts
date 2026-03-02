@@ -22,6 +22,7 @@ function createState() {
             hasSomethingToRedo: false,
             hasSelectedEditor: false,
         }),
+        hasOpenAnnotationNotes: ref(false),
         canUndoFile: ref(false),
         canRedoFile: ref(false),
         pdfViewerRef: ref({

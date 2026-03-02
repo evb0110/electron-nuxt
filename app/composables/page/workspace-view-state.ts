@@ -17,6 +17,7 @@ interface IWorkspaceViewStateDeps {
     annotationTool: Ref<TAnnotationTool>;
     annotationPlacingPageNote: Ref<boolean>;
     annotationEditorState: Ref<IAnnotationEditorState>;
+    hasOpenAnnotationNotes: Ref<boolean>;
     canUndoFile: Ref<boolean>;
     canRedoFile: Ref<boolean>;
     pdfViewerRef: Ref<{
@@ -42,8 +43,11 @@ export function useWorkspaceViewState(deps: IWorkspaceViewStateDeps) {
             return false;
         }
 
+        // Keep editor layer active while note windows are open, otherwise
+        // PDF.js destroys their backing editors (see docs/freetext-note-persistence.md)
         return deps.annotationTool.value !== 'none'
-            || deps.annotationEditorState.value.hasSelectedEditor;
+            || deps.annotationEditorState.value.hasSelectedEditor
+            || deps.hasOpenAnnotationNotes.value;
     });
     const canUndo = computed(() => (
         isAnnotationUndoContext.value

@@ -1,5 +1,7 @@
 import {
+    existsSync,
     mkdirSync,
+    readdirSync,
     readFileSync,
     writeFileSync,
 } from 'node:fs';
@@ -19,10 +21,17 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
 const PROJECT_FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'test-pdfs');
+const PROJECT_ROOT_FIXTURE_DIR = resolve(process.cwd(), '.devkit');
 
 export interface IPdfAnnotationSummary {
     total: number;
     bySubtype: Record<string, number>;
+}
+
+export interface IPdfPageSnapshot {
+    pageNumber: number;
+    rotation: number;
+    textSnippet: string;
 }
 
 function ensureFixtureDir() {
@@ -38,6 +47,17 @@ export function copyProjectFixture(sourceFilename: string, targetFilename?: stri
     ensureFixtureDir();
     const sourcePath = join(PROJECT_FIXTURE_DIR, sourceFilename);
     const targetPath = join(FIXTURE_DIR, targetFilename ?? sourceFilename);
+    writeFileSync(targetPath, readFileSync(sourcePath));
+    return targetPath;
+}
+
+export function copyDevkitFixture(sourceRelativePath: string, targetFilename?: string) {
+    ensureFixtureDir();
+    const sourcePath = resolve(PROJECT_ROOT_FIXTURE_DIR, sourceRelativePath);
+    if (!existsSync(sourcePath)) {
+        throw new Error(`Fixture does not exist: ${sourcePath}`);
+    }
+    const targetPath = join(FIXTURE_DIR, targetFilename ?? basename(sourcePath));
     writeFileSync(targetPath, readFileSync(sourcePath));
     return targetPath;
 }
@@ -157,7 +177,52 @@ export async function readPdfAnnotationSummary(filePath: string): Promise<IPdfAn
     return summary;
 }
 
+export async function readPdfPageSnapshots(filePath: string): Promise<IPdfPageSnapshot[]> {
+    const data = new Uint8Array(readFileSync(filePath));
+    const document = await pdfjs.getDocument({ data }).promise;
+    const pages: IPdfPageSnapshot[] = [];
+
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+        const page = await document.getPage(pageNumber);
+        const textContent = await page.getTextContent();
+        const snippet = textContent.items
+            .map((item) => {
+                if (!('str' in item)) {
+                    return '';
+                }
+                return String(item.str).trim();
+            })
+            .filter(Boolean)
+            .slice(0, 8)
+            .join(' ')
+            .trim();
+
+        pages.push({
+            pageNumber,
+            rotation: page.rotate ?? 0,
+            textSnippet: snippet,
+        });
+    }
+
+    await document.destroy();
+    return pages;
+}
+
+export function findDjvuFixturePath() {
+    const fixtureDir = resolve(PROJECT_ROOT_FIXTURE_DIR, 'pdfs');
+    if (!existsSync(fixtureDir)) {
+        return null;
+    }
+
+    const candidate = readdirSync(fixtureDir)
+        .find(name => name.toLowerCase().endsWith('.djvu') || name.toLowerCase().endsWith('.djv'));
+    if (!candidate) {
+        return null;
+    }
+
+    return join(fixtureDir, candidate);
+}
+
 export function getFixtureName(path: string) {
     return basename(path);
 }
-
