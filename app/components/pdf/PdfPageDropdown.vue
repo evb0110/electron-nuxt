@@ -84,10 +84,12 @@
 
 <script setup lang="ts">
 import { onClickOutside } from '@vueuse/core';
+import type { TPdfViewMode } from '@contracts/shared';
 import {
     findPageByPageLabelInput,
     formatPageIndicator,
 } from '@app/utils/pdf-page-labels';
+import { stepBySpread } from '@app/utils/pdf-view-mode';
 
 const { t } = useTypedI18n();
 
@@ -98,6 +100,7 @@ interface IProps {
     pageLabels?: string[] | null;
     disabled?: boolean;
     compactLevel?: number;
+    viewMode?: TPdfViewMode;
 }
 
 const {
@@ -107,6 +110,7 @@ const {
     pageLabels = null,
     disabled = false,
     compactLevel = 0,
+    viewMode = 'single',
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -188,7 +192,10 @@ function goToFirst() {
 
 function goToPrevious() {
     if (currentPage > 1) {
-        const newPage = currentPage - 1;
+        const newPage = stepBySpread(currentPage, viewMode, totalPages, -1);
+        if (newPage === currentPage) {
+            return;
+        }
         emit('update:modelValue', newPage);
         emit('goToPage', newPage);
     }
@@ -196,7 +203,10 @@ function goToPrevious() {
 
 function goToNext() {
     if (currentPage < totalPages) {
-        const newPage = currentPage + 1;
+        const newPage = stepBySpread(currentPage, viewMode, totalPages, 1);
+        if (newPage === currentPage) {
+            return;
+        }
         emit('update:modelValue', newPage);
         emit('goToPage', newPage);
     }

@@ -68,6 +68,7 @@
                         v-model="fallbackCurrentPage"
                         :open="fallbackPageDropdownOpen"
                         :total-pages="fallbackTotalPages"
+                        :view-mode="fallbackViewMode"
                         :page-labels="null"
                         :disabled="!fallbackHasPdf"
                         :compact-level="collapseTier >= 5 ? 2 : collapseTier >= 4 ? 1 : 0"
