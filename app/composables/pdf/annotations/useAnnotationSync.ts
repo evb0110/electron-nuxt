@@ -388,7 +388,10 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                     const popupText = popupAnnotation
                         ? getAnnotationCommentText(popupAnnotation)
                         : '';
-                    const text = annotationText.trim().length > 0
+                    // Strip ZWS/BOM left by legacy saves so we detect truly-empty /Contents
+                    // and fall through to the popup text (see docs/freetext-note-persistence.md)
+                    const visibleAnnotationText = annotationText.replace(/[\u200B\uFEFF]/g, '').trim();
+                    const text = visibleAnnotationText.length > 0
                         ? annotationText
                         : popupText.length > 0
                             ? popupText

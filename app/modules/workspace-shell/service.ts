@@ -322,6 +322,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         waitForPdfReload: (page: number) => waitForPdfReload(page),
     });
 
+    const hasOpenAnnotationNotes = ref(false);
+
     const {
         isFitWidthActive,
         isFitHeightActive,
@@ -341,6 +343,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationTool,
         annotationPlacingPageNote,
         annotationEditorState,
+        hasOpenAnnotationNotes,
         canUndoFile,
         canRedoFile,
         pdfViewerRef,
@@ -390,6 +393,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         markAnnotationDirty,
         updateAnnotationCommentInViewer: (comment, text) => pdfViewerRef.value?.updateAnnotationComment(comment, text) ?? false,
     });
+
+    // Bridge note window count to annotationCursorMode so the editor layer
+    // stays active while any note window is open (see docs/freetext-note-persistence.md)
+    watch(() => annotationNoteWindows.value.length, (count) => {
+        hasOpenAnnotationNotes.value = count > 0;
+    }, { immediate: true });
 
     const hasPendingTabChanges = computed(() => (
         annotationDirty.value

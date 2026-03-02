@@ -324,8 +324,8 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         const rectName = PDFName.of('Rect');
         const popupName = PDFName.of('Popup');
         const apName = PDFName.of('AP');
-        const contentsName = PDFName.of('Contents');
         let modified = false;
+        let blankApRef: PDFRef | null = null;
 
         const pages = doc.getPages();
         for (const [
@@ -426,6 +426,10 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                     }
                 }
 
+                // Rewrite the FreeText rect to the small marker anchor so
+                // the annotation sync recognises it as a point-like note
+                // marker on reopen (the marker eligibility check requires
+                // width/height ≤ MAX_FREETEXT_NOTE_MARKER_SIZE).
                 const pdfRect = toPdfRectFromMarkerRect(
                     bestMatch.comment.markerRect,
                     pageView,
@@ -442,16 +446,18 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                     PDFNumber.of(pdfRect[3]),
                 ]));
 
-                dict.delete(apName);
-
-                // PDF.js writes popup.contents into the FreeText's Contents
-                // field during saveDocument().  Without an appearance stream,
-                // FreeTextAnnotation reads Contents as visible page text on
-                // reopen — causing note text to render both in the popup AND
-                // on the page canvas.  Replace Contents with a zero-width
-                // space so the editor stays non-empty (preventing auto-delete)
-                // but renders nothing visible.
-                dict.set(contentsName, PDFHexString.fromText('\u200B'));
+                // Replace the AP stream with a blank Form XObject so that
+                // nothing renders on the canvas, while preserving /Contents.
+                // PopupAnnotation reads /Contents from its parent (the
+                // FreeText dict), NOT from its own dict — so /Contents must
+                // keep the real text for note persistence across reopens.
+                if (!blankApRef) {
+                    blankApRef = doc.context.register(
+                        doc.context.formXObject([], {}),
+                    );
+                }
+                const apDict = doc.context.obj({ N: blankApRef });
+                dict.set(apName, apDict);
 
                 modified = true;
             }
@@ -461,7 +467,21 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             return data;
         }
 
-        return new Uint8Array(await doc.save());
+        const saved = new Uint8Array(await doc.save());
+
+        // Safety guard: pdf-lib's full re-save can lose annotations that
+        // PDF.js added via incremental save.  If the saved output is
+        // significantly smaller than the input (lost content), fall back
+        // to the original data to avoid data loss.
+        if (saved.length < data.length * 0.5) {
+            BrowserLogger.warn(PDF_SERIALIZATION_LOG_SECTION, 'rewriteFreeTextNoteRects: pdf-lib re-save lost data, falling back to original', {
+                inputSize: data.length,
+                outputSize: saved.length,
+            });
+            return data;
+        }
+
+        return saved;
     }
 
     async function updateEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary, text: string) {

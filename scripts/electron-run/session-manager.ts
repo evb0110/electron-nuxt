@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import {
+    execSync,
     spawn,
     type ChildProcess,
 } from 'node:child_process';
@@ -94,6 +95,48 @@ async function killProcessTreeForPids(pids: number[], graceMs = 1200) {
     }
 }
 
+function getDescendantPids(rootPid: number) {
+    if (!Number.isFinite(rootPid) || rootPid <= 0 || process.platform === 'win32') {
+        return [] as number[];
+    }
+
+    try {
+        const output = execSync('ps -eo pid=,ppid=', { encoding: 'utf8' });
+        const childrenByParent = new Map<number, number[]>();
+        for (const line of output.split('\n')) {
+            const trimmed = line.trim();
+            if (!trimmed) {
+                continue;
+            }
+
+            const parts = trimmed.split(/\s+/);
+            const pid = Number(parts[0]);
+            const ppid = Number(parts[1]);
+            if (!Number.isFinite(pid) || !Number.isFinite(ppid) || pid <= 0 || ppid <= 0) {
+                continue;
+            }
+
+            const bucket = childrenByParent.get(ppid) ?? [];
+            bucket.push(pid);
+            childrenByParent.set(ppid, bucket);
+        }
+
+        const descendants: number[] = [];
+        const stack = [rootPid];
+        while (stack.length > 0) {
+            const current = stack.pop()!;
+            const children = childrenByParent.get(current) ?? [];
+            for (const childPid of children) {
+                descendants.push(childPid);
+                stack.push(childPid);
+            }
+        }
+        return descendants;
+    } catch {
+        return [] as number[];
+    }
+}
+
 async function killElectronProcessesByCdpPort(cdpPort: number | null | undefined) {
     if (!Number.isFinite(cdpPort) || (cdpPort ?? 0) <= 0) {
         return;
@@ -139,106 +182,206 @@ async function clearViteCache(): Promise<void> {
     }
 }
 
+async function cleanupStaleNuxtPortOwners(reason: string) {
+    const pidsOnPort = await getPidsOnPort(NUXT_PORT);
+    if (pidsOnPort.length === 0) {
+        return false;
+    }
+
+    const managedNuxtPids = new Set<number>();
+    const runningSessions = await listRunningSessions();
+    for (const name of runningSessions) {
+        const info = getSessionInfo(name);
+        const nuxtPid = info?.nuxtPid ?? null;
+        if (!nuxtPid || !isProcessAlive(nuxtPid)) {
+            continue;
+        }
+        managedNuxtPids.add(nuxtPid);
+        for (const childPid of getDescendantPids(nuxtPid)) {
+            managedNuxtPids.add(childPid);
+        }
+    }
+
+    const stalePids = pidsOnPort.filter(pid => !managedNuxtPids.has(pid));
+    if (stalePids.length === 0) {
+        return false;
+    }
+
+    console.log(`[Nuxt] Cleaning stale process(es) on port ${NUXT_PORT} (${reason}): ${stalePids.join(', ')}`);
+    await killProcessTreeForPids(stalePids, 1200);
+    await killPids(stalePids);
+    await delay(500);
+    return true;
+}
+
 async function startNuxtServer(forceClean = false): Promise<ChildProcess | null> {
     if (forceClean) {
         console.log('[Nuxt] Force clean start...');
         await killExistingNuxt();
         await clearViteCache();
-    } else if (await isNuxtRunning()) {
-        console.log('[Nuxt] Server already running on port', NUXT_PORT);
-        return null;
+    } else {
+        await cleanupStaleNuxtPortOwners('startup preflight');
+        if (await isNuxtRunning()) {
+            console.log('[Nuxt] Server already running on port', NUXT_PORT);
+            return null;
+        }
     }
-
-    console.log('[Nuxt] Starting dev server...');
-    const nuxt = spawn('pnpm', [
-        'run',
-        'dev:nuxt',
-    ], {
-        cwd: projectRoot,
-        shell: true,
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
-    });
-
-    let viteClientBuilt = false;
-    let viteServerBuilt = false;
-    let nitroBuilt = false;
-    let viteClientWarmed = false;
-
-    const checkOutput = (text: string) => {
-        if (text.includes('Vite client built')) {
-            console.log('[Nuxt] Vite client built');
-            viteClientBuilt = true;
-        }
-        if (text.includes('Vite server built')) {
-            console.log('[Nuxt] Vite server built');
-            viteServerBuilt = true;
-        }
-        if (text.includes('Nitro server built') || text.includes('Nitro') && text.includes('built')) {
-            console.log('[Nuxt] Nitro server built');
-            nitroBuilt = true;
-        }
-        if (text.includes('Vite client warmed up')) {
-            console.log('[Nuxt] Vite client warmed up');
-            viteClientWarmed = true;
-        }
-    };
-
-    nuxt.stdout?.on('data', (data: Buffer) => checkOutput(data.toString()));
-    nuxt.stderr?.on('data', (data: Buffer) => checkOutput(data.toString()));
 
     const timeout = 120_000;
-    const start = Date.now();
-    let lastLog = 0;
     const WARMUP_GRACE_MS = 5_000;
 
-    while (Date.now() - start < timeout) {
-        const serverUp = await isNuxtRunning();
-        const buildsComplete = viteClientBuilt && viteServerBuilt && nitroBuilt;
-        const warmupComplete = viteClientWarmed || (Date.now() - start > WARMUP_GRACE_MS);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        console.log(`[Nuxt] Starting dev server (attempt ${attempt + 1}/2)...`);
+        const nuxt = spawn('pnpm', [
+            'run',
+            'dev:nuxt',
+        ], {
+            cwd: projectRoot,
+            shell: true,
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
+        });
 
-        if (serverUp && buildsComplete && warmupComplete) {
-            console.log('[Nuxt] Server ready at http://localhost:' + NUXT_PORT);
+        let viteClientBuilt = false;
+        let viteServerBuilt = false;
+        let nitroBuilt = false;
+        let viteClientWarmed = false;
+        let retryWithFreshPort = false;
+        let sawPortCollision = false;
+        let nuxtExited = false;
+        let nuxtExitCode: number | null = null;
+        let nuxtExitSignal: NodeJS.Signals | null = null;
+        nuxt.on('exit', (code, signal) => {
+            nuxtExited = true;
+            nuxtExitCode = code;
+            nuxtExitSignal = signal;
+        });
 
-            console.log('[Nuxt] Warming up dependencies...');
-            try {
-                await fetch(`http://localhost:${NUXT_PORT}/`, { method: 'GET' });
-                await delay(2000);
-            } catch {}
+        const checkOutput = (text: string) => {
+            if (text.includes('Vite client built')) {
+                console.log('[Nuxt] Vite client built');
+                viteClientBuilt = true;
+            }
+            if (text.includes('Vite server built')) {
+                console.log('[Nuxt] Vite server built');
+                viteServerBuilt = true;
+            }
+            if (text.includes('Nitro server built') || text.includes('Nitro') && text.includes('built')) {
+                console.log('[Nuxt] Nitro server built');
+                nitroBuilt = true;
+            }
+            if (text.includes('Vite client warmed up')) {
+                console.log('[Nuxt] Vite client warmed up');
+                viteClientWarmed = true;
+            }
+            if (text.toLowerCase().includes('address already in use') || text.toLowerCase().includes('eaddrinuse')) {
+                sawPortCollision = true;
+            }
+        };
 
-            return nuxt;
+        nuxt.stdout?.on('data', (data: Buffer) => checkOutput(data.toString()));
+        nuxt.stderr?.on('data', (data: Buffer) => checkOutput(data.toString()));
+
+        const start = Date.now();
+        let lastLog = 0;
+
+        while (Date.now() - start < timeout) {
+            const serverUp = await isNuxtRunning();
+            const buildsComplete = viteClientBuilt && viteServerBuilt && nitroBuilt;
+            const warmupComplete = viteClientWarmed || (Date.now() - start > WARMUP_GRACE_MS);
+            const elapsedMs = Date.now() - start;
+
+            if (serverUp && buildsComplete && warmupComplete) {
+                console.log('[Nuxt] Server ready at http://localhost:' + NUXT_PORT);
+
+                console.log('[Nuxt] Warming up dependencies...');
+                try {
+                    await fetch(`http://localhost:${NUXT_PORT}/`, { method: 'GET' });
+                    await delay(2000);
+                } catch {}
+
+                return nuxt;
+            }
+
+            if (serverUp && elapsedMs > 15_000) {
+                console.log('[Nuxt] Server responded without full build markers; proceeding with existing readiness signal.');
+                return nuxt;
+            }
+
+            if (nuxtExited) {
+                const cleaned = await cleanupStaleNuxtPortOwners('spawn process exited');
+                if ((cleaned || sawPortCollision) && attempt === 0) {
+                    retryWithFreshPort = true;
+                    break;
+                }
+
+                const pids = await getPidsOnPort(NUXT_PORT);
+                const suffix = pids.length > 0 ? ` Port owners: ${pids.join(', ')}` : '';
+                throw new Error(
+                    `Nuxt process exited before startup completed (code=${nuxtExitCode ?? 'null'}, signal=${nuxtExitSignal ?? 'null'}).${suffix}`,
+                );
+            }
+
+            const now = Date.now();
+            if (serverUp && !buildsComplete && now - lastLog > 5000) {
+                const nuxtPid = nuxt.pid ?? null;
+                if (nuxtPid && nuxtPid > 0) {
+                    const ownedPids = new Set<number>([
+                        nuxtPid,
+                        ...getDescendantPids(nuxtPid),
+                    ]);
+                    const pidsOnPort = await getPidsOnPort(NUXT_PORT);
+                    const ownsRespondingServer = pidsOnPort.some(pid => ownedPids.has(pid));
+                    if (pidsOnPort.length > 0 && !ownsRespondingServer) {
+                        console.log(`[Nuxt] Port ${NUXT_PORT} is already served by unrelated process(es): ${pidsOnPort.join(', ')}. Reusing existing server.`);
+                        if (isProcessAlive(nuxtPid)) {
+                            await killProcessTree(nuxtPid, 800);
+                        }
+                        return null;
+                    }
+                }
+
+                const missing = [];
+                if (!viteClientBuilt) {
+                    missing.push('Vite client');
+                }
+                if (!viteServerBuilt) {
+                    missing.push('Vite server');
+                }
+                if (!nitroBuilt) {
+                    missing.push('Nitro');
+                }
+                if (!viteClientWarmed) {
+                    missing.push('Vite warmup');
+                }
+                console.log(`[Nuxt] Waiting for builds: ${missing.join(', ')}`);
+                lastLog = now;
+            }
+
+            await delay(500);
         }
 
-        const now = Date.now();
-        if (serverUp && !buildsComplete && now - lastLog > 5000) {
-            const missing = [];
-            if (!viteClientBuilt) {
-                missing.push('Vite client');
-            }
-            if (!viteServerBuilt) {
-                missing.push('Vite server');
-            }
-            if (!nitroBuilt) {
-                missing.push('Nitro');
-            }
-            if (!viteClientWarmed) {
-                missing.push('Vite warmup');
-            }
-            console.log(`[Nuxt] Waiting for builds: ${missing.join(', ')}`);
-            lastLog = now;
+        if (retryWithFreshPort) {
+            continue;
         }
 
-        await delay(500);
+        if (nuxt.pid && isProcessAlive(nuxt.pid)) {
+            await killProcessTree(nuxt.pid, 800);
+        } else {
+            nuxt.kill();
+        }
+
+        if (attempt === 0) {
+            const cleaned = await cleanupStaleNuxtPortOwners('startup timeout');
+            if (cleaned) {
+                continue;
+            }
+        }
     }
 
-    if (nuxt.pid && isProcessAlive(nuxt.pid)) {
-        await killProcessTree(nuxt.pid, 800);
-    } else {
-        nuxt.kill();
-    }
     throw new Error('Nuxt server failed to start');
 }
 
