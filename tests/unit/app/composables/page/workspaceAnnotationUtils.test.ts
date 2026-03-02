@@ -19,7 +19,7 @@ describe('hasAnnotationChanges', () => {
         const result = hasAnnotationChanges({
             pdfViewerRef: ref({
                 saveDocument: async () => new Uint8Array([]),
-                hasShapes: { value: true },
+                hasShapes: true,
                 getAllShapes: () => [],
             }),
             pdfDocument: shallowRef(null),

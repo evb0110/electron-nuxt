@@ -9,7 +9,7 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults'
 
 interface IPdfViewerForAnnotationTools {
     cancelCommentPlacement: () => void;
-    selectedShapeId: { value: string | null };
+    selectedShapeId: string | null;
     updateShape: (id: string, updates: Record<string, unknown>) => void;
 }
 
@@ -82,7 +82,7 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
             [payload.key]: payload.value,
         };
 
-        const selectedShapeId = pdfViewerRef.value?.selectedShapeId?.value;
+        const selectedShapeId = pdfViewerRef.value?.selectedShapeId;
         if (!selectedShapeId) {
             return;
         }
