@@ -25,6 +25,7 @@ interface IRunCommandOptions {
     prependCommandDirToPath?: boolean;
     includeProcessEnv?: boolean;
     windowsHide?: boolean;
+    rejectOnStdoutTruncation?: boolean;
 }
 
 const DEFAULT_MAX_STDOUT_BYTES = (() => {
@@ -89,6 +90,7 @@ export async function runCommand(
         prependCommandDirToPath = false,
         includeProcessEnv = true,
         windowsHide = true,
+        rejectOnStdoutTruncation = false,
     } = options;
 
     return new Promise((resolve, reject) => {
@@ -96,6 +98,9 @@ export async function runCommand(
             reject(createAbortError());
             return;
         }
+
+        let proc: ReturnType<typeof spawn> | null = null;
+        let abortHandler: (() => void) | null = null;
 
         const commandDir = getCommandDirectory(command);
         const effectiveCwd = cwd ?? (defaultCwdToCommandDir ? commandDir ?? undefined : undefined);
@@ -112,24 +117,45 @@ export async function runCommand(
         const displayName = commandLabel ?? command;
         const displayCommand = `${command} ${args.map(formatArgForLog).join(' ')}`.trim();
 
-        const proc = spawn(command, args, {
-            cwd: effectiveCwd,
-            env: effectiveEnv,
-            shell: false,
-            windowsHide,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
-        });
-
         let stdout = '';
         let stderr = '';
         let stdoutTruncated = false;
         let stderrTruncated = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
+        let forceRejectHandle: NodeJS.Timeout | null = null;
+        let hardKillHandle: NodeJS.Timeout | null = null;
+        let pendingTerminationError: Error | null = null;
         let settled = false;
+
+        const requestTermination = (error: Error) => {
+            if (settled || pendingTerminationError) {
+                return;
+            }
+            pendingTerminationError = error;
+            const targetProc = proc;
+            if (!targetProc) {
+                finalizeReject(error);
+                return;
+            }
+            try {
+                targetProc.kill('SIGTERM');
+            } catch {
+                // Process may already be gone.
+            }
+            hardKillHandle = setTimeout(() => {
+                try {
+                    targetProc.kill('SIGKILL');
+                } catch {
+                    // Process may already be gone.
+                }
+            }, 1_000);
+            hardKillHandle.unref?.();
+
+            forceRejectHandle = setTimeout(() => {
+                finalizeReject(error);
+            }, 3_000);
+            forceRejectHandle.unref?.();
+        };
 
         const finalizeReject = (error: Error) => {
             if (settled) {
@@ -139,6 +165,14 @@ export async function runCommand(
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
                 timeoutHandle = null;
+            }
+            if (forceRejectHandle) {
+                clearTimeout(forceRejectHandle);
+                forceRejectHandle = null;
+            }
+            if (hardKillHandle) {
+                clearTimeout(hardKillHandle);
+                hardKillHandle = null;
             }
             if (signal && abortHandler) {
                 signal.removeEventListener('abort', abortHandler);
@@ -155,11 +189,56 @@ export async function runCommand(
                 clearTimeout(timeoutHandle);
                 timeoutHandle = null;
             }
+            if (forceRejectHandle) {
+                clearTimeout(forceRejectHandle);
+                forceRejectHandle = null;
+            }
+            if (hardKillHandle) {
+                clearTimeout(hardKillHandle);
+                hardKillHandle = null;
+            }
             if (signal && abortHandler) {
                 signal.removeEventListener('abort', abortHandler);
             }
             resolve(result);
         };
+
+        if (signal) {
+            abortHandler = () => {
+                requestTermination(createAbortError());
+            };
+            signal.addEventListener('abort', abortHandler, { once: true });
+        }
+        if (settled) {
+            return;
+        }
+
+        try {
+            proc = spawn(command, args, {
+                cwd: effectiveCwd,
+                env: effectiveEnv,
+                shell: false,
+                windowsHide,
+                stdio: [
+                    'ignore',
+                    'pipe',
+                    'pipe',
+                ],
+            });
+        } catch (error) {
+            const message = `${displayName} failed to start: ${error instanceof Error ? error.message : String(error)}`;
+            log?.('error', `${message}; cmd=${displayCommand}`);
+            finalizeReject(new Error(message));
+            return;
+        }
+        if (settled) {
+            try {
+                proc.kill('SIGKILL');
+            } catch {
+                // Process may already be gone.
+            }
+            return;
+        }
 
         proc.stdout?.on('data', (data: Buffer) => {
             const appended = appendWithCap(stdout, data, maxStdoutBytes);
@@ -175,20 +254,12 @@ export async function runCommand(
 
         if (typeof timeoutMs === 'number' && timeoutMs > 0) {
             timeoutHandle = setTimeout(() => {
-                proc.kill('SIGKILL');
                 log?.('error', `${displayName} timed out after ${timeoutMs}ms; cmd=${displayCommand}`);
-                finalizeReject(new Error(`${displayName} timed out after ${timeoutMs}ms`));
+                requestTermination(new Error(`${displayName} timed out after ${timeoutMs}ms`));
             }, timeoutMs);
         }
-
-        const abortHandler = signal
-            ? () => {
-                proc.kill('SIGKILL');
-                finalizeReject(createAbortError());
-            }
-            : null;
-        if (signal && abortHandler) {
-            signal.addEventListener('abort', abortHandler, {once: true});
+        if (signal?.aborted) {
+            requestTermination(createAbortError());
         }
 
         proc.on('error', (error) => {
@@ -198,6 +269,11 @@ export async function runCommand(
         });
 
         proc.on('close', (code, closeSignal) => {
+            if (pendingTerminationError) {
+                finalizeReject(pendingTerminationError);
+                return;
+            }
+
             const exitCode = typeof code === 'number' ? code : -1;
             if (!allowedExitCodes.includes(exitCode)) {
                 const failure = formatCommandFailureMessage(
@@ -211,6 +287,12 @@ export async function runCommand(
                 );
                 log?.('error', `${failure.message}; cmd=${failure.displayCommand}`);
                 finalizeReject(new Error(failure.message));
+                return;
+            }
+            if (rejectOnStdoutTruncation && stdoutTruncated) {
+                const message = `${displayName} stdout exceeded ${maxStdoutBytes} bytes`;
+                log?.('error', `${message}; cmd=${displayCommand}`);
+                finalizeReject(new Error(message));
                 return;
             }
 

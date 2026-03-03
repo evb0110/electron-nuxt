@@ -4,6 +4,20 @@ import { runCommand } from '@electron/utils/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 
 const log = createLogger('pdf-text-extractor');
+const PDFTOTEXT_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDFTOTEXT_TIMEOUT_MS ?? `${2 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 5_000) {
+        return 2 * 60 * 1000;
+    }
+    return parsed;
+})();
+const PDFTOTEXT_MAX_STDOUT_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDFTOTEXT_MAX_STDOUT_MB ?? '64', 10);
+    if (!Number.isFinite(parsed) || parsed < 4) {
+        return 64 * 1024 * 1024;
+    }
+    return parsed * 1024 * 1024;
+})();
 
 interface IPageText {
     pageNumber: number;
@@ -66,7 +80,12 @@ export async function extractTextFromPdf(
             '-layout',
             pdfPath,
             '-',
-        ], { signal });
+        ], {
+            signal,
+            timeoutMs: PDFTOTEXT_TIMEOUT_MS,
+            maxStdoutBytes: PDFTOTEXT_MAX_STDOUT_BYTES,
+            rejectOnStdoutTruncation: true,
+        });
         throwIfAborted(signal);
 
         const output = result.stdout ?? '';

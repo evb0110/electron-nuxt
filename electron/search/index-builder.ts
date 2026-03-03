@@ -52,6 +52,10 @@ interface IBuildSearchIndexOptions {
     signal?: AbortSignal;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
 function createAbortError() {
     const error = new Error('The operation was aborted');
     error.name = 'AbortError';
@@ -106,6 +110,10 @@ async function loadOcrIndexText(
         ] of Object.entries(manifest.pages)) {
             throwIfAborted(signal);
             const pageNum = parseInt(pageNumStr, 10);
+            if (!Number.isInteger(pageNum) || pageNum < 1) {
+                log.warn(`Skipping OCR page with invalid page number "${pageNumStr}" in manifest`);
+                continue;
+            }
             const pagePath = join(ocrDir, pageInfo.path);
 
             if (existsSync(pagePath)) {
@@ -130,6 +138,56 @@ async function loadOcrIndexText(
 
 function getIndexPath(pdfPath: string) {
     return `${pdfPath}.index.json`;
+}
+
+function parseSearchIndexPayload(payload: unknown): IPdfSearchIndex | null {
+    if (!isRecord(payload) || !Array.isArray(payload.pages)) {
+        return null;
+    }
+    if (typeof payload.pdfPath !== 'string' || payload.pdfPath.length === 0) {
+        return null;
+    }
+
+    const normalizedPages: IPageIndex[] = [];
+    for (const page of payload.pages) {
+        if (!isRecord(page)) {
+            return null;
+        }
+        if (
+            typeof page.pageNumber !== 'number'
+            || !Number.isInteger(page.pageNumber)
+            || page.pageNumber < 1
+        ) {
+            return null;
+        }
+        if (typeof page.text !== 'string') {
+            return null;
+        }
+
+        normalizedPages.push({
+            pageNumber: page.pageNumber,
+            text: page.text,
+            words: Array.isArray(page.words) ? page.words as IOcrWord[] : undefined,
+            pageWidth: typeof page.pageWidth === 'number' && Number.isFinite(page.pageWidth)
+                ? page.pageWidth
+                : undefined,
+            pageHeight: typeof page.pageHeight === 'number' && Number.isFinite(page.pageHeight)
+                ? page.pageHeight
+                : undefined,
+        });
+    }
+    normalizedPages.sort((a, b) => a.pageNumber - b.pageNumber);
+
+    return {
+        pdfPath: payload.pdfPath,
+        createdAt: typeof payload.createdAt === 'number' && Number.isFinite(payload.createdAt)
+            ? payload.createdAt
+            : Date.now(),
+        pages: normalizedPages,
+        pageCount: typeof payload.pageCount === 'number' && Number.isInteger(payload.pageCount) && payload.pageCount > 0
+            ? payload.pageCount
+            : undefined,
+    };
 }
 
 /**
@@ -356,7 +414,11 @@ export async function loadSearchIndex(pdfPath: string): Promise<IPdfSearchIndex 
 
     try {
         const content = await readFile(indexPath, 'utf-8');
-        const index = JSON.parse(content) as IPdfSearchIndex;
+        const index = parseSearchIndexPayload(JSON.parse(content));
+        if (!index) {
+            log.warn(`Invalid search index schema at ${indexPath}; ignoring cached index`);
+            return null;
+        }
         log.debug(`Loaded index from ${indexPath}`);
         return index;
     } catch {

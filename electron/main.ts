@@ -52,11 +52,26 @@ if (automationUserDataDir) {
 }
 
 const logger = createLogger('main');
+let gracefulShutdownPromise: Promise<void> | null = null;
+let isQuittingAfterCleanup = false;
+let isFatalShutdownInProgress = false;
 process.on('unhandledRejection', (reason) => {
     logger.error(`Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
 });
 process.on('uncaughtException', (error) => {
     logger.error(`Uncaught exception in main process: ${error.stack ?? error.message}`);
+    if (isFatalShutdownInProgress) {
+        return;
+    }
+
+    isFatalShutdownInProgress = true;
+    void (async () => {
+        try {
+            await performShutdownCleanup();
+        } finally {
+            app.exit(1);
+        }
+    })();
 });
 
 if (process.platform === 'darwin' && config.automation.noFocus) {
@@ -398,6 +413,44 @@ function maybePromptForDefaultViewer() {
     }, 1_500);
 }
 
+async function performShutdownCleanup() {
+    if (defaultViewerPromptTimer) {
+        clearTimeout(defaultViewerPromptTimer);
+        defaultViewerPromptTimer = null;
+    }
+    if (flushPendingFilesTimer) {
+        clearTimeout(flushPendingFilesTimer);
+        flushPendingFilesTimer = null;
+    }
+    batchWindowStartTime = null;
+
+    clearAllWorkingCopies();
+    await stopServer();
+}
+
+function requestGracefulQuit() {
+    if (isQuittingAfterCleanup) {
+        return;
+    }
+    if (!gracefulShutdownPromise) {
+        gracefulShutdownPromise = (async () => {
+            try {
+                await performShutdownCleanup();
+            } catch (error) {
+                logger.error(`Graceful shutdown cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        })();
+    }
+
+    void gracefulShutdownPromise.then(() => {
+        if (isQuittingAfterCleanup) {
+            return;
+        }
+        isQuittingAfterCleanup = true;
+        app.quit();
+    });
+}
+
 function broadcastUpdateStatus(status: IAppUpdateStatus) {
     for (const window of getAllAppWindows()) {
         sendToWindow(window, 'updates:status', status);
@@ -420,6 +473,10 @@ if (!allowMultipleAutomationSessions) {
 // Must register before app.whenReady() because macOS sends it early during launch.
 app.on('open-file', (event, filePath) => {
     event.preventDefault();
+    if (!isSupportedFile(filePath)) {
+        logger.warn(`Ignoring unsupported macOS open-file path: ${filePath}`);
+        return;
+    }
     queueOpenRequest([filePath]);
     requestMainWindowForExternalOpen();
 });
@@ -477,27 +534,31 @@ async function init() {
     });
 
     app.on('browser-window-created', (_event, window) => {
-        window.on('closed', () => {
+        const markNotReady = () => {
             readyWindowIds.delete(window.id);
+        };
+
+        window.webContents.on('did-start-loading', markNotReady);
+        window.webContents.on('render-process-gone', markNotReady);
+
+        window.on('closed', () => {
+            markNotReady();
             markWindowTabTransferWindowClosed(window.id);
         });
     });
 
     app.on('window-all-closed', () => {
-        clearAllWorkingCopies();
         if (!config.isMac) {
-            void stopServer();
             app.quit();
         }
     });
 
-    app.on('before-quit', () => {
-        if (defaultViewerPromptTimer) {
-            clearTimeout(defaultViewerPromptTimer);
-            defaultViewerPromptTimer = null;
+    app.on('before-quit', (event) => {
+        if (isQuittingAfterCleanup || isFatalShutdownInProgress) {
+            return;
         }
-        void stopServer();
-        clearAllWorkingCopies();
+        event.preventDefault();
+        requestGracefulQuit();
     });
 
     app.on('activate', () => {
@@ -559,5 +620,11 @@ async function init() {
 
 void init().catch((error) => {
     logger.error(`Application bootstrap failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
-    app.exit(1);
+    void (async () => {
+        try {
+            await performShutdownCleanup();
+        } finally {
+            app.exit(1);
+        }
+    })();
 });

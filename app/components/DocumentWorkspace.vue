@@ -638,7 +638,12 @@ function clearSidebarToggleCheckpointTimers() {
 function runToolbarAction(action: () => unknown) {
     const result = action();
     if (result instanceof Promise) {
-        void result;
+        void result.catch((error) => {
+            BrowserLogger.error('workspace', 'Toolbar action failed', {
+                tabId: props.tabId,
+                error,
+            });
+        });
     }
     closeAllDropdowns();
 }
@@ -798,7 +803,7 @@ function handleOverflowOpenSettings() {
 }
 
 async function restoreCachedSplitPayloadIfNeeded() {
-    if (!workspaceSplitCache.has(props.tabId) || hasPdf.value) {
+    if (!workspaceSplitCache.has(props.tabId) || hasPdf.value || props.pendingDocumentOpen === true) {
         return;
     }
 
@@ -904,14 +909,16 @@ watch(
         hasPdf,
         isRestoringSplitPayload,
         isExternallyRestoring,
+        () => props.pendingDocumentOpen === true,
     ],
     ([
         hasQueued,
         hasLoadedPdf,
         isRestoring,
         isExternalRestoreInProgress,
+        pendingDocumentOpen,
     ]) => {
-        if (!hasQueued || hasLoadedPdf || isRestoring || isExternalRestoreInProgress) {
+        if (!hasQueued || hasLoadedPdf || isRestoring || isExternalRestoreInProgress || pendingDocumentOpen) {
             return;
         }
         void restoreCachedSplitPayloadIfNeeded();

@@ -13,6 +13,9 @@ export async function runCommand(
         cwd?: string;
         env?: NodeJS.ProcessEnv;
         timeoutMs?: number;
+        maxStdoutBytes?: number;
+        maxStderrBytes?: number;
+        rejectOnStdoutTruncation?: boolean;
         allowedExitCodes?: number[];
         signal?: AbortSignal;
     } = {},
@@ -21,6 +24,9 @@ export async function runCommand(
         cwd,
         env,
         timeoutMs,
+        maxStdoutBytes,
+        maxStderrBytes,
+        rejectOnStdoutTruncation,
         allowedExitCodes,
         signal,
     } = options;
@@ -29,6 +35,9 @@ export async function runCommand(
         cwd,
         env,
         timeoutMs,
+        maxStdoutBytes,
+        maxStderrBytes,
+        rejectOnStdoutTruncation,
         allowedExitCodes,
         signal,
         commandLabel: command,

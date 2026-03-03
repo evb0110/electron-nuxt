@@ -22,6 +22,13 @@ import { MAX_CHUNK } from '@electron/config/constants';
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('file-ops');
+const MAX_IPC_WRITE_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_MAX_IPC_WRITE_BYTES ?? `${512 * 1024 * 1024}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 1024) {
+        return 512 * 1024 * 1024;
+    }
+    return parsed;
+})();
 
 const ALLOWED_READ_EXTENSIONS = new Set([
     '.json',
@@ -147,7 +154,12 @@ export async function handleFileReadRange(
 
     const off = Number(offset);
     const len = Number(length);
-    if (!Number.isFinite(off) || !Number.isFinite(len) || off < 0 || len <= 0) {
+    if (
+        !Number.isSafeInteger(off)
+        || !Number.isSafeInteger(len)
+        || off < 0
+        || len <= 0
+    ) {
         throw new Error('Invalid range: offset must be >=0 and length must be >0');
     }
 
@@ -172,6 +184,9 @@ export async function handleFileWrite(
     if (!(data instanceof Uint8Array)) {
         throw new Error('Invalid data: must be a Uint8Array');
     }
+    if (data.byteLength > MAX_IPC_WRITE_BYTES) {
+        throw new Error(`Invalid data: exceeds max size (${MAX_IPC_WRITE_BYTES} bytes)`);
+    }
 
     const resolvedPath = await resolveAllowedWritePath(normalizedPath);
     if (!resolvedPath) {
@@ -190,6 +205,9 @@ export async function handleFileWriteDocx(
     const normalizedPath = normalizeNonEmptyPath(filePath);
     if (!(data instanceof Uint8Array)) {
         throw new Error('Invalid data: must be a Uint8Array');
+    }
+    if (data.byteLength > MAX_IPC_WRITE_BYTES) {
+        throw new Error(`Invalid data: exceeds max size (${MAX_IPC_WRITE_BYTES} bytes)`);
     }
     if (!consumeAllowedDocxWritePath(normalizedPath)) {
         throw new Error('Invalid file path: DOCX writes must use a path from Save dialog');

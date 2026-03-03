@@ -166,19 +166,30 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
 
     async function handleOcrComplete(ocrPdfData: Uint8Array) {
         const pageToRestore = currentPage.value;
+        let restoreError: unknown = null;
 
         if (workingCopyPath.value) {
             clearOcrCache(workingCopyPath.value);
         }
 
-        const restorePromise = waitForPdfReload(pageToRestore);
-
-        await loadPdfFromData(ocrPdfData, {
-            pushHistory: true,
-            persistWorkingCopy: !!workingCopyPath.value,
+        const restorePromise = waitForPdfReload(pageToRestore).catch((error) => {
+            restoreError = error;
         });
 
+        try {
+            await loadPdfFromData(ocrPdfData, {
+                pushHistory: true,
+                persistWorkingCopy: !!workingCopyPath.value,
+            });
+        } catch (error) {
+            void restorePromise;
+            throw error;
+        }
+
         await restorePromise;
+        if (restoreError) {
+            throw restoreError;
+        }
     }
 
     return {

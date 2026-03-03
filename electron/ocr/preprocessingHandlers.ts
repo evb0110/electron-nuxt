@@ -25,11 +25,27 @@ export function handlePreprocessingValidate() {
 }
 
 export async function handlePreprocessPage(
-    _event: IpcMainInvokeEvent,
+    event: IpcMainInvokeEvent,
     imageData: Uint8Array,
     usePreprocessing: boolean,
 ) {
+    const abortController = new AbortController();
+    const handleSenderGone = () => {
+        abortController.abort();
+    };
+
     try {
+        event.sender.once('destroyed', handleSenderGone);
+        event.sender.once('render-process-gone', handleSenderGone);
+
+        if (event.sender.isDestroyed()) {
+            return {
+                success: false,
+                imageData,
+                error: 'Renderer disconnected before preprocessing started',
+            };
+        }
+
         if (!usePreprocessing) {
             return {
                 success: true,
@@ -57,7 +73,7 @@ export async function handlePreprocessPage(
             await writeFile(inputPath, imageBuffer);
 
             log.debug(`Preprocessing image: ${inputPath}`);
-            const result = await preprocessPageForOcr(inputPath, outputPath);
+            const result = await preprocessPageForOcr(inputPath, outputPath, abortController.signal);
 
             if (!result.success) {
                 log.debug(`Preprocessing failed: ${result.error}`);
@@ -91,6 +107,13 @@ export async function handlePreprocessPage(
             }
         }
     } catch (err) {
+        if (abortController.signal.aborted) {
+            return {
+                success: false,
+                imageData,
+                error: 'Renderer disconnected during preprocessing',
+            };
+        }
         const errMsg = err instanceof Error ? err.message : String(err);
         log.debug(`Preprocessing error: ${errMsg}`);
         return {
@@ -98,5 +121,8 @@ export async function handlePreprocessPage(
             imageData,
             error: errMsg,
         };
+    } finally {
+        event.sender.removeListener('destroyed', handleSenderGone);
+        event.sender.removeListener('render-process-gone', handleSenderGone);
     }
 }

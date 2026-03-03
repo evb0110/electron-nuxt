@@ -59,18 +59,25 @@ export async function extractPages(
     pages: number[],
 ) {
     const qpdf = getQpdfBinary();
-    const args = [
-        srcPath,
-        '--pages',
-        srcPath,
-        formatPageList(pages),
-        '--',
-        destPath,
-    ];
-    await runNativeToolCommand(qpdf, args, {
-        timeoutMs: QPDF_TIMEOUT_MS,
-        commandLabel: 'qpdf(extract-pages)',
-    });
+    const tempPath = makeTempPath(destPath);
+    try {
+        const args = [
+            srcPath,
+            '--pages',
+            srcPath,
+            formatPageList(pages),
+            '--',
+            tempPath,
+        ];
+        await runNativeToolCommand(qpdf, args, {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            commandLabel: 'qpdf(extract-pages)',
+        });
+        await atomicReplace(tempPath, destPath);
+    } catch (err) {
+        await cleanupTemp(tempPath);
+        throw err;
+    }
 }
 
 export async function deletePages(

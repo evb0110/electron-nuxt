@@ -476,7 +476,7 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
                 continue;
             }
             if (page.pageNumber > totalPages) {
-                break;
+                continue;
             }
 
             const pageText = page.text ?? '';
@@ -573,6 +573,14 @@ parentPort?.on('message', (rawMessage: unknown) => {
             pruneCancelledRequests();
             return;
         case 'search':
+            if (requestAbortControllers.has(message.payload.requestId)) {
+                postMessage({
+                    type: 'error',
+                    requestId: message.payload.requestId,
+                    error: `Search failed: duplicate active requestId "${message.payload.requestId}"`,
+                });
+                return;
+            }
             void processSearchRequest(message.payload);
             return;
         default:

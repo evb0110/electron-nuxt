@@ -121,6 +121,7 @@ export async function runOcr(
         let timedOut = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
         let killHandle: NodeJS.Timeout | null = null;
+        let forceFinalizeHandle: NodeJS.Timeout | null = null;
 
         const finalize = (result: IOcrResult) => {
             if (settled) {
@@ -135,6 +136,10 @@ export async function runOcr(
             if (killHandle) {
                 clearTimeout(killHandle);
                 killHandle = null;
+            }
+            if (forceFinalizeHandle) {
+                clearTimeout(forceFinalizeHandle);
+                forceFinalizeHandle = null;
             }
             resolve(result);
         };
@@ -155,6 +160,15 @@ export async function runOcr(
                 }
             }, TESSERACT_KILL_GRACE_MS);
             killHandle.unref?.();
+
+            forceFinalizeHandle = setTimeout(() => {
+                finalize({
+                    success: false,
+                    text: '',
+                    error: `Tesseract timed out after ${TESSERACT_TIMEOUT_MS}ms`,
+                });
+            }, TESSERACT_KILL_GRACE_MS + 1_000);
+            forceFinalizeHandle.unref?.();
         }, TESSERACT_TIMEOUT_MS);
         timeoutHandle.unref?.();
 
