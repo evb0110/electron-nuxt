@@ -21,6 +21,7 @@ export interface IOcrWord {
 }
 
 export type TFitMode = 'width' | 'height';
+export type TZoomMode = 'custom' | 'fit-width' | 'fit-height';
 export type TPdfViewMode = 'single' | 'facing' | 'facing-first-single';
 
 export type TAppTheme = 'light' | 'dark';

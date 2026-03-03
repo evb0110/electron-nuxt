@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     TFitMode,
+    TZoomMode,
     TPdfViewMode,
 } from '@contracts/shared';
 import { useDropdownManager } from '@app/composables/useDropdownManager';
@@ -63,6 +64,8 @@ export const useWorkspaceSidebarSearchSyncController = (
     });
 
     const zoom = ref(1);
+    const effectiveZoom = ref(1);
+    const zoomMode = ref<TZoomMode>('fit-width');
     const fitMode = ref<TFitMode>('width');
     const viewMode = ref<TPdfViewMode>('single');
     const currentPage = ref(1);
@@ -207,6 +210,8 @@ export const useWorkspaceSidebarSearchSyncController = (
         handleSelectedThumbnailPagesUpdate,
 
         zoom,
+        effectiveZoom,
+        zoomMode,
         fitMode,
         viewMode,
         currentPage,

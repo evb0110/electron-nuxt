@@ -9,6 +9,7 @@ import { useWorkspaceViewState } from '@app/composables/page/workspace-view-stat
 function createState() {
     return useWorkspaceViewState({
         fitMode: ref('width'),
+        zoomMode: ref('fit-width'),
         zoom: ref(1),
         dragMode: ref(true),
         showSidebar: ref(false),

@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import type { TFitMode } from '@contracts/shared';
+import type {
+    TFitMode,
+    TZoomMode,
+} from '@contracts/shared';
 import type {
     IAnnotationEditorState,
     TAnnotationTool,
@@ -10,6 +13,7 @@ type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
 interface IWorkspaceViewStateDeps {
     fitMode: Ref<TFitMode>;
+    zoomMode: Ref<TZoomMode>;
     zoom: Ref<number>;
     dragMode: Ref<boolean>;
     showSidebar: Ref<boolean>;
@@ -28,10 +32,10 @@ interface IWorkspaceViewStateDeps {
 
 export function useWorkspaceViewState(deps: IWorkspaceViewStateDeps) {
     const isFitWidthActive = computed(
-        () => deps.fitMode.value === 'width' && Math.abs(deps.zoom.value - 1) < 0.01,
+        () => deps.zoomMode.value === 'fit-width',
     );
     const isFitHeightActive = computed(
-        () => deps.fitMode.value === 'height' && Math.abs(deps.zoom.value - 1) < 0.01,
+        () => deps.zoomMode.value === 'fit-height',
     );
     const isAnnotationUndoContext = computed(
         () => deps.annotationTool.value !== 'none'
@@ -63,6 +67,7 @@ export function useWorkspaceViewState(deps: IWorkspaceViewStateDeps) {
     function handleFitMode(mode: TFitMode) {
         deps.zoom.value = 1;
         deps.fitMode.value = mode;
+        deps.zoomMode.value = mode === 'height' ? 'fit-height' : 'fit-width';
     }
 
     function enableDragMode() {

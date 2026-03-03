@@ -191,6 +191,8 @@ function createEmptyToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         isCapturingRegion: false,
         isPlacingPageNote: false,
         zoom: 1,
+        effectiveZoom: 1,
+        zoomMode: 'fit-width',
         fitMode: 'width',
         viewMode: 'single',
         currentPage: 1,

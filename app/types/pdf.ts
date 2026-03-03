@@ -7,6 +7,7 @@ import type { IOcrWord } from '@contracts/shared';
 export type {
     IOcrWord,
     TFitMode,
+    TZoomMode,
     TPdfViewMode,
 } from '@contracts/shared';
 

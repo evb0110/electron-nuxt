@@ -4,7 +4,7 @@
             <ToolbarButton
                 icon="lucide:minus"
                 :tooltip="t('zoom.zoomOut')"
-                :disabled="disabled || normalizedZoom <= ZOOM.MIN"
+                :disabled="disabled || normalizedEffectiveZoom <= ZOOM.MIN"
                 grouped
                 icon-class="size-[1.1rem]"
                 @click="handleZoomOut"
@@ -105,7 +105,7 @@
             <ToolbarButton
                 icon="lucide:plus"
                 :tooltip="t('zoom.zoomIn')"
-                :disabled="disabled || normalizedZoom >= ZOOM.MAX"
+                :disabled="disabled || normalizedEffectiveZoom >= ZOOM.MAX"
                 grouped
                 icon-class="size-[1.1rem]"
                 @click="handleZoomIn"
@@ -117,6 +117,7 @@
 <script setup lang="ts">
 import type {
     TFitMode,
+    TZoomMode,
     TPdfViewMode,
 } from '@contracts/shared';
 import { ZOOM } from '@app/constants/pdf-layout';
@@ -125,6 +126,8 @@ const { t } = useTypedI18n();
 
 interface IProps {
     zoom: number;
+    effectiveZoom: number;
+    zoomMode: TZoomMode;
     fitMode: TFitMode;
     viewMode: TPdfViewMode;
     open: boolean;
@@ -134,7 +137,8 @@ interface IProps {
 
 const {
     zoom,
-    fitMode,
+    effectiveZoom,
+    zoomMode,
     viewMode,
     open,
     disabled = false,
@@ -143,6 +147,8 @@ const {
 
 const emit = defineEmits<{
     (e: 'update:zoom', level: number): void;
+    (e: 'update:effectiveZoom', level: number): void;
+    (e: 'update:zoomMode', mode: TZoomMode): void;
     (e: 'update:fitMode', mode: TFitMode): void;
     (e: 'update:viewMode', mode: TPdfViewMode): void;
     (e: 'update:open', value: boolean): void;
@@ -169,6 +175,12 @@ function normalizeZoomLevel(value: number) {
 }
 
 const normalizedZoom = computed(() => normalizeZoomLevel(zoom));
+const normalizedEffectiveZoom = computed(() => {
+    if (typeof effectiveZoom === 'number' && Number.isFinite(effectiveZoom)) {
+        return normalizeZoomLevel(effectiveZoom);
+    }
+    return normalizedZoom.value;
+});
 
 function close() {
     isOpen.value = false;
@@ -184,46 +196,69 @@ watch(isOpen, (open) => {
 });
 
 watch(
-    () => zoom,
+    () => normalizedEffectiveZoom.value,
     (value) => {
         customZoomValue.value = formatZoomValue(normalizeZoomLevel(value));
     },
+    { immediate: true },
 );
 
 function formatZoomValue(value: number) {
     return Math.round(value * 100).toString();
 }
 
-const zoomDisplay = computed(() => `${Math.round(normalizedZoom.value * 100)}%`);
+const zoomDisplay = computed(() => `${Math.round(normalizedEffectiveZoom.value * 100)}%`);
 
 const zoomPresets = ZOOM.PRESETS;
 
 function handleZoomIn() {
-    const newZoom = Math.min(normalizedZoom.value + ZOOM.STEP, ZOOM.MAX);
-    emit('update:zoom', newZoom);
+    setCustomZoomFromDisplay(Math.min(normalizedEffectiveZoom.value + ZOOM.STEP, ZOOM.MAX));
 }
 
 function handleZoomOut() {
-    const newZoom = Math.max(normalizedZoom.value - ZOOM.STEP, ZOOM.MIN);
-    emit('update:zoom', newZoom);
+    setCustomZoomFromDisplay(Math.max(normalizedEffectiveZoom.value - ZOOM.STEP, ZOOM.MIN));
 }
 
 function isPresetActive(presetValue: number) {
-    return Math.abs(normalizedZoom.value - presetValue) < 0.01;
+    return Math.abs(normalizedEffectiveZoom.value - presetValue) < 0.01;
 }
 
 function isFitModeActive(mode: TFitMode) {
-    return fitMode === mode && Math.abs(normalizedZoom.value - 1) < 0.01;
+    const expectedZoomMode: TZoomMode = mode === 'height'
+        ? 'fit-height'
+        : 'fit-width';
+    return zoomMode === expectedZoomMode;
+}
+
+function resolveBaselineScale() {
+    if (!Number.isFinite(zoom) || Math.abs(zoom) < 0.0001) {
+        return 1;
+    }
+    const baseline = normalizedEffectiveZoom.value / zoom;
+    if (!Number.isFinite(baseline) || baseline <= 0) {
+        return 1;
+    }
+    return baseline;
+}
+
+function setCustomZoomFromDisplay(displayZoom: number) {
+    const nextDisplayZoom = normalizeZoomLevel(displayZoom);
+    const baselineScale = resolveBaselineScale();
+    const nextZoom = normalizeZoomLevel(nextDisplayZoom / baselineScale);
+    emit('update:zoom', nextZoom);
+    emit('update:effectiveZoom', nextDisplayZoom);
+    emit('update:zoomMode', 'custom');
 }
 
 function handleSetZoom(level: number) {
-    emit('update:zoom', normalizeZoomLevel(level));
+    setCustomZoomFromDisplay(normalizeZoomLevel(level));
     close();
 }
 
 function handleSetFitMode(mode: TFitMode) {
-    emit('update:zoom', 1);
     emit('update:fitMode', mode);
+    emit('update:zoom', 1);
+    emit('update:zoomMode', mode === 'height' ? 'fit-height' : 'fit-width');
     close();
 }
 
@@ -239,9 +274,10 @@ function handleSetViewMode(mode: TPdfViewMode) {
 function applyCustomZoom() {
     const parsed = Number.parseFloat(customZoomValue.value);
 
-    if (Number.isFinite(parsed) && parsed >= 25 && parsed <= 500) {
-        const normalizedZoom = parsed / 100;
-        emit('update:zoom', normalizedZoom);
+    const minPercent = ZOOM.MIN * 100;
+    const maxPercent = ZOOM.MAX * 100;
+    if (Number.isFinite(parsed) && parsed >= minPercent && parsed <= maxPercent) {
+        setCustomZoomFromDisplay(parsed / 100);
         customZoomValue.value = '';
         close();
     }

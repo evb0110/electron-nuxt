@@ -20,7 +20,7 @@ export interface IPageStatusBarDeps {
     pdfData: Ref<Uint8Array | null>;
     originalPath: Ref<string | null>;
     workingCopyPath: Ref<string | null>;
-    zoom: Ref<number>;
+    effectiveZoom: Ref<number>;
     canSave: Ref<boolean>;
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;
@@ -33,7 +33,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         pdfData,
         originalPath,
         workingCopyPath,
-        zoom,
+        effectiveZoom,
         canSave,
         isAnySaving,
         isHistoryBusy,
@@ -66,7 +66,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
         return t('status.fileSizeValue', { size: formatBytes(statusFileSizeBytes.value) });
     });
-    const statusZoomLabel = computed(() => t('status.zoomValue', { zoom: Math.round(zoom.value * 100) }));
+    const statusZoomLabel = computed(() => t('status.zoomValue', { zoom: Math.round(effectiveZoom.value * 100) }));
     const statusSaveDotState = computed<TSaveDotState>(() => {
         if (!pdfSrc.value) {
             return 'idle';

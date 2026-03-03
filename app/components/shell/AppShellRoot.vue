@@ -55,11 +55,14 @@
                 <template #zoom-dropdown>
                     <PdfZoomDropdown
                         v-model:zoom="fallbackZoom"
+                        v-model:zoom-mode="fallbackZoomMode"
                         v-model:fit-mode="fallbackFitMode"
                         v-model:view-mode="fallbackViewMode"
+                        :effective-zoom="fallbackEffectiveZoom"
                         :open="fallbackZoomDropdownOpen"
                         :disabled="!fallbackHasPdf"
                         :compact-level="0"
+                        @update:effective-zoom="fallbackEffectiveZoom = $event"
                         @update:open="fallbackZoomDropdownOpen = $event"
                     />
                 </template>
@@ -258,6 +261,7 @@ import type { ITab } from '@app/types/tabs';
 import type { TGroupDirection } from '@app/types/editor-groups';
 import type {
     TFitMode,
+    TZoomMode,
     TPdfViewMode,
 } from '@contracts/shared';
 import type {
@@ -349,6 +353,8 @@ const showFallbackToolbar = computed(() => (
     !hasTeleportedToolbarContent.value
 ));
 const fallbackZoom = ref(1);
+const fallbackEffectiveZoom = ref(1);
+const fallbackZoomMode = ref<TZoomMode>('fit-width');
 const fallbackFitMode = ref<TFitMode>('width');
 const fallbackViewMode = ref<TPdfViewMode>('single');
 const fallbackCurrentPage = ref(1);
@@ -428,6 +434,8 @@ function createDefaultToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         isCapturingRegion: false,
         isPlacingPageNote: false,
         zoom: 1,
+        effectiveZoom: 1,
+        zoomMode: 'fit-width',
         fitMode: 'width',
         viewMode: 'single',
         currentPage: 1,
@@ -464,6 +472,8 @@ function applyFallbackToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot | null
     fallbackIsCapturingRegion.value = snapshot.isCapturingRegion;
     fallbackIsPlacingPageNote.value = snapshot.isPlacingPageNote;
     fallbackZoom.value = snapshot.zoom;
+    fallbackEffectiveZoom.value = snapshot.effectiveZoom;
+    fallbackZoomMode.value = snapshot.zoomMode;
     fallbackFitMode.value = snapshot.fitMode;
     fallbackViewMode.value = snapshot.viewMode;
     fallbackCurrentPage.value = normalizedCurrentPage;

@@ -2,6 +2,7 @@ import type { TOpenFileResult } from '@contracts/electron-api';
 import type { TSplitPayload } from '@contracts/window-tabs';
 import type {
     TFitMode,
+    TZoomMode,
     TPdfViewMode,
 } from '@contracts/shared';
 
@@ -25,6 +26,8 @@ export interface IWorkspaceToolbarSnapshot {
     isCapturingRegion: boolean;
     isPlacingPageNote: boolean;
     zoom: number;
+    effectiveZoom: number;
+    zoomMode: TZoomMode;
     fitMode: TFitMode;
     viewMode: TPdfViewMode;
     currentPage: number;
