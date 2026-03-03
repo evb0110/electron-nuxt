@@ -110,6 +110,13 @@ const OCR_MODEL_PREP_TIMEOUT_MS = (() => {
     }
     return parsed;
 })();
+const OCR_WORKER_TERMINATE_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_WORKER_TERMINATE_TIMEOUT_MS ?? '10000', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_000) {
+        return 10_000;
+    }
+    return parsed;
+})();
 const registeredSenderCleanupIds = new Set<number>();
 
 function assertNever(value: never): never {
@@ -461,6 +468,44 @@ function clearJobWatchdog(jobId: string) {
     activeJob.watchdogTimer = null;
 }
 
+async function terminateWorkerSafely(
+    jobId: string,
+    worker: Worker,
+    reason: string,
+) {
+    try {
+        await withTimeout(() => worker.terminate(), OCR_WORKER_TERMINATE_TIMEOUT_MS);
+    } catch (error) {
+        log.warn(`[${jobId}] Failed to terminate OCR worker (${reason}): ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+function terminateAndFinalizeActiveJob(
+    jobId: string,
+    options: {
+        markCancelled?: boolean;
+        reason: string;
+    },
+) {
+    const activeJob = activeJobs.get(jobId);
+    if (!activeJob) {
+        return;
+    }
+
+    activeJob.completed = true;
+    activeJob.terminatedByUs = true;
+    if (options.markCancelled) {
+        cancelledJobs.add(jobId);
+    }
+    clearJobWatchdog(jobId);
+    void terminateWorkerSafely(jobId, activeJob.worker, options.reason).finally(() => {
+        finalizeActiveJob(jobId);
+        if (options.markCancelled) {
+            cancelledJobs.delete(jobId);
+        }
+    });
+}
+
 async function cleanupPendingResultFilesForSender(webContentsId: number) {
     const pendingEntries = Array.from(pendingResultFiles.values())
         .filter(entry => entry.webContentsId === webContentsId);
@@ -486,12 +531,10 @@ function cancelJobsForSender(webContentsId: number, reason: string) {
     const activeForSender = Array.from(activeJobs.values())
         .filter(activeJob => activeJob.webContentsId === webContentsId);
     for (const activeJob of activeForSender) {
-        activeJob.completed = true;
-        activeJob.terminatedByUs = true;
-        cancelledJobs.add(activeJob.jobId);
-        clearJobWatchdog(activeJob.jobId);
-        void activeJob.worker.terminate();
-        finalizeActiveJob(activeJob.jobId);
+        terminateAndFinalizeActiveJob(activeJob.jobId, {
+            markCancelled: true,
+            reason,
+        });
         log.info(`[${activeJob.jobId}] Cancelled active OCR job: ${reason}`);
     }
 
@@ -583,12 +626,7 @@ function handleWorkerMessage(
                 ...message.result,
             });
 
-            const job = activeJobs.get(jobId);
-            if (job) {
-                job.completed = true;
-                job.terminatedByUs = true;
-                void job.worker.terminate();
-            }
+            terminateAndFinalizeActiveJob(jobId, { reason: 'worker reported completion' });
             return;
         }
         default:
@@ -625,11 +663,11 @@ function startQueuedJob(job: IOcrQueuedJob) {
             return;
         }
 
-        pendingActiveJob.completed = true;
-        pendingActiveJob.terminatedByUs = true;
         sendJobFailure(job, `OCR job timed out after ${OCR_JOB_MAX_RUNTIME_MS}ms`);
-        void pendingActiveJob.worker.terminate();
-        finalizeActiveJob(job.jobId);
+        terminateAndFinalizeActiveJob(job.jobId, {
+            markCancelled: true,
+            reason: `watchdog timeout (${OCR_JOB_MAX_RUNTIME_MS}ms)`,
+        });
         log.error(`OCR watchdog timed out job ${job.jobId}`);
     }, OCR_JOB_MAX_RUNTIME_MS);
     watchdog.unref?.();
@@ -654,11 +692,15 @@ function startQueuedJob(job: IOcrQueuedJob) {
 
         log.error(`Worker error for job ${job.jobId}: ${err.message}`);
         const active = activeJobs.get(job.jobId);
-        if (active) {
-            active.completed = true;
+        if (!active) {
+            return;
+        }
+        if (active.completed || active.terminatedByUs) {
+            finalizeActiveJob(job.jobId);
+            return;
         }
         sendJobFailure(job, `Worker error: ${err.message}`);
-        finalizeActiveJob(job.jobId);
+        terminateAndFinalizeActiveJob(job.jobId, { reason: 'worker error' });
     });
 
     worker.on('exit', (code) => {
@@ -668,6 +710,9 @@ function startQueuedJob(job: IOcrQueuedJob) {
         }
 
         const active = activeJobs.get(job.jobId);
+        if (!active) {
+            return;
+        }
         const wasCompletedOrTerminated = wasCanceled || active?.completed || active?.terminatedByUs;
 
         if (code !== 0 && !wasCompletedOrTerminated) {
@@ -692,13 +737,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
     } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         sendJobFailure(job, `Failed to post OCR job to worker: ${errMsg}`);
-        const active = activeJobs.get(job.jobId);
-        if (active) {
-            active.completed = true;
-            active.terminatedByUs = true;
-            void active.worker.terminate();
-        }
-        finalizeActiveJob(job.jobId);
+        terminateAndFinalizeActiveJob(job.jobId, { reason: 'failed to post worker start message' });
         return;
     }
 
@@ -889,11 +928,10 @@ export function handleOcrCancel(
         return { canceled: false };
     }
 
-    activeJob.completed = true;
-    activeJob.terminatedByUs = true;
-    cancelledJobs.add(requestId);
-    void activeJob.worker.terminate();
-    finalizeActiveJob(requestId);
+    terminateAndFinalizeActiveJob(requestId, {
+        markCancelled: true,
+        reason: 'explicit cancel request',
+    });
     log.info(`[${requestId}] Active OCR job cancelled`);
     return { canceled: true };
 }

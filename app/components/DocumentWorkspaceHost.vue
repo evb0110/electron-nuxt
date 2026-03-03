@@ -63,9 +63,6 @@
 </template>
 
 <script setup lang="ts">
-
-import { withTimeout } from 'es-toolkit/promise';
-import { until } from '@vueuse/core';
 import type { TOpenFileResult } from '@contracts/electron-api';
 import type { IRecentFile } from '@contracts/shared';
 import type { TTabUpdate } from '@app/types/tabs';
@@ -352,17 +349,20 @@ async function preloadWorkspaceComponent(reason: string) {
 }
 
 async function waitForWorkspaceMount(timeoutMs = WORKSPACE_MOUNT_TIMEOUT_MS) {
-    try {
-        return await withTimeout(async () => {
-            await until(() => mountedWorkspace.value || hasWorkspaceChunkLoadError.value).toBeTruthy();
-            if (hasWorkspaceChunkLoadError.value) {
-                return null;
-            }
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (hasWorkspaceChunkLoadError.value) {
+            return null;
+        }
+        if (mountedWorkspace.value) {
             return mountedWorkspace.value;
-        }, timeoutMs);
-    } catch {
-        return null;
+        }
+
+        await new Promise<void>((resolve) => {
+            setTimeout(resolve, 25);
+        });
     }
+    return null;
 }
 
 async function ensureWorkspaceLoaded(reason: string) {

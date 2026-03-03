@@ -45,6 +45,13 @@ const SERVER_STOP_GRACE_MS = (() => {
     }
     return parsed;
 })();
+const SERVER_OWNERSHIP_MARKER_MAX_AGE_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SERVER_OWNERSHIP_MARKER_MAX_AGE_MS ?? `${10 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 60_000) {
+        return 10 * 60 * 1000;
+    }
+    return parsed;
+})();
 
 interface IServerOwnershipMarker {
     pid: number;
@@ -129,6 +136,11 @@ function isPidAlive(pid: number) {
     }
 }
 
+function isOwnershipMarkerFresh(marker: IServerOwnershipMarker) {
+    const ageMs = Date.now() - marker.createdAt;
+    return Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= SERVER_OWNERSHIP_MARKER_MAX_AGE_MS;
+}
+
 async function terminateProcess(pid: number, graceMs = 2_500) {
     if (!isPidAlive(pid) || pid === process.pid) {
         return;
@@ -191,9 +203,11 @@ export async function startServer() {
     if (await isServerRunning()) {
         const marker = readOwnershipMarker();
         if (marker && marker.entryPath === config.server.entryPath) {
-            if (isPidAlive(marker.pid)) {
+            if (isOwnershipMarkerFresh(marker) && isPidAlive(marker.pid)) {
                 logger.warn(`Detected stale internally-owned Nuxt server (pid=${marker.pid}); terminating it`);
                 await terminateProcess(marker.pid);
+            } else if (!isOwnershipMarkerFresh(marker)) {
+                logger.warn(`Ignoring stale Nuxt ownership marker older than ${SERVER_OWNERSHIP_MARKER_MAX_AGE_MS}ms`);
             }
             clearOwnershipMarker();
         }
@@ -232,11 +246,14 @@ export async function startServer() {
     });
 
     if (config.isDev) {
-        nuxtProcess = spawn('pnpm', [
+        const pnpmCommand = process.platform === 'win32'
+            ? 'pnpm.cmd'
+            : 'pnpm';
+        nuxtProcess = spawn(pnpmCommand, [
             'run',
             'dev:nuxt',
         ], {
-            shell: true,
+            shell: false,
             stdio: [
                 'inherit',
                 'pipe',

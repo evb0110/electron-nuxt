@@ -5,7 +5,10 @@ import {
 } from 'electron';
 import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'fs';
+import {
+    existsSync,
+    realpathSync,
+} from 'fs';
 import {
     rename,
     unlink,
@@ -15,6 +18,7 @@ import {
     basename,
     extname,
     join,
+    resolve,
 } from 'path';
 import {
     createPdfFromInputPaths,
@@ -57,16 +61,30 @@ function enqueueWorkingCopyMutation<T>(
     return operationPromise;
 }
 
-function validateWorkingCopyPath(path: unknown): asserts path is string {
-    if (!path || typeof path !== 'string' || path.trim() === '') {
+function canonicalizePath(path: string) {
+    const resolvedPath = resolve(path);
+    try {
+        return realpathSync.native(resolvedPath);
+    } catch {
+        return resolvedPath;
+    }
+}
+
+function validateWorkingCopyPath(path: unknown): string {
+    const normalizedPath = typeof path === 'string' ? path.trim() : '';
+    if (!normalizedPath) {
         throw new Error('Invalid working copy path');
     }
-    if (!isAllowedWritePath(path)) {
+
+    const canonicalPath = canonicalizePath(normalizedPath);
+    if (!isAllowedWritePath(canonicalPath)) {
         throw new Error('Path is outside the allowed working directory');
     }
-    if (!existsSync(path)) {
-        throw new Error(`Working copy not found: ${path}`);
+    if (!existsSync(canonicalPath)) {
+        throw new Error(`Working copy not found: ${canonicalPath}`);
     }
+
+    return canonicalPath;
 }
 
 function formatPageRange(pages: number[]) {
@@ -85,13 +103,43 @@ function formatPageRange(pages: number[]) {
     return `p${parts.join(',')}`;
 }
 
-function validatePageNumbers(pages: unknown, label: string): asserts pages is number[] {
+function validatePageNumbers(
+    pages: unknown,
+    label: string,
+    options: {
+        totalPages?: number;
+        requireUnique?: boolean;
+    } = {},
+): asserts pages is number[] {
     if (!Array.isArray(pages) || pages.length === 0) {
         throw new Error(`${label}: must be a non-empty array of page numbers`);
     }
+
+    const pageSet = new Set<number>();
     for (const p of pages) {
         if (typeof p !== 'number' || !Number.isInteger(p) || p < 1) {
             throw new Error(`${label}: invalid page number ${p}`);
+        }
+        if (
+            typeof options.totalPages === 'number'
+            && Number.isInteger(options.totalPages)
+            && options.totalPages > 0
+            && p > options.totalPages
+        ) {
+            throw new Error(`${label}: page number ${p} is out of range 1-${options.totalPages}`);
+        }
+        if (options.requireUnique && pageSet.has(p)) {
+            throw new Error(`${label}: duplicate page number ${p}`);
+        }
+        pageSet.add(p);
+    }
+}
+
+function validateReorderPermutation(newOrder: number[]) {
+    const maxPage = newOrder.length;
+    for (let pageNumber = 1; pageNumber <= maxPage; pageNumber += 1) {
+        if (!newOrder.includes(pageNumber)) {
+            throw new Error(`reorderPages: missing page ${pageNumber} in reorder payload`);
         }
     }
 }
@@ -102,16 +150,18 @@ async function handlePageOpsDelete(
     pages: number[],
     totalPages: number,
 ) {
-    validateWorkingCopyPath(workingCopyPath);
-    validatePageNumbers(pages, 'deletePages');
-
-    if (typeof totalPages !== 'number' || totalPages < 1) {
+    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    if (!Number.isSafeInteger(totalPages) || totalPages < 1) {
         throw new Error('Invalid totalPages');
     }
+    validatePageNumbers(pages, 'deletePages', {
+        totalPages,
+        requireUnique: true,
+    });
 
-    const result = await enqueueWorkingCopyMutation(workingCopyPath, async () => {
-        validateWorkingCopyPath(workingCopyPath);
-        return deletePages(workingCopyPath, pages, totalPages);
+    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        return deletePages(queuedWorkingCopyPath, pages, totalPages);
     });
     return {
         success: true,
@@ -124,10 +174,10 @@ async function handlePageOpsExtract(
     workingCopyPath: string,
     pages: number[],
 ) {
-    validateWorkingCopyPath(workingCopyPath);
-    validatePageNumbers(pages, 'extractPages');
+    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    validatePageNumbers(pages, 'extractPages', {requireUnique: true});
 
-    const baseName = basename(workingCopyPath, extname(workingCopyPath));
+    const baseName = basename(normalizedWorkingCopyPath, extname(normalizedWorkingCopyPath));
     const rangeLabel = formatPageRange(pages);
     const suggestedName = `${baseName} (${rangeLabel}).pdf`;
     const parentWindow = BrowserWindow.getFocusedWindow();
@@ -155,7 +205,10 @@ async function handlePageOpsExtract(
         destPath += '.pdf';
     }
 
-    await extractPages(workingCopyPath, destPath, pages);
+    await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        await extractPages(queuedWorkingCopyPath, destPath, pages);
+    });
     return {
         success: true,
         destPath, 
@@ -167,12 +220,13 @@ async function handlePageOpsReorder(
     workingCopyPath: string,
     newOrder: number[],
 ) {
-    validateWorkingCopyPath(workingCopyPath);
-    validatePageNumbers(newOrder, 'reorderPages');
+    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    validatePageNumbers(newOrder, 'reorderPages', {requireUnique: true});
+    validateReorderPermutation(newOrder);
 
-    const result = await enqueueWorkingCopyMutation(workingCopyPath, async () => {
-        validateWorkingCopyPath(workingCopyPath);
-        return reorderPages(workingCopyPath, newOrder);
+    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        return reorderPages(queuedWorkingCopyPath, newOrder);
     });
     return {
         success: true,
@@ -186,12 +240,12 @@ async function handlePageOpsInsert(
     totalPages: number,
     afterPage: number,
 ) {
-    validateWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
 
-    if (typeof totalPages !== 'number' || totalPages < 1) {
+    if (!Number.isSafeInteger(totalPages) || totalPages < 1) {
         throw new Error('Invalid totalPages');
     }
-    if (typeof afterPage !== 'number' || afterPage < 0) {
+    if (!Number.isSafeInteger(afterPage) || afterPage < 0 || afterPage > totalPages) {
         throw new Error('Invalid afterPage');
     }
 
@@ -221,9 +275,9 @@ async function handlePageOpsInsert(
         };
     }
 
-    await enqueueWorkingCopyMutation(workingCopyPath, async () => {
-        validateWorkingCopyPath(workingCopyPath);
-        await insertPagesFromSourcePaths(workingCopyPath, totalPages, result.filePaths, afterPage);
+    await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        await insertPagesFromSourcePaths(queuedWorkingCopyPath, totalPages, result.filePaths, afterPage);
     });
     return {success: true};
 }
@@ -344,8 +398,8 @@ async function handlePageOpsRotate(
     pages: number[],
     angle: TRotationAngle,
 ) {
-    validateWorkingCopyPath(workingCopyPath);
-    validatePageNumbers(pages, 'rotatePages');
+    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    validatePageNumbers(pages, 'rotatePages', {requireUnique: true});
 
     if (![
         90,
@@ -355,9 +409,9 @@ async function handlePageOpsRotate(
         throw new Error(`Invalid rotation angle: ${angle}`);
     }
 
-    await enqueueWorkingCopyMutation(workingCopyPath, async () => {
-        validateWorkingCopyPath(workingCopyPath);
-        await rotatePages(workingCopyPath, pages, angle);
+    await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        await rotatePages(queuedWorkingCopyPath, pages, angle);
     });
     return {success: true};
 }
@@ -369,21 +423,21 @@ async function handlePageOpsInsertFile(
     afterPage: number,
     sourcePaths: string[],
 ) {
-    validateWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
 
-    if (typeof totalPages !== 'number' || totalPages < 1) {
+    if (!Number.isSafeInteger(totalPages) || totalPages < 1) {
         throw new Error('Invalid totalPages');
     }
-    if (typeof afterPage !== 'number' || afterPage < 0) {
+    if (!Number.isSafeInteger(afterPage) || afterPage < 0 || afterPage > totalPages) {
         throw new Error('Invalid afterPage');
     }
     if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) {
         throw new Error('Invalid source paths');
     }
 
-    await enqueueWorkingCopyMutation(workingCopyPath, async () => {
-        validateWorkingCopyPath(workingCopyPath);
-        await insertPagesFromSourcePaths(workingCopyPath, totalPages, sourcePaths, afterPage);
+    await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        await insertPagesFromSourcePaths(queuedWorkingCopyPath, totalPages, sourcePaths, afterPage);
     });
     return {success: true};
 }

@@ -20,7 +20,6 @@ import { createLogger } from '@electron/utils/logger';
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
 import type {
-    ISearchRequest,
     ISearchResponse,
     TSearchWorkerInboundMessage,
     TSearchWorkerOutboundMessage,
@@ -68,6 +67,13 @@ const SEARCH_WORKER_IDLE_TTL_MS = (() => {
     }
     return parsed;
 })();
+const SEARCH_PAGE_COUNT_MAX = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_PAGE_COUNT_MAX ?? '20000', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 20_000;
+    }
+    return Math.min(parsed, 1_000_000);
+})();
 
 type TSearchMatch = ISearchResponse['results'][number];
 
@@ -81,6 +87,51 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
+}
+
+function parseSearchRequestPayload(raw: unknown): {
+    pdfPath: string;
+    query: string;
+    pageCount?: number;
+    requestId?: string;
+} {
+    if (!isRecord(raw)) {
+        throw new Error('Invalid search request payload');
+    }
+
+    const pdfPath = typeof raw.pdfPath === 'string' ? raw.pdfPath.trim() : '';
+    if (!pdfPath) {
+        throw new Error('Invalid PDF path');
+    }
+
+    if (typeof raw.query !== 'string') {
+        throw new Error('Invalid search query');
+    }
+    const query = raw.query;
+
+    let pageCount: number | undefined;
+    if (raw.pageCount !== undefined) {
+        if (
+            typeof raw.pageCount !== 'number'
+            || !Number.isSafeInteger(raw.pageCount)
+            || raw.pageCount < 1
+            || raw.pageCount > SEARCH_PAGE_COUNT_MAX
+        ) {
+            throw new Error(`Invalid pageCount: must be an integer between 1 and ${SEARCH_PAGE_COUNT_MAX}`);
+        }
+        pageCount = raw.pageCount;
+    }
+
+    const requestId = typeof raw.requestId === 'string' && raw.requestId.trim().length > 0
+        ? raw.requestId.trim()
+        : undefined;
+
+    return {
+        pdfPath,
+        query,
+        pageCount,
+        requestId,
+    };
 }
 
 function parseSearchExcerpt(value: unknown) {
@@ -553,13 +604,14 @@ export async function resolveSearchablePdfPath(pdfPath: string): Promise<string 
 
 async function handlePdfSearch(
     event: IpcMainInvokeEvent,
-    request: ISearchRequest,
+    request: unknown,
 ): Promise<ISearchResponse> {
+    const parsedRequest = parseSearchRequestPayload(request);
     const {
         pdfPath,
         query,
         pageCount,
-    } = request;
+    } = parsedRequest;
 
     if (!query || query.trim().length === 0) {
         return {
@@ -580,8 +632,11 @@ async function handlePdfSearch(
 
     const senderId = event.sender.id;
     const state = ensureSenderState(event, senderId);
-    const requestId = request.requestId?.trim()
+    const requestId = parsedRequest.requestId
         || `search-${randomUUID()}`;
+    if (state.pendingByRequestId.has(requestId)) {
+        throw new Error(`Search request with id "${requestId}" is already in progress`);
+    }
 
     if (state.activeRequestId && state.activeRequestId !== requestId) {
         cancelRequest(state, state.activeRequestId);

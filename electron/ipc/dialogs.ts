@@ -8,6 +8,7 @@ import { copyFile } from 'fs/promises';
 import {
     extname,
     basename,
+    isAbsolute,
 } from 'path';
 import { uniq } from 'es-toolkit/array';
 import {
@@ -221,13 +222,14 @@ export async function handleCreateWorkingCopyFromData(
         throw new Error('Invalid PDF payload');
     }
 
-    return createWorkingCopyFromData(
-        normalizedName,
-        data,
-        typeof originalPath === 'string' && originalPath.trim().length > 0
-            ? originalPath.trim()
-            : undefined,
-    );
+    const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
+        ? originalPath.trim()
+        : undefined;
+    if (normalizedOriginalPath && (!isAbsolute(normalizedOriginalPath) || !isSupportedOpenPath(normalizedOriginalPath))) {
+        throw new Error('Invalid original path');
+    }
+
+    return createWorkingCopyFromData(normalizedName, data, normalizedOriginalPath);
 }
 
 export async function handleCreateWorkingCopyFromPath(
@@ -243,13 +245,18 @@ export async function handleCreateWorkingCopyFromPath(
     if (!existsSync(normalizedSourcePath)) {
         throw new Error(`File not found: ${normalizedSourcePath}`);
     }
+    if (!isSupportedOpenPath(normalizedSourcePath)) {
+        throw new Error('Invalid source file type');
+    }
 
-    return createWorkingCopyFromPath(
-        normalizedSourcePath,
-        typeof originalPath === 'string' && originalPath.trim().length > 0
-            ? originalPath.trim()
-            : undefined,
-    );
+    const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
+        ? originalPath.trim()
+        : undefined;
+    if (normalizedOriginalPath && (!isAbsolute(normalizedOriginalPath) || !isSupportedOpenPath(normalizedOriginalPath))) {
+        throw new Error('Invalid original path');
+    }
+
+    return createWorkingCopyFromPath(normalizedSourcePath, normalizedOriginalPath);
 }
 
 export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string) {
@@ -363,9 +370,12 @@ export async function handleSavePdfDialog(
     _event: Electron.IpcMainInvokeEvent,
     suggestedName: string,
 ): Promise<string | null> {
+    const normalizedSuggestedName = typeof suggestedName === 'string' && suggestedName.trim().length > 0
+        ? suggestedName.trim()
+        : 'document.pdf';
     const result = await dialog.showSaveDialog({
         title: te('dialogs.savePdf'),
-        defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
+        defaultPath: normalizedSuggestedName.endsWith('.pdf') ? normalizedSuggestedName : `${normalizedSuggestedName}.pdf`,
         filters: [{
             name: te('dialogs.pdfFiles'),
             extensions: ['pdf'],

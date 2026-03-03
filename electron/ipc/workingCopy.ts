@@ -18,12 +18,25 @@ import {
     relative,
     sep,
     isAbsolute,
+    extname,
 } from 'path';
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('working-copy');
+const ALLOWED_SAVE_EXTENSIONS = new Set([
+    '.pdf',
+    '.djvu',
+    '.djv',
+]);
 
 export const workingCopyMap = new Map<string, string>();
+
+function isAllowedOriginalSavePath(path: string) {
+    if (!isAbsolute(path)) {
+        return false;
+    }
+    return ALLOWED_SAVE_EXTENSIONS.has(extname(path).toLowerCase());
+}
 
 export function findWorkingCopyPathByOriginalPath(originalPath: string): string | null {
     const normalizedOriginalPath = typeof originalPath === 'string' ? originalPath.trim() : '';
@@ -102,6 +115,9 @@ export async function createWorkingCopyFromPath(
     const mappedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
         ? originalPath.trim()
         : normalizedSourcePath;
+    if (!isAllowedOriginalSavePath(mappedOriginalPath)) {
+        throw new Error('Invalid original path mapping');
+    }
     workingCopyMap.set(workingPath, mappedOriginalPath);
 
     return workingPath;
@@ -121,7 +137,11 @@ export async function createWorkingCopyFromData(
     await writeFile(workingPath, data);
 
     if (originalPath) {
-        workingCopyMap.set(workingPath, originalPath);
+        const normalizedOriginalPath = originalPath.trim();
+        if (!isAllowedOriginalSavePath(normalizedOriginalPath)) {
+            throw new Error('Invalid original path mapping');
+        }
+        workingCopyMap.set(workingPath, normalizedOriginalPath);
     }
 
     return workingPath;
@@ -140,6 +160,9 @@ export async function handleFileSave(
 
     if (!originalPath) {
         throw new Error('No original path found for this working copy');
+    }
+    if (!isAllowedOriginalSavePath(originalPath)) {
+        throw new Error('Invalid original path for this working copy');
     }
 
     try {

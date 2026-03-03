@@ -1,10 +1,12 @@
 import { spawn } from 'child_process';
 import type { ChildProcess } from 'child_process';
+import { existsSync } from 'fs';
 import {
     mkdtemp,
     readFile,
     rm,
     stat,
+    unlink,
     writeFile,
 } from 'fs/promises';
 import {
@@ -68,9 +70,34 @@ const DJVU_MAX_STDERR_BYTES = (() => {
     }
     return parsed;
 })();
+const DJVU_PDFLIB_FALLBACK_MAX_PAGES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_PDFLIB_FALLBACK_MAX_PAGES ?? '256', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 256;
+    }
+    return Math.min(parsed, 2_000);
+})();
+const DJVU_PDFLIB_FALLBACK_MAX_TOTAL_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_PDFLIB_FALLBACK_MAX_TOTAL_MB ?? '256', 10);
+    if (!Number.isFinite(parsed) || parsed < 16) {
+        return 256 * 1024 * 1024;
+    }
+    return parsed * 1024 * 1024;
+})();
 
 const activeProcesses = new Map<string, ChildProcess>();
 const logger = createLogger('djvu-convert');
+
+async function cleanupPartialOutput(outputPath: string) {
+    try {
+        if (!existsSync(outputPath)) {
+            return;
+        }
+        await unlink(outputPath);
+    } catch {
+        // Ignore cleanup failures for partial outputs.
+    }
+}
 
 export async function convertDjvuToPdf(
     inputPath: string,
@@ -158,6 +185,7 @@ async function convertDjvuToPdfWithRanges(
         await Promise.all(tasks);
 
         if (firstError) {
+            await cleanupPartialOutput(outputPath);
             return {
                 success: false,
                 outputPath,
@@ -168,6 +196,7 @@ async function convertDjvuToPdfWithRanges(
 
         const mergeResult = await mergePdfChunks(chunkPaths, outputPath, `${jobId}-merge`);
         if (!mergeResult.success) {
+            await cleanupPartialOutput(outputPath);
             return {
                 success: false,
                 outputPath,
@@ -242,6 +271,7 @@ async function convertDjvuToPdfSingleProcess(
     );
 
     if (!result.success) {
+        await cleanupPartialOutput(outputPath);
         return {
             success: false,
             outputPath,
@@ -258,6 +288,7 @@ async function convertDjvuToPdfSingleProcess(
             fileSize: s.size,
         };
     } catch (err) {
+        await cleanupPartialOutput(outputPath);
         return {
             success: false,
             outputPath,
@@ -319,8 +350,26 @@ async function mergePdfChunks(
     }
 
     logger.warn(`[${mergeJobId}] qpdf merge failed, falling back to pdf-lib merge: ${qpdfResult.error}`);
+    if (chunkPaths.length > DJVU_PDFLIB_FALLBACK_MAX_PAGES) {
+        return {
+            success: false,
+            error: `qpdf merge failed and fallback is disabled for large files (> ${DJVU_PDFLIB_FALLBACK_MAX_PAGES} pages)`,
+        };
+    }
 
     try {
+        let totalChunkBytes = 0;
+        for (const chunkPath of chunkPaths) {
+            const chunkStat = await stat(chunkPath);
+            totalChunkBytes += chunkStat.size;
+            if (totalChunkBytes > DJVU_PDFLIB_FALLBACK_MAX_TOTAL_BYTES) {
+                return {
+                    success: false,
+                    error: `qpdf merge failed and fallback exceeds size cap (${Math.floor(DJVU_PDFLIB_FALLBACK_MAX_TOTAL_BYTES / (1024 * 1024))}MB)`,
+                };
+            }
+        }
+
         const mergedDoc = await PDFDocument.create();
 
         for (const chunkPath of chunkPaths) {

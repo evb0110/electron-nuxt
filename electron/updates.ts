@@ -188,9 +188,13 @@ function scheduleNextPoll() {
     const delay = Math.max(MIN_POLL_INTERVAL_MS, baseInterval + jitter);
 
     pollTimer = setTimeout(() => {
-        void checkForUpdates('auto').finally(() => {
-            scheduleNextPoll();
-        });
+        void checkForUpdates('auto')
+            .catch((error) => {
+                logger.error(`Automatic update poll failed: ${error instanceof Error ? error.message : String(error)}`);
+            })
+            .finally(() => {
+                scheduleNextPoll();
+            });
     }, delay);
 }
 
@@ -248,6 +252,14 @@ function setAutoUpdaterListeners() {
     autoUpdater.on('error', (error) => {
         logger.error(`Updater error: ${error instanceof Error ? error.message : String(error)}`);
         if (currentCheckOrigin !== 'manual') {
+            pendingVersion = null;
+            updateStatus({
+                phase: 'idle',
+                origin: 'auto',
+                version: normalizeVersion(app.getVersion()) || null,
+                percent: null,
+                message: null,
+            });
             return;
         }
 
@@ -261,35 +273,46 @@ function setAutoUpdaterListeners() {
     });
 
     autoUpdater.on('update-downloaded', async (event: UpdateDownloadedEvent) => {
-        const version = normalizeVersion(event.version) || pendingVersion;
-        pendingVersion = version || null;
-        downloadedVersion = version || null;
+        try {
+            const version = normalizeVersion(event.version) || pendingVersion;
+            pendingVersion = version || null;
+            downloadedVersion = version || null;
 
-        const skippedVersion = await readSkippedVersion();
-        if (
-            currentCheckOrigin === 'auto'
-            && skippedVersion
-            && version
-            && skippedVersion === version
-        ) {
-            logger.info(`Update ${version} downloaded but skipped for automatic prompts`);
+            const skippedVersion = await readSkippedVersion();
+            if (
+                currentCheckOrigin === 'auto'
+                && skippedVersion
+                && version
+                && skippedVersion === version
+            ) {
+                logger.info(`Update ${version} downloaded but skipped for automatic prompts`);
+                updateStatus({
+                    phase: 'idle',
+                    origin: 'auto',
+                    version,
+                    percent: null,
+                    message: null,
+                });
+                return;
+            }
+
             updateStatus({
-                phase: 'idle',
-                origin: 'auto',
-                version,
-                percent: null,
+                phase: 'downloaded',
+                origin: currentCheckOrigin,
+                version: version || null,
+                percent: 100,
                 message: null,
             });
-            return;
+        } catch (error) {
+            logger.error(`Failed to process downloaded update event: ${error instanceof Error ? error.message : String(error)}`);
+            updateStatus({
+                phase: 'error',
+                origin: currentCheckOrigin,
+                version: pendingVersion,
+                percent: null,
+                message: error instanceof Error ? error.message : String(error),
+            });
         }
-
-        updateStatus({
-            phase: 'downloaded',
-            origin: currentCheckOrigin,
-            version: version || null,
-            percent: 100,
-            message: null,
-        });
     });
 }
 
@@ -310,7 +333,7 @@ async function shouldRunUpdaterCheck(origin: TAppUpdateCheckOrigin) {
             ? 'Timed out while checking for updates.'
             : (error instanceof Error ? error.message : String(error));
         logger.warn(`Unable to query update metadata: ${message}`);
-        return false;
+        return true;
     }
 
     if (compareVersions(latestVersion, currentVersion) <= 0) {
@@ -336,72 +359,85 @@ async function shouldRunUpdaterCheck(origin: TAppUpdateCheckOrigin) {
 }
 
 async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
-    if (!isUpdaterSupported()) {
-        if (origin === 'manual') {
-            updateStatus({
-                phase: 'unsupported',
-                origin: 'manual',
-                version: normalizeVersion(app.getVersion()) || null,
-                percent: null,
-                message: 'Updates are available only in packaged macOS/Windows builds.',
-            });
-        }
-        return;
-    }
-
-    if (downloadedVersion) {
-        const skippedVersion = await readSkippedVersion();
-        if (!(origin === 'auto' && skippedVersion === downloadedVersion)) {
-            updateStatus({
-                phase: 'downloaded',
-                origin,
-                version: downloadedVersion,
-                percent: 100,
-                message: null,
-            });
-        }
-        return;
-    }
-
-    if (currentCheckPromise) {
-        if (origin === 'manual') {
-            updateStatus({
-                phase: 'checking',
-                origin: 'manual',
-                version: pendingVersion,
-                percent: null,
-                message: null,
-            });
-        }
-        return;
-    }
-
-    currentCheckOrigin = origin;
-    currentCheckPromise = (async () => {
-        const shouldCheckBinary = await shouldRunUpdaterCheck(origin);
-        if (!shouldCheckBinary) {
+    try {
+        if (!isUpdaterSupported()) {
+            if (origin === 'manual') {
+                updateStatus({
+                    phase: 'unsupported',
+                    origin: 'manual',
+                    version: normalizeVersion(app.getVersion()) || null,
+                    percent: null,
+                    message: 'Updates are available only in packaged macOS/Windows builds.',
+                });
+            }
             return;
         }
 
-        try {
-            await autoUpdater.checkForUpdates();
-        } catch (error) {
-            logger.error(`checkForUpdates failed: ${error instanceof Error ? error.message : String(error)}`);
+        if (downloadedVersion) {
+            const skippedVersion = await readSkippedVersion();
+            if (!(origin === 'auto' && skippedVersion === downloadedVersion)) {
+                updateStatus({
+                    phase: 'downloaded',
+                    origin,
+                    version: downloadedVersion,
+                    percent: 100,
+                    message: null,
+                });
+            }
+            return;
+        }
+
+        if (currentCheckPromise) {
             if (origin === 'manual') {
                 updateStatus({
-                    phase: 'error',
+                    phase: 'checking',
                     origin: 'manual',
                     version: pendingVersion,
                     percent: null,
-                    message: error instanceof Error ? error.message : String(error),
+                    message: null,
                 });
             }
+            return;
         }
-    })().finally(() => {
-        currentCheckPromise = null;
-    });
 
-    await currentCheckPromise;
+        currentCheckOrigin = origin;
+        currentCheckPromise = (async () => {
+            const shouldCheckBinary = await shouldRunUpdaterCheck(origin);
+            if (!shouldCheckBinary) {
+                return;
+            }
+
+            try {
+                await autoUpdater.checkForUpdates();
+            } catch (error) {
+                logger.error(`checkForUpdates failed: ${error instanceof Error ? error.message : String(error)}`);
+                if (origin === 'manual') {
+                    updateStatus({
+                        phase: 'error',
+                        origin: 'manual',
+                        version: pendingVersion,
+                        percent: null,
+                        message: error instanceof Error ? error.message : String(error),
+                    });
+                }
+            }
+        })().finally(() => {
+            currentCheckPromise = null;
+        });
+
+        await currentCheckPromise;
+    } catch (error) {
+        logger.error(`checkForUpdates internal failure: ${error instanceof Error ? error.message : String(error)}`);
+        if (origin === 'manual') {
+            updateStatus({
+                phase: 'error',
+                origin: 'manual',
+                version: pendingVersion,
+                percent: null,
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
 }
 
 export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) {
@@ -429,9 +465,13 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
 
     const initialDelayMs = Math.max(config.updates.initialDelayMs, 1000);
     pollTimer = setTimeout(() => {
-        void checkForUpdates('auto').finally(() => {
-            scheduleNextPoll();
-        });
+        void checkForUpdates('auto')
+            .catch((error) => {
+                logger.error(`Initial automatic update check failed: ${error instanceof Error ? error.message : String(error)}`);
+            })
+            .finally(() => {
+                scheduleNextPoll();
+            });
     }, initialDelayMs);
 }
 
@@ -452,7 +492,11 @@ export async function installDownloadedUpdate() {
     // Installation is always user-initiated, so errors must surface to the UI
     currentCheckOrigin = 'manual';
 
-    await writeSkippedVersion(null);
+    try {
+        await writeSkippedVersion(null);
+    } catch (error) {
+        logger.warn(`Failed to clear skipped update version before install: ${error instanceof Error ? error.message : String(error)}`);
+    }
     autoUpdater.quitAndInstall(false, true);
     return { started: true };
 }

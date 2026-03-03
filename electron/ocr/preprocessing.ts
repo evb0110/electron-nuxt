@@ -18,6 +18,7 @@ interface IPreprocessingOptions {
     binary: string;
     args: string[];
     timeout?: number;
+    signal?: AbortSignal;
 }
 
 interface IPreprocessingResult {
@@ -143,6 +144,12 @@ async function runPreprocessing(
     options: IPreprocessingOptions,
 ): Promise<IPreprocessingResult> {
     log.debug(`Running: ${options.binary} ${options.args.join(' ')}`);
+    if (options.signal?.aborted) {
+        return {
+            success: false,
+            error: 'Preprocessing aborted',
+        };
+    }
 
     if (!existsSync(options.binary)) {
         const error = `Binary not found: ${options.binary}`;
@@ -163,6 +170,7 @@ async function runPreprocessing(
         let stderrTruncated = false;
         let settled = false;
         let killHandle: NodeJS.Timeout | null = null;
+        let forceFinalizeHandle: NodeJS.Timeout | null = null;
 
         const timeout = options.timeout || 60000; // 60 seconds default
         const timeoutHandle = setTimeout(() => {
@@ -181,6 +189,18 @@ async function runPreprocessing(
                 }
             }, PREPROCESS_KILL_GRACE_MS);
             killHandle.unref?.();
+
+            forceFinalizeHandle = setTimeout(() => {
+                const stderrSummary = stderrTruncated
+                    ? `[stderr truncated to ${PREPROCESS_MAX_STDERR_BYTES} bytes]\n${stderr}`
+                    : stderr;
+                finalize({
+                    success: false,
+                    error: `Process timed out after ${timeout}ms`,
+                    stderr: stderrSummary,
+                });
+            }, PREPROCESS_KILL_GRACE_MS + 1_000);
+            forceFinalizeHandle.unref?.();
         }, timeout);
         timeoutHandle.unref?.();
 
@@ -195,8 +215,46 @@ async function runPreprocessing(
                 clearTimeout(killHandle);
                 killHandle = null;
             }
+            if (forceFinalizeHandle) {
+                clearTimeout(forceFinalizeHandle);
+                forceFinalizeHandle = null;
+            }
+            if (options.signal && abortHandler) {
+                options.signal.removeEventListener('abort', abortHandler);
+            }
             resolve(result);
         };
+
+        const abortHandler = options.signal
+            ? () => {
+                const abortError = new Error('Preprocessing aborted');
+                timedOut = false;
+                try {
+                    proc.kill('SIGTERM');
+                } catch {
+                    // Process may have exited already.
+                }
+                killHandle = setTimeout(() => {
+                    try {
+                        proc.kill('SIGKILL');
+                    } catch {
+                        // Process may have exited already.
+                    }
+                }, PREPROCESS_KILL_GRACE_MS);
+                killHandle.unref?.();
+
+                forceFinalizeHandle = setTimeout(() => {
+                    finalize({
+                        success: false,
+                        error: abortError.message,
+                    });
+                }, PREPROCESS_KILL_GRACE_MS + 1_000);
+                forceFinalizeHandle.unref?.();
+            }
+            : null;
+        if (options.signal && abortHandler) {
+            options.signal.addEventListener('abort', abortHandler, { once: true });
+        }
 
         proc.stdout.on('data', (data: Buffer) => {
             const appended = appendWithCap(stdout, data, PREPROCESS_MAX_STDOUT_BYTES);
@@ -275,6 +333,7 @@ async function cleanScannedPageWithUnpaper(
     inputPath: string,
     outputPath: string,
     aggressive = false,
+    signal?: AbortSignal,
 ): Promise<IPreprocessingResult> {
     const bins = getPreprocessingBinaries();
 
@@ -307,6 +366,7 @@ async function cleanScannedPageWithUnpaper(
         binary: bins.unpaper,
         args,
         timeout: 30000,
+        signal,
     });
 }
 
@@ -320,10 +380,11 @@ async function cleanScannedPageWithUnpaper(
 export async function preprocessPageForOcr(
     inputPath: string,
     outputPath: string,
+    signal?: AbortSignal,
 ): Promise<IPreprocessingResult> {
     log.debug(`Preprocessing page for OCR: ${inputPath}`);
 
-    return cleanScannedPageWithUnpaper(inputPath, outputPath, false);
+    return cleanScannedPageWithUnpaper(inputPath, outputPath, false, signal);
 }
 
 /**
