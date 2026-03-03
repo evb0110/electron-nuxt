@@ -50,6 +50,12 @@ export default {
         'zoomIn': 'Ampliar',
         'apply': 'Aplicar Zoom',
         'custom': 'Personalizado',
+        'sectionZoom': 'Zoom',
+        'sectionFit': 'Ajuste',
+        'sectionLayout': 'Layout',
+        'singleShort': 'Única',
+        'facingShort': 'Dupla',
+        'facingFirstShort': '1ª',
     },
     'sidebar': {
         'notes': 'Notas',

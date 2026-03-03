@@ -50,6 +50,12 @@ export default {
         'zoomIn': 'Увеличить',
         'apply': 'Применить масштаб',
         'custom': 'Свой',
+        'sectionZoom': 'Масштаб',
+        'sectionFit': 'Подгонка',
+        'sectionLayout': 'Макет',
+        'singleShort': 'Одна',
+        'facingShort': 'Разворот',
+        'facingFirstShort': '1-я',
     },
     'sidebar': {
         'notes': 'Заметки',
