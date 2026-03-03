@@ -40,6 +40,34 @@ const MAX_RANGE_WORKERS = 12;
 const MAX_IMAGE_WORKERS = 16;
 const MIN_PAGES_FOR_RANGE_PARALLELISM = 24;
 const PROGRESS_CAP = 90;
+const DJVU_PROCESS_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_PROCESS_TIMEOUT_MS ?? `${4 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 5_000) {
+        return 4 * 60 * 1000;
+    }
+    return parsed;
+})();
+const DJVU_IMAGE_PROCESS_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_IMAGE_PROCESS_TIMEOUT_MS ?? `${2 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 5_000) {
+        return 2 * 60 * 1000;
+    }
+    return parsed;
+})();
+const DJVU_KILL_GRACE_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_KILL_GRACE_MS ?? '2000', 10);
+    if (!Number.isFinite(parsed) || parsed < 250) {
+        return 2_000;
+    }
+    return parsed;
+})();
+const DJVU_MAX_STDERR_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_MAX_STDERR_BYTES ?? '262144', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_024) {
+        return 262_144;
+    }
+    return parsed;
+})();
 
 const activeProcesses = new Map<string, ChildProcess>();
 const logger = createLogger('djvu-convert');
@@ -343,7 +371,7 @@ function buildPdfArgs(
 
 type TImageFormat = 'pgm' | 'ppm';
 
-export function convertDjvuPageToImage(
+export async function convertDjvuPageToImage(
     inputPath: string,
     outputPath: string,
     pageNum: number,
@@ -367,65 +395,34 @@ export function convertDjvuPageToImage(
 
     args.push(inputPath, outputPath);
 
-    return new Promise((resolve) => {
-        const proc = spawn(ddjvu, args, {
-            shell: false,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
-            env: buildDjvuRuntimeEnv(),
-        });
-
-        activeProcesses.set(jobId, proc);
-
-        let stderr = '';
-        proc.stderr?.on('data', (data: Buffer) => {
-            stderr += data.toString();
-        });
-
-        proc.on('error', (err) => {
-            activeProcesses.delete(jobId);
-            resolve({
-                success: false,
-                outputPath,
-                fileSize: 0,
-                error: err.message,
-            });
-        });
-
-        proc.on('close', async (code) => {
-            activeProcesses.delete(jobId);
-            const exitCode = typeof code === 'number' ? code : -1;
-
-            if (exitCode !== 0) {
-                resolve({
-                    success: false,
-                    outputPath,
-                    fileSize: 0,
-                    error: `ddjvu exited with code ${describeProcessExitCode(exitCode)}: ${stderr}`,
-                });
-                return;
-            }
-
-            try {
-                const s = await stat(outputPath);
-                resolve({
-                    success: true,
-                    outputPath,
-                    fileSize: s.size,
-                });
-            } catch (err) {
-                resolve({
-                    success: false,
-                    outputPath,
-                    fileSize: 0,
-                    error: `Output file not found: ${err instanceof Error ? err.message : String(err)}`,
-                });
-            }
-        });
+    const result = await runProcess(jobId, ddjvu, args, {
+        env: buildDjvuRuntimeEnv(),
+        timeoutMs: DJVU_IMAGE_PROCESS_TIMEOUT_MS,
     });
+    if (!result.success) {
+        return {
+            success: false,
+            outputPath,
+            fileSize: 0,
+            error: result.error,
+        };
+    }
+
+    try {
+        const s = await stat(outputPath);
+        return {
+            success: true,
+            outputPath,
+            fileSize: s.size,
+        };
+    } catch (err) {
+        return {
+            success: false,
+            outputPath,
+            fileSize: 0,
+            error: `Output file not found: ${err instanceof Error ? err.message : String(err)}`,
+        };
+    }
 }
 
 interface IImageConvertOptions {
@@ -521,13 +518,14 @@ export function cancelConversion(jobId: string): boolean {
 function killProcess(proc: ChildProcess) {
     try {
         proc.kill('SIGTERM');
-        setTimeout(() => {
+        const timer = setTimeout(() => {
             try {
                 proc.kill('SIGKILL');
             } catch {
                 // Already dead
             }
-        }, 2000);
+        }, DJVU_KILL_GRACE_MS);
+        timer.unref?.();
     } catch {
         // Process may have already exited
     }
@@ -536,6 +534,36 @@ function killProcess(proc: ChildProcess) {
 interface IRunProcessOptions {
     env?: NodeJS.ProcessEnv;
     onStderr?: (chunk: string) => void;
+    timeoutMs?: number;
+    maxStderrBytes?: number;
+}
+
+function appendWithCap(current: string, chunk: Buffer, maxBytes: number) {
+    if (maxBytes <= 0) {
+        return {
+            value: '',
+            truncated: true,
+        };
+    }
+
+    const nextValue = current + chunk.toString();
+    if (Buffer.byteLength(nextValue, 'utf8') <= maxBytes) {
+        return {
+            value: nextValue,
+            truncated: false,
+        };
+    }
+
+    const keepBytes = Math.max(1, Math.floor(maxBytes * 0.9));
+    let tail = nextValue;
+    while (Buffer.byteLength(tail, 'utf8') > keepBytes && tail.length > 1) {
+        tail = tail.slice(Math.floor(tail.length * 0.1));
+    }
+
+    return {
+        value: tail,
+        truncated: true,
+    };
 }
 
 async function runProcess(
@@ -548,6 +576,8 @@ async function runProcess(
     error: string 
 }> {
     return new Promise((resolve) => {
+        const timeoutMs = options.timeoutMs ?? DJVU_PROCESS_TIMEOUT_MS;
+        const maxStderrBytes = options.maxStderrBytes ?? DJVU_MAX_STDERR_BYTES;
         const proc = spawn(command, args, {
             shell: false,
             stdio: [
@@ -560,6 +590,31 @@ async function runProcess(
 
         activeProcesses.set(processId, proc);
         let stderr = '';
+        let stderrTruncated = false;
+        let settled = false;
+        let timeoutHandle: NodeJS.Timeout | null = null;
+        let killHandle: NodeJS.Timeout | null = null;
+        let timedOut = false;
+
+        const finalize = (result: { success: true } | {
+            success: false;
+            error: string;
+        }) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            activeProcesses.delete(processId);
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = null;
+            }
+            if (killHandle) {
+                clearTimeout(killHandle);
+                killHandle = null;
+            }
+            resolve(result);
+        };
 
         proc.stdout?.on('data', () => {
             // Drain stdout to avoid child process back-pressure stalls.
@@ -567,29 +622,59 @@ async function runProcess(
 
         proc.stderr?.on('data', (data: Buffer) => {
             const chunk = data.toString();
-            stderr += chunk;
+            const appended = appendWithCap(stderr, data, maxStderrBytes);
+            stderr = appended.value;
+            stderrTruncated = stderrTruncated || appended.truncated;
             options.onStderr?.(chunk);
         });
 
+        if (timeoutMs > 0) {
+            timeoutHandle = setTimeout(() => {
+                timedOut = true;
+                try {
+                    proc.kill('SIGTERM');
+                } catch {
+                    // Process may already be gone.
+                }
+                killHandle = setTimeout(() => {
+                    try {
+                        proc.kill('SIGKILL');
+                    } catch {
+                        // Process may already be gone.
+                    }
+                }, DJVU_KILL_GRACE_MS);
+                killHandle.unref?.();
+            }, timeoutMs);
+            timeoutHandle.unref?.();
+        }
+
         proc.on('error', (err) => {
-            activeProcesses.delete(processId);
-            resolve({
+            finalize({
                 success: false,
                 error: err.message,
             });
         });
 
         proc.on('close', (code) => {
-            activeProcesses.delete(processId);
             const exitCode = typeof code === 'number' ? code : -1;
-            if (exitCode !== 0) {
-                resolve({
+            if (timedOut) {
+                finalize({
                     success: false,
-                    error: `${command} exited with code ${describeProcessExitCode(exitCode)}: ${stderr}`,
+                    error: `${command} timed out after ${timeoutMs}ms`,
                 });
                 return;
             }
-            resolve({ success: true });
+            if (exitCode !== 0) {
+                const stderrSummary = stderrTruncated
+                    ? `[stderr truncated to ${maxStderrBytes} bytes]\n${stderr}`
+                    : stderr;
+                finalize({
+                    success: false,
+                    error: `${command} exited with code ${describeProcessExitCode(exitCode)}: ${stderrSummary}`,
+                });
+                return;
+            }
+            finalize({ success: true });
         });
     });
 }

@@ -2,6 +2,7 @@ import {
     BrowserWindow,
     app,
     session,
+    shell,
 } from 'electron';
 import {
     dirname,
@@ -26,6 +27,18 @@ const windowIconPath = !app.isPackaged && !config.isMac
 const logger = createLogger('window');
 const windowStartupStartedAt = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+const TRUSTED_SERVER_ORIGIN = (() => {
+    try {
+        return new URL(config.server.url).origin;
+    } catch {
+        return '';
+    }
+})();
+const ALLOWED_EXTERNAL_PROTOCOLS = new Set([
+    'http:',
+    'https:',
+    'mailto:',
+]);
 
 function logWindowStartup(phase: string, details?: Record<string, unknown>) {
     if (!STARTUP_TRACE_ENABLED) {
@@ -50,6 +63,59 @@ let isDevCacheCleared = false;
 let isCspConfigured = false;
 
 interface ICreateAppWindowOptions {setAsMain?: boolean;}
+
+function parseUrl(value: string): URL | null {
+    try {
+        return new URL(value);
+    } catch {
+        return null;
+    }
+}
+
+function isTrustedRendererUrl(value: string) {
+    if (!TRUSTED_SERVER_ORIGIN) {
+        return false;
+    }
+    const parsed = parseUrl(value);
+    if (!parsed) {
+        return false;
+    }
+    return parsed.origin === TRUSTED_SERVER_ORIGIN;
+}
+
+function isAllowedExternalUrl(value: string) {
+    const parsed = parseUrl(value);
+    if (!parsed) {
+        return false;
+    }
+    return ALLOWED_EXTERNAL_PROTOCOLS.has(parsed.protocol);
+}
+
+function openExternalSafely(url: string, source: 'window-open' | 'navigation') {
+    if (!isAllowedExternalUrl(url)) {
+        logger.warn(`Blocked ${source} URL with unsupported protocol: ${url}`);
+        return;
+    }
+    void shell.openExternal(url).catch((error) => {
+        logger.warn(`Failed to open external URL (${source}): ${error instanceof Error ? error.message : String(error)}`);
+    });
+}
+
+function hardenWindowWebContents(window: BrowserWindow) {
+    window.webContents.setWindowOpenHandler(({ url }) => {
+        openExternalSafely(url, 'window-open');
+        return { action: 'deny' };
+    });
+
+    window.webContents.on('will-navigate', (event, url) => {
+        if (isTrustedRendererUrl(url) || url === 'about:blank') {
+            return;
+        }
+
+        event.preventDefault();
+        openExternalSafely(url, 'navigation');
+    });
+}
 
 async function lockRendererZoom(window: BrowserWindow) {
     try {
@@ -120,16 +186,35 @@ async function ensureWindowRuntimeReady() {
 }
 
 function attachRendererDiagnostics(window: BrowserWindow) {
-    if (!config.isDev) {
-        return;
-    }
-
     const webContents = window.webContents;
     const windowId = window.id;
+    let recoveryAttempted = false;
 
     webContents.on('render-process-gone', (_event, details) => {
         logger.error(`[renderer] render-process-gone (windowId=${windowId}, reason=${details.reason}, exitCode=${details.exitCode})`);
+
+        if (config.isDev || recoveryAttempted || window.isDestroyed()) {
+            return;
+        }
+
+        recoveryAttempted = true;
+        logger.warn(`[renderer] attempting one-time recovery load after renderer exit (windowId=${windowId})`);
+        void window.loadURL(config.server.url).catch((error) => {
+            logger.error(`Renderer recovery load failed (windowId=${windowId}): ${error instanceof Error ? error.message : String(error)}`);
+        });
     });
+
+    window.on('unresponsive', () => {
+        logger.error(`[renderer] window unresponsive (windowId=${windowId})`);
+    });
+
+    window.on('responsive', () => {
+        logger.info(`[renderer] window responsive (windowId=${windowId})`);
+    });
+
+    if (!config.isDev) {
+        return;
+    }
 
     webContents.on('did-start-loading', () => {
         logger.info(`[renderer] did-start-loading (windowId=${windowId})`);
@@ -171,14 +256,6 @@ function attachRendererDiagnostics(window: BrowserWindow) {
             `[renderer] did-fail-load (windowId=${windowId}, mainFrame=${String(isMainFrame)}, `
             + `code=${errorCode}, desc=${errorDescription}, url=${validatedURL})`,
         );
-    });
-
-    window.on('unresponsive', () => {
-        logger.error(`[renderer] window unresponsive (windowId=${windowId})`);
-    });
-
-    window.on('responsive', () => {
-        logger.info(`[renderer] window responsive (windowId=${windowId})`);
     });
 }
 
@@ -409,7 +486,7 @@ function attachShowLifecycle(window: BrowserWindow) {
 
             void (async () => {
                 try {
-                    stopServer();
+                    await stopServer();
                     serverReadyPromise = null;
                     await ensureWindowRuntimeReady();
                     await window.loadURL(config.server.url);
@@ -477,6 +554,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            sandbox: true,
             preload: preloadPath,
         },
     });
@@ -492,9 +570,12 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         window.maximize();
     }
 
+    hardenWindowWebContents(window);
     attachRendererDiagnostics(window);
     attachShowLifecycle(window);
-    void window.loadURL(config.server.url);
+    void window.loadURL(config.server.url).catch((error) => {
+        logger.error(`Initial loadURL failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
     window.webContents.once('did-finish-load', () => {
         void lockRendererZoom(window);
     });

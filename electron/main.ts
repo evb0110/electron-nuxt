@@ -52,6 +52,13 @@ if (automationUserDataDir) {
 }
 
 const logger = createLogger('main');
+process.on('unhandledRejection', (reason) => {
+    logger.error(`Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
+});
+process.on('uncaughtException', (error) => {
+    logger.error(`Uncaught exception in main process: ${error.stack ?? error.message}`);
+});
+
 if (process.platform === 'darwin' && config.automation.noFocus) {
     try {
         // Keep automation sessions from becoming the active foreground app on macOS.
@@ -479,7 +486,7 @@ async function init() {
     app.on('window-all-closed', () => {
         clearAllWorkingCopies();
         if (!config.isMac) {
-            stopServer();
+            void stopServer();
             app.quit();
         }
     });
@@ -489,7 +496,7 @@ async function init() {
             clearTimeout(defaultViewerPromptTimer);
             defaultViewerPromptTimer = null;
         }
-        stopServer();
+        void stopServer();
         clearAllWorkingCopies();
     });
 
@@ -500,7 +507,9 @@ async function init() {
 
         if (!hasWindows()) {
             readyWindowIds.clear();
-            void createWindow();
+            void createWindow().catch((error) => {
+                logger.error(`Failed to create window on activate: ${error instanceof Error ? error.message : String(error)}`);
+            });
             return;
         }
         focusMainWindow();
@@ -548,4 +557,7 @@ async function init() {
     })();
 }
 
-void init();
+void init().catch((error) => {
+    logger.error(`Application bootstrap failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    app.exit(1);
+});

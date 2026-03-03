@@ -19,6 +19,28 @@ const PNG_SIGNATURE = Buffer.from([
     0x0A,
 ]);
 
+const FILE_BASED_OCR_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_FILE_BASED_TIMEOUT_MS ?? `${3 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 10_000) {
+        return 3 * 60 * 1000;
+    }
+    return parsed;
+})();
+const FILE_BASED_OCR_KILL_GRACE_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_FILE_BASED_KILL_GRACE_MS ?? '2000', 10);
+    if (!Number.isFinite(parsed) || parsed < 250) {
+        return 2_000;
+    }
+    return parsed;
+})();
+const FILE_BASED_OCR_MAX_STDERR_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_FILE_BASED_MAX_STDERR_BYTES ?? '262144', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_024) {
+        return 262_144;
+    }
+    return parsed;
+})();
+
 export function getPngDimensions(imageBuffer: Buffer): {
     width: number;
     height: number;
@@ -52,6 +74,41 @@ function buildTesseractEnv(tessdataPath: string, threads?: number): NodeJS.Proce
     return env;
 }
 
+function appendWithCap(current: string, chunk: Buffer, maxBytes: number) {
+    if (maxBytes <= 0) {
+        return {
+            value: '',
+            truncated: true,
+        };
+    }
+
+    const nextValue = current + chunk.toString();
+    if (Buffer.byteLength(nextValue, 'utf8') <= maxBytes) {
+        return {
+            value: nextValue,
+            truncated: false,
+        };
+    }
+
+    const keepBytes = Math.max(1, Math.floor(maxBytes * 0.9));
+    let tail = nextValue;
+    while (Buffer.byteLength(tail, 'utf8') > keepBytes && tail.length > 1) {
+        tail = tail.slice(Math.floor(tail.length * 0.1));
+    }
+    return {
+        value: tail,
+        truncated: true,
+    };
+}
+
+async function safeUnlink(path: string) {
+    try {
+        await unlink(path);
+    } catch {
+        // Ignore cleanup errors.
+    }
+}
+
 export async function runOcrFileBased(
     imagePath: string,
     languages: string[],
@@ -64,6 +121,8 @@ export async function runOcrFileBased(
 ): Promise<IOcrFileResult> {
     const outputBase = imagePath.replace(/\.png$/, '') + '-ocr';
     const languageConfig = resolveTesseractLanguageConfig(languages);
+    const tsvPath = `${outputBase}.tsv`;
+    const pdfPath = `${outputBase}.pdf`;
 
     const args = [
         imagePath,
@@ -87,24 +146,88 @@ export async function runOcrFileBased(
         const proc = spawn(tesseractBinary, args, { env: buildTesseractEnv(tessdataPath, threads) });
 
         let stderr = '';
+        let stderrTruncated = false;
+        let settled = false;
+        let timedOut = false;
+        let timeoutHandle: NodeJS.Timeout | null = null;
+        let killHandle: NodeJS.Timeout | null = null;
+
+        const finalize = (result: IOcrFileResult) => {
+            if (settled) {
+                return;
+            }
+
+            settled = true;
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = null;
+            }
+            if (killHandle) {
+                clearTimeout(killHandle);
+                killHandle = null;
+            }
+            resolve(result);
+        };
+
+        timeoutHandle = setTimeout(() => {
+            timedOut = true;
+            try {
+                proc.kill('SIGTERM');
+            } catch {
+                // Process may have exited already.
+            }
+
+            killHandle = setTimeout(() => {
+                try {
+                    proc.kill('SIGKILL');
+                } catch {
+                    // Process may have exited already.
+                }
+            }, FILE_BASED_OCR_KILL_GRACE_MS);
+            killHandle.unref?.();
+        }, FILE_BASED_OCR_TIMEOUT_MS);
+        timeoutHandle.unref?.();
 
         proc.stderr.on('data', (data: Buffer) => {
-            stderr += data.toString();
+            const appended = appendWithCap(stderr, data, FILE_BASED_OCR_MAX_STDERR_BYTES);
+            stderr = appended.value;
+            stderrTruncated = stderrTruncated || appended.truncated;
         });
 
         proc.on('close', async (code) => {
-            if (code !== 0) {
-                resolve({
+            const stderrSummary = stderrTruncated
+                ? `[stderr truncated to ${FILE_BASED_OCR_MAX_STDERR_BYTES} bytes]\n${stderr}`
+                : stderr;
+
+            if (timedOut) {
+                await Promise.all([
+                    safeUnlink(tsvPath),
+                    safeUnlink(pdfPath),
+                ]);
+                finalize({
                     success: false,
                     pageData: null,
                     pdfPath: null,
-                    error: stderr || `Tesseract exited with code ${code}`,
+                    error: `Tesseract timed out after ${FILE_BASED_OCR_TIMEOUT_MS}ms`,
+                });
+                return;
+            }
+
+            if (code !== 0) {
+                await Promise.all([
+                    safeUnlink(tsvPath),
+                    safeUnlink(pdfPath),
+                ]);
+                finalize({
+                    success: false,
+                    pageData: null,
+                    pdfPath: null,
+                    error: stderrSummary || `Tesseract exited with code ${code}`,
                 });
                 return;
             }
 
             try {
-                const tsvPath = `${outputBase}.tsv`;
                 const tsvContent = await readFile(tsvPath, 'utf-8');
                 const words = parseTsvOutput(tsvContent.trim());
                 let pageText = parseTsvText(tsvContent.trim());
@@ -116,11 +239,14 @@ export async function runOcrFileBased(
                     pageText = pageText.replace(/\u00B5/g, '\u03BC');
                 }
 
-                const pdfPath = `${outputBase}.pdf`;
                 try {
                     await stat(pdfPath);
                 } catch {
-                    resolve({
+                    await Promise.all([
+                        safeUnlink(tsvPath),
+                        safeUnlink(pdfPath),
+                    ]);
+                    finalize({
                         success: false,
                         pageData: null,
                         pdfPath: null,
@@ -129,13 +255,9 @@ export async function runOcrFileBased(
                     return;
                 }
 
-                try {
-                    await unlink(tsvPath);
-                } catch {
-                    // Ignore cleanup errors
-                }
+                await safeUnlink(tsvPath);
 
-                resolve({
+                finalize({
                     success: true,
                     pageData: {
                         pageNumber: 0,
@@ -148,7 +270,11 @@ export async function runOcrFileBased(
                 });
             } catch (parseErr) {
                 const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-                resolve({
+                await Promise.all([
+                    safeUnlink(tsvPath),
+                    safeUnlink(pdfPath),
+                ]);
+                finalize({
                     success: false,
                     pageData: null,
                     pdfPath: null,
@@ -157,8 +283,12 @@ export async function runOcrFileBased(
             }
         });
 
-        proc.on('error', (err) => {
-            resolve({
+        proc.on('error', async (err) => {
+            await Promise.all([
+                safeUnlink(tsvPath),
+                safeUnlink(pdfPath),
+            ]);
+            finalize({
                 success: false,
                 pageData: null,
                 pdfPath: null,

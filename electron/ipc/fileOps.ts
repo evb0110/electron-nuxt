@@ -35,6 +35,18 @@ const ALLOWED_BINARY_READ_EXTENSIONS = new Set([
     '.djv',
 ]);
 
+function normalizeNonEmptyPath(filePath: unknown): string {
+    if (typeof filePath !== 'string') {
+        throw new Error('Invalid file path: path must be a non-empty string');
+    }
+
+    const normalizedPath = filePath.trim();
+    if (!normalizedPath) {
+        throw new Error('Invalid file path: path must be a non-empty string');
+    }
+    return normalizedPath;
+}
+
 async function resolveReadablePath(normalizedPath: string): Promise<string | null> {
     const directResolvedPath = await resolveAllowedReadPath(normalizedPath);
     if (directResolvedPath) {
@@ -68,12 +80,8 @@ function resolveReadablePathSync(normalizedPath: string): string | null {
     return mappedWorkingCopyPath;
 }
 
-export async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePath: string): Promise<Uint8Array> {
-    if (!filePath || filePath.trim() === '') {
-        throw new Error('Invalid file path: path must be a non-empty string');
-    }
-
-    const normalizedPath = filePath.trim();
+export async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePath: unknown): Promise<Uint8Array> {
+    const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
 
     if (!ALLOWED_BINARY_READ_EXTENSIONS.has(extension)) {
@@ -95,13 +103,9 @@ export async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePa
 
 export async function handleFileStat(
     _event: Electron.IpcMainInvokeEvent,
-    filePath: string,
+    filePath: unknown,
 ): Promise<{ size: number }> {
-    if (!filePath || filePath.trim() === '') {
-        throw new Error('Invalid file path: path must be a non-empty string');
-    }
-
-    const normalizedPath = filePath.trim();
+    const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
     if (extension !== '.pdf') {
         throw new Error('Invalid file type: only PDF files are allowed');
@@ -122,14 +126,11 @@ export async function handleFileStat(
 
 export async function handleFileReadRange(
     _event: Electron.IpcMainInvokeEvent,
-    filePath: string,
-    offset: number,
-    length: number,
+    filePath: unknown,
+    offset: unknown,
+    length: unknown,
 ): Promise<Uint8Array> {
-    if (!filePath || filePath.trim() === '') {
-        throw new Error('Invalid file path: path must be a non-empty string');
-    }
-    const normalizedPath = filePath.trim();
+    const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
     if (extension !== '.pdf') {
         throw new Error('Invalid file type: only PDF files are allowed');
@@ -164,18 +165,13 @@ export async function handleFileReadRange(
 
 export async function handleFileWrite(
     _event: Electron.IpcMainInvokeEvent,
-    filePath: string,
-    data: Uint8Array,
+    filePath: unknown,
+    data: unknown,
 ): Promise<boolean> {
-    if (!filePath || filePath.trim() === '') {
-        throw new Error('Invalid file path: path must be a non-empty string');
-    }
-
+    const normalizedPath = normalizeNonEmptyPath(filePath);
     if (!(data instanceof Uint8Array)) {
         throw new Error('Invalid data: must be a Uint8Array');
     }
-
-    const normalizedPath = filePath.trim();
 
     const resolvedPath = await resolveAllowedWritePath(normalizedPath);
     if (!resolvedPath) {
@@ -188,18 +184,13 @@ export async function handleFileWrite(
 
 export async function handleFileWriteDocx(
     _event: Electron.IpcMainInvokeEvent,
-    filePath: string,
-    data: Uint8Array,
+    filePath: unknown,
+    data: unknown,
 ): Promise<boolean> {
-    if (!filePath || filePath.trim() === '') {
-        throw new Error('Invalid file path: path must be a non-empty string');
-    }
-
+    const normalizedPath = normalizeNonEmptyPath(filePath);
     if (!(data instanceof Uint8Array)) {
         throw new Error('Invalid data: must be a Uint8Array');
     }
-
-    const normalizedPath = filePath.trim();
     if (!consumeAllowedDocxWritePath(normalizedPath)) {
         throw new Error('Invalid file path: DOCX writes must use a path from Save dialog');
     }
@@ -210,13 +201,9 @@ export async function handleFileWriteDocx(
 
 export async function handleFileReadText(
     _event: Electron.IpcMainInvokeEvent,
-    filePath: string,
+    filePath: unknown,
 ): Promise<string> {
-    if (!filePath || filePath.trim() === '') {
-        throw new Error('Invalid file path: path must be a non-empty string');
-    }
-
-    const normalizedPath = filePath.trim();
+    const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
 
     if (!ALLOWED_READ_EXTENSIONS.has(extension)) {
@@ -238,13 +225,16 @@ export async function handleFileReadText(
 
 export function handleFileExists(
     _event: Electron.IpcMainInvokeEvent,
-    filePath: string,
+    filePath: unknown,
 ): boolean {
-    if (!filePath || filePath.trim() === '') {
+    if (typeof filePath !== 'string') {
         return false;
     }
 
     const normalizedPath = filePath.trim();
+    if (!normalizedPath) {
+        return false;
+    }
 
     const resolvedPath = resolveReadablePathSync(normalizedPath);
     if (!resolvedPath) {
@@ -256,7 +246,7 @@ export function handleFileExists(
 
 export async function handleCleanupOcrTemp(
     _event: Electron.IpcMainInvokeEvent,
-    filePath: string,
+    filePath: unknown,
 ) {
     const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
     if (!normalizedPath) {

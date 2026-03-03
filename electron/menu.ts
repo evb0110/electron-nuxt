@@ -10,6 +10,7 @@ import {
 import { basename } from 'path';
 import type { TWindowTabsAction } from '@contracts/window-tabs';
 import { config } from '@electron/config';
+import { createLogger } from '@electron/utils/logger';
 import { getRecentFilesSync } from '@electron/recent-files';
 import { te } from '@electron/i18n';
 import {
@@ -18,6 +19,7 @@ import {
 } from '@electron/window';
 
 const appName = te('app.title');
+const logger = createLogger('menu');
 const WINDOW_TABS_ACTION_CHANNEL = 'menu:windowTabsAction';
 const MENU_REBUILD_DEBOUNCE_MS = 40;
 const menuDocumentStateByWindow = new Map<number, boolean>();
@@ -155,8 +157,16 @@ function buildMergeWindowSubmenu(sourceWindowId: number): MenuItemConstructorOpt
 }
 
 export function sendToWindow(window: BaseWindow | undefined | null, channel: string, ...args: unknown[]) {
-    if (window instanceof BrowserWindow && !window.isDestroyed()) {
+    if (!(window instanceof BrowserWindow) || window.isDestroyed() || window.webContents.isDestroyed()) {
+        return;
+    }
+
+    try {
         window.webContents.send(channel, ...args);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // Menu clicks can race with window teardown; avoid surfacing this as a main-process crash.
+        logger.warn(`Failed to send "${channel}" to renderer: ${message}`);
     }
 }
 

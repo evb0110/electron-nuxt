@@ -1,4 +1,3 @@
-import { delay } from 'es-toolkit/promise';
 import {
     describe,
     expect,
@@ -30,14 +29,13 @@ describe('Electron E2E - Phase 4 (Marker Note Text)', () => {
 
             await createFreeTextAnnotation(session.page, `phase4-base-${Date.now()}`);
             await clickAnnotationTool(session.page, 'Select');
-            await delay(900);
-
+            
             const markersBefore = await getMarkers(session.page);
             expect(markersBefore.length).toBeGreaterThan(0);
             const firstMarker = markersBefore[0]!;
 
             await session.page.mouse.click(firstMarker.cx, firstMarker.cy);
-            await delay(700);
+            await session.page.waitForFunction(() => Boolean(document.querySelector('.pdf-annotation-note-window textarea, [class*="note-window"] textarea')), {timeout: 4_000});
 
             const dragResult = await dragMarker(session.page, firstMarker.key, 100, 60);
             expect(dragResult).not.toBeNull();
@@ -48,7 +46,10 @@ describe('Electron E2E - Phase 4 (Marker Note Text)', () => {
 
             if (movedMarker) {
                 await session.page.mouse.click(movedMarker.cx, movedMarker.cy);
-                await delay(600);
+                await session.page.waitForFunction(
+                    () => Boolean(document.querySelector('.pdf-annotation-note-window textarea, [class*="note-window"] textarea')),
+                    {timeout: 4_000},
+                );
             }
 
             const editText = `edited-${Date.now()}`;
@@ -57,7 +58,6 @@ describe('Electron E2E - Phase 4 (Marker Note Text)', () => {
 
             if (textAreaPoint) {
                 await session.page.mouse.click(textAreaPoint.x, textAreaPoint.y);
-                await delay(100);
                 await session.page.evaluate((nextText: string) => {
                     const textarea = document.querySelector<HTMLTextAreaElement>(
                         '.pdf-annotation-note-window textarea, [class*="note-window"] textarea',
@@ -80,8 +80,6 @@ describe('Electron E2E - Phase 4 (Marker Note Text)', () => {
             }
 
             await saveViaWindowHandle(session.page);
-            await delay(1_700);
-
             const textAfterSave = await session.page.evaluate(() => {
                 const textarea = document.querySelector<HTMLTextAreaElement>(
                     '.pdf-annotation-note-window textarea, [class*="note-window"] textarea',

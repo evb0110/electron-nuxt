@@ -1,4 +1,3 @@
-import { delay } from 'es-toolkit/promise';
 import {
     describe,
     expect,
@@ -30,8 +29,7 @@ describe('Electron E2E - Phase 4 (Marker Save Render Stability)', () => {
 
             await createFreeTextAnnotation(session.page, `phase4-render-${Date.now()}`);
             await clickAnnotationTool(session.page, 'Select');
-            await delay(900);
-
+            
             const markers = await getMarkers(session.page);
             expect(markers.length).toBeGreaterThan(0);
             const firstMarker = markers[0]!;
@@ -42,13 +40,8 @@ describe('Electron E2E - Phase 4 (Marker Save Render Stability)', () => {
             expect(canvasCountBefore).toBeGreaterThan(0);
 
             await session.page.evaluate(() => {
-                const host = Array.from(document.querySelectorAll('.workspace-host'))
-                    .find((candidate) => {
-                        const element = candidate as HTMLElement;
-                        const rect = element.getBoundingClientRect();
-                        const style = window.getComputedStyle(element);
-                        return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-                    }) as HTMLElement | undefined;
+                const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+                    ?? null;
 
                 const root = window as Window & {
                     __e2eCanvasRemoveCount?: number;
@@ -76,8 +69,6 @@ describe('Electron E2E - Phase 4 (Marker Save Render Stability)', () => {
             });
 
             await saveViaWindowHandle(session.page);
-            await delay(1_800);
-
             const canvasRemoveCount = await session.page.evaluate(() => {
                 const root = window as Window & {
                     __e2eCanvasRemoveCount?: number;

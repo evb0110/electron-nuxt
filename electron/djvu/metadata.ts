@@ -1,9 +1,8 @@
-import { spawn } from 'child_process';
 import {
     buildDjvuRuntimeEnv,
     getDjvuToolPaths,
 } from '@electron/djvu/paths';
-import { describeProcessExitCode } from '@electron/utils/process-exit';
+import { runCommand } from '@electron/native-tools/command-runner';
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('djvu-metadata');
@@ -14,50 +13,47 @@ interface IRunResult {
     exitCode: number;
 }
 
-function runDjvused(args: string[]): Promise<IRunResult> {
+const DJVU_METADATA_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_METADATA_TIMEOUT_MS ?? '20000', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_000) {
+        return 20_000;
+    }
+    return parsed;
+})();
+const DJVU_METADATA_MAX_STDOUT_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_METADATA_MAX_STDOUT_BYTES ?? '262144', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_024) {
+        return 262_144;
+    }
+    return parsed;
+})();
+const DJVU_METADATA_MAX_STDERR_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_METADATA_MAX_STDERR_BYTES ?? '131072', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_024) {
+        return 131_072;
+    }
+    return parsed;
+})();
+
+async function runDjvused(args: string[]): Promise<IRunResult> {
     const { djvused } = getDjvuToolPaths();
-
-    return new Promise((resolve, reject) => {
-        const proc = spawn(djvused, args, {
-            shell: false,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
-            env: buildDjvuRuntimeEnv(),
-        });
-
-        let stdout = '';
-        let stderr = '';
-
-        proc.stdout?.on('data', (data: Buffer) => {
-            stdout += data.toString();
-        });
-
-        proc.stderr?.on('data', (data: Buffer) => {
-            stderr += data.toString();
-        });
-
-        proc.on('error', (err) => {
-            reject(err);
-        });
-
-        proc.on('close', (code) => {
-            const exitCode = typeof code === 'number' ? code : -1;
-            if (exitCode !== 0) {
-                reject(new Error(`djvused failed with exit code ${
-                    describeProcessExitCode(exitCode)
-                }: ${stderr || stdout}`));
-                return;
-            }
-            resolve({
-                stdout,
-                stderr,
-                exitCode, 
-            });
-        });
+    const result = await runCommand(djvused, args, {
+        env: buildDjvuRuntimeEnv(),
+        timeoutMs: DJVU_METADATA_TIMEOUT_MS,
+        maxStdoutBytes: DJVU_METADATA_MAX_STDOUT_BYTES,
+        maxStderrBytes: DJVU_METADATA_MAX_STDERR_BYTES,
+        commandLabel: 'djvused',
+        defaultCwdToCommandDir: true,
+        prependCommandDirToPath: true,
+        includeProcessEnv: true,
+        windowsHide: true,
     });
+
+    return {
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+    };
 }
 
 export async function getDjvuPageCount(filePath: string): Promise<number> {

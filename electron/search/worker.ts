@@ -21,7 +21,6 @@ import { createLogger } from '@electron/utils/logger';
 type TCachedIndex = {
     mtimeMs: number;
     index: IPdfSearchIndex;
-    lowerTexts: string[];
     accessedAt: number;
 };
 
@@ -311,7 +310,6 @@ async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
     const entry: TCachedIndex = {
         mtimeMs,
         index,
-        lowerTexts: index.pages.map(page => (page.text ?? '').toLowerCase()),
         accessedAt: now,
     };
     indexCache.set(pdfPath, entry);
@@ -336,7 +334,6 @@ async function cacheBuiltIndex(
     const entry: TCachedIndex = {
         mtimeMs,
         index,
-        lowerTexts: index.pages.map(page => (page.text ?? '').toLowerCase()),
         accessedAt: now,
     };
     indexCache.set(pdfPath, entry);
@@ -371,7 +368,7 @@ async function ensureSearchIndex(
 
     // Detect stale indexes where all pages have empty text (e.g. previous
     // pdftotext extraction failed silently) and force a rebuild.
-    const hasAnyText = entry.lowerTexts.some(t => t.length > 0);
+    const hasAnyText = entry.index.pages.some(page => (page.text ?? '').length > 0);
     if (!hasAnyText && entry.index.pages.length > 0) {
         entry = await cacheBuiltIndex(
             pdfPath,
@@ -485,7 +482,7 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
             const pageText = page.text ?? '';
 
             if (pageText) {
-                const lowerPageText = indexEntry.lowerTexts[pageIdx] ?? pageText.toLowerCase();
+                const lowerPageText = pageText.toLowerCase();
                 let position = 0;
                 let pageMatchIndex = 0;
 

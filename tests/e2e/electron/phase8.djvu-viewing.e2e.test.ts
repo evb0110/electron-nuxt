@@ -4,8 +4,9 @@ import {
     it,
 } from 'vitest';
 import {
-    findDjvuFixturePath,
     getFixtureName,
+    isDjvuFixtureRequired,
+    resolveDjvuFixturePath,
 } from './helpers/fixtures';
 import { startElectronE2ESession } from './helpers/session-harness';
 import { openDjvuForViewing } from './helpers/electron-api-helpers';
@@ -14,13 +15,20 @@ import {
     waitForPdfLoaded,
 } from './helpers/viewer-helpers';
 
-const djvuFixturePath = findDjvuFixturePath();
-const describeDjvu = djvuFixturePath ? describe : describe.skip;
+const djvuFixture = resolveDjvuFixturePath();
+if (!djvuFixture.path && isDjvuFixtureRequired()) {
+    throw new Error(`DjVu fixture is required but unavailable: ${djvuFixture.reason}`);
+}
+if (!djvuFixture.path) {
+    console.info(`[phase8-djvu] Skipping DjVu E2E: ${djvuFixture.reason}`);
+}
+const describeDjvu = djvuFixture.path ? describe : describe.skip;
 
 describeDjvu('Electron E2E - Phase 8 (DjVu Viewing)', () => {
     it('opens DjVu for viewing and produces a viewable PDF', async () => {
+        const djvuFixturePath = djvuFixture.path;
         if (!djvuFixturePath) {
-            throw new Error('DjVu fixture path not found');
+            throw new Error(`DjVu fixture path not found: ${djvuFixture.reason}`);
         }
 
         const session = await startElectronE2ESession(`e2e-phase8-${Date.now()}`);
@@ -41,13 +49,8 @@ describeDjvu('Electron E2E - Phase 8 (DjVu Viewing)', () => {
             await waitForPdfLoaded(session.page);
 
             const renderedPages = await session.page.evaluate(() => {
-                const host = Array.from(document.querySelectorAll('.workspace-host'))
-                    .find((candidate) => {
-                        const element = candidate as HTMLElement;
-                        const rect = element.getBoundingClientRect();
-                        const style = window.getComputedStyle(element);
-                        return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-                    }) as HTMLElement | undefined;
+                const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+                    ?? null;
                 return host?.querySelectorAll('.page_container').length ?? 0;
             });
             expect(renderedPages).toBeGreaterThan(0);

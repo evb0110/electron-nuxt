@@ -14,7 +14,7 @@ interface ICombineWorkerResultPayload {
     type: 'result';
     ok: boolean;
     error?: string;
-    data?: Uint8Array;
+    data?: ArrayBuffer;
 }
 
 async function createCombinedPdf(
@@ -36,6 +36,20 @@ function resolveWorkerInputPaths(): string[] {
         .filter((path): path is string => typeof path === 'string');
 }
 
+function toTransferableBuffer(data: Uint8Array): ArrayBuffer {
+    if (
+        data.buffer instanceof ArrayBuffer
+        && data.byteOffset === 0
+        && data.byteLength === data.buffer.byteLength
+    ) {
+        return data.buffer;
+    }
+
+    const cloned = new Uint8Array(data.byteLength);
+    cloned.set(data);
+    return cloned.buffer;
+}
+
 async function runCombineWorker() {
     if (!parentPort) {
         throw new Error('Image combine worker started without a parentPort');
@@ -51,12 +65,13 @@ async function runCombineWorker() {
             };
             port.postMessage(progressPayload);
         });
+        const transferablePdfBuffer = toTransferableBuffer(output);
         const payload: ICombineWorkerResultPayload = {
             type: 'result',
             ok: true,
-            data: output,
+            data: transferablePdfBuffer,
         };
-        port.postMessage(payload);
+        port.postMessage(payload, [transferablePdfBuffer]);
     } catch (error) {
         const payload: ICombineWorkerResultPayload = {
             type: 'result',

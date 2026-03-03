@@ -1,16 +1,25 @@
 import type { Page } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
-import { DEFAULT_TIMEOUT_MS } from './viewer-dom';
+import {
+    DEFAULT_TIMEOUT_MS,
+    waitForActiveWorkspaceHost,
+} from './viewer-dom';
 
 export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    await waitForActiveWorkspaceHost(page, timeoutMs);
+
     await page.waitForFunction(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(isVisibleHost);
         if (!host) {
             return false;
         }
@@ -45,14 +54,20 @@ export async function openPdfInApp(page: Page, pdfPath: string, timeoutMs = DEFA
 }
 
 export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    await waitForActiveWorkspaceHost(page, timeoutMs);
+
     await page.waitForFunction(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(isVisibleHost);
         if (!host) {
             return false;
         }
@@ -179,7 +194,18 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
             throw new Error(`Toolbar action not found in overflow menu: ${ariaLabel}`);
         }
         await page.mouse.click(overflowItemPoint.x, overflowItemPoint.y);
-        await delay(100);
+        await page.waitForFunction(() => {
+            const menu = document.querySelector('.overflow-menu');
+            if (!menu) {
+                return true;
+            }
+            const style = window.getComputedStyle(menu as HTMLElement);
+            return (
+                style.display === 'none'
+                || style.visibility === 'hidden'
+                || Number(style.opacity || '1') === 0
+            );
+        }, {timeout: 4_000});
         return;
     }
 
@@ -210,14 +236,20 @@ export async function clickToolbarButtonWhenEnabled(
 }
 
 export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    await waitForActiveWorkspaceHost(page, timeoutMs);
+
     const hasSidebar = await page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(isVisibleHost);
         if (!host) {
             return false;
         }
@@ -240,13 +272,17 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
     }
 
     await page.waitForFunction(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(isVisibleHost);
         if (!host) {
             return false;
         }
@@ -262,15 +298,20 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
 
 export async function openAnnotationsTab(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await ensureSidebarOpen(page, timeoutMs);
+    await waitForActiveWorkspaceHost(page, timeoutMs);
 
     const tabPoint = await page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(isVisibleHost);
         if (!host) {
             return null;
         }
@@ -301,13 +342,17 @@ export async function openAnnotationsTab(page: Page, timeoutMs = DEFAULT_TIMEOUT
     await page.mouse.click(tabPoint.x, tabPoint.y);
 
     await page.waitForFunction(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(isVisibleHost);
         const panel = host?.querySelector('.notes-panel') as HTMLElement | null;
         if (!panel) {
             return false;
@@ -319,14 +364,20 @@ export async function openAnnotationsTab(page: Page, timeoutMs = DEFAULT_TIMEOUT
 }
 
 export async function scrollViewerToPage(page: Page, pageNumber: number) {
+    await waitForActiveWorkspaceHost(page);
+
     const scrolled = await page.evaluate((targetPageNumber: number) => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(isVisibleHost);
         if (!host) {
             return false;
         }
@@ -345,7 +396,32 @@ export async function scrollViewerToPage(page: Page, pageNumber: number) {
         throw new Error(`Unable to scroll to page ${pageNumber}`);
     }
 
-    await delay(250);
+    await page.waitForFunction((targetPageNumber: number) => {
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(isVisibleHost);
+        if (!host) {
+            return false;
+        }
+
+        const viewer = host.querySelector<HTMLElement>('.pdfViewer');
+        const pageEl = host.querySelector<HTMLElement>(`.page_container[data-page="${targetPageNumber}"]`);
+        if (!viewer || !pageEl) {
+            return false;
+        }
+
+        const viewerRect = viewer.getBoundingClientRect();
+        const pageRect = pageEl.getBoundingClientRect();
+        return pageRect.bottom > viewerRect.top + 8 && pageRect.top < viewerRect.bottom - 8;
+    }, {timeout: DEFAULT_TIMEOUT_MS}, pageNumber);
 }
 
 export async function saveViaWindowHandle(page: Page) {
@@ -362,5 +438,13 @@ export async function saveViaWindowHandle(page: Page) {
         throw new Error('window.__handleSave is not available');
     }
 
-    await delay(350);
+    await page.waitForFunction(() => {
+        const hasPendingToolbarLoading = document.querySelector('.toolbar-btn.is-loading');
+        if (hasPendingToolbarLoading) {
+            return false;
+        }
+
+        const savingStatuses = Array.from(document.querySelectorAll('.note-window__status, .pdf-annotation-note-window__status'));
+        return savingStatuses.length === 0;
+    }, {timeout: DEFAULT_TIMEOUT_MS});
 }

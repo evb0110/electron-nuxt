@@ -1,4 +1,3 @@
-import { delay } from 'es-toolkit/promise';
 import {
     describe,
     expect,
@@ -37,12 +36,22 @@ describe('Electron E2E - Phase 3 (Undo/Redo + Persistence)', () => {
             expect(createdCount).toBeGreaterThan(baselineCount);
             await clickAnnotationTool(primarySession.page, 'Select');
             await clickToolbarButtonWhenEnabled(primarySession.page, 'Undo', 6_000);
-            await delay(400);
+            await primarySession.page.waitForFunction((previousCount: number) => {
+                const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+                    ?? null;
+                const currentCount = host?.querySelectorAll('.freeTextEditor').length ?? 0;
+                return currentCount < previousCount;
+            }, {timeout: 6_000}, createdCount);
             const undoCount = await getFreeTextEditorCount(primarySession.page);
             expect(undoCount).toBeLessThan(createdCount);
 
             await clickToolbarButtonWhenEnabled(primarySession.page, 'Redo', 6_000);
-            await delay(400);
+            await primarySession.page.waitForFunction((minimumCount: number) => {
+                const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+                    ?? null;
+                const currentCount = host?.querySelectorAll('.freeTextEditor').length ?? 0;
+                return currentCount >= minimumCount;
+            }, {timeout: 6_000}, createdCount);
             const redoCount = await getFreeTextEditorCount(primarySession.page);
             expect(redoCount).toBeGreaterThanOrEqual(createdCount);
 
@@ -61,13 +70,8 @@ describe('Electron E2E - Phase 3 (Undo/Redo + Persistence)', () => {
             await waitForPdfLoaded(reloadSession.page);
 
             const restoredAnnotationNodes = await reloadSession.page.evaluate(() => {
-                const host = Array.from(document.querySelectorAll('.workspace-host'))
-                    .find((candidate) => {
-                        const element = candidate as HTMLElement;
-                        const rect = element.getBoundingClientRect();
-                        const style = window.getComputedStyle(element);
-                        return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-                    }) as HTMLElement | undefined;
+                const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+                    ?? null;
                 if (!host) {
                     return 0;
                 }

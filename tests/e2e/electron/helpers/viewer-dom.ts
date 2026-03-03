@@ -1,30 +1,62 @@
 import type { Page } from 'puppeteer-core';
 
 export const DEFAULT_TIMEOUT_MS = 30_000;
+const MIN_HOST_SIZE_PX = 100;
 
 export interface IPoint {
     x: number;
     y: number;
 }
 
+export async function waitForActiveWorkspaceHost(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    await page.waitForFunction((minHostSizePx: number) => {
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > minHostSizePx
+                && rect.height > minHostSizePx
+            );
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        if (activeHost && isVisibleHost(activeHost)) {
+            return true;
+        }
+
+        return Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .some(isVisibleHost);
+    }, { timeout: timeoutMs }, MIN_HOST_SIZE_PX);
+}
+
 export async function findVisiblePointInActiveHost(page: Page, selector: string, text?: string): Promise<IPoint | null> {
+    await waitForActiveWorkspaceHost(page);
+
     return page.evaluate(({
+        minHostSizePx,
         targetSelector,
         targetText,
     }) => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 100
-                    && rect.height > 100
-                );
-            }) as HTMLElement | undefined;
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > minHostSizePx
+                && rect.height > minHostSizePx
+            );
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(isVisibleHost);
         if (!host) {
             return null;
         }
@@ -56,20 +88,33 @@ export async function findVisiblePointInActiveHost(page: Page, selector: string,
             y: Math.round(rect.top + rect.height / 2),
         };
     }, {
+        minHostSizePx: MIN_HOST_SIZE_PX,
         targetSelector: selector,
         targetText: text ?? null,
     });
 }
 
 export async function getRenderedPageCount(page: Page): Promise<number> {
-    return page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+    await waitForActiveWorkspaceHost(page);
+
+    return page.evaluate((minHostSizePx: number) => {
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > minHostSizePx
+                && rect.height > minHostSizePx
+            );
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(isVisibleHost);
         return host?.querySelectorAll('.page_container canvas').length ?? 0;
-    });
+    }, MIN_HOST_SIZE_PX);
 }

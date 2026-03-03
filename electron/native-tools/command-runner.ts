@@ -15,6 +15,8 @@ interface IRunCommandOptions {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
     timeoutMs?: number;
+    maxStdoutBytes?: number;
+    maxStderrBytes?: number;
     allowedExitCodes?: number[];
     signal?: AbortSignal;
     commandLabel?: string;
@@ -23,6 +25,49 @@ interface IRunCommandOptions {
     prependCommandDirToPath?: boolean;
     includeProcessEnv?: boolean;
     windowsHide?: boolean;
+}
+
+const DEFAULT_MAX_STDOUT_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_NATIVE_TOOL_MAX_STDOUT_BYTES ?? '262144', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_024) {
+        return 262_144;
+    }
+    return parsed;
+})();
+const DEFAULT_MAX_STDERR_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_NATIVE_TOOL_MAX_STDERR_BYTES ?? '262144', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_024) {
+        return 262_144;
+    }
+    return parsed;
+})();
+
+function appendWithCap(current: string, chunk: Buffer, maxBytes: number) {
+    const chunkText = chunk.toString();
+    if (maxBytes <= 0) {
+        return {
+            value: '',
+            truncated: true,
+        };
+    }
+
+    const nextValue = current + chunkText;
+    if (Buffer.byteLength(nextValue, 'utf8') <= maxBytes) {
+        return {
+            value: nextValue,
+            truncated: false,
+        };
+    }
+
+    const targetTailBytes = Math.max(1, Math.floor(maxBytes * 0.9));
+    let tail = nextValue;
+    while (Buffer.byteLength(tail, 'utf8') > targetTailBytes && tail.length > 1) {
+        tail = tail.slice(Math.floor(tail.length * 0.1));
+    }
+    return {
+        value: tail,
+        truncated: true,
+    };
 }
 
 export async function runCommand(
@@ -34,6 +79,8 @@ export async function runCommand(
         cwd,
         env,
         timeoutMs,
+        maxStdoutBytes = DEFAULT_MAX_STDOUT_BYTES,
+        maxStderrBytes = DEFAULT_MAX_STDERR_BYTES,
         allowedExitCodes = [0],
         signal,
         commandLabel,
@@ -79,6 +126,8 @@ export async function runCommand(
 
         let stdout = '';
         let stderr = '';
+        let stdoutTruncated = false;
+        let stderrTruncated = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
         let settled = false;
 
@@ -113,11 +162,15 @@ export async function runCommand(
         };
 
         proc.stdout?.on('data', (data: Buffer) => {
-            stdout += data.toString();
+            const appended = appendWithCap(stdout, data, maxStdoutBytes);
+            stdout = appended.value;
+            stdoutTruncated = stdoutTruncated || appended.truncated;
         });
 
         proc.stderr?.on('data', (data: Buffer) => {
-            stderr += data.toString();
+            const appended = appendWithCap(stderr, data, maxStderrBytes);
+            stderr = appended.value;
+            stderrTruncated = stderrTruncated || appended.truncated;
         });
 
         if (typeof timeoutMs === 'number' && timeoutMs > 0) {
@@ -152,8 +205,8 @@ export async function runCommand(
                     command,
                     args,
                     exitCode,
-                    stdout,
-                    stderr,
+                    stdoutTruncated ? `[stdout truncated to ${maxStdoutBytes} bytes]\n${stdout}` : stdout,
+                    stderrTruncated ? `[stderr truncated to ${maxStderrBytes} bytes]\n${stderr}` : stderr,
                     closeSignal,
                 );
                 log?.('error', `${failure.message}; cmd=${failure.displayCommand}`);
