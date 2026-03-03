@@ -3,6 +3,7 @@ import {
     mkdirSync,
     readdirSync,
     readFileSync,
+    statSync,
     writeFileSync,
 } from 'node:fs';
 import {
@@ -22,6 +23,11 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 const FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
 const PROJECT_FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'test-pdfs');
 const PROJECT_ROOT_FIXTURE_DIR = resolve(process.cwd(), '.devkit');
+const DJVU_FIXTURE_ENV_VAR = 'EVB_E2E_DJVU_FIXTURE';
+const DJVU_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_DJVU_FIXTURE';
+const PDFJS_ERRORS_VERBOSITY = (
+    pdfjs as typeof pdfjs & {VerbosityLevel?: {ERRORS?: number;};}
+).VerbosityLevel?.ERRORS;
 
 export interface IPdfAnnotationSummary {
     total: number;
@@ -32,6 +38,11 @@ export interface IPdfPageSnapshot {
     pageNumber: number;
     rotation: number;
     textSnippet: string;
+}
+
+export interface IDjvuFixtureResolution {
+    path: string | null;
+    reason: string;
 }
 
 function ensureFixtureDir() {
@@ -46,6 +57,9 @@ export function createFixturePath(filename: string) {
 export function copyProjectFixture(sourceFilename: string, targetFilename?: string) {
     ensureFixtureDir();
     const sourcePath = join(PROJECT_FIXTURE_DIR, sourceFilename);
+    if (!existsSync(sourcePath)) {
+        throw new Error(`Fixture does not exist: ${sourcePath}`);
+    }
     const targetPath = join(FIXTURE_DIR, targetFilename ?? sourceFilename);
     writeFileSync(targetPath, readFileSync(sourcePath));
     return targetPath;
@@ -154,75 +168,144 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
 }
 
 export async function readPdfAnnotationSummary(filePath: string): Promise<IPdfAnnotationSummary> {
-    const data = new Uint8Array(readFileSync(filePath));
-    const document = await pdfjs.getDocument({ data }).promise;
+    const document = await openPdfWithLowVerbosity(filePath);
 
     const summary: IPdfAnnotationSummary = {
         total: 0,
         bySubtype: {},
     };
 
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-        const page = await document.getPage(pageNumber);
-        const annotations = await page.getAnnotations();
+    try {
+        for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+            const page = await document.getPage(pageNumber);
+            const annotations = await page.getAnnotations();
 
-        summary.total += annotations.length;
-        for (const annotation of annotations) {
-            const key = (annotation.subtype ?? 'Unknown').trim();
-            summary.bySubtype[key] = (summary.bySubtype[key] ?? 0) + 1;
+            summary.total += annotations.length;
+            for (const annotation of annotations) {
+                const key = (annotation.subtype ?? 'Unknown').trim();
+                summary.bySubtype[key] = (summary.bySubtype[key] ?? 0) + 1;
+            }
         }
+    } finally {
+        await document.destroy();
     }
 
-    await document.destroy();
     return summary;
 }
 
 export async function readPdfPageSnapshots(filePath: string): Promise<IPdfPageSnapshot[]> {
-    const data = new Uint8Array(readFileSync(filePath));
-    const document = await pdfjs.getDocument({ data }).promise;
+    const document = await openPdfWithLowVerbosity(filePath);
     const pages: IPdfPageSnapshot[] = [];
 
-    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-        const page = await document.getPage(pageNumber);
-        const textContent = await page.getTextContent();
-        const snippet = textContent.items
-            .map((item) => {
-                if (!('str' in item)) {
-                    return '';
-                }
-                return String(item.str).trim();
-            })
-            .filter(Boolean)
-            .slice(0, 8)
-            .join(' ')
-            .trim();
+    try {
+        for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+            const page = await document.getPage(pageNumber);
+            const textContent = await page.getTextContent();
+            const snippet = textContent.items
+                .map((item) => {
+                    if (!('str' in item)) {
+                        return '';
+                    }
+                    return String(item.str).trim();
+                })
+                .filter(Boolean)
+                .slice(0, 8)
+                .join(' ')
+                .trim();
 
-        pages.push({
-            pageNumber,
-            rotation: page.rotate ?? 0,
-            textSnippet: snippet,
-        });
+            pages.push({
+                pageNumber,
+                rotation: page.rotate ?? 0,
+                textSnippet: snippet,
+            });
+        }
+    } finally {
+        await document.destroy();
     }
 
-    await document.destroy();
     return pages;
 }
 
 export function findDjvuFixturePath() {
+    return resolveDjvuFixturePath().path;
+}
+
+export function isDjvuFixtureRequired() {
+    return process.env[DJVU_REQUIRE_ENV_VAR] === '1';
+}
+
+export function resolveDjvuFixturePath(): IDjvuFixtureResolution {
+    const overridePath = process.env[DJVU_FIXTURE_ENV_VAR]?.trim();
+    if (overridePath) {
+        const absoluteOverridePath = resolve(overridePath);
+        if (!existsSync(absoluteOverridePath)) {
+            return {
+                path: null,
+                reason: `${DJVU_FIXTURE_ENV_VAR} points to a missing path: ${absoluteOverridePath}`,
+            };
+        }
+        if (!statSync(absoluteOverridePath).isFile()) {
+            return {
+                path: null,
+                reason: `${DJVU_FIXTURE_ENV_VAR} must point to a file: ${absoluteOverridePath}`,
+            };
+        }
+        if (!hasDjvuExtension(absoluteOverridePath)) {
+            return {
+                path: null,
+                reason: `${DJVU_FIXTURE_ENV_VAR} must point to a .djvu or .djv file: ${absoluteOverridePath}`,
+            };
+        }
+        return {
+            path: absoluteOverridePath,
+            reason: `Using ${DJVU_FIXTURE_ENV_VAR}: ${absoluteOverridePath}`,
+        };
+    }
+
     const fixtureDir = resolve(PROJECT_ROOT_FIXTURE_DIR, 'pdfs');
     if (!existsSync(fixtureDir)) {
-        return null;
+        return {
+            path: null,
+            reason: `DjVu fixture directory does not exist: ${fixtureDir}`,
+        };
     }
 
-    const candidate = readdirSync(fixtureDir)
-        .find(name => name.toLowerCase().endsWith('.djvu') || name.toLowerCase().endsWith('.djv'));
-    if (!candidate) {
-        return null;
+    const candidates = readdirSync(fixtureDir)
+        .filter(hasDjvuExtension)
+        .sort((left, right) => left.localeCompare(right));
+
+    for (const candidate of candidates) {
+        const candidatePath = join(fixtureDir, candidate);
+        if (statSync(candidatePath).isFile()) {
+            return {
+                path: candidatePath,
+                reason: `Using DjVu fixture: ${candidatePath}`,
+            };
+        }
     }
 
-    return join(fixtureDir, candidate);
+    return {
+        path: null,
+        reason: `No .djvu or .djv fixtures found in ${fixtureDir}`,
+    };
 }
 
 export function getFixtureName(path: string) {
     return basename(path);
+}
+
+function hasDjvuExtension(path: string) {
+    const lowerPath = path.toLowerCase();
+    return lowerPath.endsWith('.djvu') || lowerPath.endsWith('.djv');
+}
+
+async function openPdfWithLowVerbosity(filePath: string) {
+    const data = new Uint8Array(readFileSync(filePath));
+    if (typeof PDFJS_ERRORS_VERBOSITY === 'number') {
+        return pdfjs.getDocument({
+            data,
+            verbosity: PDFJS_ERRORS_VERBOSITY,
+        }).promise;
+    }
+    return pdfjs.getDocument({ data }).promise;
 }

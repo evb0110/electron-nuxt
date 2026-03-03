@@ -3,6 +3,7 @@ import type { Ref } from 'vue';
 import type { TGroupDirection } from '@app/types/editor-groups';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import type { TWindowTabsAction } from '@contracts/window-tabs';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface ITabsMenuBindingDeps {
     activeWorkspace: Ref<IWorkspaceExpose | null>;
@@ -32,111 +33,129 @@ export function registerTabsMenuBindings(
     deps: ITabsMenuBindingDeps,
 ) {
     const api = electronApi as Partial<IElectronAPI>;
+    const runMenuAction = (actionName: string, action: () => unknown) => {
+        try {
+            const result = action();
+            if (result instanceof Promise) {
+                void result.catch((error) => {
+                    BrowserLogger.warn('tabs-menu', `Menu action failed: ${actionName}`, error);
+                });
+            }
+        } catch (error) {
+            BrowserLogger.warn('tabs-menu', `Menu action threw: ${actionName}`, error);
+        }
+    };
+
     return [
         api.documents?.onMenuOpenPdf?.(() => {
-            void deps.activeWorkspace.value?.handleOpenFileFromUi();
+            runMenuAction('open-pdf', () => deps.activeWorkspace.value?.handleOpenFileFromUi());
         }),
         api.documents?.onMenuSave?.(() => {
-            void deps.activeWorkspace.value?.handleSave();
+            runMenuAction('save', () => deps.activeWorkspace.value?.handleSave());
         }),
         api.documents?.onMenuSaveAs?.(() => {
-            void deps.activeWorkspace.value?.handleSaveAs();
+            runMenuAction('save-as', () => deps.activeWorkspace.value?.handleSaveAs());
         }),
         api.documents?.onMenuExportDocx?.(() => {
-            void deps.activeWorkspace.value?.handleExportDocx();
+            runMenuAction('export-docx', () => deps.activeWorkspace.value?.handleExportDocx());
         }),
         api.documents?.onMenuExportImages?.(() => {
-            void deps.activeWorkspace.value?.handleExportImages();
+            runMenuAction('export-images', () => deps.activeWorkspace.value?.handleExportImages());
         }),
         api.documents?.onMenuExportMultiPageTiff?.(() => {
-            void deps.activeWorkspace.value?.handleExportMultiPageTiff();
+            runMenuAction('export-multi-page-tiff', () => deps.activeWorkspace.value?.handleExportMultiPageTiff());
         }),
         api.documents?.onMenuUndo?.(() => {
-            deps.activeWorkspace.value?.handleUndo();
+            runMenuAction('undo', () => deps.activeWorkspace.value?.handleUndo());
         }),
         api.documents?.onMenuRedo?.(() => {
-            deps.activeWorkspace.value?.handleRedo();
+            runMenuAction('redo', () => deps.activeWorkspace.value?.handleRedo());
         }),
         api.documents?.onMenuZoomIn?.(() => {
-            deps.activeWorkspace.value?.handleZoomIn();
+            runMenuAction('zoom-in', () => deps.activeWorkspace.value?.handleZoomIn());
         }),
         api.documents?.onMenuZoomOut?.(() => {
-            deps.activeWorkspace.value?.handleZoomOut();
+            runMenuAction('zoom-out', () => deps.activeWorkspace.value?.handleZoomOut());
         }),
         api.documents?.onMenuActualSize?.(() => {
-            deps.activeWorkspace.value?.handleActualSize();
+            runMenuAction('actual-size', () => deps.activeWorkspace.value?.handleActualSize());
         }),
         api.documents?.onMenuFitWidth?.(() => {
-            deps.activeWorkspace.value?.handleFitWidth();
+            runMenuAction('fit-width', () => deps.activeWorkspace.value?.handleFitWidth());
         }),
         api.documents?.onMenuFitHeight?.(() => {
-            deps.activeWorkspace.value?.handleFitHeight();
+            runMenuAction('fit-height', () => deps.activeWorkspace.value?.handleFitHeight());
         }),
         api.documents?.onMenuViewModeSingle?.(() => {
-            deps.activeWorkspace.value?.handleViewModeSingle();
+            runMenuAction('view-mode-single', () => deps.activeWorkspace.value?.handleViewModeSingle());
         }),
         api.documents?.onMenuViewModeFacing?.(() => {
-            deps.activeWorkspace.value?.handleViewModeFacing();
+            runMenuAction('view-mode-facing', () => deps.activeWorkspace.value?.handleViewModeFacing());
         }),
         api.documents?.onMenuViewModeFacingFirstSingle?.(() => {
-            deps.activeWorkspace.value?.handleViewModeFacingFirstSingle();
+            runMenuAction('view-mode-facing-first-single', () => deps.activeWorkspace.value?.handleViewModeFacingFirstSingle());
         }),
         api.documents?.onMenuOpenRecentFile?.((path: string) => {
-            void deps.openPathInAppropriateTab(path);
+            runMenuAction('open-recent-file', () => deps.openPathInAppropriateTab(path));
         }),
         api.documents?.onMenuOpenExternalPaths?.((paths: string[]) => {
-            void deps.openPathsInAppropriateTab(paths);
+            runMenuAction('open-external-paths', () => deps.openPathsInAppropriateTab(paths));
         }),
         api.documents?.onMenuClearRecentFiles?.(() => {
-            void deps.clearRecentFiles();
-            void deps.loadRecentFiles();
+            runMenuAction('clear-recent-files', async () => {
+                await deps.clearRecentFiles();
+                await deps.loadRecentFiles();
+            });
         }),
         api.settings?.onMenuOpenSettings?.(() => {
-            deps.openSettings();
+            runMenuAction('open-settings', () => deps.openSettings());
         }),
         api.updates?.onMenuCheckForUpdates?.(() => {
-            void deps.checkForUpdates();
+            runMenuAction('check-for-updates', () => deps.checkForUpdates());
         }),
         api.documents?.onMenuDeletePages?.(() => {
-            deps.activeWorkspace.value?.handleDeletePages();
+            runMenuAction('delete-pages', () => deps.activeWorkspace.value?.handleDeletePages());
         }),
         api.documents?.onMenuExtractPages?.(() => {
-            deps.activeWorkspace.value?.handleExtractPages();
+            runMenuAction('extract-pages', () => deps.activeWorkspace.value?.handleExtractPages());
         }),
         api.documents?.onMenuRotateCw?.(() => {
-            deps.activeWorkspace.value?.handleRotateCw();
+            runMenuAction('rotate-cw', () => deps.activeWorkspace.value?.handleRotateCw());
         }),
         api.documents?.onMenuRotateCcw?.(() => {
-            deps.activeWorkspace.value?.handleRotateCcw();
+            runMenuAction('rotate-ccw', () => deps.activeWorkspace.value?.handleRotateCcw());
         }),
         api.documents?.onMenuInsertPages?.(() => {
-            deps.activeWorkspace.value?.handleInsertPages();
+            runMenuAction('insert-pages', () => deps.activeWorkspace.value?.handleInsertPages());
         }),
         api.djvu?.onMenuConvertToPdf?.(() => {
-            deps.activeWorkspace.value?.handleConvertToPdf();
+            runMenuAction('convert-to-pdf', () => deps.activeWorkspace.value?.handleConvertToPdf());
         }),
         api.windowTabs?.onMenuNewTab?.(() => {
-            deps.createTab();
+            runMenuAction('new-tab', () => deps.createTab());
         }),
         api.windowTabs?.onMenuCloseTab?.(() => {
-            if (deps.activeTabId.value) {
-                void deps.handleCloseTab(deps.activeTabId.value);
-            }
+            runMenuAction('close-tab', () => {
+                if (deps.activeTabId.value) {
+                    return deps.handleCloseTab(deps.activeTabId.value);
+                }
+                return undefined;
+            });
         }),
         api.windowTabs?.onMenuSplitEditor?.((direction) => {
-            void deps.splitEditor(direction);
+            runMenuAction('split-editor', () => deps.splitEditor(direction));
         }),
         api.windowTabs?.onMenuFocusEditorGroup?.((direction) => {
-            deps.focusGroup(direction);
+            runMenuAction('focus-editor-group', () => deps.focusGroup(direction));
         }),
         api.windowTabs?.onMenuMoveTabToGroup?.((direction) => {
-            void deps.moveActiveTab(direction);
+            runMenuAction('move-tab-to-group', () => deps.moveActiveTab(direction));
         }),
         api.windowTabs?.onMenuCopyTabToGroup?.((direction) => {
-            void deps.copyActiveTab(direction);
+            runMenuAction('copy-tab-to-group', () => deps.copyActiveTab(direction));
         }),
         api.windowTabs?.onWindowAction((action) => {
-            void deps.handleWindowTabsAction(action);
+            runMenuAction('window-action', () => deps.handleWindowTabsAction(action));
         }),
     ].filter((cleanup): cleanup is () => void => typeof cleanup === 'function');
 }

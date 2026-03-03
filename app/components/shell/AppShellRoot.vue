@@ -334,6 +334,7 @@ const DIRECTION_ORDER: TGroupDirection[] = [
 const activeTabTransitions = ref(0);
 let tabTransitionQueue: Promise<void> = Promise.resolve();
 let incomingTabTransferCleanup: (() => void) | null = null;
+const splitCacheCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const {
     dirtyTabCloseDialogOpen,
@@ -1242,12 +1243,20 @@ async function handleCloseTab(groupId: string, tabId: string) {
 }
 
 function scheduleSplitCacheCleanup(tabId: string) {
-    setTimeout(() => {
+    const previousTimer = splitCacheCleanupTimers.get(tabId);
+    if (previousTimer) {
+        clearTimeout(previousTimer);
+    }
+
+    const timer = setTimeout(() => {
+        splitCacheCleanupTimers.delete(tabId);
         const workspace = workspaceRefs.value.get(tabId);
         if (workspace && workspaceHasPdf(workspace)) {
             workspaceSplitCache.clear(tabId);
         }
     }, TAB_TRANSITION_CACHE_GRACE_MS);
+    timer.unref?.();
+    splitCacheCleanupTimers.set(tabId, timer);
 }
 
 function createTabInGroup(groupId: string) {
@@ -1903,6 +1912,10 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    for (const timer of splitCacheCleanupTimers.values()) {
+        clearTimeout(timer);
+    }
+    splitCacheCleanupTimers.clear();
     globalToolbarObserver?.disconnect();
     globalToolbarObserver = null;
     clearGhostExpiryTimer();

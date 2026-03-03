@@ -1,5 +1,6 @@
 import { join } from 'path';
 import { app } from 'electron';
+import { randomUUID } from 'node:crypto';
 import {
     mkdtemp,
     rm,
@@ -111,6 +112,7 @@ export async function estimateSizes(
     const tempDir = await mkdtemp(join(app.getPath('temp'), 'djvu-estimate-'));
 
     const estimates: IDjvuSizeEstimate[] = [];
+    const estimateJobIdPrefix = `estimate-${randomUUID()}`;
 
     try {
         for (const preset of presets) {
@@ -122,7 +124,7 @@ export async function estimateSizes(
                     djvuPath,
                     imagePath,
                     samplePage,
-                    `estimate-${preset.subsample}`,
+                    `${estimateJobIdPrefix}-${preset.subsample}`,
                     {
                         subsample: preset.subsample > 1 ? preset.subsample : undefined,
                         format: 'ppm',

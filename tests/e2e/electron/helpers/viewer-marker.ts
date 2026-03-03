@@ -1,6 +1,6 @@
 import type { Page } from 'puppeteer-core';
-import { delay } from 'es-toolkit/promise';
 import type { IPoint } from './viewer-dom';
+import { waitForActiveWorkspaceHost } from './viewer-dom';
 
 export interface IMarkerInfo {
     key: string;
@@ -9,14 +9,11 @@ export interface IMarkerInfo {
 }
 
 export async function getMarkers(page: Page): Promise<IMarkerInfo[]> {
+    await waitForActiveWorkspaceHost(page);
+
     return page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
         if (!host) {
             return [];
         }
@@ -32,14 +29,11 @@ export async function getMarkers(page: Page): Promise<IMarkerInfo[]> {
 }
 
 export async function getConnectorPaths(page: Page): Promise<string[]> {
+    await waitForActiveWorkspaceHost(page);
+
     return page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
         if (!host) {
             return [];
         }
@@ -61,8 +55,12 @@ export function parsePathStart(pathData: string): IPoint | null {
 }
 
 export async function dragMarker(page: Page, stableKey: string, dx: number, dy: number) {
-    const result = await page.evaluate(async (targetKey: string, deltaX: number, deltaY: number) => {
-        const marker = document.querySelector<HTMLElement>(
+    await waitForActiveWorkspaceHost(page);
+
+    const startPoint = await page.evaluate((targetKey: string) => {
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
+        const marker = host?.querySelector<HTMLElement>(
             `.pdf-comment-marker-button[data-stable-key="${targetKey}"]`,
         );
         if (!marker) {
@@ -70,53 +68,79 @@ export async function dragMarker(page: Page, stableKey: string, dx: number, dy: 
         }
 
         const rect = marker.getBoundingClientRect();
-        const startX = rect.x + rect.width / 2;
-        const startY = rect.y + rect.height / 2;
+        return {
+            startX: Math.round(rect.x + rect.width / 2),
+            startY: Math.round(rect.y + rect.height / 2),
+        };
+    }, stableKey);
 
-        marker.dispatchEvent(new PointerEvent('pointerdown', {
-            clientX: startX,
-            clientY: startY,
-            button: 0,
-            pointerId: 1,
-            bubbles: true,
-            composed: true,
-        }));
+    if (!startPoint) {
+        return null;
+    }
 
-        await new Promise(resolve => setTimeout(resolve, 50));
+    const intendedEndPoint = {
+        endX: Math.round(startPoint.startX + dx),
+        endY: Math.round(startPoint.startY + dy),
+    };
+    const minMovementDistance = Math.max(
+        8,
+        Math.min(24, Math.round(Math.hypot(dx, dy) * 0.2)),
+    );
 
-        const steps = 12;
-        for (let i = 1; i <= steps; i++) {
-            const t = i / steps;
-            marker.dispatchEvent(new PointerEvent('pointermove', {
-                clientX: startX + deltaX * t,
-                clientY: startY + deltaY * t,
-                button: 0,
-                pointerId: 1,
-                bubbles: true,
-                composed: true,
-            }));
-            await new Promise(resolve => setTimeout(resolve, 20));
+    await page.mouse.move(startPoint.startX, startPoint.startY);
+    await page.mouse.down();
+    await page.mouse.move(intendedEndPoint.endX, intendedEndPoint.endY, { steps: 14 });
+    await page.mouse.up();
+
+    await page.waitForFunction(({
+        minDistance,
+        startX,
+        startY,
+        targetKey,
+    }) => {
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
+        const marker = host?.querySelector<HTMLElement>(
+            `.pdf-comment-marker-button[data-stable-key="${targetKey}"]`,
+        );
+        if (!marker) {
+            return false;
         }
 
-        marker.dispatchEvent(new PointerEvent('pointerup', {
-            clientX: startX + deltaX,
-            clientY: startY + deltaY,
-            button: 0,
-            pointerId: 1,
-            bubbles: true,
-            composed: true,
-        }));
+        const rect = marker.getBoundingClientRect();
+        const centerX = rect.x + rect.width / 2;
+        const centerY = rect.y + rect.height / 2;
+        return Math.hypot(centerX - startX, centerY - startY) >= minDistance;
+    }, {timeout: 6_000}, {
+        minDistance: minMovementDistance,
+        startX: startPoint.startX,
+        startY: startPoint.startY,
+        targetKey: stableKey,
+    });
 
+    const finalPoint = await page.evaluate((targetKey: string) => {
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
+        const marker = host?.querySelector<HTMLElement>(
+            `.pdf-comment-marker-button[data-stable-key="${targetKey}"]`,
+        );
+        if (!marker) {
+            return null;
+        }
+
+        const rect = marker.getBoundingClientRect();
         return {
-            startX: Math.round(startX),
-            startY: Math.round(startY),
-            endX: Math.round(startX + deltaX),
-            endY: Math.round(startY + deltaY),
-        } as const;
-    }, stableKey, dx, dy);
+            x: Math.round(rect.x + rect.width / 2),
+            y: Math.round(rect.y + rect.height / 2),
+        };
+    }, stableKey);
 
-    await delay(500);
-    return result;
+    return {
+        startX: startPoint.startX,
+        startY: startPoint.startY,
+        endX: finalPoint?.x ?? intendedEndPoint.endX,
+        endY: finalPoint?.y ?? intendedEndPoint.endY,
+    } as const;
 }
 
 export async function getNoteWindowTextareaPoint(page: Page): Promise<IPoint | null> {

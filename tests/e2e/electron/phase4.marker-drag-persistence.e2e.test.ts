@@ -1,4 +1,3 @@
-import { delay } from 'es-toolkit/promise';
 import {
     describe,
     expect,
@@ -31,16 +30,13 @@ describe('Electron E2E - Phase 4 (Marker Drag Persistence)', () => {
 
             await createFreeTextAnnotation(session.page, `phase4-drag-test-${Date.now()}`);
             await clickAnnotationTool(session.page, 'Select');
-            await delay(900);
-
+            
             const markersBefore = await getMarkers(session.page);
             expect(markersBefore.length).toBeGreaterThan(0);
             const firstMarker = markersBefore[0]!;
             expect(firstMarker.key.length).toBeGreaterThan(0);
 
             await session.page.mouse.click(firstMarker.cx, firstMarker.cy);
-            await delay(300);
-
             const connectorsBefore = await getConnectorPaths(session.page);
 
             const dragResult = await dragMarker(session.page, firstMarker.key, 120, -80);
@@ -63,8 +59,6 @@ describe('Electron E2E - Phase 4 (Marker Drag Persistence)', () => {
             }
 
             await saveViaWindowHandle(session.page);
-            await delay(1_500);
-
             const markersAfterSave = await getMarkers(session.page);
             const savedMarker = markersAfterSave.find(marker => marker.key === firstMarker.key);
             expect(savedMarker).toBeDefined();

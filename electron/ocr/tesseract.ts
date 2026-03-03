@@ -11,6 +11,63 @@ interface IOcrResult {
     error?: string;
 }
 
+const TESSERACT_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_TESSERACT_TIMEOUT_MS ?? `${2 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 5_000) {
+        return 2 * 60 * 1000;
+    }
+    return parsed;
+})();
+const TESSERACT_KILL_GRACE_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_TESSERACT_KILL_GRACE_MS ?? '2000', 10);
+    if (!Number.isFinite(parsed) || parsed < 250) {
+        return 2_000;
+    }
+    return parsed;
+})();
+const TESSERACT_MAX_STDOUT_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_TESSERACT_MAX_STDOUT_BYTES ?? '262144', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_024) {
+        return 262_144;
+    }
+    return parsed;
+})();
+const TESSERACT_MAX_STDERR_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_TESSERACT_MAX_STDERR_BYTES ?? '262144', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_024) {
+        return 262_144;
+    }
+    return parsed;
+})();
+
+function appendWithCap(current: string, chunk: Buffer, maxBytes: number) {
+    if (maxBytes <= 0) {
+        return {
+            value: '',
+            truncated: true,
+        };
+    }
+
+    const nextValue = current + chunk.toString();
+    if (Buffer.byteLength(nextValue, 'utf8') <= maxBytes) {
+        return {
+            value: nextValue,
+            truncated: false,
+        };
+    }
+
+    const keepBytes = Math.max(1, Math.floor(maxBytes * 0.9));
+    let tail = nextValue;
+    while (Buffer.byteLength(tail, 'utf8') > keepBytes && tail.length > 1) {
+        tail = tail.slice(Math.floor(tail.length * 0.1));
+    }
+
+    return {
+        value: tail,
+        truncated: true,
+    };
+}
+
 function buildTesseractEnv(
     tessdata: string,
     options?: TTesseractSpawnOptions,
@@ -59,40 +116,119 @@ export async function runOcr(
 
         let stdout = '';
         let stderr = '';
+        let stderrTruncated = false;
+        let settled = false;
+        let timedOut = false;
+        let timeoutHandle: NodeJS.Timeout | null = null;
+        let killHandle: NodeJS.Timeout | null = null;
 
-        proc.stdout.on('data', (data: Buffer) => {
-            stdout += data.toString();
+        const finalize = (result: IOcrResult) => {
+            if (settled) {
+                return;
+            }
+
+            settled = true;
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = null;
+            }
+            if (killHandle) {
+                clearTimeout(killHandle);
+                killHandle = null;
+            }
+            resolve(result);
+        };
+
+        timeoutHandle = setTimeout(() => {
+            timedOut = true;
+            try {
+                proc.kill('SIGTERM');
+            } catch {
+                // Process may already be gone.
+            }
+
+            killHandle = setTimeout(() => {
+                try {
+                    proc.kill('SIGKILL');
+                } catch {
+                    // Process may already be gone.
+                }
+            }, TESSERACT_KILL_GRACE_MS);
+            killHandle.unref?.();
+        }, TESSERACT_TIMEOUT_MS);
+        timeoutHandle.unref?.();
+
+        proc.stdout?.on('data', (data: Buffer) => {
+            const appended = appendWithCap(stdout, data, TESSERACT_MAX_STDOUT_BYTES);
+            stdout = appended.value;
         });
 
-        proc.stderr.on('data', (data: Buffer) => {
-            stderr += data.toString();
+        proc.stderr?.on('data', (data: Buffer) => {
+            const appended = appendWithCap(stderr, data, TESSERACT_MAX_STDERR_BYTES);
+            stderr = appended.value;
+            stderrTruncated = stderrTruncated || appended.truncated;
         });
 
         proc.on('close', (code) => {
+            if (timedOut) {
+                finalize({
+                    success: false,
+                    text: '',
+                    error: `Tesseract timed out after ${TESSERACT_TIMEOUT_MS}ms`,
+                });
+                return;
+            }
+
             if (code === 0) {
-                resolve({
+                finalize({
                     success: true,
                     text: stdout.trim(),
                 });
             } else {
-                resolve({
+                const stderrSummary = stderrTruncated
+                    ? `[stderr truncated to ${TESSERACT_MAX_STDERR_BYTES} bytes]\n${stderr}`
+                    : stderr;
+                finalize({
                     success: false,
                     text: '',
-                    error: stderr || `Tesseract exited with code ${code}`,
+                    error: stderrSummary || `Tesseract exited with code ${code}`,
                 });
             }
         });
 
         proc.on('error', (err) => {
-            resolve({
+            finalize({
                 success: false,
                 text: '',
                 error: err.message,
             });
         });
 
-        // Write image data to stdin and close
-        proc.stdin.write(imageBuffer);
-        proc.stdin.end();
+        proc.stdin?.on('error', (stdinError) => {
+            finalize({
+                success: false,
+                text: '',
+                error: stdinError.message,
+            });
+        });
+
+        if (!proc.stdin) {
+            finalize({
+                success: false,
+                text: '',
+                error: 'Tesseract stdin is unavailable',
+            });
+            return;
+        }
+
+        proc.stdin.end(imageBuffer, (stdinError?: Error | null) => {
+            if (stdinError) {
+                finalize({
+                    success: false,
+                    text: '',
+                    error: stdinError.message,
+                });
+            }
+        });
     });
 }

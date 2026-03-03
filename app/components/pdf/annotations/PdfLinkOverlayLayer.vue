@@ -21,6 +21,7 @@
 
 <script setup lang="ts">
 import type { ILinkAnnotation } from '@app/composables/pdf/annotations/types';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     hasElectronAPI,
     getElectronAPI,
@@ -52,9 +53,21 @@ function handleClick(event: MouseEvent, link: ILinkAnnotation) {
     }
     pointerDownPos = null;
     if (hasElectronAPI()) {
-        getElectronAPI().shell.openExternal(link.url);
+        void getElectronAPI().shell.openExternal(link.url).catch((error) => {
+            BrowserLogger.warn(
+                'pdf-link-overlay',
+                `Failed to open external link: ${link.url}`,
+                error,
+            );
+        });
     } else {
-        window.open(link.url, '_blank', 'noopener,noreferrer');
+        const openedWindow = window.open(link.url, '_blank', 'noopener,noreferrer');
+        if (!openedWindow) {
+            BrowserLogger.warn(
+                'pdf-link-overlay',
+                `Failed to open external link in browser: ${link.url}`,
+            );
+        }
     }
 }
 </script>

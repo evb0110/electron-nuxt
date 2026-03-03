@@ -3,6 +3,7 @@ import {
     ipcMain,
     shell,
 } from 'electron';
+import { assertNonEmptyString } from '@contracts/ipc-assertions';
 import type { ISettingsData } from '@contracts/shared';
 import type {
     IWindowTabTransferAck,
@@ -27,7 +28,7 @@ import {registerDjvuIpcAdapter} from '@electron/features/djvu/ipc-adapter';
 import {registerPageOpsIpcAdapter} from '@electron/features/page-ops/ipc-adapter';
 import {
     loadSettings,
-    saveSettings,
+    updateSettings,
 } from '@electron/settings';
 import {
     deferDownloadedUpdate,
@@ -49,6 +50,52 @@ interface IRendererLogEntry {
 const logger = createLogger('ipc');
 const rendererLogger = createLogger('renderer-bridge', {broadcastToRenderers: false});
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+const ALLOWED_EXTERNAL_PROTOCOLS = new Set([
+    'http:',
+    'https:',
+    'mailto:',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function getTargetWindowIdFromTransferRequest(request: unknown) {
+    if (!isRecord(request) || !isRecord(request.target)) {
+        return -1;
+    }
+    if (request.target.kind !== 'window') {
+        return -1;
+    }
+    return typeof request.target.windowId === 'number' ? request.target.windowId : -1;
+}
+
+function isValidTransferRequest(request: unknown): request is IWindowTabTransferRequest {
+    if (!isRecord(request) || !isRecord(request.target)) {
+        return false;
+    }
+    if (request.target.kind === 'new-window') {
+        return true;
+    }
+    return request.target.kind === 'window' && typeof request.target.windowId === 'number' && Number.isFinite(request.target.windowId);
+}
+
+function isValidTransferAck(ack: unknown): ack is IWindowTabTransferAck {
+    return isRecord(ack)
+        && typeof ack.transferId === 'string'
+        && ack.transferId.trim().length > 0
+        && typeof ack.success === 'boolean'
+        && (ack.error === undefined || typeof ack.error === 'string');
+}
+
+function sanitizeExternalUrl(rawUrl: unknown) {
+    const normalizedUrl = assertNonEmptyString(rawUrl, 'url');
+    const parsed = new URL(normalizedUrl);
+    if (!ALLOWED_EXTERNAL_PROTOCOLS.has(parsed.protocol)) {
+        throw new Error(`Unsupported external URL protocol: ${parsed.protocol}`);
+    }
+    return parsed.toString();
+}
 
 function stringifyRendererLogData(data: unknown) {
     if (data === undefined) {
@@ -114,7 +161,16 @@ function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetW
 function registerCoreIpcHandlers() {
     ipcMain.on('renderer:log', handleRendererLog);
 
-    ipcMain.handle('tabs:transfer', async (event, request: IWindowTabTransferRequest) => {
+    ipcMain.handle('tabs:transfer', async (event, request: unknown) => {
+        if (!isValidTransferRequest(request)) {
+            return {
+                transferId: '',
+                success: false,
+                targetWindowId: getTargetWindowIdFromTransferRequest(request),
+                error: 'Invalid transfer request payload.',
+            };
+        }
+
         const sourceWindow = BrowserWindow.fromWebContents(event.sender);
         if (!sourceWindow) {
             return {
@@ -128,7 +184,11 @@ function registerCoreIpcHandlers() {
         return requestWindowTabTransfer(sourceWindow.id, request);
     });
 
-    ipcMain.handle('tabs:transferAck', (event, ack: IWindowTabTransferAck) => {
+    ipcMain.handle('tabs:transferAck', (event, ack: unknown) => {
+        if (!isValidTransferAck(ack)) {
+            return false;
+        }
+
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!window) {
             return false;
@@ -146,13 +206,18 @@ function registerCoreIpcHandlers() {
         return buildTabTransferTargetLabels(sourceWindow.id);
     });
 
-    ipcMain.handle('tabs:showContextMenu', (event, tabId: string) => {
+    ipcMain.handle('tabs:showContextMenu', (event, tabId: unknown) => {
+        const normalizedTabId = typeof tabId === 'string' ? tabId.trim() : '';
+        if (!normalizedTabId) {
+            return;
+        }
+
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!window) {
             return;
         }
 
-        showTabContextMenu(window, tabId);
+        showTabContextMenu(window, normalizedTabId);
     });
 
     ipcMain.handle('window:closeCurrent', (event) => {
@@ -174,8 +239,20 @@ function registerCoreIpcHandlers() {
         return settings;
     });
 
-    ipcMain.handle('settings:save', async (_event, settings: ISettingsData) => {
-        await saveSettings(settings);
+    ipcMain.handle('settings:save', async (_event, settingsPayload: unknown) => {
+        if (!isRecord(settingsPayload)) {
+            throw new Error('Invalid settings payload');
+        }
+
+        await updateSettings((currentSettings) => {
+            const incoming = settingsPayload as Partial<ISettingsData>;
+            return {
+                ...currentSettings,
+                ...incoming,
+                // This value is managed by updater flow; avoid stale renderer snapshots clobbering it.
+                skippedUpdateVersion: currentSettings.skippedUpdateVersion,
+            };
+        });
         updateRecentFilesMenu();
     });
 
@@ -183,17 +260,14 @@ function registerCoreIpcHandlers() {
     ipcMain.handle('updates:check', () => triggerManualUpdateCheck());
     ipcMain.handle('updates:install', () => installDownloadedUpdate());
     ipcMain.handle('updates:defer', () => deferDownloadedUpdate());
-    ipcMain.handle('updates:skipVersion', (_event, version: string) => skipUpdateVersion(version));
+    ipcMain.handle('updates:skipVersion', (_event, version: unknown) => {
+        const normalizedVersion = typeof version === 'string' ? version.trim() : '';
+        return skipUpdateVersion(normalizedVersion);
+    });
 
-    ipcMain.handle('shell:openExternal', async (_event, url: string) => {
-        const parsed = new URL(url);
-        if ([
-            'http:',
-            'https:',
-            'mailto:',
-        ].includes(parsed.protocol)) {
-            await shell.openExternal(url);
-        }
+    ipcMain.handle('shell:openExternal', async (_event, url: unknown) => {
+        const sanitizedUrl = sanitizeExternalUrl(url);
+        await shell.openExternal(sanitizedUrl);
     });
 }
 

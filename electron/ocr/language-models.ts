@@ -2,6 +2,7 @@ import { homedir } from 'os';
 import { randomUUID } from 'node:crypto';
 import {
     copyFileSync,
+    createWriteStream,
     existsSync,
     mkdirSync,
     readdirSync,
@@ -11,12 +12,16 @@ import {
     mkdir,
     rename,
     rm,
+    stat,
     writeFile,
 } from 'fs/promises';
 import {
     dirname,
     join,
 } from 'path';
+import { Readable } from 'stream';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import { pipeline } from 'stream/promises';
 import { fileURLToPath } from 'url';
 import { delay } from 'es-toolkit/promise';
 import { createLogger } from '@electron/utils/logger';
@@ -317,16 +322,23 @@ async function downloadLanguageModel(languageCode: string, runtimeDir: string) {
                 throw createHttpDownloadError(languageCode, response.status);
             }
 
-            const arrayBuffer = await response.arrayBuffer();
-            const modelBuffer = Buffer.from(arrayBuffer);
-            if (modelBuffer.length < 1024) {
-                throw new Error('Downloaded model is unexpectedly small');
+            await mkdir(runtimeDir, { recursive: true });
+            if (response.body && typeof Readable.fromWeb === 'function') {
+                const readable = Readable.fromWeb(response.body as NodeReadableStream);
+                const writable = createWriteStream(tempPath, { flags: 'wx' });
+                await pipeline(readable, writable);
+            } else {
+                // Fallback for environments where Readable.fromWeb is unavailable.
+                const arrayBuffer = await response.arrayBuffer();
+                await writeFile(tempPath, Buffer.from(arrayBuffer));
             }
 
-            await mkdir(runtimeDir, { recursive: true });
-            await writeFile(tempPath, modelBuffer);
+            const downloadedSize = (await stat(tempPath)).size;
+            if (downloadedSize < 1024) {
+                throw new Error('Downloaded model is unexpectedly small');
+            }
             await rename(tempPath, modelPath);
-            log.info(`Downloaded OCR model ${languageCode} (${Math.round(modelBuffer.length / (1024 * 1024))}MB)`);
+            log.info(`Downloaded OCR model ${languageCode} (${Math.round(downloadedSize / (1024 * 1024))}MB)`);
             return;
         } catch (err) {
             const classified = classifyDownloadError(languageCode, err);

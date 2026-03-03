@@ -62,6 +62,22 @@ export const useOcr = () => {
     let completeCleanup: (() => void) | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let pendingOcrReject: ((reason?: unknown) => void) | null = null;
+    let cancelGeneration = 0;
+    let activeRunToken: symbol | null = null;
+
+    function cleanupRunState() {
+        activeRequestId.value = null;
+        progress.value.isRunning = false;
+        progressCleanup?.();
+        progressCleanup = null;
+        completeCleanup?.();
+        completeCleanup = null;
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+        }
+        pendingOcrReject = null;
+    }
 
     async function loadLanguages() {
         try {
@@ -107,6 +123,18 @@ export const useOcr = () => {
             return;
         }
 
+        const runToken = Symbol('ocr-run');
+        activeRunToken = runToken;
+        const runGeneration = cancelGeneration;
+        const ensureRunActive = () => {
+            if (
+                activeRunToken !== runToken
+                || runGeneration !== cancelGeneration
+            ) {
+                throw new OcrCanceledError();
+            }
+        };
+
         progress.value = {
             isRunning: true,
             phase: 'preparing',
@@ -116,12 +144,24 @@ export const useOcr = () => {
         };
 
         await nextTick();
+        if (
+            activeRunToken !== runToken
+            || runGeneration !== cancelGeneration
+        ) {
+            return;
+        }
 
         await new Promise<void>(resolve => {
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => resolve());
             });
         });
+        if (
+            activeRunToken !== runToken
+            || runGeneration !== cancelGeneration
+        ) {
+            return;
+        }
 
         const requestId = `ocr-${crypto.randomUUID()}`;
         activeRequestId.value = requestId;
@@ -134,6 +174,9 @@ export const useOcr = () => {
             const api = getElectronAPI();
 
             progressCleanup = api.ocr.onProgress((p) => {
+                if (activeRunToken !== runToken) {
+                    return;
+                }
                 BrowserLogger.debug('ocr', 'Progress update', {
                     ...p,
                     requestId,
@@ -157,6 +200,7 @@ export const useOcr = () => {
                 workingCopyPath,
             });
 
+            ensureRunActive();
             const ocrPromise = new Promise<{
                 success: boolean;
                 pdfPath?: string;
@@ -173,7 +217,7 @@ export const useOcr = () => {
                         success: result.success,
                         didResolve,
                     });
-                    if (result.requestId === requestId) {
+                    if (result.requestId === requestId && activeRunToken === runToken) {
                         if (didResolve) {
                             BrowserLogger.debug('ocr', 'Ignoring duplicate completion', { requestId });
                             return;
@@ -189,7 +233,7 @@ export const useOcr = () => {
                 });
 
                 timeoutId = setTimeout(() => {
-                    if (!didResolve) {
+                    if (!didResolve && activeRunToken === runToken) {
                         pendingOcrReject = null;
                         timeoutId = null;
                         reject(new Error(t('errors.ocr.timeout')));
@@ -197,12 +241,14 @@ export const useOcr = () => {
                 }, OCR_TIMEOUT_MS);
             });
 
+            ensureRunActive();
             const startResult = await api.ocr.createSearchablePdf(
                 workingCopyPath,
                 pageRequests,
                 requestId,
                 undefined,
             );
+            ensureRunActive();
 
             BrowserLogger.debug('ocr', 'Job started', {
                 requestId,
@@ -213,7 +259,9 @@ export const useOcr = () => {
                 throw new Error(localizeOcrError(startResult.error, 'errors.ocr.start'));
             }
 
+            ensureRunActive();
             const response = await ocrPromise;
+            ensureRunActive();
 
             BrowserLogger.debug('ocr', 'Backend response', {
                 requestId,
@@ -249,6 +297,7 @@ export const useOcr = () => {
                         requestId,
                         bytes: pdfBytes.length, 
                     });
+                    ensureRunActive();
                 } finally {
                     if (response.requiresCleanupAck) {
                         try {
@@ -312,41 +361,38 @@ export const useOcr = () => {
             }
             error.value = localizeOcrError(e, 'errors.ocr.createSearchablePdf');
         } finally {
-            activeRequestId.value = null;
-            progress.value.isRunning = false;
-            progressCleanup?.();
-            progressCleanup = null;
-            completeCleanup?.();
-            completeCleanup = null;
-            if (timeoutId) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
+            if (activeRunToken === runToken) {
+                activeRunToken = null;
+                cleanupRunState();
             }
-            pendingOcrReject = null;
         }
     }
 
     function cancelOcr() {
+        cancelGeneration += 1;
+        activeRunToken = null;
+
         const rejectPending = pendingOcrReject;
         pendingOcrReject = null;
         rejectPending?.(new OcrCanceledError());
 
-        if (activeRequestId.value) {
-            BrowserLogger.info('ocr', 'Cancelling OCR', { requestId: activeRequestId.value });
+        const requestIdToCancel = activeRequestId.value;
+        if (requestIdToCancel) {
+            BrowserLogger.info('ocr', 'Cancelling OCR', { requestId: requestIdToCancel });
             const api = getElectronAPI();
-            api.ocr.cancel(activeRequestId.value).catch(() => {});
-            activeRequestId.value = null;
+            void api.ocr.cancel(requestIdToCancel).catch((cancelError) => {
+                BrowserLogger.debug('ocr', 'OCR cancel request failed', {
+                    requestId: requestIdToCancel,
+                    error: cancelError,
+                });
+            });
         }
-        progress.value.isRunning = false;
-        progressCleanup?.();
-        progressCleanup = null;
-        completeCleanup?.();
-        completeCleanup = null;
-        if (timeoutId) {
-            clearTimeout(timeoutId);
-            timeoutId = null;
-        }
+        cleanupRunState();
     }
+
+    onScopeDispose(() => {
+        cancelOcr();
+    });
 
     function clearResults() {
         results.value = {

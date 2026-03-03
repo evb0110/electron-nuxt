@@ -35,6 +35,24 @@ interface IPdfjsTextLayerElement extends HTMLDivElement {div: HTMLDivElement;}
 let annotationEditorLayerSafetyPatched = false;
 let destroyedEditorLayerFallbackDiv: HTMLDivElement | null = null;
 
+function getDestroyedEditorLayerFallbackDiv() {
+    if (destroyedEditorLayerFallbackDiv) {
+        return destroyedEditorLayerFallbackDiv;
+    }
+
+    const doc = defaultDocument;
+    if (!doc) {
+        return null;
+    }
+
+    const fallbackDiv = doc.createElement('div');
+    fallbackDiv.className = 'annotation-editor-layer-destroyed-fallback';
+    fallbackDiv.style.display = 'none';
+    fallbackDiv.setAttribute('aria-hidden', 'true');
+    destroyedEditorLayerFallbackDiv = fallbackDiv;
+    return fallbackDiv;
+}
+
 function ensureAnnotationEditorLayerSafetyPatch() {
     if (annotationEditorLayerSafetyPatched) {
         return;
@@ -46,14 +64,7 @@ function ensureAnnotationEditorLayerSafetyPatch() {
         return;
     }
 
-    const doc = defaultDocument;
-    if (doc && !destroyedEditorLayerFallbackDiv) {
-        destroyedEditorLayerFallbackDiv = doc.createElement('div');
-        destroyedEditorLayerFallbackDiv.className =
-            'annotation-editor-layer-destroyed-fallback';
-        destroyedEditorLayerFallbackDiv.style.display = 'none';
-        destroyedEditorLayerFallbackDiv.setAttribute('aria-hidden', 'true');
-    }
+    getDestroyedEditorLayerFallbackDiv();
 
     const originalDisable =
         typeof proto.disable === 'function' ? proto.disable : null;
@@ -65,8 +76,9 @@ function ensureAnnotationEditorLayerSafetyPatch() {
             if (!this) {
                 return undefined;
             }
-            if (!this.div) {
-                this.div = destroyedEditorLayerFallbackDiv;
+            const fallbackDiv = getDestroyedEditorLayerFallbackDiv();
+            if (!this.div && fallbackDiv) {
+                this.div = fallbackDiv;
             }
             return originalDisable.call(this, ...args);
         };
@@ -79,12 +91,13 @@ function ensureAnnotationEditorLayerSafetyPatch() {
             this: { div?: HTMLElement | null },
             ...args: unknown[]
         ) {
-            if (this?.div == null) {
-                this.div = destroyedEditorLayerFallbackDiv;
+            const fallbackDiv = getDestroyedEditorLayerFallbackDiv();
+            if (this?.div == null && fallbackDiv) {
+                this.div = fallbackDiv;
             }
             const result = originalDestroy.call(this, ...args);
-            if (this?.div == null) {
-                this.div = destroyedEditorLayerFallbackDiv;
+            if (this?.div == null && fallbackDiv) {
+                this.div = fallbackDiv;
             }
             return result;
         };
@@ -225,9 +238,25 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 link.addEventListener('click', (event) => {
                     event.preventDefault();
                     if (hasElectronAPI()) {
-                        getElectronAPI().shell.openExternal(url);
+                        void getElectronAPI().shell.openExternal(url).catch((error) => {
+                            BrowserLogger.warn(
+                                'pdf-annotation-layer',
+                                `Failed to open annotation link: ${url}`,
+                                error,
+                            );
+                        });
                     } else {
-                        window.open(url, '_blank', 'noopener,noreferrer');
+                        const openedWindow = window.open(
+                            url,
+                            '_blank',
+                            'noopener,noreferrer',
+                        );
+                        if (!openedWindow) {
+                            BrowserLogger.warn(
+                                'pdf-annotation-layer',
+                                `Failed to open annotation link in browser: ${url}`,
+                            );
+                        }
                     }
                 });
             },
@@ -368,8 +397,17 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
         const drawLayer = drawLayers.get(pageNumber);
         if (drawLayer) {
-            drawLayer.destroy();
-            drawLayers.delete(pageNumber);
+            try {
+                drawLayer.destroy();
+            } catch (error) {
+                BrowserLogger.debug(
+                    'pdf-annotation-layer',
+                    'Failed to destroy draw layer',
+                    error,
+                );
+            } finally {
+                drawLayers.delete(pageNumber);
+            }
         }
     }
 

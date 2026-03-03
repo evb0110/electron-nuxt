@@ -40,6 +40,13 @@ const dialog = ref<IUpdateDialogState>({
 const initialized = ref(false);
 let statusUnsubscribe: (() => void) | null = null;
 
+function toErrorMessage(error: unknown) {
+    if (error instanceof Error && error.message.trim().length > 0) {
+        return error.message;
+    }
+    return String(error);
+}
+
 function openStatusDialog(nextStatus: IAppUpdateStatus) {
     if (nextStatus.phase === 'idle' || nextStatus.phase === 'downloaded') {
         return;
@@ -110,8 +117,20 @@ async function checkForUpdates() {
     if (!hasElectronAPI()) {
         return;
     }
-    await ensureInitialized();
-    await getElectronAPI().updates.check();
+    try {
+        await ensureInitialized();
+        await getElectronAPI().updates.check();
+    } catch (error) {
+        const message = toErrorMessage(error);
+        BrowserLogger.error('updates', 'Failed to check for updates', error);
+        applyStatus({
+            phase: 'error',
+            origin: 'manual',
+            version: status.value.version,
+            percent: null,
+            message,
+        });
+    }
 }
 
 async function installUpdateNow() {
@@ -119,8 +138,20 @@ async function installUpdateNow() {
         return;
     }
 
-    closeDialog();
-    await getElectronAPI().updates.install();
+    try {
+        closeDialog();
+        await getElectronAPI().updates.install();
+    } catch (error) {
+        const message = toErrorMessage(error);
+        BrowserLogger.error('updates', 'Failed to install update', error);
+        applyStatus({
+            phase: 'error',
+            origin: 'manual',
+            version: status.value.version,
+            percent: null,
+            message,
+        });
+    }
 }
 
 async function deferUpdate() {
@@ -128,8 +159,20 @@ async function deferUpdate() {
         return;
     }
 
-    closeDialog();
-    await getElectronAPI().updates.defer();
+    try {
+        closeDialog();
+        await getElectronAPI().updates.defer();
+    } catch (error) {
+        const message = toErrorMessage(error);
+        BrowserLogger.error('updates', 'Failed to defer update', error);
+        applyStatus({
+            phase: 'error',
+            origin: 'manual',
+            version: status.value.version,
+            percent: null,
+            message,
+        });
+    }
 }
 
 async function skipUpdateVersion() {
@@ -143,8 +186,20 @@ async function skipUpdateVersion() {
         return;
     }
 
-    closeDialog();
-    await getElectronAPI().updates.skipVersion(version);
+    try {
+        closeDialog();
+        await getElectronAPI().updates.skipVersion(version);
+    } catch (error) {
+        const message = toErrorMessage(error);
+        BrowserLogger.error('updates', 'Failed to skip update version', error);
+        applyStatus({
+            phase: 'error',
+            origin: 'manual',
+            version: status.value.version,
+            percent: null,
+            message,
+        });
+    }
 }
 
 const isCheckInProgress = computed(() => {

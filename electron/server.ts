@@ -29,7 +29,22 @@ const logger = createLogger('server');
 let nuxtProcess: ChildProcess | null = null;
 let serverReady: Promise<void> | null = null;
 let usingExternalServer = false;
+let stoppingServerPromise: Promise<void> | null = null;
 const SERVER_OWNERSHIP_FILE = 'nuxt-server-owner.json';
+const SERVER_HEALTH_FETCH_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SERVER_HEALTH_FETCH_TIMEOUT_MS ?? '4000', 10);
+    if (!Number.isFinite(parsed) || parsed < 500) {
+        return 4_000;
+    }
+    return parsed;
+})();
+const SERVER_STOP_GRACE_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SERVER_STOP_GRACE_MS ?? '2_500', 10);
+    if (!Number.isFinite(parsed) || parsed < 500) {
+        return 2_500;
+    }
+    return parsed;
+})();
 
 interface IServerOwnershipMarker {
     pid: number;
@@ -142,7 +157,10 @@ async function terminateProcess(pid: number, graceMs = 2_500) {
 
 async function isServerRunning() {
     try {
-        const response = await fetch(config.server.url, {method: 'HEAD'});
+        const response = await fetch(config.server.url, {
+            method: 'HEAD',
+            signal: AbortSignal.timeout(SERVER_HEALTH_FETCH_TIMEOUT_MS),
+        });
         return response.ok;
     } catch {
         return false;
@@ -150,6 +168,10 @@ async function isServerRunning() {
 }
 
 export async function startServer() {
+    if (stoppingServerPromise) {
+        await stoppingServerPromise;
+    }
+
     const startTime = Date.now();
     if (nuxtProcess && nuxtProcess.exitCode !== null) {
         nuxtProcess = null;
@@ -267,6 +289,7 @@ export async function startServer() {
     });
 
     nuxtProcess.on('exit', (code, signal) => {
+        nuxtProcess = null;
         clearOwnershipMarker();
 
         if (readySettled || usingExternalServer) {
@@ -289,7 +312,10 @@ export function waitForServer() {
             await retry(async () => {
                 attempt += 1;
                 try {
-                    const response = await fetch(config.server.url, { method: 'HEAD' });
+                    const response = await fetch(config.server.url, {
+                        method: 'HEAD',
+                        signal: AbortSignal.timeout(SERVER_HEALTH_FETCH_TIMEOUT_MS),
+                    });
                     if (!response.ok) {
                         throw new Error(`HTTP ${response.status}`);
                     }
@@ -331,8 +357,7 @@ export function waitForServer() {
             await verifyHealth();
         } catch (err) {
             if (nuxtProcess && !usingExternalServer) {
-                nuxtProcess.kill();
-                nuxtProcess = null;
+                await stopServer();
             }
             if (!usingExternalServer) {
                 clearOwnershipMarker();
@@ -343,16 +368,40 @@ export function waitForServer() {
     })();
 }
 
-export function stopServer() {
-    if (nuxtProcess && nuxtProcess.exitCode === null) {
-        logger.info('Stopping internally-managed Nuxt server');
-        nuxtProcess.kill();
-        nuxtProcess = null;
-        clearOwnershipMarker();
-        return;
+export async function stopServer() {
+    if (stoppingServerPromise) {
+        return stoppingServerPromise;
     }
 
-    if (!usingExternalServer) {
-        clearOwnershipMarker();
+    stoppingServerPromise = (async () => {
+        if (nuxtProcess && nuxtProcess.exitCode === null) {
+            logger.info('Stopping internally-managed Nuxt server');
+            const processToStop = nuxtProcess;
+            const pid = processToStop.pid;
+
+            if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
+                await terminateProcess(pid, SERVER_STOP_GRACE_MS);
+            } else {
+                try {
+                    processToStop.kill('SIGTERM');
+                } catch {
+                    // Ignore if process already exited.
+                }
+            }
+
+            nuxtProcess = null;
+            clearOwnershipMarker();
+            return;
+        }
+
+        if (!usingExternalServer) {
+            clearOwnershipMarker();
+        }
+    })();
+
+    try {
+        await stoppingServerPromise;
+    } finally {
+        stoppingServerPromise = null;
     }
 }

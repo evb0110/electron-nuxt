@@ -283,12 +283,13 @@ export const usePdfSearch = () => {
         }
 
         cancelScheduledSearch();
+        await cancelActiveSearch();
+        cleanupProgressListener();
         const runId = ++searchRunId;
 
         if (trimmedQuery.length < MIN_QUERY_LENGTH) {
             isSearching.value = false;
             isTruncated.value = false;
-            cleanupProgressListener();
             results.value = [];
             pageMatches.value = new Map();
             currentResultIndex.value = -1;
@@ -352,9 +353,25 @@ export const usePdfSearch = () => {
         clearSearch();
         if (hasElectronAPI()) {
             const api = getElectronAPI();
-            void api.search.resetCache();
+            void api.search.resetCache().catch((error) => {
+                BrowserLogger.debug(
+                    'pdf-search',
+                    'Failed to reset search cache',
+                    error,
+                );
+            });
         }
     }
+
+    onScopeDispose(() => {
+        searchRunId += 1;
+        cancelScheduledSearch();
+        cleanupProgressListener();
+        void cancelActiveSearch();
+        const maybeCancelableDebounce = debouncedPerformSearch as { cancel?: () => void; };
+        maybeCancelableDebounce.cancel?.();
+        isSearching.value = false;
+    });
 
     return {
         searchQuery,

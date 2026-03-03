@@ -400,6 +400,7 @@ const currentPageTransitionHistory = ref<Array<{
     page: number;
     at: number 
 }>>([]);
+const sidebarToggleCheckpointTimers = new Set<ReturnType<typeof setTimeout>>();
 
 const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(props.tabId));
 const isExternallyRestoring = computed(() => workspaceRestoreTracker.has(props.tabId));
@@ -627,6 +628,13 @@ const canExportDocx = computed(() => (
     && !isExportingDocx.value
 ));
 
+function clearSidebarToggleCheckpointTimers() {
+    for (const timer of sidebarToggleCheckpointTimers) {
+        clearTimeout(timer);
+    }
+    sidebarToggleCheckpointTimers.clear();
+}
+
 function runToolbarAction(action: () => unknown) {
     const result = action();
     if (result instanceof Promise) {
@@ -656,6 +664,7 @@ function handleToolbarRedo() {
 }
 
 function handleToolbarToggleSidebar() {
+    clearSidebarToggleCheckpointTimers();
     const attemptId = `sidebar-toggle-${crypto.randomUUID()}`;
     const beforePage = currentPage.value;
     const beforeSidebar = showSidebar.value;
@@ -692,7 +701,8 @@ function handleToolbarToggleSidebar() {
         1200,
     ];
     checkpointSchedule.forEach((delayMs) => {
-        setTimeout(() => {
+        const timer = setTimeout(() => {
+            sidebarToggleCheckpointTimers.delete(timer);
             const checkpointViewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
             BrowserLogger.warn(
                 'pdf-nav',
@@ -714,6 +724,7 @@ function handleToolbarToggleSidebar() {
                 },
             );
         }, delayMs);
+        sidebarToggleCheckpointTimers.add(timer);
     });
 }
 
@@ -1031,6 +1042,7 @@ watch(
 );
 
 onUnmounted(() => {
+    clearSidebarToggleCheckpointTimers();
     cleanupSidebarResizeListeners();
     cleanupShortcuts();
 });

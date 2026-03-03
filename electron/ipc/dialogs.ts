@@ -78,6 +78,7 @@ function sendOpenBatchProgress(
 
 function normalizeInputPaths(paths: string[]) {
     return paths
+        .filter((path): path is string => typeof path === 'string')
         .map(path => path.trim())
         .filter(path => path.length > 0);
 }
@@ -162,17 +163,18 @@ async function openInputPaths(
 
 export async function handleOpenPdfDirect(
     _event: Electron.IpcMainInvokeEvent,
-    filePath: string,
+    filePath: unknown,
 ): Promise<IOpenFileResult | null> {
-    if (!filePath || filePath.trim() === '') {
+    if (typeof filePath !== 'string' || filePath.trim() === '') {
         logger.warn('openPdfDirect received empty path');
         return null;
     }
 
-    logger.info(`openPdfDirect request: ${filePath}`);
+    const normalizedPath = filePath.trim();
+    logger.info(`openPdfDirect request: ${normalizedPath}`);
     try {
-        const result = await openInputPaths([filePath]);
-        logger.info(`openPdfDirect result for ${filePath}: ${result?.kind ?? 'null'}`);
+        const result = await openInputPaths([normalizedPath]);
+        logger.info(`openPdfDirect result for ${normalizedPath}: ${result?.kind ?? 'null'}`);
         return result;
     } catch (err) {
         logger.error(`Failed to create working copy: ${err instanceof Error ? err.message : String(err)}`);
@@ -182,7 +184,7 @@ export async function handleOpenPdfDirect(
 
 export async function handleOpenPdfDirectBatch(
     event: Electron.IpcMainInvokeEvent,
-    filePaths: string[],
+    filePaths: unknown,
     requestId?: string,
 ): Promise<IOpenFileResult | null> {
     if (!Array.isArray(filePaths) || filePaths.length === 0) {
@@ -253,7 +255,8 @@ export async function handleCreateWorkingCopyFromPath(
 export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string) {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (window) {
-        window.setTitle(title || te('app.title'));
+        const normalizedTitle = typeof title === 'string' ? title : '';
+        window.setTitle(normalizedTitle || te('app.title'));
         refreshMenu();
     }
 }

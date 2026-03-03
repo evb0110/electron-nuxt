@@ -104,6 +104,7 @@ const LOADER_LOG_SECTION = 'loader';
 const loadDocumentWorkspace = () => import('@app/components/DocumentWorkspace.vue');
 const workspaceChunkLoadError = ref<unknown>(null);
 const workspaceRenderNonce = ref(0);
+const chunkRetryTimers = new Set<ReturnType<typeof setTimeout>>();
 
 const DocumentWorkspace = defineAsyncComponent({
     loader: loadDocumentWorkspace,
@@ -120,7 +121,12 @@ const DocumentWorkspace = defineAsyncComponent({
             error,
             isDev: import.meta.dev,
         })) {
-            setTimeout(() => retry(), attempts * 150);
+            const retryDelayMs = attempts * 150;
+            const retryTimer = setTimeout(() => {
+                chunkRetryTimers.delete(retryTimer);
+                retry();
+            }, retryDelayMs);
+            chunkRetryTimers.add(retryTimer);
             return;
         }
 
@@ -525,6 +531,13 @@ onMounted(() => {
             count: recentFiles.value.length,
         });
     });
+});
+
+onUnmounted(() => {
+    for (const timer of chunkRetryTimers) {
+        clearTimeout(timer);
+    }
+    chunkRetryTimers.clear();
 });
 
 const workspaceExpose: IWorkspaceExpose = {

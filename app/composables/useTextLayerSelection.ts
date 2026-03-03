@@ -9,7 +9,7 @@ interface ITextLayerEntry {
 }
 
 const textLayers = new Map<HTMLElement, ITextLayerEntry>();
-const mouseDownListenerAttached = new WeakSet<HTMLElement>();
+const mouseDownHandlers = new WeakMap<HTMLElement, () => void>();
 let selectionAbortController: AbortController | null = null;
 let prevRange: Range | null = null;
 let isPointerDown = false;
@@ -153,8 +153,19 @@ function enableGlobalSelectionListener() {
     );
 }
 
-function removeGlobalSelectionListener(textLayerDiv: HTMLElement) {
-    textLayers.delete(textLayerDiv);
+function teardownTextLayer(textLayerDiv: HTMLElement) {
+    const entry = textLayers.get(textLayerDiv);
+    if (entry) {
+        textLayers.delete(textLayerDiv);
+        textLayerDiv.classList.remove('selecting');
+        entry.endOfContent.remove();
+    }
+
+    const mouseDownHandler = mouseDownHandlers.get(textLayerDiv);
+    if (mouseDownHandler) {
+        textLayerDiv.removeEventListener('mousedown', mouseDownHandler);
+        mouseDownHandlers.delete(textLayerDiv);
+    }
 
     if (textLayers.size === 0 && selectionAbortController) {
         selectionAbortController.abort();
@@ -165,15 +176,29 @@ function removeGlobalSelectionListener(textLayerDiv: HTMLElement) {
 
 export const useTextLayerSelection = () => {
     function setupTextLayer(textLayerDiv: HTMLElement) {
+        const existingEntry = textLayers.get(textLayerDiv);
+        if (existingEntry) {
+            return () => {
+                teardownTextLayer(textLayerDiv);
+            };
+        }
+
+        for (const staleEndOfContent of textLayerDiv.querySelectorAll<HTMLElement>('.end-of-content[data-evb-text-layer-selection="true"]')) {
+            staleEndOfContent.remove();
+        }
+
         const endOfContent = document.createElement('div');
         endOfContent.className = 'end-of-content';
+        endOfContent.dataset.evbTextLayerSelection = 'true';
         textLayerDiv.appendChild(endOfContent);
 
-        if (!mouseDownListenerAttached.has(textLayerDiv)) {
-            mouseDownListenerAttached.add(textLayerDiv);
-            textLayerDiv.addEventListener('mousedown', () => {
+        let mouseDownHandler = mouseDownHandlers.get(textLayerDiv);
+        if (!mouseDownHandler) {
+            mouseDownHandler = () => {
                 textLayerDiv.classList.add('selecting');
-            });
+            };
+            textLayerDiv.addEventListener('mousedown', mouseDownHandler);
+            mouseDownHandlers.set(textLayerDiv, mouseDownHandler);
         }
 
         textLayers.set(textLayerDiv, {
@@ -184,7 +209,7 @@ export const useTextLayerSelection = () => {
         enableGlobalSelectionListener();
 
         return () => {
-            removeGlobalSelectionListener(textLayerDiv);
+            teardownTextLayer(textLayerDiv);
         };
     }
 

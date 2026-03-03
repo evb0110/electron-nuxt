@@ -1,15 +1,30 @@
 import type { Page } from 'puppeteer-core';
-import { findVisiblePointInActiveHost } from './viewer-dom';
+import { waitForActiveWorkspaceHost } from './viewer-dom';
 
 export async function getLinkOverlayCount(page: Page) {
+    await waitForActiveWorkspaceHost(page);
+
     return page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (
+            activeHost
+            && visibleHosts.includes(activeHost)
+            && activeHost.querySelector('.pdf-link-overlay-layer .pdf-link-overlay')
+        )
+            ? activeHost
+            : (visibleHosts.find(candidate => candidate.querySelector('.pdf-link-overlay-layer .pdf-link-overlay')) ?? visibleHosts[0] ?? null);
         return host?.querySelectorAll('.pdf-link-overlay-layer .pdf-link-overlay').length ?? 0;
     });
 }
@@ -73,7 +88,51 @@ export async function installOpenExternalSpy(page: Page) {
 }
 
 export async function clickFirstLinkOverlay(page: Page) {
-    const point = await findVisiblePointInActiveHost(page, '.pdf-link-overlay-layer .pdf-link-overlay');
+    const point = await page.evaluate(() => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const orderedHosts = [
+            ...(activeHost && visibleHosts.includes(activeHost) ? [activeHost] : []),
+            ...visibleHosts.filter(candidate => candidate !== activeHost),
+        ];
+
+        for (const host of orderedHosts) {
+            const overlay = Array.from(host.querySelectorAll<HTMLAnchorElement>('.pdf-link-overlay-layer .pdf-link-overlay'))
+                .find((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return (
+                        rect.width > 2
+                        && rect.height > 2
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && Number(style.opacity || '1') > 0
+                    );
+                });
+            if (!overlay) {
+                continue;
+            }
+
+            const rect = overlay.getBoundingClientRect();
+            return {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+            };
+        }
+
+        return null;
+    });
     if (!point) {
         throw new Error('No visible link overlay found');
     }

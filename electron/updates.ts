@@ -15,7 +15,7 @@ import type { ILatestReleaseResponse } from '@contracts';
 import { config } from '@electron/config';
 import {
     loadSettings,
-    saveSettings,
+    updateSettings,
 } from '@electron/settings';
 import { createLogger } from '@electron/utils/logger';
 
@@ -149,10 +149,10 @@ async function readSkippedVersion() {
 }
 
 async function writeSkippedVersion(version: string | null) {
-    const settings = await loadSettings();
     const normalized = normalizeVersion(version);
-    settings.skippedUpdateVersion = normalized || undefined;
-    await saveSettings(settings);
+    await updateSettings((settings) => {
+        settings.skippedUpdateVersion = normalized || undefined;
+    });
 }
 
 async function fetchLatestMetadataVersion() {

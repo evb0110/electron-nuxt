@@ -27,6 +27,55 @@ interface IPreprocessingResult {
     error?: string;
 }
 
+const PREPROCESS_KILL_GRACE_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PREPROCESS_KILL_GRACE_MS ?? '2000', 10);
+    if (!Number.isFinite(parsed) || parsed < 250) {
+        return 2_000;
+    }
+    return parsed;
+})();
+const PREPROCESS_MAX_STDOUT_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PREPROCESS_MAX_STDOUT_BYTES ?? '131072', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_024) {
+        return 131_072;
+    }
+    return parsed;
+})();
+const PREPROCESS_MAX_STDERR_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PREPROCESS_MAX_STDERR_BYTES ?? '131072', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_024) {
+        return 131_072;
+    }
+    return parsed;
+})();
+
+function appendWithCap(current: string, chunk: Buffer, maxBytes: number) {
+    if (maxBytes <= 0) {
+        return {
+            value: '',
+            truncated: true,
+        };
+    }
+
+    const nextValue = current + chunk.toString();
+    if (Buffer.byteLength(nextValue, 'utf8') <= maxBytes) {
+        return {
+            value: nextValue,
+            truncated: false,
+        };
+    }
+
+    const keepBytes = Math.max(1, Math.floor(maxBytes * 0.9));
+    let tail = nextValue;
+    while (Buffer.byteLength(tail, 'utf8') > keepBytes && tail.length > 1) {
+        tail = tail.slice(Math.floor(tail.length * 0.1));
+    }
+    return {
+        value: tail,
+        truncated: true,
+    };
+}
+
 /**
  * Get paths to preprocessing binaries
  * Falls back gracefully if binaries don't exist
@@ -110,58 +159,105 @@ async function runPreprocessing(
         let stdout = '';
         let stderr = '';
         let timedOut = false;
+        let stdoutTruncated = false;
+        let stderrTruncated = false;
+        let settled = false;
+        let killHandle: NodeJS.Timeout | null = null;
 
         const timeout = options.timeout || 60000; // 60 seconds default
         const timeoutHandle = setTimeout(() => {
             timedOut = true;
             log.debug('Process timeout');
-            proc.kill();
+            try {
+                proc.kill('SIGTERM');
+            } catch {
+                // Process may have exited already.
+            }
+            killHandle = setTimeout(() => {
+                try {
+                    proc.kill('SIGKILL');
+                } catch {
+                    // Process may have exited already.
+                }
+            }, PREPROCESS_KILL_GRACE_MS);
+            killHandle.unref?.();
         }, timeout);
+        timeoutHandle.unref?.();
+
+        const finalize = (result: IPreprocessingResult) => {
+            if (settled) {
+                return;
+            }
+
+            settled = true;
+            clearTimeout(timeoutHandle);
+            if (killHandle) {
+                clearTimeout(killHandle);
+                killHandle = null;
+            }
+            resolve(result);
+        };
 
         proc.stdout.on('data', (data: Buffer) => {
-            stdout += data.toString();
+            const appended = appendWithCap(stdout, data, PREPROCESS_MAX_STDOUT_BYTES);
+            stdout = appended.value;
+            stdoutTruncated = stdoutTruncated || appended.truncated;
         });
 
         proc.stderr.on('data', (data: Buffer) => {
             const msg = data.toString();
-            stderr += msg;
+            const appended = appendWithCap(stderr, data, PREPROCESS_MAX_STDERR_BYTES);
+            stderr = appended.value;
+            stderrTruncated = stderrTruncated || appended.truncated;
             log.debug(`stderr: ${msg.trim()}`);
         });
 
         proc.on('close', (code) => {
-            clearTimeout(timeoutHandle);
-
             if (timedOut) {
                 log.debug(`Process timed out after ${timeout}ms`);
-                resolve({
+                const stderrSummary = stderrTruncated
+                    ? `[stderr truncated to ${PREPROCESS_MAX_STDERR_BYTES} bytes]\n${stderr}`
+                    : stderr;
+                finalize({
                     success: false,
                     error: `Process timed out after ${timeout}ms`,
-                    stderr,
+                    stderr: stderrSummary,
                 });
             } else if (code === 0) {
                 log.debug('Process completed successfully');
-                resolve({
+                const stdoutSummary = stdoutTruncated
+                    ? `[stdout truncated to ${PREPROCESS_MAX_STDOUT_BYTES} bytes]\n${stdout}`
+                    : stdout;
+                const stderrSummary = stderrTruncated
+                    ? `[stderr truncated to ${PREPROCESS_MAX_STDERR_BYTES} bytes]\n${stderr}`
+                    : stderr;
+                finalize({
                     success: true,
-                    stdout,
-                    stderr,
+                    stdout: stdoutSummary,
+                    stderr: stderrSummary,
                 });
             } else {
                 log.debug(`Process exited with code ${code}`);
-                resolve({
+                const stderrSummary = stderrTruncated
+                    ? `[stderr truncated to ${PREPROCESS_MAX_STDERR_BYTES} bytes]\n${stderr}`
+                    : stderr;
+                finalize({
                     success: false,
-                    error: stderr || `Process exited with code ${code}`,
-                    stderr,
+                    error: stderrSummary || `Process exited with code ${code}`,
+                    stderr: stderrSummary,
                 });
             }
         });
 
         proc.on('error', (err) => {
-            clearTimeout(timeoutHandle);
             log.debug(`Process error: ${err.message}`);
-            resolve({
+            const stderrSummary = stderrTruncated
+                ? `[stderr truncated to ${PREPROCESS_MAX_STDERR_BYTES} bytes]\n${stderr}`
+                : stderr;
+            finalize({
                 success: false,
                 error: err.message,
-                stderr,
+                stderr: stderrSummary,
             });
         });
     });

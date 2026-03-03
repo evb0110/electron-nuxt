@@ -1,5 +1,4 @@
 import type { Page } from 'puppeteer-core';
-import { delay } from 'es-toolkit/promise';
 import {
     DEFAULT_TIMEOUT_MS,
     findVisiblePointInActiveHost,
@@ -30,13 +29,23 @@ function resolveToolId(label: string): string | null {
 
 async function waitForAnnotationEditorLayerInteractive(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await page.waitForFunction(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+            ?? visibleHosts.find(candidate => candidate.querySelector('.annotationEditorLayer, .annotation-editor-layer'))
+            ?? visibleHosts[0]
+            ?? null;
         if (!host) {
             return false;
         }
@@ -46,14 +55,21 @@ async function waitForAnnotationEditorLayerInteractive(page: Page, timeoutMs = D
             return false;
         }
 
-        const firstPage = host.querySelector('.page_container');
-        const editorLayer = firstPage?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
-        if (!editorLayer) {
-            return false;
-        }
-
-        const layerStyle = window.getComputedStyle(editorLayer);
-        return layerStyle.pointerEvents !== 'none';
+        const editorLayer = Array.from(host.querySelectorAll<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer'))
+            .find((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) {
+                    return false;
+                }
+                const layerStyle = window.getComputedStyle(candidate);
+                return (
+                    layerStyle.display !== 'none'
+                    && layerStyle.visibility !== 'hidden'
+                    && Number(layerStyle.opacity || '1') > 0
+                    && layerStyle.pointerEvents !== 'none'
+                );
+            });
+        return Boolean(editorLayer);
     }, {timeout: timeoutMs});
 }
 
@@ -65,13 +81,8 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
 
     if (toolId === null) {
         await page.evaluate(() => {
-            const host = Array.from(document.querySelectorAll('.workspace-host'))
-                .find((candidate) => {
-                    const element = candidate as HTMLElement;
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-                }) as HTMLElement | undefined;
+            const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
             const activeBtn = host?.querySelector<HTMLButtonElement>('.notes-panel .tool-button.is-active');
             activeBtn?.click();
         });
@@ -87,13 +98,8 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
     await page.mouse.click(point.x, point.y);
     const waitUntilActive = async (waitTimeout: number) => {
         await page.waitForFunction((expectedToolId: string) => {
-            const host = Array.from(document.querySelectorAll('.workspace-host'))
-                .find((candidate) => {
-                    const element = candidate as HTMLElement;
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-                }) as HTMLElement | undefined;
+            const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
             if (!host) {
                 return false;
             }
@@ -106,13 +112,8 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
         await waitUntilActive(Math.min(timeoutMs, 4_000));
     } catch {
         await page.evaluate((expectedToolId: string) => {
-            const host = Array.from(document.querySelectorAll('.workspace-host'))
-                .find((candidate) => {
-                    const element = candidate as HTMLElement;
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-                }) as HTMLElement | undefined;
+            const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
             const button = host?.querySelector<HTMLButtonElement>(`.notes-panel .tool-button[data-tool="${expectedToolId}"]`);
             button?.click();
         }, toolId);
@@ -124,13 +125,8 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
     await openAnnotationsTab(page);
 
     const updated = await page.evaluate((targetColor: string) => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
         const swatches = Array.from(host?.querySelectorAll<HTMLButtonElement>('.notes-panel .swatch') ?? []);
         const normalise = (c: string) => c.toLowerCase().trim();
         const swatch = swatches.find((btn) => normalise(btn.title) === normalise(targetColor));
@@ -148,39 +144,39 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
 
 export async function getActiveToolLabel(page: Page) {
     return page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
         return host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null;
     });
 }
 
 export async function getFreeTextEditorCount(page: Page) {
     return page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+            ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
+            ?? visibleHosts[0]
+            ?? null;
         return host?.querySelectorAll('.freeTextEditor').length ?? 0;
     });
 }
 
 export async function getHighlightEditorCount(page: Page) {
     return page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
         return host?.querySelectorAll('.highlightEditor').length ?? 0;
     });
 }
@@ -200,21 +196,34 @@ export async function clickPageAtRatio(
         yRatio,
         targetPageNumber,
     }) => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const pageSelector = targetPageNumber
+            ? `.page_container[data-page="${targetPageNumber}"]`
+            : '.page_container';
+        const host = (
+            activeHost
+            && visibleHosts.includes(activeHost)
+            && activeHost.querySelector(pageSelector)
+        )
+            ? activeHost
+            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
         if (!host) {
             return null;
         }
 
-        const targetSelector = targetPageNumber
-            ? `.page_container[data-page="${targetPageNumber}"]`
-            : '.page_container';
-        const pageContainer = host.querySelector<HTMLElement>(targetSelector);
+        const pageContainer = host.querySelector<HTMLElement>(pageSelector);
         if (!pageContainer) {
             return null;
         }
@@ -243,20 +252,34 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
 }, pageNumber?: number) {
     const before = await getFreeTextEditorCount(page);
     await clickAnnotationTool(page, 'Text');
-    await waitForAnnotationEditorLayerInteractive(page);
+    try {
+        await waitForAnnotationEditorLayerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 5_000));
+    } catch {
+        await waitForViewerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 5_000));
+    }
     await clickPageAtRatio(page, position ?? {
         x: 0.4,
         y: 0.3,
     }, pageNumber);
     const waitForEditor = async (timeoutMs: number) => {
         await page.waitForFunction((minCount: number) => {
-            const host = Array.from(document.querySelectorAll('.workspace-host'))
-                .find((candidate) => {
-                    const element = candidate as HTMLElement;
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-                }) as HTMLElement | undefined;
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .filter((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return (
+                        style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && Number(style.opacity || '1') > 0
+                        && rect.width > 100
+                        && rect.height > 100
+                    );
+                });
+            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+                ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
+                ?? visibleHosts[0]
+                ?? null;
             return (host?.querySelectorAll('.freeTextEditor').length ?? 0) > minCount;
         }, {timeout: timeoutMs}, before);
     };
@@ -265,22 +288,39 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         await waitForEditor(DEFAULT_TIMEOUT_MS);
     } catch {
         await clickAnnotationTool(page, 'Text');
-        await waitForAnnotationEditorLayerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 8_000));
+        try {
+            await waitForAnnotationEditorLayerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 8_000));
+        } catch {
+            await waitForViewerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 8_000));
+        }
         const textLayerPoint = await page.evaluate((targetPageNumber: number | null) => {
-            const host = Array.from(document.querySelectorAll('.workspace-host'))
-                .find((candidate) => {
-                    const element = candidate as HTMLElement;
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-                }) as HTMLElement | undefined;
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .filter((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return (
+                        style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && Number(style.opacity || '1') > 0
+                        && rect.width > 100
+                        && rect.height > 100
+                    );
+                });
+            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const pageSelector = targetPageNumber
+                ? `.page_container[data-page="${targetPageNumber}"]`
+                : '.page_container';
+            const host = (
+                activeHost
+                && visibleHosts.includes(activeHost)
+                && activeHost.querySelector(pageSelector)
+            )
+                ? activeHost
+                : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
             if (!host) {
                 return null;
             }
 
-            const pageSelector = targetPageNumber
-                ? `.page_container[data-page="${targetPageNumber}"]`
-                : '.page_container';
             const pageContainer = host.querySelector<HTMLElement>(pageSelector);
             const textLayer = pageContainer?.querySelector<HTMLElement>('.text-layer, .textLayer');
             const target = textLayer ?? pageContainer;
@@ -303,13 +343,23 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     }
 
     const editorPoint = await page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+            ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
+            ?? visibleHosts[0]
+            ?? null;
         const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
             .filter((editor) => {
                 const rect = editor.getBoundingClientRect();
@@ -329,13 +379,22 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
 
     if (!editorPoint) {
         const debugState = await page.evaluate(() => {
-            const host = Array.from(document.querySelectorAll('.workspace-host'))
-                .find((candidate) => {
-                    const element = candidate as HTMLElement;
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-                }) as HTMLElement | undefined;
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .filter((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return (
+                        style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && Number(style.opacity || '1') > 0
+                        && rect.width > 100
+                        && rect.height > 100
+                    );
+                });
+            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+                ?? visibleHosts[0]
+                ?? null;
             return {
                 activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? '',
                 pageCount: host?.querySelectorAll('.page_container').length ?? 0,
@@ -348,7 +407,29 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
 
     await page.mouse.click(editorPoint.x, editorPoint.y);
     await page.keyboard.type(text, { delay: 10 });
-    await delay(150);
+    await page.waitForFunction((typedText: string) => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+            ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
+            ?? visibleHosts[0]
+            ?? null;
+        const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
+        const latestEditor = editors[editors.length - 1];
+        const latestText = latestEditor?.textContent?.trim() ?? '';
+        return latestText.includes(typedText.trim());
+    }, {timeout: 4_000}, text);
 
     return getFreeTextEditorCount(page);
 }
@@ -363,13 +444,23 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
     await waitForViewerInteractive(page);
 
     const editorPoint = await page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+            ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
+            ?? visibleHosts[0]
+            ?? null;
         const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
             .filter((editor) => {
                 const rect = editor.getBoundingClientRect();
@@ -393,18 +484,27 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
     }
 
     await page.mouse.click(editorPoint.x, editorPoint.y);
-    await delay(120);
     await page.keyboard.press('Delete');
 
     const waitForCountDrop = async (timeoutMs: number) => {
         await page.waitForFunction((previousCount: number) => {
-            const host = Array.from(document.querySelectorAll('.workspace-host'))
-                .find((candidate) => {
-                    const element = candidate as HTMLElement;
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-                }) as HTMLElement | undefined;
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .filter((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return (
+                        style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && Number(style.opacity || '1') > 0
+                        && rect.width > 100
+                        && rect.height > 100
+                    );
+                });
+            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+                ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
+                ?? visibleHosts[0]
+                ?? null;
             return (host?.querySelectorAll('.freeTextEditor').length ?? 0) < previousCount;
         }, {timeout: timeoutMs}, before);
     };
@@ -426,13 +526,8 @@ export async function createHighlightFromVisibleText(page: Page) {
     await clickAnnotationTool(page, 'Highlight');
 
     const dragPoints = await page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
         if (!host) {
             return null;
         }
@@ -463,19 +558,12 @@ export async function createHighlightFromVisibleText(page: Page) {
 
     await page.mouse.move(dragPoints.x1, dragPoints.y1);
     await page.mouse.down();
-    await delay(80);
     await page.mouse.move(dragPoints.x2, dragPoints.y2, { steps: 8 });
-    await delay(80);
     await page.mouse.up();
 
     await page.waitForFunction((previousCount: number) => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
         return (host?.querySelectorAll('.highlightEditor').length ?? 0) > previousCount;
     }, {timeout: DEFAULT_TIMEOUT_MS}, before);
 
@@ -486,13 +574,8 @@ export async function openContextMenuOnLatestFreeText(page: Page) {
     await clickAnnotationTool(page, 'Select');
 
     const point = await page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
         const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
             .filter((editor) => {
                 const rect = editor.getBoundingClientRect();
@@ -517,7 +600,7 @@ export async function openContextMenuOnLatestFreeText(page: Page) {
     }
 
     await page.mouse.click(point.x, point.y, { button: 'right' });
-    await delay(200);
+    await page.waitForSelector('.annotation-context-menu', {timeout: 4_000});
 
     return page.evaluate(() => {
         const menu = document.querySelector('.annotation-context-menu');
@@ -533,29 +616,38 @@ export async function openContextMenuOnLatestFreeText(page: Page) {
 
 export async function countFreeTextEditorsOnPage(page: Page, pageNumber: number) {
     return page.evaluate((targetPageNumber: number) => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const pageSelector = `.page_container[data-page="${targetPageNumber}"]`;
+        const host = (
+            activeHost
+            && visibleHosts.includes(activeHost)
+            && activeHost.querySelector(pageSelector)
+        )
+            ? activeHost
+            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
         if (!host) {
             return 0;
         }
-        return host.querySelectorAll(`.page_container[data-page="${targetPageNumber}"] .freeTextEditor`).length;
+        return host.querySelectorAll(`${pageSelector} .freeTextEditor`).length;
     }, pageNumber);
 }
 
 export async function getFirstFreeTextComputedColor(page: Page) {
     return page.evaluate(() => {
-        const host = Array.from(document.querySelectorAll('.workspace-host'))
-            .find((candidate) => {
-                const element = candidate as HTMLElement;
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-            }) as HTMLElement | undefined;
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
         const editor = host?.querySelector<HTMLElement>('.freeTextEditor [contenteditable], .freeTextEditor');
         if (!editor) {
             return null;

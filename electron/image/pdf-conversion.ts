@@ -1,4 +1,5 @@
 import { existsSync } from 'fs';
+import { stat } from 'fs/promises';
 import {
     basename,
     dirname,
@@ -47,6 +48,34 @@ type TCombineWorkerPayload =
 const logger = createLogger('pdf-conversion');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COMBINE_WORKER_FILENAME = 'pdf-combine-worker.js';
+const PDF_COMBINE_WORKER_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_WORKER_TIMEOUT_MS ?? `${5 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 10_000) {
+        return 5 * 60 * 1000;
+    }
+    return parsed;
+})();
+const PDF_COMBINE_MAX_INPUT_FILES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_INPUT_FILES ?? '512', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 512;
+    }
+    return Math.min(parsed, 10_000);
+})();
+const PDF_COMBINE_MAX_SINGLE_FILE_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_SINGLE_FILE_MB ?? '512', 10);
+    if (!Number.isFinite(parsed) || parsed < 8) {
+        return 512 * 1024 * 1024;
+    }
+    return parsed * 1024 * 1024;
+})();
+const PDF_COMBINE_MAX_TOTAL_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_TOTAL_MB ?? '1536', 10);
+    if (!Number.isFinite(parsed) || parsed < 64) {
+        return 1536 * 1024 * 1024;
+    }
+    return parsed * 1024 * 1024;
+})();
 
 export const SUPPORTED_IMAGE_EXTENSIONS = SHARED_SUPPORTED_IMAGE_EXTENSIONS;
 
@@ -188,6 +217,34 @@ function decodeWorkerPdfBytes(data: unknown): Uint8Array | null {
     return null;
 }
 
+async function enforceInputResourceLimits(inputPaths: string[]) {
+    if (inputPaths.length > PDF_COMBINE_MAX_INPUT_FILES) {
+        throw new Error(`Too many input files (${inputPaths.length}). Max supported: ${PDF_COMBINE_MAX_INPUT_FILES}`);
+    }
+
+    let totalBytes = 0;
+    for (const inputPath of inputPaths) {
+        const fileStat = await stat(inputPath);
+        if (!fileStat.isFile()) {
+            throw new Error(`Input path is not a regular file: ${inputPath}`);
+        }
+        if (fileStat.size <= 0) {
+            throw new Error(`Input file is empty: ${inputPath}`);
+        }
+        if (fileStat.size > PDF_COMBINE_MAX_SINGLE_FILE_BYTES) {
+            throw new Error(
+                `Input file exceeds size limit (${Math.round(fileStat.size / (1024 * 1024))}MB): ${inputPath}`,
+            );
+        }
+        totalBytes += fileStat.size;
+        if (totalBytes > PDF_COMBINE_MAX_TOTAL_BYTES) {
+            throw new Error(
+                `Combined input size exceeds limit (${Math.round(PDF_COMBINE_MAX_TOTAL_BYTES / (1024 * 1024))}MB)`,
+            );
+        }
+    }
+}
+
 function createPdfFromInputPathsWorker(
     inputPaths: string[],
     options?: ICreatePdfFromInputPathsOptions,
@@ -197,6 +254,7 @@ function createPdfFromInputPathsWorker(
 
         let settled = false;
         let cleanedUp = false;
+        let timeoutHandle: NodeJS.Timeout | null = null;
 
         const cleanupWorker = () => {
             if (cleanedUp) {
@@ -206,6 +264,10 @@ function createPdfFromInputPathsWorker(
             worker.removeAllListeners('message');
             worker.removeAllListeners('error');
             worker.removeAllListeners('exit');
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = null;
+            }
         };
 
         const terminateWorker = () => {
@@ -277,6 +339,17 @@ function createPdfFromInputPathsWorker(
                 reject(new Error(`Image combine worker exited with code ${code}`));
             }
         });
+
+        timeoutHandle = setTimeout(() => {
+            if (settled) {
+                return;
+            }
+
+            settled = true;
+            terminateWorker();
+            reject(new Error(`Image combine worker timed out after ${PDF_COMBINE_WORKER_TIMEOUT_MS}ms`));
+        }, PDF_COMBINE_WORKER_TIMEOUT_MS);
+        timeoutHandle.unref?.();
     });
 }
 
@@ -291,6 +364,8 @@ export async function createPdfFromInputPaths(
     if (normalizedPaths.length === 0) {
         throw new Error('No input files were provided');
     }
+
+    await enforceInputResourceLimits(normalizedPaths);
 
     if (!canCombineInWorker(normalizedPaths)) {
         return createPdfFromInputPathsLocal(normalizedPaths, options);
