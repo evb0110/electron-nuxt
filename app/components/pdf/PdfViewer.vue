@@ -126,6 +126,7 @@ import type {
     PDFDocumentProxy,
     TPdfSource,
     TFitMode,
+    TZoomMode,
     TPdfViewMode,
 } from '@app/types/pdf';
 import { isStandaloneSpreadPage } from '@app/utils/pdf-view-mode';
@@ -147,6 +148,7 @@ interface IProps {
     src: TPdfSource | null;
     bufferPages?: number;
     zoom?: number;
+    zoomMode?: TZoomMode;
     dragMode?: boolean;
     fitMode?: TFitMode;
     viewMode?: TPdfViewMode;
@@ -171,6 +173,9 @@ const bufferPages = computed(() => props.bufferPages ?? 2);
 const zoom = computed(() => props.zoom ?? 1);
 const dragMode = computed(() => props.dragMode ?? false);
 const fitMode = computed<TFitMode>(() => props.fitMode ?? 'width');
+const zoomMode = computed<TZoomMode>(() => props.zoomMode ?? (
+    fitMode.value === 'height' ? 'fit-height' : 'fit-width'
+));
 const viewMode = computed<TPdfViewMode>(() => props.viewMode ?? 'single');
 const isResizing = computed(() => props.isResizing ?? false);
 const invertColors = computed(() => props.invertColors ?? false);
@@ -189,6 +194,9 @@ const { t } = useTypedI18n();
 
 const emit = defineEmits<{
     (e: 'update:zoom', value: number): void;
+    (e: 'update:zoomMode', mode: TZoomMode): void;
+    (e: 'update:fitMode', mode: TFitMode): void;
+    (e: 'update:effectiveZoom', value: number): void;
     (e: 'update:currentPage', page: number): void;
     (e: 'update:totalPages', total: number): void;
     (e: 'update:loading', loading: boolean): void;
@@ -399,6 +407,14 @@ const {
     numPages,
     basePageWidth,
     basePageHeight,
+);
+
+watch(
+    () => effectiveScale.value,
+    (value) => {
+        emit('update:effectiveZoom', value);
+    },
+    { immediate: true },
 );
 const {
     computeSkeletonInsets,
@@ -1186,6 +1202,17 @@ function clampZoomLevel(level: number) {
     return clamp(level, ZOOM.MIN, ZOOM.MAX);
 }
 
+function resolveZoomBaselineScale() {
+    if (!Number.isFinite(zoom.value) || Math.abs(zoom.value) < 0.0001) {
+        return 1;
+    }
+    const baseline = effectiveScale.value / zoom.value;
+    if (!Number.isFinite(baseline) || baseline <= 0) {
+        return 1;
+    }
+    return baseline;
+}
+
 function summarizeWheelEventForDebug(event: WheelEvent) {
     return {
         ctrlKey: event.ctrlKey,
@@ -1336,9 +1363,9 @@ function ensureWheelZoomSession(
         id: wheelZoomSessionId,
         anchorX,
         anchorY,
-        startZoom: zoom.value,
+        startZoom: effectiveScale.value,
         cumulativeDelta: 0,
-        lastEmittedZoom: zoom.value,
+        lastEmittedZoom: effectiveScale.value,
         startedAtMs: nowMs,
         lastPacketAtMs: nowMs,
         lockUntilMs: nowMs + WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
@@ -1519,9 +1546,9 @@ function handleViewerModifierWheelZoom(event: WheelEvent) {
         return true;
     }
 
-    const nextZoom = clampZoomLevel(session.startZoom * zoomFactor);
+    const nextEffectiveZoom = clampZoomLevel(session.startZoom * zoomFactor);
     const previousEmittedZoom = session.lastEmittedZoom;
-    if (Math.abs(nextZoom - previousEmittedZoom) < 0.001) {
+    if (Math.abs(nextEffectiveZoom - previousEmittedZoom) < 0.001) {
         BrowserLogger.warnThrottled(
             'pdf-zoom-debug',
             'wheel-zoom-ignored-no-change',
@@ -1530,9 +1557,10 @@ function handleViewerModifierWheelZoom(event: WheelEvent) {
             {
                 id: debugId,
                 sessionId: session.id,
-                currentZoom: zoom.value,
+                currentZoomMultiplier: zoom.value,
+                currentEffectiveZoom: effectiveScale.value,
                 previousEmittedZoom,
-                nextZoom,
+                nextEffectiveZoom,
                 delta,
                 zoomFactor,
                 cumulativeDelta: session.cumulativeDelta,
@@ -1540,10 +1568,12 @@ function handleViewerModifierWheelZoom(event: WheelEvent) {
         );
         return true;
     }
-    session.lastEmittedZoom = nextZoom;
+    session.lastEmittedZoom = nextEffectiveZoom;
     session.lastPacketAtMs = nowMs;
     session.lockUntilMs = nowMs + WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS;
     session.emittedCount += 1;
+    const baselineScale = resolveZoomBaselineScale();
+    const nextZoom = clampZoomLevel(nextEffectiveZoom / baselineScale);
     const snapshotForImmediateRestore = captureScrollSnapshot(container, {
         anchorViewportX: anchorX,
         anchorViewportY: anchorY,
@@ -1574,14 +1604,21 @@ function handleViewerModifierWheelZoom(event: WheelEvent) {
         eventAnchorY,
         delta,
         zoomFactor,
-        currentZoom: zoom.value,
+        currentZoomMultiplier: zoom.value,
+        currentEffectiveZoom: effectiveScale.value,
+        baselineScale,
         previousEmittedZoom,
+        nextEffectiveZoom,
         nextZoom,
         anchor: pendingZoomViewportAnchor.value,
         viewerBeforeEmit: summarizeViewerStateForLog(),
         wheel: summarizeWheelEventForDebug(event),
     });
 
+    if (zoomMode.value !== 'custom') {
+        emit('update:zoomMode', 'custom');
+    }
+    emit('update:effectiveZoom', nextEffectiveZoom);
     emit('update:zoom', nextZoom);
     markExpectedZoomScroll(WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS);
     return true;

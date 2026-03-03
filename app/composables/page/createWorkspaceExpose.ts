@@ -3,6 +3,7 @@ import type { TOpenFileResult } from '@contracts/electron-api';
 import { ZOOM } from '@app/constants/pdf-layout';
 import type {
     TFitMode,
+    TZoomMode,
     TPdfViewMode,
 } from '@contracts/shared';
 import type {
@@ -43,6 +44,8 @@ interface ICreateWorkspaceExposeDeps {
     isPlacingPageNote: Ref<boolean>;
     closeAllDropdowns: () => void;
     zoom: Ref<number>;
+    effectiveZoom: Ref<number>;
+    zoomMode: Ref<TZoomMode>;
     fitMode: Ref<TFitMode>;
     viewMode: Ref<TPdfViewMode>;
     currentPage: Ref<number>;
@@ -83,6 +86,13 @@ function normalizeToolbarSnapshotTotalPages(totalPages: number | undefined, fall
     return Math.max(fallbackPage, Math.floor(totalPages));
 }
 
+function clampZoomLevel(level: number) {
+    if (!Number.isFinite(level)) {
+        return 1;
+    }
+    return Math.min(ZOOM.MAX, Math.max(ZOOM.MIN, level));
+}
+
 /**
  * Builds the public workspace command surface exposed to parent tabs/menu bindings.
  * Keeping this mapping centralized avoids duplicating command wiring in component files.
@@ -111,12 +121,42 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             isCapturingRegion: deps.isCapturingRegion.value,
             isPlacingPageNote: deps.isPlacingPageNote.value,
             zoom: deps.zoom.value,
+            effectiveZoom: deps.effectiveZoom.value,
+            zoomMode: deps.zoomMode.value,
             fitMode: deps.fitMode.value,
             viewMode: deps.viewMode.value,
             currentPage,
             totalPages,
         };
     };
+
+    function resolveDisplayZoom() {
+        if (Number.isFinite(deps.effectiveZoom.value) && deps.effectiveZoom.value > 0) {
+            return deps.effectiveZoom.value;
+        }
+        return clampZoomLevel(deps.zoom.value);
+    }
+
+    function resolveBaselineScale() {
+        const multiplier = deps.zoom.value;
+        const displayZoom = resolveDisplayZoom();
+        if (!Number.isFinite(multiplier) || Math.abs(multiplier) < 0.0001) {
+            return 1;
+        }
+        const baseline = displayZoom / multiplier;
+        if (!Number.isFinite(baseline) || baseline <= 0) {
+            return 1;
+        }
+        return baseline;
+    }
+
+    function setCustomZoomFromDisplay(displayZoom: number) {
+        const targetDisplayZoom = clampZoomLevel(displayZoom);
+        const baselineScale = resolveBaselineScale();
+        deps.zoom.value = clampZoomLevel(targetDisplayZoom / baselineScale);
+        deps.effectiveZoom.value = targetDisplayZoom;
+        deps.zoomMode.value = 'custom';
+    }
 
     return {
         handleSave: deps.handleSave,
@@ -133,10 +173,10 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleExportMultiPageTiff: deps.handleExportMultiPageTiff,
         hasPdf: deps.hasPdf,
         handleZoomIn: () => {
-            deps.zoom.value = Math.min(deps.zoom.value + ZOOM.STEP, ZOOM.MAX);
+            setCustomZoomFromDisplay(resolveDisplayZoom() + ZOOM.STEP);
         },
         handleZoomOut: () => {
-            deps.zoom.value = Math.max(deps.zoom.value - ZOOM.STEP, ZOOM.MIN);
+            setCustomZoomFromDisplay(resolveDisplayZoom() - ZOOM.STEP);
         },
         handleFitWidth: () => {
             deps.handleFitMode('width');
@@ -145,7 +185,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             deps.handleFitMode('height');
         },
         handleActualSize: () => {
-            deps.zoom.value = 1;
+            setCustomZoomFromDisplay(1);
         },
         handleToggleSidebar: deps.handleToggleSidebar,
         handleToggleContinuousScroll: deps.handleToggleContinuousScroll,

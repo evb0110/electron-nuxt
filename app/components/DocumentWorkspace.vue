@@ -55,11 +55,14 @@
                 <template #zoom-dropdown>
                     <PdfZoomDropdown
                         v-model:zoom="zoom"
+                        v-model:zoom-mode="zoomMode"
                         v-model:fit-mode="fitMode"
                         v-model:view-mode="viewMode"
+                        :effective-zoom="effectiveZoom"
                         :open="zoomDropdownOpen"
                         :disabled="!toolbarHasPdf"
                         :compact-level="0"
+                        @update:effective-zoom="effectiveZoom = $event"
                         @update:open="handleDropdownOpen('zoom', $event)"
                     />
                 </template>
@@ -213,6 +216,7 @@
                         ref="pdfViewerRef"
                         :src="pdfSrc!"
                         :zoom="zoom"
+                        :zoom-mode="zoomMode"
                         :fit-mode="fitMode"
                         :view-mode="viewMode"
                         :drag-mode="dragMode"
@@ -226,6 +230,9 @@
                         :working-copy-path="workingCopyPath"
                         :author-name="appSettings.authorName"
                         @update:zoom="zoom = $event"
+                        @update:zoom-mode="zoomMode = $event"
+                        @update:fit-mode="fitMode = $event"
+                        @update:effective-zoom="effectiveZoom = $event"
                         @update:current-page="handleViewerCurrentPageUpdate"
                         @update:total-pages="handleViewerTotalPagesUpdate"
                         @update:document="pdfDocument = $event"
@@ -284,7 +291,7 @@
             :sorted-annotation-note-windows="sortedAnnotationNoteWindows"
             :annotation-note-positions="annotationNotePositions"
             :annotation-viewport-root="pdfViewerRef?.getViewerContainer?.() ?? null"
-            :annotation-zoom="zoom"
+            :annotation-zoom="effectiveZoom"
             :annotation-context-menu="annotationContextMenu"
             :annotation-context-menu-style="annotationContextMenuStyle"
             :annotation-context-menu-can-copy="annotationContextMenuCanCopy"
@@ -448,6 +455,8 @@ const {
     handleDropdownOpen,
     closeAllDropdowns,
     zoom,
+    effectiveZoom,
+    zoomMode,
     fitMode,
     viewMode,
     currentPage,
@@ -1086,6 +1095,8 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     isPlacingPageNote: annotationPlacingPageNote,
     closeAllDropdowns,
     zoom,
+    effectiveZoom,
+    zoomMode,
     fitMode,
     viewMode,
     currentPage,

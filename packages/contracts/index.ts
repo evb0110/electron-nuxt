@@ -70,6 +70,7 @@ export type {
     TAppLocale,
     TAppTheme,
     TFitMode,
+    TZoomMode,
     TPdfViewMode,
 } from './shared';
 

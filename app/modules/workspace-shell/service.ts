@@ -119,6 +119,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         requestThumbnailInvalidation,
         handleSelectedThumbnailPagesUpdate,
         zoom,
+        effectiveZoom,
+        zoomMode,
         fitMode,
         viewMode,
         currentPage,
@@ -336,6 +338,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleGoToPage,
     } = useWorkspaceViewState({
         fitMode,
+        zoomMode,
         zoom,
         dragMode,
         showSidebar,
@@ -482,7 +485,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfData,
         originalPath,
         workingCopyPath,
-        zoom,
+        effectiveZoom,
         canSave,
         isAnySaving,
         isHistoryBusy,
@@ -555,6 +558,41 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         },
     });
 
+    function clampWorkspaceZoomLevel(level: number) {
+        if (!Number.isFinite(level)) {
+            return 1;
+        }
+        return Math.min(ZOOM.MAX, Math.max(ZOOM.MIN, level));
+    }
+
+    function resolveDisplayZoom() {
+        if (Number.isFinite(effectiveZoom.value) && effectiveZoom.value > 0) {
+            return effectiveZoom.value;
+        }
+        return clampWorkspaceZoomLevel(zoom.value);
+    }
+
+    function resolveZoomBaselineScale() {
+        if (!Number.isFinite(zoom.value) || Math.abs(zoom.value) < 0.0001) {
+            return 1;
+        }
+        const baseline = resolveDisplayZoom() / zoom.value;
+        if (!Number.isFinite(baseline) || baseline <= 0) {
+            return 1;
+        }
+        return baseline;
+    }
+
+    function setCustomZoomFromDisplay(displayZoom: number) {
+        const targetDisplayZoom = clampWorkspaceZoomLevel(displayZoom);
+        const baselineScale = resolveZoomBaselineScale();
+        zoom.value = clampWorkspaceZoomLevel(
+            targetDisplayZoom / baselineScale,
+        );
+        effectiveZoom.value = targetDisplayZoom;
+        zoomMode.value = 'custom';
+    }
+
     const {
         setupShortcuts,
         cleanupShortcuts,
@@ -575,13 +613,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openAnnotations,
         handleAnnotationToolChange,
         handleZoomIn: () => {
-            zoom.value = Math.min(zoom.value + ZOOM.STEP, ZOOM.MAX);
+            setCustomZoomFromDisplay(resolveDisplayZoom() + ZOOM.STEP);
         },
         handleZoomOut: () => {
-            zoom.value = Math.max(zoom.value - ZOOM.STEP, ZOOM.MIN);
+            setCustomZoomFromDisplay(resolveDisplayZoom() - ZOOM.STEP);
         },
         handleActualSize: () => {
-            zoom.value = 1;
+            setCustomZoomFromDisplay(1);
         },
     });
 
@@ -831,6 +869,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeOtherDropdowns,
 
         zoom,
+        effectiveZoom,
+        zoomMode,
         fitMode,
         viewMode,
         currentPage,

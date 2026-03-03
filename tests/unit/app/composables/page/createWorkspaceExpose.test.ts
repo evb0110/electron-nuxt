@@ -44,6 +44,8 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         isPlacingPageNote: ref(false),
         closeAllDropdowns: vi.fn(),
         zoom: ref(1),
+        effectiveZoom: ref(1),
+        zoomMode: ref('custom'),
         fitMode: ref('width'),
         viewMode: ref('single'),
         currentPage: ref(1),
@@ -70,17 +72,37 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
 
 describe('createWorkspaceExpose', () => {
     it('clamps zoom in/out commands', () => {
-        const deps = createDeps({ zoom: ref(4.9) });
+        const deps = createDeps({
+            zoom: ref(4.9),
+            effectiveZoom: ref(4.9),
+        });
         const exposed = createWorkspaceExpose(deps);
 
         exposed.handleZoomIn();
         exposed.handleZoomIn();
         expect(deps.zoom.value).toBe(5);
+        expect(deps.zoomMode.value).toBe('custom');
 
         deps.zoom.value = 0.3;
+        deps.effectiveZoom.value = 0.3;
         exposed.handleZoomOut();
         exposed.handleZoomOut();
         expect(deps.zoom.value).toBe(0.25);
+    });
+
+    it('converts fit zoom steps into custom zoom based on effective zoom', () => {
+        const deps = createDeps({
+            zoom: ref(1),
+            effectiveZoom: ref(2.5),
+            zoomMode: ref('fit-width'),
+            fitMode: ref('width'),
+        });
+        const exposed = createWorkspaceExpose(deps);
+
+        exposed.handleZoomIn();
+
+        expect(deps.zoom.value).toBeCloseTo(1.1, 6);
+        expect(deps.zoomMode.value).toBe('custom');
     });
 
     it('routes fit commands through handleFitMode', () => {
