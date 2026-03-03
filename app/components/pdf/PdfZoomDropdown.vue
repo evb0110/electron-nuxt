@@ -22,168 +22,78 @@
 
                 <template #content>
                     <div class="zoom-dropdown">
-                        <div class="zoom-dropdown-section">
+                        <div class="zoom-chip-grid">
                             <button
                                 v-for="preset in zoomPresets"
                                 :key="preset.value"
-                                :class="[
-                                    'zoom-dropdown-item',
-                                    {
-                                        'is-active': isPresetActive(preset.value),
-                                    },
-                                ]"
+                                :class="['zoom-chip', { 'is-active': isPresetActive(preset.value) }]"
                                 @click="handleSetZoom(preset.value)"
                             >
-                                <span class="zoom-dropdown-label">{{ preset.label }}</span>
-                                <UIcon
-                                    v-if="isPresetActive(preset.value)"
-                                    name="i-lucide-check"
-                                    class="zoom-dropdown-check size-4"
-                                />
+                                {{ preset.label }}
                             </button>
-                        </div>
-
-                        <div class="zoom-dropdown-divider" />
-
-                        <div class="zoom-dropdown-section">
-                            <div class="zoom-dropdown-custom">
-                                <UInput
-                                    ref="customZoomInputRef"
+                            <div class="zoom-chip zoom-chip-custom">
+                                <input
+                                    ref="customInputRef"
                                     v-model="customZoomValue"
-                                    class="zoom-dropdown-input"
-                                    type="number"
+                                    class="zoom-chip-custom-input"
+                                    type="text"
                                     inputmode="decimal"
-                                    min="25"
-                                    max="500"
-                                    step="1"
-                                    :placeholder="t('zoom.custom')"
-                                    :ui="{ base: 'text-center pe-7', trailing: 'pointer-events-none' }"
+                                    :aria-label="t('zoom.custom')"
                                     @keydown.enter.prevent="applyCustomZoom"
-                                >
-                                    <template #trailing>%</template>
-                                </UInput>
-                                <UTooltip :text="t('zoom.apply')" :delay-duration="1200">
-                                    <UButton
-                                        icon="i-lucide-check"
-                                        size="xs"
-                                        variant="soft"
-                                        :aria-label="t('zoom.apply')"
-                                        @click="applyCustomZoom"
-                                    />
-                                </UTooltip>
+                                    @focus="($event.target as HTMLInputElement).select()"
+                                />
+                                <span class="zoom-chip-custom-suffix">%</span>
                             </div>
                         </div>
 
-                        <div class="zoom-dropdown-divider" />
+                        <div class="zoom-divider" />
 
-                        <div class="zoom-dropdown-section">
+                        <div class="zoom-toggle-group">
                             <button
-                                :class="[
-                                    'zoom-dropdown-item',
-                                    {
-                                        'is-active': isFitModeActive('width'),
-                                    },
-                                ]"
+                                :class="['zoom-toggle-btn', { 'is-active': isFitModeActive('width') }]"
                                 @click="handleSetFitMode('width')"
                             >
-                                <UIcon
-                                    name="i-lucide-move-horizontal"
-                                    class="zoom-dropdown-icon size-5"
-                                />
-                                <span class="zoom-dropdown-label">{{ t('zoom.fitWidth') }}</span>
-                                <UIcon
-                                    v-if="isFitModeActive('width')"
-                                    name="i-lucide-check"
-                                    class="zoom-dropdown-check size-4"
-                                />
+                                <UIcon name="i-lucide-move-horizontal" class="zoom-toggle-icon" />
+                                <span class="zoom-toggle-label">{{ t('zoom.fitWidth') }}</span>
                             </button>
                             <button
-                                :class="[
-                                    'zoom-dropdown-item',
-                                    {
-                                        'is-active': isFitModeActive('height'),
-                                    },
-                                ]"
+                                :class="['zoom-toggle-btn', { 'is-active': isFitModeActive('height') }]"
                                 @click="handleSetFitMode('height')"
                             >
-                                <UIcon
-                                    name="i-lucide-move-vertical"
-                                    class="zoom-dropdown-icon size-5"
-                                />
-                                <span class="zoom-dropdown-label">{{ t('zoom.fitHeight') }}</span>
-                                <UIcon
-                                    v-if="isFitModeActive('height')"
-                                    name="i-lucide-check"
-                                    class="zoom-dropdown-check size-4"
-                                />
+                                <UIcon name="i-lucide-move-vertical" class="zoom-toggle-icon" />
+                                <span class="zoom-toggle-label">{{ t('zoom.fitHeight') }}</span>
                             </button>
                         </div>
 
-                        <div class="zoom-dropdown-divider" />
+                        <div class="zoom-divider" />
 
-                        <div class="zoom-dropdown-section">
+                        <div class="zoom-toggle-group">
                             <button
-                                :class="[
-                                    'zoom-dropdown-item',
-                                    {
-                                        'is-active': isViewModeActive('single'),
-                                    },
-                                ]"
+                                :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('single') }]"
+                                :title="t('zoom.singlePage')"
                                 @click="handleSetViewMode('single')"
                             >
-                                <UIcon
-                                    name="i-lucide-file"
-                                    class="zoom-dropdown-icon size-5"
-                                />
-                                <span class="zoom-dropdown-label">{{ t('zoom.singlePage') }}</span>
-                                <UIcon
-                                    v-if="isViewModeActive('single')"
-                                    name="i-lucide-check"
-                                    class="zoom-dropdown-check size-4"
-                                />
+                                <UIcon name="i-lucide-file" class="zoom-toggle-icon" />
+                                <span class="zoom-toggle-label">{{ t('zoom.singleShort') }}</span>
                             </button>
                             <button
-                                :class="[
-                                    'zoom-dropdown-item',
-                                    {
-                                        'is-active': isViewModeActive('facing'),
-                                    },
-                                ]"
+                                :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('facing') }]"
+                                :title="t('zoom.facingPages')"
                                 @click="handleSetViewMode('facing')"
                             >
-                                <UIcon
-                                    name="i-lucide-book-open"
-                                    class="zoom-dropdown-icon size-5"
-                                />
-                                <span class="zoom-dropdown-label">{{ t('zoom.facingPages') }}</span>
-                                <UIcon
-                                    v-if="isViewModeActive('facing')"
-                                    name="i-lucide-check"
-                                    class="zoom-dropdown-check size-4"
-                                />
+                                <UIcon name="i-lucide-book-open" class="zoom-toggle-icon" />
+                                <span class="zoom-toggle-label">{{ t('zoom.facingShort') }}</span>
                             </button>
                             <button
-                                :class="[
-                                    'zoom-dropdown-item',
-                                    {
-                                        'is-active': isViewModeActive('facing-first-single'),
-                                    },
-                                ]"
+                                :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('facing-first-single') }]"
+                                :title="t('zoom.facingWithFirstSingle')"
                                 @click="handleSetViewMode('facing-first-single')"
                             >
-                                <span class="zoom-dropdown-icon zoom-dropdown-icon--facing-first-single">
-                                    <UIcon
-                                        name="i-lucide-book-open"
-                                        class="size-5"
-                                    />
-                                    <span class="zoom-dropdown-icon-badge">1</span>
+                                <span class="zoom-toggle-icon-badge">
+                                    <UIcon name="i-lucide-book-open" class="size-4" />
+                                    <span class="zoom-badge">1</span>
                                 </span>
-                                <span class="zoom-dropdown-label">{{ t('zoom.facingWithFirstSingle') }}</span>
-                                <UIcon
-                                    v-if="isViewModeActive('facing-first-single')"
-                                    name="i-lucide-check"
-                                    class="zoom-dropdown-check size-4"
-                                />
+                                <span class="zoom-toggle-label">{{ t('zoom.facingFirstShort') }}</span>
                             </button>
                         </div>
                     </div>
@@ -243,7 +153,7 @@ const isOpen = computed({
     set: (value: boolean) => emit('update:open', value),
 });
 const customZoomValue = ref(formatZoomValue(zoom));
-const customZoomInputRef = ref<{ $el: HTMLElement } | null>(null);
+const customInputRef = ref<HTMLInputElement | null>(null);
 
 const effectiveCompactLevel = computed(() => {
     return Math.max(0, Math.min(compactLevel, 2));
@@ -264,12 +174,11 @@ function close() {
     isOpen.value = false;
 }
 
-watch(isOpen, (value) => {
-    if (value) {
-        void nextTick(() => {
-            const input = customZoomInputRef.value?.$el?.querySelector('input') as HTMLInputElement | null;
-            input?.focus();
-            input?.select();
+watch(isOpen, (open) => {
+    if (open) {
+        nextTick(() => {
+            customInputRef.value?.focus();
+            customInputRef.value?.select();
         });
     }
 });
@@ -431,62 +340,143 @@ function applyCustomZoom() {
 }
 
 .zoom-dropdown {
-    padding: 0.25rem;
-    min-width: 12rem;
+    padding: 0.375rem;
+    width: 15rem;
 }
 
-.zoom-dropdown-section {
-    display: flex;
-    flex-direction: column;
-}
-
-.zoom-dropdown-divider {
+.zoom-divider {
     height: 1px;
     background-color: var(--ui-border);
-    margin: 0.25rem 0;
+    margin: 0.375rem 0;
 }
 
-.zoom-dropdown-item {
+.zoom-chip-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.25rem;
+}
+
+.zoom-chip {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    border: none;
-    background: transparent;
-    cursor: pointer;
+    justify-content: center;
+    height: 1.75rem;
+    padding: 0;
+    border: 1px solid var(--ui-border);
     border-radius: 0.375rem;
+    background: transparent;
     color: var(--ui-text);
-    font-size: 0.875rem;
-    text-align: left;
-    transition: background-color 150ms ease;
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
 }
 
-.zoom-dropdown-item:hover {
+.zoom-chip:hover {
     background-color: var(--ui-bg-elevated);
 }
 
-.zoom-dropdown-item.is-active {
-    color: var(--ui-text);
+.zoom-chip.is-active {
+    border-color: var(--ui-text);
+    font-weight: 600;
 }
 
-.zoom-dropdown-label {
-    flex: 1;
-}
-
-.zoom-dropdown-icon {
-    color: var(--ui-text-muted);
-}
-
-.zoom-dropdown-item.is-active .zoom-dropdown-icon {
-    color: var(--ui-text);
-}
-
-.zoom-dropdown-icon--facing-first-single {
+.zoom-chip-custom {
     position: relative;
+    cursor: text;
+    background-color: var(--ui-bg-muted);
 }
 
-.zoom-dropdown-icon-badge {
+.zoom-chip-custom:hover {
+    background-color: var(--ui-bg-muted);
+}
+
+.zoom-chip-custom:focus-within {
+    border-color: var(--ui-primary);
+    background-color: var(--ui-bg);
+}
+
+.zoom-chip-custom-input {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    border: none;
+    text-align: center;
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    color: inherit;
+    padding: 0 0.875rem 0 0;
+    outline: none;
+}
+
+.zoom-chip-custom-suffix {
+    position: absolute;
+    right: 0.25rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.6875rem;
+    color: var(--ui-text-dimmed);
+    pointer-events: none;
+}
+
+.zoom-toggle-group {
+    display: flex;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.375rem;
+    overflow: hidden;
+}
+
+.zoom-toggle-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.25rem;
+    border: none;
+    background: transparent;
+    color: var(--ui-text-muted);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: background-color 150ms ease, color 150ms ease;
+}
+
+.zoom-toggle-btn + .zoom-toggle-btn {
+    border-left: 1px solid var(--ui-border);
+}
+
+.zoom-toggle-btn:hover {
+    background-color: var(--ui-bg-elevated);
+    color: var(--ui-text);
+}
+
+.zoom-toggle-btn.is-active {
+    background-color: var(--ui-bg-elevated);
+    color: var(--ui-text);
+    font-weight: 600;
+}
+
+.zoom-toggle-icon {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+}
+
+.zoom-toggle-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.zoom-toggle-icon-badge {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+}
+
+.zoom-badge {
     position: absolute;
     top: -0.125rem;
     right: -0.3125rem;
@@ -505,23 +495,8 @@ function applyCustomZoom() {
     font-weight: 700;
 }
 
-.zoom-dropdown-item.is-active .zoom-dropdown-icon-badge {
+.zoom-toggle-btn.is-active .zoom-badge {
     color: var(--ui-text);
-}
-
-.zoom-dropdown-check {
-    color: var(--ui-text);
-}
-
-.zoom-dropdown-custom {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.25rem 0.5rem;
-}
-
-.zoom-dropdown-input {
-    flex: 1;
 }
 
 </style>

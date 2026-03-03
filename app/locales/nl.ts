@@ -50,6 +50,12 @@ export default {
         'zoomIn': 'Inzoomen',
         'apply': 'Zoom toepassen',
         'custom': 'Aangepast',
+        'sectionZoom': 'Zoom',
+        'sectionFit': 'Aanpassen',
+        'sectionLayout': 'Indeling',
+        'singleShort': 'Enkel',
+        'facingShort': 'Dubbel',
+        'facingFirstShort': '1e',
     },
     'sidebar': {
         'notes': 'Notities',
