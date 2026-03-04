@@ -15,13 +15,6 @@
                 @click="emit('toggle-sidebar')"
             />
 
-            <slot
-                name="ocr"
-                :collapse-tier="collapseTier"
-                :has-overflow-items="hasOverflowItems"
-                :is-collapsed="isCollapsed"
-            />
-
             <div class="toolbar-separator" />
 
             <template v-if="!isCollapsed(3)">
@@ -40,14 +33,6 @@
                     @click="emit('save-as')"
                 />
             </template>
-            <ToolbarButton
-                v-if="!isCollapsed(1)"
-                icon="lucide:file-text"
-                :tooltip="t('toolbar.exportDocx')"
-                :disabled="!hasPdf || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
-                :loading="isExportingDocx"
-                @click="emit('export-docx')"
-            />
 
             <div class="toolbar-separator" />
 
@@ -65,27 +50,22 @@
                     @click="emit('redo')"
                 />
             </template>
-            <ToolbarButton
-                icon="lucide:scan"
-                :active="isCapturingRegion"
-                :tooltip="t('toolbar.captureRegion')"
-                :disabled="!hasPdf"
-                @click="emit('capture-region')"
-            />
-            <ToolbarButton
-                icon="lucide:message-square"
-                :active="isPlacingPageNote"
-                :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
-                :disabled="!hasPdf || isDjvuMode"
-                @click="emit('quick-note')"
-            />
-
-            <div class="toolbar-separator" />
         </div>
 
         <div class="toolbar-separator" />
 
         <div class="toolbar-section toolbar-center">
+            <div class="toolbar-inline-group">
+                <slot
+                    name="page-dropdown"
+                    :collapse-tier="collapseTier"
+                    :has-overflow-items="hasOverflowItems"
+                    :is-collapsed="isCollapsed"
+                />
+            </div>
+
+            <div class="toolbar-separator" />
+
             <div class="toolbar-inline-group">
                 <slot
                     name="zoom-dropdown"
@@ -132,22 +112,30 @@
 
             <div class="toolbar-separator" />
 
-            <div class="toolbar-inline-group">
-                <slot
-                    name="page-dropdown"
-                    :collapse-tier="collapseTier"
-                    :has-overflow-items="hasOverflowItems"
-                    :is-collapsed="isCollapsed"
-                />
-            </div>
+            <ToolbarButton
+                v-if="isCollapsed(2)"
+                icon="lucide:message-square-plus"
+                :active="isPlacingPageNote"
+                :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
+                :disabled="!hasPdf || isDjvuMode"
+                @click="emit('quick-note')"
+            />
 
-            <div class="toolbar-separator" />
-
-            <div v-if="!isCollapsed(2)" class="toolbar-button-group">
+            <div v-else class="toolbar-button-group">
+                <div class="toolbar-group-item">
+                    <ToolbarButton
+                        icon="lucide:message-square-plus"
+                        :active="isPlacingPageNote"
+                        :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
+                        :disabled="!hasPdf || isDjvuMode"
+                        grouped
+                        @click="emit('quick-note')"
+                    />
+                </div>
                 <div class="toolbar-group-item">
                     <ToolbarButton
                         icon="lucide:hand"
-                        :active="dragMode"
+                        :active="dragMode && !isPlacingPageNote"
                         :tooltip="t('zoom.handTool')"
                         :disabled="!hasPdf"
                         grouped
@@ -157,7 +145,7 @@
                 <div class="toolbar-group-item">
                     <ToolbarButton
                         icon="lucide:text-cursor"
-                        :active="!dragMode"
+                        :active="!dragMode && !isPlacingPageNote"
                         :tooltip="t('zoom.textSelect')"
                         :disabled="!hasPdf"
                         grouped
@@ -170,6 +158,33 @@
         <div class="toolbar-separator" />
 
         <div class="toolbar-section toolbar-right">
+            <ToolbarButton
+                v-if="!isCollapsed(2)"
+                icon="lucide:scan"
+                :active="isCapturingRegion"
+                :tooltip="t('toolbar.captureRegion')"
+                :disabled="!hasPdf"
+                @click="emit('capture-region')"
+            />
+
+            <slot
+                name="ocr"
+                :collapse-tier="collapseTier"
+                :has-overflow-items="hasOverflowItems"
+                :is-collapsed="isCollapsed"
+            />
+
+            <ToolbarButton
+                v-if="!isCollapsed(1)"
+                icon="lucide:file-text"
+                :tooltip="t('toolbar.exportDocx')"
+                :disabled="!hasPdf || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
+                :loading="isExportingDocx"
+                @click="emit('export-docx')"
+            />
+
+            <div v-if="!isCollapsed(2)" class="toolbar-separator" />
+
             <slot
                 name="overflow-menu"
                 :collapse-tier="collapseTier"

@@ -1,5 +1,10 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
+export interface ICommentQueryMatchPart {
+    text: string;
+    match: boolean;
+}
+
 function containsWord(text: string, word: string) {
     return new RegExp(`\\b${word}\\b`, 'i').test(text);
 }
@@ -51,15 +56,72 @@ export function compareComments(left: IAnnotationCommentSummary, right: IAnnotat
     return left.stableKey.localeCompare(right.stableKey);
 }
 
-export function matchesCommentQuery(comment: IAnnotationCommentSummary, normalizedQuery: string) {
+export function matchesCommentQuery(
+    comment: IAnnotationCommentSummary,
+    normalizedQuery: string,
+    fallbackAuthor?: string | null,
+) {
     if (!normalizedQuery) {
         return true;
     }
 
+    const author = comment.author?.trim() || fallbackAuthor?.trim() || '';
+
     return (
         comment.text.toLowerCase().includes(normalizedQuery)
         || (comment.kindLabel ?? '').toLowerCase().includes(normalizedQuery)
-        || (comment.author ?? '').toLowerCase().includes(normalizedQuery)
+        || author.toLowerCase().includes(normalizedQuery)
         || `p${comment.pageNumber}`.includes(normalizedQuery)
     );
+}
+
+export function splitByQueryMatches(text: string, normalizedQuery: string): ICommentQueryMatchPart[] {
+    if (!normalizedQuery) {
+        return [{
+            text,
+            match: false,
+        }];
+    }
+
+    if (!text) {
+        return [{
+            text,
+            match: false,
+        }];
+    }
+
+    const loweredText = text.toLowerCase();
+    const parts: ICommentQueryMatchPart[] = [];
+    const queryLength = normalizedQuery.length;
+    let cursor = 0;
+
+    while (cursor < text.length) {
+        const matchIndex = loweredText.indexOf(normalizedQuery, cursor);
+        if (matchIndex === -1) {
+            parts.push({
+                text: text.slice(cursor),
+                match: false,
+            });
+            break;
+        }
+
+        if (matchIndex > cursor) {
+            parts.push({
+                text: text.slice(cursor, matchIndex),
+                match: false,
+            });
+        }
+
+        parts.push({
+            text: text.slice(matchIndex, matchIndex + queryLength),
+            match: true,
+        });
+
+        cursor = matchIndex + queryLength;
+    }
+
+    return parts.length ? parts : [{
+        text,
+        match: false,
+    }];
 }

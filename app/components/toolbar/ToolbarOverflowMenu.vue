@@ -12,7 +12,7 @@
 
         <template #content>
             <div class="overflow-menu">
-                <!-- Tier 1: ExportDocx, OCR, Continuous Scroll -->
+                <!-- Tier 1: ExportDocx, Continuous Scroll, Settings -->
                 <div v-if="collapseTier >= 1" class="overflow-menu-section">
                     <button
                         class="overflow-menu-item"
@@ -21,14 +21,6 @@
                     >
                         <UIcon name="i-lucide-file-text" class="overflow-menu-icon" />
                         <span class="overflow-menu-label">{{ t('toolbar.exportDocx') }}</span>
-                    </button>
-                    <button
-                        class="overflow-menu-item"
-                        :disabled="!hasPdf || isDjvuMode"
-                        @click="emit('open-ocr'); close()"
-                    >
-                        <UIcon name="i-lucide-scan-text" class="overflow-menu-icon" />
-                        <span class="overflow-menu-label">{{ t('ocr.button') }}</span>
                     </button>
                     <button
                         :class="['overflow-menu-item', { 'is-active': continuousScroll }]"
@@ -52,10 +44,32 @@
                     </button>
                 </div>
 
-                <!-- Tier 2: FitW/FitH, Hand/TextSelect -->
+                <!-- Tier 2: CaptureRegion, OCR, ViewMode, FitW/FitH, Hand/TextSelect -->
                 <template v-if="collapseTier >= 2">
                     <div class="overflow-menu-divider" />
                     <div class="overflow-menu-section">
+                        <button
+                            :class="['overflow-menu-item', { 'is-active': isCapturingRegion }]"
+                            :disabled="!hasPdf"
+                            @click="emit('capture-region'); close()"
+                        >
+                            <UIcon name="i-lucide-scan" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('toolbar.captureRegion') }}</span>
+                            <UIcon
+                                v-if="isCapturingRegion"
+                                name="i-lucide-check"
+                                class="overflow-menu-check"
+                            />
+                        </button>
+                        <button
+                            class="overflow-menu-item"
+                            :disabled="!hasPdf || isDjvuMode"
+                            @click="emit('open-ocr'); close()"
+                        >
+                            <UIcon name="i-lucide-scan-text" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('ocr.button') }}</span>
+                        </button>
+                        <div class="overflow-menu-divider" />
                         <button
                             :class="['overflow-menu-item', { 'is-active': viewMode === 'single' }]"
                             :disabled="!hasPdf"
@@ -219,6 +233,7 @@ interface IProps {
     isDjvuMode: boolean
     isFitWidthActive: boolean
     isFitHeightActive: boolean
+    isCapturingRegion: boolean
 }
 
 const props = defineProps<IProps>();
@@ -237,6 +252,7 @@ const emit = defineEmits<{
     (e: 'disable-drag'): void
     (e: 'set-view-mode', mode: TPdfViewMode): void
     (e: 'toggle-continuous-scroll'): void
+    (e: 'capture-region'): void
     (e: 'open-settings'): void
 }>();
 
