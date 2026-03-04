@@ -23,6 +23,8 @@ import {
 } from '@electron/menu';
 import { initRecentFilesCache } from '@electron/recent-files';
 import { stopServer } from '@electron/server';
+import { performDjvuViewingShutdownCleanup } from '@electron/djvu/viewing';
+import { shutdownOcrJobManager } from '@electron/ocr/jobManager';
 import {
     createWindow,
     getAllAppWindows,
@@ -424,6 +426,8 @@ async function performShutdownCleanup() {
     }
     batchWindowStartTime = null;
 
+    await performDjvuViewingShutdownCleanup();
+    await shutdownOcrJobManager();
     clearAllWorkingCopies();
     await stopServer();
 }

@@ -136,6 +136,7 @@ const workspaceRequested = ref(false);
 const workspaceRef = ref<unknown>(null);
 let workspaceLoadPromise: Promise<IWorkspaceExpose | null> | null = null;
 let workspacePreloadPromise: Promise<boolean> | null = null;
+let isHostUnmounted = false;
 const documentOpenInFlightCount = ref(0);
 const workspaceSplitCache = useWorkspaceSplitCache();
 const WORKSPACE_MOUNT_TIMEOUT_MS = 30_000;
@@ -353,6 +354,9 @@ async function preloadWorkspaceComponent(reason: string) {
 async function waitForWorkspaceMount(timeoutMs = WORKSPACE_MOUNT_TIMEOUT_MS) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
+        if (isHostUnmounted) {
+            return null;
+        }
         if (hasWorkspaceChunkLoadError.value) {
             return null;
         }
@@ -524,6 +528,7 @@ async function handleOpenFileFromUi() {
 }
 
 onMounted(() => {
+    isHostUnmounted = false;
     void preloadWorkspaceComponent('workspace-host-mounted');
 
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace host mounted; loading recent files', {tabId: props.tabId});
@@ -536,6 +541,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    isHostUnmounted = true;
+    workspaceLoadPromise = null;
+    workspacePreloadPromise = null;
     for (const timer of chunkRetryTimers) {
         clearTimeout(timer);
     }

@@ -3,6 +3,7 @@ import {
     getElectronAPI,
     hasElectronAPI,
 } from '@app/utils/electron';
+import { guardAsync } from '@app/utils/async-guard';
 import type { ITab } from '@app/types/tabs';
 import { hasDocumentMountHint } from '@app/composables/page/workspace-host-mounting';
 
@@ -53,7 +54,14 @@ export function useMenuSync(deps: IUseMenuSyncDeps) {
             return;
         }
         lastSyncedMenuDocumentState = hasDocument;
-        void getElectronAPI().documents?.setMenuDocumentState(hasDocument);
+        const setMenuDocumentState = getElectronAPI().documents?.setMenuDocumentState;
+        if (!setMenuDocumentState) {
+            return;
+        }
+        guardAsync(setMenuDocumentState(hasDocument), {
+            scope: 'menu-sync',
+            message: 'Failed to sync menu document state',
+        });
     }
 
     function syncMenuTabCount() {
@@ -67,7 +75,14 @@ export function useMenuSync(deps: IUseMenuSyncDeps) {
         }
 
         lastSyncedMenuTabCount = tabCount;
-        void getElectronAPI().documents?.setMenuTabCount(tabCount);
+        const setMenuTabCount = getElectronAPI().documents?.setMenuTabCount;
+        if (!setMenuTabCount) {
+            return;
+        }
+        guardAsync(setMenuTabCount(tabCount), {
+            scope: 'menu-sync',
+            message: 'Failed to sync menu tab count',
+        });
     }
 
     watchEffect(() => {

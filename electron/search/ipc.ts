@@ -16,6 +16,7 @@ import {
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import { clamp } from 'es-toolkit/math';
+import { withTimeout } from 'es-toolkit/promise';
 import { createLogger } from '@electron/utils/logger';
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
@@ -74,6 +75,14 @@ const SEARCH_PAGE_COUNT_MAX = (() => {
     }
     return Math.min(parsed, 1_000_000);
 })();
+const SEARCH_WORKER_TERMINATE_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS ?? '10_000', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_000) {
+        return 10_000;
+    }
+    return parsed;
+})();
+const workerTerminationPromises = new Map<number, Promise<void>>();
 
 type TSearchMatch = ISearchResponse['results'][number];
 
@@ -399,9 +408,28 @@ function cleanupSenderState(
     state.activeRequestId = null;
 
     if (options?.terminateWorker !== false) {
-        void state.worker.terminate().catch(() => {
-            // Ignore worker cleanup errors
-        });
+        const existingTermination = workerTerminationPromises.get(senderId);
+        if (!existingTermination) {
+            const terminationPromise = withTimeout(
+                () => state.worker.terminate(),
+                SEARCH_WORKER_TERMINATE_TIMEOUT_MS,
+            )
+                .then(() => {
+                    log.debug(`Search worker lifecycle: sender ${senderId} worker terminated`);
+                })
+                .catch((error) => {
+                    log.warn(
+                        `Search worker lifecycle: sender ${senderId} worker terminate failed (${options?.reason ?? 'cleanup'}): ${
+                            error instanceof Error ? error.message : String(error)
+                        }`,
+                    );
+                })
+                .finally(() => {
+                    workerTerminationPromises.delete(senderId);
+                });
+            workerTerminationPromises.set(senderId, terminationPromise);
+            void terminationPromise;
+        }
     }
 }
 

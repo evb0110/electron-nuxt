@@ -239,6 +239,7 @@ import {
     getElectronAPI,
     hasElectronAPI,
 } from '@app/utils/electron';
+import { guardAsync } from '@app/utils/async-guard';
 import { traceRendererStartup } from '@app/utils/startup-trace';
 import WorkspaceHost from '@app/components/shell/WorkspaceHost.vue';
 import { useExternalFileDrop } from '@app/composables/page/useExternalFileDrop';
@@ -511,7 +512,10 @@ function runFallbackWorkspaceAction(action: (workspace: IWorkspaceExpose) => Pro
 
     const result = action(workspace);
     if (result instanceof Promise) {
-        void result;
+        guardAsync(result, {
+            scope: 'shell',
+            message: 'Fallback workspace action failed',
+        });
     }
 }
 
@@ -1020,7 +1024,14 @@ watch(activeWindowTitle, (title) => {
     if (!hasElectronAPI()) {
         return;
     }
-    void getElectronAPI().documents?.setWindowTitle(title);
+    const setWindowTitle = getElectronAPI().documents?.setWindowTitle;
+    if (!setWindowTitle) {
+        return;
+    }
+    guardAsync(setWindowTitle(title), {
+        scope: 'shell',
+        message: 'Failed to sync window title',
+    });
 }, { immediate: true });
 
 watch(activeWorkspace, (workspace) => {

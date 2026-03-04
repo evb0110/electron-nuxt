@@ -100,31 +100,35 @@ installViteReloadDiagnostics();
 
 onMounted(async () => {
     const mountTime = Date.now();
+    try {
+        // Load persisted settings and apply locale + theme
+        await loadSettings();
+        if (settings.value.locale) {
+            await setLocale(settings.value.locale);
+        }
+        if (settings.value.theme) {
+            colorMode.preference = settings.value.theme;
+        }
 
-    // Load persisted settings and apply locale + theme
-    await loadSettings();
-    if (settings.value.locale) {
-        await setLocale(settings.value.locale);
-    }
-    if (settings.value.theme) {
-        colorMode.preference = settings.value.theme;
-    }
-
-    await preloadStartupContent();
-    await nextTick();
-    await waitForNextPaintFrame();
-
-    // Expose for testing (set after hydration/mount, not during module evaluation).
-    if (typeof window !== 'undefined') {
-        (window as Window & {
-            __appReady?: boolean;
-            __appReadyAt?: number
-        }).__appReady = true;
-        (window as Window & {
-            __appReady?: boolean;
-            __appReadyAt?: number
-        }).__appReadyAt = mountTime;
-        window.dispatchEvent(new Event('evb:app-ready'));
+        await preloadStartupContent();
+        await nextTick();
+        await waitForNextPaintFrame();
+    } catch (error) {
+        BrowserLogger.error('loader', 'App bootstrap failed', error);
+    } finally {
+        // Always emit readiness, even on bootstrap failure, so preload fallbacks
+        // can deterministically remove startup overlays and avoid hanging UI.
+        if (typeof window !== 'undefined') {
+            (window as Window & {
+                __appReady?: boolean;
+                __appReadyAt?: number
+            }).__appReady = true;
+            (window as Window & {
+                __appReady?: boolean;
+                __appReadyAt?: number
+            }).__appReadyAt = mountTime;
+            window.dispatchEvent(new Event('evb:app-ready'));
+        }
     }
 });
 </script>

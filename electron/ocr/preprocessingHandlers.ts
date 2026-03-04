@@ -14,6 +14,33 @@ import {
 import { createLogger } from '@electron/utils/logger';
 
 const log = createLogger('ocr-ipc');
+const PREPROCESS_MAX_IMAGE_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_PREPROCESS_MAX_IMAGE_MB ?? '64', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 64 * 1024 * 1024;
+    }
+    return Math.min(parsed, 512) * 1024 * 1024;
+})();
+
+function normalizePreprocessImageData(imageData: unknown): Uint8Array<ArrayBufferLike> {
+    let bytes: Uint8Array<ArrayBufferLike>;
+    if (imageData instanceof Uint8Array) {
+        bytes = imageData;
+    } else if (imageData instanceof ArrayBuffer) {
+        bytes = new Uint8Array(imageData);
+    } else if (ArrayBuffer.isView(imageData)) {
+        bytes = new Uint8Array(imageData.buffer, imageData.byteOffset, imageData.byteLength);
+    } else {
+        throw new Error('Invalid preprocessing payload: imageData must be a Uint8Array');
+    }
+    if (bytes.byteLength === 0) {
+        throw new Error('Invalid preprocessing payload: imageData must not be empty');
+    }
+    if (bytes.byteLength > PREPROCESS_MAX_IMAGE_BYTES) {
+        throw new Error(`Invalid preprocessing payload: imageData exceeds ${PREPROCESS_MAX_IMAGE_BYTES} bytes`);
+    }
+    return bytes;
+}
 
 export function handlePreprocessingValidate() {
     const validation = validatePreprocessingSetup();
@@ -26,22 +53,28 @@ export function handlePreprocessingValidate() {
 
 export async function handlePreprocessPage(
     event: IpcMainInvokeEvent,
-    imageData: Uint8Array,
-    usePreprocessing: boolean,
+    imageData: unknown,
+    usePreprocessing: unknown,
 ) {
     const abortController = new AbortController();
     const handleSenderGone = () => {
         abortController.abort();
     };
+    let normalizedImageData: Uint8Array<ArrayBufferLike> = new Uint8Array();
 
     try {
+        normalizedImageData = normalizePreprocessImageData(imageData);
+        if (typeof usePreprocessing !== 'boolean') {
+            throw new Error('Invalid preprocessing payload: usePreprocessing must be a boolean');
+        }
+
         event.sender.once('destroyed', handleSenderGone);
         event.sender.once('render-process-gone', handleSenderGone);
 
         if (event.sender.isDestroyed()) {
             return {
                 success: false,
-                imageData,
+                imageData: normalizedImageData,
                 error: 'Renderer disconnected before preprocessing started',
             };
         }
@@ -49,7 +82,7 @@ export async function handlePreprocessPage(
         if (!usePreprocessing) {
             return {
                 success: true,
-                imageData,
+                imageData: normalizedImageData,
                 message: 'Preprocessing disabled',
             };
         }
@@ -58,7 +91,7 @@ export async function handlePreprocessPage(
         if (!validation.valid) {
             return {
                 success: true,
-                imageData,
+                imageData: normalizedImageData,
                 message: 'Preprocessing unavailable on this platform/architecture; using original image.',
             };
         }
@@ -69,7 +102,7 @@ export async function handlePreprocessPage(
         const outputPath = join(tempDir, `preprocess-output-${uuid}.png`);
 
         try {
-            const imageBuffer = Buffer.from(imageData);
+            const imageBuffer = Buffer.from(normalizedImageData);
             await writeFile(inputPath, imageBuffer);
 
             log.debug(`Preprocessing image: ${inputPath}`);
@@ -79,7 +112,7 @@ export async function handlePreprocessPage(
                 log.debug(`Preprocessing failed: ${result.error}`);
                 return {
                     success: true,
-                    imageData,
+                    imageData: normalizedImageData,
                     message: 'Preprocessing failed; using original image.',
                 };
             }
@@ -110,7 +143,7 @@ export async function handlePreprocessPage(
         if (abortController.signal.aborted) {
             return {
                 success: false,
-                imageData,
+                imageData: normalizedImageData,
                 error: 'Renderer disconnected during preprocessing',
             };
         }
@@ -118,7 +151,7 @@ export async function handlePreprocessPage(
         log.debug(`Preprocessing error: ${errMsg}`);
         return {
             success: false,
-            imageData,
+            imageData: normalizedImageData,
             error: errMsg,
         };
     } finally {

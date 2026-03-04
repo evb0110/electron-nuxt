@@ -55,6 +55,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
 
     const menuCleanups: Array<() => void> = [];
     const windowListenerCleanups: Array<() => void> = [];
+    const debugHandleSave = () => activeWorkspace.value?.handleSave() ?? Promise.resolve();
 
     function cycleTab(direction: number) {
         if (tabs.value.length <= 1 || !activeTabId.value) {
@@ -111,7 +112,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
 
         if (typeof window !== 'undefined') {
             (window as Window & { __openFileDirect?: (path: string) => Promise<void> }).__openFileDirect = openPathInAppropriateTab;
-            (window as Window & { __handleSave?: () => Promise<void> }).__handleSave = () => activeWorkspace.value?.handleSave() ?? Promise.resolve();
+            (window as Window & { __handleSave?: () => Promise<void> }).__handleSave = debugHandleSave;
         }
 
         if (hasElectronAPI()) {
@@ -146,6 +147,10 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
     onUnmounted(() => {
         if (typeof window !== 'undefined' && (window as Window & { __openFileDirect?: unknown }).__openFileDirect === openPathInAppropriateTab) {
             delete (window as Window & { __openFileDirect?: (path: string) => Promise<void> }).__openFileDirect;
+        }
+        if (typeof window !== 'undefined' && (window as Window & { __handleSave?: unknown }).__handleSave === debugHandleSave) {
+            // Remove debug hooks on unmount so old closures do not retain stale workspace state.
+            delete (window as Window & { __handleSave?: () => Promise<void> }).__handleSave;
         }
         menuCleanups.forEach(cleanup => cleanup());
         windowListenerCleanups.forEach(cleanup => cleanup());

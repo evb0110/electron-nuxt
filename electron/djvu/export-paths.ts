@@ -1,0 +1,130 @@
+import {
+    extname,
+    resolve,
+} from 'path';
+
+const DJVU_WRITE_PATH_MAX_ENTRIES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_WRITE_PATH_MAX_ENTRIES ?? '64', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 64;
+    }
+    return Math.min(parsed, 1_024);
+})();
+const DJVU_WRITE_PATH_TTL_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_WRITE_PATH_TTL_MS ?? `${15 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 10_000) {
+        return 15 * 60 * 1000;
+    }
+    return parsed;
+})();
+interface IDjvuWriteCapabilityEntry {
+    normalizedPath: string;
+    ownerWebContentsId: number | null;
+    expiresAt: number;
+}
+
+const allowedDjvuWritePaths = new Map<string, IDjvuWriteCapabilityEntry>();
+
+function normalizePath(filePath: string): string {
+    return resolve(filePath.trim());
+}
+
+function normalizeOwnerWebContentsId(ownerWebContentsId: number | undefined): number | null {
+    if (typeof ownerWebContentsId !== 'number' || !Number.isInteger(ownerWebContentsId) || ownerWebContentsId < 1) {
+        return null;
+    }
+    return ownerWebContentsId;
+}
+
+function toCapabilityKey(normalizedPath: string, ownerWebContentsId: number | null) {
+    return `${ownerWebContentsId ?? 'any'}:${normalizedPath}`;
+}
+
+function normalizeDjvuOutputPdfPath(filePath: string): string {
+    const normalizedPath = normalizePath(filePath);
+    if (extname(normalizedPath).toLowerCase() !== '.pdf') {
+        throw new Error('Invalid file type: only PDF files are allowed');
+    }
+    return normalizedPath;
+}
+
+function pruneAllowedDjvuWritePaths(now = Date.now()) {
+    for (const [
+        capabilityKey,
+        capability,
+    ] of allowedDjvuWritePaths.entries()) {
+        if (capability.expiresAt <= now) {
+            allowedDjvuWritePaths.delete(capabilityKey);
+        }
+    }
+
+    if (allowedDjvuWritePaths.size <= DJVU_WRITE_PATH_MAX_ENTRIES) {
+        return;
+    }
+
+    const overflowCount = allowedDjvuWritePaths.size - DJVU_WRITE_PATH_MAX_ENTRIES;
+    for (let index = 0; index < overflowCount; index += 1) {
+        const oldestPath = allowedDjvuWritePaths.keys().next().value;
+        if (typeof oldestPath !== 'string') {
+            break;
+        }
+        allowedDjvuWritePaths.delete(oldestPath);
+    }
+}
+
+export function allowDjvuWritePath(filePath: string, ownerWebContentsId?: number) {
+    const normalizedPath = normalizeDjvuOutputPdfPath(filePath);
+    const normalizedOwnerWebContentsId = normalizeOwnerWebContentsId(ownerWebContentsId);
+    const capabilityKey = toCapabilityKey(normalizedPath, normalizedOwnerWebContentsId);
+    const now = Date.now();
+    pruneAllowedDjvuWritePaths(now);
+    if (allowedDjvuWritePaths.has(capabilityKey)) {
+        allowedDjvuWritePaths.delete(capabilityKey);
+    }
+    allowedDjvuWritePaths.set(capabilityKey, {
+        normalizedPath,
+        ownerWebContentsId: normalizedOwnerWebContentsId,
+        expiresAt: now + DJVU_WRITE_PATH_TTL_MS,
+    });
+    pruneAllowedDjvuWritePaths(now);
+}
+
+function consumeCapabilityByKey(capabilityKey: string, now: number) {
+    const capability = allowedDjvuWritePaths.get(capabilityKey);
+    if (!capability) {
+        return null;
+    }
+    if (capability.expiresAt <= now) {
+        allowedDjvuWritePaths.delete(capabilityKey);
+        return null;
+    }
+    allowedDjvuWritePaths.delete(capabilityKey);
+    return capability;
+}
+
+export function consumeAllowedDjvuWritePath(filePath: string, ownerWebContentsId?: number): string | null {
+    const normalizedPath = normalizeDjvuOutputPdfPath(filePath);
+    const normalizedOwnerWebContentsId = normalizeOwnerWebContentsId(ownerWebContentsId);
+    const now = Date.now();
+    pruneAllowedDjvuWritePaths(now);
+
+    const ownedCapability = consumeCapabilityByKey(
+        toCapabilityKey(normalizedPath, normalizedOwnerWebContentsId),
+        now,
+    );
+    if (ownedCapability) {
+        return ownedCapability.normalizedPath;
+    }
+
+    if (normalizedOwnerWebContentsId !== null) {
+        const sharedCapability = consumeCapabilityByKey(
+            toCapabilityKey(normalizedPath, null),
+            now,
+        );
+        if (sharedCapability) {
+            return sharedCapability.normalizedPath;
+        }
+    }
+
+    return null;
+}

@@ -57,6 +57,15 @@ export function findWorkingCopyPathByOriginalPath(originalPath: string): string 
     return latestMatch;
 }
 
+export function isKnownWorkingCopyOriginalPath(originalPath: string) {
+    const normalizedOriginalPath = typeof originalPath === 'string' ? originalPath.trim() : '';
+    if (!normalizedOriginalPath) {
+        return false;
+    }
+    return Array.from(workingCopyMap.values())
+        .some(mappedOriginalPath => mappedOriginalPath === normalizedOriginalPath);
+}
+
 function createWorkingDirectory() {
     const tempDir = app.getPath('temp');
     const workDir = join(tempDir, `pdf-work-${randomUUID()}`);

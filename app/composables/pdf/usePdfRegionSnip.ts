@@ -326,6 +326,15 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
         resolveSession(false);
     }
 
+    function abortPendingSession() {
+        if (!pendingResolver) {
+            return;
+        }
+        clearSuccessTimer();
+        resetOverlayVisuals();
+        resolveSession(false);
+    }
+
     function attachEscapeCancel() {
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key !== 'Escape') {
@@ -453,6 +462,9 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
         if (!options.viewerContainer.value) {
             return Promise.resolve(false);
         }
+        // Starting a new session must settle any previous awaiter to avoid
+        // retaining stale resolvers across quick repeated captures.
+        abortPendingSession();
         if (state.value === 'selecting') {
             cancelCapture();
             return Promise.resolve(false);
@@ -473,6 +485,7 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
     }
 
     onUnmounted(() => {
+        abortPendingSession();
         clearSuccessTimer();
         detachEscapeListener();
     });

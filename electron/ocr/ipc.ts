@@ -12,7 +12,7 @@ import {
     getOcrToolPaths,
     validateOcrTools,
 } from '@electron/ocr/paths';
-import type { IOcrLanguage } from '@contracts/shared';
+import { AVAILABLE_OCR_LANGUAGES } from '@electron/ocr/available-languages';
 import { createLogger } from '@electron/utils/logger';
 import {
     forEachConcurrent,
@@ -43,49 +43,6 @@ import {
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 
 const log = createLogger('ocr-ipc');
-
-const AVAILABLE_LANGUAGES: IOcrLanguage[] = [
-    {
-        code: 'eng',
-        script: 'latin', 
-    },
-    {
-        code: 'fra',
-        script: 'latin', 
-    },
-    {
-        code: 'deu',
-        script: 'latin', 
-    },
-    {
-        code: 'tur',
-        script: 'latin', 
-    },
-    {
-        code: 'ell',
-        script: 'greek', 
-    },
-    {
-        code: 'grc',
-        script: 'greek', 
-    },
-    {
-        code: 'kmr',
-        script: 'latin', 
-    },
-    {
-        code: 'rus',
-        script: 'cyrillic', 
-    },
-    {
-        code: 'heb',
-        script: 'rtl', 
-    },
-    {
-        code: 'syr',
-        script: 'rtl', 
-    },
-];
 
 async function handleOcrRecognize(
     _event: IpcMainInvokeEvent,
@@ -188,7 +145,7 @@ async function handleOcrRecognizeBatch(
 }
 
 function handleOcrGetLanguages() {
-    return AVAILABLE_LANGUAGES;
+    return AVAILABLE_OCR_LANGUAGES;
 }
 
 async function handleOcrValidateTools() {

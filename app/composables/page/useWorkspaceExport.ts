@@ -123,6 +123,12 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         await runMultiPageTiffExport(pageNumbers);
     }
 
+    onScopeDispose(() => {
+        if (exportScopeDialogResolver) {
+            resolveExportScopeDialog(null);
+        }
+    });
+
     return {
         isExportInProgress,
         exportScopeDialogOpen,

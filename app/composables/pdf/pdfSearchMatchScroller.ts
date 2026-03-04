@@ -113,49 +113,56 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         deps.beginSearchNavigation?.(matchPageIndex + 1);
 
         void nextTick(async () => {
-            if (!isTokenActive(token)) {
-                return;
-            }
+            try {
+                if (!isTokenActive(token)) {
+                    return;
+                }
 
-            const currentMatch = deps.getCurrentSearchMatch();
-            if (!currentMatch || currentMatch.pageIndex !== matchPageIndex) {
+                const currentMatch = deps.getCurrentSearchMatch();
+                if (!currentMatch || currentMatch.pageIndex !== matchPageIndex) {
+                    logPdfNav(
+                        `[PDF-NAV] requestScrollToMatch stale requestId=${requestId} currentMatch=${currentMatch?.pageIndex ?? 'null'}`,
+                    );
+                    cancelActiveRequest(0);
+                    return;
+                }
+
+                if (deps.scrollToCurrentMatch()) {
+                    logPdfNav('[PDF-NAV] fast-path: scrollToCurrentMatch succeeded immediately');
+                    deps.suppressSnap?.();
+                    cancelActiveRequest(SEARCH_SCROLL_SETTLE_MS);
+                    return;
+                }
+
                 logPdfNav(
-                    `[PDF-NAV] requestScrollToMatch stale requestId=${requestId} currentMatch=${currentMatch?.pageIndex ?? 'null'}`,
+                    `[PDF-NAV] deferring page jump; waiting for match-ready scroll on page=${matchPageIndex + 1}`,
                 );
-                cancelActiveRequest(0);
-                return;
-            }
+                deps.scheduleRenderForSinglePage(matchPageIndex + 1);
 
-            if (deps.scrollToCurrentMatch()) {
-                logPdfNav('[PDF-NAV] fast-path: scrollToCurrentMatch succeeded immediately');
+                const didScroll = await waitForMatchAndScroll(token, matchPageIndex);
+                if (!isTokenActive(token)) {
+                    return;
+                }
+
+                if (!didScroll) {
+                    logPdfNav(
+                        `[PDF-NAV] requestScrollToMatch timed out pageIndex=${matchPageIndex} requestId=${requestId}`,
+                    );
+                    // Fallback keeps navigation deterministic even when highlight mapping is unavailable.
+                    deps.suppressSnap?.();
+                    deps.scrollToPage?.(matchPageIndex + 1, { preferExactDom: true });
+                    cancelActiveRequest(0);
+                    return;
+                }
+
                 deps.suppressSnap?.();
                 cancelActiveRequest(SEARCH_SCROLL_SETTLE_MS);
-                return;
-            }
-
-            logPdfNav(
-                `[PDF-NAV] deferring page jump; waiting for match-ready scroll on page=${matchPageIndex + 1}`,
-            );
-            deps.scheduleRenderForSinglePage(matchPageIndex + 1);
-
-            const didScroll = await waitForMatchAndScroll(token, matchPageIndex);
-            if (!isTokenActive(token)) {
-                return;
-            }
-
-            if (!didScroll) {
+            } catch (error) {
                 logPdfNav(
-                    `[PDF-NAV] requestScrollToMatch timed out pageIndex=${matchPageIndex} requestId=${requestId}`,
+                    `[PDF-NAV] requestScrollToMatch failed requestId=${requestId}: ${error instanceof Error ? error.message : String(error)}`,
                 );
-                // Fallback keeps navigation deterministic even when highlight mapping is unavailable.
-                deps.suppressSnap?.();
-                deps.scrollToPage?.(matchPageIndex + 1, { preferExactDom: true });
                 cancelActiveRequest(0);
-                return;
             }
-
-            deps.suppressSnap?.();
-            cancelActiveRequest(SEARCH_SCROLL_SETTLE_MS);
         });
     }
 

@@ -1,5 +1,6 @@
 import {
     BrowserWindow,
+    type IpcMain,
     ipcMain,
     shell,
 } from 'electron';
@@ -37,6 +38,7 @@ import {
     skipUpdateVersion,
     triggerManualUpdateCheck,
 } from '@electron/updates';
+import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/logger';
 
 interface IRendererLogEntry {
@@ -55,6 +57,8 @@ const ALLOWED_EXTERNAL_PROTOCOLS = new Set([
     'https:',
     'mailto:',
 ]);
+
+interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -137,6 +141,65 @@ function handleRendererLog(event: Electron.IpcMainEvent, payload: IRendererLogEn
     rendererLogger.info(baseMessage);
 }
 
+function getTrustedRendererOrigin() {
+    try {
+        return new URL(config.server.url).origin;
+    } catch {
+        return '';
+    }
+}
+
+function isTrustedIpcInvokeSender(event: Electron.IpcMainInvokeEvent, channel: string) {
+    const sourceWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!sourceWindow || sourceWindow.isDestroyed() || event.sender.isDestroyed()) {
+        logger.warn(`[ipc] rejected ${channel}: missing or destroyed sender window`);
+        return false;
+    }
+
+    const senderMainFrame = event.sender.mainFrame;
+    if (event.senderFrame && senderMainFrame && event.senderFrame !== senderMainFrame) {
+        logger.warn(`[ipc] rejected ${channel}: non-main frame sender`);
+        return false;
+    }
+
+    const senderUrl = event.senderFrame?.url || event.sender.getURL();
+    const trustedOrigin = getTrustedRendererOrigin();
+    if (!trustedOrigin || !senderUrl) {
+        logger.warn(`[ipc] rejected ${channel}: missing trusted origin or sender URL`);
+        return false;
+    }
+
+    let senderOrigin: string;
+    try {
+        senderOrigin = new URL(senderUrl).origin;
+    } catch {
+        logger.warn(`[ipc] rejected ${channel}: invalid sender URL ${senderUrl}`);
+        return false;
+    }
+    if (senderOrigin !== trustedOrigin) {
+        logger.warn(
+            `[ipc] rejected ${channel}: untrusted sender origin ${senderOrigin} (expected ${trustedOrigin})`,
+        );
+        return false;
+    }
+
+    return true;
+}
+
+function createValidatedIpcMainRegistrar(registrar: IIpcMainHandleRegistrar): IIpcMainHandleRegistrar {
+    return {handle: (channel, handler) => {
+        registrar.handle(channel, async (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => {
+            if (!isTrustedIpcInvokeSender(event, channel)) {
+                throw new Error('IPC sender is not trusted');
+            }
+            return (handler as (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown)(
+                event,
+                ...args,
+            );
+        });
+    }};
+}
+
 function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetWindow[] {
     const otherWindows = getAllAppWindows()
         .filter(window => window.id !== sourceWindowId)
@@ -159,9 +222,10 @@ function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetW
 }
 
 function registerCoreIpcHandlers() {
+    const registrar = createValidatedIpcMainRegistrar(ipcMain);
     ipcMain.on('renderer:log', handleRendererLog);
 
-    ipcMain.handle('tabs:transfer', async (event, request: unknown) => {
+    registrar.handle('tabs:transfer', async (event, request: unknown) => {
         if (!isValidTransferRequest(request)) {
             return {
                 transferId: '',
@@ -184,7 +248,7 @@ function registerCoreIpcHandlers() {
         return requestWindowTabTransfer(sourceWindow.id, request);
     });
 
-    ipcMain.handle('tabs:transferAck', (event, ack: unknown) => {
+    registrar.handle('tabs:transferAck', (event, ack: unknown) => {
         if (!isValidTransferAck(ack)) {
             return false;
         }
@@ -197,7 +261,7 @@ function registerCoreIpcHandlers() {
         return acknowledgeWindowTabTransfer(window.id, ack);
     });
 
-    ipcMain.handle('tabs:listTargets', (event): IWindowTabTargetWindow[] => {
+    registrar.handle('tabs:listTargets', (event): IWindowTabTargetWindow[] => {
         const sourceWindow = BrowserWindow.fromWebContents(event.sender);
         if (!sourceWindow) {
             return [];
@@ -206,7 +270,7 @@ function registerCoreIpcHandlers() {
         return buildTabTransferTargetLabels(sourceWindow.id);
     });
 
-    ipcMain.handle('tabs:showContextMenu', (event, tabId: unknown) => {
+    registrar.handle('tabs:showContextMenu', (event, tabId: unknown) => {
         const normalizedTabId = typeof tabId === 'string' ? tabId.trim() : '';
         if (!normalizedTabId) {
             return;
@@ -220,7 +284,7 @@ function registerCoreIpcHandlers() {
         showTabContextMenu(window, normalizedTabId);
     });
 
-    ipcMain.handle('window:closeCurrent', (event) => {
+    registrar.handle('window:closeCurrent', (event) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!window || window.isDestroyed()) {
             return false;
@@ -230,7 +294,7 @@ function registerCoreIpcHandlers() {
         return true;
     });
 
-    ipcMain.handle('settings:get', async () => {
+    registrar.handle('settings:get', async () => {
         const startedAt = Date.now();
         const settings = await loadSettings();
         if (STARTUP_TRACE_ENABLED) {
@@ -239,7 +303,7 @@ function registerCoreIpcHandlers() {
         return settings;
     });
 
-    ipcMain.handle('settings:save', async (_event, settingsPayload: unknown) => {
+    registrar.handle('settings:save', async (_event, settingsPayload: unknown) => {
         if (!isRecord(settingsPayload)) {
             throw new Error('Invalid settings payload');
         }
@@ -256,16 +320,16 @@ function registerCoreIpcHandlers() {
         updateRecentFilesMenu();
     });
 
-    ipcMain.handle('updates:getState', () => getUpdateStatus());
-    ipcMain.handle('updates:check', () => triggerManualUpdateCheck());
-    ipcMain.handle('updates:install', () => installDownloadedUpdate());
-    ipcMain.handle('updates:defer', () => deferDownloadedUpdate());
-    ipcMain.handle('updates:skipVersion', (_event, version: unknown) => {
+    registrar.handle('updates:getState', () => getUpdateStatus());
+    registrar.handle('updates:check', () => triggerManualUpdateCheck());
+    registrar.handle('updates:install', () => installDownloadedUpdate());
+    registrar.handle('updates:defer', () => deferDownloadedUpdate());
+    registrar.handle('updates:skipVersion', (_event, version: unknown) => {
         const normalizedVersion = typeof version === 'string' ? version.trim() : '';
         return skipUpdateVersion(normalizedVersion);
     });
 
-    ipcMain.handle('shell:openExternal', async (_event, url: unknown) => {
+    registrar.handle('shell:openExternal', async (_event, url: unknown) => {
         const sanitizedUrl = sanitizeExternalUrl(url);
         await shell.openExternal(sanitizedUrl);
     });
@@ -273,10 +337,11 @@ function registerCoreIpcHandlers() {
 
 export function registerIpcHandlers() {
     registerCoreIpcHandlers();
-    registerDocumentsIpcAdapter(ipcMain);
-    registerImageExportIpcAdapter(ipcMain);
-    registerPageOpsIpcAdapter(ipcMain);
-    registerOcrIpcAdapter(ipcMain);
-    registerSearchIpcAdapter(ipcMain);
-    registerDjvuIpcAdapter(ipcMain);
+    const validatedRegistrar = createValidatedIpcMainRegistrar(ipcMain);
+    registerDocumentsIpcAdapter(validatedRegistrar);
+    registerImageExportIpcAdapter(validatedRegistrar);
+    registerPageOpsIpcAdapter(validatedRegistrar);
+    registerOcrIpcAdapter(validatedRegistrar);
+    registerSearchIpcAdapter(validatedRegistrar);
+    registerDjvuIpcAdapter(validatedRegistrar);
 }

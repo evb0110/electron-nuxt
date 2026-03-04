@@ -27,13 +27,6 @@ const windowIconPath = !app.isPackaged && !config.isMac
 const logger = createLogger('window');
 const windowStartupStartedAt = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
-const TRUSTED_SERVER_ORIGIN = (() => {
-    try {
-        return new URL(config.server.url).origin;
-    } catch {
-        return '';
-    }
-})();
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set([
     'http:',
     'https:',
@@ -72,15 +65,24 @@ function parseUrl(value: string): URL | null {
     }
 }
 
+function getTrustedServerOrigin() {
+    try {
+        return new URL(config.server.url).origin;
+    } catch {
+        return '';
+    }
+}
+
 function isTrustedRendererUrl(value: string) {
-    if (!TRUSTED_SERVER_ORIGIN) {
+    const trustedOrigin = getTrustedServerOrigin();
+    if (!trustedOrigin) {
         return false;
     }
     const parsed = parseUrl(value);
     if (!parsed) {
         return false;
     }
-    return parsed.origin === TRUSTED_SERVER_ORIGIN;
+    return parsed.origin === trustedOrigin;
 }
 
 function isAllowedExternalUrl(value: string) {
