@@ -15,7 +15,7 @@
                 type="button"
                 class="notes-header-btn"
                 :aria-label="t('annotations.searchNotes')"
-                @click="searchVisible = !searchVisible"
+                @click="onSearchButtonClick"
             >
                 <UIcon name="i-lucide-search" />
             </button>
@@ -23,10 +23,13 @@
 
         <input
             v-if="searchVisible"
+            ref="searchInputRef"
             v-model.trim="query"
             type="search"
             class="notes-search"
             :placeholder="t('annotations.searchNotes')"
+            @keydown.stop
+            @keyup.stop
         />
 
         <div class="notes-list app-scrollbar">
@@ -40,8 +43,18 @@
                 @dblclick.prevent.stop="openComment(comment)"
             >
                 <span class="note-item-top">
-                    <span class="note-item-page">{{ t('annotations.page') }} {{ comment.pageNumber }}</span>
-                    <span class="note-item-type">{{ commentTypeLabel(comment) }}</span>
+                    <span class="note-item-page">
+                        <template v-for="(part, index) in highlightTextParts(pageLabel(comment))" :key="`page-${comment.stableKey}-${index}`">
+                            <span v-if="!part.match">{{ part.text }}</span>
+                            <mark v-else class="note-match">{{ part.text }}</mark>
+                        </template>
+                    </span>
+                    <span class="note-item-type">
+                        <template v-for="(part, index) in highlightTextParts(commentTypeLabel(comment))" :key="`type-${comment.stableKey}-${index}`">
+                            <span v-if="!part.match">{{ part.text }}</span>
+                            <mark v-else class="note-match">{{ part.text }}</mark>
+                        </template>
+                    </span>
                     <button
                         type="button"
                         class="note-item-delete"
@@ -51,9 +64,19 @@
                         <UIcon name="i-lucide-trash-2" />
                     </button>
                 </span>
-                <span class="note-item-text">{{ notePreview(comment) }}</span>
+                <span class="note-item-text">
+                    <template v-for="(part, index) in highlightTextParts(notePreview(comment))" :key="`text-${comment.stableKey}-${index}`">
+                        <span v-if="!part.match">{{ part.text }}</span>
+                        <mark v-else class="note-match">{{ part.text }}</mark>
+                    </template>
+                </span>
                 <span class="note-item-meta">
-                    <span>{{ comment.author || authorName || t('annotations.unknownAuthor') }}</span>
+                    <span>
+                        <template v-for="(part, index) in highlightTextParts(authorLabel(comment))" :key="`author-${comment.stableKey}-${index}`">
+                            <span v-if="!part.match">{{ part.text }}</span>
+                            <mark v-else class="note-match">{{ part.text }}</mark>
+                        </template>
+                    </span>
                     <span v-if="comment.modifiedAt">{{ formatTime(comment.modifiedAt) }}</span>
                 </span>
             </button>
@@ -72,6 +95,7 @@ import {
     isTextNoteComment,
     compareComments,
     matchesCommentQuery,
+    splitByQueryMatches,
 } from '@app/utils/pdf-annotation-comments';
 
 interface IProps {
@@ -93,6 +117,7 @@ const emit = defineEmits<{
 
 const query = ref('');
 const searchVisible = ref(false);
+const searchInputRef = ref<HTMLInputElement | null>(null);
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
@@ -101,14 +126,23 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
 
 const authorName = computed(() => props.authorName ?? null);
 const activeCommentStableKey = computed(() => props.activeCommentStableKey ?? null);
+const normalizedQuery = computed(() => query.value.trim().toLowerCase());
 
 const sortedComments = computed(() => props.comments.slice().sort(compareComments));
 const noteComments = computed(() => sortedComments.value.filter(isTextNoteComment));
 
 const filteredComments = computed(() => {
-    const normalizedQuery = query.value.trim().toLowerCase();
-    return noteComments.value.filter(comment => matchesCommentQuery(comment, normalizedQuery));
+    return noteComments.value.filter(comment => matchesCommentQuery(comment, normalizedQuery.value, authorName.value));
 });
+
+async function onSearchButtonClick() {
+    if (!searchVisible.value) {
+        searchVisible.value = true;
+        await nextTick();
+    }
+
+    searchInputRef.value?.focus();
+}
 
 function commentTypeLabel(comment: IAnnotationCommentSummary) {
     const kind = comment.kindLabel?.trim();
@@ -158,6 +192,18 @@ function notePreview(comment: IAnnotationCommentSummary) {
     }
 
     return text;
+}
+
+function authorLabel(comment: IAnnotationCommentSummary) {
+    return comment.author || authorName.value || t('annotations.unknownAuthor');
+}
+
+function pageLabel(comment: IAnnotationCommentSummary) {
+    return `${t('annotations.page')} ${comment.pageNumber}`;
+}
+
+function highlightTextParts(text: string) {
+    return splitByQueryMatches(text, normalizedQuery.value);
 }
 
 function formatTime(timestamp: number) {
@@ -324,6 +370,13 @@ function openComment(comment: IAnnotationCommentSummary) {
     gap: 0.45rem;
     font-size: 0.7rem;
     color: var(--ui-text-toned);
+}
+
+.note-match {
+    background: var(--app-pdf-search-result-highlight-bg);
+    color: inherit;
+    border-radius: 0.2rem;
+    padding: 0;
 }
 
 .notes-empty {
