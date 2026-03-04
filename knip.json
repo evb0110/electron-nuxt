@@ -71,6 +71,7 @@
         "vue-bundle-renderer"
     ],
     "ignoreBinaries": [
-        "codesign"
+        "codesign",
+        "gh"
     ]
 }

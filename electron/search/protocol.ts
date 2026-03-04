@@ -17,13 +17,6 @@ export interface ISearchMatch {
     excerpt: ISearchExcerpt;
 }
 
-export interface ISearchRequest {
-    pdfPath: string;
-    query: string;
-    requestId?: string;
-    pageCount?: number;
-}
-
 export interface ISearchResponse {
     results: ISearchMatch[];
     truncated: boolean;

@@ -37,6 +37,7 @@
     "typecheck:coverage": "type-coverage --config .typecoveragerc.json",
     "gate:quality": "pnpm run lint && pnpm run typecheck && pnpm run typecheck:coverage",
     "validate": "pnpm run gate:quality && pnpm run build:strict && pnpm run knip && pnpm run check:architecture",
+    "validate:post-lint": "pnpm run typecheck && pnpm run typecheck:coverage && pnpm run build:strict && pnpm run knip && pnpm run check:architecture",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
