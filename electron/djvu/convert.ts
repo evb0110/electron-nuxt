@@ -644,6 +644,7 @@ async function runProcess(
         let timeoutHandle: NodeJS.Timeout | null = null;
         let killHandle: NodeJS.Timeout | null = null;
         let timedOut = false;
+        let forceFinalizeHandle: NodeJS.Timeout | null = null;
 
         const finalize = (result: { success: true } | {
             success: false;
@@ -661,6 +662,10 @@ async function runProcess(
             if (killHandle) {
                 clearTimeout(killHandle);
                 killHandle = null;
+            }
+            if (forceFinalizeHandle) {
+                clearTimeout(forceFinalizeHandle);
+                forceFinalizeHandle = null;
             }
             resolve(result);
         };
@@ -693,6 +698,15 @@ async function runProcess(
                     }
                 }, DJVU_KILL_GRACE_MS);
                 killHandle.unref?.();
+                // Guarantee settlement even if the child never emits 'close'/'error'
+                // after forced termination.
+                forceFinalizeHandle = setTimeout(() => {
+                    finalize({
+                        success: false,
+                        error: `${command} timed out after ${timeoutMs}ms`,
+                    });
+                }, DJVU_KILL_GRACE_MS + 1_000);
+                forceFinalizeHandle.unref?.();
             }, timeoutMs);
             timeoutHandle.unref?.();
         }

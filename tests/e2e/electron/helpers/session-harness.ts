@@ -6,7 +6,7 @@ import puppeteer, {
 import { delay } from 'es-toolkit/promise';
 import { sendCommand } from '../../../../scripts/electron-run/client';
 import {
-    NUXT_PORT,
+    DEFAULT_NUXT_PORT,
     getSessionInfo,
     sessionDir,
     setCurrentSessionName,
@@ -59,6 +59,40 @@ async function waitForHealthReady(sessionName: string, timeoutMs = SESSION_READY
     throw new Error(`Session '${sessionName}' did not report ready health within ${Math.round(timeoutMs / 1000)}s`);
 }
 
+async function waitForPageTarget(cdpPort: number, timeoutMs = 15_000): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        try {
+            const res = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+            if (res.ok) {
+                const targets = await res.json() as Array<{
+                    type: string;
+                    webSocketDebuggerUrl?: string;
+                }>;
+                if (targets.some(t => t.type === 'page' && t.webSocketDebuggerUrl)) {
+                    return;
+                }
+            }
+        } catch {
+            // CDP endpoint not ready yet.
+        }
+        await delay(500);
+    }
+    throw new Error(`No page target found via /json/list within ${Math.round(timeoutMs / 1000)}s`);
+}
+
+async function getBrowserWsEndpoint(cdpPort: number): Promise<string> {
+    const res = await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
+    if (!res.ok) {
+        throw new Error(`Failed to fetch /json/version: HTTP ${res.status}`);
+    }
+    const data = await res.json() as { webSocketDebuggerUrl?: string };
+    if (!data.webSocketDebuggerUrl) {
+        throw new Error('/json/version missing webSocketDebuggerUrl');
+    }
+    return data.webSocketDebuggerUrl;
+}
+
 async function connectToSessionPage(sessionName: string) {
     setCurrentSessionName(sessionName);
     const info = getSessionInfo(sessionName);
@@ -66,18 +100,26 @@ async function connectToSessionPage(sessionName: string) {
         throw new Error(`Session '${sessionName}' metadata not found`);
     }
 
+    await waitForPageTarget(info.cdpPort);
+    const browserWsUrl = await getBrowserWsEndpoint(info.cdpPort);
     const browser = await puppeteer.connect({
-        browserURL: `http://127.0.0.1:${info.cdpPort}`,
+        browserWSEndpoint: browserWsUrl,
         defaultViewport: null,
     });
 
-    const targetUrlPrefix = `http://localhost:${NUXT_PORT}`;
+    const nuxtPort = info.nuxtPort || DEFAULT_NUXT_PORT;
     const pages = await browser.pages();
-    let page = pages.find(candidate => candidate.url().startsWith(targetUrlPrefix)) ?? null;
+    let page = pages.find(candidate => {
+        const url = candidate.url();
+        return url.includes(`localhost:${nuxtPort}`) || url.includes(`127.0.0.1:${nuxtPort}`);
+    }) ?? null;
 
     if (!page) {
-        page = await browser.newPage();
-        await page.goto(`${targetUrlPrefix}/`, {waitUntil: 'domcontentloaded'});
+        page = pages.find(candidate => !candidate.isClosed()) ?? null;
+        if (!page) {
+            throw new Error('No Electron page found via CDP');
+        }
+        await page.goto(`http://127.0.0.1:${nuxtPort}/`, {waitUntil: 'domcontentloaded'});
     }
 
     await waitForRendererReady(page);

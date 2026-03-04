@@ -175,6 +175,7 @@ export function usePdfSinglePageScroll(
         () => searchNavigationState.value !== 'idle',
     );
     let searchNavigationSettleTimer: ReturnType<typeof setTimeout> | null = null;
+    let isDisposed = false;
 
     function clearSearchNavigationSettleTimer() {
         if (searchNavigationSettleTimer !== null) {
@@ -244,6 +245,9 @@ export function usePdfSinglePageScroll(
     });
 
     const debouncedRenderOnScroll = useDebounceFn(() => {
+        if (isDisposed) {
+            return;
+        }
         if (isLoading.value || !pdfDocument.value) {
             return;
         }
@@ -369,6 +373,9 @@ export function usePdfSinglePageScroll(
     }
 
     const debouncedSnapToPage = useDebounceFn(() => {
+        if (isDisposed) {
+            return;
+        }
         const suppressed = (
             isLoading.value
             || !pdfDocument.value
@@ -545,6 +552,11 @@ export function usePdfSinglePageScroll(
         searchNavigationTargetPage.value = null;
         snapSuppressUntil.value = 0;
     }
+
+    onScopeDispose(() => {
+        isDisposed = true;
+        clearSearchNavigationSettleTimer();
+    });
 
     return {
         isSnapping,

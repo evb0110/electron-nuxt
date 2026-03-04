@@ -7,6 +7,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
+const DEFAULT_SERVER_PORT = parsePositiveInt(process.env.EVB_SERVER_PORT, 3235);
+let runtimeServerPort = DEFAULT_SERVER_PORT;
 
 function parsePositiveInt(raw: string | undefined, fallback: number) {
     if (!raw) {
@@ -26,9 +28,16 @@ export const config = {
     isMac: process.platform === 'darwin',
 
     server: {
-        port: 3235,
+        get port() {
+            return runtimeServerPort;
+        },
+        setPort(port: number) {
+            // Keep server URL mutable per-launch so packaged builds can avoid
+            // attaching to pre-bound localhost ports owned by other processes.
+            runtimeServerPort = parsePositiveInt(String(port), DEFAULT_SERVER_PORT);
+        },
         get url() {
-            return `http://localhost:${this.port}`;
+            return `http://127.0.0.1:${this.port}`;
         },
         get entryPath() {
             if (isPackaged) {

@@ -153,7 +153,7 @@ function handlePointerUp(event: PointerEvent) {
         commitDrag(event.clientX, event.clientY);
     }
 
-    cleanup(event);
+    cleanup(event.pointerId);
 }
 
 function handleLostCapture(event: PointerEvent) {
@@ -163,7 +163,7 @@ function handleLostCapture(event: PointerEvent) {
         commitDrag(event.clientX, event.clientY);
     }
 
-    cleanup(event);
+    cleanup(event.pointerId);
 }
 
 function commitDrag(clientX: number, clientY: number) {
@@ -192,14 +192,14 @@ function commitDrag(clientX: number, clientY: number) {
     emit('moveMarker', props.annotation, markerRect);
 }
 
-function cleanup(event: PointerEvent) {
+function cleanup(pointerId?: number) {
     const button = buttonRef.value;
     if (button) {
         button.removeEventListener('pointermove', handlePointerMove);
         button.removeEventListener('pointerup', handlePointerUp);
         button.removeEventListener('lostpointercapture', handleLostCapture);
-        if (button.hasPointerCapture(event.pointerId)) {
-            button.releasePointerCapture(event.pointerId);
+        if (typeof pointerId === 'number' && button.hasPointerCapture(pointerId)) {
+            button.releasePointerCapture(pointerId);
         }
     }
 
@@ -213,6 +213,11 @@ function cleanup(event: PointerEvent) {
         dragOffsetY.value = 0;
     }
 }
+
+onBeforeUnmount(() => {
+    // Unmount can interrupt an active drag path before pointerup/lostcapture.
+    cleanup();
+});
 </script>
 
 <style scoped>

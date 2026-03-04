@@ -119,6 +119,7 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
     let annotationStateListener:
         | ((event: { details?: Partial<IAnnotationEditorState> }) => void)
         | null = null;
+    let annotationStorageModifiedHandler: (() => void) | null = null;
 
     function shouldIgnoreEditorEvent(event: Event) {
         const target = event.target;
@@ -286,6 +287,22 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
     function destroyAnnotationEditor() {
         const commentSync = getCommentSync();
         commentSync.incrementSyncToken();
+
+        try {
+            const pdfDoc = pdfDocument.value;
+            if (
+                pdfDoc?.annotationStorage
+                && annotationStorageModifiedHandler
+                && pdfDoc.annotationStorage.onSetModified === annotationStorageModifiedHandler
+            ) {
+                // Clear our callback so previous document/editor instances do not
+                // retain bridge closures after teardown.
+                pdfDoc.annotationStorage.onSetModified = undefined;
+            }
+        } catch {
+            // Best-effort teardown.
+        }
+        annotationStorageModifiedHandler = null;
 
         if (annotationEventBus.value && annotationStateListener) {
             annotationEventBus.value.off('annotationeditorstateschanged', annotationStateListener);
@@ -473,12 +490,14 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
         eventBus.on('annotationeditorstateschanged', annotationStateListener);
 
         try {
-            pdfDoc.annotationStorage.onSetModified = () => {
+            annotationStorageModifiedHandler = () => {
                 emitAnnotationModified();
                 commentSync.scheduleAnnotationCommentsSync();
                 freeTextResize.patchResizableFreeTextEditors(uiManager);
             };
+            pdfDoc.annotationStorage.onSetModified = annotationStorageModifiedHandler;
         } catch (error) {
+            annotationStorageModifiedHandler = null;
             BrowserLogger.warn('annotations', 'Failed to attach annotation modified handler', error);
         }
 

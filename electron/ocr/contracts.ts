@@ -1,4 +1,5 @@
 import { uniq } from 'es-toolkit/array';
+import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/available-languages';
 
 type TOcrErrorCode =
     | 'OCR_INVALID_PAYLOAD'
@@ -44,6 +45,16 @@ const MAX_IMAGE_BYTES = 128 * 1024 * 1024;
 const MAX_BATCH_PAGES = 5_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
+const MAX_UNIQUE_LANGUAGES_PER_JOB = (() => {
+    const parsed = Number.parseInt(
+        process.env.EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB ?? `${AVAILABLE_OCR_LANGUAGE_CODES.size}`,
+        10,
+    );
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return AVAILABLE_OCR_LANGUAGE_CODES.size;
+    }
+    return Math.min(parsed, AVAILABLE_OCR_LANGUAGE_CODES.size);
+})();
 
 export class OcrPayloadValidationError extends Error {
     readonly code: TOcrErrorCode;
@@ -133,7 +144,25 @@ function asLanguages(value: unknown, fieldName: string) {
     }
 
     const parsed = value.map((languageCode, index) => asString(languageCode, `${fieldName}[${index}]`, 32));
-    return uniq(parsed);
+    const unique = uniq(parsed);
+    for (const languageCode of unique) {
+        if (!AVAILABLE_OCR_LANGUAGE_CODES.has(languageCode)) {
+            throw new OcrPayloadValidationError(`Unsupported OCR language: ${languageCode}`);
+        }
+    }
+    return unique;
+}
+
+function assertUniqueLanguageBudget(
+    pages: Array<{ languages: string[] }>,
+    fieldName: string,
+) {
+    const uniqueLanguages = uniq(pages.flatMap(page => page.languages));
+    if (uniqueLanguages.length > MAX_UNIQUE_LANGUAGES_PER_JOB) {
+        throw new OcrPayloadValidationError(
+            `${fieldName} exceed maximum unique language count (${MAX_UNIQUE_LANGUAGES_PER_JOB})`,
+        );
+    }
 }
 
 function asRecognizePageRequest(payload: unknown, fieldName: string): IOcrRecognizePageRequest {
@@ -180,8 +209,10 @@ export function validateRecognizeBatchPayload(
         throw new OcrPayloadValidationError(`pages exceeds maximum size (${MAX_BATCH_PAGES})`);
     }
 
+    const pages = pagesPayload.map((page, index) => asRecognizePageRequest(page, `pages[${index}]`));
+    assertUniqueLanguageBudget(pages, 'pages');
     return {
-        pages: pagesPayload.map((page, index) => asRecognizePageRequest(page, `pages[${index}]`)),
+        pages,
         requestId: asRequestId(requestIdPayload, 'requestId'),
     };
 }
@@ -199,9 +230,12 @@ export function validateCreateSearchablePdfPayload(
         throw new OcrPayloadValidationError(`pages exceeds maximum size (${MAX_BATCH_PAGES})`);
     }
 
+    const pages = pagesPayload.map((page, index) => asCreatePdfPageRequest(page, `pages[${index}]`));
+    assertUniqueLanguageBudget(pages, 'pages');
+
     return {
         sourcePdfPath: asString(sourcePdfPathPayload, 'sourcePdfPath', 4_096),
-        pages: pagesPayload.map((page, index) => asCreatePdfPageRequest(page, `pages[${index}]`)),
+        pages,
         requestId: asRequestId(requestIdPayload, 'requestId'),
         renderDpi: asOptionalDpi(renderDpiPayload, 'renderDpi'),
     };

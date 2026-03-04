@@ -415,7 +415,7 @@ export function validatePreprocessingSetup(): {
 
     return {
         // unpaper is required for preprocessing - leptonica is optional/diagnostic
-        valid: !!bins.unpaper,
+        valid: unpaperRunnable,
         available,
         missing,
     };

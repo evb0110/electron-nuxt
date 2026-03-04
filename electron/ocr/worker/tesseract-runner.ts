@@ -151,6 +151,7 @@ export async function runOcrFileBased(
         let timedOut = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
         let killHandle: NodeJS.Timeout | null = null;
+        let forceFinalizeHandle: NodeJS.Timeout | null = null;
 
         const finalize = (result: IOcrFileResult) => {
             if (settled) {
@@ -165,6 +166,10 @@ export async function runOcrFileBased(
             if (killHandle) {
                 clearTimeout(killHandle);
                 killHandle = null;
+            }
+            if (forceFinalizeHandle) {
+                clearTimeout(forceFinalizeHandle);
+                forceFinalizeHandle = null;
             }
             resolve(result);
         };
@@ -185,6 +190,20 @@ export async function runOcrFileBased(
                 }
             }, FILE_BASED_OCR_KILL_GRACE_MS);
             killHandle.unref?.();
+
+            forceFinalizeHandle = setTimeout(async () => {
+                await Promise.all([
+                    safeUnlink(tsvPath),
+                    safeUnlink(pdfPath),
+                ]);
+                finalize({
+                    success: false,
+                    pageData: null,
+                    pdfPath: null,
+                    error: `Tesseract timed out after ${FILE_BASED_OCR_TIMEOUT_MS}ms`,
+                });
+            }, FILE_BASED_OCR_KILL_GRACE_MS + 1_000);
+            forceFinalizeHandle.unref?.();
         }, FILE_BASED_OCR_TIMEOUT_MS);
         timeoutHandle.unref?.();
 

@@ -25,7 +25,19 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 export const projectRoot = join(__dirname, '..', '..');
 
-export const NUXT_PORT = 3235;
+export const DEFAULT_NUXT_PORT = 3235;
+let nuxtPort = DEFAULT_NUXT_PORT;
+
+export function getNuxtPort(): number {
+    return nuxtPort;
+}
+
+export function setNuxtPort(port: number): void {
+    if (!Number.isFinite(port) || port <= 0) {
+        return;
+    }
+    nuxtPort = port;
+}
 export const SESSION_WAIT_TIMEOUT_MS = 60_000;
 export const COMMAND_REQUEST_TIMEOUT_MS = 120_000;
 export const OPEN_PDF_READY_TIMEOUT_MS = 120_000;
@@ -249,6 +261,7 @@ export interface ISessionInfo {
     cdpPort: number;
     electronPid: number | null;
     nuxtPid: number | null;
+    nuxtPort: number;
 }
 
 export interface ISessionStartingInfo {
@@ -260,13 +273,27 @@ function isSessionInfo(value: unknown): value is ISessionInfo {
     if (!isRecord(value)) {
         return false;
     }
-    return (
-        isPositiveInt(value.port)
-        && isPositiveInt(value.pid)
-        && isPositiveInt(value.cdpPort)
-        && isNullablePositiveInt(value.electronPid)
-        && isNullablePositiveInt(value.nuxtPid)
-    );
+    if (
+        !isPositiveInt(value.port)
+        || !isPositiveInt(value.pid)
+        || !isPositiveInt(value.cdpPort)
+        || !isNullablePositiveInt(value.electronPid)
+        || !isNullablePositiveInt(value.nuxtPid)
+    ) {
+        return false;
+    }
+    // Backward compat: older session files may lack nuxtPort.
+    if (value.nuxtPort !== undefined && !isPositiveInt(value.nuxtPort)) {
+        return false;
+    }
+    return true;
+}
+
+function normalizeSessionInfo(raw: ISessionInfo): ISessionInfo {
+    return {
+        ...raw,
+        nuxtPort: raw.nuxtPort || DEFAULT_NUXT_PORT,
+    };
 }
 
 function isSessionStartingInfo(value: unknown): value is ISessionStartingInfo {
@@ -455,7 +482,7 @@ export function getSessionInfo(name = getCurrentSessionName()): ISessionInfo | n
     if (!isSessionInfo(raw)) {
         return null;
     }
-    return raw;
+    return normalizeSessionInfo(raw);
 }
 
 export function getSessionStartingInfo(name = getCurrentSessionName()): ISessionStartingInfo | null {

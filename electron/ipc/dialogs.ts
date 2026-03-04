@@ -26,10 +26,12 @@ import {
 } from '@electron/menu';
 import { addRecentFile } from '@electron/recent-files';
 import { allowDocxWritePath } from '@electron/ipc/docxExportPaths';
+import { allowDjvuWritePath } from '@electron/djvu/export-paths';
 import {
     createWorkingCopy,
     createWorkingCopyFromData,
     createWorkingCopyFromPath,
+    isKnownWorkingCopyOriginalPath,
     workingCopyMap,
 } from '@electron/ipc/workingCopy';
 import { te } from '@electron/i18n';
@@ -228,8 +230,16 @@ export async function handleCreateWorkingCopyFromData(
     if (normalizedOriginalPath && (!isAbsolute(normalizedOriginalPath) || !isSupportedOpenPath(normalizedOriginalPath))) {
         throw new Error('Invalid original path');
     }
+    const trustedOriginalPath = normalizedOriginalPath && isKnownWorkingCopyOriginalPath(normalizedOriginalPath)
+        ? normalizedOriginalPath
+        : undefined;
+    if (normalizedOriginalPath && !trustedOriginalPath) {
+        // Ignore renderer-supplied write targets unless they originated from a
+        // previously trusted working-copy mapping.
+        logger.warn('Ignoring untrusted original path for createWorkingCopyFromData');
+    }
 
-    return createWorkingCopyFromData(normalizedName, data, normalizedOriginalPath);
+    return createWorkingCopyFromData(normalizedName, data, trustedOriginalPath);
 }
 
 export async function handleCreateWorkingCopyFromPath(
@@ -255,8 +265,17 @@ export async function handleCreateWorkingCopyFromPath(
     if (normalizedOriginalPath && (!isAbsolute(normalizedOriginalPath) || !isSupportedOpenPath(normalizedOriginalPath))) {
         throw new Error('Invalid original path');
     }
+    const trustedOriginalPath = normalizedOriginalPath && (
+        normalizedOriginalPath === normalizedSourcePath
+        || isKnownWorkingCopyOriginalPath(normalizedOriginalPath)
+    )
+        ? normalizedOriginalPath
+        : undefined;
+    if (normalizedOriginalPath && !trustedOriginalPath) {
+        logger.warn('Ignoring untrusted original path for createWorkingCopyFromPath');
+    }
 
-    return createWorkingCopyFromPath(normalizedSourcePath, normalizedOriginalPath);
+    return createWorkingCopyFromPath(normalizedSourcePath, trustedOriginalPath);
 }
 
 export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: string) {
@@ -367,7 +386,7 @@ export async function handleSavePdfAs(
 }
 
 export async function handleSavePdfDialog(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     suggestedName: string,
 ): Promise<string | null> {
     const normalizedSuggestedName = typeof suggestedName === 'string' && suggestedName.trim().length > 0
@@ -390,6 +409,9 @@ export async function handleSavePdfDialog(
     if (extname(targetPath).toLowerCase() !== '.pdf') {
         targetPath += '.pdf';
     }
+
+    // Save dialog approval is the capability boundary for DjVu export writes.
+    allowDjvuWritePath(targetPath, event.sender.id);
 
     return targetPath;
 }

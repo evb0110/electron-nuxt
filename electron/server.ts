@@ -2,6 +2,7 @@ import {
     spawn,
     type ChildProcess,
 } from 'child_process';
+import { createServer } from 'net';
 import {
     existsSync,
     readFileSync,
@@ -31,6 +32,14 @@ let serverReady: Promise<void> | null = null;
 let usingExternalServer = false;
 let stoppingServerPromise: Promise<void> | null = null;
 const SERVER_OWNERSHIP_FILE = 'nuxt-server-owner.json';
+const HAS_FIXED_SERVER_PORT = Boolean(process.env.EVB_SERVER_PORT?.trim());
+const SERVER_ISOLATED_PORT_RETRIES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SERVER_ISOLATED_PORT_RETRIES ?? '8', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 8;
+    }
+    return parsed;
+})();
 const SERVER_HEALTH_FETCH_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_SERVER_HEALTH_FETCH_TIMEOUT_MS ?? '4000', 10);
     if (!Number.isFinite(parsed) || parsed < 500) {
@@ -42,13 +51,6 @@ const SERVER_STOP_GRACE_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_SERVER_STOP_GRACE_MS ?? '2_500', 10);
     if (!Number.isFinite(parsed) || parsed < 500) {
         return 2_500;
-    }
-    return parsed;
-})();
-const SERVER_OWNERSHIP_MARKER_MAX_AGE_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SERVER_OWNERSHIP_MARKER_MAX_AGE_MS ?? `${10 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 60_000) {
-        return 10 * 60 * 1000;
     }
     return parsed;
 })();
@@ -136,11 +138,6 @@ function isPidAlive(pid: number) {
     }
 }
 
-function isOwnershipMarkerFresh(marker: IServerOwnershipMarker) {
-    const ageMs = Date.now() - marker.createdAt;
-    return Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= SERVER_OWNERSHIP_MARKER_MAX_AGE_MS;
-}
-
 async function terminateProcess(pid: number, graceMs = 2_500) {
     if (!isPidAlive(pid) || pid === process.pid) {
         return;
@@ -179,6 +176,51 @@ async function isServerRunning() {
     }
 }
 
+async function reserveLocalPort() {
+    return new Promise<number>((resolve, reject) => {
+        const probe = createServer();
+        probe.unref();
+        probe.once('error', reject);
+        probe.listen(0, '127.0.0.1', () => {
+            const address = probe.address();
+            const port = typeof address === 'object' && address ? address.port : null;
+            probe.close((closeError) => {
+                if (closeError) {
+                    reject(closeError);
+                    return;
+                }
+                if (!port || !Number.isInteger(port) || port <= 0) {
+                    reject(new Error('Failed to reserve runtime port'));
+                    return;
+                }
+                resolve(port);
+            });
+        });
+    });
+}
+
+async function configureRuntimeServerPort() {
+    if (config.isDev || HAS_FIXED_SERVER_PORT) {
+        return;
+    }
+
+    for (let attempt = 1; attempt <= SERVER_ISOLATED_PORT_RETRIES; attempt += 1) {
+        const candidatePort = await reserveLocalPort();
+        config.server.setPort(candidatePort);
+
+        // Packaged builds must only trust servers spawned by this process.
+        if (!await isServerRunning()) {
+            logger.info(
+                `Selected isolated runtime server port ${candidatePort} `
+                + `(attempt ${attempt}/${SERVER_ISOLATED_PORT_RETRIES})`,
+            );
+            return;
+        }
+    }
+
+    throw new Error('Unable to find an isolated runtime server port');
+}
+
 export async function startServer() {
     if (stoppingServerPromise) {
         await stoppingServerPromise;
@@ -200,25 +242,36 @@ export async function startServer() {
         return;
     }
 
+    await configureRuntimeServerPort();
+
     if (await isServerRunning()) {
-        const marker = readOwnershipMarker();
-        if (marker && marker.entryPath === config.server.entryPath) {
-            if (isOwnershipMarkerFresh(marker) && isPidAlive(marker.pid)) {
-                logger.warn(`Detected stale internally-owned Nuxt server (pid=${marker.pid}); terminating it`);
-                await terminateProcess(marker.pid);
-            } else if (!isOwnershipMarkerFresh(marker)) {
-                logger.warn(`Ignoring stale Nuxt ownership marker older than ${SERVER_OWNERSHIP_MARKER_MAX_AGE_MS}ms`);
+        if (config.isDev) {
+            const marker = readOwnershipMarker();
+            if (marker && marker.entryPath === config.server.entryPath) {
+                // Dev sessions may leave stale markers behind during HMR restarts.
+                // Never kill marker PIDs unless we spawned them in this process.
+                clearOwnershipMarker();
             }
-            clearOwnershipMarker();
         }
     }
 
     if (await isServerRunning()) {
-        logger.info('Nuxt server already running, connecting...');
-        usingExternalServer = true;
-        serverReady = Promise.resolve();
-        logger.info(`Using existing Nuxt server (+${Date.now() - startTime}ms)`);
-        return;
+        if (config.isDev) {
+            logger.info('Nuxt server already running, connecting...');
+            usingExternalServer = true;
+            serverReady = Promise.resolve();
+            logger.info(`Using existing Nuxt server (+${Date.now() - startTime}ms)`);
+            return;
+        }
+
+        if (!HAS_FIXED_SERVER_PORT) {
+            // A race may bind the selected ephemeral port between probe and spawn.
+            // Retry with a fresh isolated port instead of trusting that process.
+            await configureRuntimeServerPort();
+        } else {
+            clearOwnershipMarker();
+            throw new Error(`Refusing to attach to pre-existing runtime server at ${config.server.url}`);
+        }
     }
 
     logger.info('Starting Nuxt server...');

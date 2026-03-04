@@ -25,6 +25,8 @@ import { pipeline } from 'stream/promises';
 import { fileURLToPath } from 'url';
 import { delay } from 'es-toolkit/promise';
 import { createLogger } from '@electron/utils/logger';
+import { forEachConcurrent } from '@electron/utils/concurrency';
+import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/available-languages';
 
 const log = createLogger('ocr-language-models');
 const DOWNLOAD_BASE_URL = 'https://github.com/tesseract-ocr/tessdata_best/raw/main';
@@ -56,6 +58,23 @@ const NETWORK_UNREACHABLE_CODES = new Set([
 const inFlightDownloads = new Map<string, Promise<void>>();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
+const OCR_MODEL_DOWNLOAD_CONCURRENCY = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY ?? '3', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 3;
+    }
+    return Math.min(parsed, 8);
+})();
+const OCR_MAX_UNIQUE_MODEL_CODES = (() => {
+    const parsed = Number.parseInt(
+        process.env.EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB ?? `${AVAILABLE_OCR_LANGUAGE_CODES.size}`,
+        10,
+    );
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return AVAILABLE_OCR_LANGUAGE_CODES.size;
+    }
+    return Math.min(parsed, AVAILABLE_OCR_LANGUAGE_CODES.size);
+})();
 
 function getElectronUserDataPath(): string {
     const appName = 'EVB Viewer';
@@ -389,8 +408,19 @@ export async function ensureTessdataLanguages(languageCodes: string[]) {
     if (requiredCodes.length === 0) {
         return;
     }
+    if (requiredCodes.length > OCR_MAX_UNIQUE_MODEL_CODES) {
+        throw new Error(`Too many OCR languages requested (${requiredCodes.length})`);
+    }
+    for (const languageCode of requiredCodes) {
+        if (!AVAILABLE_OCR_LANGUAGE_CODES.has(languageCode)) {
+            throw new Error(`Unsupported OCR language: ${languageCode}`);
+        }
+    }
 
     const runtimeDir = getRuntimeTessdataDir();
     await seedBundledModels(runtimeDir);
-    await Promise.all(requiredCodes.map(languageCode => ensureLanguageModel(languageCode, runtimeDir)));
+    // Bound parallel model downloads so OCR requests cannot flood network/disk resources.
+    await forEachConcurrent(requiredCodes, OCR_MODEL_DOWNLOAD_CONCURRENCY, async (languageCode) => {
+        await ensureLanguageModel(languageCode, runtimeDir);
+    });
 }
