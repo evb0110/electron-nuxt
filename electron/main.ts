@@ -12,10 +12,12 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { uniq } from 'es-toolkit/array';
+import { withTimeout } from 'es-toolkit/promise';
 import { config } from '@electron/config';
 import {
     registerIpcHandlers,
     clearAllWorkingCopies,
+    cleanupStaleWorkingCopyDirectories,
 } from '@electron/ipc';
 import {
     sendToWindow,
@@ -37,7 +39,10 @@ import {
 } from '@electron/window-tab-transfer';
 import { promptSetDefaultViewer } from '@electron/default-viewer';
 import { createLogger } from '@electron/utils/logger';
-import { initializeUpdates } from '@electron/updates';
+import {
+    initializeUpdates,
+    shutdownUpdates,
+} from '@electron/updates';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
 if (process.platform === 'win32') {
@@ -54,26 +59,84 @@ if (automationUserDataDir) {
 }
 
 const logger = createLogger('main');
+const SHUTDOWN_TOTAL_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SHUTDOWN_TIMEOUT_MS ?? '20000', 10);
+    if (!Number.isFinite(parsed) || parsed < 3_000) {
+        return 20_000;
+    }
+    return parsed;
+})();
+const SHUTDOWN_STEP_TIMEOUT_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SHUTDOWN_STEP_TIMEOUT_MS ?? '8000', 10);
+    if (!Number.isFinite(parsed) || parsed < 1_000) {
+        return 8_000;
+    }
+    return Math.min(parsed, SHUTDOWN_TOTAL_TIMEOUT_MS);
+})();
+const GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS ?? '3000', 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        return 3_000;
+    }
+    return parsed;
+})();
+const FATAL_UNHANDLED_REJECTION_ENABLED = process.env.EVB_MAIN_FATAL_UNHANDLED_REJECTION !== '0';
 let gracefulShutdownPromise: Promise<void> | null = null;
+let gracefulQuitForceTimer: NodeJS.Timeout | null = null;
 let isQuittingAfterCleanup = false;
 let isFatalShutdownInProgress = false;
-process.on('unhandledRejection', (reason) => {
-    logger.error(`Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
-});
-process.on('uncaughtException', (error) => {
-    logger.error(`Uncaught exception in main process: ${error.stack ?? error.message}`);
+
+function clearGracefulQuitForceTimer() {
+    if (!gracefulQuitForceTimer) {
+        return;
+    }
+    clearTimeout(gracefulQuitForceTimer);
+    gracefulQuitForceTimer = null;
+}
+
+function isIgnorableUnhandledRejection(reason: unknown) {
+    if (!(reason instanceof Error)) {
+        return false;
+    }
+    if (reason.name === 'AbortError') {
+        return true;
+    }
+
+    const normalizedMessage = reason.message.toLowerCase();
+    if (normalizedMessage.includes('aborted')) {
+        return true;
+    }
+    if (normalizedMessage.includes('cancelled') || normalizedMessage.includes('canceled')) {
+        return true;
+    }
+    return false;
+}
+
+function requestFatalShutdown(reason: string, exitCode = 1) {
     if (isFatalShutdownInProgress) {
         return;
     }
 
     isFatalShutdownInProgress = true;
+    logger.error(reason);
     void (async () => {
         try {
             await performShutdownCleanup();
         } finally {
-            app.exit(1);
+            app.exit(exitCode);
         }
     })();
+}
+
+process.on('unhandledRejection', (reason) => {
+    logger.error(`Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
+    if (!FATAL_UNHANDLED_REJECTION_ENABLED || isIgnorableUnhandledRejection(reason)) {
+        return;
+    }
+    requestFatalShutdown('Unhandled promise rejection requires fatal shutdown');
+});
+process.on('uncaughtException', (error) => {
+    requestFatalShutdown(`Uncaught exception in main process: ${error.stack ?? error.message}`);
 });
 
 if (process.platform === 'darwin' && config.automation.noFocus) {
@@ -425,11 +488,38 @@ async function performShutdownCleanup() {
         flushPendingFilesTimer = null;
     }
     batchWindowStartTime = null;
+    clearGracefulQuitForceTimer();
 
-    await performDjvuViewingShutdownCleanup();
-    await shutdownOcrJobManager();
-    clearAllWorkingCopies();
-    await stopServer();
+    const runShutdownStep = async (label: string, step: () => Promise<void> | void) => {
+        try {
+            await withTimeout(async () => {
+                await step();
+            }, SHUTDOWN_STEP_TIMEOUT_MS);
+        } catch (error) {
+            const timeout = error instanceof Error && error.name === 'TimeoutError';
+            logger.error(
+                timeout
+                    ? `Shutdown step timed out (${label}, ${SHUTDOWN_STEP_TIMEOUT_MS}ms)`
+                    : `Shutdown step failed (${label}): ${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
+    };
+
+    try {
+        await withTimeout(async () => {
+            await runShutdownStep('updates', () => shutdownUpdates());
+            await runShutdownStep('djvu-viewing', () => performDjvuViewingShutdownCleanup());
+            await runShutdownStep('ocr-job-manager', () => shutdownOcrJobManager());
+            await runShutdownStep('working-copies', () => clearAllWorkingCopies());
+            await runShutdownStep('runtime-server', () => stopServer());
+        }, SHUTDOWN_TOTAL_TIMEOUT_MS);
+    } catch (error) {
+        if (error instanceof Error && error.name === 'TimeoutError') {
+            logger.error(`Global shutdown cleanup timed out after ${SHUTDOWN_TOTAL_TIMEOUT_MS}ms`);
+            return;
+        }
+        logger.error(`Global shutdown cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 function requestGracefulQuit() {
@@ -446,7 +536,17 @@ function requestGracefulQuit() {
         })();
     }
 
+    if (!gracefulQuitForceTimer) {
+        gracefulQuitForceTimer = setTimeout(() => {
+            logger.error(`Graceful quit exceeded deadline (${SHUTDOWN_TOTAL_TIMEOUT_MS + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS}ms); forcing exit`);
+            isQuittingAfterCleanup = true;
+            app.exit(1);
+        }, SHUTDOWN_TOTAL_TIMEOUT_MS + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS);
+        gracefulQuitForceTimer.unref?.();
+    }
+
     void gracefulShutdownPromise.then(() => {
+        clearGracefulQuitForceTimer();
         if (isQuittingAfterCleanup) {
             return;
         }
@@ -520,6 +620,18 @@ async function init() {
 
     registerIpcHandlers();
     logStartupPhase('IPC handlers registered');
+
+    void cleanupStaleWorkingCopyDirectories()
+        .then((result) => {
+            if (result.removedDirectories > 0 || result.removedOcrDirectories > 0) {
+                logger.info(
+                    `Removed stale working-copy directories: work=${result.removedDirectories}, ocr=${result.removedOcrDirectories}`,
+                );
+            }
+        })
+        .catch((error) => {
+            logger.warn(`Failed to cleanup stale working-copy directories: ${error instanceof Error ? error.message : String(error)}`);
+        });
 
     ipcMain.on('app:rendererReady', (event) => {
         const window = BrowserWindow.fromWebContents(event.sender);
@@ -623,12 +735,5 @@ async function init() {
 }
 
 void init().catch((error) => {
-    logger.error(`Application bootstrap failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
-    void (async () => {
-        try {
-            await performShutdownCleanup();
-        } finally {
-            app.exit(1);
-        }
-    })();
+    requestFatalShutdown(`Application bootstrap failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
 });

@@ -5,6 +5,7 @@
         "app/app.config.ts",
         "app/pages/**/*.vue",
         "app/components/**/*.vue",
+        "app/plugins/**/*.ts",
         "app/composables/**/*.ts",
         "app/utils/**/*.ts",
         "app/constants/**/*.ts",

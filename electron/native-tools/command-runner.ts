@@ -10,6 +10,7 @@ import {
     getCommandDirectory,
     prependDirectoryToPath,
 } from '@electron/native-tools/tool-registry';
+import { terminateProcessTree } from '@electron/utils/process-tree';
 
 interface IRunCommandOptions {
     cwd?: string;
@@ -123,7 +124,6 @@ export async function runCommand(
         let stderrTruncated = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
         let forceRejectHandle: NodeJS.Timeout | null = null;
-        let hardKillHandle: NodeJS.Timeout | null = null;
         let pendingTerminationError: Error | null = null;
         let settled = false;
 
@@ -137,19 +137,20 @@ export async function runCommand(
                 finalizeReject(error);
                 return;
             }
-            try {
-                targetProc.kill('SIGTERM');
-            } catch {
-                // Process may already be gone.
-            }
-            hardKillHandle = setTimeout(() => {
+
+            const pid = targetProc.pid;
+            if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
+                void terminateProcessTree(pid, {
+                    graceMs: 1_000,
+                    preferProcessGroup: process.platform !== 'win32',
+                });
+            } else {
                 try {
-                    targetProc.kill('SIGKILL');
+                    targetProc.kill('SIGTERM');
                 } catch {
                     // Process may already be gone.
                 }
-            }, 1_000);
-            hardKillHandle.unref?.();
+            }
 
             forceRejectHandle = setTimeout(() => {
                 finalizeReject(error);
@@ -170,10 +171,6 @@ export async function runCommand(
                 clearTimeout(forceRejectHandle);
                 forceRejectHandle = null;
             }
-            if (hardKillHandle) {
-                clearTimeout(hardKillHandle);
-                hardKillHandle = null;
-            }
             if (signal && abortHandler) {
                 signal.removeEventListener('abort', abortHandler);
             }
@@ -192,10 +189,6 @@ export async function runCommand(
             if (forceRejectHandle) {
                 clearTimeout(forceRejectHandle);
                 forceRejectHandle = null;
-            }
-            if (hardKillHandle) {
-                clearTimeout(hardKillHandle);
-                hardKillHandle = null;
             }
             if (signal && abortHandler) {
                 signal.removeEventListener('abort', abortHandler);
@@ -219,6 +212,7 @@ export async function runCommand(
                 env: effectiveEnv,
                 shell: false,
                 windowsHide,
+                detached: process.platform !== 'win32',
                 stdio: [
                     'ignore',
                     'pipe',

@@ -27,7 +27,7 @@ type TCachedIndex = {
 
 interface IPreparedSearchPage {
     pageNumber: number;
-    text: string;
+    sourcePageIndex: number;
     lowerText: string;
 }
 
@@ -59,6 +59,20 @@ const CANCELLED_REQUEST_TTL_MS = (() => {
         return 2 * 60 * 1000;
     }
     return parsed;
+})();
+const SEARCH_WORKER_MAX_PAGE_TEXT_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_MAX_PAGE_TEXT_BYTES ?? `${2 * 1024 * 1024}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 16 * 1024) {
+        return 2 * 1024 * 1024;
+    }
+    return Math.min(parsed, 32 * 1024 * 1024);
+})();
+const SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_MAX_TOTAL_TEXT_BYTES ?? `${96 * 1024 * 1024}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 256 * 1024) {
+        return 96 * 1024 * 1024;
+    }
+    return Math.min(parsed, 1024 * 1024 * 1024);
 })();
 const indexCache = new Map<string, TCachedIndex>();
 const cancelledRequests = new Map<string, number>();
@@ -427,12 +441,31 @@ function ensurePreparedSearchPages(entry: TCachedIndex): IPreparedSearchPage[] {
         return entry.preparedPages;
     }
 
-    const preparedPages = entry.index.pages.map((page) => {
+    let totalResidentTextBytes = 0;
+    const preparedPages = entry.index.pages.map((page, sourcePageIndex) => {
         const pageText = page.text ?? '';
+        const pageTextBytes = Buffer.byteLength(pageText, 'utf8');
+        if (pageTextBytes > SEARCH_WORKER_MAX_PAGE_TEXT_BYTES) {
+            throw new Error(
+                `Search index page ${page.pageNumber} is too large (${Math.round(pageTextBytes / 1024)}KB > `
+                + `${Math.round(SEARCH_WORKER_MAX_PAGE_TEXT_BYTES / 1024)}KB limit)`,
+            );
+        }
+
+        const lowerText = pageText ? pageText.toLowerCase() : '';
+        const lowerTextBytes = Buffer.byteLength(lowerText, 'utf8');
+        totalResidentTextBytes += pageTextBytes + lowerTextBytes;
+        if (totalResidentTextBytes > SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES) {
+            throw new Error(
+                `Search index resident text budget exceeded (${Math.round(totalResidentTextBytes / (1024 * 1024))}MB > `
+                + `${Math.round(SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES / (1024 * 1024))}MB limit)`,
+            );
+        }
+
         return {
             pageNumber: page.pageNumber,
-            text: pageText,
-            lowerText: pageText ? pageText.toLowerCase() : '',
+            sourcePageIndex,
+            lowerText,
         };
     });
 
@@ -525,7 +558,8 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
                 continue;
             }
 
-            const pageText = page.text;
+            const sourcePage = indexEntry.index.pages[page.sourcePageIndex];
+            const pageText = sourcePage?.text ?? '';
 
             if (pageText) {
                 const lowerPageText = page.lowerText;

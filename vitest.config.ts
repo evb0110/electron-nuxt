@@ -31,15 +31,15 @@ export default defineConfig({
                 'lcov',
             ],
             thresholds: {
-                statements: 50,
-                branches: 40,
-                functions: 53,
-                lines: 50,
+                statements: 54,
+                branches: 42,
+                functions: 55,
+                lines: 54,
                 'electron/**/*.ts': {
-                    statements: 55,
-                    branches: 44,
-                    functions: 55,
-                    lines: 55,
+                    statements: 58,
+                    branches: 46,
+                    functions: 57,
+                    lines: 58,
                 },
                 'app/composables/page/**/*.ts': {
                     statements: 68,

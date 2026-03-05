@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { app } from 'electron';
 import electronUpdater from 'electron-updater';
@@ -29,6 +29,7 @@ const UPDATER_SUPPORTED_PLATFORMS = new Set([
 const METADATA_REQUEST_TIMEOUT_MS = 10_000;
 const MIN_POLL_INTERVAL_MS = 60_000;
 const MAX_JITTER_RATIO = 0.12;
+const CODESIGN_CHECK_TIMEOUT_MS = 5_000;
 
 const defaultStatus: IAppUpdateStatus = {
     phase: 'idle',
@@ -46,6 +47,10 @@ let currentCheckPromise: Promise<void> | null = null;
 let currentCheckOrigin: TAppUpdateCheckOrigin = 'auto';
 let downloadedVersion: string | null = null;
 let pendingVersion: string | null = null;
+let codeSignatureCheckPromise: Promise<boolean> | null = null;
+let codeSignatureValid: boolean | null = null;
+let listenersRegistered = false;
+const autoUpdaterListenerUnsubscribe: Array<() => void> = [];
 
 function normalizeVersion(version: string | null | undefined) {
     if (!version) {
@@ -92,49 +97,107 @@ function updateStatus(next: Partial<IAppUpdateStatus>) {
     emitStatus(status);
 }
 
-let codeSignatureValid: boolean | null = null;
+function isUpdaterRuntimeSupported() {
+    return app.isPackaged && UPDATER_SUPPORTED_PLATFORMS.has(process.platform);
+}
 
-function hasValidCodeSignature() {
-    if (codeSignatureValid !== null) {
-        return codeSignatureValid;
-    }
-
-    try {
+async function checkMacCodeSignature() {
+    return new Promise<boolean>((resolve) => {
         const appBundle = path.resolve(process.execPath, '..', '..', '..');
-        const result = spawnSync('codesign', [
+        const child = spawn('codesign', [
             '-d',
             '--verbose=2',
             appBundle,
         ], {
-            encoding: 'utf8',
-            timeout: 5000,
+            shell: false,
+            windowsHide: true,
+            stdio: [
+                'ignore',
+                'ignore',
+                'pipe',
+            ],
         });
-        if (result.status !== 0) {
-            codeSignatureValid = false;
-        } else {
-            codeSignatureValid = !(result.stderr || '').includes('Signature=adhoc');
-        }
-    } catch {
-        codeSignatureValid = false;
-    }
 
-    if (!codeSignatureValid) {
-        logger.info('Ad-hoc code signature detected; auto-updates require Developer ID signing');
-    }
+        let stderr = '';
+        let finished = false;
+        let timeoutHandle: NodeJS.Timeout | null = setTimeout(() => {
+            timeoutHandle = null;
+            if (finished) {
+                return;
+            }
+            finished = true;
+            try {
+                child.kill('SIGKILL');
+            } catch {
+                // Ignore kill failures after timeout.
+            }
+            resolve(false);
+        }, CODESIGN_CHECK_TIMEOUT_MS);
+        timeoutHandle.unref?.();
 
-    return codeSignatureValid;
+        child.stderr?.on('data', (chunk: Buffer) => {
+            stderr += chunk.toString();
+        });
+
+        child.once('error', () => {
+            if (finished) {
+                return;
+            }
+            finished = true;
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+            }
+            resolve(false);
+        });
+
+        child.once('close', (code) => {
+            if (finished) {
+                return;
+            }
+            finished = true;
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+            }
+            if (code !== 0) {
+                resolve(false);
+                return;
+            }
+            resolve(!stderr.includes('Signature=adhoc'));
+        });
+    });
 }
 
-function isUpdaterSupported() {
-    if (!app.isPackaged || !UPDATER_SUPPORTED_PLATFORMS.has(process.platform)) {
+async function ensureUpdaterSupported() {
+    if (!isUpdaterRuntimeSupported()) {
         return false;
     }
-
-    if (process.platform === 'darwin' && !hasValidCodeSignature()) {
-        return false;
+    if (process.platform !== 'darwin') {
+        return true;
+    }
+    if (codeSignatureValid !== null) {
+        return codeSignatureValid;
     }
 
-    return true;
+    if (!codeSignatureCheckPromise) {
+        codeSignatureCheckPromise = checkMacCodeSignature()
+            .then((valid) => {
+                codeSignatureValid = valid;
+                if (!valid) {
+                    logger.info('Ad-hoc code signature detected; auto-updates require Developer ID signing');
+                }
+                return valid;
+            })
+            .catch(() => {
+                codeSignatureValid = false;
+                logger.info('Unable to validate macOS code signature; updater disabled');
+                return false;
+            })
+            .finally(() => {
+                codeSignatureCheckPromise = null;
+            });
+    }
+
+    return codeSignatureCheckPromise;
 }
 
 function isAbortError(error: unknown) {
@@ -174,7 +237,7 @@ async function fetchLatestMetadataVersion() {
 }
 
 function scheduleNextPoll() {
-    if (!isUpdaterSupported()) {
+    if (!isUpdaterRuntimeSupported()) {
         return;
     }
 
@@ -199,10 +262,14 @@ function scheduleNextPoll() {
 }
 
 function setAutoUpdaterListeners() {
+    if (listenersRegistered) {
+        return;
+    }
+    listenersRegistered = true;
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = false;
 
-    autoUpdater.on('checking-for-update', () => {
+    const onCheckingForUpdate = () => {
         updateStatus({
             phase: 'checking',
             origin: currentCheckOrigin,
@@ -210,9 +277,13 @@ function setAutoUpdaterListeners() {
             percent: null,
             message: null,
         });
+    };
+    autoUpdater.on('checking-for-update', onCheckingForUpdate);
+    autoUpdaterListenerUnsubscribe.push(() => {
+        autoUpdater.removeListener('checking-for-update', onCheckingForUpdate);
     });
 
-    autoUpdater.on('update-available', (info: UpdateInfo) => {
+    const onUpdateAvailable = (info: UpdateInfo) => {
         const version = normalizeVersion(info.version) || pendingVersion;
         pendingVersion = version || null;
         updateStatus({
@@ -222,9 +293,13 @@ function setAutoUpdaterListeners() {
             percent: 0,
             message: null,
         });
+    };
+    autoUpdater.on('update-available', onUpdateAvailable);
+    autoUpdaterListenerUnsubscribe.push(() => {
+        autoUpdater.removeListener('update-available', onUpdateAvailable);
     });
 
-    autoUpdater.on('download-progress', (progress: ProgressInfo) => {
+    const onDownloadProgress = (progress: ProgressInfo) => {
         updateStatus({
             phase: 'downloading',
             origin: currentCheckOrigin,
@@ -232,9 +307,13 @@ function setAutoUpdaterListeners() {
             percent: progress.percent,
             message: null,
         });
+    };
+    autoUpdater.on('download-progress', onDownloadProgress);
+    autoUpdaterListenerUnsubscribe.push(() => {
+        autoUpdater.removeListener('download-progress', onDownloadProgress);
     });
 
-    autoUpdater.on('update-not-available', (info: UpdateInfo) => {
+    const onUpdateNotAvailable = (info: UpdateInfo) => {
         pendingVersion = null;
         if (currentCheckOrigin !== 'manual') {
             return;
@@ -247,9 +326,13 @@ function setAutoUpdaterListeners() {
             percent: null,
             message: null,
         });
+    };
+    autoUpdater.on('update-not-available', onUpdateNotAvailable);
+    autoUpdaterListenerUnsubscribe.push(() => {
+        autoUpdater.removeListener('update-not-available', onUpdateNotAvailable);
     });
 
-    autoUpdater.on('error', (error) => {
+    const onUpdaterError = (error: unknown) => {
         logger.error(`Updater error: ${error instanceof Error ? error.message : String(error)}`);
         if (currentCheckOrigin !== 'manual') {
             pendingVersion = null;
@@ -270,9 +353,13 @@ function setAutoUpdaterListeners() {
             percent: null,
             message: error instanceof Error ? error.message : String(error),
         });
+    };
+    autoUpdater.on('error', onUpdaterError);
+    autoUpdaterListenerUnsubscribe.push(() => {
+        autoUpdater.removeListener('error', onUpdaterError);
     });
 
-    autoUpdater.on('update-downloaded', async (event: UpdateDownloadedEvent) => {
+    const onUpdateDownloaded = async (event: UpdateDownloadedEvent) => {
         try {
             const version = normalizeVersion(event.version) || pendingVersion;
             pendingVersion = version || null;
@@ -313,6 +400,10 @@ function setAutoUpdaterListeners() {
                 message: error instanceof Error ? error.message : String(error),
             });
         }
+    };
+    autoUpdater.on('update-downloaded', onUpdateDownloaded);
+    autoUpdaterListenerUnsubscribe.push(() => {
+        autoUpdater.removeListener('update-downloaded', onUpdateDownloaded);
     });
 }
 
@@ -360,7 +451,7 @@ async function shouldRunUpdaterCheck(origin: TAppUpdateCheckOrigin) {
 
 async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
     try {
-        if (!isUpdaterSupported()) {
+        if (!isUpdaterRuntimeSupported()) {
             if (origin === 'manual') {
                 updateStatus({
                     phase: 'unsupported',
@@ -368,6 +459,26 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                     version: normalizeVersion(app.getVersion()) || null,
                     percent: null,
                     message: 'Updates are available only in packaged macOS/Windows builds.',
+                });
+            }
+            return;
+        }
+        if (!await ensureUpdaterSupported()) {
+            if (origin === 'manual') {
+                updateStatus({
+                    phase: 'unsupported',
+                    origin: 'manual',
+                    version: normalizeVersion(app.getVersion()) || null,
+                    percent: null,
+                    message: 'Updates require a signed packaged build.',
+                });
+            } else {
+                updateStatus({
+                    phase: 'unsupported',
+                    origin: 'auto',
+                    version: normalizeVersion(app.getVersion()) || null,
+                    percent: null,
+                    message: null,
                 });
             }
             return;
@@ -451,7 +562,7 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
 
     setAutoUpdaterListeners();
 
-    if (!isUpdaterSupported()) {
+    if (!isUpdaterRuntimeSupported()) {
         logger.info('Automatic updates disabled in this runtime');
         updateStatus({
             phase: 'unsupported',
@@ -461,6 +572,29 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
             message: null,
         });
         return;
+    }
+
+    if (process.platform === 'darwin') {
+        void ensureUpdaterSupported()
+            .then((supported) => {
+                if (supported) {
+                    return;
+                }
+                if (pollTimer) {
+                    clearTimeout(pollTimer);
+                    pollTimer = null;
+                }
+                updateStatus({
+                    phase: 'unsupported',
+                    origin: 'auto',
+                    version: normalizeVersion(app.getVersion()) || null,
+                    percent: null,
+                    message: null,
+                });
+            })
+            .catch((error) => {
+                logger.warn(`Updater signature check failed: ${error instanceof Error ? error.message : String(error)}`);
+            });
     }
 
     const initialDelayMs = Math.max(config.updates.initialDelayMs, 1000);
@@ -529,4 +663,28 @@ export async function skipUpdateVersion(version: string) {
         percent: null,
         message: null,
     });
+}
+
+export async function shutdownUpdates() {
+    if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+    }
+
+    if (currentCheckPromise) {
+        try {
+            await currentCheckPromise;
+        } catch {
+            // Ignore in-flight check failures during shutdown.
+        }
+    }
+
+    for (const unsubscribe of autoUpdaterListenerUnsubscribe.splice(0)) {
+        try {
+            unsubscribe();
+        } catch {
+            // Ignore listener cleanup failures.
+        }
+    }
+    listenersRegistered = false;
 }
