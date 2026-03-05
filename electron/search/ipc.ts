@@ -143,6 +143,44 @@ function parseSearchRequestPayload(raw: unknown): {
     };
 }
 
+function parseWarmIndexPayload(raw: unknown): {
+    pdfPath: string;
+    pageCount?: number;
+    requestId?: string;
+} {
+    if (!isRecord(raw)) {
+        throw new Error('Invalid warm-index payload');
+    }
+
+    const pdfPath = typeof raw.pdfPath === 'string' ? raw.pdfPath.trim() : '';
+    if (!pdfPath) {
+        throw new Error('Invalid PDF path');
+    }
+
+    let pageCount: number | undefined;
+    if (raw.pageCount !== undefined) {
+        if (
+            typeof raw.pageCount !== 'number'
+            || !Number.isSafeInteger(raw.pageCount)
+            || raw.pageCount < 1
+            || raw.pageCount > SEARCH_PAGE_COUNT_MAX
+        ) {
+            throw new Error(`Invalid pageCount: must be an integer between 1 and ${SEARCH_PAGE_COUNT_MAX}`);
+        }
+        pageCount = raw.pageCount;
+    }
+
+    const requestId = typeof raw.requestId === 'string' && raw.requestId.trim().length > 0
+        ? raw.requestId.trim()
+        : undefined;
+
+    return {
+        pdfPath,
+        pageCount,
+        requestId,
+    };
+}
+
 function parseSearchExcerpt(value: unknown) {
     if (!isRecord(value)) {
         return null;
@@ -630,38 +668,23 @@ export async function resolveSearchablePdfPath(pdfPath: string): Promise<string 
     return resolveAllowedReadPath(mappedWorkingCopyPath);
 }
 
-async function handlePdfSearch(
+interface IDispatchSearchRequestPayload {
+    resolvedPdfPath: string;
+    query: string;
+    pageCount?: number;
+    requestId?: string;
+    warmup?: boolean;
+    requestIdPrefix: string;
+}
+
+function dispatchSearchRequest(
     event: IpcMainInvokeEvent,
-    request: unknown,
+    payload: IDispatchSearchRequestPayload,
 ): Promise<ISearchResponse> {
-    const parsedRequest = parseSearchRequestPayload(request);
-    const {
-        pdfPath,
-        query,
-        pageCount,
-    } = parsedRequest;
-
-    if (!query || query.trim().length === 0) {
-        return {
-            results: [],
-            truncated: false,
-        };
-    }
-
-    const normalizedPdfPath = typeof pdfPath === 'string' ? pdfPath.trim() : '';
-    if (!normalizedPdfPath) {
-        throw new Error('Invalid PDF path');
-    }
-
-    const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath);
-    if (!resolvedPdfPath) {
-        throw new Error('Invalid PDF path: search only allowed within temp directory');
-    }
-
     const senderId = event.sender.id;
     const state = ensureSenderState(event, senderId);
-    const requestId = parsedRequest.requestId
-        || `search-${randomUUID()}`;
+    const requestId = payload.requestId
+        || `${payload.requestIdPrefix}-${randomUUID()}`;
     if (state.pendingByRequestId.has(requestId)) {
         throw new Error(`Search request with id "${requestId}" is already in progress`);
     }
@@ -705,9 +728,10 @@ async function handlePdfSearch(
                 type: 'search',
                 payload: {
                     requestId,
-                    pdfPath: resolvedPdfPath,
-                    query,
-                    pageCount,
+                    pdfPath: payload.resolvedPdfPath,
+                    query: payload.query,
+                    pageCount: payload.pageCount,
+                    warmup: payload.warmup,
                 },
             } satisfies TSearchWorkerInboundMessage);
         } catch (error) {
@@ -720,6 +744,70 @@ async function handlePdfSearch(
             scheduleIdleCleanup(state);
         }
     });
+}
+
+async function handlePdfSearch(
+    event: IpcMainInvokeEvent,
+    request: unknown,
+): Promise<ISearchResponse> {
+    const parsedRequest = parseSearchRequestPayload(request);
+    const {
+        pdfPath,
+        query,
+        pageCount,
+    } = parsedRequest;
+
+    if (!query || query.trim().length === 0) {
+        return {
+            results: [],
+            truncated: false,
+        };
+    }
+
+    const normalizedPdfPath = typeof pdfPath === 'string' ? pdfPath.trim() : '';
+    if (!normalizedPdfPath) {
+        throw new Error('Invalid PDF path');
+    }
+
+    const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath);
+    if (!resolvedPdfPath) {
+        throw new Error('Invalid PDF path: search only allowed within temp directory');
+    }
+
+    return dispatchSearchRequest(event, {
+        resolvedPdfPath,
+        query,
+        pageCount,
+        requestId: parsedRequest.requestId,
+        requestIdPrefix: 'search',
+    });
+}
+
+async function handlePdfSearchWarmIndex(
+    event: IpcMainInvokeEvent,
+    request: unknown,
+): Promise<boolean> {
+    const parsedRequest = parseWarmIndexPayload(request);
+    const normalizedPdfPath = parsedRequest.pdfPath.trim();
+    if (!normalizedPdfPath) {
+        throw new Error('Invalid PDF path');
+    }
+
+    const resolvedPdfPath = await resolveSearchablePdfPath(normalizedPdfPath);
+    if (!resolvedPdfPath) {
+        throw new Error('Invalid PDF path: search only allowed within temp directory');
+    }
+
+    await dispatchSearchRequest(event, {
+        resolvedPdfPath,
+        query: '',
+        pageCount: parsedRequest.pageCount,
+        requestId: parsedRequest.requestId,
+        warmup: true,
+        requestIdPrefix: 'search-warm',
+    });
+
+    return true;
 }
 
 function handlePdfSearchCancel(
@@ -749,6 +837,7 @@ export function registerSearchHandlers(registrar: IIpcMainHandleRegistrar = ipcM
         + `(requestTimeoutMs=${SEARCH_REQUEST_TIMEOUT_MS}, idleTtlMs=${SEARCH_WORKER_IDLE_TTL_MS}, maxActive=${SEARCH_WORKER_MAX_ACTIVE})`,
     );
     registrar.handle('pdf:search', handlePdfSearch);
+    registrar.handle('pdf:search:warmIndex', handlePdfSearchWarmIndex);
     registrar.handle('pdf:search:cancel', handlePdfSearchCancel);
     registrar.handle('pdf:search:resetCache', () => {
         for (const state of senderSearchStates.values()) {

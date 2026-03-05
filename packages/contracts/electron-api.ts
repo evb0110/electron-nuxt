@@ -371,6 +371,13 @@ export interface ISearchCapability {
             pageCount?: number;
         },
     ) => Promise<IPdfSearchResponse>;
+    warmIndex: (
+        pdfPath: string,
+        options?: {
+            requestId?: string;
+            pageCount?: number;
+        },
+    ) => Promise<boolean>;
     cancel: (requestId?: string) => Promise<{ canceled: boolean }>;
     onProgress: (callback: (progress: IPdfSearchProgress) => void) => () => void;
     resetCache: () => Promise<boolean>;

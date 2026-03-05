@@ -22,7 +22,14 @@ type TCachedIndex = {
     mtimeMs: number;
     index: IPdfSearchIndex;
     accessedAt: number;
+    preparedPages: IPreparedSearchPage[] | null;
 };
+
+interface IPreparedSearchPage {
+    pageNumber: number;
+    text: string;
+    lowerText: string;
+}
 
 const PROGRESS_THROTTLE_MS = 60;
 const SEARCH_INDEX_CACHE_MAX_ENTRIES = (() => {
@@ -83,11 +90,13 @@ function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
         return null;
     }
     const pageCount = isFiniteNumber(value.pageCount) ? value.pageCount : undefined;
+    const warmup = typeof value.warmup === 'boolean' ? value.warmup : undefined;
     return {
         requestId: value.requestId,
         pdfPath: value.pdfPath,
         query: value.query,
         pageCount,
+        warmup,
     };
 }
 
@@ -311,6 +320,7 @@ async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
         mtimeMs,
         index,
         accessedAt: now,
+        preparedPages: null,
     };
     indexCache.set(pdfPath, entry);
     pruneIndexCache(now);
@@ -335,6 +345,7 @@ async function cacheBuiltIndex(
         mtimeMs,
         index,
         accessedAt: now,
+        preparedPages: null,
     };
     indexCache.set(pdfPath, entry);
     pruneIndexCache(now);
@@ -411,12 +422,31 @@ async function ensureSearchIndex(
     return entry;
 }
 
+function ensurePreparedSearchPages(entry: TCachedIndex): IPreparedSearchPage[] {
+    if (entry.preparedPages) {
+        return entry.preparedPages;
+    }
+
+    const preparedPages = entry.index.pages.map((page) => {
+        const pageText = page.text ?? '';
+        return {
+            pageNumber: page.pageNumber,
+            text: pageText,
+            lowerText: pageText ? pageText.toLowerCase() : '',
+        };
+    });
+
+    entry.preparedPages = preparedPages;
+    return preparedPages;
+}
+
 async function processSearchRequest(request: ISearchWorkerRequest) {
     const {
         requestId,
         pdfPath,
         query,
         pageCount,
+        warmup,
     } = request;
 
     const abortController = new AbortController();
@@ -433,7 +463,9 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
         }
         throwIfCancelled(requestId, signal);
 
-        if (!query || query.trim().length === 0) {
+        const normalizedQuery = query.trim();
+        const shouldWarmup = warmup === true;
+        if (normalizedQuery.length === 0 && !shouldWarmup) {
             throwIfCancelled(requestId, signal);
             postMessage({
                 type: 'complete',
@@ -446,13 +478,27 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
             return;
         }
 
-        const normalizedQuery = query.trim();
-        const lowerQuery = normalizedQuery.toLowerCase();
         const indexEntry = await ensureSearchIndex(requestId, pdfPath, {
             pageCount,
             signal,
         });
         throwIfCancelled(requestId, signal);
+        const preparedPages = ensurePreparedSearchPages(indexEntry);
+
+        if (shouldWarmup) {
+            throwIfCancelled(requestId, signal);
+            postMessage({
+                type: 'complete',
+                requestId,
+                response: {
+                    results: [],
+                    truncated: false,
+                },
+            });
+            return;
+        }
+
+        const lowerQuery = normalizedQuery.toLowerCase();
 
         const totalPages = typeof pageCount === 'number' && pageCount > 0
             ? pageCount
@@ -465,10 +511,10 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
         let processedCount = 0;
         let truncated = false;
 
-        for (let pageIdx = 0; pageIdx < indexEntry.index.pages.length; pageIdx += 1) {
+        for (let pageIdx = 0; pageIdx < preparedPages.length; pageIdx += 1) {
             throwIfCancelled(requestId, signal);
 
-            const page = indexEntry.index.pages[pageIdx];
+            const page = preparedPages[pageIdx];
             if (!page) {
                 continue;
             }
@@ -479,10 +525,10 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
                 continue;
             }
 
-            const pageText = page.text ?? '';
+            const pageText = page.text;
 
             if (pageText) {
-                const lowerPageText = pageText.toLowerCase();
+                const lowerPageText = page.lowerText;
                 let position = 0;
                 let pageMatchIndex = 0;
 

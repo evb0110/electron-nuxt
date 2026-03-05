@@ -1,5 +1,6 @@
 export const SEARCH_CHANNELS = {
     search: 'pdf:search',
+    warmIndex: 'pdf:search:warmIndex',
     cancel: 'pdf:search:cancel',
     resetCache: 'pdf:search:resetCache',
 } as const;
