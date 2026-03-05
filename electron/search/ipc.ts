@@ -9,6 +9,7 @@ import {
     webContents,
 } from 'electron';
 import { existsSync } from 'fs';
+import { stat } from 'fs/promises';
 import {
     dirname,
     join,
@@ -75,6 +76,13 @@ const SEARCH_PAGE_COUNT_MAX = (() => {
     }
     return Math.min(parsed, 1_000_000);
 })();
+const SEARCH_PDF_MAX_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_PDF_MAX_BYTES ?? `${256 * 1024 * 1024}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 1024 * 1024) {
+        return 256 * 1024 * 1024;
+    }
+    return Math.min(parsed, 2 * 1024 * 1024 * 1024);
+})();
 const SEARCH_WORKER_TERMINATE_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_TERMINATE_TIMEOUT_MS ?? '10_000', 10);
     if (!Number.isFinite(parsed) || parsed < 1_000) {
@@ -85,6 +93,13 @@ const SEARCH_WORKER_TERMINATE_TIMEOUT_MS = (() => {
 const workerTerminationPromises = new Map<number, Promise<void>>();
 
 type TSearchMatch = ISearchResponse['results'][number];
+
+class SearchPdfTooLargeError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'SearchPdfTooLargeError';
+    }
+}
 
 function assertNever(value: never): never {
     throw new Error(`Unhandled search worker message: ${JSON.stringify(value)}`);
@@ -746,6 +761,26 @@ function dispatchSearchRequest(
     });
 }
 
+async function assertSearchPdfWithinLimits(pdfPath: string) {
+    try {
+        const fileStat = await stat(pdfPath);
+        if (!fileStat.isFile()) {
+            return;
+        }
+        if (fileStat.size > SEARCH_PDF_MAX_BYTES) {
+            throw new SearchPdfTooLargeError(
+                `PDF is too large for in-app search (${Math.round(fileStat.size / (1024 * 1024))}MB > `
+                + `${Math.round(SEARCH_PDF_MAX_BYTES / (1024 * 1024))}MB limit)`,
+            );
+        }
+    } catch (error) {
+        if (error instanceof SearchPdfTooLargeError) {
+            throw error;
+        }
+        log.warn(`Unable to verify search PDF size limit for ${pdfPath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
 async function handlePdfSearch(
     event: IpcMainInvokeEvent,
     request: unknown,
@@ -773,6 +808,7 @@ async function handlePdfSearch(
     if (!resolvedPdfPath) {
         throw new Error('Invalid PDF path: search only allowed within temp directory');
     }
+    await assertSearchPdfWithinLimits(resolvedPdfPath);
 
     return dispatchSearchRequest(event, {
         resolvedPdfPath,
@@ -797,6 +833,7 @@ async function handlePdfSearchWarmIndex(
     if (!resolvedPdfPath) {
         throw new Error('Invalid PDF path: search only allowed within temp directory');
     }
+    await assertSearchPdfWithinLimits(resolvedPdfPath);
 
     await dispatchSearchRequest(event, {
         resolvedPdfPath,

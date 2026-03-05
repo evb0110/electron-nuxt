@@ -8,6 +8,9 @@ import {
 } from 'fs';
 import {
     copyFile,
+    readdir,
+    rm,
+    stat,
     writeFile,
 } from 'fs/promises';
 import {
@@ -28,6 +31,20 @@ const ALLOWED_SAVE_EXTENSIONS = new Set([
     '.djvu',
     '.djv',
 ]);
+const STALE_WORK_DIR_MAX_AGE_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_WORKING_COPY_STALE_MAX_AGE_MS ?? `${24 * 60 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 60_000) {
+        return 24 * 60 * 60 * 1000;
+    }
+    return parsed;
+})();
+const STALE_WORK_DIR_SCAN_LIMIT = (() => {
+    const parsed = Number.parseInt(process.env.EVB_WORKING_COPY_STALE_SCAN_LIMIT ?? '512', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 512;
+    }
+    return Math.min(parsed, 10_000);
+})();
 
 export const workingCopyMap = new Map<string, string>();
 
@@ -73,6 +90,98 @@ function createWorkingDirectory() {
     return workDir;
 }
 
+function isWorkingCopyDirectoryName(name: string) {
+    return name.startsWith('pdf-work-');
+}
+
+async function safeRemoveDirectory(path: string) {
+    if (!existsSync(path)) {
+        return false;
+    }
+
+    try {
+        await rm(path, {
+            recursive: true,
+            force: true,
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export async function cleanupStaleWorkingCopyDirectories() {
+    const tempDir = resolve(app.getPath('temp'));
+    let entries: string[] = [];
+    try {
+        entries = await readdir(tempDir);
+    } catch {
+        return {
+            removedDirectories: 0,
+            removedOcrDirectories: 0,
+        };
+    }
+
+    let removedDirectories = 0;
+    let removedOcrDirectories = 0;
+    let scannedCount = 0;
+    const now = Date.now();
+
+    for (const entryName of entries) {
+        if (scannedCount >= STALE_WORK_DIR_SCAN_LIMIT) {
+            break;
+        }
+        if (!isWorkingCopyDirectoryName(entryName) || entryName.endsWith('.ocr')) {
+            continue;
+        }
+        scannedCount += 1;
+
+        const workDir = resolve(join(tempDir, entryName));
+        const relativePath = relative(tempDir, workDir);
+        const isWithinTemp = (
+            relativePath !== '..'
+            && !relativePath.startsWith(`..${sep}`)
+            && !isAbsolute(relativePath)
+        );
+        if (!isWithinTemp) {
+            continue;
+        }
+
+        let workDirStat: Awaited<ReturnType<typeof stat>> | null = null;
+        try {
+            workDirStat = await stat(workDir);
+        } catch {
+            continue;
+        }
+        if (!workDirStat.isDirectory()) {
+            continue;
+        }
+        if (now - workDirStat.mtimeMs < STALE_WORK_DIR_MAX_AGE_MS) {
+            continue;
+        }
+
+        if (await safeRemoveDirectory(workDir)) {
+            removedDirectories += 1;
+        }
+
+        const ocrDir = `${workDir}.ocr`;
+        if (await safeRemoveDirectory(ocrDir)) {
+            removedOcrDirectories += 1;
+        }
+    }
+
+    if (removedDirectories > 0 || removedOcrDirectories > 0) {
+        logger.info(
+            `Cleaned stale working copy temp directories (work=${removedDirectories}, ocr=${removedOcrDirectories}, scanned=${scannedCount})`,
+        );
+    }
+
+    return {
+        removedDirectories,
+        removedOcrDirectories,
+    };
+}
+
 async function copyFileCopyOnWrite(sourcePath: string, targetPath: string) {
     try {
         await copyFile(sourcePath, targetPath, fsConstants.COPYFILE_FICLONE_FORCE);
@@ -93,14 +202,18 @@ async function copyFileCopyOnWrite(sourcePath: string, targetPath: string) {
 
 export async function createWorkingCopy(originalPath: string): Promise<string> {
     const workDir = createWorkingDirectory();
+    try {
+        const fileName = basename(originalPath);
+        const workingPath = join(workDir, fileName);
+        await copyFileCopyOnWrite(originalPath, workingPath);
 
-    const fileName = basename(originalPath);
-    const workingPath = join(workDir, fileName);
-    await copyFileCopyOnWrite(originalPath, workingPath);
+        workingCopyMap.set(workingPath, originalPath);
 
-    workingCopyMap.set(workingPath, originalPath);
-
-    return workingPath;
+        return workingPath;
+    } catch (error) {
+        await safeRemoveDirectory(workDir);
+        throw error;
+    }
 }
 
 export async function createWorkingCopyFromPath(
@@ -112,24 +225,30 @@ export async function createWorkingCopyFromPath(
         throw new Error('Invalid source path');
     }
 
-    const workDir = createWorkingDirectory();
-    const fileName = basename(normalizedSourcePath);
-    const normalizedName = fileName.toLowerCase().endsWith('.pdf')
-        ? fileName
-        : `${fileName}.pdf`;
-    const workingPath = join(workDir, normalizedName);
-
-    await copyFileCopyOnWrite(normalizedSourcePath, workingPath);
-
     const mappedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
         ? originalPath.trim()
         : normalizedSourcePath;
     if (!isAllowedOriginalSavePath(mappedOriginalPath)) {
         throw new Error('Invalid original path mapping');
     }
-    workingCopyMap.set(workingPath, mappedOriginalPath);
 
-    return workingPath;
+    const workDir = createWorkingDirectory();
+    try {
+        const fileName = basename(normalizedSourcePath);
+        const normalizedName = fileName.toLowerCase().endsWith('.pdf')
+            ? fileName
+            : `${fileName}.pdf`;
+        const workingPath = join(workDir, normalizedName);
+
+        await copyFileCopyOnWrite(normalizedSourcePath, workingPath);
+
+        workingCopyMap.set(workingPath, mappedOriginalPath);
+
+        return workingPath;
+    } catch (error) {
+        await safeRemoveDirectory(workDir);
+        throw error;
+    }
 }
 
 export async function createWorkingCopyFromData(
@@ -137,23 +256,32 @@ export async function createWorkingCopyFromData(
     data: Uint8Array,
     originalPath?: string,
 ): Promise<string> {
-    const workDir = createWorkingDirectory();
-    const normalizedName = basename(fileName).toLowerCase().endsWith('.pdf')
-        ? basename(fileName)
-        : `${basename(fileName)}.pdf`;
-    const workingPath = join(workDir, normalizedName);
-
-    await writeFile(workingPath, data);
-
-    if (originalPath) {
-        const normalizedOriginalPath = originalPath.trim();
-        if (!isAllowedOriginalSavePath(normalizedOriginalPath)) {
-            throw new Error('Invalid original path mapping');
-        }
-        workingCopyMap.set(workingPath, normalizedOriginalPath);
+    const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
+        ? originalPath.trim()
+        : null;
+    if (normalizedOriginalPath && !isAllowedOriginalSavePath(normalizedOriginalPath)) {
+        throw new Error('Invalid original path mapping');
     }
 
-    return workingPath;
+    const workDir = createWorkingDirectory();
+    try {
+        const baseName = basename(fileName);
+        const normalizedName = baseName.toLowerCase().endsWith('.pdf')
+            ? baseName
+            : `${baseName}.pdf`;
+        const workingPath = join(workDir, normalizedName);
+
+        await writeFile(workingPath, data);
+
+        if (normalizedOriginalPath) {
+            workingCopyMap.set(workingPath, normalizedOriginalPath);
+        }
+
+        return workingPath;
+    } catch (error) {
+        await safeRemoveDirectory(workDir);
+        throw error;
+    }
 }
 
 export async function handleFileSave(

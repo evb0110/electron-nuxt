@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type * as FsPromises from 'fs/promises';
 
 type TRegisteredHandler = (...args: unknown[]) => unknown;
 
@@ -32,6 +33,7 @@ const mocks = vi.hoisted(() => ({
         error: vi.fn(),
     },
     autoCompleteSearch: true,
+    stat: vi.fn(),
 }));
 
 function emitWorkerEvent(
@@ -117,6 +119,13 @@ vi.mock('electron', () => ({
 vi.mock('@electron/utils/path-validator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 vi.mock('@electron/ipc/workingCopy', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
+vi.mock('fs/promises', async () => {
+    const actual = await vi.importActual<typeof FsPromises>('fs/promises');
+    return {
+        ...actual,
+        stat: (...args: unknown[]) => mocks.stat(...args),
+    };
+});
 
 function createInvokeEvent(senderId: number) {
     const sender = {
@@ -150,9 +159,14 @@ describe('search IPC worker resource limits', () => {
         delete process.env.EVB_SEARCH_WORKER_MAX_ACTIVE;
         delete process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS;
         delete process.env.EVB_SEARCH_REQUEST_TIMEOUT_MS;
+        delete process.env.EVB_SEARCH_PDF_MAX_BYTES;
 
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/allowed.pdf');
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            size: 1024,
+        });
     });
 
     it('fails fast when cap is reached and no idle worker can be reused', async () => {
@@ -275,5 +289,27 @@ describe('search IPC worker resource limits', () => {
             truncated: false,
         });
         expect(mocks.workerRecords).toHaveLength(1);
+    });
+
+    it('rejects oversized PDFs before dispatching to the search worker', async () => {
+        process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '4';
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            size: 300 * 1024 * 1024,
+        });
+
+        const { registerSearchHandlers } = await import('@electron/search/ipc');
+        registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+
+        await expect(searchHandler(
+            createInvokeEvent(99),
+            {
+                pdfPath: '/tmp/large.pdf',
+                query: 'needle',
+                requestId: 'large-req',
+            },
+        )).rejects.toThrow('PDF is too large for in-app search');
+        expect(mocks.workerRecords).toHaveLength(0);
     });
 });

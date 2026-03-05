@@ -24,6 +24,7 @@ import {
     SERVER_READY_TIMEOUT_MS,
 } from '@electron/config/constants';
 import { createLogger } from '@electron/utils/logger';
+import { terminateProcessTree } from '@electron/utils/process-tree';
 
 const logger = createLogger('server');
 
@@ -33,26 +34,54 @@ let usingExternalServer = false;
 let stoppingServerPromise: Promise<void> | null = null;
 const SERVER_OWNERSHIP_FILE = 'nuxt-server-owner.json';
 const HAS_FIXED_SERVER_PORT = Boolean(process.env.EVB_SERVER_PORT?.trim());
-const SERVER_ISOLATED_PORT_RETRIES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SERVER_ISOLATED_PORT_RETRIES ?? '8', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 8;
+function parseIntegerEnv(
+    rawValue: string | undefined,
+    {
+        fallback,
+        min,
+        max,
+    }: {
+        fallback: number;
+        min: number;
+        max?: number;
+    },
+) {
+    const normalized = rawValue?.trim();
+    if (!normalized) {
+        return fallback;
     }
+    if (!/^\d+(?:_\d+)*$/.test(normalized)) {
+        return fallback;
+    }
+
+    const parsed = Number.parseInt(normalized.replaceAll('_', ''), 10);
+    if (!Number.isFinite(parsed) || parsed < min) {
+        return fallback;
+    }
+
+    if (typeof max === 'number') {
+        return Math.min(parsed, max);
+    }
+
     return parsed;
+}
+const SERVER_ISOLATED_PORT_RETRIES = (() => {
+    return parseIntegerEnv(process.env.EVB_SERVER_ISOLATED_PORT_RETRIES, {
+        fallback: 8,
+        min: 1,
+    });
 })();
 const SERVER_HEALTH_FETCH_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SERVER_HEALTH_FETCH_TIMEOUT_MS ?? '4000', 10);
-    if (!Number.isFinite(parsed) || parsed < 500) {
-        return 4_000;
-    }
-    return parsed;
+    return parseIntegerEnv(process.env.EVB_SERVER_HEALTH_FETCH_TIMEOUT_MS, {
+        fallback: 4_000,
+        min: 500,
+    });
 })();
 const SERVER_STOP_GRACE_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SERVER_STOP_GRACE_MS ?? '2_500', 10);
-    if (!Number.isFinite(parsed) || parsed < 500) {
-        return 2_500;
-    }
-    return parsed;
+    return parseIntegerEnv(process.env.EVB_SERVER_STOP_GRACE_MS, {
+        fallback: 2_500,
+        min: 500,
+    });
 })();
 
 interface IServerOwnershipMarker {
@@ -122,45 +151,6 @@ function clearOwnershipMarker() {
         }
     } catch (err) {
         logger.warn(`Failed to clear server ownership marker: ${err instanceof Error ? err.message : String(err)}`);
-    }
-}
-
-function isPidAlive(pid: number) {
-    if (!Number.isInteger(pid) || pid <= 0) {
-        return false;
-    }
-
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-async function terminateProcess(pid: number, graceMs = 2_500) {
-    if (!isPidAlive(pid) || pid === process.pid) {
-        return;
-    }
-
-    try {
-        process.kill(pid, 'SIGTERM');
-    } catch {
-        return;
-    }
-
-    const start = Date.now();
-    while (Date.now() - start < graceMs) {
-        if (!isPidAlive(pid)) {
-            return;
-        }
-        await delay(100);
-    }
-
-    try {
-        process.kill(pid, 'SIGKILL');
-    } catch {
-        // Ignore if process already exited.
     }
 }
 
@@ -307,6 +297,7 @@ export async function startServer() {
             'dev:nuxt',
         ], {
             shell: false,
+            detached: process.platform !== 'win32',
             stdio: [
                 'inherit',
                 'pipe',
@@ -321,6 +312,7 @@ export async function startServer() {
                 EVB_VIEWER_NUXT_INTERNAL: '1',
                 PORT: String(config.server.port),
             },
+            detached: process.platform !== 'win32',
             stdio: [
                 'inherit',
                 'pipe',
@@ -450,7 +442,10 @@ export async function stopServer() {
             const pid = processToStop.pid;
 
             if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
-                await terminateProcess(pid, SERVER_STOP_GRACE_MS);
+                await terminateProcessTree(pid, {
+                    graceMs: SERVER_STOP_GRACE_MS,
+                    preferProcessGroup: process.platform !== 'win32',
+                });
             } else {
                 try {
                     processToStop.kill('SIGTERM');

@@ -1,2 +1,5 @@
 export { registerIpcHandlers } from '@electron/ipc/registry';
-export { clearAllWorkingCopies } from '@electron/ipc/workingCopy';
+export {
+    clearAllWorkingCopies,
+    cleanupStaleWorkingCopyDirectories,
+} from '@electron/ipc/workingCopy';

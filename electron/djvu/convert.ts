@@ -23,6 +23,7 @@ import {
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
 import { describeProcessExitCode } from '@electron/utils/process-exit';
+import { terminateProcessTree } from '@electron/utils/process-tree';
 
 interface IDjvuConvertOptions {
     subsample?: number;
@@ -565,16 +566,17 @@ export function cancelConversion(jobId: string): boolean {
 }
 
 function killProcess(proc: ChildProcess) {
+    const pid = proc.pid;
+    if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
+        void terminateProcessTree(pid, {
+            graceMs: DJVU_KILL_GRACE_MS,
+            preferProcessGroup: process.platform !== 'win32',
+        });
+        return;
+    }
+
     try {
         proc.kill('SIGTERM');
-        const timer = setTimeout(() => {
-            try {
-                proc.kill('SIGKILL');
-            } catch {
-                // Already dead
-            }
-        }, DJVU_KILL_GRACE_MS);
-        timer.unref?.();
     } catch {
         // Process may have already exited
     }
@@ -627,22 +629,31 @@ async function runProcess(
     return new Promise((resolve) => {
         const timeoutMs = options.timeoutMs ?? DJVU_PROCESS_TIMEOUT_MS;
         const maxStderrBytes = options.maxStderrBytes ?? DJVU_MAX_STDERR_BYTES;
-        const proc = spawn(command, args, {
-            shell: false,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
-            ...(options.env ? { env: options.env } : {}),
-        });
+        let proc: ChildProcess;
+        try {
+            proc = spawn(command, args, {
+                shell: false,
+                detached: process.platform !== 'win32',
+                stdio: [
+                    'ignore',
+                    'pipe',
+                    'pipe',
+                ],
+                ...(options.env ? { env: options.env } : {}),
+            });
+        } catch (error) {
+            resolve({
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            return;
+        }
 
         activeProcesses.set(processId, proc);
         let stderr = '';
         let stderrTruncated = false;
         let settled = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
-        let killHandle: NodeJS.Timeout | null = null;
         let timedOut = false;
         let forceFinalizeHandle: NodeJS.Timeout | null = null;
 
@@ -658,10 +669,6 @@ async function runProcess(
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
                 timeoutHandle = null;
-            }
-            if (killHandle) {
-                clearTimeout(killHandle);
-                killHandle = null;
             }
             if (forceFinalizeHandle) {
                 clearTimeout(forceFinalizeHandle);
@@ -685,19 +692,19 @@ async function runProcess(
         if (timeoutMs > 0) {
             timeoutHandle = setTimeout(() => {
                 timedOut = true;
-                try {
-                    proc.kill('SIGTERM');
-                } catch {
-                    // Process may already be gone.
-                }
-                killHandle = setTimeout(() => {
+                const pid = proc.pid;
+                if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
+                    void terminateProcessTree(pid, {
+                        graceMs: DJVU_KILL_GRACE_MS,
+                        preferProcessGroup: process.platform !== 'win32',
+                    });
+                } else {
                     try {
-                        proc.kill('SIGKILL');
+                        proc.kill('SIGTERM');
                     } catch {
                         // Process may already be gone.
                     }
-                }, DJVU_KILL_GRACE_MS);
-                killHandle.unref?.();
+                }
                 // Guarantee settlement even if the child never emits 'close'/'error'
                 // after forced termination.
                 forceFinalizeHandle = setTimeout(() => {
