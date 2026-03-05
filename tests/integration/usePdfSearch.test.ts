@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => {
 
     const api = {search: {
         run: vi.fn(),
+        warmIndex: vi.fn(async () => true),
         cancel: vi.fn(async () => ({ canceled: true })),
         resetCache: vi.fn(async () => true),
         onProgress: vi.fn((handler: (payload: IProgressPayload) => void) => {

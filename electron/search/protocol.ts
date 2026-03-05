@@ -27,6 +27,7 @@ export interface ISearchWorkerRequest {
     pdfPath: string;
     query: string;
     pageCount?: number;
+    warmup?: boolean;
 }
 
 type TSearchWorkerInboundByType = {

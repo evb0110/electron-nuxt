@@ -21,6 +21,16 @@ export function createSearchPreloadClient(ipcRenderer: IpcRenderer) {
             query,
             ...options,
         }),
+        warmIndex: (
+            pdfPath: string,
+            options?: {
+                requestId?: string;
+                pageCount?: number;
+            },
+        ) => ipcRenderer.invoke(SEARCH_CHANNELS.warmIndex, {
+            pdfPath,
+            ...options,
+        }),
         cancel: (requestId?: string) => ipcRenderer.invoke(SEARCH_CHANNELS.cancel, requestId),
         onProgress: (callback: (progress: {
             requestId: string;
