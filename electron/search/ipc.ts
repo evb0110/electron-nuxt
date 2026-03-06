@@ -499,14 +499,14 @@ function cancelRequest(
         // Ignore send errors while cancelling
     }
 
+    if (state.activeRequestId === requestId) {
+        state.activeRequestId = null;
+    }
+
     resolvePendingRequest(state, requestId, {
         results: [],
         truncated: false,
     });
-
-    if (state.activeRequestId === requestId) {
-        state.activeRequestId = null;
-    }
 }
 
 function registerSenderCleanup(event: IpcMainInvokeEvent, senderId: number) {

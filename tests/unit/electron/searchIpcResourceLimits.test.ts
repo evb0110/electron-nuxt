@@ -147,6 +147,14 @@ function getSearchHandler() {
     return handler;
 }
 
+function getCancelHandler() {
+    const handler = mocks.handlers.get('pdf:search:cancel');
+    if (!handler) {
+        throw new Error('pdf:search:cancel handler is not registered');
+    }
+    return handler;
+}
+
 describe('search IPC worker resource limits', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -289,6 +297,48 @@ describe('search IPC worker resource limits', () => {
             truncated: false,
         });
         expect(mocks.workerRecords).toHaveLength(1);
+    });
+
+    it('re-arms idle cleanup after explicit cancel so the worker can be reclaimed', async () => {
+        vi.useFakeTimers();
+        process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS = '10000';
+        mocks.autoCompleteSearch = false;
+
+        try {
+            const { registerSearchHandlers } = await import('@electron/search/ipc');
+            registerSearchHandlers();
+            const searchHandler = getSearchHandler();
+            const cancelHandler = getCancelHandler();
+            const event = createInvokeEvent(41);
+
+            const searchPromise = searchHandler(
+                event,
+                {
+                    pdfPath: '/tmp/cancel-me.pdf',
+                    query: 'gamma',
+                    requestId: 'req-cancel',
+                },
+            ) as Promise<{
+                results: unknown[];
+                truncated: boolean;
+            }>;
+
+            await vi.waitFor(() => {
+                expect(mocks.workerRecords).toHaveLength(1);
+            });
+
+            expect(cancelHandler(event, 'req-cancel')).toEqual({ canceled: true });
+            await expect(searchPromise).resolves.toEqual({
+                results: [],
+                truncated: false,
+            });
+
+            await vi.advanceTimersByTimeAsync(10_000);
+
+            expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('rejects oversized PDFs before dispatching to the search worker', async () => {

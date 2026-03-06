@@ -25,7 +25,6 @@ interface IPdfjsDataRangeTransport {
     onDataRange: ReturnType<typeof vi.fn>;
     abort: ReturnType<typeof vi.fn>;
     requestDataRange: ((begin: number, end: number) => Promise<void>) | null;
-    onError?: (error: unknown) => void;
 }
 
 class MockPdfDataRangeTransport implements IPdfjsDataRangeTransport {
@@ -151,6 +150,63 @@ describe('usePdfDocument range loading', () => {
 
         expect(result).toBeNull();
         expect(documentState.isLoading.value).toBe(false);
+        expect(loggerError).toHaveBeenCalledWith(
+            'pdf-document',
+            'Failed to load PDF',
+            expect.any(Error),
+        );
+    });
+
+    it('fails the load instead of hanging when a later range read rejects', async () => {
+        const deferred = Promise.withResolvers<{
+            numPages: number;
+            getPage: ReturnType<typeof vi.fn>;
+            destroy: ReturnType<typeof vi.fn>;
+        }>();
+        const destroy = vi.fn(() => {
+            deferred.reject(new Error('range load aborted'));
+            return Promise.resolve();
+        });
+
+        pdfjsState.getDocument.mockReturnValue({
+            promise: deferred.promise,
+            destroy,
+        } as ILoadingTask);
+
+        electronApi.documents.readFileRange
+            .mockResolvedValueOnce(new Uint8Array([
+                1,
+                2,
+                3,
+                4,
+            ]))
+            .mockRejectedValueOnce(new Error('late range read failed'));
+
+        const documentState = usePdfDocument();
+        const loadPromise = documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/late-failure.pdf',
+            size: 1024 * 1024 * 3,
+        });
+
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
+        });
+
+        const getDocumentArg = pdfjsState.getDocument.mock.calls[0]?.[0] as { range?: MockPdfDataRangeTransport } | undefined;
+        expect(getDocumentArg?.range).toBeInstanceOf(MockPdfDataRangeTransport);
+
+        await getDocumentArg?.range?.requestDataRange?.(1024 * 1024, (1024 * 1024) + 512);
+
+        await expect(loadPromise).resolves.toBeNull();
+        expect(documentState.isLoading.value).toBe(false);
+        expect(documentState.pdfDocument.value).toBeNull();
+        expect(destroy).toHaveBeenCalledTimes(1);
+        expect(loggerError).toHaveBeenCalledWith(
+            'pdf-document',
+            'Failed to read PDF range chunk',
+            expect.any(Error),
+        );
         expect(loggerError).toHaveBeenCalledWith(
             'pdf-document',
             'Failed to load PDF',

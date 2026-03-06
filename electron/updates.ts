@@ -52,6 +52,10 @@ let codeSignatureValid: boolean | null = null;
 let listenersRegistered = false;
 const autoUpdaterListenerUnsubscribe: Array<() => void> = [];
 
+function getCurrentVersion() {
+    return normalizeVersion(app.getVersion()) || null;
+}
+
 function normalizeVersion(version: string | null | undefined) {
     if (!version) {
         return '';
@@ -95,6 +99,16 @@ function updateStatus(next: Partial<IAppUpdateStatus>) {
         ...next,
     };
     emitStatus(status);
+}
+
+function setIdleStatus(origin: TAppUpdateCheckOrigin, version: string | null = getCurrentVersion()) {
+    updateStatus({
+        phase: 'idle',
+        origin,
+        version,
+        percent: null,
+        message: null,
+    });
 }
 
 function isUpdaterRuntimeSupported() {
@@ -236,6 +250,33 @@ async function fetchLatestMetadataVersion() {
     return latestTag;
 }
 
+async function maybeClearSupersededDownloadedVersion() {
+    if (!downloadedVersion) {
+        return false;
+    }
+
+    try {
+        const latestVersion = await fetchLatestMetadataVersion();
+        if (compareVersions(latestVersion, downloadedVersion) <= 0) {
+            return false;
+        }
+
+        logger.info(
+            `Discarding cached downloaded update ${downloadedVersion} in favor of newer metadata release ${latestVersion}`,
+        );
+        downloadedVersion = null;
+        pendingVersion = latestVersion;
+        return true;
+    } catch (error) {
+        logger.warn(
+            `Unable to verify whether downloaded update ${downloadedVersion} is current: ${
+                error instanceof Error ? error.message : String(error)
+            }`,
+        );
+        return false;
+    }
+}
+
 function scheduleNextPoll() {
     if (!isUpdaterRuntimeSupported()) {
         return;
@@ -316,6 +357,7 @@ function setAutoUpdaterListeners() {
     const onUpdateNotAvailable = (info: UpdateInfo) => {
         pendingVersion = null;
         if (currentCheckOrigin !== 'manual') {
+            setIdleStatus('auto', normalizeVersion(info.version) || getCurrentVersion());
             return;
         }
 
@@ -336,13 +378,7 @@ function setAutoUpdaterListeners() {
         logger.error(`Updater error: ${error instanceof Error ? error.message : String(error)}`);
         if (currentCheckOrigin !== 'manual') {
             pendingVersion = null;
-            updateStatus({
-                phase: 'idle',
-                origin: 'auto',
-                version: normalizeVersion(app.getVersion()) || null,
-                percent: null,
-                message: null,
-            });
+            setIdleStatus('auto');
             return;
         }
 
@@ -428,6 +464,7 @@ async function shouldRunUpdaterCheck(origin: TAppUpdateCheckOrigin) {
     }
 
     if (compareVersions(latestVersion, currentVersion) <= 0) {
+        pendingVersion = null;
         return false;
     }
 
@@ -442,6 +479,7 @@ async function shouldRunUpdaterCheck(origin: TAppUpdateCheckOrigin) {
 
     if (skippedVersion && skippedVersion === latestVersion) {
         logger.info(`Skipping automatic prompt for ignored version ${latestVersion}`);
+        pendingVersion = null;
         return false;
     }
 
@@ -484,7 +522,25 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
             return;
         }
 
-        if (downloadedVersion) {
+        if (currentCheckPromise) {
+            if (origin === 'manual') {
+                updateStatus({
+                    phase: 'checking',
+                    origin: 'manual',
+                    version: pendingVersion,
+                    percent: null,
+                    message: null,
+                });
+                if (currentCheckOrigin === 'auto') {
+                    await currentCheckPromise;
+                    return checkForUpdates('manual');
+                }
+            }
+            return;
+        }
+
+        const supersededDownloadedVersion = await maybeClearSupersededDownloadedVersion();
+        if (downloadedVersion && !supersededDownloadedVersion) {
             const skippedVersion = await readSkippedVersion();
             if (!(origin === 'auto' && skippedVersion === downloadedVersion)) {
                 updateStatus({
@@ -498,23 +554,21 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
             return;
         }
 
-        if (currentCheckPromise) {
-            if (origin === 'manual') {
-                updateStatus({
-                    phase: 'checking',
-                    origin: 'manual',
-                    version: pendingVersion,
-                    percent: null,
-                    message: null,
-                });
-            }
-            return;
-        }
-
         currentCheckOrigin = origin;
         currentCheckPromise = (async () => {
             const shouldCheckBinary = await shouldRunUpdaterCheck(origin);
             if (!shouldCheckBinary) {
+                if (origin === 'manual') {
+                    updateStatus({
+                        phase: 'no-update',
+                        origin: 'manual',
+                        version: getCurrentVersion(),
+                        percent: null,
+                        message: null,
+                    });
+                } else {
+                    setIdleStatus('auto');
+                }
                 return;
             }
 
@@ -567,7 +621,7 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
         updateStatus({
             phase: 'unsupported',
             origin: 'auto',
-            version: normalizeVersion(app.getVersion()) || null,
+            version: getCurrentVersion(),
             percent: null,
             message: null,
         });
@@ -587,7 +641,7 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
                 updateStatus({
                     phase: 'unsupported',
                     origin: 'auto',
-                    version: normalizeVersion(app.getVersion()) || null,
+                    version: getCurrentVersion(),
                     percent: null,
                     message: null,
                 });
@@ -656,6 +710,8 @@ export async function skipUpdateVersion(version: string) {
     }
 
     await writeSkippedVersion(normalized);
+    downloadedVersion = null;
+    pendingVersion = null;
     updateStatus({
         phase: 'idle',
         origin: 'manual',

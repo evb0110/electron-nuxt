@@ -16,7 +16,31 @@ type TPdfDataRangeTransportCtor = new (
     length: number,
     initialData: Uint8Array,
 ) => PDFDataRangeTransport;
-type TPdfDataRangeTransport = PDFDataRangeTransport & {onError?: (error: unknown) => void;};
+
+function destroyPdfDocumentDeferred(
+    document: PDFDocumentProxy,
+    message: string,
+) {
+    try {
+        guardAsync(document.destroy(), {
+            scope: 'pdf-document',
+            message,
+            onError: (error) => {
+                BrowserLogger.error(
+                    'pdf-document',
+                    message,
+                    error,
+                );
+            },
+        });
+    } catch (error) {
+        BrowserLogger.error(
+            'pdf-document',
+            message,
+            error,
+        );
+    }
+}
 
 export const usePdfDocument = () => {
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
@@ -29,7 +53,7 @@ export const usePdfDocument = () => {
     const pdfPageCache = new Map<number, PDFPageProxy>();
     let objectUrl: string | null = null;
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
-    let rangeTransport: TPdfDataRangeTransport | null = null;
+    let rangeTransport: PDFDataRangeTransport | null = null;
 
     function getRenderVersion() {
         return renderVersion;
@@ -102,8 +126,22 @@ export const usePdfDocument = () => {
                 rangeTransport = new TransportCtor(
                     length,
                     initialData,
-                ) as TPdfDataRangeTransport;
+                );
                 const activeRangeTransport = rangeTransport;
+                let rejectRangeReadFailure: ((error: Error) => void) | null = null;
+                const rangeReadFailure = new Promise<never>((_resolve, reject) => {
+                    rejectRangeReadFailure = reject;
+                });
+
+                const failRangeRead = (error: unknown) => {
+                    if (!rejectRangeReadFailure) {
+                        return;
+                    }
+
+                    const reject = rejectRangeReadFailure;
+                    rejectRangeReadFailure = null;
+                    reject(error instanceof Error ? error : new Error(String(error)));
+                };
 
                 // PDF.js will call this to request additional chunks.
                 activeRangeTransport.requestDataRange = async (
@@ -118,15 +156,36 @@ export const usePdfDocument = () => {
                         const chunk = await api.documents.readFileRange(src.path, begin, end - begin);
                         activeRangeTransport.onDataRange(begin, chunk);
                     } catch (error) {
-                        // Best-effort: surface the error to PDF.js if supported.
-                        try {
-                            activeRangeTransport.onError?.(error);
-                        } catch (forwardError) {
-                            BrowserLogger.debug(
-                                'pdf-document',
-                                'Failed to forward range read error to PDF.js',
-                                forwardError,
-                            );
+                        if (version !== renderVersion) {
+                            return;
+                        }
+
+                        BrowserLogger.error(
+                            'pdf-document',
+                            'Failed to read PDF range chunk',
+                            error,
+                        );
+                        failRangeRead(error);
+                        if (loadingTask) {
+                            try {
+                                guardAsync(loadingTask.destroy(), {
+                                    scope: 'pdf-document',
+                                    message: 'PDF loading task destroy rejected after range read failure',
+                                    onError: (destroyError) => {
+                                        BrowserLogger.debug(
+                                            'pdf-document',
+                                            'PDF loading task destroy rejected after range read failure',
+                                            destroyError,
+                                        );
+                                    },
+                                });
+                            } catch (destroyError) {
+                                BrowserLogger.debug(
+                                    'pdf-document',
+                                    'Failed to destroy PDF loading task after range read failure',
+                                    destroyError,
+                                );
+                            }
                         }
                     }
                 };
@@ -143,6 +202,32 @@ export const usePdfDocument = () => {
                     iccUrl: '/pdf/iccs/',
                     useSystemFonts: false,
                 });
+
+                const activeLoadingTask = loadingTask;
+                const pdfDoc = await Promise.race([
+                    activeLoadingTask.promise,
+                    rangeReadFailure,
+                ]);
+                rejectRangeReadFailure = null;
+
+                // Discard stale result if a newer load was started
+                if (version !== renderVersion) {
+                    destroyPdfDocumentDeferred(pdfDoc, 'Failed to destroy stale PDF document');
+                    return null;
+                }
+
+                pdfDocument.value = pdfDoc;
+                numPages.value = pdfDoc.numPages;
+
+                const firstPage = await pdfDoc.getPage(1);
+                const viewport = firstPage.getViewport({ scale: 1 });
+                basePageWidth.value = viewport.width;
+                basePageHeight.value = viewport.height;
+
+                return {
+                    version,
+                    document: pdfDoc,
+                };
             }
 
             if (!loadingTask) {
@@ -152,7 +237,7 @@ export const usePdfDocument = () => {
 
             // Discard stale result if a newer load was started
             if (version !== renderVersion) {
-                pdfDoc.destroy();
+                destroyPdfDocumentDeferred(pdfDoc, 'Failed to destroy stale PDF document');
                 return null;
             }
 
@@ -263,15 +348,7 @@ export const usePdfDocument = () => {
         }
 
         if (pdfDocument.value) {
-            try {
-                pdfDocument.value.destroy();
-            } catch (error) {
-                BrowserLogger.error(
-                    'pdf-document',
-                    'Failed to destroy PDF document',
-                    error,
-                );
-            }
+            destroyPdfDocumentDeferred(pdfDocument.value, 'Failed to destroy PDF document');
             pdfDocument.value = null;
         }
 
