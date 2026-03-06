@@ -307,6 +307,13 @@ export default {
             'instructionsMac': '1. Right-click any PDF file in Finder\n2. Select "Get Info"\n3. Under "Open with", select EVB Viewer\n4. Click "Change All"\n\nRepeat for .djvu files if needed.',
             'instructionsLinux': 'Run in a terminal:\n\nxdg-mime default evb-viewer.desktop application/pdf\nxdg-mime default evb-viewer.desktop image/vnd.djvu',
         },
+        'unresponsiveRenderer': {
+            'title': 'App is not responding',
+            'message': 'The current window stopped responding. You can wait a little longer or reload it now.',
+            'detail': 'Reloading may discard unsaved UI state.',
+            'wait': 'Keep Waiting',
+            'reload': 'Reload Window',
+        },
     },
     'noteWindow': {
         'popUpNote': 'Page {page}',
@@ -547,6 +554,14 @@ export default {
             'loadTitle': 'Unable to load the document workspace',
             'loadDescription': 'Try loading the workspace again.',
             'loadDescriptionWithMessage': 'Try loading the workspace again. ({message})',
+        },
+        'runtime': {
+            'title': 'Something went wrong',
+            'description': 'The app hit an unexpected error and may not work correctly until it reloads.',
+            'startupTitle': 'App startup failed',
+            'startupDescription': 'The app could not finish starting. Reload to try again.',
+            'reload': 'Reload App',
+            'details': 'Technical details',
         },
     },
     'export': {

@@ -60,7 +60,12 @@ const mocks = vi.hoisted(() => {
             MockBrowserWindow.windows.push(this);
         }
 
-        loadURL = vi.fn(async () => {});
+        loadURL = (...args: Parameters<typeof mocks.loadURL>) => mocks.loadURL(...args);
+
+        destroy = vi.fn(() => {
+            this.destroyed = true;
+            this.emit('closed');
+        });
 
         focus = vi.fn();
 
@@ -87,6 +92,14 @@ const mocks = vi.hoisted(() => {
             return this;
         }
 
+        emit(event: string, ...args: unknown[]) {
+            const handlers = [...(this.handlers.get(event) ?? [])];
+            for (const handler of handlers) {
+                handler(...args);
+            }
+            return handlers.length > 0;
+        }
+
         show() {
             this.visible = true;
         }
@@ -104,6 +117,8 @@ const mocks = vi.hoisted(() => {
             isPackaged: true,
         },
         clearCache: vi.fn(async () => {}),
+        dialog: { showMessageBox: vi.fn(async () => ({ response: 0 })) },
+        loadURL: vi.fn(async () => {}),
         logger: {
             debug: vi.fn(),
             error: vi.fn(),
@@ -114,6 +129,7 @@ const mocks = vi.hoisted(() => {
         setupContentSecurityPolicy: vi.fn(),
         startServer: vi.fn(async () => {}),
         stopServer: vi.fn(async () => {}),
+        te: vi.fn((key: string) => key),
         waitForServer: vi.fn(async () => {}),
     };
 });
@@ -121,6 +137,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('electron', () => ({
     BrowserWindow: mocks.BrowserWindow,
     app: mocks.app,
+    dialog: mocks.dialog,
     session: {defaultSession: {clearCache: mocks.clearCache}},
     shell: {openExternal: mocks.openExternal},
 }));
@@ -147,6 +164,9 @@ vi.mock('@electron/server', () => ({
     waitForServer: mocks.waitForServer,
 }));
 
+vi.mock('@electron/config/constants', () => ({WINDOW_RENDERER_READY_TIMEOUT_MS: 30_000}));
+vi.mock('@electron/i18n', () => ({te: mocks.te}));
+
 vi.mock('@electron/security/csp', () => ({setupContentSecurityPolicy: mocks.setupContentSecurityPolicy}));
 
 vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
@@ -160,8 +180,10 @@ describe('window runtime readiness', () => {
         mocks.startServer.mockReset();
         mocks.stopServer.mockReset();
         mocks.waitForServer.mockReset();
+        mocks.loadURL.mockReset();
         mocks.startServer.mockResolvedValue(undefined);
         mocks.stopServer.mockResolvedValue(undefined);
+        mocks.loadURL.mockResolvedValue(undefined);
     });
 
     it('restarts the runtime server when a later window detects stale health', async () => {
@@ -181,5 +203,34 @@ describe('window runtime readiness', () => {
         expect(mocks.logger.warn).toHaveBeenCalledWith(
             expect.stringContaining('Runtime server health check failed; restarting before retry'),
         );
+    });
+
+    it('waits for the initial renderer-ready signal when requested', async () => {
+        const {
+            createAppWindow,
+            markWindowRendererReady,
+        } = await import('@electron/window');
+
+        const createPromise = createAppWindow({ waitForInitialRendererReady: true });
+        await vi.waitFor(() => {
+            expect(mocks.BrowserWindow.windows).toHaveLength(1);
+        });
+
+        markWindowRendererReady(1);
+
+        await expect(createPromise).resolves.toBe(mocks.BrowserWindow.windows[0]);
+    });
+
+    it('rejects strict startup when the initial loadURL call fails', async () => {
+        const loadError = new Error('renderer bootstrap failed');
+        const { createAppWindow } = await import('@electron/window');
+
+        mocks.loadURL.mockRejectedValueOnce(loadError);
+
+        await expect(createAppWindow({ waitForInitialRendererReady: true }))
+            .rejects
+            .toThrow('Initial loadURL failed: renderer bootstrap failed');
+
+        expect(mocks.BrowserWindow.windows[0]?.destroy).toHaveBeenCalledTimes(1);
     });
 });

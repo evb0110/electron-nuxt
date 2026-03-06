@@ -38,6 +38,7 @@ export default defineNuxtPlugin((nuxtApp) => {
         return;
     }
 
+    const { setFatalRuntimeError } = useFatalRuntimeError();
     const windowWithFlag = window as Window & {[INSTALL_FLAG]?: boolean};
     if (windowWithFlag[INSTALL_FLAG]) {
         return;
@@ -55,6 +56,7 @@ export default defineNuxtPlugin((nuxtApp) => {
             component: getComponentName(instance),
             error: serializeError(error),
         });
+        setFatalRuntimeError('runtime', error, `vue:${info}`);
 
         if (typeof previousHandler === 'function') {
             previousHandler(error, instance, info);
@@ -69,9 +71,11 @@ export default defineNuxtPlugin((nuxtApp) => {
             colno: event.colno,
             error: serializeError(event.error),
         });
+        setFatalRuntimeError('runtime', event.error ?? event.message, 'window:error');
     });
 
     window.addEventListener('unhandledrejection', (event) => {
         report('Unhandled promise rejection in renderer', { reason: serializeError(event.reason) });
+        setFatalRuntimeError('runtime', event.reason, 'window:unhandledrejection');
     });
 });

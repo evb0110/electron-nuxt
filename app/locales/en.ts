@@ -548,6 +548,14 @@ export default {
             'loadDescription': 'Try loading the workspace again.',
             'loadDescriptionWithMessage': 'Try loading the workspace again. ({message})',
         },
+        'runtime': {
+            'title': 'Something went wrong',
+            'description': 'The app hit an unexpected error and may not work correctly until it reloads.',
+            'startupTitle': 'App startup failed',
+            'startupDescription': 'The app could not finish starting. Reload to try again.',
+            'reload': 'Reload App',
+            'details': 'Technical details',
+        },
     },
     'export': {
         'scopeLabel': 'Export pages',

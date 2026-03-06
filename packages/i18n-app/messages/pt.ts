@@ -307,6 +307,13 @@ export default {
             'instructionsMac': '1. Clique com o botão direito num ficheiro PDF no Finder\n2. Selecione "Obter informações"\n3. Em "Abrir com", selecione EVB Viewer\n4. Clique em "Alterar tudo"\n\nRepita para ficheiros .djvu se necessário.',
             'instructionsLinux': 'Execute no terminal:\n\nxdg-mime default evb-viewer.desktop application/pdf\nxdg-mime default evb-viewer.desktop image/vnd.djvu',
         },
+        'unresponsiveRenderer': {
+            'title': 'A aplicação não responde',
+            'message': 'A janela atual deixou de responder. Pode esperar mais um pouco ou recarregá-la agora.',
+            'detail': 'Recarregar pode descartar o estado não guardado da interface.',
+            'wait': 'Continuar à espera',
+            'reload': 'Recarregar janela',
+        },
     },
     'noteWindow': {
         'popUpNote': 'Página {page}',
@@ -547,6 +554,14 @@ export default {
             'loadTitle': 'Não foi possível carregar a área de trabalho do documento',
             'loadDescription': 'Tente carregar a área de trabalho novamente.',
             'loadDescriptionWithMessage': 'Tente carregar a área de trabalho novamente. ({message})',
+        },
+        'runtime': {
+            'title': 'Algo correu mal',
+            'description': 'A aplicação encontrou um erro inesperado e pode não funcionar corretamente até ser recarregada.',
+            'startupTitle': 'Falha ao iniciar a aplicação',
+            'startupDescription': 'A aplicação não conseguiu concluir a inicialização. Recarregue-a e tente novamente.',
+            'reload': 'Recarregar aplicação',
+            'details': 'Detalhes técnicos',
         },
     },
     'export': {

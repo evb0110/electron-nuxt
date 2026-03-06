@@ -548,6 +548,14 @@ export default {
             'loadDescription': 'Tente carregar a área de trabalho novamente.',
             'loadDescriptionWithMessage': 'Tente carregar a área de trabalho novamente. ({message})',
         },
+        'runtime': {
+            'title': 'Algo correu mal',
+            'description': 'A aplicação encontrou um erro inesperado e pode não funcionar corretamente até ser recarregada.',
+            'startupTitle': 'Falha ao iniciar a aplicação',
+            'startupDescription': 'A aplicação não conseguiu concluir a inicialização. Recarregue-a e tente novamente.',
+            'reload': 'Recarregar aplicação',
+            'details': 'Detalhes técnicos',
+        },
     },
     'export': {
         'scopeLabel': 'Export pages',

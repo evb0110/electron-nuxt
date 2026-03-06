@@ -548,6 +548,14 @@ export default {
             'loadDescription': 'Prova a caricare di nuovo l’area di lavoro.',
             'loadDescriptionWithMessage': 'Prova a caricare di nuovo l’area di lavoro. ({message})',
         },
+        'runtime': {
+            'title': 'Qualcosa è andato storto',
+            'description': 'L’app ha riscontrato un errore imprevisto e potrebbe non funzionare correttamente finché non viene ricaricata.',
+            'startupTitle': 'Avvio dell’app non riuscito',
+            'startupDescription': 'L’app non è riuscita a completare l’avvio. Ricaricala e riprova.',
+            'reload': 'Ricarica app',
+            'details': 'Dettagli tecnici',
+        },
     },
     'export': {
         'scopeLabel': 'Export pages',

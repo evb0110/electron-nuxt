@@ -83,6 +83,13 @@ const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
     SUPPORTED_IMAGE_EXTENSIONS,
 );
 
+class PdfCombineWorkerStartupError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'PdfCombineWorkerStartupError';
+    }
+}
+
 function assertNever(value: never): never {
     throw new Error(`Unhandled image combine worker payload: ${JSON.stringify(value)}`);
 }
@@ -250,11 +257,20 @@ function createPdfFromInputPathsWorker(
     options?: ICreatePdfFromInputPathsOptions,
 ): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
-        const worker = new Worker(getCombineWorkerPath(), {workerData: { inputPaths }});
+        let worker: Worker;
+        try {
+            worker = new Worker(getCombineWorkerPath(), {workerData: { inputPaths }});
+        } catch (error) {
+            reject(new PdfCombineWorkerStartupError(
+                `Image combine worker failed to start: ${error instanceof Error ? error.message : String(error)}`,
+            ));
+            return;
+        }
 
         let settled = false;
         let cleanedUp = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
+        let workerOnline = false;
 
         const cleanupWorker = () => {
             if (cleanedUp) {
@@ -274,6 +290,10 @@ function createPdfFromInputPathsWorker(
             cleanupWorker();
             void worker.terminate().catch(() => undefined);
         };
+
+        worker.once('online', () => {
+            workerOnline = true;
+        });
 
         worker.on('message', (message: unknown) => {
             const payload = parseCombineWorkerPayload(message);
@@ -328,6 +348,12 @@ function createPdfFromInputPathsWorker(
             if (!settled) {
                 settled = true;
                 terminateWorker();
+                if (!workerOnline) {
+                    reject(new PdfCombineWorkerStartupError(
+                        `Image combine worker failed before becoming ready: ${error instanceof Error ? error.message : String(error)}`,
+                    ));
+                    return;
+                }
                 reject(error);
             }
         });
@@ -336,6 +362,12 @@ function createPdfFromInputPathsWorker(
             if (!settled && code !== 0) {
                 settled = true;
                 cleanupWorker();
+                if (!workerOnline) {
+                    reject(new PdfCombineWorkerStartupError(
+                        `Image combine worker exited during startup with code ${code}`,
+                    ));
+                    return;
+                }
                 reject(new Error(`Image combine worker exited with code ${code}`));
             }
         });
@@ -374,6 +406,14 @@ export async function createPdfFromInputPaths(
     try {
         return await createPdfFromInputPathsWorker(normalizedPaths, options);
     } catch (workerError) {
+        if (!(workerError instanceof PdfCombineWorkerStartupError)) {
+            logger.warn(
+                `Image combine worker failed without safe fallback: ${
+                    workerError instanceof Error ? workerError.message : String(workerError)
+                }`,
+            );
+            throw workerError;
+        }
         logger.warn(
             `Image combine worker failed, falling back to in-process conversion: ${workerError instanceof Error ? workerError.message : String(workerError)}`,
         );
