@@ -144,6 +144,21 @@ export async function runOcr(
             resolve(result);
         };
 
+        const killProcessImmediately = () => {
+            try {
+                proc.kill('SIGKILL');
+                return;
+            } catch {
+                // Fall through to SIGTERM if SIGKILL is unavailable.
+            }
+
+            try {
+                proc.kill('SIGTERM');
+            } catch {
+                // Process may already be gone.
+            }
+        };
+
         timeoutHandle = setTimeout(() => {
             timedOut = true;
             try {
@@ -219,6 +234,7 @@ export async function runOcr(
         });
 
         proc.stdin?.on('error', (stdinError) => {
+            killProcessImmediately();
             finalize({
                 success: false,
                 text: '',
@@ -227,6 +243,7 @@ export async function runOcr(
         });
 
         if (!proc.stdin) {
+            killProcessImmediately();
             finalize({
                 success: false,
                 text: '',
@@ -237,6 +254,7 @@ export async function runOcr(
 
         proc.stdin.end(imageBuffer, (stdinError?: Error | null) => {
             if (stdinError) {
+                killProcessImmediately();
                 finalize({
                     success: false,
                     text: '',

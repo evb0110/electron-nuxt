@@ -32,6 +32,13 @@ const ALLOWED_EXTERNAL_PROTOCOLS = new Set([
     'https:',
     'mailto:',
 ]);
+const UNRESPONSIVE_RECOVERY_DELAY_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_WINDOW_UNRESPONSIVE_RECOVERY_MS ?? '15000', 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        return 15_000;
+    }
+    return parsed;
+})();
 
 function logWindowStartup(phase: string, details?: Record<string, unknown>) {
     if (!STARTUP_TRACE_ENABLED) {
@@ -167,51 +174,121 @@ async function ensureWindowRuntimeReady() {
         }
     }
 
-    if (!serverReadyPromise) {
-        const pendingServerReady = (async () => {
-            const serverBootStart = Date.now();
-            logWindowStartup('Ensuring Nuxt runtime server is ready');
-            await startServer();
-            logWindowStartup(`Nuxt runtime process ensured (step +${Date.now() - serverBootStart}ms)`);
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+        if (!serverReadyPromise) {
+            const pendingServerReady = (async () => {
+                const serverBootStart = Date.now();
+                logWindowStartup('Ensuring Nuxt runtime server is ready');
+                await startServer();
+                logWindowStartup(`Nuxt runtime process ensured (step +${Date.now() - serverBootStart}ms)`);
+            })();
+            serverReadyPromise = pendingServerReady.catch((error) => {
+                // Allow the next window creation attempt to retry runtime boot.
+                serverReadyPromise = null;
+                throw error;
+            });
+        }
+
+        try {
+            await serverReadyPromise;
             await waitForServer();
-            logWindowStartup(`Nuxt runtime server is healthy (step +${Date.now() - serverBootStart}ms)`);
-        })();
-        serverReadyPromise = pendingServerReady.catch((error) => {
-            // Allow the next window creation attempt to retry runtime boot.
+            logWindowStartup(`Nuxt runtime server is healthy (step +${Date.now() - runtimeStart}ms)`);
+            logWindowStartup(`Window runtime ready (step +${Date.now() - runtimeStart}ms)`);
+            return;
+        } catch (error) {
             serverReadyPromise = null;
-            throw error;
-        });
+            if (attempt >= 2) {
+                throw error;
+            }
+
+            logger.warn(
+                `Runtime server health check failed; restarting before retry: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            await stopServer();
+        }
     }
 
-    await serverReadyPromise;
-    logWindowStartup(`Window runtime ready (step +${Date.now() - runtimeStart}ms)`);
 }
 
 function attachRendererDiagnostics(window: BrowserWindow) {
     const webContents = window.webContents;
     const windowId = window.id;
     let recoveryAttempted = false;
+    let unresponsiveRecoveryTimer: NodeJS.Timeout | null = null;
 
-    webContents.on('render-process-gone', (_event, details) => {
-        logger.error(`[renderer] render-process-gone (windowId=${windowId}, reason=${details.reason}, exitCode=${details.exitCode})`);
+    const clearUnresponsiveRecoveryTimer = () => {
+        if (!unresponsiveRecoveryTimer) {
+            return;
+        }
+        clearTimeout(unresponsiveRecoveryTimer);
+        unresponsiveRecoveryTimer = null;
+    };
 
+    const recoverRenderer = (reason: string) => {
         if (config.isDev || recoveryAttempted || window.isDestroyed()) {
             return;
         }
 
         recoveryAttempted = true;
-        logger.warn(`[renderer] attempting one-time recovery load after renderer exit (windowId=${windowId})`);
-        void window.loadURL(config.server.url).catch((error) => {
-            logger.error(`Renderer recovery load failed (windowId=${windowId}): ${error instanceof Error ? error.message : String(error)}`);
-        });
+        clearUnresponsiveRecoveryTimer();
+        logger.warn(`[renderer] attempting one-time recovery load (${reason}, windowId=${windowId})`);
+        void (async () => {
+            try {
+                await ensureWindowRuntimeReady();
+                if (window.isDestroyed()) {
+                    return;
+                }
+                await window.loadURL(config.server.url);
+            } catch (error) {
+                logger.error(
+                    `Renderer recovery load failed (${reason}, windowId=${windowId}): ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                );
+            }
+        })();
+    };
+
+    webContents.on('render-process-gone', (_event, details) => {
+        logger.error(`[renderer] render-process-gone (windowId=${windowId}, reason=${details.reason}, exitCode=${details.exitCode})`);
+        recoverRenderer(`render-process-gone:${details.reason}`);
     });
 
     window.on('unresponsive', () => {
         logger.error(`[renderer] window unresponsive (windowId=${windowId})`);
+        if (config.isDev || recoveryAttempted || window.isDestroyed() || UNRESPONSIVE_RECOVERY_DELAY_MS <= 0) {
+            return;
+        }
+        clearUnresponsiveRecoveryTimer();
+        unresponsiveRecoveryTimer = setTimeout(() => {
+            unresponsiveRecoveryTimer = null;
+            if (window.isDestroyed() || recoveryAttempted) {
+                return;
+            }
+            logger.warn(`[renderer] forcing crash for unresponsive renderer recovery (windowId=${windowId})`);
+            try {
+                window.webContents.forcefullyCrashRenderer();
+            } catch (error) {
+                logger.error(
+                    `Failed to force crash unresponsive renderer (windowId=${windowId}): ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                );
+                recoverRenderer('unresponsive-timeout-fallback');
+            }
+        }, UNRESPONSIVE_RECOVERY_DELAY_MS);
+        unresponsiveRecoveryTimer.unref?.();
     });
 
     window.on('responsive', () => {
         logger.info(`[renderer] window responsive (windowId=${windowId})`);
+        clearUnresponsiveRecoveryTimer();
+    });
+
+    window.on('closed', () => {
+        clearUnresponsiveRecoveryTimer();
     });
 
     if (!config.isDev) {

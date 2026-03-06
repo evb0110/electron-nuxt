@@ -80,7 +80,9 @@ const GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS = (() => {
     }
     return parsed;
 })();
-const FATAL_UNHANDLED_REJECTION_ENABLED = process.env.EVB_MAIN_FATAL_UNHANDLED_REJECTION !== '0';
+// Keep fatal shutdown opt-in for unhandled rejections: many promise failures are
+// feature-local and should not crash the entire public app.
+const FATAL_UNHANDLED_REJECTION_ENABLED = process.env.EVB_MAIN_FATAL_UNHANDLED_REJECTION === '1';
 let gracefulShutdownPromise: Promise<void> | null = null;
 let gracefulQuitForceTimer: NodeJS.Timeout | null = null;
 let isQuittingAfterCleanup = false;
