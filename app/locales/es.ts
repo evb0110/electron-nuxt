@@ -548,6 +548,14 @@ export default {
             'loadDescription': 'Intenta cargar el espacio de trabajo de nuevo.',
             'loadDescriptionWithMessage': 'Intenta cargar el espacio de trabajo de nuevo. ({message})',
         },
+        'runtime': {
+            'title': 'Algo salió mal',
+            'description': 'La aplicación encontró un error inesperado y puede que no funcione correctamente hasta que se recargue.',
+            'startupTitle': 'Error al iniciar la aplicación',
+            'startupDescription': 'La aplicación no pudo terminar de iniciarse. Recárgala e inténtalo de nuevo.',
+            'reload': 'Recargar aplicación',
+            'details': 'Detalles técnicos',
+        },
     },
     'export': {
         'scopeLabel': 'Export pages',

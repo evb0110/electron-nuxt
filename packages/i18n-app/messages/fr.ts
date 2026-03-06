@@ -307,6 +307,13 @@ export default {
             'instructionsMac': '1. Faites un clic droit sur un fichier PDF dans le Finder\n2. Sélectionnez « Lire les informations »\n3. Sous « Ouvrir avec », sélectionnez EVB Viewer\n4. Cliquez sur « Tout modifier »\n\nRépétez pour les fichiers .djvu si nécessaire.',
             'instructionsLinux': 'Exécutez dans un terminal :\n\nxdg-mime default evb-viewer.desktop application/pdf\nxdg-mime default evb-viewer.desktop image/vnd.djvu',
         },
+        'unresponsiveRenderer': {
+            'title': 'L’application ne répond pas',
+            'message': 'La fenêtre actuelle ne répond plus. Vous pouvez encore attendre un peu ou la recharger maintenant.',
+            'detail': 'Le rechargement peut faire perdre l’état non enregistré de l’interface.',
+            'wait': 'Continuer à attendre',
+            'reload': 'Recharger la fenêtre',
+        },
     },
     'noteWindow': {
         'popUpNote': 'Page {page}',
@@ -547,6 +554,14 @@ export default {
             'loadTitle': 'Impossible de charger l’espace de travail du document',
             'loadDescription': 'Essayez de recharger l’espace de travail.',
             'loadDescriptionWithMessage': 'Essayez de recharger l’espace de travail. ({message})',
+        },
+        'runtime': {
+            'title': 'Une erreur est survenue',
+            'description': 'L’application a rencontré une erreur inattendue et peut ne pas fonctionner correctement tant qu’elle n’est pas rechargée.',
+            'startupTitle': 'Le démarrage de l’application a échoué',
+            'startupDescription': 'L’application n’a pas pu terminer son démarrage. Rechargez-la puis réessayez.',
+            'reload': 'Recharger l’application',
+            'details': 'Détails techniques',
         },
     },
     'export': {

@@ -24,3 +24,6 @@ export const SERVER_HEALTH_MAX_ATTEMPTS = 10;
 
 /** Delay (ms) between health-check retries. */
 export const SERVER_HEALTH_RETRY_MS = 300;
+
+/** Timeout (ms) for waiting for the first renderer to fully signal readiness. */
+export const WINDOW_RENDERER_READY_TIMEOUT_MS = 30_000;

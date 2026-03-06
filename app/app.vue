@@ -1,6 +1,40 @@
 <template>
     <UApp>
         <NuxtPage />
+        <div
+            v-if="fatalRuntimeError"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--app-window-bg)]/96 p-6 backdrop-blur-sm"
+        >
+            <div class="w-full max-w-xl rounded-2xl border border-[color:var(--ui-border)] bg-[color:var(--ui-bg)] p-6 shadow-[var(--shadow-popup)]">
+                <UAlert
+                    color="error"
+                    variant="soft"
+                    icon="i-lucide-triangle-alert"
+                    :title="fatalRuntimeTitle"
+                    :description="fatalRuntimeDescription"
+                />
+                <div
+                    v-if="fatalRuntimeError.detail"
+                    class="mt-4 rounded-xl border border-[color:var(--ui-border)] bg-[color:var(--ui-bg-elevated)] p-4 text-sm text-[color:var(--ui-text-dimmed)]"
+                >
+                    <p class="font-medium text-[color:var(--ui-text)]">
+                        {{ t('errors.runtime.details') }}
+                    </p>
+                    <p class="mt-2 break-words">
+                        {{ fatalRuntimeError.detail }}
+                    </p>
+                </div>
+                <div class="mt-5 flex flex-wrap gap-3">
+                    <UButton
+                        color="error"
+                        icon="i-lucide-refresh-cw"
+                        @click="reloadAfterFatalRuntimeError"
+                    >
+                        {{ t('errors.runtime.reload') }}
+                    </UButton>
+                </div>
+            </div>
+        </div>
         <DevOnly>
             <ClientOnly>
                 <AgentationWidget />
@@ -12,26 +46,31 @@
 <script setup lang="ts">
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { hasElectronAPI } from '@app/utils/electron';
+import { waitForVisualFrames } from '@app/utils/async-helpers';
 
 const {
     load: loadSettings,
     settings,
 } = useSettings();
 const { loadRecentFiles } = useRecentFiles();
-const { setLocale } = useTypedI18n();
+const {
+    t,
+    setLocale,
+} = useTypedI18n();
+const {
+    fatalRuntimeError,
+    setFatalRuntimeError,
+    clearFatalRuntimeError,
+    reloadAfterFatalRuntimeError,
+} = useFatalRuntimeError();
 const colorMode = useColorMode();
 const DEV_RELOAD_EVENT_KEY = 'evb-viewer:dev:last-vite-reload-event';
-
-async function waitForNextPaintFrame() {
-    await new Promise<void>((resolve) => {
-        if (typeof requestAnimationFrame === 'function') {
-            requestAnimationFrame(() => resolve());
-            return;
-        }
-
-        setTimeout(resolve);
-    });
-}
+const fatalRuntimeTitle = computed(() => fatalRuntimeError.value?.kind === 'startup'
+    ? t('errors.runtime.startupTitle')
+    : t('errors.runtime.title'));
+const fatalRuntimeDescription = computed(() => fatalRuntimeError.value?.kind === 'startup'
+    ? t('errors.runtime.startupDescription')
+    : t('errors.runtime.description'));
 
 async function preloadStartupContent() {
     if (!import.meta.client) {
@@ -101,6 +140,7 @@ installViteReloadDiagnostics();
 onMounted(async () => {
     const mountTime = Date.now();
     try {
+        clearFatalRuntimeError();
         // Load persisted settings and apply locale + theme
         await loadSettings();
         if (settings.value.locale) {
@@ -112,9 +152,10 @@ onMounted(async () => {
 
         await preloadStartupContent();
         await nextTick();
-        await waitForNextPaintFrame();
+        await waitForVisualFrames();
     } catch (error) {
         BrowserLogger.error('loader', 'App bootstrap failed', error);
+        setFatalRuntimeError('startup', error, 'app-bootstrap');
     } finally {
         // Always emit readiness, even on bootstrap failure, so preload fallbacks
         // can deterministically remove startup overlays and avoid hanging UI.

@@ -23,6 +23,7 @@ import {
     SERVER_POLL_INTERVAL_MS,
     SERVER_READY_TIMEOUT_MS,
 } from '@electron/config/constants';
+import { runCommand } from '@electron/utils/exec';
 import { createLogger } from '@electron/utils/logger';
 import { terminateProcessTree } from '@electron/utils/process-tree';
 
@@ -87,6 +88,7 @@ const SERVER_STOP_GRACE_MS = (() => {
 interface IServerOwnershipMarker {
     pid: number;
     entryPath: string;
+    port?: number;
     createdAt: number;
     version: 1;
 }
@@ -116,6 +118,9 @@ function readOwnershipMarker(): IServerOwnershipMarker | null {
         return {
             pid: parsed.pid,
             entryPath: parsed.entryPath,
+            port: typeof parsed.port === 'number' && Number.isInteger(parsed.port) && parsed.port > 0
+                ? parsed.port
+                : undefined,
             createdAt: typeof parsed.createdAt === 'number' ? parsed.createdAt : Date.now(),
             version: 1,
         };
@@ -133,6 +138,7 @@ function writeOwnershipMarker(pid: number) {
     const marker: IServerOwnershipMarker = {
         pid,
         entryPath: config.server.entryPath,
+        port: config.server.port,
         createdAt: Date.now(),
         version: 1,
     };
@@ -211,6 +217,97 @@ async function configureRuntimeServerPort() {
     throw new Error('Unable to find an isolated runtime server port');
 }
 
+function normalizeProcessCommandLine(value: string) {
+    return value.replaceAll('\0', ' ').trim();
+}
+
+async function readProcessCommandLine(pid: number) {
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
+        return null;
+    }
+
+    try {
+        if (process.platform === 'win32') {
+            const result = await runCommand('powershell', [
+                '-NoProfile',
+                '-NonInteractive',
+                '-Command',
+                `try { (Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}").CommandLine } catch { "" }`,
+            ], {
+                timeoutMs: 3_000,
+                maxStdoutBytes: 32 * 1024,
+                maxStderrBytes: 8 * 1024,
+            });
+            return normalizeProcessCommandLine(result.stdout);
+        }
+
+        const result = await runCommand('ps', [
+            '-p',
+            String(pid),
+            '-o',
+            'command=',
+        ], {
+            timeoutMs: 3_000,
+            maxStdoutBytes: 32 * 1024,
+            maxStderrBytes: 8 * 1024,
+        });
+        return normalizeProcessCommandLine(result.stdout);
+    } catch {
+        return null;
+    }
+}
+
+function isOwnedRuntimeServerCommandLine(
+    commandLine: string,
+    marker: IServerOwnershipMarker,
+) {
+    const normalizedCommandLine = normalizeProcessCommandLine(commandLine);
+    return (
+        normalizedCommandLine.length > 0
+        && marker.entryPath === config.server.entryPath
+        && normalizedCommandLine.includes(marker.entryPath)
+    );
+}
+
+async function reclaimOwnedRuntimeServerOrphan() {
+    if (config.isDev) {
+        return;
+    }
+
+    const marker = readOwnershipMarker();
+    if (!marker) {
+        return;
+    }
+
+    if (marker.entryPath !== config.server.entryPath) {
+        logger.warn('Discarding stale runtime server ownership marker for a different entry path');
+        clearOwnershipMarker();
+        return;
+    }
+
+    const commandLine = await readProcessCommandLine(marker.pid);
+    if (!commandLine) {
+        clearOwnershipMarker();
+        return;
+    }
+
+    if (!isOwnedRuntimeServerCommandLine(commandLine, marker)) {
+        logger.warn(`Discarding stale runtime server ownership marker for pid ${marker.pid}; process command line no longer matches`);
+        clearOwnershipMarker();
+        return;
+    }
+
+    logger.warn(
+        `Reclaiming orphaned runtime server process pid=${marker.pid}`
+        + `${marker.port ? ` port=${marker.port}` : ''}`,
+    );
+    await terminateProcessTree(marker.pid, {
+        graceMs: SERVER_STOP_GRACE_MS,
+        preferProcessGroup: process.platform !== 'win32',
+    });
+    clearOwnershipMarker();
+}
+
 export async function startServer() {
     if (stoppingServerPromise) {
         await stoppingServerPromise;
@@ -232,6 +329,7 @@ export async function startServer() {
         return;
     }
 
+    await reclaimOwnedRuntimeServerOrphan();
     await configureRuntimeServerPort();
 
     if (await isServerRunning()) {

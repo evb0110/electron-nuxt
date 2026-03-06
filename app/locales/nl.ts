@@ -548,6 +548,14 @@ export default {
             'loadDescription': 'Probeer de werkruimte opnieuw te laden.',
             'loadDescriptionWithMessage': 'Probeer de werkruimte opnieuw te laden. ({message})',
         },
+        'runtime': {
+            'title': 'Er is iets misgegaan',
+            'description': 'De app kreeg een onverwachte fout en werkt mogelijk pas weer goed nadat deze opnieuw is geladen.',
+            'startupTitle': 'Starten van de app mislukt',
+            'startupDescription': 'De app kon niet volledig opstarten. Laad opnieuw en probeer het nog eens.',
+            'reload': 'App opnieuw laden',
+            'details': 'Technische details',
+        },
     },
     'export': {
         'scopeLabel': 'Export pages',

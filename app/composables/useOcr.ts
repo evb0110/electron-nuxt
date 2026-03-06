@@ -6,6 +6,7 @@ import { getElectronAPI } from '@app/utils/electron';
 import { createDocxFromText } from '@app/utils/docx';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { waitForVisualFrames } from '@app/utils/async-helpers';
 import {
     parsePageRange,
     type IOcrSettings,
@@ -151,11 +152,7 @@ export const useOcr = () => {
             return;
         }
 
-        await new Promise<void>(resolve => {
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => resolve());
-            });
-        });
+        await waitForVisualFrames({ frames: 2 });
         if (
             activeRunToken !== runToken
             || runGeneration !== cancelGeneration

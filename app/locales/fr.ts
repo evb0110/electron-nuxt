@@ -548,6 +548,14 @@ export default {
             'loadDescription': 'Essayez de recharger l’espace de travail.',
             'loadDescriptionWithMessage': 'Essayez de recharger l’espace de travail. ({message})',
         },
+        'runtime': {
+            'title': 'Une erreur est survenue',
+            'description': 'L’application a rencontré une erreur inattendue et peut ne pas fonctionner correctement tant qu’elle n’est pas rechargée.',
+            'startupTitle': 'Le démarrage de l’application a échoué',
+            'startupDescription': 'L’application n’a pas pu terminer son démarrage. Rechargez-la puis réessayez.',
+            'reload': 'Recharger l’application',
+            'details': 'Détails techniques',
+        },
     },
     'export': {
         'scopeLabel': 'Export pages',

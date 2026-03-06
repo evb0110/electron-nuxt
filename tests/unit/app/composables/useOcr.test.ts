@@ -5,6 +5,7 @@ import {
     vi,
     beforeEach,
 } from 'vitest';
+import { effectScope } from 'vue';
 import { retry } from 'es-toolkit/function';
 import { withTimeout } from 'es-toolkit/promise';
 
@@ -24,7 +25,7 @@ const mockDocuments = {
 };
 const mockElectronAPI = {
     ocr: mockOcr,
-    documents: mockDocuments, 
+    documents: mockDocuments,
 };
 
 vi.mock('@app/utils/electron', () => ({getElectronAPI: () => mockElectronAPI}));
@@ -73,31 +74,36 @@ describe('useOcr', () => {
         mockOcr.onProgress.mockReturnValue(progressUnsubscribe);
         mockOcr.onComplete.mockReturnValue(completeUnsubscribe);
 
-        const ocr = useOcr();
-        const runPromise = ocr.runOcr(
-            1,
-            1,
-            '/tmp/work.pdf',
-        );
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
 
-        await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
-        ocr.cancelOcr();
+        try {
+            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
 
-        const settled = await withTimeout(
-            () => runPromise.then(() => 'resolved' as const),
-            100,
-        ).catch((error: unknown) => {
-            if (error instanceof Error && error.name === 'TimeoutError') {
-                return 'timeout' as const;
-            }
-            throw error;
-        });
+            await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
+            ocr.cancelOcr();
 
-        expect(settled).toBe('resolved');
-        expect(mockOcr.cancel).toHaveBeenCalledTimes(1);
-        expect(progressUnsubscribe).toHaveBeenCalledTimes(1);
-        expect(completeUnsubscribe).toHaveBeenCalledTimes(1);
-        expect(ocr.progress.value.isRunning).toBe(false);
-        expect(ocr.error.value).toBeNull();
+            const settled = await withTimeout(
+                () => runPromise.then(() => 'resolved' as const),
+                100,
+            ).catch((error: unknown) => {
+                if (error instanceof Error && error.name === 'TimeoutError') {
+                    return 'timeout' as const;
+                }
+                throw error;
+            });
+
+            expect(settled).toBe('resolved');
+            expect(mockOcr.cancel).toHaveBeenCalledTimes(1);
+            expect(progressUnsubscribe).toHaveBeenCalledTimes(1);
+            expect(completeUnsubscribe).toHaveBeenCalledTimes(1);
+            expect(ocr.progress.value.isRunning).toBe(false);
+            expect(ocr.error.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
     });
 });

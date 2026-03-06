@@ -23,7 +23,6 @@ import { Readable } from 'stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { pipeline } from 'stream/promises';
 import { fileURLToPath } from 'url';
-import { delay } from 'es-toolkit/promise';
 import { createLogger } from '@electron/utils/logger';
 import { forEachConcurrent } from '@electron/utils/concurrency';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/available-languages';
@@ -55,7 +54,14 @@ const NETWORK_UNREACHABLE_CODES = new Set([
     'ERR_NETWORK_CHANGED',
 ]);
 
-const inFlightDownloads = new Map<string, Promise<void>>();
+interface IEnsureTessdataLanguagesOptions {signal?: AbortSignal;}
+interface ISharedDownloadTask {
+    promise: Promise<void>;
+    controller: AbortController;
+    waiterIds: Set<symbol>;
+}
+
+const inFlightDownloads = new Map<string, ISharedDownloadTask>();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
 const OCR_MODEL_DOWNLOAD_CONCURRENCY = (() => {
@@ -116,6 +122,31 @@ class LanguageModelDownloadError extends Error {
     }
 }
 
+class DownloadTimeoutError extends Error {
+    constructor(timeoutMs: number) {
+        super(`Timed out after ${timeoutMs}ms`);
+        this.name = 'TimeoutError';
+    }
+}
+
+function createAbortError(message = 'The operation was aborted') {
+    const error = new Error(message);
+    error.name = 'AbortError';
+    return error;
+}
+
+function abortErrorFromSignal(signal: AbortSignal) {
+    return signal.reason instanceof Error
+        ? signal.reason
+        : createAbortError();
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+}
+
 function getErrorCode(error: unknown): string | null {
     const visited = new Set<unknown>();
     let current: unknown = error;
@@ -138,6 +169,105 @@ function isAbortError(error: unknown) {
     }
 
     return (error as { name?: string }).name === 'AbortError';
+}
+
+function isTimeoutError(error: unknown) {
+    return error instanceof Error && error.name === 'TimeoutError';
+}
+
+function createTimedAbortSignal(
+    timeoutMs: number,
+    signal?: AbortSignal,
+) {
+    const controller = new AbortController();
+    const onAbort = () => {
+        if (controller.signal.aborted) {
+            return;
+        }
+        controller.abort(signal ? abortErrorFromSignal(signal) : createAbortError());
+    };
+
+    if (signal) {
+        if (signal.aborted) {
+            onAbort();
+        } else {
+            signal.addEventListener('abort', onAbort, { once: true });
+        }
+    }
+
+    const timeoutHandle = setTimeout(() => {
+        if (!controller.signal.aborted) {
+            controller.abort(new DownloadTimeoutError(timeoutMs));
+        }
+    }, timeoutMs);
+    timeoutHandle.unref?.();
+
+    return {
+        signal: controller.signal,
+        cleanup: () => {
+            clearTimeout(timeoutHandle);
+            if (signal) {
+                signal.removeEventListener('abort', onAbort);
+            }
+        },
+    };
+}
+
+async function delayWithAbort(
+    delayMs: number,
+    signal?: AbortSignal,
+) {
+    throwIfAborted(signal);
+    await new Promise<void>((resolve, reject) => {
+        const timeoutHandle = setTimeout(() => {
+            cleanup();
+            resolve();
+        }, delayMs);
+        timeoutHandle.unref?.();
+
+        const onAbort = () => {
+            cleanup();
+            reject(signal ? abortErrorFromSignal(signal) : createAbortError());
+        };
+
+        const cleanup = () => {
+            clearTimeout(timeoutHandle);
+            signal?.removeEventListener('abort', onAbort);
+        };
+
+        signal?.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
+async function waitForPromiseOrAbort<T>(
+    promise: Promise<T>,
+    signal?: AbortSignal,
+) {
+    throwIfAborted(signal);
+
+    if (!signal) {
+        return promise;
+    }
+
+    return new Promise<T>((resolve, reject) => {
+        const onAbort = () => {
+            cleanup();
+            reject(abortErrorFromSignal(signal));
+        };
+
+        const cleanup = () => {
+            signal.removeEventListener('abort', onAbort);
+        };
+
+        signal.addEventListener('abort', onAbort, { once: true });
+        promise.then((value) => {
+            cleanup();
+            resolve(value);
+        }, (error) => {
+            cleanup();
+            reject(error);
+        });
+    });
 }
 
 function createHttpDownloadError(languageCode: string, statusCode: number) {
@@ -175,12 +305,22 @@ function classifyDownloadError(languageCode: string, error: unknown, timeoutMs =
         return error;
     }
 
-    if (isAbortError(error)) {
+    if (isTimeoutError(error)) {
         return new LanguageModelDownloadError(
             `OCR language model "${languageCode}" download timed out after ${timeoutMs}ms.`,
             {
                 retryable: true,
                 code: 'DOWNLOAD_TIMEOUT',
+            },
+        );
+    }
+
+    if (isAbortError(error)) {
+        return new LanguageModelDownloadError(
+            `OCR language model "${languageCode}" download was canceled.`,
+            {
+                retryable: false,
+                code: 'DOWNLOAD_ABORTED',
             },
         );
     }
@@ -272,11 +412,15 @@ export function ensureRuntimeTessdataSeededSync() {
     seedBundledModelsSync(runtimeDir);
 }
 
-async function seedBundledModels(runtimeDir: string) {
+async function seedBundledModels(
+    runtimeDir: string,
+    options: IEnsureTessdataLanguagesOptions = {},
+) {
     if (!isPackaged) {
         return;
     }
 
+    throwIfAborted(options.signal);
     const bundledDir = getBundledTessdataDir();
     if (!existsSync(bundledDir)) {
         return;
@@ -288,6 +432,7 @@ async function seedBundledModels(runtimeDir: string) {
         .filter(fileName => fileName.endsWith('.traineddata'));
 
     for (const fileName of bundledFiles) {
+        throwIfAborted(options.signal);
         const sourcePath = join(bundledDir, fileName);
         const destinationPath = join(runtimeDir, fileName);
         if (existsSync(destinationPath)) {
@@ -297,18 +442,33 @@ async function seedBundledModels(runtimeDir: string) {
     }
 }
 
-async function precheckLanguageDownload(languageCode: string, languageUrl: string) {
+async function precheckLanguageDownload(
+    languageCode: string,
+    languageUrl: string,
+    options: IEnsureTessdataLanguagesOptions = {},
+) {
+    throwIfAborted(options.signal);
+    const timedSignal = createTimedAbortSignal(PRECHECK_TIMEOUT_MS, options.signal);
     try {
         const response = await fetch(languageUrl, {
             method: 'HEAD',
-            signal: AbortSignal.timeout(PRECHECK_TIMEOUT_MS),
+            signal: timedSignal.signal,
         });
+        throwIfAborted(options.signal);
 
         if (!response.ok) {
             throw createHttpDownloadError(languageCode, response.status);
         }
     } catch (error) {
-        const classified = classifyDownloadError(languageCode, error, PRECHECK_TIMEOUT_MS);
+        if (options.signal?.aborted) {
+            throw abortErrorFromSignal(options.signal);
+        }
+
+        const classified = classifyDownloadError(
+            languageCode,
+            timedSignal.signal.aborted ? timedSignal.signal.reason : error,
+            PRECHECK_TIMEOUT_MS,
+        );
         if (!classified.retryable || classified.code === 'NETWORK_UNREACHABLE') {
             throw classified;
         }
@@ -316,10 +476,16 @@ async function precheckLanguageDownload(languageCode: string, languageUrl: strin
         log.warn(
             `Skipping OCR model precheck strictness for ${languageCode}: ${classified.message}. Continuing with download attempts.`,
         );
+    } finally {
+        timedSignal.cleanup();
     }
 }
 
-async function downloadLanguageModel(languageCode: string, runtimeDir: string) {
+async function downloadLanguageModel(
+    languageCode: string,
+    runtimeDir: string,
+    options: IEnsureTessdataLanguagesOptions = {},
+) {
     const modelPath = getModelPath(runtimeDir, languageCode);
     if (existsSync(modelPath)) {
         return;
@@ -327,15 +493,18 @@ async function downloadLanguageModel(languageCode: string, runtimeDir: string) {
 
     const languageUrl = `${DOWNLOAD_BASE_URL}/${encodeURIComponent(languageCode)}.traineddata`;
     const tempPath = `${modelPath}.download-${randomUUID()}`;
-    await precheckLanguageDownload(languageCode, languageUrl);
+    await precheckLanguageDownload(languageCode, languageUrl, options);
 
     for (let attempt = 1; attempt <= DOWNLOAD_RETRIES; attempt++) {
+        throwIfAborted(options.signal);
+        const timedSignal = createTimedAbortSignal(DOWNLOAD_TIMEOUT_MS, options.signal);
         try {
             log.info(`Downloading OCR model ${languageCode} (attempt ${attempt}/${DOWNLOAD_RETRIES})`);
             const response = await fetch(languageUrl, {
                 method: 'GET',
-                signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+                signal: timedSignal.signal,
             });
+            throwIfAborted(options.signal);
 
             if (!response.ok) {
                 throw createHttpDownloadError(languageCode, response.status);
@@ -351,6 +520,7 @@ async function downloadLanguageModel(languageCode: string, runtimeDir: string) {
                 const arrayBuffer = await response.arrayBuffer();
                 await writeFile(tempPath, Buffer.from(arrayBuffer));
             }
+            throwIfAborted(options.signal);
 
             const downloadedSize = (await stat(tempPath)).size;
             if (downloadedSize < 1024) {
@@ -360,7 +530,14 @@ async function downloadLanguageModel(languageCode: string, runtimeDir: string) {
             log.info(`Downloaded OCR model ${languageCode} (${Math.round(downloadedSize / (1024 * 1024))}MB)`);
             return;
         } catch (err) {
-            const classified = classifyDownloadError(languageCode, err);
+            if (options.signal?.aborted) {
+                throw abortErrorFromSignal(options.signal);
+            }
+
+            const classified = classifyDownloadError(
+                languageCode,
+                timedSignal.signal.aborted ? timedSignal.signal.reason : err,
+            );
 
             if (!classified.retryable) {
                 throw new Error(classified.message);
@@ -373,41 +550,83 @@ async function downloadLanguageModel(languageCode: string, runtimeDir: string) {
             }
 
             log.warn(`Download retry scheduled for OCR model ${languageCode}: ${classified.message}`);
-            await delay(RETRY_DELAY_MS * attempt);
+            await delayWithAbort(RETRY_DELAY_MS * attempt, options.signal);
         } finally {
+            timedSignal.cleanup();
             await rm(tempPath, { force: true }).catch(() => {});
         }
     }
 }
 
-async function ensureLanguageModel(languageCode: string, runtimeDir: string) {
+function releaseDownloadWaiter(
+    languageCode: string,
+    waiterId: symbol,
+    task: ISharedDownloadTask,
+) {
+    task.waiterIds.delete(waiterId);
+    if (
+        task.waiterIds.size === 0
+        && inFlightDownloads.get(languageCode) === task
+        && !task.controller.signal.aborted
+    ) {
+        task.controller.abort(createAbortError(`OCR language model "${languageCode}" download was canceled`));
+    }
+}
+
+async function ensureLanguageModel(
+    languageCode: string,
+    runtimeDir: string,
+    options: IEnsureTessdataLanguagesOptions = {},
+) {
     if (existsSync(getModelPath(runtimeDir, languageCode))) {
         return;
     }
 
+    throwIfAborted(options.signal);
+    const waiterId = Symbol(languageCode);
     const pending = inFlightDownloads.get(languageCode);
     if (pending) {
-        await pending;
+        pending.waiterIds.add(waiterId);
+        try {
+            await waitForPromiseOrAbort(pending.promise, options.signal);
+        } finally {
+            releaseDownloadWaiter(languageCode, waiterId, pending);
+        }
         return;
     }
 
-    const task = (async () => {
-        await downloadLanguageModel(languageCode, runtimeDir);
+    const task: ISharedDownloadTask = {
+        controller: new AbortController(),
+        waiterIds: new Set([waiterId]),
+        promise: Promise.resolve(),
+    };
+    task.promise = (async () => {
+        try {
+            await downloadLanguageModel(languageCode, runtimeDir, { signal: task.controller.signal });
+        } finally {
+            if (inFlightDownloads.get(languageCode) === task) {
+                inFlightDownloads.delete(languageCode);
+            }
+        }
     })();
 
     inFlightDownloads.set(languageCode, task);
     try {
-        await task;
+        await waitForPromiseOrAbort(task.promise, options.signal);
     } finally {
-        inFlightDownloads.delete(languageCode);
+        releaseDownloadWaiter(languageCode, waiterId, task);
     }
 }
 
-export async function ensureTessdataLanguages(languageCodes: string[]) {
+export async function ensureTessdataLanguages(
+    languageCodes: string[],
+    options: IEnsureTessdataLanguagesOptions = {},
+) {
     const requiredCodes = normalizeLanguageCodes(languageCodes);
     if (requiredCodes.length === 0) {
         return;
     }
+    throwIfAborted(options.signal);
     if (requiredCodes.length > OCR_MAX_UNIQUE_MODEL_CODES) {
         throw new Error(`Too many OCR languages requested (${requiredCodes.length})`);
     }
@@ -418,9 +637,9 @@ export async function ensureTessdataLanguages(languageCodes: string[]) {
     }
 
     const runtimeDir = getRuntimeTessdataDir();
-    await seedBundledModels(runtimeDir);
+    await seedBundledModels(runtimeDir, options);
     // Bound parallel model downloads so OCR requests cannot flood network/disk resources.
     await forEachConcurrent(requiredCodes, OCR_MODEL_DOWNLOAD_CONCURRENCY, async (languageCode) => {
-        await ensureLanguageModel(languageCode, runtimeDir);
+        await ensureLanguageModel(languageCode, runtimeDir, options);
     });
 }

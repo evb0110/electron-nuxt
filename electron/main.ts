@@ -32,6 +32,7 @@ import {
     getAllAppWindows,
     getMainWindow,
     hasWindows,
+    markWindowRendererReady,
 } from '@electron/window';
 import {
     markWindowTabTransferReady,
@@ -641,6 +642,7 @@ async function init() {
             return;
         }
 
+        markWindowRendererReady(window.id);
         readyWindowIds.add(window.id);
         markWindowTabTransferReady(window.id);
 
@@ -698,7 +700,7 @@ async function init() {
     externalOpenBootstrapReady = true;
     readyWindowIds.clear();
     logStartupPhase('Creating main window');
-    await createWindow();
+    await createWindow({ waitForInitialRendererReady: true });
     logStartupPhase('Main window creation requested');
 
     if (config.automation.noFocus && process.platform === 'darwin') {

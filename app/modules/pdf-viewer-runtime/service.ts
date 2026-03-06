@@ -10,6 +10,7 @@ import {
 } from '@vueuse/core';
 import { PixelsPerInch } from 'pdfjs-dist';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { waitForVisualFrames } from '@app/utils/async-helpers';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { delay } from 'es-toolkit/promise';
 import type {
@@ -615,13 +616,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     }
 
     function waitForAnimationFrame() {
-        return new Promise<void>((resolve) => {
-            if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-                setTimeout(() => resolve(), 16);
-                return;
-            }
-            window.requestAnimationFrame(() => resolve());
-        });
+        return waitForVisualFrames();
     }
 
     function summarizeViewerMetricsForLog(container: HTMLElement | null) {

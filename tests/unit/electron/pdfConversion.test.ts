@@ -7,7 +7,7 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => {
-    const workerState: { mode: 'error' | 'success' } = { mode: 'error' };
+    const workerState: { mode: 'runtime-error' | 'startup-error' | 'success' } = { mode: 'startup-error' };
     const workerCtor = vi.fn();
     const loggerWarn = vi.fn();
     const readFile = vi.fn(async () => new Uint8Array([
@@ -15,6 +15,10 @@ const mocks = vi.hoisted(() => {
         2,
         3,
     ]));
+    const stat = vi.fn(async () => ({
+        isFile: () => true,
+        size: 1024,
+    }));
 
     const addPage = vi.fn();
     const copyPages = vi.fn(async () => [{}]);
@@ -37,51 +41,93 @@ const mocks = vi.hoisted(() => {
         workerCtor,
         loggerWarn,
         readFile,
+        stat,
         create,
         load,
     };
 });
 
 vi.mock('worker_threads', () => ({Worker: class {
+    private readonly onceHandlers = new Map<string, Set<(arg: unknown) => void>>();
+
+    private readonly onHandlers = new Map<string, Set<(arg: unknown) => void>>();
+
     constructor(script: string, options: unknown) {
         mocks.workerCtor(script, options);
+        queueMicrotask(() => {
+            switch (mocks.workerState.mode) {
+                case 'startup-error':
+                    this.emit('error', new Error('Cannot find package pdf-lib from [eval1]'));
+                    return;
+                case 'runtime-error':
+                    this.emit('online', undefined);
+                    this.emit('error', new Error('worker ran out of memory'));
+                    return;
+                case 'success':
+                    this.emit('online', undefined);
+                    this.emit('message', {
+                        type: 'result',
+                        ok: true,
+                        data: new Uint8Array([
+                            7,
+                            7,
+                        ]),
+                    });
+                    return;
+                default:
+                    return;
+            }
+        });
     }
 
     on(event: string, callback: (arg: unknown) => void) {
-        return this.once(event, callback);
-    }
-
-    once(event: string, callback: (arg: unknown) => void) {
-        if (mocks.workerState.mode === 'success' && event === 'message') {
-            setTimeout(() => {
-                callback({
-                    type: 'result',
-                    ok: true,
-                    data: new Uint8Array([
-                        7,
-                        7,
-                    ]),
-                });
-            }, 0);
-        }
-        if (mocks.workerState.mode === 'error' && event === 'error') {
-            setTimeout(() => {
-                callback(new Error('Cannot find package pdf-lib from [eval1]'));
-            }, 0);
-        }
+        const handlers = this.onHandlers.get(event) ?? new Set();
+        handlers.add(callback);
+        this.onHandlers.set(event, handlers);
         return this;
     }
 
-    removeAllListeners() {
+    once(event: string, callback: (arg: unknown) => void) {
+        const handlers = this.onceHandlers.get(event) ?? new Set();
+        handlers.add(callback);
+        this.onceHandlers.set(event, handlers);
+        return this;
+    }
+
+    removeAllListeners(event?: string) {
+        if (event) {
+            this.onceHandlers.delete(event);
+            this.onHandlers.delete(event);
+            return this;
+        }
+
+        this.onceHandlers.clear();
+        this.onHandlers.clear();
         return this;
     }
 
     terminate() {
         return Promise.resolve(0);
     }
+
+    private emit(event: string, payload: unknown) {
+        const onHandlers = [...(this.onHandlers.get(event) ?? [])];
+        for (const handler of onHandlers) {
+            handler(payload);
+        }
+
+        const onceHandlers = [...(this.onceHandlers.get(event) ?? [])];
+        this.onceHandlers.delete(event);
+        for (const handler of onceHandlers) {
+            handler(payload);
+        }
+    }
 }}));
 
-vi.mock('fs/promises', () => ({ readFile: mocks.readFile }));
+vi.mock('fs/promises', () => ({
+    readFile: mocks.readFile,
+    stat: mocks.stat,
+}));
 
 vi.mock('pdf-lib', () => ({PDFDocument: {
     create: mocks.create,
@@ -106,10 +152,14 @@ const { createPdfFromInputPaths } =
 describe('createPdfFromInputPaths worker fallback', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.workerState.mode = 'error';
+        mocks.workerState.mode = 'startup-error';
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            size: 1024,
+        });
     });
 
-    it('falls back to in-process conversion when worker combine fails', async () => {
+    it('falls back to in-process conversion when worker startup fails', async () => {
         const result = await createPdfFromInputPaths(['/tmp/input.pdf']);
 
         expect(Array.from(result)).toEqual([
@@ -128,6 +178,19 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(workerOptions.workerData?.inputPaths).toEqual(['/tmp/input.pdf']);
         expect(mocks.create).toHaveBeenCalledTimes(1);
         expect(mocks.load).toHaveBeenCalledTimes(1);
+        expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not fall back to in-process conversion after runtime worker failure', async () => {
+        mocks.workerState.mode = 'runtime-error';
+
+        await expect(createPdfFromInputPaths(['/tmp/input.pdf']))
+            .rejects
+            .toThrow('worker ran out of memory');
+
+        expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
+        expect(mocks.create).not.toHaveBeenCalled();
+        expect(mocks.load).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
     });
 

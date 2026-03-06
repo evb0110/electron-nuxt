@@ -307,6 +307,13 @@ export default {
             'instructionsMac': '1. Klik met de rechtermuisknop op een PDF-bestand in Finder\n2. Selecteer "Toon info"\n3. Onder "Open met" selecteer EVB Viewer\n4. Klik op "Wijzig alles"\n\nHerhaal indien nodig voor .djvu-bestanden.',
             'instructionsLinux': 'Voer uit in de terminal:\n\nxdg-mime default evb-viewer.desktop application/pdf\nxdg-mime default evb-viewer.desktop image/vnd.djvu',
         },
+        'unresponsiveRenderer': {
+            'title': 'De app reageert niet',
+            'message': 'Het huidige venster reageert niet meer. Je kunt nog even wachten of het nu opnieuw laden.',
+            'detail': 'Opnieuw laden kan niet-opgeslagen UI-status verliezen.',
+            'wait': 'Blijf wachten',
+            'reload': 'Venster opnieuw laden',
+        },
     },
     'noteWindow': {
         'popUpNote': 'Pagina {page}',
@@ -547,6 +554,14 @@ export default {
             'loadTitle': 'Kan de documentwerkruimte niet laden',
             'loadDescription': 'Probeer de werkruimte opnieuw te laden.',
             'loadDescriptionWithMessage': 'Probeer de werkruimte opnieuw te laden. ({message})',
+        },
+        'runtime': {
+            'title': 'Er is iets misgegaan',
+            'description': 'De app kreeg een onverwachte fout en werkt mogelijk pas weer goed nadat deze opnieuw is geladen.',
+            'startupTitle': 'Starten van de app mislukt',
+            'startupDescription': 'De app kon niet volledig opstarten. Laad opnieuw en probeer het nog eens.',
+            'reload': 'App opnieuw laden',
+            'details': 'Technische details',
         },
     },
     'export': {
