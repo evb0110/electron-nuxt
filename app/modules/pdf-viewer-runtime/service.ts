@@ -31,6 +31,7 @@ import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations
 import { runGuardedTask } from '@app/utils/async-guard';
 import { getVisiblePageDebugSnapshot } from '@app/composables/pdf/pdfScrollVisibility';
 import { captureScrollSnapshot } from '@app/composables/pdf/pdfPageRenderPipeline';
+import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer-runtime/resizeAnchor';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
 type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;
@@ -1115,24 +1116,38 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         anchorViewportX?: number | null;
         anchorViewportY?: number | null;
     }) {
-        const snapshot = captureScrollSnapshot(viewerContainer.value, optionsOverride);
+        const initialSnapshot = captureScrollSnapshot(viewerContainer.value, optionsOverride);
         const snapshotAnchorPage =
-            snapshot
-            && typeof snapshot.anchorPage === 'number'
-            && Number.isFinite(snapshot.anchorPage)
-                ? snapshot.anchorPage
+            initialSnapshot
+            && typeof initialSnapshot.anchorPage === 'number'
+            && Number.isFinite(initialSnapshot.anchorPage)
+                ? initialSnapshot.anchorPage
                 : null;
-        const mostVisiblePage = snapshotAnchorPage ?? getMostVisiblePage(viewerContainer.value, numPages.value);
+        const mostVisiblePage = getMostVisiblePage(
+            viewerContainer.value,
+            numPages.value,
+        );
+        const anchorPage = resolveResizeAnchorPage({
+            totalPages: numPages.value,
+            mostVisiblePage,
+            snapshotAnchorPage,
+            currentPage: currentPage.value,
+        });
+        const snapshot = captureScrollSnapshot(viewerContainer.value, {
+            ...optionsOverride,
+            preferredAnchorPage: anchorPage,
+        }) ?? initialSnapshot;
         BrowserLogger.warnThrottled('pdf-zoom-debug', 'anchor-build-captured', ZOOM_QUEUE_LOG_THROTTLE_MS, '[anchor-build] captured', {
             optionsOverride: optionsOverride ?? null,
             snapshotAnchorPage,
             mostVisiblePage,
+            anchorPage,
             snapshot,
             viewer: summarizeViewerMetricsForLog(viewerContainer.value),
         });
         return {
             capturedAtMs: Date.now(),
-            page: mostVisiblePage,
+            page: anchorPage,
             transitionToken: 0,
             snapshot,
             visibleRange: {
@@ -1400,18 +1415,33 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     );
 
     watch(isResizing, async (value) => {
-        if (!value && pdfDocument.value && !isLoading.value) {
-            await nextTick();
-            await delay(20);
-            computeFitWidthScale(viewerContainer.value);
-            scheduleReRenderVisiblePages(
-                're-render visible pages after resize settle',
-                {
-                    source: 'resize-settle',
-                    stabilize: true,
-                },
-            );
+        if (value || !pdfDocument.value || isLoading.value) {
+            return;
         }
+
+        await nextTick();
+        await delay(20);
+        const resizeAnchor = buildResizeAnchorContext();
+        const updated = computeFitWidthScale(viewerContainer.value);
+        if (!updated) {
+            return;
+        }
+
+        const transitionToken = beginResizeTransition(
+            'resize-settle',
+            resizeAnchor.page,
+        );
+        scheduleReRenderVisiblePages(
+            're-render visible pages after resize settle',
+            {
+                source: 'resize-settle',
+                stabilize: true,
+                resizeAnchor: {
+                    ...resizeAnchor,
+                    transitionToken,
+                },
+            },
+        );
     });
 
     const isEffectivelyLoading = computed(() => !!src.value && isLoading.value);

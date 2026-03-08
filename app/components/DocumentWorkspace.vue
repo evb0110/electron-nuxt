@@ -223,6 +223,7 @@
                         :view-mode="viewMode"
                         :drag-mode="dragMode"
                         :continuous-scroll="continuousScroll"
+                        :is-resizing="isResizingSidebar"
                         :annotation-tool="annotationTool"
                         :annotation-cursor-mode="annotationCursorMode"
                         :annotation-keep-active="annotationKeepActive"

@@ -367,6 +367,38 @@ export async function scrollViewerToPage(page: Page, pageNumber: number) {
     await waitForActiveWorkspaceHost(page);
 
     const scrolled = await page.evaluate((targetPageNumber: number) => {
+        const getVisibleViewerHost = () => {
+            const viewerHosts = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'));
+            return viewerHosts.find((element) => {
+                if (!element.isConnected) {
+                    return false;
+                }
+
+                let current: HTMLElement | null = element;
+                while (current) {
+                    const style = window.getComputedStyle(current);
+                    if (
+                        style.display === 'none'
+                        || style.visibility === 'hidden'
+                        || Number(style.opacity || '1') === 0
+                    ) {
+                        return false;
+                    }
+                    current = current.parentElement;
+                }
+
+                const rect = element.getBoundingClientRect();
+                return rect.width > 100 && rect.height > 100;
+            }) ?? null;
+        };
+
+        const viewerHost = getVisibleViewerHost();
+        const exposed = (viewerHost as HTMLElement & { __vueParentComponent?: { exposed?: { scrollToPage?: (page: number) => void; }; }; }).__vueParentComponent?.exposed;
+        if (typeof exposed?.scrollToPage === 'function') {
+            exposed.scrollToPage(targetPageNumber);
+            return true;
+        }
+
         const isVisibleHost = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);
@@ -396,7 +428,162 @@ export async function scrollViewerToPage(page: Page, pageNumber: number) {
         throw new Error(`Unable to scroll to page ${pageNumber}`);
     }
 
-    await page.waitForFunction((targetPageNumber: number) => {
+    await waitForToolbarCurrentPage(page, pageNumber);
+}
+
+async function readActiveViewerCurrentPageState(page: Page) {
+    return page.evaluate(() => {
+        const isVisibleElement = (element: HTMLElement) => {
+            if (!element.isConnected) {
+                return false;
+            }
+
+            let current: HTMLElement | null = element;
+            while (current) {
+                const style = window.getComputedStyle(current);
+                if (
+                    style.display === 'none'
+                    || style.visibility === 'hidden'
+                    || Number(style.opacity || '1') === 0
+                ) {
+                    return false;
+                }
+                current = current.parentElement;
+            }
+
+            const rect = element.getBoundingClientRect();
+            return rect.width > 8 && rect.height > 8;
+        };
+
+        const viewers = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'))
+            .map((host, viewerIndex) => {
+                const setupState = (host as HTMLElement & { __vueParentComponent?: { setupState?: { currentPage?: number; }; }; }).__vueParentComponent?.setupState;
+                return {
+                    viewerIndex,
+                    isVisible: isVisibleElement(host),
+                    currentPage: setupState?.currentPage ?? null,
+                };
+            })
+            .filter(viewer => viewer.isVisible)
+            .sort((left, right) => right.viewerIndex - left.viewerIndex);
+
+        return viewers[0]?.currentPage ?? null;
+    });
+}
+
+export async function goToPageViaToolbar(page: Page, pageNumber: number) {
+    const displayPoint = await page.evaluate(() => {
+        const isVisibleElement = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
+        };
+
+        const display = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-display'))
+            .find(isVisibleElement);
+        if (!display) {
+            return null;
+        }
+
+        const rect = display.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
+        };
+    });
+
+    if (!displayPoint) {
+        throw new Error('Toolbar page control not found');
+    }
+
+    await page.mouse.click(displayPoint.x, displayPoint.y);
+    await page.waitForSelector('.page-controls-inline-input', { timeout: DEFAULT_TIMEOUT_MS });
+    await page.click('.page-controls-inline-input', { clickCount: 3 });
+    await page.keyboard.type(String(pageNumber));
+    await page.keyboard.press('Enter');
+    await waitForToolbarCurrentPage(page, pageNumber);
+}
+
+export async function getToolbarCurrentPage(page: Page) {
+    const currentPageFromViewerState = await readActiveViewerCurrentPageState(page);
+    if (Number.isFinite(currentPageFromViewerState)) {
+        return currentPageFromViewerState;
+    }
+
+    return page.evaluate(() => {
+        const isVisibleElement = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
+        };
+
+        const currentPageText = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current'))
+            .find(isVisibleElement)
+            ?.textContent
+            ?.trim() ?? '';
+        const currentPage = Number.parseInt(currentPageText, 10);
+        return Number.isFinite(currentPage) ? currentPage : null;
+    });
+}
+
+export async function waitForToolbarCurrentPage(
+    page: Page,
+    expectedPage: number,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
+    await page.waitForFunction((targetPage: number) => {
+        const isVisibleElement = (element: HTMLElement) => {
+            if (!element.isConnected) {
+                return false;
+            }
+
+            let current: HTMLElement | null = element;
+            while (current) {
+                const style = window.getComputedStyle(current);
+                if (
+                    style.display === 'none'
+                    || style.visibility === 'hidden'
+                    || Number(style.opacity || '1') === 0
+                ) {
+                    return false;
+                }
+                current = current.parentElement;
+            }
+
+            const rect = element.getBoundingClientRect();
+            return rect.width > 8 && rect.height > 8;
+        };
+
+        const viewerStateCurrentPage = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'))
+            .map((host, viewerIndex) => {
+                const setupState = (host as HTMLElement & { __vueParentComponent?: { setupState?: { currentPage?: number; }; }; }).__vueParentComponent?.setupState;
+                return {
+                    viewerIndex,
+                    isVisible: isVisibleElement(host),
+                    currentPage: setupState?.currentPage ?? null,
+                };
+            })
+            .filter(viewer => viewer.isVisible)
+            .sort((left, right) => right.viewerIndex - left.viewerIndex)[0]?.currentPage ?? null;
+
+        if (viewerStateCurrentPage === targetPage) {
+            return true;
+        }
+
+        const currentPageText = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current'))
+            .find(isVisibleElement)
+            ?.textContent
+            ?.trim() ?? '';
+        return Number.parseInt(currentPageText, 10) === targetPage;
+    }, {timeout: timeoutMs}, expectedPage);
+}
+
+export async function waitForActiveThumbnailInView(
+    page: Page,
+    expectedPage: number,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
+    await page.waitForFunction((targetPage: number) => {
         const isVisibleHost = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);
@@ -412,16 +599,64 @@ export async function scrollViewerToPage(page: Page, pageNumber: number) {
             return false;
         }
 
-        const viewer = host.querySelector<HTMLElement>('.pdfViewer');
-        const pageEl = host.querySelector<HTMLElement>(`.page_container[data-page="${targetPageNumber}"]`);
-        if (!viewer || !pageEl) {
+        const container = host.querySelector<HTMLElement>('.pdf-sidebar-pages-thumbnails .pdf-thumbnails');
+        const activeThumbnail = host.querySelector<HTMLElement>(`.pdf-thumbnail.is-active[data-page="${targetPage}"]`);
+        if (!container || !activeThumbnail) {
             return false;
         }
 
-        const viewerRect = viewer.getBoundingClientRect();
-        const pageRect = pageEl.getBoundingClientRect();
-        return pageRect.bottom > viewerRect.top + 8 && pageRect.top < viewerRect.bottom - 8;
-    }, {timeout: DEFAULT_TIMEOUT_MS}, pageNumber);
+        const containerRect = container.getBoundingClientRect();
+        const thumbnailRect = activeThumbnail.getBoundingClientRect();
+        const margin = 8;
+
+        return (
+            thumbnailRect.top >= containerRect.top + margin
+            && thumbnailRect.bottom <= containerRect.bottom - margin
+        );
+    }, { timeout: timeoutMs }, expectedPage);
+}
+
+export async function resizeSidebarBy(page: Page, deltaX: number, steps = 12) {
+    await ensureSidebarOpen(page);
+    await waitForActiveWorkspaceHost(page);
+
+    const resizerPoint = await page.evaluate(() => {
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(isVisibleHost);
+        if (!host) {
+            return null;
+        }
+
+        const resizer = host.querySelector<HTMLElement>('.sidebar-resizer');
+        if (!resizer) {
+            return null;
+        }
+
+        const rect = resizer.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
+        };
+    });
+
+    if (!resizerPoint) {
+        throw new Error('Sidebar resizer not found');
+    }
+
+    await page.mouse.move(resizerPoint.x, resizerPoint.y);
+    await page.mouse.down();
+    await page.mouse.move(resizerPoint.x + deltaX, resizerPoint.y, { steps });
+    await page.mouse.up();
+    await delay(150);
 }
 
 export async function saveViaWindowHandle(page: Page) {
