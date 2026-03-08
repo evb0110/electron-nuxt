@@ -163,9 +163,39 @@ const pageIndicator = computed(() => {
     return formatPageIndicator(currentPage, effectivePageLabels.value);
 });
 
-const pageDisplayWidthCh = computed(() => (showTotalInDisplay.value ? 9 : 5));
+const pageCurrentWidthCh = computed(() => {
+    const visibleValue = (
+        isEditing.value
+            ? pageInputValue.value.trim() || getCurrentInputLabel()
+            : pageIndicator.value
+    );
+    const minimumWidth = showTotalInDisplay.value ? 5 : 3;
+    return Math.max(minimumWidth, visibleValue.length);
+});
 
-const pageDisplayStyle = computed(() => ({'--page-display-width-ch': `${pageDisplayWidthCh.value}ch`}));
+const pageTotalWidthCh = computed(() => {
+    if (!showTotalInDisplay.value) {
+        return 0;
+    }
+    return Math.max(1, String(totalPages).length);
+});
+
+const pageDisplayMinWidthCh = computed(() => {
+    const separatorWidth = showTotalInDisplay.value ? 2 : 0;
+    const horizontalPaddingWidth = 2;
+    return (
+        pageCurrentWidthCh.value
+        + pageTotalWidthCh.value
+        + separatorWidth
+        + horizontalPaddingWidth
+    );
+});
+
+const pageDisplayStyle = computed(() => ({
+    '--page-current-width-ch': `${pageCurrentWidthCh.value}ch`,
+    '--page-total-width-ch': `${pageTotalWidthCh.value}ch`,
+    '--page-display-min-width-ch': `${pageDisplayMinWidthCh.value}ch`,
+}));
 
 function startEditing() {
     if (disabled || totalPages === 0) {
@@ -259,11 +289,13 @@ onClickOutside(pageControlsRef, () => {
 
 .page-controls-display {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns:
+        minmax(var(--page-current-width-ch), max-content)
+        auto
+        minmax(var(--page-total-width-ch), max-content);
     align-items: center;
     padding: 0 0.5rem;
-    width: var(--page-display-width-ch);
-    min-width: var(--page-display-width-ch);
+    min-width: var(--page-display-min-width-ch);
     height: var(--toolbar-control-height, 2.25rem);
     background: transparent;
     border: none;
@@ -302,9 +334,6 @@ onClickOutside(pageControlsRef, () => {
 
 .page-controls-current {
     text-align: right;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 .page-controls-slash {
@@ -328,6 +357,7 @@ onClickOutside(pageControlsRef, () => {
     outline: none;
     text-align: right;
     padding: 0;
-    min-width: 1ch;
+    min-width: var(--page-current-width-ch);
+    width: 100%;
 }
 </style>
