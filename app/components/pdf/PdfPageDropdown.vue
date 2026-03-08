@@ -88,6 +88,7 @@ import type { TPdfViewMode } from '@contracts/shared';
 import {
     findPageByPageLabelInput,
     formatPageIndicator,
+    getMaxPageIndicatorLength,
 } from '@app/utils/pdf-page-labels';
 import { stepBySpread } from '@app/utils/pdf-view-mode';
 
@@ -164,13 +165,9 @@ const pageIndicator = computed(() => {
 });
 
 const pageCurrentWidthCh = computed(() => {
-    const visibleValue = (
-        isEditing.value
-            ? pageInputValue.value.trim() || getCurrentInputLabel()
-            : pageIndicator.value
-    );
     const minimumWidth = showTotalInDisplay.value ? 5 : 3;
-    return Math.max(minimumWidth, visibleValue.length);
+    const reservedWidth = getMaxPageIndicatorLength(totalPages, effectivePageLabels.value);
+    return Math.max(minimumWidth, reservedWidth);
 });
 
 const pageTotalWidthCh = computed(() => {
@@ -180,7 +177,7 @@ const pageTotalWidthCh = computed(() => {
     return Math.max(1, String(totalPages).length);
 });
 
-const pageDisplayMinWidthCh = computed(() => {
+const pageDisplayWidthCh = computed(() => {
     const separatorWidth = showTotalInDisplay.value ? 2 : 0;
     const horizontalPaddingWidth = 2;
     return (
@@ -194,7 +191,7 @@ const pageDisplayMinWidthCh = computed(() => {
 const pageDisplayStyle = computed(() => ({
     '--page-current-width-ch': `${pageCurrentWidthCh.value}ch`,
     '--page-total-width-ch': `${pageTotalWidthCh.value}ch`,
-    '--page-display-min-width-ch': `${pageDisplayMinWidthCh.value}ch`,
+    '--page-display-width-ch': `${pageDisplayWidthCh.value}ch`,
 }));
 
 function startEditing() {
@@ -290,12 +287,13 @@ onClickOutside(pageControlsRef, () => {
 .page-controls-display {
     display: grid;
     grid-template-columns:
-        minmax(var(--page-current-width-ch), max-content)
+        var(--page-current-width-ch)
         auto
-        minmax(var(--page-total-width-ch), max-content);
+        var(--page-total-width-ch);
     align-items: center;
     padding: 0 0.5rem;
-    min-width: var(--page-display-min-width-ch);
+    width: var(--page-display-width-ch);
+    min-width: var(--page-display-width-ch);
     height: var(--toolbar-control-height, 2.25rem);
     background: transparent;
     border: none;

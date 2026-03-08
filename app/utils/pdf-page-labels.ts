@@ -365,26 +365,24 @@ export function findPageByPageLabelInput(input: string, totalPages: number, page
         return null;
     }
 
+    if (pageLabels && pageLabels.length === totalPages) {
+        const exactIndex = pageLabels.findIndex(label => label === trimmed);
+        if (exactIndex >= 0) {
+            return exactIndex + 1;
+        }
+
+        const lowered = trimmed.toLowerCase();
+        const caseInsensitiveIndex = pageLabels.findIndex(label => label.toLowerCase() === lowered);
+        if (caseInsensitiveIndex >= 0) {
+            return caseInsensitiveIndex + 1;
+        }
+    }
+
     if (/^\d+$/.test(trimmed)) {
         const page = Number.parseInt(trimmed, 10);
         if (Number.isFinite(page) && page >= 1 && page <= totalPages) {
             return page;
         }
-    }
-
-    if (!pageLabels || pageLabels.length !== totalPages) {
-        return null;
-    }
-
-    const exactIndex = pageLabels.findIndex(label => label === trimmed);
-    if (exactIndex >= 0) {
-        return exactIndex + 1;
-    }
-
-    const lowered = trimmed.toLowerCase();
-    const caseInsensitiveIndex = pageLabels.findIndex(label => label.toLowerCase() === lowered);
-    if (caseInsensitiveIndex >= 0) {
-        return caseInsensitiveIndex + 1;
     }
 
     return null;
@@ -405,6 +403,23 @@ export function formatPageIndicator(page: number, pageLabels: string[] | null): 
         return String(page);
     }
     return `${logical} (${page})`;
+}
+
+export function getMaxPageIndicatorLength(totalPages: number, pageLabels: string[] | null): number {
+    if (totalPages <= 0) {
+        return 0;
+    }
+
+    if (!pageLabels || pageLabels.length !== totalPages) {
+        return String(totalPages).length;
+    }
+
+    let maxLength = 0;
+    for (let page = 1; page <= totalPages; page += 1) {
+        maxLength = Math.max(maxLength, formatPageIndicator(page, pageLabels).length);
+    }
+
+    return maxLength;
 }
 
 export function isImplicitDefaultPageLabels(ranges: IPdfPageLabelRange[], totalPages: number): boolean {
