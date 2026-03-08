@@ -7,6 +7,8 @@
       'is-external-drag': isExternalDragOver,
     }"
     @scroll.passive="handleContainerScroll"
+    @wheel.passive="handleContainerWheel"
+    @pointerdown="handleContainerPointerDown"
     @dragenter="handleExternalDragEnter"
     @dragover="handleExternalDragOver"
     @dragleave="handleExternalDragLeave"
@@ -73,6 +75,10 @@ const VIRTUAL_OVERSCAN = 8;
 const THUMBNAIL_RENDER_CONCURRENCY = 3;
 const IMMEDIATE_RENDER_RADIUS = 2;
 const PREFETCH_RENDER_RADIUS = 8;
+const AUTO_SYNC_COMFORT_PADDING_MIN_PX = 16;
+const AUTO_SYNC_COMFORT_PADDING_MAX_PX = 48;
+const AUTO_SYNC_INTERACTION_COOLDOWN_MS = 700;
+const AUTO_SYNC_PROGRAMMATIC_SCROLL_GUARD_MS = 160;
 const THUMBNAIL_LOG_SECTION = 'pdf-thumbnails';
 
 const props = defineProps<IProps>();
@@ -107,6 +113,11 @@ let pendingInvalidation: number[] | null = null;
 let reloadTransition = false;
 let containerVisibilityState: 'unknown' | 'visible' | 'hidden' = 'unknown';
 let measurementState: 'ready' | 'no-item' | 'no-rendered-canvas' = 'ready';
+let lastUserInteractionAtMs = 0;
+let lastUserInteractionLogAtMs = 0;
+let lastUserInteractionReason: string | null = null;
+let lastProgrammaticScrollAtMs = 0;
+let currentPageSyncRunId = 0;
 
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
@@ -262,6 +273,15 @@ function getCanvas(pageNum: number): HTMLCanvasElement | null {
     return thumbnail?.querySelector('canvas') ?? null;
 }
 
+function getThumbnailElement(pageNum: number) {
+    if (!containerRef.value) {
+        return null;
+    }
+    return containerRef.value.querySelector<HTMLElement>(
+        `.pdf-thumbnail[data-page="${pageNum}"]`,
+    );
+}
+
 function getPageIndicator(page: number) {
     return formatPageIndicator(page, props.pageLabels ?? null);
 }
@@ -279,6 +299,104 @@ function describeContainerGeometry(container: HTMLElement) {
         rectWidth: roundMetric(rect.width),
         rectHeight: roundMetric(rect.height),
     };
+}
+
+function markUserInteraction(reason: string) {
+    const now = Date.now();
+    lastUserInteractionAtMs = now;
+    if (
+        reason === lastUserInteractionReason
+        && (now - lastUserInteractionLogAtMs) < AUTO_SYNC_PROGRAMMATIC_SCROLL_GUARD_MS
+    ) {
+        return;
+    }
+
+    lastUserInteractionReason = reason;
+    lastUserInteractionLogAtMs = now;
+    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail user interaction detected', {
+        reason,
+        currentPage: props.currentPage,
+        totalPages: props.totalPages,
+    });
+}
+
+function isRecentProgrammaticScroll() {
+    return (Date.now() - lastProgrammaticScrollAtMs) < AUTO_SYNC_PROGRAMMATIC_SCROLL_GUARD_MS;
+}
+
+function isCurrentPageAutoSyncSuppressed() {
+    return (Date.now() - lastUserInteractionAtMs) < AUTO_SYNC_INTERACTION_COOLDOWN_MS;
+}
+
+function getComfortPaddingPx(container: HTMLElement) {
+    return Math.min(
+        AUTO_SYNC_COMFORT_PADDING_MAX_PX,
+        Math.max(
+            AUTO_SYNC_COMFORT_PADDING_MIN_PX,
+            Math.round(container.clientHeight * 0.12),
+        ),
+    );
+}
+
+function getPageBounds(page: number) {
+    const top = Math.max(0, (page - 1) * itemPitch.value);
+    const height = Math.max(1, thumbnailItemHeight.value);
+    return {
+        top,
+        bottom: top + height,
+        height,
+    };
+}
+
+function getMaxScrollTop(container: HTMLElement) {
+    return Math.max(0, container.scrollHeight - container.clientHeight);
+}
+
+function isPageWithinComfortViewport(container: HTMLElement, page: number) {
+    const {
+        top,
+        bottom,
+    } = getPageBounds(page);
+    const comfortPadding = getComfortPaddingPx(container);
+    const viewportTop = container.scrollTop;
+    const viewportBottom = viewportTop + container.clientHeight;
+    const comfortTop = viewportTop + comfortPadding;
+    const comfortBottom = viewportBottom - comfortPadding;
+
+    return top >= comfortTop && bottom <= comfortBottom;
+}
+
+function resolveCurrentPageSyncScrollTop(container: HTMLElement, page: number) {
+    if (container.clientHeight <= 0) {
+        return null;
+    }
+
+    const {
+        top,
+        bottom,
+        height,
+    } = getPageBounds(page);
+    const comfortPadding = getComfortPaddingPx(container);
+    const viewportTop = container.scrollTop;
+    const viewportBottom = viewportTop + container.clientHeight;
+    const comfortTop = viewportTop + comfortPadding;
+    const comfortBottom = viewportBottom - comfortPadding;
+    const maxScrollTop = getMaxScrollTop(container);
+
+    if (top >= comfortTop && bottom <= comfortBottom) {
+        return null;
+    }
+
+    if (bottom <= viewportTop || top >= viewportBottom) {
+        const centeredScrollTop = top - Math.max(0, (container.clientHeight - height) / 2);
+        return Math.max(0, Math.min(maxScrollTop, centeredScrollTop));
+    }
+
+    if (top < comfortTop) {
+        return Math.max(0, Math.min(maxScrollTop, top - comfortPadding));
+    }
+
+    return Math.max(0, Math.min(maxScrollTop, bottom + comfortPadding - container.clientHeight));
 }
 
 function isContainerVisible(container: HTMLElement) {
@@ -347,6 +465,58 @@ function updateViewportMetrics() {
             geometry: describeContainerGeometry(container),
         });
     }
+}
+
+async function syncCurrentPageIntoView(reason: string) {
+    const container = resolveVisibleContainer(`current-page-sync:${reason}`);
+    if (!container || props.totalPages <= 0) {
+        return;
+    }
+    if (isDragging.value || isExternalDragOver.value || isCurrentPageAutoSyncSuppressed()) {
+        return;
+    }
+
+    const targetScrollTop = resolveCurrentPageSyncScrollTop(container, props.currentPage);
+    if (targetScrollTop === null || Math.abs(targetScrollTop - container.scrollTop) < 1) {
+        return;
+    }
+
+    const syncRunId = ++currentPageSyncRunId;
+    lastProgrammaticScrollAtMs = Date.now();
+    container.scrollTop = targetScrollTop;
+    updateViewportMetrics();
+    scheduleVisibleThumbnailRender();
+
+    await nextTick();
+    if (syncRunId !== currentPageSyncRunId) {
+        return;
+    }
+
+    const thumbnail = getThumbnailElement(props.currentPage);
+    if (!thumbnail || isPageWithinComfortViewport(container, props.currentPage)) {
+        return;
+    }
+
+    const thumbnailTop = thumbnail.offsetTop;
+    const thumbnailBottom = thumbnailTop + thumbnail.offsetHeight;
+    const comfortPadding = getComfortPaddingPx(container);
+    const refinedScrollTop = Math.max(
+        0,
+        Math.min(
+            getMaxScrollTop(container),
+            thumbnailBottom > (container.scrollTop + container.clientHeight - comfortPadding)
+                ? thumbnailBottom + comfortPadding - container.clientHeight
+                : thumbnailTop - comfortPadding,
+        ),
+    );
+    if (Math.abs(refinedScrollTop - container.scrollTop) < 1) {
+        return;
+    }
+
+    lastProgrammaticScrollAtMs = Date.now();
+    container.scrollTop = refinedScrollTop;
+    updateViewportMetrics();
+    scheduleVisibleThumbnailRender();
 }
 
 const measureThumbnailHeight = useDebounceFn(() => {
@@ -428,8 +598,21 @@ const measureThumbnailHeight = useDebounceFn(() => {
 }, 16);
 
 function handleContainerScroll() {
+    if (!isRecentProgrammaticScroll()) {
+        markUserInteraction('scroll');
+    }
     updateViewportMetrics();
     scheduleVisibleThumbnailRender();
+}
+
+function handleContainerWheel() {
+    if (!isRecentProgrammaticScroll()) {
+        markUserInteraction('wheel');
+    }
+}
+
+function handleContainerPointerDown() {
+    markUserInteraction('pointerdown');
 }
 
 watch(
@@ -698,6 +881,7 @@ watch(
             updateViewportMetrics();
             scheduleVisibleThumbnailRender();
             measureThumbnailHeight();
+            void syncCurrentPageIntoView('document-ready');
         });
     },
     { immediate: true },
@@ -712,6 +896,25 @@ watch(
         ] as const,
     () => {
         scheduleVisibleThumbnailRender();
+    },
+);
+
+watch(
+    () => props.currentPage,
+    () => {
+        scheduleVisibleThumbnailRender();
+        void syncCurrentPageIntoView('current-page');
+    },
+    { immediate: true },
+);
+
+watch(
+    () => thumbnailItemHeight.value,
+    (nextHeight, previousHeight) => {
+        if (Math.abs(nextHeight - previousHeight) < 1) {
+            return;
+        }
+        void syncCurrentPageIntoView('thumbnail-measure');
     },
 );
 
@@ -757,6 +960,7 @@ watch(
     containerRef,
     () => {
         updateViewportMetrics();
+        void syncCurrentPageIntoView('container-ref');
     },
     { immediate: true },
 );
@@ -771,6 +975,7 @@ useResizeObserver(containerRef, () => {
     updateViewportMetrics();
     scheduleVisibleThumbnailRender();
     measureThumbnailHeight();
+    void syncCurrentPageIntoView('resize-observer');
 });
 
 onBeforeUnmount(() => {

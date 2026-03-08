@@ -168,6 +168,50 @@ describe('pdfPageRenderPipeline scroll snapshots', () => {
         expect(restored.getScrollTop()).toBeCloseTo(620 + (50 / 400) * 600 - 100, 5);
     });
 
+    it('can capture a preferred anchor page even when the viewport anchor is on a neighboring page', () => {
+        const {container} = createContainerStub({
+            pages: [
+                {
+                    page: 2,
+                    top: 140,
+                    height: 140,
+                },
+                {
+                    page: 3,
+                    top: 320,
+                    height: 120,
+                },
+            ],
+            scrollTop: 250,
+            clientHeight: 180,
+            scrollWidth: 640,
+            scrollHeight: 1600,
+        });
+
+        const snapshot = captureScrollSnapshot(container, { preferredAnchorPage: 2 });
+
+        expect(snapshot).not.toBeNull();
+        expect(snapshot?.anchorPage).toBe(2);
+        expect(snapshot?.anchorInsidePage).toBe(false);
+        expect(snapshot?.anchorPageYOutsideEdge).toBe('below');
+        expect(snapshot?.anchorPageYOutsideOffsetPx).toBe(60);
+
+        const restored = createContainerStub({
+            pages: [{
+                page: 2,
+                top: 500,
+                height: 280,
+            }],
+            clientWidth: 100,
+            clientHeight: 180,
+            scrollWidth: 640,
+            scrollHeight: 2000,
+        });
+
+        restoreScrollFromSnapshot(restored.container, snapshot);
+        expect(restored.getScrollTop()).toBeCloseTo(500 + 280 + 60 - 90, 5);
+    });
+
     it('restores scrollTop from page anchor when anchor page is mounted', () => {
         const {
             container,

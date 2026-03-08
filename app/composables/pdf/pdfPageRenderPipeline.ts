@@ -16,6 +16,20 @@ interface IAnchorPageSnapshot {
     pageYOutsideOffsetPx: number | null;
 }
 
+function getPageNumberFromElement(pageElement: HTMLElement) {
+    const pageNumberRaw = pageElement.dataset.page;
+    if (!pageNumberRaw) {
+        return null;
+    }
+
+    const pageNumber = Number.parseInt(pageNumberRaw, PAGE_NUMBER_BASE);
+    if (!Number.isFinite(pageNumber) || pageNumber < 1) {
+        return null;
+    }
+
+    return pageNumber;
+}
+
 function getViewportAnchorCoordinate(value: number | null | undefined, fallback: number, limit: number) {
     const normalizedLimit = Math.max(limit, 0);
     const normalizedValue = typeof value === 'number' && Number.isFinite(value)
@@ -57,38 +71,82 @@ function isPointInsidePage(
     return x >= left && x <= right && y >= top && y <= bottom;
 }
 
+function createAnchorPageSnapshotForElement(
+    pageElement: HTMLElement,
+    anchorContentX: number,
+    anchorContentY: number,
+) {
+    const pageNumber = getPageNumberFromElement(pageElement);
+    if (pageNumber === null) {
+        return null;
+    }
+
+    const pageLeft = pageElement.offsetLeft;
+    const pageTop = pageElement.offsetTop;
+    const safeWidth = getPageWidth(pageElement);
+    const safeHeight = getPageHeight(pageElement);
+    const pageBottom = pageTop + safeHeight;
+    const insidePage = isPointInsidePage(anchorContentX, anchorContentY, pageElement);
+    const pageYOutsideEdge = insidePage
+        ? 'inside'
+        : anchorContentY < pageTop
+            ? 'above'
+            : 'below';
+    const pageYOutsideOffsetPx = insidePage
+        ? null
+        : pageYOutsideEdge === 'above'
+            ? pageTop - anchorContentY
+            : anchorContentY - pageBottom;
+
+    return {
+        page: pageNumber,
+        pageXRatio: insidePage
+            ? clamp((anchorContentX - pageLeft) / safeWidth, 0, 1)
+            : (anchorContentX - pageLeft) / safeWidth,
+        pageYRatio: insidePage
+            ? clamp((anchorContentY - pageTop) / safeHeight, 0, 1)
+            : (anchorContentY - pageTop) / safeHeight,
+        insidePage,
+        pageYOutsideEdge,
+        pageYOutsideOffsetPx,
+    } satisfies IAnchorPageSnapshot;
+}
+
 function getAnchorPageSnapshot(
     container: HTMLElement,
     anchorContentX: number,
     anchorContentY: number,
+    preferredAnchorPage?: number | null,
 ) {
+    if (typeof preferredAnchorPage === 'number' && Number.isFinite(preferredAnchorPage)) {
+        const preferredPageElement = getPageContainerByNumber(
+            container,
+            Math.max(1, Math.floor(preferredAnchorPage)),
+        );
+        const preferredSnapshot = preferredPageElement
+            ? createAnchorPageSnapshotForElement(
+                preferredPageElement,
+                anchorContentX,
+                anchorContentY,
+            )
+            : null;
+        if (preferredSnapshot) {
+            return preferredSnapshot;
+        }
+    }
+
     const pageElements = container.querySelectorAll<HTMLElement>('.page_container');
 
     for (const pageElement of pageElements) {
-        const pageNumberRaw = pageElement.dataset.page;
-        if (!pageNumberRaw) {
+        const anchorSnapshotForElement = createAnchorPageSnapshotForElement(
+            pageElement,
+            anchorContentX,
+            anchorContentY,
+        );
+        if (!anchorSnapshotForElement?.insidePage) {
             continue;
         }
-        const pageNumber = Number.parseInt(pageNumberRaw, PAGE_NUMBER_BASE);
-        if (!Number.isFinite(pageNumber) || pageNumber < 1) {
-            continue;
-        }
-        if (!isPointInsidePage(anchorContentX, anchorContentY, pageElement)) {
-            continue;
-        }
-
-        const pageLeft = pageElement.offsetLeft;
-        const pageTop = pageElement.offsetTop;
-        const pageWidth = getPageWidth(pageElement);
-        const pageHeight = getPageHeight(pageElement);
-        return {
-            page: pageNumber,
-            pageXRatio: clamp((anchorContentX - pageLeft) / pageWidth, 0, 1),
-            pageYRatio: clamp((anchorContentY - pageTop) / pageHeight, 0, 1),
-            insidePage: true,
-            pageYOutsideEdge: 'inside',
-            pageYOutsideOffsetPx: null,
-        } satisfies IAnchorPageSnapshot;
+        return anchorSnapshotForElement;
     }
 
     let nearestOutsideAnchor: {
@@ -101,12 +159,8 @@ function getAnchorPageSnapshot(
     } | null = null;
 
     for (const pageElement of pageElements) {
-        const pageNumberRaw = pageElement.dataset.page;
-        if (!pageNumberRaw) {
-            continue;
-        }
-        const pageNumber = Number.parseInt(pageNumberRaw, PAGE_NUMBER_BASE);
-        if (!Number.isFinite(pageNumber) || pageNumber < 1) {
+        const pageNumber = getPageNumberFromElement(pageElement);
+        if (pageNumber === null) {
             continue;
         }
 
@@ -199,6 +253,7 @@ export function captureScrollSnapshot(
     options?: {
         anchorViewportX?: number | null;
         anchorViewportY?: number | null;
+        preferredAnchorPage?: number | null;
     },
 ): IScrollSnapshot | null {
     if (!container) {
@@ -229,6 +284,7 @@ export function captureScrollSnapshot(
         container,
         anchorContentX,
         anchorContentY,
+        options?.preferredAnchorPage,
     );
     const snapshot: IScrollSnapshot = {
         width: scrollWidth,
@@ -252,6 +308,7 @@ export function captureScrollSnapshot(
         anchorViewportY,
         anchorContentX,
         anchorContentY,
+        preferredAnchorPage: options?.preferredAnchorPage ?? null,
         snapshot,
         container: {
             scrollTop: Math.round(container.scrollTop),
