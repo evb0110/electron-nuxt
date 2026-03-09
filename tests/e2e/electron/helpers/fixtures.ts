@@ -21,7 +21,8 @@ import {
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
-const PROJECT_FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'test-pdfs');
+const TRACKED_PROJECT_FIXTURE_DIR = resolve(process.cwd(), 'tests', 'fixtures', 'electron');
+const LEGACY_PROJECT_FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'test-pdfs');
 const PROJECT_ROOT_FIXTURE_DIR = resolve(process.cwd(), '.devkit');
 const DJVU_FIXTURE_ENV_VAR = 'EVB_E2E_DJVU_FIXTURE';
 const DJVU_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_DJVU_FIXTURE';
@@ -56,13 +57,24 @@ export function createFixturePath(filename: string) {
 
 export function copyProjectFixture(sourceFilename: string, targetFilename?: string) {
     ensureFixtureDir();
-    const sourcePath = join(PROJECT_FIXTURE_DIR, sourceFilename);
-    if (!existsSync(sourcePath)) {
-        throw new Error(`Fixture does not exist: ${sourcePath}`);
-    }
+    const sourcePath = resolveProjectFixturePath(sourceFilename);
     const targetPath = join(FIXTURE_DIR, targetFilename ?? sourceFilename);
     writeFileSync(targetPath, readFileSync(sourcePath));
     return targetPath;
+}
+
+function resolveProjectFixturePath(sourceFilename: string) {
+    const candidatePaths = [
+        join(TRACKED_PROJECT_FIXTURE_DIR, sourceFilename),
+        join(LEGACY_PROJECT_FIXTURE_DIR, sourceFilename),
+    ];
+    const sourcePath = candidatePaths.find(existsSync);
+
+    if (sourcePath) {
+        return sourcePath;
+    }
+
+    throw new Error(`Fixture does not exist in any known location: ${candidatePaths.join(', ')}`);
 }
 
 export function copyDevkitFixture(sourceRelativePath: string, targetFilename?: string) {

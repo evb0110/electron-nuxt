@@ -63,6 +63,12 @@ const VITE_OPTIMIZE_DEP_ERROR_MARKER = 'VITE_OPTIMIZE_DEP_504';
 const ELECTRON_START_TIMEOUT_MS = 45_000;
 const ELECTRON_STARTUP_LOG_MAX_LINES = 300;
 const ELECTRON_STARTUP_LOG_TAIL_LINES = 60;
+const TRUTHY_ENV_VALUES = new Set([
+    '1',
+    'true',
+    'yes',
+    'on',
+]);
 
 function pushBounded<T>(collection: T[], item: T, maxSize: number) {
     collection.push(item);
@@ -88,6 +94,42 @@ function isViteOptimizeDepError(error: unknown) {
         || error.message.includes(VITE_OPTIMIZE_DEP_ERROR_MARKER)
         || error.message.includes('Outdated Optimize Dep')
         || error.message.includes('optimize-dep');
+}
+
+export function shouldDisableAutomationSandbox(
+    env: NodeJS.ProcessEnv = process.env,
+    platform = process.platform,
+) {
+    const explicitSetting = env.EVB_AUTOMATION_DISABLE_SANDBOX?.trim().toLowerCase();
+    if (explicitSetting) {
+        return TRUTHY_ENV_VALUES.has(explicitSetting);
+    }
+
+    return platform === 'linux' && env.CI === 'true';
+}
+
+export function buildElectronAutomationArgs(options: {
+    cdpPort: number;
+    automationUserDataDir: string;
+    mainJs: string;
+    env?: NodeJS.ProcessEnv;
+    platform?: NodeJS.Platform;
+}) {
+    const args = [
+        `--remote-debugging-port=${options.cdpPort}`,
+        `--user-data-dir=${options.automationUserDataDir}`,
+        '--disable-http-cache',
+        options.mainJs,
+    ];
+
+    if (shouldDisableAutomationSandbox(options.env, options.platform)) {
+        args.unshift(
+            '--disable-setuid-sandbox',
+            '--no-sandbox',
+        );
+    }
+
+    return args;
 }
 
 async function killProcessTreeForPids(pids: number[], graceMs = 1200) {
@@ -434,12 +476,11 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
     const defaultAutomationNoFocus = interactiveTerminal ? '0' : '1';
     const defaultAutomationHideWindow = interactiveTerminal ? '0' : '1';
     const electronPath = join(projectRoot, 'node_modules/.bin/electron');
-    const electron = spawn(electronPath, [
-        `--remote-debugging-port=${cdpPort}`,
-        `--user-data-dir=${automationUserDataDir}`,
-        '--disable-http-cache',
+    const electron = spawn(electronPath, buildElectronAutomationArgs({
+        cdpPort,
+        automationUserDataDir,
         mainJs,
-    ], {
+    }), {
         cwd: projectRoot,
         stdio: [
             'ignore',
