@@ -33,6 +33,8 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import PdfAnnotationCommentsList from '@app/components/pdf/PdfAnnotationCommentsList.vue';
+import PdfAnnotationStyleEditor from '@app/components/pdf/PdfAnnotationStyleEditor.vue';
+import PdfAnnotationToolbar from '@app/components/pdf/PdfAnnotationToolbar.vue';
 
 interface IProps {
     tool: TAnnotationTool;

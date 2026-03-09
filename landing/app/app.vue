@@ -18,6 +18,8 @@ import {
     buildAbsoluteUrl,
     normalizeSiteUrl,
 } from '~~/shared/seo';
+import SiteFooter from '~/components/SiteFooter.vue';
+import SiteHeader from '~/components/SiteHeader.vue';
 
 const { t } = useTypedI18n();
 const { locale } = useI18n();

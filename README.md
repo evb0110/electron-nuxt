@@ -93,12 +93,14 @@ pnpm dist:win        # Windows only
 pnpm dist:linux      # Linux only
 
 # Quality checks
-pnpm lint            # ESLint + Stylelint (with auto-fix)
+pnpm run gate:commit # Fast staged-file checks used by pre-commit
+pnpm lint            # Full non-mutating lint
 pnpm typecheck       # TypeScript (app + Electron)
 pnpm test            # Vitest (unit + integration)
 pnpm test:e2e:electron        # Electron annotation E2E suite (phases 1-3)
 pnpm test:e2e:electron:watch  # Watch mode for Electron E2E suite
-pnpm validate        # lint + typecheck + build + knip (dead code)
+pnpm validate        # lint + typecheck + build + knip + architecture
+pnpm run gate:pre-release     # Full pre-release verification
 ```
 
 ### Electron E2E (Annotations)
@@ -134,10 +136,10 @@ EVB_AUTOMATION_HIDE_WINDOW=0 pnpm run test:e2e:electron
 
 ### Commit Hooks
 
-The repository hooks run E2E as part of the commit pipeline:
+The repository keeps commit-time checks intentionally fast:
 
-- `.husky/pre-commit` runs `pnpm exec lint-staged` and `pnpm run test:e2e:electron`
-- `.husky/pre-push` runs `pnpm run test:e2e:electron` and `pnpm run check:architecture`
+- `.husky/pre-commit` runs `pnpm run gate:commit`
+- Release commands run `pnpm run gate:pre-release` before versioning and publishing
 
 ### OCR Tuning
 

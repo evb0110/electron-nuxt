@@ -122,6 +122,21 @@ export default withNuxt(
         rules: {
             'vue/no-multiple-template-root': 'off',
             'vue/html-self-closing': 'off',
+            'vue/no-undef-components': [
+                'error',
+                {
+                    ignorePatterns: [
+                        '^U[A-Z]',
+                        '^Icon$',
+                        '^Nuxt[A-Z]',
+                        '^Lazy[A-Z]',
+                        '^i18n-t$',
+                        '^(ClientOnly|DevOnly|RouterLink|RouterView)$',
+                        '^(Transition|TransitionGroup|KeepAlive|Suspense|Teleport)$',
+                        '^(Head|Html|Body|Link|Meta|Style|Title|Base|NoScript)$',
+                    ],
+                },
+            ],
             'vue/no-undef-properties': [
                 'error',
                 {

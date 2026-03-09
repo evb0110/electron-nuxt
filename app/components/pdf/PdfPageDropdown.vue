@@ -85,6 +85,7 @@
 <script setup lang="ts">
 import { onClickOutside } from '@vueuse/core';
 import type { TPdfViewMode } from '@contracts/shared';
+import ToolbarButton from '@app/components/ToolbarButton.vue';
 import {
     findPageByPageLabelInput,
     formatPageIndicator,

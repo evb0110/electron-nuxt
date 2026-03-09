@@ -5,7 +5,7 @@ import {
     mkdtemp,
     rm,
 } from 'fs/promises';
-import { convertDjvuPageToImage } from '@electron/djvu/convert';
+import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvu-conversion';
 import { getDjvuResolution } from '@electron/djvu/metadata';
 import { buildOptimizedPdf } from '@electron/djvu/pdf-builder';
 import { te } from '@electron/i18n';

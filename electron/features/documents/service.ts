@@ -10,7 +10,7 @@ import {
     handleSavePdfDialog,
     handleSetWindowTitle,
     handleShowItemInFolder,
-} from '@electron/ipc/dialogs';
+} from '@electron/features/documents/main/dialogs';
 import {
     handleCleanupOcrTemp,
     handleFileExists,
@@ -20,7 +20,7 @@ import {
     handleFileStat,
     handleFileWrite,
     handleFileWriteDocx,
-} from '@electron/ipc/fileOps';
+} from '@electron/features/documents/main/file-ops';
 import {
     cleanupWorkingCopy,
     handleFileSave,

@@ -22,6 +22,18 @@ export default defineNuxtConfig({
         '@nuxtjs/i18n',
     ],
 
+    components: [
+        {
+            path: '~/components',
+            pathPrefix: false,
+        },
+        {
+            path: '~/modules/workspace-shell/components',
+            pathPrefix: false,
+            extensions: ['vue'],
+        },
+    ],
+
     css: [
         '~/assets/css/main.css',
     ],
@@ -164,6 +176,7 @@ export default defineNuxtConfig({
             'lucide:arrow-up-right',
             'lucide:stamp',
             'lucide:settings',
+            'lucide:sliders-horizontal',
             'lucide:sticky-note',
             'lucide:sticker',
             'lucide:languages',

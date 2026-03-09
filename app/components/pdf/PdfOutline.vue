@@ -111,6 +111,9 @@ import { usePdfOutlineDragDrop } from '@app/composables/pdf/usePdfOutlineDragDro
 import { usePdfOutlineEditing } from '@app/composables/pdf/usePdfOutlineEditing';
 import { usePdfOutlineContextMenu } from '@app/composables/pdf/usePdfOutlineContextMenu';
 import { PDF_OUTLINE_TREE_KEY } from '@app/composables/pdf/usePdfOutlineKeys';
+import PdfOutlineContextMenu from '@app/components/pdf/PdfOutlineContextMenu.vue';
+import PdfOutlineItem from '@app/components/pdf/PdfOutlineItem.vue';
+import PdfOutlineToolbar from '@app/components/pdf/PdfOutlineToolbar.vue';
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;

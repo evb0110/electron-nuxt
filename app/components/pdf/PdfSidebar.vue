@@ -152,6 +152,12 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import PdfAnnotationsPanel from '@app/components/pdf/PdfAnnotationsPanel.vue';
+import PdfOutline from '@app/components/pdf/PdfOutline.vue';
+import PdfPageSelectionBar from '@app/components/pdf/PdfPageSelectionBar.vue';
+import PdfSearchBar from '@app/components/pdf/PdfSearchBar.vue';
+import PdfSearchResults from '@app/components/pdf/PdfSearchResults.vue';
+import PdfSidebarPageNumbering from '@app/components/pdf/PdfSidebarPageNumbering.vue';
+import PdfThumbnails from '@app/components/pdf/PdfThumbnails.vue';
 
 interface IProps {
     isOpen: boolean;

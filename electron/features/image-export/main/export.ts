@@ -1,0 +1,653 @@
+import {
+    createWriteStream,
+    existsSync,
+    type WriteStream,
+} from 'fs';
+import {
+    copyFile,
+    mkdir,
+    mkdtemp,
+    readdir,
+    readFile,
+    rename,
+    rm,
+    unlink,
+} from 'fs/promises';
+import { tmpdir } from 'os';
+import {
+    basename,
+    dirname,
+    extname,
+    join,
+} from 'path';
+import { uniq } from 'es-toolkit/array';
+import * as utifModule from 'utif';
+import { getNativeToolPaths } from '@electron/native-tools/paths';
+import {
+    detectSourceDpi,
+    clampDpi,
+} from '@electron/ocr/worker/dpi-detection';
+import { runNativeToolCommand } from '@electron/native-tools/exec';
+import { createLogger } from '@electron/utils/logger';
+
+type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
+
+interface IRenderedPageFile {
+    page: number;
+    path: string;
+}
+
+interface IExportPdfOptions {pageNumbers?: number[];}
+
+interface IPreparedSourcePdf {
+    pdfPath: string;
+    cleanup: () => Promise<void>;
+}
+
+interface IUtifFrame {
+    width?: number;
+    height?: number;
+    [key: string]: unknown;
+}
+
+interface IUtifModule {
+    decode(input: Uint8Array | ArrayBuffer): IUtifFrame[];
+    decodeImage(input: Uint8Array | ArrayBuffer, frame: IUtifFrame): void;
+    toRGBA8(frame: IUtifFrame): Uint8Array;
+    encode(ifds: Array<Record<string, unknown>>): ArrayBuffer;
+}
+
+interface ITiffPageRgba {
+    width: number;
+    height: number;
+    rgba: Uint8Array;
+}
+
+interface ITiffPageDescriptor {
+    path: string;
+    width: number;
+    height: number;
+    dataLength: number;
+}
+
+const UTIF = utifModule as IUtifModule;
+const logger = createLogger('image-export');
+const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
+const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
+
+function resolveFormatExtension(format: TImageExportFormat): string {
+    if (format === 'jpeg') {
+        return '.jpg';
+    }
+    if (format === 'tiff') {
+        return '.tif';
+    }
+    return '.png';
+}
+
+function parseImageExportFormat(filePath: string): TImageExportFormat {
+    const extension = extname(filePath).toLowerCase();
+
+    if (extension === '.jpg' || extension === '.jpeg') {
+        return 'jpeg';
+    }
+    if (extension === '.tif' || extension === '.tiff') {
+        return 'tiff';
+    }
+
+    return 'png';
+}
+
+export function normalizeImageExportPath(filePath: string, fallbackFormat: TImageExportFormat = 'png'): {
+    normalizedPath: string;
+    format: TImageExportFormat;
+} {
+    const trimmedPath = filePath.trim();
+    const extension = extname(trimmedPath).toLowerCase();
+
+    if (extension === '.png' || extension === '.jpg' || extension === '.jpeg' || extension === '.tif' || extension === '.tiff') {
+        const format = parseImageExportFormat(trimmedPath);
+        return {
+            normalizedPath: trimmedPath,
+            format,
+        };
+    }
+
+    const format = fallbackFormat;
+    return {
+        normalizedPath: `${trimmedPath}${resolveFormatExtension(format)}`,
+        format,
+    };
+}
+
+function toPdftoppmFormatArg(format: TImageExportFormat): string {
+    if (format === 'jpeg') {
+        return '-jpeg';
+    }
+    if (format === 'tiff') {
+        return '-tiff';
+    }
+    return '-png';
+}
+
+function parsePageNumber(fileName: string): number {
+    const match = fileName.match(/-(\d+)\.[^.]+$/);
+    if (!match) {
+        return Number.POSITIVE_INFINITY;
+    }
+    return Number.parseInt(match[1] ?? '', 10);
+}
+
+function isExpectedPageFile(fileName: string, format: TImageExportFormat): boolean {
+    const extension = extname(fileName).toLowerCase();
+
+    if (format === 'jpeg') {
+        return extension === '.jpg' || extension === '.jpeg';
+    }
+    if (format === 'tiff') {
+        return extension === '.tif' || extension === '.tiff';
+    }
+
+    return extension === '.png';
+}
+
+async function moveFile(sourcePath: string, targetPath: string) {
+    try {
+        await rename(sourcePath, targetPath);
+    } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (err.code !== 'EXDEV') {
+            throw error;
+        }
+
+        await copyFile(sourcePath, targetPath);
+        await unlink(sourcePath);
+    }
+}
+
+async function renderPdfToTempPages(pdfPath: string, format: TImageExportFormat): Promise<IRenderedPageFile[]> {
+    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-export-'));
+    const prefix = join(tempDir, 'page');
+    const paths = getNativeToolPaths();
+
+    const detectedDpi = await detectSourceDpi(
+        pdfPath,
+        paths.pdfimages,
+        (level, message) => logger[level === 'error' ? 'error' : 'debug'](message),
+    );
+    const renderDpi = clampDpi(detectedDpi ?? 300);
+
+    try {
+        await runNativeToolCommand(paths.pdftoppm, [
+            toPdftoppmFormatArg(format),
+            '-r',
+            String(renderDpi),
+            pdfPath,
+            prefix,
+        ], {
+            timeoutMs: PDFTOPPM_TIMEOUT_MS,
+            commandLabel: `pdftoppm(export-${format})`,
+        });
+
+        const fileNames = await readdir(tempDir);
+        const pageFiles = fileNames
+            .filter(fileName => fileName.startsWith('page-'))
+            .filter(fileName => isExpectedPageFile(fileName, format))
+            .sort((left, right) => parsePageNumber(left) - parsePageNumber(right))
+            .map((fileName) => ({
+                page: parsePageNumber(fileName),
+                path: join(tempDir, fileName),
+            }));
+
+        if (pageFiles.length === 0) {
+            throw new Error('No page images were generated from the PDF');
+        }
+
+        return pageFiles;
+    } catch (error) {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        });
+        throw error;
+    }
+}
+
+function normalizePageNumbers(pageNumbers: number[] | undefined): number[] | null {
+    if (!pageNumbers) {
+        return null;
+    }
+
+    const unique = uniq(pageNumbers)
+        .filter(page => Number.isInteger(page) && page > 0)
+        .sort((left, right) => left - right);
+
+    if (unique.length === 0) {
+        throw new Error('At least one page number must be provided for scoped export');
+    }
+
+    return unique;
+}
+
+function formatPageList(pageNumbers: number[]): string {
+    return pageNumbers.join(',');
+}
+
+async function prepareSourcePdfForExport(pdfPath: string, options: IExportPdfOptions): Promise<IPreparedSourcePdf> {
+    const normalizedPages = normalizePageNumbers(options.pageNumbers);
+
+    if (!normalizedPages) {
+        return {
+            pdfPath,
+            cleanup: async () => {},
+        };
+    }
+
+    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-export-scope-'));
+    const subsetPdfPath = join(tempDir, 'subset.pdf');
+    const qpdf = getNativeToolPaths().qpdf;
+
+    try {
+        await runNativeToolCommand(qpdf, [
+            pdfPath,
+            '--pages',
+            pdfPath,
+            formatPageList(normalizedPages),
+            '--',
+            subsetPdfPath,
+        ], {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            commandLabel: 'qpdf(export-subset)',
+        });
+
+        return {
+            pdfPath: subsetPdfPath,
+            cleanup: async () => {
+                await rm(tempDir, {
+                    recursive: true,
+                    force: true,
+                });
+            },
+        };
+    } catch (error) {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        });
+        throw error;
+    }
+}
+
+export async function exportPdfPagesAsImages(
+    pdfPath: string,
+    outputTemplatePath: string,
+    options: IExportPdfOptions = {},
+): Promise<string[]> {
+    const {
+        normalizedPath,
+        format,
+    } = normalizeImageExportPath(outputTemplatePath);
+
+    const outputDirectory = dirname(normalizedPath);
+    const outputStem = basename(normalizedPath, extname(normalizedPath));
+    const outputExtension = resolveFormatExtension(format);
+
+    await mkdir(outputDirectory, { recursive: true });
+
+    const preparedSourcePdf = await prepareSourcePdfForExport(pdfPath, options);
+
+    try {
+        const pageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, format);
+
+        try {
+            const exportedPaths: string[] = [];
+            const isSinglePageExport = pageFiles.length === 1;
+
+            for (let index = 0; index < pageFiles.length; index += 1) {
+                const source = pageFiles[index]!;
+
+                const targetPath = isSinglePageExport
+                    ? normalizedPath
+                    : join(
+                        outputDirectory,
+                        `${outputStem}-${String(index + 1).padStart(3, '0')}${outputExtension}`,
+                    );
+
+                await moveFile(source.path, targetPath);
+                exportedPaths.push(targetPath);
+            }
+
+            return exportedPaths;
+        } finally {
+            const tempDir = dirname(pageFiles[0]!.path);
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    } finally {
+        await preparedSourcePdf.cleanup();
+    }
+}
+
+function readTiffDimensions(ifd: IUtifFrame) {
+    const width = resolveTiffDimension(ifd, [
+        'width',
+        't256',
+        'ImageWidth',
+        256,
+    ]);
+    const height = resolveTiffDimension(ifd, [
+        'height',
+        't257',
+        'ImageLength',
+        257,
+    ]);
+
+    if (!width || !height) {
+        return null;
+    }
+
+    return {
+        width,
+        height,
+    };
+}
+
+function toPositiveInteger(value: unknown) {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        return Math.floor(value);
+    }
+    if (typeof value === 'bigint' && value > 0n) {
+        return Number(value);
+    }
+    return null;
+}
+
+function resolveTiffDimensionValue(value: unknown): number | null {
+    const direct = toPositiveInteger(value);
+    if (direct) {
+        return direct;
+    }
+
+    if (Array.isArray(value) && value.length > 0) {
+        return toPositiveInteger(value[0]);
+    }
+
+    if (ArrayBuffer.isView(value)) {
+        const length = Reflect.get(value, 'length');
+        if (typeof length === 'number' && length > 0) {
+            return toPositiveInteger(Reflect.get(value, 0));
+        }
+    }
+
+    return null;
+}
+
+function resolveTiffDimension(ifd: IUtifFrame, candidates: Array<string | number>) {
+    const record = ifd as Record<string | number, unknown>;
+
+    for (const key of candidates) {
+        const resolved = resolveTiffDimensionValue(record[key]);
+        if (resolved) {
+            return resolved;
+        }
+    }
+
+    return null;
+}
+
+function decodeSinglePageTiffMetadata(tiffBytes: Uint8Array) {
+    const ifds = UTIF.decode(tiffBytes);
+
+    for (const ifd of ifds) {
+        const dimensions = readTiffDimensions(ifd);
+        if (!dimensions) {
+            continue;
+        }
+
+        return dimensions;
+    }
+
+    throw new Error('Failed to decode TIFF page metadata');
+}
+
+function decodeSinglePageTiffRgba(
+    tiffBytes: Uint8Array,
+    expectedWidth: number,
+    expectedHeight: number,
+): ITiffPageRgba {
+    const ifds = UTIF.decode(tiffBytes);
+
+    for (const ifd of ifds) {
+        const dimensions = readTiffDimensions(ifd);
+        if (!dimensions) {
+            continue;
+        }
+
+        if (dimensions.width !== expectedWidth || dimensions.height !== expectedHeight) {
+            continue;
+        }
+
+        UTIF.decodeImage(tiffBytes, ifd);
+
+        const rgba = UTIF.toRGBA8(ifd);
+        if (!rgba || rgba.length !== expectedWidth * expectedHeight * 4) {
+            continue;
+        }
+
+        return {
+            width: expectedWidth,
+            height: expectedHeight,
+            rgba,
+        };
+    }
+
+    throw new Error('Failed to decode TIFF page data');
+}
+
+function alignOffset(offset: number, alignment: number): number {
+    if (alignment <= 1) {
+        return offset;
+    }
+    const remainder = offset % alignment;
+    return remainder === 0 ? offset : offset + (alignment - remainder);
+}
+
+function buildTiffIfd(
+    page: Pick<ITiffPageDescriptor, 'width' | 'height' | 'dataLength'>,
+    dataOffset: number,
+): Record<string, unknown> {
+    return {
+        t256: [page.width],
+        t257: [page.height],
+        t258: [
+            8,
+            8,
+            8,
+            8,
+        ],
+        t259: [1],
+        t262: [2],
+        t273: [dataOffset],
+        t277: [4],
+        t278: [page.height],
+        t279: [page.dataLength],
+        t282: [1],
+        t283: [1],
+        t284: [1],
+        t286: [0],
+        t287: [0],
+        t296: [1],
+        t305: ['EVB Viewer'],
+        t338: [1],
+    };
+}
+
+function resolvePageDataOffsets(
+    pages: Array<Pick<ITiffPageDescriptor, 'dataLength'>>,
+    firstDataOffset: number,
+): number[] {
+    const offsets: number[] = [];
+    let cursor = firstDataOffset;
+
+    for (const page of pages) {
+        offsets.push(cursor);
+        cursor += page.dataLength;
+    }
+
+    return offsets;
+}
+
+async function writeChunkToStream(stream: WriteStream, chunk: Uint8Array) {
+    if (chunk.length === 0) {
+        return;
+    }
+
+    if (stream.write(chunk)) {
+        return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+        const handleDrain = () => {
+            stream.off('error', handleError);
+            resolve();
+        };
+        const handleError = (error: Error) => {
+            stream.off('drain', handleDrain);
+            reject(error);
+        };
+
+        stream.once('drain', handleDrain);
+        stream.once('error', handleError);
+    });
+}
+
+async function closeWriteStream(stream: WriteStream) {
+    await new Promise<void>((resolve, reject) => {
+        const handleFinish = () => {
+            stream.off('error', handleError);
+            resolve();
+        };
+        const handleError = (error: Error) => {
+            stream.off('finish', handleFinish);
+            reject(error);
+        };
+
+        stream.once('finish', handleFinish);
+        stream.once('error', handleError);
+        stream.end();
+    });
+}
+
+async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: string) {
+    if (pagePaths.length === 0) {
+        throw new Error('No pages available for TIFF export');
+    }
+
+    const pages: ITiffPageDescriptor[] = [];
+
+    for (const pagePath of pagePaths) {
+        const tiffBytes = await readFile(pagePath);
+        const metadata = decodeSinglePageTiffMetadata(tiffBytes);
+        pages.push({
+            path: pagePath,
+            width: metadata.width,
+            height: metadata.height,
+            dataLength: metadata.width * metadata.height * 4,
+        });
+    }
+
+    // UTIF encodes IFDs only; pixel data must be appended at explicit offsets.
+    let firstDataOffset = 0;
+    let header = new Uint8Array();
+    let pageOffsets: number[] = [];
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+        pageOffsets = resolvePageDataOffsets(pages, firstDataOffset);
+        const ifds = pages.map((page, index) => buildTiffIfd(page, pageOffsets[index]!));
+        header = new Uint8Array(UTIF.encode(ifds));
+        const nextFirstDataOffset = alignOffset(header.length, 8);
+        if (nextFirstDataOffset === firstDataOffset) {
+            break;
+        }
+        firstDataOffset = nextFirstDataOffset;
+    }
+
+    pageOffsets = resolvePageDataOffsets(pages, alignOffset(header.length, 8));
+    const finalIfds = pages.map((page, index) => buildTiffIfd(page, pageOffsets[index]!));
+    header = new Uint8Array(UTIF.encode(finalIfds));
+
+    const firstPageDataOffset = alignOffset(header.length, 8);
+    const stream = createWriteStream(outputPath, { flags: 'w' });
+
+    try {
+        await writeChunkToStream(stream, header);
+
+        const paddingLength = firstPageDataOffset - header.length;
+        if (paddingLength > 0) {
+            await writeChunkToStream(stream, new Uint8Array(paddingLength));
+        }
+
+        for (const page of pages) {
+            const tiffBytes = await readFile(page.path);
+            const decoded = decodeSinglePageTiffRgba(
+                tiffBytes,
+                page.width,
+                page.height,
+            );
+
+            if (decoded.rgba.length !== page.dataLength) {
+                throw new Error('Decoded TIFF page size did not match computed descriptor size');
+            }
+
+            await writeChunkToStream(stream, decoded.rgba);
+        }
+
+        await closeWriteStream(stream);
+    } catch (error) {
+        stream.destroy();
+        throw error;
+    }
+}
+
+export async function exportPdfAsMultiPageTiff(
+    pdfPath: string,
+    outputPath: string,
+    options: IExportPdfOptions = {},
+): Promise<string> {
+    const targetPath = outputPath.toLowerCase().endsWith('.tif') || outputPath.toLowerCase().endsWith('.tiff')
+        ? outputPath
+        : `${outputPath}.tiff`;
+
+    const outputDirectory = dirname(targetPath);
+    await mkdir(outputDirectory, { recursive: true });
+
+    const preparedSourcePdf = await prepareSourcePdfForExport(pdfPath, options);
+
+    try {
+        const pageFiles = await renderPdfToTempPages(preparedSourcePdf.pdfPath, 'tiff');
+
+        try {
+            const orderedPagePaths = pageFiles
+                .sort((left, right) => left.page - right.page)
+                .map(pageFile => pageFile.path);
+
+            await combinePagesIntoMultiPageTiff(orderedPagePaths, targetPath);
+
+            if (!existsSync(targetPath)) {
+                throw new Error('Multi-page TIFF export did not produce an output file');
+            }
+
+            return targetPath;
+        } finally {
+            const tempDir = dirname(pageFiles[0]!.path);
+            await rm(tempDir, {
+                recursive: true,
+                force: true,
+            });
+        }
+    } finally {
+        await preparedSourcePdf.cleanup();
+    }
+}

@@ -105,13 +105,14 @@ import { usePdfScale } from '@app/composables/pdf/usePdfScale';
 import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
 import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
-import {
-    clamp,
-    range,
-} from 'es-toolkit/math';
+import { clamp } from 'es-toolkit/math';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
-import { usePdfViewerCore } from '@app/modules/pdf-viewer-runtime/service';
+import { usePdfViewerCore } from '@app/modules/pdf-viewer-runtime/usePdfViewerCore';
+import {
+    usePdfViewerVirtualization,
+    type IZoomVirtualizationFreeze,
+} from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
 import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
 import {
@@ -266,15 +267,6 @@ interface IWheelZoomSession {
     emittedCount: number;
     startScrollTop: number | null;
     startScrollLeft: number | null;
-}
-
-interface IZoomVirtualizationFreeze {
-    sessionId: number | null;
-    capturedAtMs: number;
-    windowStart: number;
-    windowEnd: number;
-    topSpacerHeight: number;
-    bottomSpacerHeight: number;
 }
 
 interface IImmediateZoomRestoreIntent {
@@ -766,103 +758,30 @@ const {
     emit,
 });
 
-const VIRTUAL_MOUNT_BUFFER_MIN = 6;
-const SEARCH_NAV_VIRTUAL_BUFFER_MIN = 18;
-const pageHeightEstimate = computed(() => {
-    const baseHeight = basePageHeight.value;
-    if (!baseHeight) {
-        return 0;
-    }
-    return baseHeight * effectiveScale.value;
+const {
+    pageHeightEstimate,
+    pageGapEstimate,
+    pagePlaceholderStyle,
+    virtualizedContinuousMode,
+    searchNavigationWindow,
+    virtualWindowStart,
+    virtualWindowEnd,
+    topVirtualSpacerStyle,
+    bottomVirtualSpacerStyle,
+    pagesToRender,
+} = usePdfViewerVirtualization({
+    bufferPages,
+    continuousScroll,
+    viewMode,
+    numPages,
+    basePageWidth,
+    basePageHeight,
+    effectiveScale,
+    scaledMargin,
+    visibleRange,
+    searchNavigationTargetPage: singlePageScroll.searchNavigationTargetPage,
+    zoomVirtualizationFreeze,
 });
-const pageGapEstimate = computed(() => scaledMargin.value);
-const pagePlaceholderStyle = computed<Record<string, string> | null>(() => {
-    const baseWidth = basePageWidth.value;
-    const baseHeight = basePageHeight.value;
-    if (!baseWidth || !baseHeight) {
-        return null;
-    }
-
-    return {
-        width: `${baseWidth * effectiveScale.value}px`,
-        height: `${baseHeight * effectiveScale.value}px`,
-    };
-});
-
-const virtualizedContinuousMode = computed(() =>
-    continuousScroll.value
-    && viewMode.value === 'single'
-    && numPages.value > 0
-    && pageHeightEstimate.value > 0,
-);
-const isSearchNavigationActive = computed(() =>
-    singlePageScroll.searchNavigationTargetPage.value !== null,
-);
-const virtualMountBuffer = computed(() =>
-    isSearchNavigationActive.value
-        ? Math.max(SEARCH_NAV_VIRTUAL_BUFFER_MIN, VIRTUAL_MOUNT_BUFFER_MIN, bufferPages.value + 2)
-        : Math.max(VIRTUAL_MOUNT_BUFFER_MIN, bufferPages.value + 2),
-);
-const baseVirtualWindowStart = computed(() => {
-    if (!virtualizedContinuousMode.value) {
-        return 1;
-    }
-    return Math.max(1, visibleRange.value.start - virtualMountBuffer.value);
-});
-const baseVirtualWindowEnd = computed(() => {
-    if (!virtualizedContinuousMode.value) {
-        return numPages.value;
-    }
-    return Math.min(numPages.value, visibleRange.value.end + virtualMountBuffer.value);
-});
-const searchNavigationWindow = computed<{
-    start: number;
-    end: number;
-} | null>(() => {
-    const anchorPage = singlePageScroll.searchNavigationTargetPage.value;
-    if (!virtualizedContinuousMode.value || numPages.value <= 0 || anchorPage === null) {
-        return null;
-    }
-
-    return {
-        start: Math.max(1, anchorPage - virtualMountBuffer.value),
-        end: Math.min(numPages.value, anchorPage + virtualMountBuffer.value),
-    };
-});
-const virtualWindowStart = computed(() => {
-    if (!virtualizedContinuousMode.value) {
-        return 1;
-    }
-    if (zoomVirtualizationFreeze.value) {
-        return zoomVirtualizationFreeze.value.windowStart;
-    }
-
-    if (searchNavigationWindow.value) {
-        return searchNavigationWindow.value.start;
-    }
-    return baseVirtualWindowStart.value;
-});
-const virtualWindowEnd = computed(() => {
-    if (!virtualizedContinuousMode.value) {
-        return numPages.value;
-    }
-    if (zoomVirtualizationFreeze.value) {
-        return zoomVirtualizationFreeze.value.windowEnd;
-    }
-
-    if (searchNavigationWindow.value) {
-        return searchNavigationWindow.value.end;
-    }
-    return baseVirtualWindowEnd.value;
-});
-
-function computeVirtualSpacerHeight(hiddenPages: number) {
-    if (hiddenPages <= 0) {
-        return 0;
-    }
-    return hiddenPages * pageHeightEstimate.value
-        + Math.max(0, hiddenPages - 1) * pageGapEstimate.value;
-}
 
 function captureZoomVirtualizationFreeze(sessionId: number | null, reason: string) {
     void sessionId;
@@ -885,60 +804,6 @@ function maybeReleaseZoomVirtualizationFreeze(reason: string) {
     }
     releaseZoomVirtualizationFreeze(reason);
 }
-
-const topVirtualSpacerStyle = computed<Record<string, string> | null>(() => {
-    if (!virtualizedContinuousMode.value) {
-        return null;
-    }
-    const freeze = zoomVirtualizationFreeze.value;
-    if (freeze) {
-        if (freeze.topSpacerHeight <= 0) {
-            return null;
-        }
-        return {height: `${freeze.topSpacerHeight}px`};
-    }
-
-    const hiddenBefore = Math.max(0, virtualWindowStart.value - 1);
-    const spacerHeight = computeVirtualSpacerHeight(hiddenBefore);
-    if (spacerHeight <= 0) {
-        return null;
-    }
-
-    return {height: `${spacerHeight}px`};
-});
-
-const bottomVirtualSpacerStyle = computed<Record<string, string> | null>(() => {
-    if (!virtualizedContinuousMode.value) {
-        return null;
-    }
-    const freeze = zoomVirtualizationFreeze.value;
-    if (freeze) {
-        if (freeze.bottomSpacerHeight <= 0) {
-            return null;
-        }
-        return {height: `${freeze.bottomSpacerHeight}px`};
-    }
-
-    const hiddenAfter = Math.max(0, numPages.value - virtualWindowEnd.value);
-    const spacerHeight = computeVirtualSpacerHeight(hiddenAfter);
-    if (spacerHeight <= 0) {
-        return null;
-    }
-
-    return {height: `${spacerHeight}px`};
-});
-
-const pagesToRender = computed(() => {
-    if (numPages.value <= 0) {
-        return [];
-    }
-
-    if (!virtualizedContinuousMode.value) {
-        return range(1, numPages.value + 1);
-    }
-
-    return range(virtualWindowStart.value, virtualWindowEnd.value + 1);
-});
 
 function stopInitialRenderObserver() {
     initialRenderObserver?.disconnect();

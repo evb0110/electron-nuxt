@@ -49,7 +49,7 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-const { exportPdfAsMultiPageTiff } = await import('@electron/image/export');
+const { exportPdfAsMultiPageTiff } = await import('@electron/features/image-export/main/export');
 
 const UTIF = utifModule as IUtifModule;
 

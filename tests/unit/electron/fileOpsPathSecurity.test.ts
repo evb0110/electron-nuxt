@@ -52,7 +52,7 @@ const {
     handleFileRead,
     handleFileStat,
     handleFileWrite,
-} = await import('@electron/ipc/fileOps');
+} = await import('@electron/features/documents/main/file-ops');
 
 describe('fileOps path security', () => {
     beforeEach(() => {

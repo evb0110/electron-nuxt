@@ -39,11 +39,11 @@ vi.mock('@electron/djvu/metadata', () => ({
     getDjvuMetadata: mocks.getDjvuMetadata,
 }));
 vi.mock('@electron/djvu/bookmarks', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
-vi.mock('@electron/djvu/conversion', () => ({
+vi.mock('@electron/features/djvu/main/pdf-export', () => ({
     handleDjvuConvertToPdf: mocks.handleDjvuConvertToPdf,
     handleDjvuCancel: mocks.handleDjvuCancel,
 }));
-vi.mock('@electron/djvu/viewing', () => ({
+vi.mock('@electron/features/djvu/main/viewing', () => ({
     handleDjvuOpenForViewing: mocks.handleDjvuOpenForViewing,
     cleanupDjvuTempPdfPath: mocks.cleanupDjvuTempPdfPath,
     sweepStaleDjvuTempPdfs: mocks.sweepStaleDjvuTempPdfs,
@@ -55,7 +55,7 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-const { registerDjvuHandlers } = await import('@electron/djvu/ipc');
+const { registerDjvuHandlers } = await import('@electron/features/djvu/main/ipc');
 
 function getHandler(channel: string) {
     const handler = mocks.handlers.get(channel);

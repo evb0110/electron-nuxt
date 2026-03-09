@@ -32,7 +32,15 @@
     },
     "ignore": [
         "app/types/*.d.ts",
-        "electron/types/utif.d.ts"
+        "electron/types/utif.d.ts",
+        "electron/djvu/conversion.ts",
+        "electron/djvu/convert.ts",
+        "electron/djvu/ipc.ts",
+        "electron/djvu/viewing.ts",
+        "electron/image/export.ts",
+        "electron/ipc/dialogs.ts",
+        "electron/ipc/fileOps.ts",
+        "electron/ipc/pdfExport.ts"
     ],
     "ignoreDependencies": [
         "@iconify-json/circle-flags",

@@ -71,6 +71,10 @@ interface IProps {
 
 const THUMBNAIL_GAP = 8;
 const DEFAULT_THUMBNAIL_ITEM_HEIGHT = 220;
+const THUMBNAIL_ITEM_VERTICAL_PADDING = 8;
+const THUMBNAIL_ITEM_CONTENT_GAP = 4;
+const THUMBNAIL_NUMBER_LINE_HEIGHT = 16;
+const THUMBNAIL_CANVAS_BORDER_WIDTH = 2;
 const VIRTUAL_OVERSCAN = 8;
 const THUMBNAIL_RENDER_CONCURRENCY = 3;
 const IMMEDIATE_RENDER_RADIUS = 2;
@@ -105,14 +109,16 @@ const emit = defineEmits<{
 }>();
 
 const containerRef = ref<HTMLElement | null>(null);
-const renderedPages = new Set<number>();
 const renderingPages = new Set<number>();
 const renderTasks = new Map<number, RenderTask>();
+const renderedCanvases = new Map<number, HTMLCanvasElement>();
+const renderingCanvases = new Map<number, HTMLCanvasElement>();
 let renderRunId = 0;
 let pendingInvalidation: number[] | null = null;
 let reloadTransition = false;
 let containerVisibilityState: 'unknown' | 'visible' | 'hidden' = 'unknown';
 let measurementState: 'ready' | 'no-item' | 'no-rendered-canvas' = 'ready';
+let hasResolvedThumbnailItemHeight = false;
 let lastUserInteractionAtMs = 0;
 let lastUserInteractionLogAtMs = 0;
 let lastUserInteractionReason: string | null = null;
@@ -286,8 +292,74 @@ function getPageIndicator(page: number) {
     return formatPageIndicator(page, props.pageLabels ?? null);
 }
 
+function isCanvasRendered(canvas: HTMLCanvasElement | null) {
+    return canvas?.dataset.thumbnailRendered === 'true';
+}
+
+function isCurrentThumbnailCanvasRendered(pageNum: number) {
+    const canvas = getCanvas(pageNum);
+    if (!canvas) {
+        return false;
+    }
+
+    return renderedCanvases.get(pageNum) === canvas
+        && isCanvasRendered(canvas);
+}
+
+function isCurrentThumbnailCanvasRendering(pageNum: number) {
+    const canvas = getCanvas(pageNum);
+    if (!canvas) {
+        return false;
+    }
+
+    return renderingPages.has(pageNum)
+        && renderingCanvases.get(pageNum) === canvas;
+}
+
 function roundMetric(value: number) {
     return Number(value.toFixed(2));
+}
+
+function resolveThumbnailItemHeightFromCanvasHeight(canvasHeight: number) {
+    return Math.ceil(canvasHeight)
+        + THUMBNAIL_ITEM_VERTICAL_PADDING
+        + THUMBNAIL_ITEM_CONTENT_GAP
+        + THUMBNAIL_NUMBER_LINE_HEIGHT
+        + THUMBNAIL_CANVAS_BORDER_WIDTH;
+}
+
+function updateThumbnailItemHeight(
+    nextHeight: number,
+    reason: string,
+    data: Record<string, unknown> = {},
+) {
+    if (!Number.isFinite(nextHeight) || nextHeight <= 0) {
+        return false;
+    }
+
+    const normalizedHeight = Math.max(1, Math.ceil(nextHeight));
+    if (
+        hasResolvedThumbnailItemHeight
+        && normalizedHeight <= thumbnailItemHeight.value
+    ) {
+        return false;
+    }
+
+    const previousHeight = thumbnailItemHeight.value;
+    thumbnailItemHeight.value = normalizedHeight;
+    hasResolvedThumbnailItemHeight = true;
+
+    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail item height changed', {
+        reason,
+        previousHeight: roundMetric(previousHeight),
+        nextHeight: roundMetric(thumbnailItemHeight.value),
+        itemPitch: roundMetric(itemPitch.value),
+        currentPage: props.currentPage,
+        totalPages: props.totalPages,
+        ...data,
+    });
+
+    return true;
 }
 
 function describeContainerGeometry(container: HTMLElement) {
@@ -436,7 +508,7 @@ function resolveVisibleContainer(reason: string) {
             totalPages: props.totalPages,
             geometry: describeContainerGeometry(container),
             itemHeight: roundMetric(thumbnailItemHeight.value),
-            renderedPages: renderedPages.size,
+            renderedPages: renderedCanvases.size,
             renderingPages: renderingPages.size,
         });
     }
@@ -581,19 +653,9 @@ const measureThumbnailHeight = useDebounceFn(() => {
     }
 
     const measuredHeight = Math.max(1, Math.ceil(measurementItem.getBoundingClientRect().height));
-    if (Math.abs(measuredHeight - thumbnailItemHeight.value) < 1) {
-        return;
-    }
-
-    const previousHeight = thumbnailItemHeight.value;
-    thumbnailItemHeight.value = measuredHeight;
-    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Measured thumbnail item height changed', {
-        previousHeight: roundMetric(previousHeight),
-        nextHeight: roundMetric(thumbnailItemHeight.value),
-        itemPitch: roundMetric(itemPitch.value),
-        currentPage: props.currentPage,
-        totalPages: props.totalPages,
+    updateThumbnailItemHeight(measuredHeight, 'dom-measure', {
         geometry: describeContainerGeometry(container),
+        itemPage: measurementItem.dataset.page ?? null,
     });
 }, 16);
 
@@ -669,16 +731,37 @@ async function renderThumbnail(
         return;
     }
 
-    if (renderedPages.has(pageNum) || renderingPages.has(pageNum)) {
-        return;
-    }
-
     const canvas = getCanvas(pageNum);
     if (!canvas) {
         return;
     }
 
+    if (isCurrentThumbnailCanvasRendered(pageNum)) {
+        return;
+    }
+
+    if (renderingPages.has(pageNum)) {
+        const renderingCanvas = renderingCanvases.get(pageNum);
+        if (renderingCanvas === canvas) {
+            return;
+        }
+
+        const activeTask = renderTasks.get(pageNum);
+        if (activeTask) {
+            try {
+                activeTask.cancel();
+            } catch {
+                // Ignore cancellation errors
+            }
+            renderTasks.delete(pageNum);
+        }
+        renderingPages.delete(pageNum);
+        renderingCanvases.delete(pageNum);
+    }
+
+    delete canvas.dataset.thumbnailRendered;
     renderingPages.add(pageNum);
+    renderingCanvases.set(pageNum, canvas);
 
     try {
         const page = await pdfDocument.getPage(pageNum);
@@ -688,6 +771,15 @@ async function renderThumbnail(
         const viewport = page.getViewport({ scale: 1 });
         const scale = THUMBNAIL_WIDTH / viewport.width;
         const scaledViewport = page.getViewport({ scale });
+        updateThumbnailItemHeight(
+            resolveThumbnailItemHeightFromCanvasHeight(scaledViewport.height),
+            'render-viewport',
+            {
+                page: pageNum,
+                viewportWidth: roundMetric(scaledViewport.width),
+                viewportHeight: roundMetric(scaledViewport.height),
+            },
+        );
 
         canvas.width = scaledViewport.width;
         canvas.height = scaledViewport.height;
@@ -706,7 +798,13 @@ async function renderThumbnail(
         await task.promise;
         renderTasks.delete(pageNum);
 
-        renderedPages.add(pageNum);
+        if (getCanvas(pageNum) !== canvas) {
+            scheduleVisibleThumbnailRender();
+            return;
+        }
+
+        canvas.dataset.thumbnailRendered = 'true';
+        renderedCanvases.set(pageNum, canvas);
         measureThumbnailHeight();
     } catch (error) {
         renderTasks.delete(pageNum);
@@ -725,7 +823,10 @@ async function renderThumbnail(
             error,
         );
     } finally {
-        renderingPages.delete(pageNum);
+        if (renderingCanvases.get(pageNum) === canvas) {
+            renderingPages.delete(pageNum);
+            renderingCanvases.delete(pageNum);
+        }
     }
 }
 
@@ -738,8 +839,8 @@ function buildRenderQueue(totalPages: number) {
             page < 1
             || page > totalPages
             || seen.has(page)
-            || renderedPages.has(page)
-            || renderingPages.has(page)
+            || isCurrentThumbnailCanvasRendered(page)
+            || isCurrentThumbnailCanvasRendering(page)
         ) {
             return;
         }
@@ -826,9 +927,13 @@ const scheduleVisibleThumbnailRender = useDebounceFn(() => {
 }, 20);
 
 function clearRenderedState() {
-    renderedPages.clear();
+    renderedCanvases.clear();
     renderingPages.clear();
+    renderingCanvases.clear();
     renderTasks.clear();
+    thumbnailItemHeight.value = DEFAULT_THUMBNAIL_ITEM_HEIGHT;
+    hasResolvedThumbnailItemHeight = false;
+    measurementState = 'ready';
 }
 
 watch(
@@ -866,8 +971,9 @@ watch(
             if (reloadTransition && pendingInvalidation) {
                 reloadTransition = false;
                 for (const page of pendingInvalidation) {
-                    renderedPages.delete(page);
+                    renderedCanvases.delete(page);
                     renderingPages.delete(page);
+                    renderingCanvases.delete(page);
                 }
                 pendingInvalidation = null;
             } else {
@@ -927,7 +1033,7 @@ function invalidatePages(pages: number[]) {
         currentPage: props.currentPage,
     });
     for (const page of pages) {
-        renderedPages.delete(page);
+        renderedCanvases.delete(page);
 
         const task = renderTasks.get(page);
         if (task) {
@@ -940,6 +1046,12 @@ function invalidatePages(pages: number[]) {
         }
 
         renderingPages.delete(page);
+        renderingCanvases.delete(page);
+
+        const canvas = getCanvas(page);
+        if (canvas) {
+            delete canvas.dataset.thumbnailRendered;
+        }
     }
 
     scheduleVisibleThumbnailRender();
@@ -1032,6 +1144,8 @@ onBeforeUnmount(() => {
 }
 
 .pdf-thumbnail-canvas {
+  display: block;
+  height: auto;
   max-width: 100%;
   border: 1px solid var(--ui-border);
   border-radius: 2px;
@@ -1044,7 +1158,10 @@ onBeforeUnmount(() => {
 }
 
 .pdf-thumbnail-number {
+  display: block;
   font-size: 12px;
+  line-height: 16px;
+  min-height: 16px;
   color: var(--ui-text-muted);
 }
 
