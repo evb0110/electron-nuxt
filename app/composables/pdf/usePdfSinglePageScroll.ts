@@ -2,7 +2,10 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import { useDebounceFn } from '@vueuse/core';
+import {
+    tryOnScopeDispose,
+    useDebounceFn,
+} from '@vueuse/core';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
 import { runGuardedTask } from '@app/utils/async-guard';
@@ -553,7 +556,7 @@ export function usePdfSinglePageScroll(
         snapSuppressUntil.value = 0;
     }
 
-    onScopeDispose(() => {
+    tryOnScopeDispose(() => {
         isDisposed = true;
         clearSearchNavigationSettleTimer();
     });
