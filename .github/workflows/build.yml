@@ -42,8 +42,22 @@ jobs:
       - name: Unit and integration tests
         run: pnpm test
 
+      - name: Bundle native tools (Linux release gate)
+        run: bash scripts/bundle-tools-linux.sh
+
+      - name: Validate resource matrix (Linux release gate)
+        run: pnpm run check:resources:matrix
+
       - name: Electron E2E tests
         run: xvfb-run -a pnpm run test:e2e:electron
+
+      - name: Upload Electron session logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-quality-electron-session-logs
+          path: .devkit/sessions/**/session.log
+          if-no-files-found: ignore
 
   build:
     needs: release_quality

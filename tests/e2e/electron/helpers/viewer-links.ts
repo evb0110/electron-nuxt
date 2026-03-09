@@ -88,7 +88,7 @@ export async function installOpenExternalSpy(page: Page) {
 }
 
 export async function clickFirstLinkOverlay(page: Page) {
-    const point = await page.evaluate(() => {
+    const clicked = await page.evaluate(() => {
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter((candidate) => {
                 const rect = candidate.getBoundingClientRect();
@@ -125,18 +125,25 @@ export async function clickFirstLinkOverlay(page: Page) {
             }
 
             const rect = overlay.getBoundingClientRect();
-            return {
-                x: Math.round(rect.left + rect.width / 2),
-                y: Math.round(rect.top + rect.height / 2),
-            };
+            overlay.dispatchEvent(new PointerEvent('pointerdown', {
+                bubbles: true,
+                composed: true,
+                clientX: rect.left + (rect.width / 2),
+                clientY: rect.top + (rect.height / 2),
+                pointerId: 1,
+                pointerType: 'mouse',
+                button: 0,
+                buttons: 1,
+            }));
+            overlay.click();
+            return true;
         }
 
-        return null;
+        return false;
     });
-    if (!point) {
+    if (!clicked) {
         throw new Error('No visible link overlay found');
     }
-    await page.mouse.click(point.x, point.y);
 }
 
 export async function readOpenExternalCalls(page: Page) {
