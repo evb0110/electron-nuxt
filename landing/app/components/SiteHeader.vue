@@ -36,6 +36,8 @@
 </template>
 
 <script setup lang="ts">
+import LanguageSwitcher from '~/components/LanguageSwitcher.vue';
+
 const { t } = useTypedI18n();
 const route = useRoute();
 const repositoryUrl = 'https://github.com/evb0110/evb-viewer';

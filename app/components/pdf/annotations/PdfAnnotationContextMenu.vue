@@ -95,6 +95,7 @@
 </template>
 
 <script setup lang="ts">
+import PdfContextMenuBase from '@app/components/pdf/PdfContextMenuBase.vue';
 import type { TAnnotationTool } from '@app/types/annotations';
 
 interface IContextMenuState {

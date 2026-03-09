@@ -121,6 +121,7 @@ import type {
     TPdfViewMode,
 } from '@contracts/shared';
 import { ZOOM } from '@app/constants/pdf-layout';
+import ToolbarButton from '@app/components/ToolbarButton.vue';
 
 const { t } = useTypedI18n();
 

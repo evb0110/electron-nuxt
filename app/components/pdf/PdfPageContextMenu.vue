@@ -105,6 +105,8 @@
 </template>
 
 <script setup lang="ts">
+import PdfContextMenuBase from '@app/components/pdf/PdfContextMenuBase.vue';
+
 interface IPageContextMenuState {
     visible: boolean;
     pages: number[];

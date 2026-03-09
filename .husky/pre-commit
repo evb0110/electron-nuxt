@@ -1,3 +1,1 @@
-pnpm exec lint-staged
-pnpm run typecheck
-pnpm run test:smoke
+pnpm run gate:commit

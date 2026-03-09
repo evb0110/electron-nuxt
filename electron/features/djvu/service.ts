@@ -1,4 +1,4 @@
-import { registerDjvuHandlers } from '@electron/djvu/ipc';
+import { registerDjvuHandlers } from '@electron/features/djvu/main/ipc';
 import type {
     IDjvuService,
     IIpcMainRegistrar,

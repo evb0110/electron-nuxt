@@ -31,7 +31,9 @@ FreeText+Popup annotation persistence is non-trivial due to PDF.js reading `/Con
 
 ## Commands
 ```bash
-pnpm lint && pnpm typecheck    # Before every commit
+pnpm run gate:commit           # Fast staged-file checks used by pre-commit
+pnpm lint && pnpm typecheck    # Baseline local verification
 pnpm validate                  # Full validation (includes knip)
+pnpm run gate:pre-release      # Full pre-release validation + full tests
 pnpm run check:resources:matrix # Cross-arch resource check
 ```

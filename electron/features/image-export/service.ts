@@ -1,7 +1,7 @@
 import {
     handlePdfExportImages,
     handlePdfExportMultiPageTiff,
-} from '@electron/ipc/pdfExport';
+} from '@electron/features/image-export/main/ipc';
 import type { IImageExportService } from '@electron/features/image-export/ports';
 
 export function createImageExportService(): IImageExportService {
