@@ -4,7 +4,10 @@ import type {
     IPdfSearchMatch,
     TSearchDirection,
 } from '@app/types/pdf';
-import { useDebounceFn } from '@vueuse/core';
+import {
+    tryOnScopeDispose,
+    useDebounceFn,
+} from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     getElectronAPI,
@@ -353,7 +356,7 @@ export const usePdfSearch = () => {
         clearSearch();
         if (hasElectronAPI()) {
             const api = getElectronAPI();
-            void api.search.resetCache().catch((error) => {
+            void Promise.resolve(api.search.resetCache()).catch((error) => {
                 BrowserLogger.debug(
                     'pdf-search',
                     'Failed to reset search cache',
@@ -363,7 +366,7 @@ export const usePdfSearch = () => {
         }
     }
 
-    onScopeDispose(() => {
+    tryOnScopeDispose(() => {
         searchRunId += 1;
         cancelScheduledSearch();
         cleanupProgressListener();

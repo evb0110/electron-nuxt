@@ -62,7 +62,12 @@ describe('extractTextFromPdf cancellation', () => {
                 '/tmp/file.pdf',
                 '-',
             ],
-            { signal: controller.signal },
+            {
+                signal: controller.signal,
+                timeoutMs: 120000,
+                maxStdoutBytes: 67108864,
+                rejectOnStdoutTruncation: true,
+            },
         );
         expect(result).toEqual([
             {

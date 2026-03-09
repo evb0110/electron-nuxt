@@ -1,4 +1,6 @@
 import {
+    tryOnMounted,
+    tryOnScopeDispose,
     useDebounceFn,
     useEventListener,
     useMutationObserver,
@@ -215,11 +217,11 @@ export const useToolbarOverflow = () => {
         scheduleRecalculation();
     });
 
-    onMounted(() => {
+    tryOnMounted(() => {
         scheduleRecalculation();
     });
 
-    onBeforeUnmount(() => {
+    tryOnScopeDispose(() => {
         if (frameId !== null && typeof window !== 'undefined') {
             window.cancelAnimationFrame(frameId);
         }

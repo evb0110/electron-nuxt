@@ -16,6 +16,8 @@ import {
 const resizeObserverCallbacks: Array<() => void> = [];
 
 vi.mock('@vueuse/core', () => ({
+    tryOnMounted: (callback: () => void) => callback(),
+    tryOnScopeDispose: vi.fn(),
     useResizeObserver: (_target: unknown, callback: () => void) => {
         resizeObserverCallbacks.push(callback);
     },
