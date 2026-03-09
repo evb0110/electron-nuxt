@@ -608,9 +608,24 @@ function isRendererReady(state: IRendererState) {
 
 async function waitForRendererBindings(page: Page, timeoutMs = RENDERER_READY_TIMEOUT_MS): Promise<IRendererState> {
     const start = Date.now();
-    let lastState = await readRendererState(page);
+    let lastState: IRendererState = {
+        bodyExists: false,
+        openFileDirect: 'undefined',
+        electronAPI: 'undefined',
+        nuxtRootChildren: 0,
+        bodyTextLength: 0,
+        url: page.url(),
+    };
     while (Date.now() - start < timeoutMs) {
-        lastState = await readRendererState(page);
+        try {
+            lastState = await readRendererState(page);
+        } catch (error) {
+            if (!isTransientPageContextError(error)) {
+                throw error;
+            }
+            await delay(250);
+            continue;
+        }
         if (isRendererReady(lastState)) {
             return lastState;
         }
