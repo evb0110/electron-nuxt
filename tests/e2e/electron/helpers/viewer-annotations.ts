@@ -370,7 +370,8 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
             return null;
         }
 
-        const rect = editor.getBoundingClientRect();
+        const editable = editor.querySelector<HTMLElement>('[contenteditable], .internal') ?? editor;
+        const rect = editable.getBoundingClientRect();
         return {
             x: Math.round(rect.left + Math.max(4, rect.width / 2)),
             y: Math.round(rect.top + Math.max(4, rect.height / 2)),
@@ -406,6 +407,47 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     }
 
     await page.mouse.click(editorPoint.x, editorPoint.y);
+    await page.evaluate(() => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+            ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
+            ?? visibleHosts[0]
+            ?? null;
+        const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
+            .filter((editor) => {
+                const rect = editor.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+            });
+        const latestEditor = editors[editors.length - 1];
+        const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
+            ?? latestEditor
+            ?? null;
+        if (!editable) {
+            return false;
+        }
+        editable.focus();
+        if (editable.isContentEditable) {
+            const selection = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(editable);
+            range.collapse(false);
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+        }
+        return true;
+    });
     await page.keyboard.type(text, { delay: 10 });
     await page.waitForFunction((typedText: string) => {
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
@@ -427,7 +469,12 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
             ?? null;
         const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
         const latestEditor = editors[editors.length - 1];
-        const latestText = latestEditor?.textContent?.trim() ?? '';
+        const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
+            ?? latestEditor
+            ?? null;
+        const latestText = (editable?.textContent ?? '')
+            .replace(/\u200B/g, '')
+            .trim();
         return latestText.includes(typedText.trim());
     }, {timeout: 4_000}, text);
 

@@ -5,50 +5,78 @@ import {
     waitForActiveWorkspaceHost,
 } from './viewer-dom';
 
+function isExecutionContextDestroyedError(error: unknown) {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+
+    return /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(error.message);
+}
+
+async function runWithExecutionContextRetry<T>(
+    page: Page,
+    task: () => Promise<T>,
+) {
+    try {
+        return await task();
+    } catch (error) {
+        if (!isExecutionContextDestroyedError(error)) {
+            throw error;
+        }
+
+        await delay(1_000);
+        return task();
+    }
+}
+
 export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    await waitForActiveWorkspaceHost(page, timeoutMs);
+    await runWithExecutionContextRetry(page, async () => {
+        await waitForActiveWorkspaceHost(page, timeoutMs);
 
-    await page.waitForFunction(() => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
+        await page.waitForFunction(() => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
 
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-        const host = (activeHost && isVisibleHost(activeHost))
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .find(isVisibleHost);
-        if (!host) {
-            return false;
-        }
+            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const host = (activeHost && isVisibleHost(activeHost))
+                ? activeHost
+                : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                    .find(isVisibleHost);
+            if (!host) {
+                return false;
+            }
 
-        const viewer = host.querySelector('#pdf-viewer');
-        if (!viewer) {
-            return false;
-        }
+            const viewer = host.querySelector('#pdf-viewer');
+            if (!viewer) {
+                return false;
+            }
 
-        const pages = viewer.querySelectorAll('.page_container');
-        if (pages.length === 0) {
-            return false;
-        }
+            const pages = viewer.querySelectorAll('.page_container');
+            if (pages.length === 0) {
+                return false;
+            }
 
-        const renderedContentCount = viewer.querySelectorAll('.page_canvas canvas, .text-layer span, .textLayer span').length;
-        return renderedContentCount > 0;
-    }, {timeout: timeoutMs});
+            const renderedContentCount = viewer.querySelectorAll('.page_canvas canvas, .text-layer span, .textLayer span').length;
+            return renderedContentCount > 0;
+        }, {timeout: timeoutMs});
 
-    await waitForViewerInteractive(page, timeoutMs);
+        await waitForViewerInteractive(page, timeoutMs);
+    });
 }
 
 export async function openPdfInApp(page: Page, pdfPath: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    await page.evaluate(async (path: string) => {
-        const openFileDirect = (window as Window & { __openFileDirect?: (value: string) => Promise<void> }).__openFileDirect;
-        if (typeof openFileDirect !== 'function') {
-            throw new Error('window.__openFileDirect is not available');
-        }
-        await openFileDirect(path);
-    }, pdfPath);
+    await runWithExecutionContextRetry(page, async () => {
+        await page.evaluate(async (path: string) => {
+            const openFileDirect = (window as Window & { __openFileDirect?: (value: string) => Promise<void> }).__openFileDirect;
+            if (typeof openFileDirect !== 'function') {
+                throw new Error('window.__openFileDirect is not available');
+            }
+            await openFileDirect(path);
+        }, pdfPath);
+    });
 
     await waitForPdfLoaded(page, timeoutMs);
 }

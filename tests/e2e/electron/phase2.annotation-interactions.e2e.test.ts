@@ -1,12 +1,11 @@
 import {
-    afterAll,
-    beforeAll,
+    afterEach,
+    beforeEach,
     describe,
     expect,
     it,
 } from 'vitest';
 import {
-    copyProjectFixture,
     createLinkOverlayFixturePdf,
     createMultiPageTextFixturePdf,
 } from './helpers/fixtures';
@@ -36,12 +35,13 @@ import {
 describe('Electron E2E - Phase 2 (Interactions + Links + Multi-Page)', () => {
     let session: IElectronE2ESession | null = null;
 
-    beforeAll(async () => {
+    beforeEach(async () => {
         session = await startElectronE2ESession(`e2e-phase2-${Date.now()}`);
     });
 
-    afterAll(async () => {
+    afterEach(async () => {
         await session?.stop();
+        session = null;
     });
 
     it('applies style controls and creates a highlight from visible text', async () => {
@@ -50,7 +50,7 @@ describe('Electron E2E - Phase 2 (Interactions + Links + Multi-Page)', () => {
             throw new Error('Phase 2 session was not initialized');
         }
 
-        const styleFixture = copyProjectFixture('generated-text.pdf', `phase2-style-${Date.now()}.pdf`);
+        const styleFixture = await createMultiPageTextFixturePdf(`phase2-style-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, styleFixture);
         await waitForPdfLoaded(page);
         await openAnnotationsTab(page);

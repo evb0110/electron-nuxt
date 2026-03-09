@@ -96,6 +96,17 @@ function isViteOptimizeDepError(error: unknown) {
         || error.message.includes('optimize-dep');
 }
 
+function isTransientPageContextError(error: unknown) {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+
+    return error.message.includes('Execution context was destroyed')
+        || error.message.includes('Attempted to use detached Frame')
+        || error.message.includes('Cannot find context with specified id')
+        || error.message.includes('Most likely the page has been closed');
+}
+
 export function shouldDisableAutomationSandbox(
     env: NodeJS.ProcessEnv = process.env,
     platform = process.platform,
@@ -608,6 +619,19 @@ async function waitForRendererBindings(page: Page, timeoutMs = RENDERER_READY_TI
     return lastState;
 }
 
+async function reattachToAppPage(
+    browser: Browser,
+    currentPage: Page,
+    onPageChanged?: (page: Page) => void,
+): Promise<Page> {
+    const freshPage = await findAppPage(browser);
+    if (freshPage && freshPage !== currentPage) {
+        onPageChanged?.(freshPage);
+        return freshPage;
+    }
+    return currentPage;
+}
+
 function isAppPageUrl(url: string): boolean {
     const port = getNuxtPort();
     return url.includes(`localhost:${port}`) || url.includes(`127.0.0.1:${port}`);
@@ -769,7 +793,17 @@ async function connectToBrowser(cdpPort: number): Promise<{
                 break;
             }
 
-            const isReady = await checkHydration(page);
+            let isReady = false;
+            try {
+                isReady = await checkHydration(page);
+            } catch (error) {
+                if (!isTransientPageContextError(error)) {
+                    throw error;
+                }
+                page = await reattachToAppPage(browser, page, attachOptimizeDepWatcher);
+                await delay(250);
+                continue;
+            }
             if (isReady) {
                 hydrated = true;
                 break;
@@ -807,14 +841,27 @@ async function connectToBrowser(cdpPort: number): Promise<{
             }
 
             await delay(1500);
+            page = await reattachToAppPage(browser, page, attachOptimizeDepWatcher);
             let hydratedAfterReload = false;
             for (let attempt = 0; attempt < 30; attempt += 1) {
                 if (sawOutdatedOptimizeDep) {
                     break;
                 }
-                if (await checkHydration(page)) {
-                    hydratedAfterReload = true;
-                    break;
+                try {
+                    if (await checkHydration(page)) {
+                        hydratedAfterReload = true;
+                        break;
+                    }
+                } catch (error) {
+                    if (!isTransientPageContextError(error)) {
+                        throw error;
+                    }
+                    page = await reattachToAppPage(browser, page, attachOptimizeDepWatcher);
+                    await delay(250);
+                    continue;
+                }
+                if (attempt > 0 && attempt % 5 === 0) {
+                    page = await reattachToAppPage(browser, page, attachOptimizeDepWatcher);
                 }
                 await delay(350);
             }
@@ -827,7 +874,17 @@ async function connectToBrowser(cdpPort: number): Promise<{
             }
         }
 
-        const rendererState = await waitForRendererBindings(page, RENDERER_READY_TIMEOUT_MS);
+        page = await reattachToAppPage(browser, page, attachOptimizeDepWatcher);
+        let rendererState: IRendererState;
+        try {
+            rendererState = await waitForRendererBindings(page, RENDERER_READY_TIMEOUT_MS);
+        } catch (error) {
+            if (!isTransientPageContextError(error)) {
+                throw error;
+            }
+            page = await reattachToAppPage(browser, page, attachOptimizeDepWatcher);
+            rendererState = await waitForRendererBindings(page, RENDERER_READY_TIMEOUT_MS);
+        }
         if (!isRendererReady(rendererState)) {
             if (sawOutdatedOptimizeDep) {
                 throw createViteOptimizeDepError(optimizeDepUrl ?? 'Outdated Optimize Dep while waiting for renderer bindings');

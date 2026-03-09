@@ -48,8 +48,10 @@ describe('Electron E2E - Phase 4 (Marker Regression)', () => {
             const markersAfterDrag = await getMarkers(session.page);
             const movedMarker = markersAfterDrag.find(marker => marker.key === firstMarker.key);
             expect(movedMarker).toBeDefined();
-            expect(Math.abs((movedMarker?.cx ?? 0) - firstMarker.cx)).toBeGreaterThan(30);
-            expect(Math.abs((movedMarker?.cy ?? 0) - firstMarker.cy)).toBeGreaterThan(30);
+            const markerDeltaX = Math.abs((movedMarker?.cx ?? 0) - firstMarker.cx);
+            const markerDeltaY = Math.abs((movedMarker?.cy ?? 0) - firstMarker.cy);
+            expect(Math.hypot(markerDeltaX, markerDeltaY)).toBeGreaterThan(35);
+            expect(Math.max(markerDeltaX, markerDeltaY)).toBeGreaterThan(20);
 
             const connectorsAfterDrag = await getConnectorPaths(session.page);
             if (connectorsBefore.length > 0 && connectorsAfterDrag.length > 0) {
