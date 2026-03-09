@@ -108,6 +108,7 @@ function createCrossFeatureZones(relativeRoot, zoneMessagePrefix) {
 export default withNuxt(
     {ignores: [
         '**/.devkit/**',
+        'landing/**',
         'eslint.config.mjs',
         'stylelint.config.mjs',
         'nuxt.config.ts',
