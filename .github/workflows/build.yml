@@ -1,79 +1,24 @@
-name: Build & Release
-
-concurrency:
-  group: build-release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+name: Release Build Matrix
 
 on:
-  push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      run_release:
-        description: 'Create/append GitHub release from built artifacts'
-        required: true
-        default: false
-        type: boolean
+      ref:
+        description: Git ref or commit SHA to build.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 22
 
 jobs:
-  release_quality:
-    name: Release Quality Gate
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm run lint:check
-
-      - name: Typecheck
-        run: pnpm run typecheck
-
-      - name: Build (strict warnings)
-        run: pnpm run build:strict
-
-      - name: Unit and integration tests
-        run: pnpm test
-
-      - name: Bundle native tools (Linux release gate)
-        timeout-minutes: 20
-        run: bash scripts/bundle-tools-linux.sh
-
-      - name: Validate resource matrix (Linux release gate)
-        run: pnpm run check:resources:matrix
-
-      - name: Electron E2E smoke tests
-        run: xvfb-run -a --server-args="-screen 0 1440x900x24 -ac +extension RANDR" pnpm run test:e2e:electron:smoke
-
-      - name: Electron E2E tests
-        run: xvfb-run -a --server-args="-screen 0 1440x900x24 -ac +extension RANDR" pnpm run test:e2e:electron
-
-      - name: Upload Electron session logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-quality-electron-session-logs
-          path: .devkit/sessions/**/session.log
-          if-no-files-found: ignore
-
   build:
-    needs: release_quality
+    name: build (${{ matrix.os }}, ${{ matrix.platform }}, ${{ matrix.arch }})
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           # macOS (fast lane)
@@ -102,6 +47,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -109,7 +56,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
       # Windows: pnpm postinstall uses Unix commands (mkdir -p, cp) that
@@ -156,9 +103,6 @@ jobs:
 
       - name: Build (Nuxt + Electron)
         run: pnpm run build:strict
-
-      - name: Validate resource matrix
-        run: pnpm run check:resources:matrix
 
       - name: Configure optional macOS signing and notarization
         if: runner.os == 'macOS'
@@ -351,6 +295,11 @@ jobs:
         shell: bash
         run: bash scripts/verify-packaged-native-tools.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
 
+      - name: Verify packaged startup
+        if: runner.os == 'macOS'
+        shell: bash
+        run: bash scripts/verify-packaged-startup.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
+
       - name: Prune updater metadata on secondary targets
         if: runner.os == 'Linux' || (runner.os == 'Windows' && matrix.arch != 'x64')
         shell: bash
@@ -372,77 +321,15 @@ jobs:
             dist/*.blockmap
           if-no-files-found: error
 
-  release:
-    needs:
-      - build
-      - build_mac_intel
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Decide whether to publish release
-        shell: bash
-        run: |
-          echo "SHOULD_RELEASE=${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.run_release) }}" >> "$GITHUB_ENV"
-
-      - name: Download all artifacts
-        if: env.SHOULD_RELEASE == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: Validate updater metadata paths
-        if: env.SHOULD_RELEASE == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          yml_files=(artifacts/latest*.yml)
-          if [ ${#yml_files[@]} -eq 0 ]; then
-            echo "::error::No latest*.yml files found in artifacts/"
-            exit 1
-          fi
-
-          for yml in "${yml_files[@]}"; do
-            rel_path="$(awk '/^path: / {print $2; exit}' "$yml" | tr -d '"' | tr -d "'")"
-            if [ -z "$rel_path" ]; then
-              echo "::error::Missing path entry in $yml"
-              exit 1
-            fi
-            if [ ! -f "artifacts/$rel_path" ]; then
-              echo "::error::Updater metadata mismatch in $yml -> $rel_path not found"
-              echo "Available artifacts:"
-              ls -la artifacts
-              exit 1
-            fi
-          done
-
-      - name: Create draft release
-        if: env.SHOULD_RELEASE == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: false
-          generate_release_notes: true
-          files: artifacts/*
-
-      - name: Skip release publishing
-        if: env.SHOULD_RELEASE != 'true'
-        run: echo "Release publishing disabled for this workflow run."
-
   build_mac_intel:
     name: build (macos-15-intel, mac, x64)
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: release_quality
     runs-on: macos-15-intel
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -450,7 +337,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
       - name: Install dependencies
@@ -468,9 +355,6 @@ jobs:
 
       - name: Build (Nuxt + Electron)
         run: pnpm run build:strict
-
-      - name: Validate resource matrix
-        run: pnpm run check:resources:matrix
 
       - name: Configure optional macOS signing and notarization
         shell: bash
@@ -566,6 +450,9 @@ jobs:
 
       - name: Verify packaged native tools
         run: bash scripts/verify-packaged-native-tools.sh mac x64
+
+      - name: Verify packaged startup
+        run: bash scripts/verify-packaged-startup.sh mac x64
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
