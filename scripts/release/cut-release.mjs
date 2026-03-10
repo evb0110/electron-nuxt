@@ -10,6 +10,7 @@ import {
     run,
     stageFiles,
     VALID_RELEASE_LEVELS,
+    writeVersion,
 } from './shared.mjs';
 import {
     runPreflightPhase,
@@ -38,10 +39,10 @@ async function main() {
         'release:verify',
     ], {stdio: 'inherit'});
     run('pnpm', [
-        'version',
-        level,
-        '--no-git-tag-version',
+        'run',
+        'check:resources:matrix',
     ], {stdio: 'inherit'});
+    writeVersion(nextVersion);
 
     const version = readVersion();
     if (version !== nextVersion) {
