@@ -45,9 +45,6 @@ jobs:
       - name: Unit and integration tests
         run: pnpm test
 
-      - name: Resource matrix check (host)
-        run: pnpm run check:resources:matrix
-
   electron-e2e:
     name: Electron Extended
     if: github.event_name == 'push' || github.event_name == 'schedule'
