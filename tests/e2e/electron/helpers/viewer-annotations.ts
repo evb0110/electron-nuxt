@@ -89,6 +89,73 @@ async function waitForAnnotationEditorLayerInteractive(page: Page, timeoutMs = D
     }, {timeout: timeoutMs});
 }
 
+async function waitForAnnotationEditorMode(
+    page: Page,
+    modeClass: string,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    pageNumber?: number,
+) {
+    await page.waitForFunction((args: {
+        modeClass: string;
+        targetPageNumber: number | null;
+    }) => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const pageSelector = args.targetPageNumber
+            ? `.page_container[data-page="${args.targetPageNumber}"]`
+            : '.page_container';
+        const host = (
+            activeHost
+            && visibleHosts.includes(activeHost)
+            && activeHost.querySelector(pageSelector)
+        )
+            ? activeHost
+            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
+        if (!host) {
+            return false;
+        }
+
+        const pageContainer = host.querySelector<HTMLElement>(pageSelector);
+        const layer = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
+        if (!layer || layer.hidden) {
+            return false;
+        }
+
+        const rect = layer.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return false;
+        }
+
+        const style = window.getComputedStyle(layer);
+        if (
+            style.display === 'none'
+            || style.visibility === 'hidden'
+            || Number(style.opacity || '1') === 0
+            || style.pointerEvents === 'none'
+            || layer.classList.contains('waiting')
+            || layer.classList.contains('disabled')
+        ) {
+            return false;
+        }
+
+        return layer.classList.contains(args.modeClass);
+    }, { timeout: timeoutMs }, {
+        modeClass,
+        targetPageNumber: pageNumber ?? null,
+    });
+}
+
 export async function clickAnnotationTool(page: Page, label: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await openAnnotationsTab(page, timeoutMs);
     await waitForViewerInteractive(page, timeoutMs);
@@ -334,17 +401,6 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         x: 0.4,
         y: 0.3,
     };
-    if (await getActiveToolLabel(page) !== 'text') {
-        await clickAnnotationTool(page, 'Text');
-    } else {
-        await openAnnotationsTab(page);
-        await waitForViewerInteractive(page);
-    }
-    try {
-        await waitForAnnotationEditorLayerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 5_000));
-    } catch {
-        await waitForViewerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 5_000));
-    }
     const clickAnnotationCreationPoint = async () => {
         const point = await resolveAnnotationLayerPoint(page, targetRatio, pageNumber);
         if (!point) {
@@ -354,7 +410,6 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         await page.mouse.click(point.x, point.y);
         return true;
     };
-    await clickAnnotationCreationPoint();
     const waitForEditor = async (timeoutMs: number) => {
         await page.waitForFunction((minCount: number) => {
             const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
@@ -384,20 +439,54 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         }, {timeout: timeoutMs}, before);
     };
 
-    try {
-        await waitForEditor(DEFAULT_TIMEOUT_MS);
-    } catch {
+    const ensureFreeTextCreationReady = async (timeoutMs: number) => {
         if (await getActiveToolLabel(page) !== 'text') {
-            await clickAnnotationTool(page, 'Text');
+            await clickAnnotationTool(page, 'Text', timeoutMs);
+        } else {
+            await openAnnotationsTab(page, timeoutMs);
+            await waitForViewerInteractive(page, timeoutMs);
         }
         try {
-            await waitForAnnotationEditorLayerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 8_000));
+            await waitForAnnotationEditorLayerInteractive(page, Math.min(timeoutMs, 8_000));
         } catch {
-            await waitForViewerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 8_000));
+            await waitForViewerInteractive(page, Math.min(timeoutMs, 8_000));
         }
+        await waitForAnnotationEditorMode(page, 'freetextEditing', timeoutMs, pageNumber);
+    };
+
+    let lastEditorWaitError: unknown = null;
+    let editorReady = false;
+    for (const attemptTimeoutMs of [
+        4_000,
+        6_000,
+        10_000,
+    ]) {
+        try {
+            await ensureFreeTextCreationReady(attemptTimeoutMs);
+        } catch (error) {
+            lastEditorWaitError = error;
+            continue;
+        }
+
         await clickAnnotationCreationPoint();
 
-        await waitForEditor(8_000);
+        try {
+            await waitForEditor(attemptTimeoutMs);
+            editorReady = true;
+            break;
+        } catch (error) {
+            lastEditorWaitError = error;
+            await page.evaluate(async () => {
+                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            });
+        }
+    }
+
+    if (!editorReady) {
+        throw lastEditorWaitError instanceof Error
+            ? lastEditorWaitError
+            : new Error('Failed to create FreeText editor');
     }
 
     const editorPoint = await page.evaluate(() => {
@@ -459,6 +548,9 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 pageCount: host?.querySelectorAll('.page_container').length ?? 0,
                 textLayerCount: host?.querySelectorAll('.text-layer, .textLayer').length ?? 0,
                 freeTextCount: host?.querySelectorAll('.freeTextEditor').length ?? 0,
+                freeTextEditingLayerCount: host?.querySelectorAll('.annotationEditorLayer.freetextEditing, .annotation-editor-layer.freetextEditing').length ?? 0,
+                waitingLayerCount: host?.querySelectorAll('.annotationEditorLayer.waiting, .annotation-editor-layer.waiting').length ?? 0,
+                disabledLayerCount: host?.querySelectorAll('.annotationEditorLayer.disabled, .annotation-editor-layer.disabled').length ?? 0,
             };
         });
         throw new Error(`Failed to locate created FreeText editor (${JSON.stringify(debugState)})`);
