@@ -1,10 +1,15 @@
 import {
     HostedWorkflowFailure,
-    runPreflightPhase,
+    runPublishPhase,
 } from './workflow-phase.mjs';
 
 async function main() {
-    await runPreflightPhase();
+    const tag = process.argv[2];
+    const preflightRunId = process.argv[3];
+    await runPublishPhase({
+        tag,
+        preflightRunId,
+    });
 }
 
 main().catch((error) => {

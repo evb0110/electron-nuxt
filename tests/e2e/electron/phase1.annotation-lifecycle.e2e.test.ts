@@ -17,6 +17,7 @@ import {
     getFreeTextEditorCount,
     openAnnotationsTab,
     openPdfInApp,
+    waitForActiveWorkspaceHost,
     waitForPdfLoaded,
 } from './helpers/viewer-helpers';
 
@@ -48,14 +49,24 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
         const createdCount = await createFreeTextAnnotation(page, typedText);
         expect(createdCount).toBeGreaterThan(baselineCount);
 
+        await waitForActiveWorkspaceHost(page);
         const latestText = await page.evaluate(() => {
-            const host = Array.from(document.querySelectorAll('.workspace-host'))
-                .find((candidate) => {
-                    const element = candidate as HTMLElement;
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return style.display !== 'none' && rect.width > 100 && rect.height > 100;
-                }) as HTMLElement | undefined;
+            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .filter((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return (
+                        style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && Number(style.opacity || '1') > 0
+                        && rect.width > 100
+                        && rect.height > 100
+                    );
+                });
+            const host = (activeHost && visibleHosts.includes(activeHost))
+                ? activeHost
+                : (visibleHosts.length === 1 ? visibleHosts[0] : null);
             const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
             const latest = editors[editors.length - 1];
             return (latest?.textContent ?? '').trim();

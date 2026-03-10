@@ -1,10 +1,10 @@
 import {
     HostedWorkflowFailure,
-    runPreflightPhase,
+    runPhaseFromCli,
 } from './workflow-phase.mjs';
 
 async function main() {
-    await runPreflightPhase();
+    await runPhaseFromCli();
 }
 
 main().catch((error) => {

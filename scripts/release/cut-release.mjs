@@ -1,65 +1,20 @@
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-
-const VALID_RELEASE_LEVELS = new Set([
-    'patch',
-    'minor',
-    'major',
-]);
-
-function run(command, args, options = {}) {
-    const output = execFileSync(command, args, {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
-        ...options,
-    });
-
-    if (output == null) {
-        return '';
-    }
-
-    return String(output).trim();
-}
-
-function assertCleanWorktree() {
-    const porcelain = run('git', [
-        'status',
-        '--short',
-    ]);
-    if (porcelain.length > 0) {
-        throw new Error('Release requires a clean worktree');
-    }
-}
-
-function readVersion() {
-    const packageJsonPath = resolve(process.cwd(), 'package.json');
-    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
-    return packageJson.version;
-}
-
-function revertVersionCommit(version) {
-    process.stderr.write(`Hosted preflight failed for v${version}; reverting unreleased version bump.\n`);
-    run('git', [
-        'revert',
-        '--no-edit',
-        'HEAD',
-    ], {stdio: 'inherit'});
-    run('git', ['push'], {stdio: 'inherit'});
-}
-
-function getExitStatus(error) {
-    if (error && typeof error === 'object' && 'status' in error) {
-        return error.status;
-    }
-
-    return undefined;
-}
+import {
+    assertCleanWorktree,
+    assertTagAbsent,
+    bumpVersion,
+    getHeadSha,
+    getUpstream,
+    listChangedFiles,
+    readVersion,
+    requireNamedBranch,
+    run,
+    stageFiles,
+    VALID_RELEASE_LEVELS,
+} from './shared.mjs';
+import {
+    runPreflightPhase,
+    runPublishPhase,
+} from './workflow-phase.mjs';
 
 async function main() {
     const level = process.argv[2];
@@ -70,6 +25,13 @@ async function main() {
     }
 
     assertCleanWorktree();
+    requireNamedBranch();
+    const upstream = getUpstream();
+    const currentVersion = readVersion();
+    const nextVersion = bumpVersion(currentVersion, level);
+    const tag = `v${nextVersion}`;
+
+    assertTagAbsent(tag, upstream.remote);
 
     run('pnpm', [
         'run',
@@ -82,31 +44,26 @@ async function main() {
     ], {stdio: 'inherit'});
 
     const version = readVersion();
-    const tag = `v${version}`;
+    if (version !== nextVersion) {
+        throw new Error(`Expected bumped version to be ${nextVersion}, received ${version}`);
+    }
 
-    run('git', [
-        'add',
-        'package.json',
-    ], {stdio: 'inherit'});
+    stageFiles(listChangedFiles());
     run('git', [
         'commit',
         '-m',
         version,
     ], {stdio: 'inherit'});
-    run('git', ['push'], {stdio: 'inherit'});
+    run('git', [
+        'push',
+        upstream.remote,
+        `HEAD:${upstream.branch}`,
+    ], {stdio: 'inherit'});
 
-    try {
-        run('node', ['scripts/release/run-hosted-preflight.mjs'], {stdio: 'inherit'});
-    } catch (error) {
-        if (getExitStatus(error) === 1) {
-            revertVersionCommit(version);
-        } else {
-            process.stderr.write(
-                `Hosted preflight monitoring did not reach a definitive failure for v${version}; leaving version bump in place.\n`,
-            );
-        }
-        throw error;
-    }
+    const preflightRun = await runPreflightPhase({
+        branch: upstream.branch,
+        headSha: getHeadSha(),
+    });
 
     run('git', [
         'tag',
@@ -114,9 +71,14 @@ async function main() {
     ], {stdio: 'inherit'});
     run('git', [
         'push',
-        'origin',
-        tag,
+        upstream.remote,
+        `refs/tags/${tag}`,
     ], {stdio: 'inherit'});
+
+    await runPublishPhase({
+        tag,
+        preflightRunId: preflightRun.databaseId,
+    });
 }
 
 main().catch((error) => {

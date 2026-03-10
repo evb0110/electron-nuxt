@@ -1,0 +1,124 @@
+name: Release Preflight
+
+concurrency:
+  group: release-preflight-${{ github.workflow }}-${{ inputs.ref || github.run_id }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref or commit SHA to validate and package.
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 22
+
+jobs:
+  prepare:
+    name: Resolve Target
+    runs-on: ubuntu-latest
+    outputs:
+      target_ref: ${{ steps.target.outputs.target_ref }}
+      target_sha: ${{ steps.target.outputs.target_sha }}
+
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Capture target details
+        id: target
+        shell: bash
+        run: |
+          echo "target_ref=${{ inputs.ref }}" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  quality:
+    name: Shared Quality Gates
+    needs: prepare
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.target_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate
+        run: pnpm run validate
+
+      - name: Unit and integration tests
+        run: pnpm test
+
+      - name: Resource matrix check (all targets)
+        run: pnpm run check:resources:matrix:all
+
+  electron-e2e:
+    name: Electron Smoke
+    needs:
+      - prepare
+      - quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.target_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bundle native tools (Linux E2E)
+        timeout-minutes: 20
+        run: bash scripts/bundle-tools-linux.sh
+
+      - name: Run Electron E2E smoke tests
+        run: xvfb-run -a --server-args="-screen 0 1440x900x24 -ac +extension RANDR" pnpm run test:e2e:electron:smoke
+
+      - name: Upload Electron session logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-preflight-electron-smoke-session-logs
+          path: .devkit/sessions/**/session.log
+          if-no-files-found: ignore
+
+  build_artifacts:
+    name: Package Release Artifacts
+    needs:
+      - prepare
+      - quality
+      - electron-e2e
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.prepare.outputs.target_sha }}
+    secrets: inherit

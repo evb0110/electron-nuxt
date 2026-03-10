@@ -1,7 +1,7 @@
 name: CI
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}
   cancel-in-progress: true
 
 on:
@@ -12,8 +12,15 @@ on:
   schedule:
     - cron: '17 4 * * *'
 
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 22
+
 jobs:
   quality:
+    name: Shared Quality Gates
     runs-on: ubuntu-latest
 
     steps:
@@ -26,40 +33,24 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint (non-mutating)
-        run: pnpm run lint:check
+      - name: Validate
+        run: pnpm run validate
 
-      - name: Typecheck
-        run: pnpm run typecheck
-
-      - name: Architecture dependency graph
-        run: node scripts/architecture/dep-graph.mjs --output=.tmp/architecture-dep-graph.json
-
-      - name: Architecture boundary check (required)
-        run: node scripts/architecture/boundary-check.mjs
-
-      - name: Locale parity check
-        run: pnpm run check:locales
-
-      - name: Build (strict warnings)
-        run: pnpm run build:strict
-
-      - name: Test
+      - name: Unit and integration tests
         run: pnpm test
 
-      - name: Resource matrix check
-        run: pnpm run check:resources:matrix
-
-      - name: Dead code check
-        run: pnpm run knip
+      - name: Resource matrix check (all targets)
+        run: pnpm run check:resources:matrix:all
 
   electron-e2e:
+    name: Electron Extended
+    if: github.event_name == 'push' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     needs:
       - quality
@@ -75,7 +66,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
       - name: Install dependencies
@@ -85,8 +76,8 @@ jobs:
         timeout-minutes: 20
         run: bash scripts/bundle-tools-linux.sh
 
-      - name: Run Electron E2E tests
-        run: xvfb-run -a --server-args="-screen 0 1440x900x24 -ac +extension RANDR" pnpm run test:e2e:electron
+      - name: Run Electron E2E extended tests
+        run: xvfb-run -a --server-args="-screen 0 1440x900x24 -ac +extension RANDR" pnpm run test:e2e:electron:extended
 
       - name: Upload Electron session logs on failure
         if: failure()
@@ -97,6 +88,8 @@ jobs:
           if-no-files-found: ignore
 
   electron-e2e-smoke:
+    name: Electron Smoke
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     needs: quality
 
@@ -110,7 +103,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
       - name: Install dependencies
@@ -130,27 +123,3 @@ jobs:
           name: electron-e2e-smoke-session-logs
           path: .devkit/sessions/**/session.log
           if-no-files-found: ignore
-
-  landing-quality:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install landing dependencies
-        run: pnpm install --frozen-lockfile
-        working-directory: landing
-
-      - name: Typecheck landing
-        run: pnpm run typecheck
-        working-directory: landing
