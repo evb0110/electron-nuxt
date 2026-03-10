@@ -50,6 +50,7 @@ jobs:
         run: pnpm test
 
       - name: Bundle native tools (Linux release gate)
+        timeout-minutes: 20
         run: bash scripts/bundle-tools-linux.sh
 
       - name: Validate resource matrix (Linux release gate)
@@ -142,6 +143,7 @@ jobs:
       # Linux: install via apt and bundle with patchelf
       - name: Bundle native tools (Linux)
         if: runner.os == 'Linux'
+        timeout-minutes: 20
         run: bash scripts/bundle-tools-linux.sh
 
       # Windows: x64 downloads pre-built release ZIPs; arm64 uses MSYS2 clangarm64
@@ -455,6 +457,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Bundle native tools (macOS Intel)
+        timeout-minutes: 30
         run: |
           brew install tesseract poppler qpdf djvulibre ffmpeg meson pkg-config
           pip3 install sphinx --break-system-packages

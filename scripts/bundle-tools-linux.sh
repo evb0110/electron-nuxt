@@ -18,11 +18,31 @@ echo "=========================================="
 echo "Bundling native tools for $PLATFORM_ARCH"
 echo "=========================================="
 
+APT_TIMEOUT_UPDATE_SECONDS=600
+APT_TIMEOUT_INSTALL_SECONDS=900
+APT_RETRY_FLAGS=(
+  -o
+  Acquire::Retries=3
+  -o
+  Acquire::http::Timeout=30
+  -o
+  Acquire::https::Timeout=30
+  -o
+  Dpkg::Use-Pty=0
+)
+
+run_apt_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+
+  sudo env DEBIAN_FRONTEND=noninteractive timeout --foreground "${timeout_seconds}s" "$@"
+}
+
 # Install all required tools
 echo ""
 echo "Installing tools via apt..."
-sudo apt-get update -qq
-sudo apt-get install -y -qq \
+run_apt_with_timeout "$APT_TIMEOUT_UPDATE_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" update -qq
+run_apt_with_timeout "$APT_TIMEOUT_INSTALL_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" install -y -qq \
   tesseract-ocr \
   poppler-utils \
   qpdf \
