@@ -392,6 +392,149 @@ async function resolveAnnotationLayerPoint(
     });
 }
 
+async function synthesizeAnnotationCreationClick(
+    page: Page,
+    ratio: {
+        x: number;
+        y: number;
+    },
+    pageNumber?: number,
+) {
+    await waitForViewerInteractive(page);
+
+    return page.evaluate(({
+        xRatio,
+        yRatio,
+        targetPageNumber,
+    }) => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const pageSelector = targetPageNumber
+            ? `.page_container[data-page="${targetPageNumber}"]`
+            : '.page_container';
+        const host = (
+            activeHost
+            && visibleHosts.includes(activeHost)
+            && activeHost.querySelector(pageSelector)
+        )
+            ? activeHost
+            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
+        if (!host) {
+            return false;
+        }
+
+        const pageContainer = host.querySelector<HTMLElement>(pageSelector);
+        const layer = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
+        const target = layer ?? pageContainer ?? null;
+        if (!target) {
+            return false;
+        }
+
+        const rect = target.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return false;
+        }
+
+        const clientX = Math.round(rect.left + rect.width * xRatio);
+        const clientY = Math.round(rect.top + rect.height * yRatio);
+        const dispatchTarget = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>(
+            '.annotationEditorLayer, .annotation-editor-layer, .page_container',
+        ) ?? target;
+        const eventTarget = dispatchTarget instanceof HTMLElement ? dispatchTarget : target;
+        const eventBase = {
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+            button: 0,
+            buttons: 1,
+            composed: true,
+        };
+        const dispatchMouse = (type: string, buttons: number) => eventTarget.dispatchEvent(new MouseEvent(type, {
+            ...eventBase,
+            buttons,
+        }));
+
+        eventTarget.focus?.();
+        dispatchMouse('mousemove', 0);
+        dispatchMouse('mouseenter', 0);
+        dispatchMouse('mouseover', 0);
+        dispatchMouse('mousedown', 1);
+        dispatchMouse('mouseup', 0);
+        dispatchMouse('click', 0);
+        return true;
+    }, {
+        xRatio: ratio.x,
+        yRatio: ratio.y,
+        targetPageNumber: pageNumber ?? null,
+    });
+}
+
+async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number) {
+    return page.evaluate((targetPageNumber: number | null) => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const pageSelector = targetPageNumber
+            ? `.page_container[data-page="${targetPageNumber}"]`
+            : '.page_container';
+        const host = (
+            activeHost
+            && visibleHosts.includes(activeHost)
+            && activeHost.querySelector(pageSelector)
+        )
+            ? activeHost
+            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
+        const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
+        const layer = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer') ?? null;
+        const fatalDialog = Array.from(document.querySelectorAll<HTMLElement>('div.fixed.inset-0'))
+            .find((candidate) => candidate.textContent?.includes('Reload') && candidate.textContent?.includes('runtime') !== false)
+            ?? null;
+        const detailBlock = fatalDialog?.querySelector('p.mt-2') ?? null;
+
+        return {
+            activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? '',
+            pageCount: host?.querySelectorAll('.page_container').length ?? 0,
+            textLayerCount: host?.querySelectorAll('.text-layer, .textLayer').length ?? 0,
+            freeTextCount: host?.querySelectorAll('.freeTextEditor').length ?? 0,
+            freeTextEditingLayerCount: host?.querySelectorAll('.annotationEditorLayer.freetextEditing, .annotation-editor-layer.freetextEditing').length ?? 0,
+            waitingLayerCount: host?.querySelectorAll('.annotationEditorLayer.waiting, .annotation-editor-layer.waiting').length ?? 0,
+            disabledLayerCount: host?.querySelectorAll('.annotationEditorLayer.disabled, .annotation-editor-layer.disabled').length ?? 0,
+            pageRect: pageContainer
+                ? {
+                    width: Math.round(pageContainer.getBoundingClientRect().width),
+                    height: Math.round(pageContainer.getBoundingClientRect().height),
+                }
+                : null,
+            layerClassName: layer?.className ?? null,
+            layerPointerEvents: layer ? window.getComputedStyle(layer).pointerEvents : null,
+            fatalRuntimeVisible: Boolean(fatalDialog),
+            fatalRuntimeDetail: detailBlock?.textContent?.trim() ?? null,
+        };
+    }, pageNumber ?? null);
+}
+
 export async function createFreeTextAnnotation(page: Page, text: string, position?: {
     x: number;
     y: number;
@@ -405,10 +548,18 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         const point = await resolveAnnotationLayerPoint(page, targetRatio, pageNumber);
         if (!point) {
             await clickPageAtRatio(page, targetRatio, pageNumber);
-            return false;
+            return 'page';
         }
         await page.mouse.click(point.x, point.y);
-        return true;
+        return 'mouse';
+    };
+    const dispatchAnnotationCreationPoint = async () => {
+        const dispatched = await synthesizeAnnotationCreationClick(page, targetRatio, pageNumber);
+        if (!dispatched) {
+            await clickPageAtRatio(page, targetRatio, pageNumber);
+            return 'page';
+        }
+        return 'dom';
     };
     const waitForEditor = async (timeoutMs: number) => {
         await page.waitForFunction((minCount: number) => {
@@ -468,25 +619,36 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
             continue;
         }
 
-        await clickAnnotationCreationPoint();
+        for (const strategy of [
+            clickAnnotationCreationPoint,
+            dispatchAnnotationCreationPoint,
+        ]) {
+            await strategy();
 
-        try {
-            await waitForEditor(attemptTimeoutMs);
-            editorReady = true;
+            try {
+                await waitForEditor(attemptTimeoutMs);
+                editorReady = true;
+                break;
+            } catch (error) {
+                lastEditorWaitError = error;
+                await page.evaluate(async () => {
+                    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                });
+            }
+        }
+
+        if (editorReady) {
             break;
-        } catch (error) {
-            lastEditorWaitError = error;
-            await page.evaluate(async () => {
-                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-            });
         }
     }
 
     if (!editorReady) {
-        throw lastEditorWaitError instanceof Error
-            ? lastEditorWaitError
-            : new Error('Failed to create FreeText editor');
+        const debugState = await collectFreeTextCreationDebugState(page, pageNumber);
+        const baseMessage = lastEditorWaitError instanceof Error
+            ? lastEditorWaitError.message
+            : 'Failed to create FreeText editor';
+        throw new Error(`${baseMessage} (${JSON.stringify(debugState)})`);
     }
 
     const editorPoint = await page.evaluate(() => {
@@ -526,33 +688,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     });
 
     if (!editorPoint) {
-        const debugState = await page.evaluate(() => {
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter((candidate) => {
-                    const rect = candidate.getBoundingClientRect();
-                    const style = window.getComputedStyle(candidate);
-                    return (
-                        style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                        && Number(style.opacity || '1') > 0
-                        && rect.width > 100
-                        && rect.height > 100
-                    );
-                });
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-            const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-                ?? visibleHosts[0]
-                ?? null;
-            return {
-                activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? '',
-                pageCount: host?.querySelectorAll('.page_container').length ?? 0,
-                textLayerCount: host?.querySelectorAll('.text-layer, .textLayer').length ?? 0,
-                freeTextCount: host?.querySelectorAll('.freeTextEditor').length ?? 0,
-                freeTextEditingLayerCount: host?.querySelectorAll('.annotationEditorLayer.freetextEditing, .annotation-editor-layer.freetextEditing').length ?? 0,
-                waitingLayerCount: host?.querySelectorAll('.annotationEditorLayer.waiting, .annotation-editor-layer.waiting').length ?? 0,
-                disabledLayerCount: host?.querySelectorAll('.annotationEditorLayer.disabled, .annotation-editor-layer.disabled').length ?? 0,
-            };
-        });
+        const debugState = await collectFreeTextCreationDebugState(page, pageNumber);
         throw new Error(`Failed to locate created FreeText editor (${JSON.stringify(debugState)})`);
     }
 
