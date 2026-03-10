@@ -1,5 +1,9 @@
 name: Build & Release
 
+concurrency:
+  group: build-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 on:
   push:
     tags:
@@ -39,6 +43,9 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      - name: Build (strict warnings)
+        run: pnpm run build:strict
+
       - name: Unit and integration tests
         run: pnpm test
 
@@ -48,8 +55,11 @@ jobs:
       - name: Validate resource matrix (Linux release gate)
         run: pnpm run check:resources:matrix
 
+      - name: Electron E2E smoke tests
+        run: xvfb-run -a --server-args="-screen 0 1440x900x24 -ac +extension RANDR" pnpm run test:e2e:electron:smoke
+
       - name: Electron E2E tests
-        run: xvfb-run -a pnpm run test:e2e:electron
+        run: xvfb-run -a --server-args="-screen 0 1440x900x24 -ac +extension RANDR" pnpm run test:e2e:electron
 
       - name: Upload Electron session logs on failure
         if: failure()
@@ -62,7 +72,7 @@ jobs:
   build:
     needs: release_quality
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           # macOS (fast lane)
@@ -361,7 +371,9 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
+    needs:
+      - build
+      - build_mac_intel
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
@@ -419,9 +431,9 @@ jobs:
         run: echo "Release publishing disabled for this workflow run."
 
   build_mac_intel:
-    name: Build macOS Intel (non-blocking)
+    name: build (macos-15-intel, mac, x64)
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: release
+    needs: release_quality
     runs-on: macos-15-intel
     permissions:
       contents: write
@@ -559,10 +571,3 @@ jobs:
           path: |
             dist/*.zip
           if-no-files-found: error
-
-      - name: Append to release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.run_release)
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*.zip

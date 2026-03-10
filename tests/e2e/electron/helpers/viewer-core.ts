@@ -91,11 +91,12 @@ export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
                 return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
             };
 
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .filter(isVisibleHost);
             const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-            const host = (activeHost && isVisibleHost(activeHost))
+            const host = (activeHost && visibleHosts.includes(activeHost))
                 ? activeHost
-                : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                    .find(isVisibleHost);
+                : (visibleHosts.length === 1 ? visibleHosts[0] : null);
             if (!host) {
                 return false;
             }
@@ -171,11 +172,12 @@ export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_T
             return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
         };
 
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter(isVisibleHost);
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-        const host = (activeHost && isVisibleHost(activeHost))
+        const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .find(isVisibleHost);
+            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
         if (!host) {
             return false;
         }

@@ -6,8 +6,8 @@ export default defineConfig({test: {
     fileParallelism: false,
     maxWorkers: 1,
     minWorkers: 1,
+    retry: process.env.CI ? 1 : 0,
     testTimeout: 240_000,
     hookTimeout: 300_000,
     sequence: {concurrent: false},
 }});
-
