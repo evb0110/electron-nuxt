@@ -404,11 +404,34 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
     }, {timeout: timeoutMs});
 }
 
-export async function openAnnotationsTab(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    await ensureSidebarOpen(page, timeoutMs);
-    await waitForActiveWorkspaceHost(page, timeoutMs);
+async function isAnnotationsPanelVisible(page: Page) {
+    return page.evaluate(() => {
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+        };
 
-    const tabPoint = await page.evaluate(() => {
+        const isVisiblePanel = (element: HTMLElement | null) => {
+            if (!element) {
+                return false;
+            }
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return rect.height > 10 && rect.width > 10 && style.display !== 'none' && style.visibility !== 'hidden';
+        };
+
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && isVisibleHost(activeHost))
+            ? activeHost
+            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .find(isVisibleHost);
+        return isVisiblePanel(host?.querySelector<HTMLElement>('.notes-panel') ?? null);
+    });
+}
+
+async function tryActivateAnnotationsTab(page: Page) {
+    return page.evaluate(() => {
         const isVisibleHost = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);
@@ -421,54 +444,114 @@ export async function openAnnotationsTab(page: Page, timeoutMs = DEFAULT_TIMEOUT
             : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
                 .find(isVisibleHost);
         if (!host) {
-            return null;
+            return 'missing-host';
+        }
+
+        const panel = host.querySelector<HTMLElement>('.notes-panel');
+        if (panel) {
+            const panelStyle = window.getComputedStyle(panel);
+            const panelRect = panel.getBoundingClientRect();
+            if (
+                panelStyle.display !== 'none'
+                && panelStyle.visibility !== 'hidden'
+                && panelRect.width > 10
+                && panelRect.height > 10
+            ) {
+                return 'already-open';
+            }
         }
 
         const tabs = Array.from(host.querySelectorAll<HTMLElement>('.pdf-sidebar [role="tab"]'));
         if (tabs.length === 0) {
-            return null;
+            return 'missing-tabs';
         }
 
-        const target = tabs.find((tab) => (
-            tab.querySelector('span')?.className.includes('i-lucide:sticky-note')
-        )) ?? tabs[0];
+        const target = tabs.find((tab) => {
+            const text = [
+                tab.getAttribute('aria-label') ?? '',
+                tab.getAttribute('title') ?? '',
+                tab.textContent ?? '',
+                tab.className,
+                tab.querySelector('span')?.className ?? '',
+                tab.querySelector('svg')?.getAttribute('data-icon') ?? '',
+            ]
+                .join(' ')
+                .toLowerCase();
+
+            return (
+                text.includes('notes')
+                || text.includes('annotation')
+                || text.includes('message-square')
+                || text.includes('sticky-note')
+            );
+        }) ?? tabs[0];
+
         if (!target) {
-            return null;
+            return 'missing-target';
         }
 
-        const rect = target.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + rect.width / 2),
-            y: Math.round(rect.top + rect.height / 2),
-        };
+        target.scrollIntoView({
+            block: 'center',
+            inline: 'center',
+        });
+        target.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+        }));
+        target.dispatchEvent(new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+        }));
+        target.click();
+        target.dispatchEvent(new MouseEvent('mouseup', {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+        }));
+        return target.getAttribute('aria-selected') === 'true'
+            || target.dataset.state === 'active'
+            ? 'activated'
+            : 'clicked';
     });
+}
 
-    if (!tabPoint) {
-        throw new Error('Annotation tab trigger not found');
+export async function openAnnotationsTab(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    await ensureSidebarOpen(page, timeoutMs);
+    await waitForActiveWorkspaceHost(page, timeoutMs);
+
+    const startedAt = Date.now();
+    let lastState = 'not-started';
+    let lastError: unknown = null;
+
+    while (Date.now() - startedAt < timeoutMs) {
+        try {
+            if (await isAnnotationsPanelVisible(page)) {
+                return;
+            }
+
+            lastState = await tryActivateAnnotationsTab(page);
+            if (await isAnnotationsPanelVisible(page)) {
+                return;
+            }
+        } catch (error) {
+            lastError = error;
+            if (!isExecutionContextDestroyedError(error)) {
+                lastState = describeError(error);
+            }
+        }
+
+        await delay(250);
+        try {
+            await waitForActiveWorkspaceHost(page, Math.min(2_000, timeoutMs));
+        } catch (error) {
+            lastError = error;
+        }
     }
 
-    await page.mouse.click(tabPoint.x, tabPoint.y);
-
-    await page.waitForFunction(() => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-        const host = (activeHost && isVisibleHost(activeHost))
-            ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .find(isVisibleHost);
-        const panel = host?.querySelector('.notes-panel') as HTMLElement | null;
-        if (!panel) {
-            return false;
-        }
-        const rect = panel.getBoundingClientRect();
-        const style = window.getComputedStyle(panel);
-        return rect.height > 10 && style.display !== 'none' && style.visibility !== 'hidden';
-    }, {timeout: timeoutMs});
+    const detail = lastError ? describeError(lastError) : lastState;
+    throw new Error(`Annotations tab did not open within ${timeoutMs}ms (${detail})`);
 }
 
 export async function scrollViewerToPage(page: Page, pageNumber: number) {
