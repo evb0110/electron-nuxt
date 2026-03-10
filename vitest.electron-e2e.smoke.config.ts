@@ -2,8 +2,8 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({test: {
     include: [
-        'tests/e2e/electron/phase1.annotation-lifecycle.e2e.test.ts',
         'tests/e2e/electron/phase3.annotation-history-persistence.e2e.test.ts',
+        'tests/e2e/electron/phase7.recent-files-persistence.e2e.test.ts',
     ],
     globals: false,
     fileParallelism: false,

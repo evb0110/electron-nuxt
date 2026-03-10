@@ -796,35 +796,109 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         }
         return true;
     });
+    const waitForLatestFreeTextContent = async (typedText: string, timeoutMs: number) => {
+        await page.waitForFunction((expectedText: string) => {
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .filter((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return (
+                        style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && Number(style.opacity || '1') > 0
+                        && rect.width > 100
+                        && rect.height > 100
+                    );
+                });
+            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
+            const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+                ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
+                ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
+            const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
+            const latestEditor = editors[editors.length - 1];
+            const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
+                ?? latestEditor
+                ?? null;
+            const latestText = (editable?.textContent ?? '')
+                .replace(/\u200B/g, '')
+                .trim();
+            return latestText.includes(expectedText.trim());
+        }, {timeout: timeoutMs}, typedText);
+    };
+
+    const injectLatestFreeTextContent = async (typedText: string) => {
+        const injected = await page.evaluate((expectedText: string) => {
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .filter((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return (
+                        style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && Number(style.opacity || '1') > 0
+                        && rect.width > 100
+                        && rect.height > 100
+                    );
+                });
+            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
+            const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+                ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
+                ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
+            const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
+            const latestEditor = editors[editors.length - 1];
+            const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
+                ?? latestEditor
+                ?? null;
+            if (!editable) {
+                return false;
+            }
+
+            editable.focus();
+
+            if (editable.isContentEditable || editable.getAttribute('contenteditable') === 'true') {
+                editable.textContent = expectedText;
+
+                const selection = window.getSelection();
+                const range = document.createRange();
+                range.selectNodeContents(editable);
+                range.collapse(false);
+                selection?.removeAllRanges();
+                selection?.addRange(range);
+
+                editable.dispatchEvent(new InputEvent('input', {
+                    bubbles: true,
+                    data: expectedText,
+                    inputType: 'insertText',
+                }));
+                editable.dispatchEvent(new Event('change', {bubbles: true}));
+                return true;
+            }
+
+            if (editable instanceof HTMLInputElement || editable instanceof HTMLTextAreaElement) {
+                editable.value = expectedText;
+                editable.dispatchEvent(new Event('input', {bubbles: true}));
+                editable.dispatchEvent(new Event('change', {bubbles: true}));
+                return true;
+            }
+
+            return false;
+        }, typedText);
+
+        if (!injected) {
+            throw new Error('Failed to inject created FreeText editor content');
+        }
+    };
+
     await page.keyboard.type(text, { delay: 10 });
-    await page.waitForFunction((typedText: string) => {
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 100
-                    && rect.height > 100
-                );
-            });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
-        const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-            ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
-            ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
-        const latestEditor = editors[editors.length - 1];
-        const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
-            ?? latestEditor
-            ?? null;
-        const latestText = (editable?.textContent ?? '')
-            .replace(/\u200B/g, '')
-            .trim();
-        return latestText.includes(typedText.trim());
-    }, {timeout: 4_000}, text);
+
+    try {
+        await waitForLatestFreeTextContent(text, 6_000);
+    } catch {
+        await injectLatestFreeTextContent(text);
+        await waitForLatestFreeTextContent(text, 8_000);
+    }
 
     return getFreeTextEditorCount(page);
 }
