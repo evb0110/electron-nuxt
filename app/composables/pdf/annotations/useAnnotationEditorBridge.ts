@@ -121,6 +121,26 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
         | null = null;
     let annotationStorageModifiedHandler: (() => void) | null = null;
 
+    function scheduleCreatedEditorPostProcessing(task: () => void) {
+        if (typeof window === 'undefined') {
+            task();
+            return;
+        }
+
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+                try {
+                    task();
+                } catch (error) {
+                    BrowserLogger.warn(
+                        'annotations',
+                        `Failed to finalize created annotation editor: ${errorToLogText(error)}`,
+                    );
+                }
+            });
+        });
+    }
+
     function shouldIgnoreEditorEvent(event: Event) {
         const target = event.target;
         if (!(target instanceof HTMLElement)) {
@@ -419,28 +439,30 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
                 toolManager.maybeAutoResetAnnotationTool();
             }
             const normalizedEditor = editor as IPdfjsEditor | null;
-            if (normalizedEditor) {
-                freeTextResize.ensureFreeTextEditorCanResize(normalizedEditor);
-                const pageIndex = Number.isFinite(normalizedEditor.parentPageIndex)
-                    ? (normalizedEditor.parentPageIndex as number)
-                    : Math.max(0, currentPage.value - 1);
-                let knownSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex);
-                if (!knownSubtype) {
-                    knownSubtype = markupSubtype.resolveEditorSubtypeFromPresentation(normalizedEditor);
-                }
-                if (!knownSubtype && detectEditorSubtype(normalizedEditor) === 'Highlight') {
-                    const toolSubtype = markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
-                    if (toolSubtype) {
-                        markupSubtype.setEditorMarkupSubtypeOverride(normalizedEditor, pageIndex, toolSubtype);
-                        knownSubtype = toolSubtype;
+            scheduleCreatedEditorPostProcessing(() => {
+                if (normalizedEditor) {
+                    freeTextResize.ensureFreeTextEditorCanResize(normalizedEditor);
+                    const pageIndex = Number.isFinite(normalizedEditor.parentPageIndex)
+                        ? (normalizedEditor.parentPageIndex as number)
+                        : Math.max(0, currentPage.value - 1);
+                    let knownSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex);
+                    if (!knownSubtype) {
+                        knownSubtype = markupSubtype.resolveEditorSubtypeFromPresentation(normalizedEditor);
+                    }
+                    if (!knownSubtype && detectEditorSubtype(normalizedEditor) === 'Highlight') {
+                        const toolSubtype = markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
+                        if (toolSubtype) {
+                            markupSubtype.setEditorMarkupSubtypeOverride(normalizedEditor, pageIndex, toolSubtype);
+                            knownSubtype = toolSubtype;
+                        }
+                    }
+                    if (knownSubtype) {
+                        markupSubtype.applyEditorMarkupSubtypePresentation(normalizedEditor, knownSubtype);
                     }
                 }
-                if (knownSubtype) {
-                    markupSubtype.applyEditorMarkupSubtypePresentation(normalizedEditor, knownSubtype);
-                }
-            }
-            emitAnnotationModified();
-            commentSync.scheduleAnnotationCommentsSync();
+                emitAnnotationModified();
+                commentSync.scheduleAnnotationCommentsSync();
+            });
             return result;
         };
 
