@@ -82,6 +82,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Bundle native tools (Linux E2E)
+        timeout-minutes: 20
         run: bash scripts/bundle-tools-linux.sh
 
       - name: Run Electron E2E tests
@@ -116,6 +117,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Bundle native tools (Linux E2E smoke)
+        timeout-minutes: 20
         run: bash scripts/bundle-tools-linux.sh
 
       - name: Run Electron E2E smoke tests
