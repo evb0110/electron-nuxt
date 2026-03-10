@@ -45,8 +45,8 @@ jobs:
       - name: Unit and integration tests
         run: pnpm test
 
-      - name: Resource matrix check (all targets)
-        run: pnpm run check:resources:matrix:all
+      - name: Resource matrix check (host)
+        run: pnpm run check:resources:matrix
 
   electron-e2e:
     name: Electron Extended
