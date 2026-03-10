@@ -1,4 +1,5 @@
 name: Publish Release
+run-name: Publish Release (${{ inputs.tag }})
 
 concurrency:
   group: publish-${{ github.workflow }}-${{ inputs.tag || github.run_id }}
@@ -65,6 +66,41 @@ jobs:
             const repo = context.repo.repo;
             const requestedRunId = (process.env.REQUESTED_RUN_ID || '').trim();
             const targetSha = process.env.TARGET_SHA;
+            const expectedWorkflowName = 'Release Preflight';
+            const expectedWorkflowPath = '.github/workflows/release-preflight.yml';
+
+            const ensureCertifiedPreflight = (run) => {
+              if (run.name !== expectedWorkflowName || run.path !== expectedWorkflowPath) {
+                core.setFailed(
+                  `Run ${run.id} is ${run.name} (${run.path}), not ${expectedWorkflowName} (${expectedWorkflowPath}).`,
+                );
+                return false;
+              }
+
+              if (run.event !== 'workflow_dispatch') {
+                core.setFailed(`Preflight run ${run.id} was triggered by "${run.event}", expected workflow_dispatch.`);
+                return false;
+              }
+
+              if (run.status !== 'completed') {
+                core.setFailed(`Preflight run ${run.id} is still ${run.status}.`);
+                return false;
+              }
+
+              if (run.conclusion !== 'success') {
+                core.setFailed(`Preflight run ${run.id} completed with conclusion "${run.conclusion}".`);
+                return false;
+              }
+
+              if (run.head_sha !== targetSha) {
+                core.setFailed(
+                  `Preflight run ${run.id} targets ${run.head_sha}, but publish target is ${targetSha}.`,
+                );
+                return false;
+              }
+
+              return true;
+            };
 
             const useRun = async (runId) => {
               const numericRunId = Number(runId);
@@ -79,15 +115,7 @@ jobs:
                 run_id: numericRunId,
               });
 
-              if (run.conclusion !== 'success') {
-                core.setFailed(`Preflight run ${run.id} completed with conclusion "${run.conclusion}".`);
-                return;
-              }
-
-              if (run.head_sha !== targetSha) {
-                core.setFailed(
-                  `Preflight run ${run.id} targets ${run.head_sha}, but publish target is ${targetSha}.`,
-                );
+              if (!ensureCertifiedPreflight(run)) {
                 return;
               }
 
@@ -109,15 +137,23 @@ jobs:
               per_page: 20,
             });
 
-            const successfulRun = data.workflow_runs.find((run) => run.conclusion === 'success');
+            const completedRuns = data.workflow_runs
+              .filter((run) => run.head_sha === targetSha)
+              .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
 
-            if (successfulRun) {
-              core.info(`Found reusable preflight artifacts in run ${successfulRun.id}.`);
-              core.setOutput('run_id', String(successfulRun.id));
+            const latestRun = completedRuns[0];
+
+            if (!latestRun) {
+              core.setFailed(`No completed Release Preflight run found for ${targetSha}.`);
               return;
             }
 
-            core.setFailed(`No successful Release Preflight run found for ${targetSha}.`);
+            if (!ensureCertifiedPreflight(latestRun)) {
+              return;
+            }
+
+            core.info(`Found certified preflight artifacts in latest run ${latestRun.id}.`);
+            core.setOutput('run_id', String(latestRun.id));
 
   release:
     name: Create GitHub Release

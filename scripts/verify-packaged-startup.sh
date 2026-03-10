@@ -77,7 +77,7 @@ trap cleanup EXIT
 
 cp -R "$app_path" "$app_copy"
 
-"$app_copy/Contents/MacOS/EVB Viewer" >"$stdout_log" 2>&1 &
+env EVB_STARTUP_TRACE=1 "$app_copy/Contents/MacOS/EVB Viewer" >"$stdout_log" 2>&1 &
 app_pid=$!
 
 main_log="$log_dir/main.log"
@@ -95,7 +95,7 @@ while [ "$SECONDS" -lt "$deadline" ]; do
   if [ -f "$server_log" ] \
     && [ -f "$window_log" ] \
     && grep -q 'Server verified ready' "$server_log" \
-    && grep -q 'BrowserWindow created and loadURL dispatched' "$window_log"; then
+    && grep -Eq 'BrowserWindow created and loadURL dispatched|Window runtime ready|Window shown' "$window_log"; then
     ready=1
     break
   fi
