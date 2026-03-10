@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
     errorMessage,
     getHeadSha,
@@ -81,6 +82,7 @@ async function runGhJsonWithRetry(args, {
 
 function findMatchingRun(runs, {
     headSha,
+    releaseId,
     refName,
     startedAt,
 }) {
@@ -91,6 +93,7 @@ function findMatchingRun(runs, {
             runInfo.headSha === headSha
             && runInfo.event === 'workflow_dispatch'
             && Date.parse(runInfo.createdAt) >= startedAtFloor
+            && (!releaseId || runInfo.displayTitle?.includes(releaseId))
         ))
         .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
 
@@ -107,6 +110,7 @@ function findMatchingRun(runs, {
 async function waitForWorkflowRun({
     headSha,
     phaseName,
+    releaseId,
     refName,
     startedAt,
 }) {
@@ -122,7 +126,7 @@ async function waitForWorkflowRun({
             '--limit',
             '20',
             '--json',
-            'databaseId,headBranch,headSha,event,status,createdAt,url',
+            'databaseId,displayTitle,headBranch,headSha,event,status,createdAt,url',
         ], {
             context: `discovering ${phase.displayName} run for ${headSha}`,
             timeoutMs: DISCOVERY_TIMEOUT_MS,
@@ -130,6 +134,7 @@ async function waitForWorkflowRun({
 
         const matchingRun = findMatchingRun(runs, {
             headSha,
+            releaseId,
             refName,
             startedAt,
         });
@@ -187,6 +192,7 @@ async function waitForWorkflowCompletion({
 async function runPhase({
     headSha,
     phaseName,
+    releaseId,
     refName,
     inputs = {},
 }) {
@@ -216,6 +222,7 @@ async function runPhase({
     const workflowRun = await waitForWorkflowRun({
         headSha,
         phaseName,
+        releaseId,
         refName,
         startedAt,
     });
@@ -235,11 +242,16 @@ export async function runPreflightPhase({
     branch = requireNamedBranch('Release preflight'),
     headSha = getHeadSha(),
 } = {}) {
+    const releaseId = `preflight-${headSha.slice(0, 12)}-${randomUUID().slice(0, 8)}`;
     return runPhase({
         headSha,
         phaseName: 'preflight',
+        releaseId,
         refName: branch,
-        inputs: { ref: headSha },
+        inputs: {
+            ref: headSha,
+            release_id: releaseId,
+        },
     });
 }
 

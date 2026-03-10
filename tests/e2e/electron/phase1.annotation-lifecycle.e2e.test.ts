@@ -71,7 +71,7 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
             const latest = editors[editors.length - 1];
             return (latest?.textContent ?? '').trim();
         });
-        expect(latestText).toContain('Phase 1 free text');
+        expect(latestText).toContain(typedText);
 
         const afterDeleteCount = await deleteLatestFreeTextAnnotation(page);
         expect(afterDeleteCount).toBe(baselineCount);

@@ -1,7 +1,8 @@
 name: Release Preflight
+run-name: Release Preflight (${{ inputs.release_id || inputs.ref || github.ref_name }})
 
 concurrency:
-  group: release-preflight-${{ github.workflow }}-${{ inputs.ref || github.run_id }}
+  group: release-preflight-${{ github.workflow }}-${{ inputs.release_id || inputs.ref || github.run_id }}
   cancel-in-progress: true
 
 on:
@@ -11,6 +12,10 @@ on:
         description: Git ref or commit SHA to validate and package.
         required: false
         default: main
+        type: string
+      release_id:
+        description: Unique caller-supplied release transaction identifier.
+        required: false
         type: string
 
 permissions:
