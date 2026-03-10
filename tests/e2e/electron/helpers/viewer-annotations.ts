@@ -246,21 +246,96 @@ export async function clickPageAtRatio(
     await page.mouse.click(point.x, point.y);
 }
 
+async function resolveAnnotationLayerPoint(
+    page: Page,
+    ratio: {
+        x: number;
+        y: number;
+    },
+    pageNumber?: number,
+) {
+    await waitForViewerInteractive(page);
+
+    return page.evaluate(({
+        xRatio,
+        yRatio,
+        targetPageNumber,
+    }) => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const pageSelector = targetPageNumber
+            ? `.page_container[data-page="${targetPageNumber}"]`
+            : '.page_container';
+        const host = (
+            activeHost
+            && visibleHosts.includes(activeHost)
+            && activeHost.querySelector(pageSelector)
+        )
+            ? activeHost
+            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
+        if (!host) {
+            return null;
+        }
+
+        const pageContainer = host.querySelector<HTMLElement>(pageSelector);
+        const layer = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
+        const target = layer ?? pageContainer;
+        if (!target) {
+            return null;
+        }
+
+        const rect = target.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return null;
+        }
+
+        return {
+            x: Math.round(rect.left + rect.width * xRatio),
+            y: Math.round(rect.top + rect.height * yRatio),
+        };
+    }, {
+        xRatio: ratio.x,
+        yRatio: ratio.y,
+        targetPageNumber: pageNumber ?? null,
+    });
+}
+
 export async function createFreeTextAnnotation(page: Page, text: string, position?: {
     x: number;
     y: number;
 }, pageNumber?: number) {
     const before = await getFreeTextEditorCount(page);
+    const targetRatio = position ?? {
+        x: 0.4,
+        y: 0.3,
+    };
     await clickAnnotationTool(page, 'Text');
     try {
         await waitForAnnotationEditorLayerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 5_000));
     } catch {
         await waitForViewerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 5_000));
     }
-    await clickPageAtRatio(page, position ?? {
-        x: 0.4,
-        y: 0.3,
-    }, pageNumber);
+    const clickAnnotationCreationPoint = async () => {
+        const point = await resolveAnnotationLayerPoint(page, targetRatio, pageNumber);
+        if (!point) {
+            await clickPageAtRatio(page, targetRatio, pageNumber);
+            return false;
+        }
+        await page.mouse.click(point.x, point.y);
+        return true;
+    };
+    await clickAnnotationCreationPoint();
     const waitForEditor = async (timeoutMs: number) => {
         await page.waitForFunction((minCount: number) => {
             const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
@@ -280,7 +355,13 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
                 ?? visibleHosts[0]
                 ?? null;
-            return (host?.querySelectorAll('.freeTextEditor').length ?? 0) > minCount;
+            if ((host?.querySelectorAll('.freeTextEditor').length ?? 0) > minCount) {
+                return true;
+            }
+
+            const targetLayer = host?.querySelector<HTMLElement>('.annotationEditorLayer.freetextEditing, .annotation-editor-layer.freetextEditing');
+            const activeEditor = targetLayer?.querySelector<HTMLElement>('.freeTextEditor .internal[contenteditable="true"], .freeTextEditor [contenteditable="true"]');
+            return Boolean(activeEditor);
         }, {timeout: timeoutMs}, before);
     };
 
@@ -293,51 +374,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         } catch {
             await waitForViewerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 8_000));
         }
-        const textLayerPoint = await page.evaluate((targetPageNumber: number | null) => {
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter((candidate) => {
-                    const rect = candidate.getBoundingClientRect();
-                    const style = window.getComputedStyle(candidate);
-                    return (
-                        style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                        && Number(style.opacity || '1') > 0
-                        && rect.width > 100
-                        && rect.height > 100
-                    );
-                });
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-            const pageSelector = targetPageNumber
-                ? `.page_container[data-page="${targetPageNumber}"]`
-                : '.page_container';
-            const host = (
-                activeHost
-                && visibleHosts.includes(activeHost)
-                && activeHost.querySelector(pageSelector)
-            )
-                ? activeHost
-                : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
-            if (!host) {
-                return null;
-            }
-
-            const pageContainer = host.querySelector<HTMLElement>(pageSelector);
-            const textLayer = pageContainer?.querySelector<HTMLElement>('.text-layer, .textLayer');
-            const target = textLayer ?? pageContainer;
-            if (!target) {
-                return null;
-            }
-
-            const rect = target.getBoundingClientRect();
-            return {
-                x: Math.round(rect.left + rect.width / 2),
-                y: Math.round(rect.top + rect.height / 2),
-            };
-        }, pageNumber ?? null);
-
-        if (textLayerPoint) {
-            await page.mouse.click(textLayerPoint.x, textLayerPoint.y);
-        }
+        await clickAnnotationCreationPoint();
 
         await waitForEditor(8_000);
     }

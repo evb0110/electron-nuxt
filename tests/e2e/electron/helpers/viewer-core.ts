@@ -13,6 +13,14 @@ function isExecutionContextDestroyedError(error: unknown) {
     return /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(error.message);
 }
 
+function describeError(error: unknown) {
+    if (error instanceof Error) {
+        return error.message;
+    }
+
+    return String(error);
+}
+
 async function runWithExecutionContextRetry<T>(
     page: Page,
     task: () => Promise<T>,
@@ -27,6 +35,49 @@ async function runWithExecutionContextRetry<T>(
         await delay(1_000);
         return task();
     }
+}
+
+async function waitForRendererBindings(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    const startedAt = Date.now();
+    let lastState: {
+        electronAPI: string;
+        openFileDirect: string;
+        nuxtRootChildren: number;
+        url: string;
+    } | null = null;
+
+    while (Date.now() - startedAt < timeoutMs) {
+        try {
+            lastState = await page.evaluate(() => {
+                const nuxtRoot = document.querySelector('#__nuxt');
+                return {
+                    electronAPI: typeof (window as Window & { electronAPI?: unknown }).electronAPI,
+                    openFileDirect: typeof (window as Window & { __openFileDirect?: unknown }).__openFileDirect,
+                    nuxtRootChildren: nuxtRoot?.children.length ?? 0,
+                    url: window.location.href,
+                };
+            });
+
+            if (
+                lastState.electronAPI === 'object'
+                && lastState.openFileDirect === 'function'
+                && lastState.nuxtRootChildren > 0
+            ) {
+                return;
+            }
+        } catch (error) {
+            if (!isExecutionContextDestroyedError(error)) {
+                throw error;
+            }
+        }
+
+        await delay(250);
+    }
+
+    const detail = lastState
+        ? `openFileDirect=${lastState.openFileDirect}, electronAPI=${lastState.electronAPI}, nuxtRootChildren=${lastState.nuxtRootChildren}, url=${lastState.url}`
+        : 'renderer state unavailable';
+    throw new Error(`Renderer bindings did not become ready within ${timeoutMs}ms (${detail})`);
 }
 
 export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -68,17 +119,46 @@ export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
 }
 
 export async function openPdfInApp(page: Page, pdfPath: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    await runWithExecutionContextRetry(page, async () => {
-        await page.evaluate(async (path: string) => {
-            const openFileDirect = (window as Window & { __openFileDirect?: (value: string) => Promise<void> }).__openFileDirect;
-            if (typeof openFileDirect !== 'function') {
-                throw new Error('window.__openFileDirect is not available');
-            }
-            await openFileDirect(path);
-        }, pdfPath);
-    });
+    const startedAt = Date.now();
+    let lastError: Error | null = null;
 
-    await waitForPdfLoaded(page, timeoutMs);
+    while (Date.now() - startedAt < timeoutMs) {
+        const remainingMs = Math.max(1_000, timeoutMs - (Date.now() - startedAt));
+
+        try {
+            await waitForRendererBindings(page, Math.min(remainingMs, 8_000));
+
+            const openResult = await runWithExecutionContextRetry(page, async () => {
+                return page.evaluate(async (path: string) => {
+                    const openFileDirect = (window as Window & { __openFileDirect?: (value: string) => Promise<void> }).__openFileDirect;
+                    if (typeof openFileDirect !== 'function') {
+                        return false;
+                    }
+                    await openFileDirect(path);
+                    return true;
+                }, pdfPath);
+            });
+
+            if (!openResult) {
+                lastError = new Error('window.__openFileDirect is not available');
+                await delay(250);
+                continue;
+            }
+
+            await waitForPdfLoaded(page, remainingMs);
+            return;
+        } catch (error) {
+            if (!isExecutionContextDestroyedError(error)) {
+                lastError = error instanceof Error ? error : new Error(describeError(error));
+            } else {
+                lastError = new Error(describeError(error));
+            }
+            await delay(400);
+        }
+    }
+
+    const detail = lastError ? ` Last error: ${lastError.message}` : '';
+    throw new Error(`Failed to open PDF in app within ${timeoutMs}ms.${detail}`);
 }
 
 export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
