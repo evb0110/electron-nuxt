@@ -27,6 +27,22 @@ function resolveToolId(label: string): string | null {
     return TOOL_LABEL_TO_ID[label] ?? label.toLowerCase();
 }
 
+async function waitForActiveAnnotationTool(
+    page: Page,
+    toolId: string,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
+    await page.waitForFunction((expectedToolId: string) => {
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? null;
+        if (!host) {
+            return false;
+        }
+        const activeBtn = host.querySelector('.notes-panel .tool-button.is-active');
+        return activeBtn?.getAttribute('data-tool') === expectedToolId;
+    }, {timeout: timeoutMs}, toolId);
+}
+
 async function waitForAnnotationEditorLayerInteractive(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await page.waitForFunction(() => {
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
@@ -96,20 +112,8 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
     }
 
     await page.mouse.click(point.x, point.y);
-    const waitUntilActive = async (waitTimeout: number) => {
-        await page.waitForFunction((expectedToolId: string) => {
-            const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
-            ?? null;
-            if (!host) {
-                return false;
-            }
-            const activeBtn = host.querySelector('.notes-panel .tool-button.is-active');
-            return activeBtn?.getAttribute('data-tool') === expectedToolId;
-        }, {timeout: waitTimeout}, toolId);
-    };
-
     try {
-        await waitUntilActive(Math.min(timeoutMs, 4_000));
+        await waitForActiveAnnotationTool(page, toolId, Math.min(timeoutMs, 4_000));
     } catch {
         await page.evaluate((expectedToolId: string) => {
             const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
@@ -117,12 +121,13 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
             const button = host?.querySelector<HTMLButtonElement>(`.notes-panel .tool-button[data-tool="${expectedToolId}"]`);
             button?.click();
         }, toolId);
-        await waitUntilActive(Math.max(4_000, timeoutMs));
+        await waitForActiveAnnotationTool(page, toolId, Math.max(4_000, timeoutMs));
     }
 }
 
 export async function setAnnotationColor(page: Page, colorHex: string) {
     await openAnnotationsTab(page);
+    const activeTool = await getActiveToolLabel(page);
 
     const updated = await page.evaluate((targetColor: string) => {
         const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
@@ -140,6 +145,15 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
     if (!updated) {
         throw new Error('Annotation color swatch not found');
     }
+
+    if (activeTool) {
+        await waitForActiveAnnotationTool(page, activeTool, Math.min(DEFAULT_TIMEOUT_MS, 4_000));
+    }
+
+    await page.evaluate(async () => {
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    });
 }
 
 export async function getActiveToolLabel(page: Page) {
@@ -320,7 +334,12 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         x: 0.4,
         y: 0.3,
     };
-    await clickAnnotationTool(page, 'Text');
+    if (await getActiveToolLabel(page) !== 'text') {
+        await clickAnnotationTool(page, 'Text');
+    } else {
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+    }
     try {
         await waitForAnnotationEditorLayerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 5_000));
     } catch {
@@ -368,7 +387,9 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     try {
         await waitForEditor(DEFAULT_TIMEOUT_MS);
     } catch {
-        await clickAnnotationTool(page, 'Text');
+        if (await getActiveToolLabel(page) !== 'text') {
+            await clickAnnotationTool(page, 'Text');
+        }
         try {
             await waitForAnnotationEditorLayerInteractive(page, Math.min(DEFAULT_TIMEOUT_MS, 8_000));
         } catch {
