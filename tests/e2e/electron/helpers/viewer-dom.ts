@@ -22,13 +22,14 @@ export async function waitForActiveWorkspaceHost(page: Page, timeoutMs = DEFAULT
             );
         };
 
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter(isVisibleHost);
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-        if (activeHost && isVisibleHost(activeHost)) {
+        if (activeHost && visibleHosts.includes(activeHost)) {
             return true;
         }
 
-        return Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .some(isVisibleHost);
+        return visibleHosts.length === 1;
     }, { timeout: timeoutMs }, MIN_HOST_SIZE_PX);
 }
 
@@ -52,11 +53,12 @@ export async function findVisiblePointInActiveHost(page: Page, selector: string,
             );
         };
 
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter(isVisibleHost);
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-        const host = (activeHost && isVisibleHost(activeHost))
+        const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .find(isVisibleHost);
+            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
         if (!host) {
             return null;
         }
@@ -110,11 +112,12 @@ export async function getRenderedPageCount(page: Page): Promise<number> {
             );
         };
 
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter(isVisibleHost);
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-        const host = (activeHost && isVisibleHost(activeHost))
+        const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
-            : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .find(isVisibleHost);
+            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
         return host?.querySelectorAll('.page_container canvas').length ?? 0;
     }, MIN_HOST_SIZE_PX);
 }

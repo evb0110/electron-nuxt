@@ -58,10 +58,10 @@ async function waitForAnnotationEditorLayerInteractive(page: Page, timeoutMs = D
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.annotationEditorLayer, .annotation-editor-layer'));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-            ?? visibleHosts.find(candidate => candidate.querySelector('.annotationEditorLayer, .annotation-editor-layer'))
-            ?? visibleHosts[0]
-            ?? null;
+            ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
+            ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
         if (!host) {
             return false;
         }
@@ -115,13 +115,14 @@ async function waitForAnnotationEditorMode(
         const pageSelector = args.targetPageNumber
             ? `.page_container[data-page="${args.targetPageNumber}"]`
             : '.page_container';
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
         const host = (
             activeHost
             && visibleHosts.includes(activeHost)
             && activeHost.querySelector(pageSelector)
         )
             ? activeHost
-            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
+            : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
         if (!host) {
             return false;
         }
@@ -246,10 +247,10 @@ export async function getFreeTextEditorCount(page: Page) {
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-            ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
-            ?? visibleHosts[0]
-            ?? null;
+            ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
+            ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
         return host?.querySelectorAll('.freeTextEditor').length ?? 0;
     });
 }
@@ -293,13 +294,14 @@ export async function clickPageAtRatio(
         const pageSelector = targetPageNumber
             ? `.page_container[data-page="${targetPageNumber}"]`
             : '.page_container';
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
         const host = (
             activeHost
             && visibleHosts.includes(activeHost)
             && activeHost.querySelector(pageSelector)
         )
             ? activeHost
-            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
+            : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
         if (!host) {
             return null;
         }
@@ -358,13 +360,14 @@ async function resolveAnnotationLayerPoint(
         const pageSelector = targetPageNumber
             ? `.page_container[data-page="${targetPageNumber}"]`
             : '.page_container';
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
         const host = (
             activeHost
             && visibleHosts.includes(activeHost)
             && activeHost.querySelector(pageSelector)
         )
             ? activeHost
-            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
+            : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
         if (!host) {
             return null;
         }
@@ -423,13 +426,14 @@ async function synthesizeAnnotationCreationClick(
         const pageSelector = targetPageNumber
             ? `.page_container[data-page="${targetPageNumber}"]`
             : '.page_container';
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
         const host = (
             activeHost
             && visibleHosts.includes(activeHost)
             && activeHost.querySelector(pageSelector)
         )
             ? activeHost
-            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
+            : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
         if (!host) {
             return false;
         }
@@ -499,13 +503,14 @@ async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number
         const pageSelector = targetPageNumber
             ? `.page_container[data-page="${targetPageNumber}"]`
             : '.page_container';
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
         const host = (
             activeHost
             && visibleHosts.includes(activeHost)
             && activeHost.querySelector(pageSelector)
         )
             ? activeHost
-            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
+            : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
         const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
         const layer = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer') ?? null;
         const fatalDialog = Array.from(document.querySelectorAll<HTMLElement>('div.fixed.inset-0'))
@@ -555,13 +560,14 @@ async function triggerKeyboardFreeTextCreation(page: Page, pageNumber?: number) 
         const pageSelector = targetPageNumber
             ? `.page_container[data-page="${targetPageNumber}"]`
             : '.page_container';
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
         const host = (
             activeHost
             && visibleHosts.includes(activeHost)
             && activeHost.querySelector(pageSelector)
         )
             ? activeHost
-            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
+            : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
         const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
         const layer = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer') ?? null;
         const focusTarget = layer ?? pageContainer ?? host ?? null;
@@ -631,10 +637,10 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                     );
                 });
             const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
             const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-                ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
-                ?? visibleHosts[0]
-                ?? null;
+                ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
+                ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
             if ((host?.querySelectorAll('.freeTextEditor').length ?? 0) > minCount) {
                 return true;
             }
@@ -721,10 +727,10 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-            ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
-            ?? visibleHosts[0]
-            ?? null;
+            ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
+            ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
         const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
             .filter((editor) => {
                 const rect = editor.getBoundingClientRect();
@@ -763,10 +769,10 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-            ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
-            ?? visibleHosts[0]
-            ?? null;
+            ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
+            ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
         const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
             .filter((editor) => {
                 const rect = editor.getBoundingClientRect();
@@ -805,10 +811,10 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-            ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
-            ?? visibleHosts[0]
-            ?? null;
+            ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
+            ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
         const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
         const latestEditor = editors[editors.length - 1];
         const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
@@ -846,10 +852,10 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-            ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
-            ?? visibleHosts[0]
-            ?? null;
+            ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
+            ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
         const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
             .filter((editor) => {
                 const rect = editor.getBoundingClientRect();
@@ -890,10 +896,10 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
                     );
                 });
             const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
             const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-                ?? visibleHosts.find(candidate => candidate.querySelector('.freeTextEditor'))
-                ?? visibleHosts[0]
-                ?? null;
+                ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
+                ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
             return (host?.querySelectorAll('.freeTextEditor').length ?? 0) < previousCount;
         }, {timeout: timeoutMs}, before);
     };
@@ -1019,13 +1025,14 @@ export async function countFreeTextEditorsOnPage(page: Page, pageNumber: number)
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
         const pageSelector = `.page_container[data-page="${targetPageNumber}"]`;
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
         const host = (
             activeHost
             && visibleHosts.includes(activeHost)
             && activeHost.querySelector(pageSelector)
         )
             ? activeHost
-            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
+            : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
         if (!host) {
             return 0;
         }

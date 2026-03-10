@@ -18,13 +18,15 @@ export async function getLinkOverlayCount(page: Page) {
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.pdf-link-overlay-layer .pdf-link-overlay'));
+        const fallbackHost = matchingHosts.length === 1 ? (matchingHosts[0] ?? null) : null;
         const host = (
             activeHost
             && visibleHosts.includes(activeHost)
             && activeHost.querySelector('.pdf-link-overlay-layer .pdf-link-overlay')
         )
             ? activeHost
-            : (visibleHosts.find(candidate => candidate.querySelector('.pdf-link-overlay-layer .pdf-link-overlay')) ?? visibleHosts[0] ?? null);
+            : (fallbackHost ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
         return host?.querySelectorAll('.pdf-link-overlay-layer .pdf-link-overlay').length ?? 0;
     });
 }
@@ -102,10 +104,15 @@ export async function clickFirstLinkOverlay(page: Page) {
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-        const orderedHosts = [
-            ...(activeHost && visibleHosts.includes(activeHost) ? [activeHost] : []),
-            ...visibleHosts.filter(candidate => candidate !== activeHost),
-        ];
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.pdf-link-overlay-layer .pdf-link-overlay'));
+        const fallbackHost = matchingHosts.length === 1 ? (matchingHosts[0] ?? null) : null;
+        const orderedHosts = (
+            activeHost
+            && visibleHosts.includes(activeHost)
+            && activeHost.querySelector('.pdf-link-overlay-layer .pdf-link-overlay')
+        )
+            ? [activeHost]
+            : (fallbackHost ? [fallbackHost] : []);
 
         for (const host of orderedHosts) {
             const overlay = Array.from(host.querySelectorAll<HTMLAnchorElement>('.pdf-link-overlay-layer .pdf-link-overlay'))
