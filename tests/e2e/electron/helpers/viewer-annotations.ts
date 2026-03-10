@@ -535,6 +535,53 @@ async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number
     }, pageNumber ?? null);
 }
 
+async function triggerKeyboardFreeTextCreation(page: Page, pageNumber?: number) {
+    await waitForViewerInteractive(page);
+
+    const focused = await page.evaluate((targetPageNumber: number | null) => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const pageSelector = targetPageNumber
+            ? `.page_container[data-page="${targetPageNumber}"]`
+            : '.page_container';
+        const host = (
+            activeHost
+            && visibleHosts.includes(activeHost)
+            && activeHost.querySelector(pageSelector)
+        )
+            ? activeHost
+            : (visibleHosts.find(candidate => candidate.querySelector(pageSelector)) ?? visibleHosts[0] ?? null);
+        const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
+        const layer = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer') ?? null;
+        const focusTarget = layer ?? pageContainer ?? host ?? null;
+        if (!focusTarget) {
+            return false;
+        }
+
+        focusTarget.tabIndex = Math.max(0, focusTarget.tabIndex);
+        focusTarget.focus();
+        return document.activeElement === focusTarget;
+    }, pageNumber ?? null);
+
+    if (!focused) {
+        return false;
+    }
+
+    await page.keyboard.press('Enter');
+    return true;
+}
+
 export async function createFreeTextAnnotation(page: Page, text: string, position?: {
     x: number;
     y: number;
@@ -560,6 +607,14 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
             return 'page';
         }
         return 'dom';
+    };
+    const triggerKeyboardCreationPoint = async () => {
+        const created = await triggerKeyboardFreeTextCreation(page, pageNumber);
+        if (!created) {
+            await clickPageAtRatio(page, targetRatio, pageNumber);
+            return 'page';
+        }
+        return 'keyboard';
     };
     const waitForEditor = async (timeoutMs: number) => {
         await page.waitForFunction((minCount: number) => {
@@ -622,6 +677,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         for (const strategy of [
             clickAnnotationCreationPoint,
             dispatchAnnotationCreationPoint,
+            triggerKeyboardCreationPoint,
         ]) {
             await strategy();
 
