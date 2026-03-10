@@ -256,6 +256,7 @@ export async function runPreflightPhase({
 }
 
 export async function runPublishPhase({
+    branch = requireNamedBranch('Release publish'),
     headSha,
     tag,
     preflightRunId,
@@ -267,7 +268,7 @@ export async function runPublishPhase({
     return runPhase({
         headSha: headSha || getHeadSha(`${tag}^{commit}`),
         phaseName: 'publish',
-        refName: tag,
+        refName: branch,
         inputs: {
             tag,
             preflight_run_id: preflightRunId ? String(preflightRunId) : undefined,
@@ -284,6 +285,7 @@ export async function runPhaseFromCli(argv = process.argv.slice(2)) {
 
     if (phaseName === 'publish') {
         await runPublishPhase({
+            branch: argv[3],
             tag: argv[1],
             preflightRunId: argv[2],
         });
