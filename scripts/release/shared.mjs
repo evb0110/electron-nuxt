@@ -1,5 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import {
+    readFileSync,
+    writeFileSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
 
 const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/;
@@ -81,6 +84,13 @@ export function readVersion() {
     const packageJsonPath = resolve(process.cwd(), 'package.json');
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
     return packageJson.version;
+}
+
+export function writeVersion(version) {
+    const packageJsonPath = resolve(process.cwd(), 'package.json');
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+    packageJson.version = version;
+    writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 }
 
 export function bumpVersion(version, level) {
