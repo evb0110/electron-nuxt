@@ -70,7 +70,11 @@ jobs:
             const expectedWorkflowPath = '.github/workflows/release-preflight.yml';
 
             const ensureCertifiedPreflight = (run) => {
-              if (run.name !== expectedWorkflowName || run.path !== expectedWorkflowPath) {
+              const matchesWorkflowPath = run.path === expectedWorkflowPath;
+              const matchesWorkflowName = run.name === expectedWorkflowName
+                || run.name?.startsWith(`${expectedWorkflowName} (`);
+
+              if (!matchesWorkflowPath || !matchesWorkflowName) {
                 core.setFailed(
                   `Run ${run.id} is ${run.name} (${run.path}), not ${expectedWorkflowName} (${expectedWorkflowPath}).`,
                 );

@@ -53,7 +53,7 @@ async function main() {
     run('git', [
         'commit',
         '-m',
-        version,
+        `release: ${version}`,
     ], {stdio: 'inherit'});
     run('git', [
         'push',
@@ -77,6 +77,7 @@ async function main() {
     ], {stdio: 'inherit'});
 
     await runPublishPhase({
+        branch: upstream.branch,
         tag,
         preflightRunId: preflightRun.databaseId,
     });
