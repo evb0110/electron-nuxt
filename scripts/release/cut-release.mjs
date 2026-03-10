@@ -53,6 +53,14 @@ function revertVersionCommit(version) {
     run('git', ['push'], {stdio: 'inherit'});
 }
 
+function getExitStatus(error) {
+    if (error && typeof error === 'object' && 'status' in error) {
+        return error.status;
+    }
+
+    return undefined;
+}
+
 async function main() {
     const level = process.argv[2];
     if (!VALID_RELEASE_LEVELS.has(level)) {
@@ -90,7 +98,13 @@ async function main() {
     try {
         run('node', ['scripts/release/run-hosted-preflight.mjs'], {stdio: 'inherit'});
     } catch (error) {
-        revertVersionCommit(version);
+        if (getExitStatus(error) === 1) {
+            revertVersionCommit(version);
+        } else {
+            process.stderr.write(
+                `Hosted preflight monitoring did not reach a definitive failure for v${version}; leaving version bump in place.\n`,
+            );
+        }
         throw error;
     }
 
