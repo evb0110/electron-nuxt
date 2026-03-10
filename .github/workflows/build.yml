@@ -7,6 +7,11 @@ on:
         description: Git ref or commit SHA to build.
         required: false
         type: string
+      include_mac_intel:
+        description: Whether to run the supplemental macOS Intel packaging lane.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -322,6 +327,7 @@ jobs:
           if-no-files-found: error
 
   build_mac_intel:
+    if: ${{ inputs.include_mac_intel }}
     name: build (macos-15-intel, mac, x64)
     runs-on: macos-15-intel
 
