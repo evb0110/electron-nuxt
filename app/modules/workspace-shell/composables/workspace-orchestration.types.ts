@@ -3,6 +3,7 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import type { ICropSelectionResult } from '@app/types/crop';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
@@ -11,6 +12,9 @@ export interface IPdfViewerExpose {
     scrollToPage: (page: number) => void;
     captureRegionToClipboard: () => Promise<boolean>;
     isCapturingRegion: boolean;
+    startCropSelection: () => Promise<ICropSelectionResult | null>;
+    cancelCropSelection: () => void;
+    isCropSelecting: boolean;
     saveDocument: () => Promise<Uint8Array | null>;
     highlightSelection: () => Promise<boolean>;
     commentSelection: () => Promise<boolean>;

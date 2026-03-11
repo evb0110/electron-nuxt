@@ -38,6 +38,9 @@ const mocks = vi.hoisted(() => ({
     extractPages: vi.fn(),
     reorderPages: vi.fn(),
     rotatePages: vi.fn(),
+    cropPages: vi.fn(),
+    removeCropFromPages: vi.fn(),
+    getPageGeometry: vi.fn(),
     createPdfFromInputPaths: vi.fn(),
     isPdfOrImagePath: vi.fn(),
     showSaveDialog: vi.fn(),
@@ -66,6 +69,11 @@ vi.mock('@electron/page-ops/qpdf', () => ({
     extractPages: (...args: unknown[]) => mocks.extractPages(...args),
     reorderPages: (...args: unknown[]) => mocks.reorderPages(...args),
     rotatePages: (...args: unknown[]) => mocks.rotatePages(...args),
+}));
+vi.mock('@electron/page-ops/crop', () => ({
+    cropPages: (...args: unknown[]) => mocks.cropPages(...args),
+    removeCropFromPages: (...args: unknown[]) => mocks.removeCropFromPages(...args),
+    getPageGeometry: (...args: unknown[]) => mocks.getPageGeometry(...args),
 }));
 vi.mock('@electron/image/pdf-conversion', () => ({
     createPdfFromInputPaths: (...args: unknown[]) => mocks.createPdfFromInputPaths(...args),
@@ -119,6 +127,9 @@ describe('registerPageOpsHandlers', () => {
         mocks.extractPages.mockResolvedValue(undefined);
         mocks.reorderPages.mockResolvedValue({pageCount: 1});
         mocks.rotatePages.mockResolvedValue(undefined);
+        mocks.cropPages.mockResolvedValue(undefined);
+        mocks.removeCropFromPages.mockResolvedValue(undefined);
+        mocks.getPageGeometry.mockResolvedValue(null);
         mocks.runCommand.mockResolvedValue({
             stdout: '',
             stderr: '',
@@ -246,5 +257,18 @@ describe('registerPageOpsHandlers', () => {
             pageCount: 2,
         });
         expect(mocks.deletePages).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects invalid crop margins before reaching page crop mutations', async () => {
+        const handler = getHandler('page-ops:crop');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/crop.pdf', [1], {
+            top: Number.NaN,
+            bottom: 0,
+            left: 0,
+            right: 0,
+        })).rejects.toThrow('Invalid crop margins');
+
+        expect(mocks.cropPages).not.toHaveBeenCalled();
     });
 });

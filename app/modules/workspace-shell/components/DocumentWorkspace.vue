@@ -19,6 +19,7 @@
                 :continuous-scroll="continuousScroll"
                 :is-djvu-mode="isDjvuMode"
                 :is-capturing-region="isCapturingRegion"
+                :is-crop-selecting="isCropSelecting"
                 :is-placing-page-note="annotationPlacingPageNote"
                 @open-file="handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
@@ -34,6 +35,7 @@
                 @enable-drag="handleToolbarEnableDrag"
                 @disable-drag="handleToolbarDisableDrag"
                 @capture-region="handleToolbarCaptureRegion"
+                @crop="handleToolbarCrop"
                 @quick-note="handleToolbarQuickNote"
             >
                 <template #ocr="{ isCollapsed }">
@@ -99,8 +101,10 @@
                         :is-fit-width-active="isFitWidthActive"
                         :is-fit-height-active="isFitHeightActive"
                         :is-capturing-region="isCapturingRegion"
+                        :is-crop-selecting="isCropSelecting"
                         @update:open="handleDropdownOpen('overflow', $event)"
                         @capture-region="handleToolbarCaptureRegion"
+                        @crop="handleToolbarCrop"
                         @save="handleToolbarSave"
                         @save-as="handleToolbarSaveAs"
                         @export-docx="handleToolbarExportDocx"
@@ -352,6 +356,18 @@
             @update:open="handleExportScopeDialogOpenChange"
         />
 
+        <PdfCropDialog
+            v-model:open="cropDialogOpen"
+            :total-pages="totalPages"
+            :current-page="currentPage"
+            :selected-pages="selectedThumbnailPages"
+            :initial-margins="cropDialogMargins"
+            :media-box="cropDialogMediaBox"
+            :current-visible-box="cropDialogCurrentBox"
+            @apply="handleCropApply"
+            @remove="handleCropRemove"
+        />
+
         <DjvuConvertDialog
             v-if="isDjvuMode"
             v-model:open="showConvertDialog"
@@ -373,6 +389,8 @@ import DjvuBanner from '@app/components/djvu/DjvuBanner.vue';
 import DjvuConversionOverlay from '@app/components/djvu/DjvuConversionOverlay.vue';
 import OcrPopup from '@app/components/ocr/OcrPopup.vue';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
+import type { ICropMargins } from '@app/types/crop';
+import PdfCropDialog from '@app/components/pdf/PdfCropDialog.vue';
 import PdfExportScopeDialog from '@app/components/pdf/PdfExportScopeDialog.vue';
 import PdfPageDropdown from '@app/components/pdf/PdfPageDropdown.vue';
 import PdfSidebar from '@app/components/pdf/PdfSidebar.vue';
@@ -556,6 +574,14 @@ const {
     handleRedo,
     handleCaptureRegion,
     isCapturingRegion,
+    handleCrop,
+    isCropSelecting,
+    cropDialogOpen,
+    cropDialogMargins,
+    cropDialogMediaBox,
+    cropDialogCurrentBox,
+    handleCropPages,
+    handleRemoveCrop,
     annotationNotePositions,
     sortedAnnotationNoteWindows,
     updateAnnotationNoteText,
@@ -792,6 +818,21 @@ function handleToolbarDisableDrag() {
 
 function handleToolbarCaptureRegion() {
     runToolbarAction(handleCaptureRegion);
+}
+
+function handleToolbarCrop() {
+    runToolbarAction(handleCrop);
+}
+
+function handleCropApply(payload: {
+    margins: ICropMargins;
+    pages: number[];
+}) {
+    void handleCropPages(payload.pages, payload.margins);
+}
+
+function handleCropRemove(payload: { pages: number[] }) {
+    void handleRemoveCrop(payload.pages);
 }
 
 function handleToolbarQuickNote() {
@@ -1112,6 +1153,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     dragMode,
     continuousScroll,
     isCapturingRegion,
+    isCropSelecting,
     isPlacingPageNote: annotationPlacingPageNote,
     closeAllDropdowns,
     zoom,

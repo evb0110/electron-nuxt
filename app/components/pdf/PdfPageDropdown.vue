@@ -178,12 +178,18 @@ const pageTotalWidthCh = computed(() => {
     return Math.max(1, String(totalPages).length);
 });
 
+const pageSideWidthCh = computed(() => {
+    if (!showTotalInDisplay.value) {
+        return pageCurrentWidthCh.value;
+    }
+    return Math.max(pageCurrentWidthCh.value, pageTotalWidthCh.value);
+});
+
 const pageDisplayWidthCh = computed(() => {
-    const separatorWidth = showTotalInDisplay.value ? 2 : 0;
+    const separatorWidth = showTotalInDisplay.value ? 1 : 0;
     const horizontalPaddingWidth = 2;
     return (
-        pageCurrentWidthCh.value
-        + pageTotalWidthCh.value
+        pageSideWidthCh.value * 2
         + separatorWidth
         + horizontalPaddingWidth
     );
@@ -192,6 +198,8 @@ const pageDisplayWidthCh = computed(() => {
 const pageDisplayStyle = computed(() => ({
     '--page-current-width-ch': `${pageCurrentWidthCh.value}ch`,
     '--page-total-width-ch': `${pageTotalWidthCh.value}ch`,
+    '--page-side-width-ch': `${pageSideWidthCh.value}ch`,
+    '--page-separator-width-ch': `${showTotalInDisplay.value ? 1 : 0}ch`,
     '--page-display-width-ch': `${pageDisplayWidthCh.value}ch`,
 }));
 
@@ -288,14 +296,15 @@ onClickOutside(pageControlsRef, () => {
 .page-controls-display {
     display: grid;
     grid-template-columns:
-        var(--page-current-width-ch)
-        auto
-        var(--page-total-width-ch);
+        var(--page-side-width-ch)
+        var(--page-separator-width-ch)
+        var(--page-side-width-ch);
     align-items: center;
     padding: 0 0.5rem;
     width: var(--page-display-width-ch);
     min-width: var(--page-display-width-ch);
     height: var(--toolbar-control-height, 2.25rem);
+    font-family: var(--app-font-mono);
     background: transparent;
     border: none;
     border-radius: 0;
@@ -326,6 +335,7 @@ onClickOutside(pageControlsRef, () => {
 .page-controls-slash,
 .page-controls-inline-input {
     font-size: 0.875rem;
+    font-family: var(--app-font-mono);
     font-variant-numeric: tabular-nums;
     color: var(--ui-text);
     white-space: nowrap;
@@ -333,11 +343,11 @@ onClickOutside(pageControlsRef, () => {
 
 .page-controls-current {
     text-align: right;
+    min-width: var(--page-current-width-ch);
 }
 
 .page-controls-slash {
     text-align: center;
-    padding: 0 0.15rem;
 }
 
 .page-controls-slash.is-hidden,
@@ -347,6 +357,7 @@ onClickOutside(pageControlsRef, () => {
 
 .page-controls-total {
     text-align: left;
+    min-width: var(--page-total-width-ch);
 }
 
 .page-controls-inline-input {

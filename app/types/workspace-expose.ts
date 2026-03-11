@@ -24,6 +24,7 @@ export interface IWorkspaceToolbarSnapshot {
     continuousScroll: boolean;
     isDjvuMode: boolean;
     isCapturingRegion: boolean;
+    isCropSelecting: boolean;
     isPlacingPageNote: boolean;
     zoom: number;
     effectiveZoom: number;

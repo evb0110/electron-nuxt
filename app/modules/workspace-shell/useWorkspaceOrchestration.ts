@@ -28,6 +28,11 @@ import {
 import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-shell/composables/workspace-sidebar-search-sync-controller';
 import { setupWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/workspace-ui-sync';
 import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/composables/workspace-annotation-utils';
+import type {
+    ICropMargins,
+    IPageGeometry,
+} from '@app/types/crop';
+import { screenRectToMargins } from '@app/utils/pdf-crop-coordinates';
 import type { TOpenFileResult } from '@contracts/electron-api';
 import type { TTabUpdate } from '@app/types/tabs';
 import {
@@ -509,6 +514,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handlePageFileDrop,
         handlePageContextMenuSelectAll,
         handlePageContextMenuInvertSelection,
+        handleCropPages,
+        handleRemoveCrop,
     } = usePageOpsHandlers({
         workingCopyPath,
         totalPages,
@@ -675,12 +682,78 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     // --- Helper functions ---
 
     const isCapturingRegion = computed(() => pdfViewerRef.value?.isCapturingRegion ?? false);
+    const isCropSelecting = computed(() => pdfViewerRef.value?.isCropSelecting ?? false);
 
     function handleCaptureRegion() {
         if (!pdfViewerRef.value) {
             return;
         }
         void pdfViewerRef.value.captureRegionToClipboard();
+    }
+
+    const cropDialogOpen = ref(false);
+    const cropDialogMargins = ref<ICropMargins>({
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+    });
+    const cropDialogMediaBox = ref({
+        x: 0,
+        y: 0,
+        width: 612,
+        height: 792,
+    });
+    const cropDialogCurrentBox = ref<IPageGeometry['cropBox']>(null);
+
+    async function handleCrop() {
+        if (!pdfViewerRef.value || !workingCopyPath.value) {
+            return;
+        }
+
+        if (isCropSelecting.value) {
+            pdfViewerRef.value.cancelCropSelection();
+            return;
+        }
+
+        const result = await pdfViewerRef.value.startCropSelection();
+        if (!result) {
+            return;
+        }
+
+        let geometry: IPageGeometry | null = null;
+        const api = getElectronAPI();
+        try {
+            geometry = await api.documents.pageOps.getPageGeometry(
+                workingCopyPath.value,
+                result.pageNumber,
+            );
+        } catch {
+            return;
+        }
+
+        if (!geometry) {
+            return;
+        }
+
+        const effectiveBox = geometry.cropBox ?? geometry.mediaBox;
+        const margins = screenRectToMargins(
+            result.pageLocalRect,
+            {
+                left: 0,
+                top: 0,
+                width: result.pageRect.width,
+                height: result.pageRect.height,
+            },
+            effectiveBox,
+            geometry.mediaBox,
+            geometry.rotation,
+        );
+
+        cropDialogMargins.value = margins;
+        cropDialogMediaBox.value = geometry.mediaBox;
+        cropDialogCurrentBox.value = geometry.cropBox;
+        cropDialogOpen.value = true;
     }
 
     function handleDropdownOpen(
@@ -958,6 +1031,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleRedo,
         handleCaptureRegion,
         isCapturingRegion,
+        handleCrop,
+        isCropSelecting,
+        cropDialogOpen,
+        cropDialogMargins,
+        cropDialogMediaBox,
+        cropDialogCurrentBox,
+        handleCropPages,
+        handleRemoveCrop,
 
         annotationNotePositions,
         sortedAnnotationNoteWindows,

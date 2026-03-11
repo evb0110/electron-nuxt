@@ -33,6 +33,12 @@ import {
     rotatePages,
 } from '@electron/page-ops/qpdf';
 import type { TRotationAngle } from '@electron/page-ops/qpdf';
+import {
+    cropPages,
+    removeCropFromPages,
+    getPageGeometry,
+} from '@electron/page-ops/crop';
+import type { ICropMargins } from '@contracts/shared';
 import { createLogger } from '@electron/utils/logger';
 import { te } from '@electron/i18n';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
@@ -442,6 +448,63 @@ async function handlePageOpsInsertFile(
     return {success: true};
 }
 
+async function handlePageOpsCrop(
+    _event: Electron.IpcMainInvokeEvent,
+    workingCopyPath: string,
+    pages: number[],
+    margins: ICropMargins,
+) {
+    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    validatePageNumbers(pages, 'cropPages', { requireUnique: true });
+    if (
+        !margins
+        || !Number.isFinite(margins.top)
+        || !Number.isFinite(margins.bottom)
+        || !Number.isFinite(margins.left)
+        || !Number.isFinite(margins.right)
+        || margins.top < 0
+        || margins.bottom < 0
+        || margins.left < 0
+        || margins.right < 0
+    ) {
+        throw new Error('Invalid crop margins');
+    }
+
+    await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        await cropPages(queuedWorkingCopyPath, pages, margins);
+    });
+    return { success: true };
+}
+
+async function handlePageOpsRemoveCrop(
+    _event: Electron.IpcMainInvokeEvent,
+    workingCopyPath: string,
+    pages: number[],
+) {
+    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    validatePageNumbers(pages, 'removeCrop', { requireUnique: true });
+
+    await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
+        const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
+        await removeCropFromPages(queuedWorkingCopyPath, pages);
+    });
+    return { success: true };
+}
+
+async function handlePageOpsGetPageGeometry(
+    _event: Electron.IpcMainInvokeEvent,
+    workingCopyPath: string,
+    pageNumber: number,
+) {
+    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+        throw new Error('Invalid page number');
+    }
+
+    return getPageGeometry(normalizedWorkingCopyPath, pageNumber);
+}
+
 interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
 
 export function registerPageOpsHandlers(registrar: IIpcMainHandleRegistrar = ipcMain) {
@@ -451,4 +514,7 @@ export function registerPageOpsHandlers(registrar: IIpcMainHandleRegistrar = ipc
     registrar.handle('page-ops:insert', handlePageOpsInsert);
     registrar.handle('page-ops:insert-file', handlePageOpsInsertFile);
     registrar.handle('page-ops:rotate', handlePageOpsRotate);
+    registrar.handle('page-ops:crop', handlePageOpsCrop);
+    registrar.handle('page-ops:remove-crop', handlePageOpsRemoveCrop);
+    registrar.handle('page-ops:get-page-geometry', handlePageOpsGetPageGeometry);
 }

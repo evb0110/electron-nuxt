@@ -62,6 +62,19 @@
                             />
                         </button>
                         <button
+                            :class="['overflow-menu-item', { 'is-active': isCropSelecting }]"
+                            :disabled="!hasPdf || isDjvuMode"
+                            @click="emit('crop'); close()"
+                        >
+                            <UIcon name="i-lucide-crop" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('toolbar.crop') }}</span>
+                            <UIcon
+                                v-if="isCropSelecting"
+                                name="i-lucide-check"
+                                class="overflow-menu-check"
+                            />
+                        </button>
+                        <button
                             class="overflow-menu-item"
                             :disabled="!hasPdf || isDjvuMode"
                             @click="emit('open-ocr'); close()"
@@ -234,6 +247,7 @@ interface IProps {
     isFitWidthActive: boolean
     isFitHeightActive: boolean
     isCapturingRegion: boolean
+    isCropSelecting: boolean
 }
 
 const props = defineProps<IProps>();
@@ -253,6 +267,7 @@ const emit = defineEmits<{
     (e: 'set-view-mode', mode: TPdfViewMode): void
     (e: 'toggle-continuous-scroll'): void
     (e: 'capture-region'): void
+    (e: 'crop'): void
     (e: 'open-settings'): void
 }>();
 

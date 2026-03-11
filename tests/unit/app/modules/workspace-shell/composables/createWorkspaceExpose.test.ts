@@ -41,6 +41,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         dragMode: ref(false),
         continuousScroll: ref(false),
         isCapturingRegion: ref(false),
+        isCropSelecting: ref(false),
         isPlacingPageNote: ref(false),
         closeAllDropdowns: vi.fn(),
         zoom: ref(1),

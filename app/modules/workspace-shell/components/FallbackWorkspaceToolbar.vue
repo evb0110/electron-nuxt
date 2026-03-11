@@ -17,6 +17,7 @@
         :continuous-scroll="snapshot.continuousScroll"
         :is-djvu-mode="snapshot.isDjvuMode"
         :is-capturing-region="snapshot.isCapturingRegion"
+        :is-crop-selecting="snapshot.isCropSelecting"
         :is-placing-page-note="snapshot.isPlacingPageNote"
         @open-file="emit('open-file')"
         @open-settings="emit('open-settings')"
@@ -32,6 +33,7 @@
         @enable-drag="emit('enable-drag')"
         @disable-drag="emit('disable-drag')"
         @capture-region="emit('capture-region')"
+        @crop="emit('crop')"
         @quick-note="emit('quick-note')"
     >
         <template #ocr="{ isCollapsed }">
@@ -96,8 +98,10 @@
                 :is-fit-width-active="snapshot.isFitWidthActive"
                 :is-fit-height-active="snapshot.isFitHeightActive"
                 :is-capturing-region="snapshot.isCapturingRegion"
+                :is-crop-selecting="snapshot.isCropSelecting"
                 @update:open="emit('update:overflowMenuOpen', $event)"
                 @capture-region="emit('capture-region')"
+                @crop="emit('crop')"
                 @save="emit('save')"
                 @save-as="emit('save-as')"
                 @export-docx="emit('export-docx')"
@@ -158,6 +162,7 @@ const emit = defineEmits<{
     'enable-drag': [];
     'disable-drag': [];
     'capture-region': [];
+    'crop': [];
     'quick-note': [];
     'set-view-mode': [mode: TPdfViewMode];
     'go-to-page': [];

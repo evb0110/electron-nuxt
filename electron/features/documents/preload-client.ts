@@ -17,6 +17,7 @@ import {
 } from '@electron/features/documents/contract';
 import { IMAGE_EXPORT_CHANNELS } from '@electron/features/image-export/index';
 import { PAGE_OPS_CHANNELS } from '@electron/features/page-ops/index';
+import type { ICropMargins } from '@contracts/shared';
 
 const MAX_IPC_FILE_NAME_LENGTH = 255;
 const MAX_IPC_WRITE_BYTES = 512 * 1024 * 1024;
@@ -191,6 +192,12 @@ export function createDocumentsPreloadClient(ipcRenderer: IpcRenderer) {
                 ipcRenderer.invoke(PAGE_OPS_CHANNELS.insertFile, workingCopyPath, totalPages, afterPage, sourcePaths),
             rotate: (workingCopyPath: string, pages: number[], angle: number) =>
                 ipcRenderer.invoke(PAGE_OPS_CHANNELS.rotate, workingCopyPath, pages, angle),
+            crop: (workingCopyPath: string, pages: number[], margins: ICropMargins) =>
+                ipcRenderer.invoke(PAGE_OPS_CHANNELS.crop, workingCopyPath, pages, margins),
+            removeCrop: (workingCopyPath: string, pages: number[]) =>
+                ipcRenderer.invoke(PAGE_OPS_CHANNELS.removeCrop, workingCopyPath, pages),
+            getPageGeometry: (workingCopyPath: string, pageNumber: number) =>
+                ipcRenderer.invoke(PAGE_OPS_CHANNELS.getPageGeometry, workingCopyPath, pageNumber),
         },
     };
 }

@@ -35,3 +35,23 @@ export interface ISettingsData {
     suppressDefaultViewerPrompt?: boolean;
     skippedUpdateVersion?: string;
 }
+
+export interface ICropMargins {
+    top: number;
+    bottom: number;
+    left: number;
+    right: number;
+}
+
+export interface IPdfBox {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface IPageGeometry {
+    mediaBox: IPdfBox;
+    cropBox: IPdfBox | null;
+    rotation: number;
+}

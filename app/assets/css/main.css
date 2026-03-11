@@ -20,6 +20,15 @@
 :root {
     --ui-primary: var(--color-brand-700);
     --app-window-bg: var(--ui-bg, #ffffff);
+    --app-font-mono:
+        ui-monospace,
+        'SFMono-Regular',
+        Menlo,
+        Monaco,
+        Consolas,
+        'Liberation Mono',
+        'Courier New',
+        monospace;
 
     /* Chrome surfaces (tab bar, toolbar) */
     --app-chrome: color-mix(in oklab, var(--ui-bg) 35%, var(--ui-border) 65%);
@@ -82,6 +91,17 @@
     --app-snip-hint-radius: 999px;
     --app-snip-hint-font-size: 0.7rem;
     --app-snip-hint-offset-top: 0.65rem;
+    --app-crop-cutout-fill: color-mix(in oklab, var(--ui-bg) 55%, transparent);
+    --app-crop-selection-border: color-mix(in oklab, var(--ui-primary) 85%, var(--ui-bg) 15%);
+    --app-crop-selection-border-width: 2px;
+    --app-crop-selection-radius: 1px;
+    --app-crop-hint-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-border) 12%);
+    --app-crop-hint-fg: var(--ui-text-muted);
+    --app-crop-hint-border: var(--ui-border);
+    --app-crop-hint-padding: 0.33rem 0.55rem;
+    --app-crop-hint-radius: 999px;
+    --app-crop-hint-font-size: 0.7rem;
+    --app-crop-hint-offset-top: 0.65rem;
     --app-pdf-note-bg: #fff5a0;
     --app-pdf-note-border: #c7b75b;
     --app-pdf-note-title-bg: rgb(255 255 255 / 42%);
@@ -228,6 +248,11 @@
     --app-snip-hint-bg: color-mix(in oklab, var(--ui-bg-elevated) 86%, var(--ui-border) 14%);
     --app-snip-hint-fg: var(--ui-text);
     --app-snip-hint-border: color-mix(in oklab, var(--ui-border) 80%, var(--ui-text-muted) 20%);
+    --app-crop-cutout-fill: color-mix(in oklab, var(--ui-bg) 48%, transparent);
+    --app-crop-selection-border: color-mix(in oklab, var(--ui-primary) 90%, var(--ui-bg) 10%);
+    --app-crop-hint-bg: color-mix(in oklab, var(--ui-bg-elevated) 86%, var(--ui-border) 14%);
+    --app-crop-hint-fg: var(--ui-text);
+    --app-crop-hint-border: color-mix(in oklab, var(--ui-border) 80%, var(--ui-text-muted) 20%);
     --app-pdf-note-bg: #3d3520;
     --app-pdf-note-border: #5c5030;
     --app-pdf-note-title-bg: rgb(0 0 0 / 18%);
