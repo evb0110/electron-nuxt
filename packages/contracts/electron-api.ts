@@ -1,6 +1,8 @@
 import type { TGroupDirection } from './editor-groups';
 import type {
+    ICropMargins,
     IOcrLanguage,
+    IPageGeometry,
     IRecentFile,
     ISettingsData,
 } from './shared';
@@ -145,6 +147,9 @@ interface IPageOpsAPI {
     insert: (workingCopyPath: string, totalPages: number, afterPage: number) => Promise<IPageOpsInsertResult>;
     insertFile: (workingCopyPath: string, totalPages: number, afterPage: number, sourcePaths: string[]) => Promise<IPageOpsResult>;
     rotate: (workingCopyPath: string, pages: number[], angle: TPageOpsRotationAngle) => Promise<IPageOpsResult>;
+    crop: (workingCopyPath: string, pages: number[], margins: ICropMargins) => Promise<IPageOpsResult>;
+    removeCrop: (workingCopyPath: string, pages: number[]) => Promise<IPageOpsResult>;
+    getPageGeometry: (workingCopyPath: string, pageNumber: number) => Promise<IPageGeometry>;
 }
 
 interface IDjvuProgress {

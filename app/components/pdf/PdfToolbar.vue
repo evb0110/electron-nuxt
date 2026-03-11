@@ -166,6 +166,14 @@
                 :disabled="!hasPdf"
                 @click="emit('capture-region')"
             />
+            <ToolbarButton
+                v-if="!isCollapsed(2)"
+                icon="lucide:crop"
+                :active="isCropSelecting"
+                :tooltip="t('toolbar.crop')"
+                :disabled="!hasPdf || isDjvuMode"
+                @click="emit('crop')"
+            />
 
             <slot
                 name="ocr"
@@ -219,6 +227,7 @@ defineProps<{
     showSidebar: boolean;
     dragMode: boolean;
     isCapturingRegion: boolean;
+    isCropSelecting: boolean;
     isPlacingPageNote: boolean;
     continuousScroll: boolean;
     isDjvuMode?: boolean;
@@ -239,6 +248,7 @@ const emit = defineEmits<{
     'enable-drag': [];
     'disable-drag': [];
     'capture-region': [];
+    'crop': [];
     'quick-note': [];
 }>();
 

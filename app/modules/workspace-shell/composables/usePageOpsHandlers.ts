@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type { ICropMargins } from '@app/types/crop';
 import { usePageOperations } from '@app/composables/pdf/usePageOperations';
 
 interface IPdfViewerForPageOps {invalidatePages: (pages: number[]) => void;}
@@ -45,6 +46,8 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         insertPages: pageOpsInsert,
         insertFile: pageOpsInsertFile,
         reorderPages: pageOpsReorder,
+        cropPages: pageOpsCrop,
+        removeCrop: pageOpsRemoveCrop,
     } = usePageOperations({
         workingCopyPath,
         loadPdfFromPath,
@@ -131,6 +134,17 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         setSelectedThumbnailPages(inverted);
     }
 
+    function handleCropPages(pages: number[], margins: ICropMargins) {
+        // Cropping changes page geometry, so forcing selective rerendering
+        // reuses stale layout metrics and can visibly stretch pages.
+        return pageOpsCrop(pages, margins);
+    }
+
+    function handleRemoveCrop(pages: number[]) {
+        // Removing crop also changes the effective viewport size.
+        return pageOpsRemoveCrop(pages);
+    }
+
     return {
         isPageOperationInProgress,
         pageOpsDelete,
@@ -148,5 +162,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         handlePageFileDrop,
         handlePageContextMenuSelectAll,
         handlePageContextMenuInvertSelection,
+        handleCropPages,
+        handleRemoveCrop,
     };
 };

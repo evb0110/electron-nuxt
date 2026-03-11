@@ -110,6 +110,7 @@ export default defineNuxtConfig({
             'lucide:circle-x',
             'lucide:scan',
             'lucide:copy',
+            'lucide:crop',
             'lucide:ellipsis',
             'lucide:external-link',
             'lucide:eye',

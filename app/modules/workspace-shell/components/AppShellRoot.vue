@@ -247,6 +247,7 @@ const fallbackDragMode = ref(false);
 const fallbackContinuousScroll = ref(false);
 const fallbackIsDjvuMode = ref(false);
 const fallbackIsCapturingRegion = ref(false);
+const fallbackIsCropSelecting = ref(false);
 const fallbackIsPlacingPageNote = ref(false);
 const fallbackOcrPopupOpen = ref(false);
 const fallbackZoomDropdownOpen = ref(false);
@@ -292,6 +293,7 @@ const fallbackToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
     continuousScroll: fallbackContinuousScroll.value,
     isDjvuMode: fallbackIsDjvuMode.value,
     isCapturingRegion: fallbackIsCapturingRegion.value,
+    isCropSelecting: fallbackIsCropSelecting.value,
     isPlacingPageNote: fallbackIsPlacingPageNote.value,
     zoom: fallbackZoom.value,
     effectiveZoom: fallbackEffectiveZoom.value,
@@ -331,6 +333,7 @@ function createDefaultToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         continuousScroll: false,
         isDjvuMode: false,
         isCapturingRegion: false,
+        isCropSelecting: false,
         isPlacingPageNote: false,
         zoom: 1,
         effectiveZoom: 1,
@@ -369,6 +372,7 @@ function applyFallbackToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot | null
     fallbackContinuousScroll.value = snapshot.continuousScroll;
     fallbackIsDjvuMode.value = snapshot.isDjvuMode;
     fallbackIsCapturingRegion.value = snapshot.isCapturingRegion;
+    fallbackIsCropSelecting.value = snapshot.isCropSelecting;
     fallbackIsPlacingPageNote.value = snapshot.isPlacingPageNote;
     fallbackZoom.value = snapshot.zoom;
     fallbackEffectiveZoom.value = snapshot.effectiveZoom;

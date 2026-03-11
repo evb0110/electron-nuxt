@@ -191,6 +191,7 @@ function createEmptyToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         continuousScroll: false,
         isDjvuMode: false,
         isCapturingRegion: false,
+        isCropSelecting: false,
         isPlacingPageNote: false,
         zoom: 1,
         effectiveZoom: 1,

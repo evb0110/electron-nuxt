@@ -41,6 +41,7 @@ interface ICreateWorkspaceExposeDeps {
     dragMode: Ref<boolean>;
     continuousScroll: Ref<boolean>;
     isCapturingRegion: Ref<boolean>;
+    isCropSelecting: Ref<boolean>;
     isPlacingPageNote: Ref<boolean>;
     closeAllDropdowns: () => void;
     zoom: Ref<number>;
@@ -119,6 +120,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             continuousScroll: deps.continuousScroll.value,
             isDjvuMode: deps.isDjvuMode.value,
             isCapturingRegion: deps.isCapturingRegion.value,
+            isCropSelecting: deps.isCropSelecting.value,
             isPlacingPageNote: deps.isPlacingPageNote.value,
             zoom: deps.zoom.value,
             effectiveZoom: deps.effectiveZoom.value,

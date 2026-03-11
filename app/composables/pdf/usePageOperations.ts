@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type { ICropMargins } from '@app/types/crop';
 import { getElectronAPI } from '@app/utils/electron';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -161,6 +162,36 @@ export const usePageOperations = (deps: {
         });
     }
 
+    async function cropPages(pages: number[], margins: ICropMargins) {
+        if (pages.length === 0) {
+            return false;
+        }
+        return runOperation({
+            operationName: 'cropPages',
+            errorKey: 'errors.pageOps.crop',
+            shouldReload: true,
+            run: async (path) => {
+                const api = getElectronAPI();
+                return api.documents.pageOps.crop(path, [...pages], margins);
+            },
+        });
+    }
+
+    async function removeCrop(pages: number[]) {
+        if (pages.length === 0) {
+            return false;
+        }
+        return runOperation({
+            operationName: 'removeCrop',
+            errorKey: 'errors.pageOps.removeCrop',
+            shouldReload: true,
+            run: async (path) => {
+                const api = getElectronAPI();
+                return api.documents.pageOps.removeCrop(path, [...pages]);
+            },
+        });
+    }
+
     return {
         isOperationInProgress,
         error,
@@ -170,5 +201,7 @@ export const usePageOperations = (deps: {
         insertPages,
         insertFile,
         reorderPages,
+        cropPages,
+        removeCrop,
     };
 };

@@ -70,6 +70,15 @@
             @pointer-end="regionSnip.onPointerEnd"
             @cancel="regionSnip.cancelCapture"
         />
+        <PdfCropOverlay
+            :active="cropSelection.isSelecting.value"
+            :selection-rect="cropSelection.selectionRect.value"
+            :hint-label="t('toolbar.cropHint')"
+            @pointer-start="cropSelection.onPointerStart"
+            @pointer-move="cropSelection.onPointerMove"
+            @pointer-end="cropSelection.onPointerEnd"
+            @cancel="cropSelection.cancelSelection"
+        />
         <template v-for="[pageNum, markers] in markersByPage" :key="`markers-${pageNum}`">
             <Teleport v-if="markerLayerTargets.get(pageNum)" :to="markerLayerTargets.get(pageNum)!">
                 <PdfCommentMarkerLayer
@@ -96,6 +105,7 @@ import { AnnotationEditorParamsType } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import PdfViewerPage from '@app/components/pdf/PdfViewerPage.vue';
 import PdfRegionSnipOverlay from '@app/components/pdf/PdfRegionSnipOverlay.vue';
+import PdfCropOverlay from '@app/components/pdf/PdfCropOverlay.vue';
 import PdfCommentMarkerLayer from '@app/components/pdf/annotations/PdfCommentMarkerLayer.vue';
 import PdfLinkOverlayLayer from '@app/components/pdf/annotations/PdfLinkOverlayLayer.vue';
 import { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
@@ -115,6 +125,7 @@ import {
 } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
 import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
+import { usePdfCropSelection } from '@app/composables/pdf/usePdfCropSelection';
 import {
     captureScrollSnapshot,
     restoreScrollFromSnapshot,
@@ -232,6 +243,7 @@ const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
 const pendingMarkerMoves = new Map<string, IAnnotationMarkerRect>();
 const activeCommentStableKey = ref<string | null>(null);
 const regionSnip = usePdfRegionSnip({ viewerContainer });
+const cropSelection = usePdfCropSelection({ viewerContainer });
 const PDF_VIEWER_LOADER_ICON_SIZE_PX = 20;
 const WHEEL_ZOOM_SENSITIVITY = 0.0016;
 const WHEEL_LINE_DELTA_PX = 16;
@@ -1050,7 +1062,7 @@ function isSpreadSingle(page: number) {
 }
 
 function isSnipActive() {
-    return regionSnip.isActive.value;
+    return regionSnip.isActive.value || cropSelection.isSelecting.value;
 }
 
 function normalizeWheelZoomDelta(event: WheelEvent, container: HTMLElement) {
@@ -1814,6 +1826,9 @@ defineExpose({
     clearPendingMarkerMoves: () => pendingMarkerMoves.clear(),
     captureRegionToClipboard: regionSnip.startCaptureSession,
     isCapturingRegion: regionSnip.isActive,
+    startCropSelection: cropSelection.startCropSelection,
+    cancelCropSelection: cropSelection.cancelSelection,
+    isCropSelecting: cropSelection.isSelecting,
     requestScrollToCurrentResult,
 });
 </script>
