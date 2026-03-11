@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer-runtime/resizeAnchor';
+import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer-runtime/reloadZoom';
 
 describe('resolveResizeAnchorPage', () => {
     it('prefers the current page over other resize anchor candidates', () => {
@@ -49,5 +50,31 @@ describe('resolveResizeAnchorPage', () => {
             snapshotAnchorPage: null,
             currentPage: Number.NaN,
         })).toBe(3);
+    });
+});
+
+describe('resolveCustomReloadZoomMultiplier', () => {
+    it('preserves the target display zoom after the fit baseline changes', () => {
+        expect(resolveCustomReloadZoomMultiplier({
+            currentZoom: 1,
+            currentEffectiveScale: 0.47,
+            targetDisplayZoom: 1.16,
+        })).toBeCloseTo(2.468085, 6);
+    });
+
+    it('falls back to the target display zoom when current zoom is unusable', () => {
+        expect(resolveCustomReloadZoomMultiplier({
+            currentZoom: 0,
+            currentEffectiveScale: 0.47,
+            targetDisplayZoom: 1.16,
+        })).toBe(1.16);
+    });
+
+    it('returns null when the target display zoom is invalid', () => {
+        expect(resolveCustomReloadZoomMultiplier({
+            currentZoom: 1,
+            currentEffectiveScale: 0.47,
+            targetDisplayZoom: Number.NaN,
+        })).toBeNull();
     });
 });

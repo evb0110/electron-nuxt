@@ -229,32 +229,38 @@ export const usePdfFile = () => {
         isDirty.value = historyCleanIndex.value < 0 || historyIndex.value !== historyCleanIndex.value;
     }
 
-    async function loadPdfFromPath(path: string, opts?: { markDirty?: boolean }) {
+    async function readPdfStateFromPath(path: string) {
         const api = getElectronAPI();
+        const { size } = await api.documents.statFile(path);
+
+        if (size > MAX_IN_MEMORY_PDF_BYTES) {
+            return {
+                pdfData: null,
+                pdfSrc: {
+                    kind: 'path' as const,
+                    path,
+                    size,
+                },
+            };
+        }
+
+        const buffer = await api.documents.readFile(path);
+        const data = new Uint8Array(buffer);
+        return {
+            pdfData: data,
+            pdfSrc: new Blob([data], { type: 'application/pdf' }) as TPdfSource,
+        };
+    }
+
+    async function loadPdfFromPath(path: string, opts?: { markDirty?: boolean }) {
         const requestId = ++latestLoadRequestId;
+        const api = getElectronAPI();
 
         // Verify and read file BEFORE committing any reactive state.
         // This prevents an inconsistent UI where the tab shows metadata
         // (filename, dirty dot) but the content area shows the empty state
         // because pdfSrc was never set due to a failed read.
-        const { size } = await api.documents.statFile(path);
-
-        let newPdfData: Uint8Array | null;
-        let newPdfSrc: TPdfSource;
-
-        if (size > MAX_IN_MEMORY_PDF_BYTES) {
-            newPdfData = null;
-            newPdfSrc = {
-                kind: 'path',
-                path,
-                size,
-            };
-        } else {
-            const buffer = await api.documents.readFile(path);
-            const data = new Uint8Array(buffer);
-            newPdfData = data;
-            newPdfSrc = new Blob([data], { type: 'application/pdf' });
-        }
+        const nextState = await readPdfStateFromPath(path);
 
         if (requestId !== latestLoadRequestId) {
             BrowserLogger.debug('pdf-file', 'Skipped stale PDF load result', {
@@ -271,11 +277,11 @@ export const usePdfFile = () => {
 
         // All async operations succeeded — commit state atomically
         workingCopyPath.value = path;
-        pdfData.value = newPdfData;
-        pdfSrc.value = newPdfSrc;
+        pdfData.value = nextState.pdfData;
+        pdfSrc.value = nextState.pdfSrc;
 
-        if (newPdfData) {
-            resetHistory(newPdfData);
+        if (nextState.pdfData) {
+            resetHistory(nextState.pdfData);
             syncDirtyFromHistory();
         } else {
             resetHistory(null);
@@ -294,6 +300,28 @@ export const usePdfFile = () => {
                 });
             }
         }
+    }
+
+    async function reloadWorkingCopyIntoHistory(opts?: { markDirty?: boolean }) {
+        const path = workingCopyPath.value;
+        if (!path) {
+            return false;
+        }
+
+        const nextState = await readPdfStateFromPath(path);
+        pdfData.value = nextState.pdfData;
+        pdfSrc.value = nextState.pdfSrc;
+
+        if (nextState.pdfData) {
+            pushHistorySnapshot(nextState.pdfData);
+        } else {
+            // Very large PDFs stay path-backed, so we cannot keep byte snapshots
+            // for undo/redo without blowing past the in-memory history budget.
+            resetHistory(null);
+        }
+
+        isDirty.value = !!opts?.markDirty;
+        return true;
     }
 
     function pushHistorySnapshot(snapshot: Uint8Array) {
@@ -521,6 +549,7 @@ export const usePdfFile = () => {
         openFileDirect,
         openFileDirectBatch,
         loadPdfFromPath,
+        reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         persistPdfDataSilently,
         saveFile,

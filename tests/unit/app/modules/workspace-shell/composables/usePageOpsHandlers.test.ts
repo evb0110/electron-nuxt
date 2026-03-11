@@ -50,7 +50,7 @@ function createHarness() {
         }),
         closePageContextMenu: vi.fn(),
         onExportPages: vi.fn(),
-        loadPdfFromPath: vi.fn(async () => {}),
+        reloadWorkingCopyIntoHistory: vi.fn(async () => true),
         clearOcrCache: vi.fn(),
         resetSearchCache: vi.fn(),
     });

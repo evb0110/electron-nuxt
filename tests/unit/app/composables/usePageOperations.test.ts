@@ -15,6 +15,8 @@ const pageOpsApi = {
     insert: vi.fn(),
     insertFile: vi.fn(),
     reorder: vi.fn(),
+    crop: vi.fn(),
+    removeCrop: vi.fn(),
 };
 
 const loggerError = vi.fn();
@@ -43,19 +45,19 @@ function deferred<T>() {
 
 function createHarness(path: string | null = '/tmp/work.pdf') {
     const workingCopyPath = ref<string | null>(path);
-    const loadPdfFromPath = vi.fn(async () => {});
+    const reloadWorkingCopyIntoHistory = vi.fn(async () => true);
     const clearOcrCache = vi.fn();
     const resetSearchCache = vi.fn();
     const pageOps = usePageOperations({
         workingCopyPath,
-        loadPdfFromPath,
+        reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
     });
 
     return {
         pageOps,
-        loadPdfFromPath,
+        reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
     };
@@ -69,7 +71,7 @@ describe('usePageOperations', () => {
     it('runs mutating operations through shared progress/reload flow', async () => {
         const {
             pageOps,
-            loadPdfFromPath,
+            reloadWorkingCopyIntoHistory,
             clearOcrCache,
             resetSearchCache,
         } = createHarness();
@@ -91,7 +93,7 @@ describe('usePageOperations', () => {
         ], 90);
         expect(clearOcrCache).toHaveBeenCalledWith('/tmp/work.pdf');
         expect(resetSearchCache).toHaveBeenCalledOnce();
-        expect(loadPdfFromPath).toHaveBeenCalledWith('/tmp/work.pdf', { markDirty: true });
+        expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({ markDirty: true });
         expect(pageOps.error.value).toBeNull();
         expect(pageOps.isOperationInProgress.value).toBe(false);
     });
@@ -99,7 +101,7 @@ describe('usePageOperations', () => {
     it('does not reload document when extract operation is canceled', async () => {
         const {
             pageOps,
-            loadPdfFromPath,
+            reloadWorkingCopyIntoHistory,
             clearOcrCache,
             resetSearchCache,
         } = createHarness();
@@ -110,7 +112,7 @@ describe('usePageOperations', () => {
 
         await expect(pageOps.extractPages([3])).resolves.toBe(false);
 
-        expect(loadPdfFromPath).not.toHaveBeenCalled();
+        expect(reloadWorkingCopyIntoHistory).not.toHaveBeenCalled();
         expect(clearOcrCache).not.toHaveBeenCalled();
         expect(resetSearchCache).not.toHaveBeenCalled();
     });

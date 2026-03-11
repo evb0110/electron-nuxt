@@ -25,6 +25,7 @@ import type {
     TPdfViewMode,
     TPdfSource,
     IScrollSnapshot,
+    TZoomMode,
 } from '@app/types/pdf';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
@@ -32,6 +33,7 @@ import { runGuardedTask } from '@app/utils/async-guard';
 import { getVisiblePageDebugSnapshot } from '@app/composables/pdf/pdfScrollVisibility';
 import { captureScrollSnapshot } from '@app/composables/pdf/pdfPageRenderPipeline';
 import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer-runtime/resizeAnchor';
+import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer-runtime/reloadZoom';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
 type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;
@@ -45,6 +47,7 @@ interface IUsePdfViewerCoreOptions {
     viewerContainer: Ref<HTMLElement | null>;
     src: ComputedRef<TPdfSource | null>;
     zoom: ComputedRef<number>;
+    zoomMode: ComputedRef<TZoomMode>;
     fitMode: ComputedRef<TFitMode>;
     viewMode: ComputedRef<TPdfViewMode>;
     isResizing: ComputedRef<boolean>;
@@ -183,6 +186,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         viewerContainer,
         src,
         zoom,
+        zoomMode,
         fitMode,
         viewMode,
         isResizing,
@@ -998,6 +1002,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         }
 
         const pageToRestore = isReload ? currentPage.value : 1;
+        const displayZoomToRestore = isReload && zoomMode.value === 'custom'
+            ? effectiveScale.value
+            : null;
         const pagesToInvalidate = pendingInvalidation;
         pendingInvalidation = null;
         const isSelectiveReload = isReload && pagesToInvalidate !== null;
@@ -1071,6 +1078,17 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
         if (!isSelectiveReload) {
             computeFitWidthScale(viewerContainer.value);
+            if (displayZoomToRestore !== null) {
+                const nextZoom = resolveCustomReloadZoomMultiplier({
+                    currentZoom: zoom.value,
+                    currentEffectiveScale: effectiveScale.value,
+                    targetDisplayZoom: displayZoomToRestore,
+                });
+                if (nextZoom !== null && Math.abs(nextZoom - zoom.value) > 0.001) {
+                    emit('update:zoom', nextZoom);
+                    await nextTick();
+                }
+            }
             setupPagePlaceholders();
             if (isReload && currentPage.value > 1) {
                 scrollToPage(currentPage.value);

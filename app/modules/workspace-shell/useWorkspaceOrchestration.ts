@@ -96,6 +96,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pendingDjvu,
         openBatchProgress,
         loadPdfFromPath,
+        reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         persistPdfDataSilently,
         saveFile,
@@ -528,7 +529,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         onExportPages: (pages: number[]) => {
             void handleExportImages(pages);
         },
-        loadPdfFromPath,
+        reloadWorkingCopyIntoHistory,
         clearOcrCache: (path: string) => clearOcrCache(path),
         resetSearchCache,
     });
