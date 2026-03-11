@@ -369,6 +369,40 @@ describe('usePdfFile', () => {
             const result = await file.redo();
             expect(result).toBe(false);
         });
+
+        it('can reload the working copy into history for external page operations', async () => {
+            const bytes1 = new Uint8Array([
+                1,
+                2,
+            ]);
+            const bytes2 = new Uint8Array([
+                3,
+                4,
+            ]);
+
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/undo.pdf',
+                workingPath: '/tmp/undo.pdf',
+            });
+            mockDocuments.statFile
+                .mockResolvedValueOnce({ size: bytes1.length })
+                .mockResolvedValueOnce({ size: bytes2.length });
+            mockDocuments.readFile
+                .mockResolvedValueOnce(bytes1.buffer)
+                .mockResolvedValueOnce(bytes2.buffer);
+            mockDocuments.writeFile.mockResolvedValue(undefined);
+
+            const file = usePdfFile();
+            await file.openFile();
+
+            await expect(file.reloadWorkingCopyIntoHistory({ markDirty: true })).resolves.toBe(true);
+            expect(file.canUndo.value).toBe(true);
+            expect(file.isDirty.value).toBe(true);
+
+            await expect(file.undo()).resolves.toBe(true);
+            expect(file.pdfData.value).toEqual(bytes1);
+        });
     });
 
     describe('markDirty', () => {

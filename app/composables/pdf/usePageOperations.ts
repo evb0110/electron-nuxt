@@ -10,7 +10,7 @@ type TPageOperationSuccess<TResult extends TPageOpsResult> = (result: TResult) =
 
 export const usePageOperations = (deps: {
     workingCopyPath: Ref<string | null>;
-    loadPdfFromPath: (path: string, opts?: { markDirty?: boolean }) => Promise<void>;
+    reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
     clearOcrCache: (path: string) => void;
     resetSearchCache: () => void;
 }) => {
@@ -18,7 +18,7 @@ export const usePageOperations = (deps: {
 
     const {
         workingCopyPath,
-        loadPdfFromPath,
+        reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
     } = deps;
@@ -57,7 +57,7 @@ export const usePageOperations = (deps: {
 
             if (options.shouldReload) {
                 invalidateCaches();
-                await loadPdfFromPath(path, { markDirty: true });
+                await reloadWorkingCopyIntoHistory({ markDirty: true });
             }
 
             return true;

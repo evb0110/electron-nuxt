@@ -642,6 +642,7 @@ const {
     viewerContainer,
     src,
     zoom,
+    zoomMode,
     fitMode,
     viewMode,
     isResizing,
