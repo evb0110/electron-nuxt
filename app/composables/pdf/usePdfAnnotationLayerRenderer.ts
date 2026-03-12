@@ -329,7 +329,10 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
             if (!editorLayer) {
                 annotationEditorLayerDiv.innerHTML = '';
-                annotationEditorLayerDiv.dir = annotationUiManager.direction;
+                const direction: unknown = annotationUiManager.direction;
+                if (direction === 'ltr' || direction === 'rtl' || direction === 'auto') {
+                    annotationEditorLayerDiv.dir = direction;
+                }
             }
 
             const l10n = toValue(deps.annotationL10n) ?? fallbackL10n;

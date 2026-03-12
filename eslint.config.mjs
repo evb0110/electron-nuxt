@@ -49,8 +49,25 @@ const strictTypeRules = {
     ],
     '@typescript-eslint/consistent-type-exports': 'error',
     '@typescript-eslint/no-import-type-side-effects': 'error',
+    '@typescript-eslint/no-unsafe-assignment': 'error',
+    '@typescript-eslint/no-unsafe-member-access': 'error',
+    '@typescript-eslint/no-unsafe-call': 'error',
+    '@typescript-eslint/no-unsafe-return': 'error',
+    '@typescript-eslint/no-unsafe-argument': 'error',
     '@typescript-eslint/no-unnecessary-type-assertion': 'error',
     '@typescript-eslint/no-unnecessary-type-constraint': 'error',
+    '@typescript-eslint/no-floating-promises': 'error',
+    '@typescript-eslint/no-misused-promises': [
+        'error',
+        {
+            checksVoidReturn: {
+                arguments: false,
+                attributes: false,
+            },
+        },
+    ],
+    '@typescript-eslint/await-thenable': 'error',
+    '@typescript-eslint/only-throw-error': 'error',
     '@typescript-eslint/ban-ts-comment': [
         'error',
         {
@@ -240,6 +257,7 @@ export default withNuxt(
                 'error',
                 { allowInterfaces: 'with-single-extends' },
             ],
+            'prefer-promise-reject-errors': 'error',
             'custom/brace-return-after-if': 'error',
             'custom/import-specifier-newline': 'error',
             'custom/destructuring-property-newline': 'error',
@@ -259,6 +277,39 @@ export default withNuxt(
         files: ['app/i18n/runtime-locales/**/*.ts'],
         rules: {
             'no-restricted-imports': 'off',
+        },
+    },
+    {
+        files: ['app/composables/pdf/annotations/useAnnotationEditorBridge.ts'],
+        rules: {
+            '@typescript-eslint/no-unsafe-assignment': 'off',
+        },
+    },
+    {
+        files: [
+            'app/**/*.ts',
+            'app/**/*.vue',
+        ],
+        ignores: [
+            'app/composables/useTypedI18n.ts',
+            'app/utils/electron.ts',
+        ],
+        rules: {
+            'no-restricted-properties': [
+                'error',
+                {
+                    object: 'window',
+                    property: 'electronAPI',
+                    message: 'Use hasElectronAPI()/getElectronAPI() from @app/utils/electron instead of reaching into window.electronAPI directly.',
+                },
+            ],
+            'no-restricted-syntax': [
+                'error',
+                {
+                    selector: 'CallExpression[callee.name="useI18n"]',
+                    message: 'Use useTypedI18n() from @app/composables/useTypedI18n instead of calling useI18n() directly in the app.',
+                },
+            ],
         },
     },
     {
@@ -354,6 +405,16 @@ export default withNuxt(
             ],
             '@typescript-eslint/require-await': 'off',
             '@typescript-eslint/no-explicit-any': 'off',
+            '@typescript-eslint/no-unsafe-assignment': 'off',
+            '@typescript-eslint/no-unsafe-member-access': 'off',
+            '@typescript-eslint/no-unsafe-call': 'off',
+            '@typescript-eslint/no-unsafe-return': 'off',
+            '@typescript-eslint/no-unsafe-argument': 'off',
+            '@typescript-eslint/no-floating-promises': 'off',
+            '@typescript-eslint/no-misused-promises': 'off',
+            '@typescript-eslint/await-thenable': 'off',
+            '@typescript-eslint/only-throw-error': 'off',
+            'prefer-promise-reject-errors': 'off',
             'no-return-await': 'off',
             'no-empty': 'off',
             'no-restricted-imports': 'off',
@@ -394,6 +455,16 @@ export default withNuxt(
                 },
             ],
             '@typescript-eslint/require-await': 'off',
+            '@typescript-eslint/no-unsafe-assignment': 'off',
+            '@typescript-eslint/no-unsafe-member-access': 'off',
+            '@typescript-eslint/no-unsafe-call': 'off',
+            '@typescript-eslint/no-unsafe-return': 'off',
+            '@typescript-eslint/no-unsafe-argument': 'off',
+            '@typescript-eslint/no-floating-promises': 'off',
+            '@typescript-eslint/no-misused-promises': 'off',
+            '@typescript-eslint/await-thenable': 'off',
+            '@typescript-eslint/only-throw-error': 'off',
+            'prefer-promise-reject-errors': 'off',
         },
     },
     {
@@ -432,6 +503,16 @@ export default withNuxt(
                 },
             ],
             '@typescript-eslint/require-await': 'off',
+            '@typescript-eslint/no-unsafe-assignment': 'off',
+            '@typescript-eslint/no-unsafe-member-access': 'off',
+            '@typescript-eslint/no-unsafe-call': 'off',
+            '@typescript-eslint/no-unsafe-return': 'off',
+            '@typescript-eslint/no-unsafe-argument': 'off',
+            '@typescript-eslint/no-floating-promises': 'off',
+            '@typescript-eslint/no-misused-promises': 'off',
+            '@typescript-eslint/await-thenable': 'off',
+            '@typescript-eslint/only-throw-error': 'off',
+            'prefer-promise-reject-errors': 'off',
         },
     },
     {
@@ -446,6 +527,11 @@ export default withNuxt(
         languageOptions: {parserOptions: {projectService: true}},
         rules: {
             ...strictTypeRules,
+            '@typescript-eslint/no-unsafe-assignment': 'off',
+            '@typescript-eslint/no-unsafe-member-access': 'off',
+            '@typescript-eslint/no-unsafe-call': 'off',
+            '@typescript-eslint/no-unsafe-return': 'off',
+            '@typescript-eslint/no-unsafe-argument': 'off',
             '@typescript-eslint/require-await': 'error',
             '@typescript-eslint/array-type': [
                 'error',

@@ -32,9 +32,9 @@
     "typecheck:tests": "tsc -p tests/tsconfig.json",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "typecheck:i18n-app": "tsc -p packages/i18n-app/tsconfig.json",
-    "lint": "eslint . --max-warnings=0 --report-unused-disable-directives && stylelint \"app/**/*.{vue,scss}\" && pnpm run check:locales && pnpm run check:icons:bundle",
+    "lint": "eslint . --max-warnings=0 --report-unused-disable-directives && stylelint \"app/**/*.{vue,scss,css}\" && pnpm run check:locales && pnpm run check:icons:bundle",
     "lint:check": "pnpm run lint",
-    "lint:fix": "eslint . --fix --max-warnings=0 && stylelint \"app/**/*.{vue,scss}\" && pnpm run check:locales && pnpm run check:icons:bundle",
+    "lint:fix": "eslint . --fix --max-warnings=0 && stylelint \"app/**/*.{vue,scss,css}\" && pnpm run check:locales && pnpm run check:icons:bundle",
     "knip": "knip",
     "typecheck:coverage": "type-coverage --config .typecoveragerc.json",
     "gate:quality": "pnpm run lint && pnpm run typecheck && pnpm run typecheck:coverage",
@@ -82,7 +82,7 @@
   },
   "lint-staged": {
     "!(*.config).{ts,mts,vue}": "eslint --fix --max-warnings=0",
-    "app/**/*.{vue,scss}": "stylelint --fix"
+    "app/**/*.{vue,scss,css}": "stylelint --fix"
   },
   "dependencies": {
     "@babel/parser": "7.29.0",

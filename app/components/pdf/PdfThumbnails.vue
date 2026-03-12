@@ -557,7 +557,7 @@ async function syncCurrentPageIntoView(reason: string) {
     lastProgrammaticScrollAtMs = Date.now();
     container.scrollTop = targetScrollTop;
     updateViewportMetrics();
-    scheduleVisibleThumbnailRender();
+    void scheduleVisibleThumbnailRender();
 
     await nextTick();
     if (syncRunId !== currentPageSyncRunId) {
@@ -588,7 +588,7 @@ async function syncCurrentPageIntoView(reason: string) {
     lastProgrammaticScrollAtMs = Date.now();
     container.scrollTop = refinedScrollTop;
     updateViewportMetrics();
-    scheduleVisibleThumbnailRender();
+    void scheduleVisibleThumbnailRender();
 }
 
 const measureThumbnailHeight = useDebounceFn(() => {
@@ -664,7 +664,7 @@ function handleContainerScroll() {
         markUserInteraction('scroll');
     }
     updateViewportMetrics();
-    scheduleVisibleThumbnailRender();
+    void scheduleVisibleThumbnailRender();
 }
 
 function handleContainerWheel() {
@@ -799,13 +799,13 @@ async function renderThumbnail(
         renderTasks.delete(pageNum);
 
         if (getCanvas(pageNum) !== canvas) {
-            scheduleVisibleThumbnailRender();
+            void scheduleVisibleThumbnailRender();
             return;
         }
 
         canvas.dataset.thumbnailRendered = 'true';
         renderedCanvases.set(pageNum, canvas);
-        measureThumbnailHeight();
+        void measureThumbnailHeight();
     } catch (error) {
         renderTasks.delete(pageNum);
         if (
@@ -983,10 +983,10 @@ watch(
             }
         }
 
-        nextTick(() => {
+        void nextTick(() => {
             updateViewportMetrics();
-            scheduleVisibleThumbnailRender();
-            measureThumbnailHeight();
+            void scheduleVisibleThumbnailRender();
+            void measureThumbnailHeight();
             void syncCurrentPageIntoView('document-ready');
         });
     },
@@ -1001,14 +1001,14 @@ watch(
             visibleEndIndex.value,
         ] as const,
     () => {
-        scheduleVisibleThumbnailRender();
+        void scheduleVisibleThumbnailRender();
     },
 );
 
 watch(
     () => props.currentPage,
     () => {
-        scheduleVisibleThumbnailRender();
+        void scheduleVisibleThumbnailRender();
         void syncCurrentPageIntoView('current-page');
     },
     { immediate: true },
@@ -1054,7 +1054,7 @@ function invalidatePages(pages: number[]) {
         }
     }
 
-    scheduleVisibleThumbnailRender();
+    void scheduleVisibleThumbnailRender();
 }
 
 watch(
@@ -1079,14 +1079,14 @@ watch(
 
 watch(virtualPages, async () => {
     await nextTick();
-    measureThumbnailHeight();
+    void measureThumbnailHeight();
 });
 
 useResizeObserver(containerRef, () => {
     resolveVisibleContainer('resize-observer');
     updateViewportMetrics();
-    scheduleVisibleThumbnailRender();
-    measureThumbnailHeight();
+    void scheduleVisibleThumbnailRender();
+    void measureThumbnailHeight();
     void syncCurrentPageIntoView('resize-observer');
 });
 

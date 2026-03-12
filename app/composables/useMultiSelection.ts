@@ -11,7 +11,8 @@ export const useMultiSelection = <T extends string | number>() => {
         } = {},
     ) {
         if (opts.shift && anchor.value !== null) {
-            const anchorIndex = allIds.indexOf(anchor.value);
+            const anchorValue = anchor.value as T;
+            const anchorIndex = allIds.indexOf(anchorValue);
             const targetIndex = allIds.indexOf(id);
             if (anchorIndex >= 0 && targetIndex >= 0) {
                 const start = Math.min(anchorIndex, targetIndex);
@@ -40,7 +41,7 @@ export const useMultiSelection = <T extends string | number>() => {
             return;
         }
 
-        selected.value = new Set([id]);
+        selected.value = new Set<T>([id]);
         anchor.value = id;
     }
 

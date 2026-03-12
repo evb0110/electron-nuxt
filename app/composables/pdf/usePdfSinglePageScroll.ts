@@ -485,7 +485,7 @@ export function usePdfSinglePageScroll(
         }
 
         updateVisibleRange(viewerContainer.value, numPages.value);
-        debouncedRenderOnScroll();
+        void debouncedRenderOnScroll();
 
         const previous = currentPage.value;
         const page = updateCurrentPage(viewerContainer.value, numPages.value);
@@ -500,7 +500,7 @@ export function usePdfSinglePageScroll(
         maybeReleaseProgrammaticNavigation();
 
         if (!continuousScroll.value && !isSnapping.value) {
-            debouncedSnapToPage();
+            void debouncedSnapToPage();
         }
     }
 

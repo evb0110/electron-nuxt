@@ -321,7 +321,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     }
 
     function schedulePersistAnnotationNote(stableKey: string) {
-        getAnnotationNoteDebouncedSaver(stableKey)();
+        void getAnnotationNoteDebouncedSaver(stableKey)();
     }
 
     function updateAnnotationNoteText(stableKey: string, text: string) {

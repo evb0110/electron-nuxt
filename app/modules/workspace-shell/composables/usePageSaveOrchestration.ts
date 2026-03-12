@@ -194,10 +194,11 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 // Prewarm search index and worker caches after OCR persistence so
                 // first user search does not pay the indexing setup cost.
                 void api.search.warmIndex(warmupWorkingPath, {pageCount: warmupPageCountHint}).catch((error) => {
+                    const warmIndexError: unknown = error;
                     BrowserLogger.debug('pdf-search', 'Failed to prewarm search index after OCR', {
                         path: warmupWorkingPath,
                         pageCount: warmupPageCountHint,
-                        error,
+                        error: warmIndexError,
                     });
                 });
             }
@@ -208,7 +209,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
 
         await restorePromise;
         if (restoreError) {
-            throw restoreError;
+            throw restoreError instanceof Error
+                ? restoreError
+                : new Error(String(restoreError));
         }
     }
 

@@ -91,7 +91,7 @@ function serializeForRendererLog(value: unknown): unknown {
     }
 
     try {
-        return JSON.parse(JSON.stringify(value, (_key, currentValue) => {
+        const serialized = JSON.stringify(value, (_key, currentValue) => {
             if (currentValue instanceof Error) {
                 return {
                     name: currentValue.name,
@@ -104,8 +104,11 @@ function serializeForRendererLog(value: unknown): unknown {
                 return currentValue.toString();
             }
 
-            return currentValue;
-        }));
+            const normalizedValue: unknown = currentValue;
+            return normalizedValue;
+        });
+        const parsed: unknown = JSON.parse(serialized);
+        return parsed;
     } catch {
         return String(value);
     }
@@ -118,18 +121,18 @@ function forwardToMain(entry: IRendererLogEntry) {
 
     try {
         const electronAPI = (window as Window & {electronAPI?: {settings?: {rendererLog?: (payload: IRendererLogEntry) => void;};};}).electronAPI;
-
-        if (typeof electronAPI?.settings?.rendererLog === 'function') {
-            electronAPI.settings.rendererLog(entry);
+        const rendererLog = electronAPI?.settings?.rendererLog;
+        if (typeof rendererLog === 'function') {
+            rendererLog(entry);
         }
     } catch {
         // Ignore IPC bridge failures in browser logger
     }
 }
 
-function resolveLazyValue(value: TLazyValue | undefined) {
+function resolveLazyValue(value: TLazyValue | undefined): unknown {
     return typeof value === 'function'
-        ? value()
+        ? (value as () => unknown)()
         : value;
 }
 
@@ -224,7 +227,7 @@ export const BrowserLogger = {
         const timestamp = new Date().toISOString();
         const prefix = `[${timestamp}] [${section}]`;
 
-        const resolved = typeof data === 'function' ? data() : data;
+        const resolved = resolveLazyValue(data);
 
         if (resolved !== undefined) {
             console.log(`${prefix} ${message}`, resolved);
@@ -249,7 +252,7 @@ export const BrowserLogger = {
         const timestamp = new Date().toISOString();
         const prefix = `[${timestamp}] [${section}]`;
 
-        const resolved = typeof data === 'function' ? data() : data;
+        const resolved = resolveLazyValue(data);
 
         if (resolved !== undefined) {
             console.info(`${prefix} ${message}`, resolved);
@@ -279,7 +282,7 @@ export const BrowserLogger = {
         const timestamp = new Date().toISOString();
         const prefix = `[${timestamp}] [${section}]`;
 
-        const resolved = typeof data === 'function' ? data() : data;
+        const resolved = resolveLazyValue(data);
 
         if (resolved !== undefined) {
             console.warn(`${prefix} ${message}`, resolved);
@@ -326,7 +329,7 @@ export const BrowserLogger = {
         const timestamp = new Date().toISOString();
         const prefix = `[${timestamp}] [${section}]`;
 
-        const resolved = typeof error === 'function' ? error() : error;
+        const resolved = resolveLazyValue(error);
 
         if (resolved !== undefined) {
             console.error(`${prefix} ${message}`, resolved);

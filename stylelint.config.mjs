@@ -3,6 +3,7 @@ export default {
         'stylelint-config-standard-scss',
         'stylelint-config-recommended-vue/scss',
     ],
+    ignoreFiles: ['app/assets/css/vendor/**/*.css'],
     rules: {
         // Disallow SCSS parent selector concatenation (&- and &_)
         // Vue scoped styles eliminate the need for BEM - use flat class names
@@ -22,4 +23,23 @@ export default {
         // Don't enforce precision limits
         'number-max-precision': null,
     },
+    overrides: [
+        {
+            files: ['app/assets/css/**/*.css'],
+            rules: {
+                'scss/at-rule-no-unknown': null,
+                'hue-degree-notation': null,
+                'custom-property-empty-line-before': null,
+                'color-hex-length': null,
+                'value-keyword-case': null,
+                'selector-id-pattern': null,
+                'property-no-vendor-prefix': null,
+                'declaration-empty-line-before': null,
+                'custom-property-pattern': null,
+                'rule-empty-line-before': null,
+                'no-duplicate-selectors': null,
+                'no-descending-specificity': null,
+            },
+        },
+    ],
 };

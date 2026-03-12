@@ -1740,7 +1740,7 @@ function handleViewerClick(event: MouseEvent) {
     if (isSnipActive()) {
         return;
     }
-    commentCrud.handleAnnotationCommentClick(event);
+    void commentCrud.handleAnnotationCommentClick(event);
 }
 
 function handleViewerDblClick(event: MouseEvent) {

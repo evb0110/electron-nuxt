@@ -100,7 +100,7 @@ export const useWorkspaceFileLifecycleController = () => {
         }
 
         if (hasElectronAPI()) {
-            loadRecentFiles();
+            void loadRecentFiles();
         }
     }
 

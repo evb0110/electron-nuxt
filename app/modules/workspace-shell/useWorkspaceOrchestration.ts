@@ -323,7 +323,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         saveWorkingCopyAs,
         persistAllAnnotationNotes: (force: boolean) => persistAllAnnotationNotes(force),
         consumePendingEmbeddedTextUpdates: () => consumePendingEmbeddedTextUpdates(),
-        loadRecentFiles,
+        loadRecentFiles: () => {
+            void loadRecentFiles();
+        },
         clearOcrCache: (path: string) => clearOcrCache(path),
         loadPdfFromData,
         currentPage,
@@ -677,7 +679,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeAnnotationContextMenu,
         closePageContextMenu,
         closeAllAnnotationNotes,
-        loadRecentFiles,
+        loadRecentFiles: () => {
+            void loadRecentFiles();
+        },
     });
 
     // --- Helper functions ---
@@ -882,9 +886,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         }
         const restorePagePromise = pageToRestore && pageToRestore > 1
             ? waitForPdfReload(pageToRestore).catch((error) => {
+                const restorePageError: unknown = error;
                 BrowserLogger.debug('workspace', 'Split payload page restore wait failed', {
                     pageToRestore,
-                    error,
+                    error: restorePageError,
                 });
             })
             : null;

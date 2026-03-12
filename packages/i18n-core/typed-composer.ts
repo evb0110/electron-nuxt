@@ -9,17 +9,11 @@ export type TTypedI18nComposer<
     TLocale extends string,
 > = TComposer & ILocaleComposerMethods<TLocale> & {t: TTranslateFn;};
 
-type TTypedI18nComposerInput<
-    TComposer,
-    TTranslateFn,
-    TLocale extends string,
-> = TComposer & {t: TTranslateFn;} & Partial<ILocaleComposerMethods<TLocale>>;
-
 export function createTypedI18nComposer<
+    TComposer extends {t: TTranslateFn;} & Partial<ILocaleComposerMethods<TLocale>>,
     TTranslateFn,
     TLocale extends string,
-    TComposer extends object = object,
->(composer: TTypedI18nComposerInput<TComposer, TTranslateFn, TLocale>): TTypedI18nComposer<TComposer, TTranslateFn, TLocale> {
+>(composer: TComposer): TTypedI18nComposer<TComposer, TTranslateFn, TLocale> {
     const setLocale = async (locale: TLocale) => {
         await composer.setLocale?.(locale);
     };

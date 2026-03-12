@@ -36,6 +36,10 @@ type TEditorParamValue = Parameters<AnnotationEditorUIManager['updateParams']>[1
 
 interface IPdfjsEditorConstructor {updateDefaultParams?: (type: TEditorParamType, value: TEditorParamValue) => void;}
 
+function toEditorParamValue(value: unknown): TEditorParamValue {
+    return value as TEditorParamValue;
+}
+
 const DEFAULT_PDFJS_HIGHLIGHT_COLORS =
     'yellow=#FFFF98,green=#98FF98,blue=#98C0FF,pink=#FF98FF,red=#FF9090';
 
@@ -377,10 +381,19 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
             const hasSelection = 'hasSelection' in uiManager
                 ? Boolean((uiManager as { hasSelection?: boolean }).hasSelection)
                 : false;
-            const resolvedValue = type === AnnotationEditorParamsType.HIGHLIGHT_FREE
+            const incomingValue: unknown = value;
+            let resolvedValue: TEditorParamValue;
+            if (
+                type === AnnotationEditorParamsType.HIGHLIGHT_FREE
                 && markupSubtype.shouldForceTextMarkup(annotationTool.value)
-                ? false
-                : value;
+            ) {
+                // pdfjs-dist types updateParams values as any, so this boundary cannot be stronger locally.
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+                resolvedValue = toEditorParamValue(false);
+            } else {
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+                resolvedValue = toEditorParamValue(incomingValue);
+            }
             const result = originalUpdateParams(type, resolvedValue);
             if (hasSelection
                 && type !== AnnotationEditorParamsType.CREATE
@@ -407,19 +420,19 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
         };
 
         const originalCopy = uiManager.copy.bind(uiManager);
-        uiManager.copy = async (event: ClipboardEvent) => {
+        uiManager.copy = (event: ClipboardEvent) => {
             if (shouldIgnoreEditorEvent(event)) {
                 return;
             }
-            await originalCopy(event);
+            originalCopy(event);
         };
 
         const originalCut = uiManager.cut.bind(uiManager);
-        uiManager.cut = async (event: ClipboardEvent) => {
+        uiManager.cut = (event: ClipboardEvent) => {
             if (shouldIgnoreEditorEvent(event)) {
                 return;
             }
-            await originalCut(event);
+            originalCut(event);
         };
 
         const originalPaste = uiManager.paste.bind(uiManager);

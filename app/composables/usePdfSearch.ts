@@ -290,7 +290,7 @@ export const usePdfSearch = () => {
 
         return new Promise<boolean>((resolve) => {
             scheduledResolve = resolve;
-            debouncedPerformSearch({
+            void debouncedPerformSearch({
                 runId,
                 query: trimmedQuery,
                 pdfPath,

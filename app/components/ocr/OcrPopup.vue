@@ -341,7 +341,7 @@ function translateLanguageName(code: string) {
 
 watch(isOpen, (value) => {
     if (value) {
-        loadLanguages();
+        void loadLanguages();
     }
 });
 
@@ -403,7 +403,7 @@ function handleRunOcr() {
     if (!props.pdfDocument || !props.workingCopyPath) {
         return;
     }
-    runOcr(props.currentPage, props.totalPages, props.workingCopyPath);
+    void runOcr(props.currentPage, props.totalPages, props.workingCopyPath);
 }
 
 function handleCancel() {

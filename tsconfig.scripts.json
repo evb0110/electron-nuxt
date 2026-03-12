@@ -2,7 +2,6 @@
     "extends": "./electron/tsconfig.json",
     "compilerOptions": {
         "noEmit": true,
-        "skipLibCheck": true,
         "baseUrl": ".",
         "paths": {
             "@contracts": ["packages/contracts/index.ts"],

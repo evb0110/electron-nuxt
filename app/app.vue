@@ -102,7 +102,7 @@ function installViteReloadDiagnostics() {
     try {
         const rawPreviousEvent = window.sessionStorage.getItem(DEV_RELOAD_EVENT_KEY);
         if (rawPreviousEvent) {
-            const previousEvent = JSON.parse(rawPreviousEvent);
+            const previousEvent: unknown = JSON.parse(rawPreviousEvent);
             BrowserLogger.warn('dev-reload', 'Previous Vite reload event (persisted)', previousEvent);
             window.sessionStorage.removeItem(DEV_RELOAD_EVENT_KEY);
         }
