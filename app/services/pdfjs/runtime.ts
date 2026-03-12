@@ -30,20 +30,6 @@ export function getOptionalNumber(
         : null;
 }
 
-export function getOptionalBoolean(
-    value: unknown,
-    key: PropertyKey,
-): boolean | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-
-    const candidate = value[key];
-    return typeof candidate === 'boolean'
-        ? candidate
-        : null;
-}
-
 export function getOptionalArray(
     value: unknown,
     key: PropertyKey,
