@@ -1,5 +1,5 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import type { IPdfjsEditor } from '@app/composables/pdf/pdfAnnotationUtils';
+import type { IPdfjsEditor } from '@app/types/pdfjs';
 import {
     getOptionalFunction,
     getOptionalNumber,
