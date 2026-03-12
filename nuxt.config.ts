@@ -4,14 +4,17 @@ import {
     LOCALE_DEFINITIONS,
 } from './packages/i18n-core';
 
-interface IImportsContextEntry {
-    from: string;
-    name: string;
-}
+function isInvalidNuxtUiResizableImport(entry: unknown) {
+    if (!entry || typeof entry !== 'object') {
+        return false;
+    }
 
-function isInvalidNuxtUiResizableImport(entry: IImportsContextEntry) {
-    return entry.name === 'options'
-        && entry.from.includes('@nuxt/ui/dist/runtime/composables/useResizable');
+    const from = Reflect.get(entry, 'from');
+    const name = Reflect.get(entry, 'name');
+    return typeof name === 'string'
+        && typeof from === 'string'
+        && name === 'options'
+        && from.includes('@nuxt/ui/dist/runtime/composables/useResizable');
 }
 
 export default defineNuxtConfig({
@@ -54,8 +57,7 @@ export default defineNuxtConfig({
         // Removing it here prevents runtime ESM import errors during app bootstrap.
         'imports:extend': (imports) => {
             for (let index = imports.length - 1; index >= 0; index -= 1) {
-                const entry = imports[index] as IImportsContextEntry | undefined;
-                if (!entry || !isInvalidNuxtUiResizableImport(entry)) {
+                if (!isInvalidNuxtUiResizableImport(imports[index])) {
                     continue;
                 }
                 imports.splice(index, 1);

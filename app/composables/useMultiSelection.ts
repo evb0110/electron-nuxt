@@ -1,6 +1,6 @@
 export const useMultiSelection = <T extends string | number>() => {
-    const selected = ref(new Set<T>()) as Ref<Set<T>>;
-    const anchor = ref<T | null>(null) as Ref<T | null>;
+    const selected = shallowRef<Set<T>>(new Set());
+    const anchor = shallowRef<T | null>(null);
 
     function toggle(
         id: T,

@@ -1,15 +1,11 @@
-import type {
-    IpcMain,
-    IpcMainInvokeEvent,
-} from 'electron';
+import type { IpcMainInvokeEvent } from 'electron';
+import type { IIpcMainRegistrar } from '@contracts/ipc-main';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import {createDocumentsService} from '@electron/features/documents/service';
 import type { IDocumentsService } from '@electron/features/documents/ports';
 
-interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
-
 export function registerDocumentsIpcAdapter(
-    registrar: IIpcMainHandleRegistrar,
+    registrar: IIpcMainRegistrar,
     service: IDocumentsService = createDocumentsService(),
 ) {
     registrar.handle(DOCUMENTS_CHANNELS.openPdfDialog, () => service.openPdfDialog());

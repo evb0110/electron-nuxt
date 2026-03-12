@@ -1,15 +1,11 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-
-interface IPdfjsEditor {
-    id?: string;
-    uid?: string;
-    annotationElementId?: string | null;
-    parentPageIndex?: number;
-    div?: HTMLElement;
-    toggleComment?: (isSelected: boolean, visibility?: boolean) => void;
-    remove?: () => void;
-    delete?: () => void;
-}
+import type { IPdfjsEditor } from '@app/composables/pdf/pdfAnnotationUtils';
+import {
+    getOptionalFunction,
+    getOptionalNumber,
+    getOptionalString,
+    isRecord,
+} from '@app/services/pdfjs/runtime';
 
 type TUiManagerSelectedEditor = Parameters<
     AnnotationEditorUIManager['setSelected']
@@ -25,43 +21,56 @@ interface IUiManagerWithUnselectAll {unselectAll: () => void;}
 
 interface IEditorLayerWithGetEditorByUid {getEditorByUID: (uid: string) => unknown;}
 
-function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
-    return Boolean(value) && typeof value === 'object';
+export function isPdfjsEditor(value: unknown): value is IPdfjsEditor {
+    if (!isRecord(value)) {
+        return false;
+    }
+
+    const div = value.div;
+    if (div !== undefined && !(div instanceof HTMLElement)) {
+        return false;
+    }
+
+    return (
+        getOptionalString(value, 'id') !== null
+        || getOptionalString(value, 'uid') !== null
+        || getOptionalString(value, 'annotationElementId') !== null
+        || getOptionalNumber(value, 'parentPageIndex') !== null
+        || getOptionalFunction(value, 'toggleComment') !== null
+        || getOptionalFunction(value, 'remove') !== null
+        || getOptionalFunction(value, 'delete') !== null
+        || div instanceof HTMLElement
+    );
 }
 
 function toPdfjsEditor(value: unknown): IPdfjsEditor | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    return value as IPdfjsEditor;
+    return isPdfjsEditor(value)
+        ? value
+        : null;
 }
 
 function hasGetLayer(
     uiManager: AnnotationEditorUIManager,
 ): uiManager is AnnotationEditorUIManager & IUiManagerWithGetLayer {
-    const candidate = uiManager as { getLayer?: unknown };
-    return typeof candidate.getLayer === 'function';
+    return getOptionalFunction(uiManager, 'getLayer') !== null;
 }
 
 function hasSelectComment(
     uiManager: AnnotationEditorUIManager,
 ): uiManager is AnnotationEditorUIManager & IUiManagerWithSelectComment {
-    const candidate = uiManager as { selectComment?: unknown };
-    return typeof candidate.selectComment === 'function';
+    return getOptionalFunction(uiManager, 'selectComment') !== null;
 }
 
 function hasGetEditor(
     uiManager: AnnotationEditorUIManager,
 ): uiManager is AnnotationEditorUIManager & IUiManagerWithGetEditor {
-    const candidate = uiManager as { getEditor?: unknown };
-    return typeof candidate.getEditor === 'function';
+    return getOptionalFunction(uiManager, 'getEditor') !== null;
 }
 
 function hasUnselectAll(
     uiManager: AnnotationEditorUIManager,
 ): uiManager is AnnotationEditorUIManager & IUiManagerWithUnselectAll {
-    const candidate = uiManager as { unselectAll?: unknown };
-    return typeof candidate.unselectAll === 'function';
+    return getOptionalFunction(uiManager, 'unselectAll') !== null;
 }
 
 function hasGetEditorByUid(
@@ -71,16 +80,20 @@ function hasGetEditorByUid(
         return false;
     }
 
-    const candidate = layer as { getEditorByUID?: unknown };
-    return typeof candidate.getEditorByUID === 'function';
+    return getOptionalFunction(layer, 'getEditorByUID') !== null;
 }
 
 export function setSelectedEditor(
     uiManager: AnnotationEditorUIManager,
     editor: unknown,
 ) {
+    if (!isPdfjsEditor(editor)) {
+        return false;
+    }
+
     const setSelected = uiManager.setSelected as (value: TUiManagerSelectedEditor) => void;
     setSelected(editor as TUiManagerSelectedEditor);
+    return true;
 }
 
 export function getEditorByUidFromLayer(

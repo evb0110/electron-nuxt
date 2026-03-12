@@ -1,10 +1,10 @@
 import {
     BrowserWindow,
-    type IpcMain,
     ipcMain,
     shell,
     webContents,
 } from 'electron';
+import type { IIpcMainRegistrar } from '@contracts/ipc-main';
 import { assertNonEmptyString } from '@contracts/ipc-assertions';
 import type { ISettingsData } from '@contracts/shared';
 import type {
@@ -136,8 +136,6 @@ const RENDERER_LOG_DROP_NOTICE_INTERVAL_MS = (() => {
     return parsed;
 })();
 const rendererLogRateStateBySender = new Map<number, IRendererLogRateState>();
-
-interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -466,16 +464,19 @@ function isTrustedIpcInvokeSender(event: Electron.IpcMainInvokeEvent, channel: s
     return isTrustedWebContentsSender(event.sender, event.senderFrame, channel);
 }
 
-function createValidatedIpcMainRegistrar(registrar: IIpcMainHandleRegistrar): IIpcMainHandleRegistrar {
-    return {handle: (channel, handler) => {
-        registrar.handle(channel, async (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => {
+function createValidatedIpcMainRegistrar(registrar: IIpcMainRegistrar): IIpcMainRegistrar {
+    return {handle: <TArgs extends unknown[], TResult>(
+        channel: string,
+        handler: (
+            event: Electron.IpcMainInvokeEvent,
+            ...args: TArgs
+        ) => TResult | Promise<TResult>,
+    ) => {
+        registrar.handle(channel, async (event: Electron.IpcMainInvokeEvent, ...args: TArgs) => {
             if (!isTrustedIpcInvokeSender(event, channel)) {
                 throw new Error('IPC sender is not trusted');
             }
-            return (handler as (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown)(
-                event,
-                ...args,
-            );
+            return handler(event, ...args);
         });
     }};
 }

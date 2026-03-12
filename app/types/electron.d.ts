@@ -2,7 +2,7 @@ import type { IElectronAPI } from '@contracts/electron-api';
 
 declare global {
     interface Window {
-        electronAPI: IElectronAPI;
+        electronAPI?: IElectronAPI;
         __openFileDirect?: (path: string) => Promise<void>;
         __handleSave?: () => Promise<void>;
         __appReady?: boolean;

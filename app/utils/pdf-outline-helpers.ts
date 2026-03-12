@@ -5,6 +5,11 @@ import type {
     IBookmarkLocation,
 } from '@app/types/pdf-outline';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import {
+    getOptionalArray,
+    getOptionalString,
+    isRecord,
+} from '@app/services/pdfjs/runtime';
 
 interface IRefProxy {
     num: number;
@@ -23,17 +28,58 @@ export interface IOutlineItemRaw {
 }
 
 function isRefProxy(value: unknown): value is IRefProxy {
-    return (
-        typeof value === 'object'
-        && value !== null
-        && 'num' in value
-        && 'gen' in value
-        && typeof (value as IRefProxy).num === 'number'
-        && typeof (value as IRefProxy).gen === 'number'
-    );
+    return isRecord(value)
+        && typeof value.num === 'number'
+        && typeof value.gen === 'number';
 }
 
 export { isRefProxy };
+
+function normalizeOutlineDest(value: unknown): IOutlineItemRaw['dest'] {
+    if (typeof value === 'string' || value === null || Array.isArray(value)) {
+        return value;
+    }
+
+    return null;
+}
+
+function normalizeOutlineColor(value: unknown): ArrayLike<number> | null {
+    if (!value || typeof value !== 'object' || typeof (value as { length?: unknown }).length !== 'number') {
+        return null;
+    }
+
+    return value as ArrayLike<number>;
+}
+
+function normalizeOutlineItem(value: unknown): IOutlineItemRaw | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+
+    const title = getOptionalString(value, 'title') ?? '';
+    const items = getOptionalArray(value, 'items');
+
+    return {
+        title,
+        dest: normalizeOutlineDest(value.dest ?? null),
+        bold: value.bold === true ? true : undefined,
+        italic: value.italic === true ? true : undefined,
+        color: normalizeOutlineColor(value.color),
+        items: items
+            ? parseOutlineItems(items)
+            : undefined,
+    };
+}
+
+export function parseOutlineItems(value: unknown): IOutlineItemRaw[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    return value
+        .map(normalizeOutlineItem)
+        .filter((item): item is IOutlineItemRaw => item !== null);
+}
 
 export function convertOutlineColorToHex(color: ArrayLike<number> | null | undefined): string | null {
     if (!color || typeof color.length !== 'number' || color.length < 3) {

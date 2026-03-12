@@ -8,6 +8,12 @@ import type {
     TTranslationKey,
 } from '@i18n-app';
 import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
+import {
+    getOptionalFunction,
+    getOptionalObject,
+    getOptionalString,
+    isRecord,
+} from '@app/services/pdfjs/runtime';
 
 export {
     clamp01, normalizeMarkerRect, toMarkerRectFromPdfRect, toPdfRectFromMarkerRect, markerRectIoU, rectIntersectionArea, rectIoU, rectCenterDistance, rectsIntersect, mergeMarkerRects,
@@ -323,7 +329,10 @@ export function detectEditorSubtype(editor: IPdfjsEditor | null | undefined) {
         return 'Ink';
     }
 
-    const constructorType = (editor as { constructor?: { _type?: unknown } }).constructor?._type;
+    const constructorType = getOptionalString(
+        getOptionalObject(editor, 'constructor'),
+        '_type',
+    );
     if (constructorType === 'freetext') {
         return 'Typewriter';
     }
@@ -334,9 +343,10 @@ export function detectEditorSubtype(editor: IPdfjsEditor | null | undefined) {
         return 'Ink';
     }
 
-    const serialized = (editor as { serialize?: () => unknown }).serialize?.();
-    if (serialized && typeof serialized === 'object') {
-        const annotationType = (serialized as { annotationType?: unknown }).annotationType;
+    const serialize = getOptionalFunction(editor, 'serialize');
+    const serialized = serialize?.();
+    if (isRecord(serialized)) {
+        const annotationType = getOptionalString(serialized, 'annotationType');
         if (annotationType === 'freetext') {
             return 'Typewriter';
         }

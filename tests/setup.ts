@@ -3,6 +3,10 @@ import {
     beforeEach,
     vi,
 } from 'vitest';
+import type {
+    TLocale,
+    TTranslateFn,
+} from '@i18n-app';
 import { EN_MESSAGE_SCHEMA } from '@i18n-app';
 import { flattenObject } from 'es-toolkit/object';
 
@@ -12,17 +16,24 @@ const EN_TRANSLATION_KEYS = new Set(
         .map(entry => entry[0]),
 );
 
-const translate = (key: string) => {
+const translate: TTranslateFn = (key, ...args) => {
     if (!EN_TRANSLATION_KEYS.has(key)) {
         throw new Error(`Unknown i18n key in test: "${key}"`);
+    }
+    const rawParams = args[0];
+    if (typeof rawParams === 'number') {
+        return `${key}:${rawParams}`;
+    }
+    if (rawParams && typeof rawParams === 'object') {
+        return `${key}:${JSON.stringify(rawParams)}`;
     }
     return key;
 };
 
 const i18nComposer = {
     t: translate,
-    setLocale: async () => {},
-    loadLocaleMessages: async () => {},
+    setLocale: async (_locale: TLocale) => {},
+    loadLocaleMessages: async (_locale: TLocale) => {},
 };
 
 vi.mock('vue-i18n', () => ({useI18n: () => i18nComposer}));

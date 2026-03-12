@@ -4,6 +4,11 @@ import {
     getElectronAPI,
     hasElectronAPI,
 } from '@app/utils/electron';
+import {
+    getOptionalNumber,
+    getOptionalString,
+    isRecord,
+} from '@app/services/pdfjs/runtime';
 
 // Vite HMR types (not exposed by Nuxt's type system)
 declare global {
@@ -22,6 +27,65 @@ const ELECTRON_API_WAIT_TIMEOUT_MS = 2400;
 
 // Deduplication: track in-flight load promise
 let loadPromise: Promise<void> | null = null;
+
+function toRecentFile(value: unknown): IRecentFile | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+
+    const originalPath = getOptionalString(value, 'originalPath');
+    const fileName = getOptionalString(value, 'fileName');
+    const timestamp = getOptionalNumber(value, 'timestamp');
+    if (!originalPath || !fileName || timestamp === null) {
+        return null;
+    }
+
+    const fileSize = getOptionalNumber(value, 'fileSize') ?? undefined;
+    return {
+        originalPath,
+        fileName,
+        timestamp,
+        fileSize,
+    };
+}
+
+function readRecentFilesHmrState(data: unknown) {
+    if (!isRecord(data)) {
+        return null;
+    }
+
+    const normalizedRecentFiles = Array.isArray(data.recentFiles)
+        ? data.recentFiles
+            .map(toRecentFile)
+            .filter((value): value is IRecentFile => value !== null)
+        : null;
+
+    return {
+        recentFiles: normalizedRecentFiles,
+        isLoading: getOptionalBooleanValue(data, 'isLoading'),
+        error: getOptionalNullableStringValue(data, 'error'),
+    };
+}
+
+function getOptionalBooleanValue(
+    value: Record<PropertyKey, unknown>,
+    key: PropertyKey,
+) {
+    const candidate = value[key];
+    return typeof candidate === 'boolean'
+        ? candidate
+        : null;
+}
+
+function getOptionalNullableStringValue(
+    value: Record<PropertyKey, unknown>,
+    key: PropertyKey,
+) {
+    const candidate = value[key];
+    return typeof candidate === 'string' || candidate === null
+        ? candidate
+        : null;
+}
 
 async function waitForElectronApiReady(timeoutMs = ELECTRON_API_WAIT_TIMEOUT_MS) {
     if (hasElectronAPI()) {
@@ -131,10 +195,10 @@ if (import.meta.hot) {
     });
 
     // Restore state from previous module version
-    const hmrData = import.meta.hot.data;
-    if (hmrData?.recentFiles) {
-        recentFiles.value = hmrData.recentFiles as IRecentFile[];
-        isLoading.value = (hmrData.isLoading as boolean) ?? false;
-        error.value = (hmrData.error as string | null) ?? null;
+    const previousState = readRecentFilesHmrState(import.meta.hot.data);
+    if (previousState?.recentFiles) {
+        recentFiles.value = previousState.recentFiles;
+        isLoading.value = previousState.isLoading ?? false;
+        error.value = previousState.error ?? null;
     }
 }

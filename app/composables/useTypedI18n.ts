@@ -12,5 +12,5 @@ interface IAppTypedI18nComposer {
 
 export function useTypedI18n(): IAppTypedI18nComposer {
     const composer = useI18n();
-    return createTypedI18nComposer<typeof composer, TTranslateFn, TLocale>(composer);
+    return createTypedI18nComposer<TTranslateFn, TLocale>(composer);
 }

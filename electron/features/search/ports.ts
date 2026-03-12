@@ -1,5 +1,4 @@
-import type { IpcMain } from 'electron';
-
-export interface IIpcMainRegistrar {handle: IpcMain['handle'];}
+import type { IIpcMainRegistrar } from '@contracts/ipc-main';
+export type { IIpcMainRegistrar };
 
 export interface ISearchService {registerHandlers: (registrar: IIpcMainRegistrar) => void;}
