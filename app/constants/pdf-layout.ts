@@ -9,7 +9,7 @@ export const SIDEBAR = {
 export const ZOOM = {
     STEP: 0.25,
     MIN: 0.25,
-    MAX: 5,
+    MAX: 10,
     PRESETS: [
         {
             value: 0.5,

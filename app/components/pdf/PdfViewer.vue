@@ -50,7 +50,7 @@
                 :show-skeleton="shouldShowSkeleton(page)"
                 :force-skeleton="resizeTransitionVisible"
                 :spread-single="isSpreadSingle(page)"
-                :placeholder-style="pagePlaceholderStyle"
+                :placeholder-style="getPagePlaceholderStyle(page)"
             />
             <div
                 v-if="bottomVirtualSpacerStyle"
@@ -314,6 +314,7 @@ const {
     isLoading,
     basePageWidth,
     basePageHeight,
+    pageMetrics,
     saveDocument,
 } = pdfDocumentResult;
 
@@ -324,7 +325,7 @@ const {
     scrollToPage: scrollToPageInternal,
     updateCurrentPage,
     updateVisibleRange,
-    setUniformLayoutMetrics,
+    setPageLayoutMetrics,
 } = usePdfScroll();
 
 function summarizeViewerStateForLog() {
@@ -409,6 +410,7 @@ const {
     fitMode,
     viewMode,
     numPages,
+    pageMetrics,
     basePageWidth,
     basePageHeight,
 );
@@ -772,9 +774,8 @@ const {
 });
 
 const {
-    pageHeightEstimate,
-    pageGapEstimate,
-    pagePlaceholderStyle,
+    pageLayout,
+    getPagePlaceholderStyle,
     virtualizedContinuousMode,
     searchNavigationWindow,
     virtualWindowStart,
@@ -789,6 +790,7 @@ const {
     numPages,
     basePageWidth,
     basePageHeight,
+    pageMetrics,
     effectiveScale,
     scaledMargin,
     visibleRange,
@@ -797,18 +799,74 @@ const {
 });
 
 function captureZoomVirtualizationFreeze(sessionId: number | null, reason: string) {
-    void sessionId;
-    void reason;
+    if (!virtualizedContinuousMode.value || numPages.value <= 0) {
+        zoomVirtualizationFreeze.value = null;
+        return;
+    }
+
+    const topSpacerHeight = Number.parseFloat(
+        topVirtualSpacerStyle.value?.height ?? '0',
+    );
+    const bottomSpacerHeight = Number.parseFloat(
+        bottomVirtualSpacerStyle.value?.height ?? '0',
+    );
+
+    zoomVirtualizationFreeze.value = {
+        sessionId,
+        capturedAtMs: Date.now(),
+        windowStart: virtualWindowStart.value,
+        windowEnd: virtualWindowEnd.value,
+        topSpacerHeight: Number.isFinite(topSpacerHeight) ? Math.max(0, topSpacerHeight) : 0,
+        bottomSpacerHeight: Number.isFinite(bottomSpacerHeight) ? Math.max(0, bottomSpacerHeight) : 0,
+    };
+
+    BrowserLogger.warnThrottled(
+        'pdf-zoom-debug',
+        'virtualization-freeze-capture',
+        WHEEL_DETAIL_LOG_THROTTLE_MS,
+        `[zoom-virtualization] capture reason=${reason}`,
+        {
+            reason,
+            freeze: zoomVirtualizationFreeze.value,
+            currentPage: currentPage.value,
+            visibleRange: {
+                start: visibleRange.value.start,
+                end: visibleRange.value.end,
+            },
+            viewer: summarizeViewerStateForLog(),
+        },
+    );
 }
 
 function releaseZoomVirtualizationFreeze(reason: string) {
-    void reason;
+    if (!zoomVirtualizationFreeze.value) {
+        return;
+    }
+
+    BrowserLogger.warnThrottled(
+        'pdf-zoom-debug',
+        'virtualization-freeze-release',
+        WHEEL_DETAIL_LOG_THROTTLE_MS,
+        `[zoom-virtualization] release reason=${reason}`,
+        {
+            reason,
+            freeze: zoomVirtualizationFreeze.value,
+            viewer: summarizeViewerStateForLog(),
+        },
+    );
     zoomVirtualizationFreeze.value = null;
 }
 
 function shouldHoldZoomVirtualizationFreeze(nowMs = Date.now()) {
-    void nowMs;
-    return false;
+    if (!virtualizedContinuousMode.value) {
+        return false;
+    }
+
+    if (isZoomRerenderBusyFromCore || zoomSnapSuppressed.value || nowMs <= expectedZoomScrollUntilMs) {
+        return true;
+    }
+
+    return Boolean(getActiveWheelZoomSession(nowMs));
 }
 
 function maybeReleaseZoomVirtualizationFreeze(reason: string) {
@@ -994,21 +1052,12 @@ watch(
 );
 
 watchEffect(() => {
-    const totalPages = numPages.value;
-    const pageHeight = pageHeightEstimate.value;
-    const gap = pageGapEstimate.value;
-
-    if (viewMode.value === 'single' && totalPages > 0 && pageHeight > 0) {
-        setUniformLayoutMetrics({
-            pageHeight,
-            gap,
-            paddingTop: scaledMargin.value,
-            totalPages,
-        });
+    if (viewMode.value === 'single' && pageLayout.value) {
+        setPageLayoutMetrics(pageLayout.value);
         return;
     }
 
-    setUniformLayoutMetrics(null);
+    setPageLayoutMetrics(null);
 });
 
 watch(
@@ -1044,7 +1093,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
-    setUniformLayoutMetrics(null);
+    setPageLayoutMetrics(null);
     stopInitialRenderObserver();
     resizeTransitionVisible.value = false;
     clearWheelZoomSessionIdleTimer();

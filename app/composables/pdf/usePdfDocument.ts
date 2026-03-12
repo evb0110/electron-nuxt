@@ -6,9 +6,13 @@ import type {
     PDFPageProxy,
 } from 'pdfjs-dist';
 import { getElectronAPI } from '@app/utils/electron';
-import type { TPdfSource } from '@app/types/pdf';
+import type {
+    IPdfPageMetric,
+    TPdfSource,
+} from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { guardAsync } from '@app/utils/async-guard';
+import { resolveDocumentBaseMetric } from '@app/composables/pdf/pdfPageLayout';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
 
@@ -48,6 +52,7 @@ export const usePdfDocument = () => {
     const isLoading = ref(false);
     const basePageWidth = ref<number | null>(null);
     const basePageHeight = ref<number | null>(null);
+    const pageMetrics = ref<IPdfPageMetric[]>([]);
 
     let renderVersion = 0;
     const pdfPageCache = new Map<number, PDFPageProxy>();
@@ -63,6 +68,73 @@ export const usePdfDocument = () => {
         return ++renderVersion;
     }
 
+    function syncBaseMetrics(metrics: IPdfPageMetric[]) {
+        basePageWidth.value = resolveDocumentBaseMetric(metrics, 'width');
+        basePageHeight.value = resolveDocumentBaseMetric(metrics, 'height');
+    }
+
+    async function loadPageMetrics(
+        document: PDFDocumentProxy,
+        version: number,
+    ) {
+        const totalPages = document.numPages;
+        if (totalPages <= 0) {
+            pageMetrics.value = [];
+            basePageWidth.value = null;
+            basePageHeight.value = null;
+            return;
+        }
+
+        const nextMetrics = new Array<IPdfPageMetric>(totalPages);
+        const concurrency = Math.min(6, totalPages);
+        let nextPageNumber = 1;
+
+        const worker = async () => {
+            while (true) {
+                const pageNumber = nextPageNumber;
+                nextPageNumber += 1;
+
+                if (pageNumber > totalPages || version !== renderVersion) {
+                    return;
+                }
+
+                const page = await document.getPage(pageNumber);
+                if (version !== renderVersion) {
+                    return;
+                }
+
+                const viewport = page.getViewport({ scale: 1 });
+                nextMetrics[pageNumber - 1] = {
+                    width: viewport.width,
+                    height: viewport.height,
+                };
+                if (typeof page.cleanup === 'function') {
+                    page.cleanup();
+                }
+            }
+        };
+
+        await Promise.all(Array.from({ length: concurrency }, () => worker()));
+        if (version !== renderVersion) {
+            return;
+        }
+
+        const normalizedMetrics = nextMetrics.filter(
+            (metric): metric is IPdfPageMetric =>
+                typeof metric?.width === 'number'
+                && Number.isFinite(metric.width)
+                && metric.width > 0
+                && typeof metric.height === 'number'
+                && Number.isFinite(metric.height)
+                && metric.height > 0,
+        );
+
+        pageMetrics.value = normalizedMetrics.length === totalPages
+            ? normalizedMetrics
+            : [];
+        syncBaseMetrics(pageMetrics.value);
+    }
+
     async function loadPdf(
         src: TPdfSource,
         options?: { preservePageStructure?: boolean },
@@ -74,6 +146,9 @@ export const usePdfDocument = () => {
         const savedBaseHeight = options?.preservePageStructure
             ? basePageHeight.value
             : null;
+        const savedPageMetrics = options?.preservePageStructure
+            ? pageMetrics.value.map(metric => ({ ...metric }))
+            : [];
 
         // Cancel any in-progress load - latest wins
         cleanup();
@@ -82,6 +157,7 @@ export const usePdfDocument = () => {
             numPages.value = savedNumPages;
             basePageWidth.value = savedBaseWidth;
             basePageHeight.value = savedBaseHeight;
+            pageMetrics.value = savedPageMetrics;
         }
 
         const version = incrementRenderVersion();
@@ -89,6 +165,7 @@ export const usePdfDocument = () => {
         if (!options?.preservePageStructure) {
             basePageWidth.value = null;
             basePageHeight.value = null;
+            pageMetrics.value = [];
         }
 
         try {
@@ -218,11 +295,7 @@ export const usePdfDocument = () => {
 
                 pdfDocument.value = pdfDoc;
                 numPages.value = pdfDoc.numPages;
-
-                const firstPage = await pdfDoc.getPage(1);
-                const viewport = firstPage.getViewport({ scale: 1 });
-                basePageWidth.value = viewport.width;
-                basePageHeight.value = viewport.height;
+                await loadPageMetrics(pdfDoc, version);
 
                 return {
                     version,
@@ -243,11 +316,7 @@ export const usePdfDocument = () => {
 
             pdfDocument.value = pdfDoc;
             numPages.value = pdfDoc.numPages;
-
-            const firstPage = await pdfDoc.getPage(1);
-            const viewport = firstPage.getViewport({ scale: 1 });
-            basePageWidth.value = viewport.width;
-            basePageHeight.value = viewport.height;
+            await loadPageMetrics(pdfDoc, version);
 
             return {
                 version,
@@ -360,6 +429,7 @@ export const usePdfDocument = () => {
         numPages.value = 0;
         basePageWidth.value = null;
         basePageHeight.value = null;
+        pageMetrics.value = [];
     }
 
     return {
@@ -368,6 +438,7 @@ export const usePdfDocument = () => {
         isLoading,
         basePageWidth,
         basePageHeight,
+        pageMetrics,
         getRenderVersion,
         incrementRenderVersion,
         loadPdf,

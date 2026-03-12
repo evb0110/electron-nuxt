@@ -3,16 +3,17 @@ import type {
     AnnotationEditorUIManager,
     PDFPageProxy,
 } from 'pdfjs-dist';
+import type {
+    IPdfPageMatches,
+    IPdfPageMetric,
+    IPdfSearchMatch,
+    IScrollSnapshot,
+} from '@app/types/pdf';
 import type { IL10n } from 'pdfjs-dist/types/web/interfaces';
 import type {
     MaybeRefOrGetter,
     Ref,
 } from 'vue';
-import type {
-    IPdfPageMatches,
-    IPdfSearchMatch,
-    IScrollSnapshot,
-} from '@app/types/pdf';
 import { chunk } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
@@ -90,6 +91,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         numPages,
         basePageWidth,
         basePageHeight,
+        pageMetrics,
         isLoading,
         getPage,
         evictPage,
@@ -332,7 +334,14 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
 
         const scale = toValue(options.effectiveScale);
-        setupPagePlaceholderSizes(containerRoot, baseWidth, baseHeight, scale);
+        const normalizedPageMetrics = Array.from(
+            { length: numPages.value },
+            (_, index) => pageMetrics.value[index] ?? {
+                width: baseWidth,
+                height: baseHeight,
+            } satisfies IPdfPageMetric,
+        );
+        setupPagePlaceholderSizes(containerRoot, normalizedPageMetrics, scale);
     }
 
     async function renderVisiblePages(
