@@ -43,9 +43,6 @@
     --app-toolbar-control-disabled-opacity: 0.4;
     --app-toolbar-group-border: var(--ui-border);
     --app-toolbar-focus-ring: color-mix(in oklab, var(--ui-border) 68%, var(--ui-text) 32%);
-    --app-toolbar-shadow:
-        0 1px 3px 0 color-mix(in srgb, var(--ui-bg-inverted) 8%, transparent),
-        0 1px 2px -1px color-mix(in srgb, var(--ui-bg-inverted) 6%, transparent);
     --app-tab-drag-shadow: 0 2px 8px color-mix(in srgb, var(--ui-bg-inverted) 15%, transparent);
     --app-tab-context-menu-shadow: var(--app-pdf-context-menu-grid-shadow);
     --app-editor-group-grid-bg: var(--app-window-bg);
@@ -215,9 +212,6 @@
     --app-toolbar-control-disabled-opacity: 0.38;
     --app-toolbar-group-border: color-mix(in oklab, var(--ui-border) 72%, var(--ui-text-muted) 28%);
     --app-toolbar-focus-ring: color-mix(in oklab, var(--ui-border) 58%, var(--ui-text) 42%);
-    --app-toolbar-shadow:
-        0 1px 3px 0 color-mix(in srgb, var(--ui-bg-inverted) 14%, transparent),
-        0 1px 2px -1px color-mix(in srgb, var(--ui-bg-inverted) 12%, transparent);
     --app-tab-drag-shadow: 0 2px 8px color-mix(in srgb, var(--ui-bg-inverted) 28%, transparent);
     --app-editor-group-border: color-mix(in oklab, var(--ui-border) 75%, var(--ui-text-muted) 25%);
     --app-editor-group-border-active: color-mix(in oklab, var(--ui-primary) 62%, var(--ui-border) 38%);
