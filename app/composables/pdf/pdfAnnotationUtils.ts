@@ -235,14 +235,29 @@ export function getAnnotationAuthor(annotation: {
 }
 
 type TTranslateLabel = TTranslateFn;
+type TAnnotationLabelKey = Extract<TTranslationKey,
+    | 'annotations.annotationLabel'
+    | 'annotations.highlightLabel'
+    | 'annotations.underlineLabel'
+    | 'annotations.squiggleLabel'
+    | 'annotations.strikeOutLabel'
+    | 'annotations.popUpNoteLabel'
+    | 'annotations.inlineNoteLabel'
+    | 'annotations.freehandLineLabel'
+    | 'annotations.lineLabel'
+    | 'annotations.rectangleLabel'
+    | 'annotations.circleLabel'
+    | 'annotations.polygonLabel'
+    | 'annotations.stamp'
+>;
 
 export function annotationKindLabelFromSubtype(
     subtype: string | null | undefined,
     translate?: TTranslateLabel,
 ) {
-    const label = (key: TTranslationKey, fallback: string) => (
+    const label = (key: TAnnotationLabelKey, fallback: string) => (
         typeof translate === 'function'
-            ? translate(key)
+            ? translate(key, undefined)
             : fallback
     );
 

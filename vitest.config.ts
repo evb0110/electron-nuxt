@@ -15,6 +15,7 @@ export default defineConfig({
         '@electron': resolve(__dirname, 'electron'),
         '@contracts': resolve(__dirname, 'packages/contracts'),
         '@i18n-core': resolve(__dirname, 'packages/i18n-core'),
+        '@i18n-app': resolve(__dirname, 'packages/i18n-app'),
         '@release-selection': resolve(__dirname, 'packages/release-selection'),
     }},
     test: {

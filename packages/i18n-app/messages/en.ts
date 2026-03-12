@@ -20,7 +20,7 @@ export default {
         'closeFile': 'Close File',
         'settings': 'Settings',
         'moreTools': 'More tools',
-        'captureRegion': 'Capture Region',
+        'captureRegion': 'Screenshot',
         'captureHint': 'Drag to capture a PDF region. Esc to cancel.',
         'captureCopied': 'Copied',
         'crop': 'Crop Pages',

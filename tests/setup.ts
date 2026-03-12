@@ -3,11 +3,11 @@ import {
     beforeEach,
     vi,
 } from 'vitest';
+import { EN_MESSAGE_SCHEMA } from '@i18n-app';
 import { flattenObject } from 'es-toolkit/object';
-import enMessages from '@app/locales/en';
 
 const EN_TRANSLATION_KEYS = new Set(
-    Object.entries(flattenObject(enMessages))
+    Object.entries(flattenObject(EN_MESSAGE_SCHEMA))
         .filter(entry => typeof entry[1] === 'string')
         .map(entry => entry[0]),
 );

@@ -42,9 +42,17 @@ type TPlaceholderValue<TKey extends string> = TKey extends 'count'
     ? number
     : string | number;
 
-type TParamsFromMessage<TText extends string> = [TPlaceholderNames<TText>] extends [never]
+type THasPluralForms<TText extends string> = TText extends `${string}|${string}`
+    ? true
+    : false;
+
+type TMessageParamNames<TText extends string> = THasPluralForms<TText> extends true
+    ? TPlaceholderNames<TText> | 'count'
+    : TPlaceholderNames<TText>;
+
+type TParamsFromMessage<TText extends string> = [TMessageParamNames<TText>] extends [never]
     ? undefined
-    : { [TKey in TPlaceholderNames<TText>]: TPlaceholderValue<TKey> };
+    : { [TKey in TMessageParamNames<TText>]: TPlaceholderValue<TKey> };
 
 export type TTranslationMessageFromSchema<
     TSchema extends object,

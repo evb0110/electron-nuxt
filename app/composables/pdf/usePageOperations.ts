@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { ICropMargins } from '@app/types/crop';
+import type { TTranslationKey } from '@i18n-app';
 import { getElectronAPI } from '@app/utils/electron';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -7,6 +8,17 @@ type TPageOpsRotation = 90 | 180 | 270;
 type TPageOpsResult = { success: boolean };
 type TPageOperationRunner<TResult extends TPageOpsResult> = (path: string) => Promise<TResult>;
 type TPageOperationSuccess<TResult extends TPageOpsResult> = (result: TResult) => boolean;
+type TPageOperationErrorKey = Extract<
+    TTranslationKey,
+    | 'errors.pageOps.delete'
+    | 'errors.pageOps.extract'
+    | 'errors.pageOps.rotate'
+    | 'errors.pageOps.insert'
+    | 'errors.pageOps.insertFile'
+    | 'errors.pageOps.reorder'
+    | 'errors.pageOps.crop'
+    | 'errors.pageOps.removeCrop'
+>;
 
 export const usePageOperations = (deps: {
     workingCopyPath: Ref<string | null>;
@@ -35,7 +47,7 @@ export const usePageOperations = (deps: {
 
     async function runOperation<TResult extends TPageOpsResult>(options: {
         operationName: string;
-        errorKey: Parameters<typeof t>[0];
+        errorKey: TPageOperationErrorKey;
         run: TPageOperationRunner<TResult>;
         shouldReload?: boolean;
         isSuccessful?: TPageOperationSuccess<TResult>;
@@ -63,7 +75,7 @@ export const usePageOperations = (deps: {
             return true;
         } catch (e) {
             BrowserLogger.error('page-ops', `${options.operationName} failed`, e);
-            error.value = e instanceof Error ? e.message : t(options.errorKey);
+            error.value = e instanceof Error ? e.message : t(options.errorKey, undefined);
             return false;
         } finally {
             isOperationInProgress.value = false;

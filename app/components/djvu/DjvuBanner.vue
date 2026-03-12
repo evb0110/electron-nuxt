@@ -41,7 +41,12 @@
 <script setup lang="ts">
 const { t } = useTypedI18n();
 
-defineProps<{
+const {
+    visible,
+    isLoadingPages = false,
+    loadingCurrent = 0,
+    loadingTotal = 0,
+} = defineProps<{
     visible: boolean;
     isLoadingPages?: boolean;
     loadingCurrent?: number;

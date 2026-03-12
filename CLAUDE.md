@@ -12,7 +12,7 @@ Never hardcode CSS values — use design tokens from `app/assets/css/main.css`.
 - No raw color values in component `<style>` or inline styles
 
 ## Localization
-Never hardcode UI-facing text. Use `t()` with keys in both `app/locales/en.ts` and `app/locales/ru.ts`.
+Never hardcode UI-facing text. Use `t()` with keys in `packages/i18n-app/messages/en.ts` and `packages/i18n-app/messages/ru.ts`.
 
 ## Icon Bundling
 All icons must be in `clientBundle.icons` in `nuxt.config.ts`. Without this, icons fetch from Iconify API at runtime, violating CSP in Electron.

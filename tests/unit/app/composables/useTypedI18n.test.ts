@@ -47,8 +47,15 @@ describe('useTypedI18n', () => {
         const i18n = useTypedI18n();
 
         expect(i18n.t('contextMenu.copySelectionToClipboard')).toBe('contextMenu.copySelectionToClipboard');
+        expect(i18n.t('export.scopeAll', { count: 2 })).toBe('export.scopeAll');
 
         // @ts-expect-error invalid translation key should be rejected
         i18n.t('contextMenu.copySelectionClipboard');
+
+        // @ts-expect-error required params should be enforced
+        i18n.t('export.scopeAll');
+
+        // @ts-expect-error invalid params should be rejected
+        i18n.t('export.scopeAll', { page: 2 });
     });
 });
