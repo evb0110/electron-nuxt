@@ -20,6 +20,11 @@ export interface IContentInsets {
     left: number;
 }
 
+export interface IPdfPageMetric {
+    width: number;
+    height: number;
+}
+
 export interface IScrollSnapshot {
     width: number;
     height: number;
@@ -39,6 +44,11 @@ export interface IScrollSnapshot {
 }
 
 export type TAnchorPageOutsideEdge = 'inside' | 'above' | 'below';
+
+export interface IPdfPageMetric {
+    width: number;
+    height: number;
+}
 
 export interface IPdfPathSource {
     kind: 'path';

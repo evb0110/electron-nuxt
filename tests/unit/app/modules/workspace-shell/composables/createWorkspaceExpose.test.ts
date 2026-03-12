@@ -74,14 +74,14 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
 describe('createWorkspaceExpose', () => {
     it('clamps zoom in/out commands', () => {
         const deps = createDeps({
-            zoom: ref(4.9),
-            effectiveZoom: ref(4.9),
+            zoom: ref(9.9),
+            effectiveZoom: ref(9.9),
         });
         const exposed = createWorkspaceExpose(deps);
 
         exposed.handleZoomIn();
         exposed.handleZoomIn();
-        expect(deps.zoom.value).toBe(5);
+        expect(deps.zoom.value).toBe(10);
         expect(deps.zoomMode.value).toBe('custom');
 
         deps.zoom.value = 0.3;

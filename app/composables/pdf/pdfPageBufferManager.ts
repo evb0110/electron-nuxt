@@ -1,3 +1,5 @@
+import type { IPdfPageMetric } from '@app/types/pdf';
+
 const placeholderSizeCache = new WeakMap<HTMLElement, {
     width: number;
     height: number;
@@ -29,15 +31,21 @@ export function getPageContainer(containerRoot: HTMLElement, pageIndex: number) 
 
 export function setupPagePlaceholderSizes(
     containerRoot: HTMLElement,
-    baseWidth: number,
-    baseHeight: number,
+    pageMetrics: IPdfPageMetric[],
     scale: number,
 ) {
-    const width = baseWidth * scale;
-    const height = baseHeight * scale;
-
     const containers = containerRoot.querySelectorAll<HTMLDivElement>('.page_container');
     containers.forEach((container) => {
+        const pageNumber = Number.parseInt(container.dataset.page ?? '', 10);
+        const metric = Number.isFinite(pageNumber)
+            ? pageMetrics[pageNumber - 1]
+            : null;
+        if (!metric) {
+            return;
+        }
+
+        const width = metric.width * scale;
+        const height = metric.height * scale;
         const cached = placeholderSizeCache.get(container);
         if (
             cached

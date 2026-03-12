@@ -5,7 +5,10 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { usePdfScale } from '@app/composables/pdf/usePdfScale';
-import type { TFitMode } from '@app/types/pdf';
+import type {
+    IPdfPageMetric,
+    TFitMode,
+} from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
 
 function createContainer(
@@ -21,6 +24,7 @@ function createContainer(
 function createScaleComposable(options: {
     width: number;
     height: number;
+    pageMetrics?: IPdfPageMetric[];
     mode?: TFitMode;
     zoom?: number;
     viewMode?: TPdfViewMode;
@@ -28,18 +32,24 @@ function createScaleComposable(options: {
     const zoom = ref(options.zoom ?? 1);
     const fitMode = ref<TFitMode>(options.mode ?? 'width');
     const viewMode = ref<TPdfViewMode>(options.viewMode ?? 'single');
-    const numPages = ref(1);
+    const pageMetrics = ref(options.pageMetrics ?? [{
+        width: options.width,
+        height: options.height,
+    }]);
+    const numPages = ref(pageMetrics.value.length);
     const baseWidth = ref(options.width);
     const baseHeight = ref(options.height);
 
     return {
         baseWidth,
         baseHeight,
+        pageMetrics,
         scale: usePdfScale(
             zoom,
             fitMode,
             viewMode,
             numPages,
+            pageMetrics,
             baseWidth,
             baseHeight,
         ),
@@ -104,5 +114,32 @@ describe('usePdfScale', () => {
             padding: '20px',
             gap: '20px',
         });
+    });
+
+    it('fits the widest page span instead of assuming page 1 geometry for every page', () => {
+        const { scale } = createScaleComposable({
+            width: 400,
+            height: 500,
+            pageMetrics: [
+                {
+                    width: 400,
+                    height: 500,
+                },
+                {
+                    width: 180,
+                    height: 500,
+                },
+                {
+                    width: 700,
+                    height: 500,
+                },
+            ],
+            mode: 'width',
+        });
+        const container = createContainer(1000, 900);
+
+        scale.computeFitWidthScale(container);
+
+        expect(scale.effectiveScale.value * 700).toBeCloseTo(960, 6);
     });
 });

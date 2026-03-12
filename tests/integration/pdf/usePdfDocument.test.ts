@@ -97,6 +97,10 @@ describe('usePdfDocument range loading', () => {
         expect(documentState.numPages.value).toBe(1);
         expect(documentState.basePageWidth.value).toBe(100);
         expect(documentState.basePageHeight.value).toBe(200);
+        expect(documentState.pageMetrics.value).toEqual([{
+            width: 100,
+            height: 200,
+        }]);
         expect(documentState.isLoading.value).toBe(false);
 
         expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
@@ -112,6 +116,65 @@ describe('usePdfDocument range loading', () => {
             iccUrl: '/pdf/iccs/',
             useSystemFonts: false,
         }));
+    });
+
+    it('uses the largest measured page as the fit baseline when page sizes differ', async () => {
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 3,
+                getPage: vi.fn(async (pageNumber: number) => {
+                    const metrics = [
+                        {
+                            width: 180,
+                            height: 240,
+                        },
+                        {
+                            width: 612,
+                            height: 792,
+                        },
+                        {
+                            width: 320,
+                            height: 640,
+                        },
+                    ];
+                    const metric = metrics[pageNumber - 1]!;
+                    return { getViewport: vi.fn(() => metric) };
+                }),
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        } as ILoadingTask);
+        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = usePdfDocument();
+        const result = await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/mixed-sizes.pdf',
+            size: 1024,
+        });
+
+        expect(result).not.toBeNull();
+        expect(documentState.basePageWidth.value).toBe(612);
+        expect(documentState.basePageHeight.value).toBe(792);
+        expect(documentState.pageMetrics.value).toEqual([
+            {
+                width: 180,
+                height: 240,
+            },
+            {
+                width: 612,
+                height: 792,
+            },
+            {
+                width: 320,
+                height: 640,
+            },
+        ]);
     });
 
     it('returns null and clears loading when PDF.js range transport API is unavailable', async () => {

@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { getPageContainer } from '@app/composables/pdf/pdfPageBufferManager';
+import {
+    getPageContainer,
+    setupPagePlaceholderSizes,
+} from '@app/composables/pdf/pdfPageBufferManager';
 
 function cast<T>(value: unknown): T {
     return value as T;
@@ -51,5 +54,38 @@ describe('pdfPageBufferManager.getPageContainer', () => {
         ]);
 
         expect(getPageContainer(root, 0)).toBeNull();
+    });
+
+    it('sizes mounted placeholders from each page metric instead of one shared size', () => {
+        const containers = [
+            cast<HTMLElement>({
+                dataset: { page: '1' },
+                style: {},
+            }),
+            cast<HTMLElement>({
+                dataset: { page: '2' },
+                style: {},
+            }),
+        ];
+
+        const root = cast<HTMLElement>({ querySelectorAll: (selector: string) => (
+            selector === '.page_container' ? containers : []
+        ) });
+
+        setupPagePlaceholderSizes(root, [
+            {
+                width: 100,
+                height: 200,
+            },
+            {
+                width: 50,
+                height: 80,
+            },
+        ], 2);
+
+        expect(containers[0]?.style.width).toBe('200px');
+        expect(containers[0]?.style.height).toBe('400px');
+        expect(containers[1]?.style.width).toBe('100px');
+        expect(containers[1]?.style.height).toBe('160px');
     });
 });
