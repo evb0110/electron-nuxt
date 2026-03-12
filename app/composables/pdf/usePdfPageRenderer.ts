@@ -91,12 +91,14 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         numPages,
         basePageWidth,
         basePageHeight,
-        pageMetrics,
         isLoading,
         getPage,
         evictPage,
         cleanupPageCache,
     } = options.document;
+    const pageMetrics = 'pageMetrics' in options.document
+        ? options.document.pageMetrics
+        : ref<IPdfPageMetric[]>([]);
 
     const bufferPages = options.bufferPages ?? 2;
     const showAnnotations = options.showAnnotations ?? true;
