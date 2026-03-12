@@ -26,6 +26,7 @@ describe('settings-sanitizer', () => {
             theme: 'dark',
             locale: 'fr',
         })).toEqual({
+            ...DEFAULT_SETTINGS,
             version: 3,
             authorName: 'Alice',
             theme: 'dark',
@@ -44,6 +45,7 @@ describe('settings-sanitizer', () => {
             skippedUpdateVersion: '  1.2.3  ',
             suppressDefaultViewerPrompt: true,
         })).toEqual({
+            ...DEFAULT_SETTINGS,
             version: 1,
             authorName: 'Bob',
             theme: 'light',

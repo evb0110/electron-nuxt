@@ -62,8 +62,6 @@
     "release:patch": "HUSKY=0 node scripts/release/cut-release.mjs patch",
     "release:minor": "HUSKY=0 node scripts/release/cut-release.mjs minor",
     "release:major": "HUSKY=0 node scripts/release/cut-release.mjs major",
-    "release:preflight": "node scripts/release/run-release-phase.mjs preflight",
-    "release:publish": "node scripts/release/run-release-publish.mjs",
     "check:resources:matrix": "bash scripts/check-native-tools-source-matrix.sh",
     "check:resources:matrix:all": "bash scripts/check-native-tools-source-matrix.sh --all",
     "check:locales": "pnpm exec tsx scripts/check-locales.ts",

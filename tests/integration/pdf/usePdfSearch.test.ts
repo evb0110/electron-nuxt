@@ -111,10 +111,13 @@ describe('usePdfSearch', () => {
         const applied = await promise;
 
         expect(applied).toBe(true);
-        expect(mocks.api.search.run).toHaveBeenCalledWith('/tmp/doc.pdf', 'term', {
+        expect(mocks.api.search.run).toHaveBeenCalledWith('/tmp/doc.pdf', 'term', expect.objectContaining({
             requestId: expect.stringContaining('search-'),
             pageCount: 20,
-        });
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+        }));
         expect(search.results.value).toHaveLength(2);
         expect(search.totalMatches.value).toBe(2);
         expect(search.currentResultIndex.value).toBe(0);
