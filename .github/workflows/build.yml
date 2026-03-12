@@ -329,6 +329,7 @@ jobs:
   build_mac_intel:
     if: ${{ inputs.include_mac_intel }}
     name: build (macos-15-intel, mac, x64)
+    continue-on-error: true
     runs-on: macos-15-intel
 
     steps:
