@@ -2,9 +2,11 @@
     <UPopover v-model:open="isOpen" mode="click" :disabled="disabled">
         <template v-if="!hideTrigger">
             <ToolbarButton
-                icon="lucide:scan-text"
-                :tooltip="t('ocr.button')"
+                :icon="triggerIcon"
+                :tooltip="triggerTooltip"
+                :active="isOpen || progress.isRunning"
                 :disabled="disabled"
+                :loading="progress.isRunning"
             />
         </template>
         <span v-else class="ocr-popup__hidden-trigger" aria-hidden="true" />
@@ -314,12 +316,38 @@ const isExporting = computed(() => props.isExportingDocx ?? false);
 const effectiveError = computed(() => error.value ?? props.externalError ?? null);
 const isCopyingLogs = ref(false);
 const copyLogsState = ref<'idle' | 'copied' | 'failed'>('idle');
+const showSuccessState = ref(false);
 const {
     start: startCopyLogsStateReset,
     stop: stopCopyLogsStateReset,
 } = useTimeoutFn(() => {
     copyLogsState.value = 'idle';
 }, 2500, { immediate: false });
+const {
+    start: startSuccessStateReset,
+    stop: stopSuccessStateReset,
+} = useTimeoutFn(() => {
+    showSuccessState.value = false;
+}, 3000, { immediate: false });
+
+const triggerIcon = computed(() => showSuccessState.value ? 'lucide:check-circle' : 'lucide:scan-text');
+const triggerTooltip = computed(() => {
+    if (progress.value.isRunning) {
+        return progress.value.phase === 'preparing'
+            ? t('ocr.preparing')
+            : t('ocr.processingPage', {
+                page: progress.value.currentPage,
+                processed: progress.value.processedCount,
+                total: progress.value.totalPages,
+            });
+    }
+
+    if (showSuccessState.value) {
+        return t('ocr.complete');
+    }
+
+    return t('ocr.button');
+});
 
 const copyLogsTooltip = computed(() => {
     if (copyLogsState.value === 'copied') {
@@ -347,6 +375,7 @@ watch(isOpen, (value) => {
 
 onBeforeUnmount(() => {
     stopCopyLogsStateReset();
+    stopSuccessStateReset();
 });
 
 function scheduleCopyLogsStateReset() {
@@ -417,6 +446,10 @@ function handleExportDocx() {
 // Emit when OCR completes with PDF data
 watch(() => results.value.searchablePdfData, (pdfData) => {
     if (pdfData) {
+        isOpen.value = false;
+        showSuccessState.value = true;
+        stopSuccessStateReset();
+        startSuccessStateReset();
         emit('ocrComplete', pdfData);
     }
 });

@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type { IPdfSearchRequestOptions } from '@contracts/search';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
@@ -9,7 +10,13 @@ interface IPageSearchDeps {
     workingCopyPath: Ref<string | null>;
     totalPages: Ref<number>;
     searchQuery: Ref<string>;
-    search: (query: string, path: string, totalPages?: number) => Promise<boolean>;
+    searchOptions: Ref<Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>>;
+    search: (
+        query: string,
+        path: string,
+        totalPages?: number,
+        options?: Partial<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>,
+    ) => Promise<boolean>;
     goToResult: (direction: 'next' | 'previous') => void;
     setResultIndex: (index: number) => void;
     clearSearch: () => void;
@@ -23,6 +30,7 @@ export const usePageSearch = (deps: IPageSearchDeps) => {
         workingCopyPath,
         totalPages,
         searchQuery,
+        searchOptions,
         search,
         goToResult,
         setResultIndex,
@@ -57,6 +65,7 @@ export const usePageSearch = (deps: IPageSearchDeps) => {
                 searchQuery.value,
                 workingCopyPath.value,
                 totalPages.value > 0 ? totalPages.value : undefined,
+                searchOptions.value,
             );
         }
     }

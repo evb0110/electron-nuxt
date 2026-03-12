@@ -59,6 +59,10 @@ describe('useSettings', () => {
             authorName: 'Tester',
             theme: 'light',
             locale: 'xx' as ISettingsData['locale'],
+            defaultZoomPreset: 'fit-width',
+            defaultViewMode: 'single',
+            defaultContinuousScroll: true,
+            defaultAnnotationColor: '#ffd400',
         });
 
         const { useSettings } = await import('@app/composables/useSettings');

@@ -1138,6 +1138,17 @@ onBeforeUnmount(() => {
   background: var(--ui-bg-accented);
 }
 
+.pdf-thumbnail.is-active::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--ui-primary);
+}
+
 .pdf-thumbnail.is-selected {
   border-color: var(--ui-primary);
   background: var(--ui-bg-elevated);

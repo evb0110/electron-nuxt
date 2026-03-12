@@ -28,6 +28,7 @@ type TCachedIndex = {
 interface IPreparedSearchPage {
     pageNumber: number;
     sourcePageIndex: number;
+    text: string;
     lowerText: string;
 }
 
@@ -105,12 +106,18 @@ function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
     }
     const pageCount = isFiniteNumber(value.pageCount) ? value.pageCount : undefined;
     const warmup = typeof value.warmup === 'boolean' ? value.warmup : undefined;
+    const matchCase = typeof value.matchCase === 'boolean' ? value.matchCase : undefined;
+    const wholeWord = typeof value.wholeWord === 'boolean' ? value.wholeWord : undefined;
+    const useRegex = typeof value.useRegex === 'boolean' ? value.useRegex : undefined;
     return {
         requestId: value.requestId,
         pdfPath: value.pdfPath,
         query: value.query,
         pageCount,
         warmup,
+        matchCase,
+        wholeWord,
+        useRegex,
     };
 }
 
@@ -209,6 +216,59 @@ function buildExcerpt(
         match,
         after,
     };
+}
+
+function escapeRegex(value: string) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildSearchRegex(query: string, options: {
+    matchCase: boolean;
+    wholeWord: boolean;
+    useRegex: boolean;
+}) {
+    const basePattern = options.useRegex ? query : escapeRegex(query);
+    const pattern = options.wholeWord
+        ? `(?<![\\p{L}\\p{N}_])(?:${basePattern})(?![\\p{L}\\p{N}_])`
+        : basePattern;
+    const flags = options.matchCase ? 'gu' : 'giu';
+    return new RegExp(pattern, flags);
+}
+
+function findPageMatches(
+    pageText: string,
+    query: string,
+    options: {
+        matchCase: boolean;
+        wholeWord: boolean;
+        useRegex: boolean;
+    },
+) {
+    const matcher = buildSearchRegex(query, options);
+    const results: Array<{
+        startOffset: number;
+        endOffset: number;
+    }> = [];
+
+    let match = matcher.exec(pageText);
+    while (match) {
+        const matchedText = match[0] ?? '';
+
+        if (matchedText.length === 0) {
+            matcher.lastIndex = match.index + 1;
+            match = matcher.exec(pageText);
+            continue;
+        }
+
+        results.push({
+            startOffset: match.index,
+            endOffset: match.index + matchedText.length,
+        });
+
+        match = matcher.exec(pageText);
+    }
+
+    return results;
 }
 
 function isCancelled(requestId: string) {
@@ -465,6 +525,7 @@ function ensurePreparedSearchPages(entry: TCachedIndex): IPreparedSearchPage[] {
         return {
             pageNumber: page.pageNumber,
             sourcePageIndex,
+            text: pageText,
             lowerText,
         };
     });
@@ -480,6 +541,9 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
         query,
         pageCount,
         warmup,
+        matchCase = false,
+        wholeWord = false,
+        useRegex = false,
     } = request;
 
     const abortController = new AbortController();
@@ -531,8 +595,6 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
             return;
         }
 
-        const lowerQuery = normalizedQuery.toLowerCase();
-
         const totalPages = typeof pageCount === 'number' && pageCount > 0
             ? pageCount
             : (indexEntry.index.pageCount ?? indexEntry.index.pages.length);
@@ -558,18 +620,20 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
                 continue;
             }
 
-            const sourcePage = indexEntry.index.pages[page.sourcePageIndex];
-            const pageText = sourcePage?.text ?? '';
+            const pageText = page.text;
 
             if (pageText) {
-                const lowerPageText = page.lowerText;
-                let position = 0;
                 let pageMatchIndex = 0;
+                const pageMatches = findPageMatches(pageText, normalizedQuery, {
+                    matchCase,
+                    wholeWord,
+                    useRegex,
+                });
 
-                while ((position = lowerPageText.indexOf(lowerQuery, position)) !== -1) {
+                for (const pageMatch of pageMatches) {
                     throwIfCancelled(requestId, signal);
-                    const startOffset = position;
-                    const endOffset = position + normalizedQuery.length;
+                    const startOffset = pageMatch.startOffset;
+                    const endOffset = pageMatch.endOffset;
 
                     results.push({
                         pageNumber: page.pageNumber,
@@ -582,7 +646,6 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
 
                     pageMatchIndex += 1;
                     globalMatchIndex += 1;
-                    position += normalizedQuery.length;
 
                     if (results.length >= SEARCH_RESULT_LIMIT) {
                         truncated = true;

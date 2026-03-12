@@ -9,31 +9,24 @@
         @keydown.space.prevent="emit('activate')"
     >
         <div class="pdf-search-result-meta">
-            <span class="pdf-search-result-page">{{ t('searchResults.page', { page: pageIndicator }) }}</span>
-            <span class="pdf-search-result-match">{{ t('searchResults.match', { index: result.matchIndex + 1 }) }}</span>
+            <span v-if="showPageLabel" class="pdf-search-result-page">{{ t('searchResults.page', { page: pageIndicator }) }}</span>
+            <span class="pdf-search-result-match">{{ t('searchResults.match', { index: matchIndicator }) }}</span>
         </div>
         <div
             v-if="result.excerpt"
             class="pdf-search-result-snippet"
         >
             <template v-if="result.excerpt.prefix">…</template>
-            <span
-                ref="textRef"
-            >
-                {{ fullText }}
-            </span>
+            <span>{{ result.excerpt.before }}</span>
+            <mark class="pdf-search-result-highlight">{{ result.excerpt.match }}</mark>
+            <span>{{ result.excerpt.after }}</span>
             <template v-if="result.excerpt.suffix">…</template>
         </div>
     </button>
 </template>
 
 <script setup lang="ts">
-
 import type { IPdfSearchMatch } from '@app/types/pdf';
-import {
-    registerSearchHighlight,
-    unregisterSearchHighlight,
-} from '@app/composables/useSearchHighlight';
 import { formatPageIndicator } from '@app/utils/pdf-page-labels';
 
 const { t } = useTypedI18n();
@@ -42,71 +35,15 @@ interface IProps {
     result: IPdfSearchMatch;
     isActive: boolean;
     pageLabels?: string[] | null;
+    showPageLabel?: boolean;
 }
 
 const props = defineProps<IProps>();
 const emit = defineEmits<{(e: 'activate'): void;}>();
 
-const textRef = ref<HTMLSpanElement | null>(null);
-const highlightId = `search-${crypto.randomUUID()}`;
-
-const fullText = computed(() => {
-    if (!props.result.excerpt) {
-        return '';
-    }
-    return props.result.excerpt.before + props.result.excerpt.match + props.result.excerpt.after;
-});
-
-const matchStart = computed(() => props.result.excerpt?.before.length ?? 0);
-const matchEnd = computed(() => matchStart.value + (props.result.excerpt?.match.length ?? 0));
+const showPageLabel = computed(() => props.showPageLabel ?? true);
 const pageIndicator = computed(() => formatPageIndicator(props.result.pageIndex + 1, props.pageLabels ?? null));
-
-function applyHighlight() {
-    if (!textRef.value || typeof CSS === 'undefined' || !CSS.highlights) {
-        return;
-    }
-
-    const textNode = textRef.value.firstChild;
-    if (!textNode || textNode.nodeType !== Node.TEXT_NODE) {
-        return;
-    }
-
-    const textLength = textNode.textContent?.length ?? 0;
-    const start = Math.max(0, Math.min(matchStart.value, textLength));
-    const end = Math.max(start, Math.min(matchEnd.value, textLength));
-
-    if (start === end) {
-        return;
-    }
-
-    const range = new Range();
-    range.setStart(textNode, start);
-    range.setEnd(textNode, end);
-    registerSearchHighlight(highlightId, range);
-}
-
-function clearHighlight() {
-    unregisterSearchHighlight(highlightId);
-}
-
-onMounted(() => {
-    void nextTick(() => applyHighlight());
-});
-
-onBeforeUnmount(() => {
-    clearHighlight();
-});
-
-watch(
-    () => [
-        props.result,
-        fullText.value,
-    ],
-    () => {
-        clearHighlight();
-        void nextTick(() => applyHighlight());
-    },
-);
+const matchIndicator = computed(() => (props.result.pageMatchIndex ?? props.result.matchIndex) + 1);
 </script>
 
 <style scoped>
@@ -155,19 +92,19 @@ watch(
 
 .pdf-search-result-snippet {
     font-size: 12px;
-    line-height: 1.4;
+    line-height: 1.45;
     color: var(--ui-text-muted);
     overflow: hidden;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
 }
-</style>
 
-<style>
-/* CSS Custom Highlight API - must be global (not scoped) */
-::highlight(search-result-match) {
+.pdf-search-result-highlight {
+    padding: 0 0.1rem;
+    border-radius: 0.2rem;
+    background: var(--app-pdf-search-result-highlight-bg);
     color: var(--ui-text);
-    background-color: var(--app-pdf-search-result-highlight-bg);
+    font-weight: 700;
 }
 </style>

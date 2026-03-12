@@ -6,6 +6,7 @@ import type {
 } from '@app/types/pdf';
 import type {
     IPdfSearchProgress,
+    IPdfSearchRequestOptions,
     IPdfSearchResponse,
 } from '@contracts/search';
 import {
@@ -27,6 +28,11 @@ export type {
 
 export const usePdfSearch = () => {
     const searchQuery = ref('');
+    const searchOptions = ref<Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>>({
+        matchCase: false,
+        wholeWord: false,
+        useRegex: false,
+    });
     const results = ref<IPdfSearchMatch[]>([]);
     const pageMatches = ref<Map<number, IPdfPageMatches>>(new Map());
     const currentResultIndex = ref(-1);
@@ -65,6 +71,7 @@ export const usePdfSearch = () => {
         query: string;
         pdfPath: string;
         pageCount?: number;
+        options: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>;
     }) => {
         const resolver = scheduledResolve;
         scheduledResolve = null;
@@ -75,6 +82,7 @@ export const usePdfSearch = () => {
                 payload.query,
                 payload.pdfPath,
                 payload.pageCount,
+                payload.options,
             );
         } catch (error) {
             BrowserLogger.warn('pdf-search', 'Search failed', {
@@ -116,6 +124,7 @@ export const usePdfSearch = () => {
         query: string,
         pdfPath: string,
         pageCount?: number,
+        options: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>> = searchOptions.value,
     ) {
         if (!query.trim()) {
             return;
@@ -156,6 +165,7 @@ export const usePdfSearch = () => {
             const response: IPdfSearchResponse = await api.search.run(pdfPath, query, {
                 requestId,
                 pageCount,
+                ...options,
             });
 
             if (runId !== searchRunId) {
@@ -188,6 +198,7 @@ export const usePdfSearch = () => {
                         pageIndex,
                         pageText: '', // Not required for highlighting (PDF.js text layer is the source of truth)
                         searchQuery: query, // Store the search query for text item matching
+                        searchOptions: { ...options },
                         matches: [],
                     };
 
@@ -260,8 +271,18 @@ export const usePdfSearch = () => {
         }
     }
 
-    async function search(query: string, pdfPath: string, pageCount?: number): Promise<boolean> {
+    async function search(
+        query: string,
+        pdfPath: string,
+        pageCount?: number,
+        options: Partial<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>> = searchOptions.value,
+    ): Promise<boolean> {
         searchQuery.value = query;
+        searchOptions.value = {
+            matchCase: Boolean(options.matchCase),
+            wholeWord: Boolean(options.wholeWord),
+            useRegex: Boolean(options.useRegex),
+        };
         const trimmedQuery = query.trim();
 
         if (!trimmedQuery) {
@@ -295,8 +316,19 @@ export const usePdfSearch = () => {
                 query: trimmedQuery,
                 pdfPath,
                 pageCount,
+                options: { ...searchOptions.value },
             });
         });
+    }
+
+    function setSearchOption(
+        key: keyof typeof searchOptions.value,
+        value: boolean,
+    ) {
+        searchOptions.value = {
+            ...searchOptions.value,
+            [key]: value,
+        };
     }
 
     function goToResult(direction: TSearchDirection) {
@@ -362,6 +394,7 @@ export const usePdfSearch = () => {
 
     return {
         searchQuery,
+        searchOptions,
         results,
         pageMatches,
         currentResultIndex,
@@ -373,6 +406,7 @@ export const usePdfSearch = () => {
         isTruncated,
         minQueryLength: MIN_QUERY_LENGTH,
         search,
+        setSearchOption,
         goToResult,
         setResultIndex,
         clearSearch,

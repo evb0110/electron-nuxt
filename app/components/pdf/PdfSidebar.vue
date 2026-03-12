@@ -15,7 +15,7 @@
                 root: 'gap-0',
                 list: 'p-0 mb-0 rounded-none bg-transparent border-b border-default',
                 indicator: 'bg-primary/60 rounded-none bottom-0',
-                trigger: 'flex-1 min-w-0 justify-center px-1 py-2 rounded-none text-[10.5px] font-semibold tracking-[0.02em] uppercase whitespace-nowrap data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-muted/40',
+                trigger: 'flex-1 min-w-0 justify-center px-1 py-2 rounded-none text-[11.5px] font-semibold tracking-[0.01em] whitespace-nowrap data-[state=active]:text-default data-[state=inactive]:text-muted data-[state=inactive]:hover:bg-muted/40',
                 leadingIcon: 'size-3.5 shrink-0',
             }"
             class="shrink-0"
@@ -114,7 +114,9 @@
                     <PdfSearchBar
                         ref="searchBarRef"
                         v-model="searchQueryProxy"
+                        :options="searchOptions"
                         :total-matches="totalMatches"
+                        @update:options="handleSearchOptionsUpdate"
                         @search="emit('search')"
                         @next="emit('next')"
                         @previous="emit('previous')"
@@ -125,6 +127,7 @@
                         :results="searchResults"
                         :current-result-index="currentResultIndex"
                         :search-query="searchQuery"
+                        :search-options="searchOptions"
                         :page-labels="pageLabels"
                         :is-searching="isSearching"
                         :search-progress="props.searchProgress"
@@ -141,6 +144,7 @@
 <script setup lang="ts">
 
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { IPdfSearchRequestOptions } from '@contracts/search';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
@@ -169,6 +173,7 @@ interface IProps {
     searchResults: IPdfSearchMatch[];
     currentResultIndex: number;
     searchQuery: string;
+    searchOptions: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>;
     totalMatches: number;
     isSearching: boolean;
     searchProgress?: {
@@ -210,6 +215,7 @@ const emit = defineEmits<{
     (e: 'goToResult', index: number): void;
     (e: 'update:activeTab', value: TPdfSidebarTab): void;
     (e: 'update:searchQuery', value: string): void;
+    (e: 'update:searchOptions', value: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>): void;
     (e: 'update:annotation-tool', value: TAnnotationTool): void;
     (e: 'update:annotation-keep-active', value: boolean): void;
     (e: 'update:bookmark-edit-mode', value: boolean): void;
@@ -277,6 +283,10 @@ async function focusSearch() {
 
 function handleSelectedPagesUpdate(pages: number[]) {
     emit('update:selectedThumbnailPages', pages);
+}
+
+function handleSearchOptionsUpdate(value: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>) {
+    emit('update:searchOptions', value);
 }
 
 function clearPageSelection() {
