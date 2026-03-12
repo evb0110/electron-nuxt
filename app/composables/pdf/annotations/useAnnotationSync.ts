@@ -322,7 +322,10 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
 
                 try {
                     const page = await doc.getPage(pageNumber);
-                    pageAnnotations = await page.getAnnotations();
+                    const rawAnnotations: unknown = await page.getAnnotations();
+                    pageAnnotations = Array.isArray(rawAnnotations)
+                        ? rawAnnotations as typeof pageAnnotations
+                        : [];
                     pageView = getOptionalNumberArray(page, 'view');
                     pageRotation = normalizePageRotation(getOptionalNumber(page, 'rotate') ?? 0);
                 } catch (error) {

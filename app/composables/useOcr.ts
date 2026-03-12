@@ -378,9 +378,10 @@ export const useOcr = () => {
             BrowserLogger.info('ocr', 'Cancelling OCR', { requestId: requestIdToCancel });
             const api = getElectronAPI();
             void api.ocr.cancel(requestIdToCancel).catch((cancelError) => {
+                const normalizedCancelError: unknown = cancelError;
                 BrowserLogger.debug('ocr', 'OCR cancel request failed', {
                     requestId: requestIdToCancel,
-                    error: cancelError,
+                    error: normalizedCancelError,
                 });
             });
         }

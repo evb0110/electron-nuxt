@@ -55,6 +55,14 @@ function hasGetLayer(
     return getOptionalFunction(uiManager, 'getLayer') !== null;
 }
 
+function getLayerFromUiManager(
+    uiManager: AnnotationEditorUIManager & IUiManagerWithGetLayer,
+    pageIndex: number,
+): unknown {
+    const getLayer = getOptionalFunction<[number], unknown>(uiManager, 'getLayer');
+    return getLayer?.(pageIndex);
+}
+
 function hasSelectComment(
     uiManager: AnnotationEditorUIManager,
 ): uiManager is AnnotationEditorUIManager & IUiManagerWithSelectComment {
@@ -105,7 +113,7 @@ export function getEditorByUidFromLayer(
         return null;
     }
 
-    const layer = uiManager.getLayer(pageIndex);
+    const layer = getLayerFromUiManager(uiManager, pageIndex);
     if (!hasGetEditorByUid(layer)) {
         return null;
     }

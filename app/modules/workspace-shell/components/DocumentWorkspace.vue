@@ -1127,8 +1127,12 @@ onUnmounted(() => {
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,
     handleSaveAs,
-    handleUndo,
-    handleRedo,
+    handleUndo: () => {
+        void handleUndo();
+    },
+    handleRedo: () => {
+        void handleRedo();
+    },
     handleOpenFileFromUi,
     handleOpenFileDirectWithPersist,
     handleOpenFileDirectBatchWithPersist,

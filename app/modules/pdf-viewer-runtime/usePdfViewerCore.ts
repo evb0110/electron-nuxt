@@ -1234,9 +1234,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
                 viewer: summarizeViewerMetricsForLog(viewerContainer.value),
                 visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
             });
-            debouncedRenderOnResizeWithAnchor();
+            void debouncedRenderOnResizeWithAnchor();
         } else {
-            debouncedRenderOnResize();
+            void debouncedRenderOnResize();
         }
     }
 

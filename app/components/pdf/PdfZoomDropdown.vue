@@ -189,7 +189,7 @@ function close() {
 
 watch(isOpen, (open) => {
     if (open) {
-        nextTick(() => {
+        void nextTick(() => {
             customInputRef.value?.focus();
             customInputRef.value?.select();
         });

@@ -1010,7 +1010,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
             applySearchHighlights();
 
-            nextTick(() => {
+            void nextTick(() => {
                 if (matchPageIndex === null) {
                     return;
                 }

@@ -90,7 +90,7 @@ function clearHighlight() {
 }
 
 onMounted(() => {
-    nextTick(() => applyHighlight());
+    void nextTick(() => applyHighlight());
 });
 
 onBeforeUnmount(() => {
@@ -104,7 +104,7 @@ watch(
     ],
     () => {
         clearHighlight();
-        nextTick(() => applyHighlight());
+        void nextTick(() => applyHighlight());
     },
 );
 </script>

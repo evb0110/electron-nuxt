@@ -13,11 +13,12 @@ function getRuntimeTransport(pdfDocument: PDFDocumentProxy) {
         return undefined;
     }
 
-    return pdfDocument['_transport'];
+    const transport: unknown = pdfDocument['_transport'];
+    return transport;
 }
 
 function hasUsableDocumentTransport(pdfDocument: PDFDocumentProxy) {
-    const transport = getOptionalObject(pdfDocument, '_transport') ?? getRuntimeTransport(pdfDocument);
+    const transport: unknown = getOptionalObject(pdfDocument, '_transport') ?? getRuntimeTransport(pdfDocument);
 
     if (transport === null) {
         return false;

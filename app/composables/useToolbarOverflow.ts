@@ -190,7 +190,7 @@ export const useToolbarOverflow = () => {
             frameId = null;
             void runRecalculation(false);
         });
-        runSettledRecalculation();
+        void runSettledRecalculation();
     }
 
     watch(toolbarRef, () => {

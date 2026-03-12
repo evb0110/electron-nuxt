@@ -221,50 +221,52 @@ export const usePdfDocument = () => {
                 };
 
                 // PDF.js will call this to request additional chunks.
-                activeRangeTransport.requestDataRange = async (
+                activeRangeTransport.requestDataRange = (
                     begin: number,
                     end: number,
                 ) => {
-                    try {
-                        // Drop stale reads if a newer load has started.
-                        if (version !== renderVersion) {
-                            return;
-                        }
-                        const chunk = await api.documents.readFileRange(src.path, begin, end - begin);
-                        activeRangeTransport.onDataRange(begin, chunk);
-                    } catch (error) {
-                        if (version !== renderVersion) {
-                            return;
-                        }
+                    void (async () => {
+                        try {
+                            // Drop stale reads if a newer load has started.
+                            if (version !== renderVersion) {
+                                return;
+                            }
+                            const chunk = await api.documents.readFileRange(src.path, begin, end - begin);
+                            activeRangeTransport.onDataRange(begin, chunk);
+                        } catch (error) {
+                            if (version !== renderVersion) {
+                                return;
+                            }
 
-                        BrowserLogger.error(
-                            'pdf-document',
-                            'Failed to read PDF range chunk',
-                            error,
-                        );
-                        failRangeRead(error);
-                        if (loadingTask) {
-                            try {
-                                guardAsync(loadingTask.destroy(), {
-                                    scope: 'pdf-document',
-                                    message: 'PDF loading task destroy rejected after range read failure',
-                                    onError: (destroyError) => {
-                                        BrowserLogger.debug(
-                                            'pdf-document',
-                                            'PDF loading task destroy rejected after range read failure',
-                                            destroyError,
-                                        );
-                                    },
-                                });
-                            } catch (destroyError) {
-                                BrowserLogger.debug(
-                                    'pdf-document',
-                                    'Failed to destroy PDF loading task after range read failure',
-                                    destroyError,
-                                );
+                            BrowserLogger.error(
+                                'pdf-document',
+                                'Failed to read PDF range chunk',
+                                error,
+                            );
+                            failRangeRead(error);
+                            if (loadingTask) {
+                                try {
+                                    guardAsync(loadingTask.destroy(), {
+                                        scope: 'pdf-document',
+                                        message: 'PDF loading task destroy rejected after range read failure',
+                                        onError: (destroyError) => {
+                                            BrowserLogger.debug(
+                                                'pdf-document',
+                                                'PDF loading task destroy rejected after range read failure',
+                                                destroyError,
+                                            );
+                                        },
+                                    });
+                                } catch (destroyError) {
+                                    BrowserLogger.debug(
+                                        'pdf-document',
+                                        'Failed to destroy PDF loading task after range read failure',
+                                        destroyError,
+                                    );
+                                }
                             }
                         }
-                    }
+                    })();
                 };
 
                 loadingTask = pdfjsLib.getDocument({
