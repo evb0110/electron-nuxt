@@ -1,0 +1,188 @@
+name: Release
+run-name: Release (${{ inputs.tag || github.ref_name }})
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ inputs.tag || github.ref_name || github.run_id }}
+  cancel-in-progress: false
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to validate, package, and publish (for example v1.2.3).
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: 22
+
+jobs:
+  prepare:
+    name: Resolve Target
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.target.outputs.tag }}
+      target_sha: ${{ steps.sha.outputs.target_sha }}
+
+    steps:
+      - name: Resolve tag
+        id: target
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
+          if [ -z "$TAG" ]; then
+            echo "::error::A release tag is required."
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout target
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.target.outputs.tag }}
+
+      - name: Capture target sha
+        id: sha
+        shell: bash
+        run: echo "target_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  quality:
+    name: Shared Quality Gates
+    needs: prepare
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.target_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate
+        run: pnpm run validate
+
+      - name: Unit and integration tests
+        run: pnpm test
+
+  electron-e2e:
+    name: Electron Smoke
+    needs:
+      - prepare
+      - quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.target_sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bundle native tools (Linux E2E)
+        timeout-minutes: 20
+        run: bash scripts/bundle-tools-linux.sh
+
+      - name: Run Electron E2E smoke tests
+        run: xvfb-run -a --server-args="-screen 0 1440x900x24 -ac +extension RANDR" pnpm run test:e2e:electron:smoke
+
+      - name: Upload Electron session logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-electron-smoke-session-logs
+          path: .devkit/sessions/**/session.log
+          if-no-files-found: ignore
+
+  build_artifacts:
+    name: Package Release Artifacts
+    needs:
+      - prepare
+      - quality
+      - electron-e2e
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.prepare.outputs.target_sha }}
+    secrets: inherit
+
+  publish:
+    name: Create GitHub Release
+    needs:
+      - prepare
+      - build_artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Validate updater metadata paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          yml_files=(artifacts/latest*.yml)
+          if [ ${#yml_files[@]} -eq 0 ]; then
+            echo "::error::No latest*.yml files found in artifacts/"
+            exit 1
+          fi
+
+          for yml in "${yml_files[@]}"; do
+            rel_path="$(awk '/^path: / {print $2; exit}' "$yml" | tr -d '"' | tr -d "'")"
+            if [ -z "$rel_path" ]; then
+              echo "::error::Missing path entry in $yml"
+              exit 1
+            fi
+            if [ ! -f "artifacts/$rel_path" ]; then
+              echo "::error::Updater metadata mismatch in $yml -> $rel_path not found"
+              echo "Available artifacts:"
+              ls -la artifacts
+              exit 1
+            fi
+          done
+
+      - name: Create or update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ needs.prepare.outputs.target_sha }}
+          draft: false
+          generate_release_notes: true
+          files: artifacts/*

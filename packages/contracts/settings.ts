@@ -57,7 +57,7 @@ function isHexColor(value: string) {
     return /^#[\da-f]{6}$/iu.test(value.trim());
 }
 
-export function normalizeDefaultZoomPreset(value: unknown): ISettingsData['defaultZoomPreset'] {
+function normalizeDefaultZoomPreset(value: unknown): ISettingsData['defaultZoomPreset'] {
     if (!isString(value)) {
         return DEFAULT_SETTINGS.defaultZoomPreset;
     }
@@ -67,7 +67,7 @@ export function normalizeDefaultZoomPreset(value: unknown): ISettingsData['defau
         : DEFAULT_SETTINGS.defaultZoomPreset;
 }
 
-export function normalizeDefaultViewMode(value: unknown): ISettingsData['defaultViewMode'] {
+function normalizeDefaultViewMode(value: unknown): ISettingsData['defaultViewMode'] {
     if (!isString(value)) {
         return DEFAULT_SETTINGS.defaultViewMode;
     }
@@ -77,7 +77,7 @@ export function normalizeDefaultViewMode(value: unknown): ISettingsData['default
         : DEFAULT_SETTINGS.defaultViewMode;
 }
 
-export function normalizeDefaultAnnotationColor(value: unknown): string {
+function normalizeDefaultAnnotationColor(value: unknown): string {
     if (!isString(value)) {
         return DEFAULT_SETTINGS.defaultAnnotationColor;
     }

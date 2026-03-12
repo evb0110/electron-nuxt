@@ -2,7 +2,6 @@ import {
     assertCleanWorktree,
     assertTagAbsent,
     bumpVersion,
-    getHeadSha,
     getUpstream,
     listChangedFiles,
     readVersion,
@@ -12,10 +11,6 @@ import {
     VALID_RELEASE_LEVELS,
     writeVersion,
 } from './shared.mjs';
-import {
-    runPreflightPhase,
-    runPublishPhase,
-} from './workflow-phase.mjs';
 
 async function main() {
     const level = process.argv[2];
@@ -61,11 +56,6 @@ async function main() {
         `HEAD:${upstream.branch}`,
     ], {stdio: 'inherit'});
 
-    const preflightRun = await runPreflightPhase({
-        branch: upstream.branch,
-        headSha: getHeadSha(),
-    });
-
     run('git', [
         'tag',
         tag,
@@ -76,11 +66,9 @@ async function main() {
         `refs/tags/${tag}`,
     ], {stdio: 'inherit'});
 
-    await runPublishPhase({
-        branch: upstream.branch,
-        tag,
-        preflightRunId: preflightRun.databaseId,
-    });
+    process.stdout.write(
+        `Release ${tag} queued. GitHub will validate, build, and publish it from the tag-triggered Release workflow.\n`,
+    );
 }
 
 main().catch((error) => {
