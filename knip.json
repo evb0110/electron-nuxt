@@ -31,6 +31,7 @@
     },
     "ignore": [
         "app/types/*.d.ts",
+        "electron/types/semver.d.ts",
         "electron/types/utif.d.ts",
         "electron/djvu/conversion.ts",
         "electron/djvu/convert.ts",
