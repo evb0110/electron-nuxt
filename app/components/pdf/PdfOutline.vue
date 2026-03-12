@@ -103,8 +103,10 @@ import type {
 } from '@app/types/pdf-outline';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
-import { buildResolvedOutline } from '@app/utils/pdf-outline-helpers';
-import type { IOutlineItemRaw } from '@app/utils/pdf-outline-helpers';
+import {
+    buildResolvedOutline,
+    parseOutlineItems,
+} from '@app/utils/pdf-outline-helpers';
 import { usePdfOutlineSelection } from '@app/composables/pdf/usePdfOutlineSelection';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { usePdfOutlineDragDrop } from '@app/composables/pdf/usePdfOutlineDragDrop';
@@ -357,7 +359,7 @@ async function loadOutline() {
             return;
         }
 
-        const rawOutline = (result ?? []) as IOutlineItemRaw[];
+        const rawOutline = parseOutlineItems(result);
         const destinationCache = new Map<string, unknown[] | null>();
         const refIndexCache = new Map<string, number | null>();
 

@@ -33,8 +33,15 @@ import {
     toMarkerRectFromEditorRect,
     toMarkerRectFromPdfRect,
 } from '@app/composables/pdf/annotationGeometry';
+import {
+    getOptionalFunction,
+    getOptionalNumber,
+    getOptionalNumberArray,
+    getOptionalString,
+} from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { runGuardedTask } from '@app/utils/async-guard';
+import { isPdfjsEditor } from '@app/services/pdfjs/annotationEditorAdapter';
 
 function isMarkupSubtype(value: unknown): value is TMarkupSubtype {
     return (
@@ -159,15 +166,10 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
             && resolvedSubtype !== 'Ink'
             && resolvedSubtype !== 'Typewriter'
         ) {
-            const normalized = resolvedSubtype.toLowerCase();
-            if (
-                normalized === 'underline'
-                || normalized === 'strikeout'
-                || normalized === 'squiggly'
-            ) {
+            if (isMarkupSubtype(resolvedSubtype)) {
                 markupSubtype.getMarkupSubtypeOverrides().set(
                     annotationId,
-                    resolvedSubtype as TMarkupSubtype,
+                    resolvedSubtype,
                 );
             }
         }
@@ -178,11 +180,8 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
             || pendingCommentEditorKeys.has(pendingKey);
 
         const editorRotation = normalizePageRotation(
-            (editor as {
-                pageRotation?: number;
-                rotation?: number;
-            }).pageRotation
-            ?? (editor as { rotation?: number }).rotation
+            getOptionalNumber(editor, 'pageRotation')
+            ?? getOptionalNumber(editor, 'rotation')
             ?? 0,
         );
         const directEditorRect = normalizeMarkerRect({
@@ -277,16 +276,19 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
             let sourceOrder = 0;
 
             const uiManager = annotationUiManager.value;
-            const managerWithDeletedLookup = uiManager as
-                | (AnnotationEditorUIManager & {isDeletedAnnotationElement?: (annotationElementId: string) => boolean;})
-                | null;
+            const isDeletedAnnotationElement = uiManager
+                ? getOptionalFunction<[annotationElementId: string], boolean>(uiManager, 'isDeletedAnnotationElement')
+                : null;
 
             if (uiManager) {
                 for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
                     for (const editor of uiManager.getEditors(pageIndex)) {
-                        const normalizedEditor = editor as IPdfjsEditor;
-                        const text = getCommentText(normalizedEditor);
-                        const summary = toEditorSummary(normalizedEditor, pageIndex, text, sourceOrder);
+                        if (!isPdfjsEditor(editor)) {
+                            continue;
+                        }
+
+                        const text = getCommentText(editor);
+                        const summary = toEditorSummary(editor, pageIndex, text, sourceOrder);
                         sourceOrder += 1;
                         const hydrated = identity.hydrateSummaryFromMemory(summary);
                         commentsByKey.set(identity.toSummaryKey(hydrated), hydrated);
@@ -321,8 +323,8 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                 try {
                     const page = await doc.getPage(pageNumber);
                     pageAnnotations = await page.getAnnotations();
-                    pageView = (page as { view?: number[] }).view ?? null;
-                    pageRotation = normalizePageRotation((page as { rotate?: number }).rotate ?? 0);
+                    pageView = getOptionalNumberArray(page, 'view');
+                    pageRotation = normalizePageRotation(getOptionalNumber(page, 'rotate') ?? 0);
                 } catch (error) {
                     BrowserLogger.debug(
                         'annotations',
@@ -339,7 +341,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                     }
                     if (
                         annotation.id
-                        && managerWithDeletedLookup?.isDeletedAnnotationElement?.(annotation.id)
+                        && isDeletedAnnotationElement?.(annotation.id)
                     ) {
                         return;
                     }
@@ -358,7 +360,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                     }
                     if (
                         annotation.id
-                        && managerWithDeletedLookup?.isDeletedAnnotationElement?.(annotation.id)
+                        && isDeletedAnnotationElement?.(annotation.id)
                     ) {
                         return;
                     }
@@ -366,7 +368,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                         return;
                     }
                     if (isLinkSubtype(annotation.subtype)) {
-                        const url = (annotation as { url?: string }).url;
+                        const url = getOptionalString(annotation, 'url');
                         if (url && annotation.rect) {
                             const rect = toMarkerRectFromPdfRect(annotation.rect, pageView, pageRotation);
                             if (rect) {

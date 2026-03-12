@@ -4,6 +4,10 @@ import type {
     IPdfSearchMatch,
     TSearchDirection,
 } from '@app/types/pdf';
+import type {
+    IPdfSearchProgress,
+    IPdfSearchResponse,
+} from '@contracts/search';
 import {
     tryOnScopeDispose,
     useDebounceFn,
@@ -20,26 +24,6 @@ export type {
     IPdfSearchMatch,
     TSearchDirection,
 };
-
-interface IBackendSearchResult {
-    pageNumber: number;
-    matchIndex: number;
-    pageMatchIndex?: number; // Ordinal on page (0, 1, 2...) - returned by backend for OCR pages
-    startOffset: number;
-    endOffset: number;
-    excerpt: IPdfSearchMatch['excerpt'];
-}
-
-interface IBackendSearchResponse {
-    results: IBackendSearchResult[];
-    truncated: boolean;
-}
-
-interface IBackendSearchProgress {
-    requestId: string;
-    processed: number;
-    total: number;
-}
 
 export const usePdfSearch = () => {
     const searchQuery = ref('');
@@ -156,7 +140,7 @@ export const usePdfSearch = () => {
             const searchId = requestId;
             activeRequestId = requestId;
 
-            progressCleanup = api.search.onProgress((progress: IBackendSearchProgress) => {
+            progressCleanup = api.search.onProgress((progress: IPdfSearchProgress) => {
                 if (runId !== searchRunId) {
                     return;
                 }
@@ -169,10 +153,10 @@ export const usePdfSearch = () => {
                 };
             });
 
-            const response = await api.search.run(pdfPath, query, {
+            const response: IPdfSearchResponse = await api.search.run(pdfPath, query, {
                 requestId,
                 pageCount,
-            }) as IBackendSearchResponse;
+            });
 
             if (runId !== searchRunId) {
                 return;

@@ -1,28 +1,30 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-
-interface IRuntimeTransport {messageHandler?: unknown;}
-
-type TRuntimePdfDocument = PDFDocumentProxy & {
-    destroyed?: boolean;
-    _transport?: IRuntimeTransport | null;
-};
+import {
+    getOptionalObject,
+    isRecord,
+} from '@app/services/pdfjs/runtime';
 
 function isPdfDocumentDestroyed(pdfDocument: PDFDocumentProxy) {
-    const runtimeDocument = pdfDocument as TRuntimePdfDocument;
-    return runtimeDocument.destroyed === true;
+    return isRecord(pdfDocument) && pdfDocument['destroyed'] === true;
+}
+
+function getRuntimeTransport(pdfDocument: PDFDocumentProxy) {
+    if (!isRecord(pdfDocument) || !('_transport' in pdfDocument)) {
+        return undefined;
+    }
+
+    return pdfDocument['_transport'];
 }
 
 function hasUsableDocumentTransport(pdfDocument: PDFDocumentProxy) {
-    const runtimeDocument = pdfDocument as TRuntimePdfDocument;
-    const transport = runtimeDocument._transport;
+    const transport = getOptionalObject(pdfDocument, '_transport') ?? getRuntimeTransport(pdfDocument);
 
     if (transport === null) {
         return false;
     }
 
     if (
-        transport
-        && typeof transport === 'object'
+        isRecord(transport)
         && 'messageHandler' in transport
         && transport.messageHandler == null
     ) {

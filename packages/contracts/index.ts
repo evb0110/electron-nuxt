@@ -4,6 +4,11 @@ export type {
 } from './i18n';
 
 export type {
+    IIpcMainRegistrar,
+    TIpcMainInvokeHandler,
+} from './ipc-main';
+
+export type {
     IAppUpdateStatus,
     IDebugLogEntry,
     IDjvuCapability,
@@ -45,6 +50,15 @@ export {
 } from './ipc-assertions';
 
 export type {IPdfBookmarkEntry} from './pdf';
+
+export type {
+    IPdfSearchExcerpt,
+    IPdfSearchProgress,
+    IPdfSearchRequestOptions,
+    IPdfSearchResponse,
+    IPdfSearchResult,
+    ISearchPreloadClient,
+} from './search';
 
 export type {
     ILatestReleaseResponse,

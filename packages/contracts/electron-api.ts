@@ -1,5 +1,10 @@
 import type { TGroupDirection } from './editor-groups';
 import type {
+    IPdfSearchProgress,
+    IPdfSearchRequestOptions,
+    IPdfSearchResponse,
+} from './search';
+import type {
     ICropMargins,
     IOcrLanguage,
     IPageGeometry,
@@ -70,34 +75,6 @@ export interface IRendererLogEntry {
     message: string;
     timestamp: string;
     data?: unknown;
-}
-
-interface IPdfSearchExcerpt {
-    prefix: boolean;
-    suffix: boolean;
-    before: string;
-    match: string;
-    after: string;
-}
-
-interface IPdfSearchResult {
-    pageNumber: number;
-    pageMatchIndex: number;
-    matchIndex: number;
-    startOffset: number;
-    endOffset: number;
-    excerpt: IPdfSearchExcerpt;
-}
-
-interface IPdfSearchResponse {
-    results: IPdfSearchResult[];
-    truncated: boolean;
-}
-
-interface IPdfSearchProgress {
-    requestId: string;
-    processed: number;
-    total: number;
 }
 
 interface IOpenPdfDirectBatchProgress {
@@ -371,17 +348,11 @@ export interface ISearchCapability {
     run: (
         pdfPath: string,
         query: string,
-        options?: {
-            requestId?: string;
-            pageCount?: number;
-        },
+        options?: IPdfSearchRequestOptions,
     ) => Promise<IPdfSearchResponse>;
     warmIndex: (
         pdfPath: string,
-        options?: {
-            requestId?: string;
-            pageCount?: number;
-        },
+        options?: IPdfSearchRequestOptions,
     ) => Promise<boolean>;
     cancel: (requestId?: string) => Promise<{ canceled: boolean }>;
     onProgress: (callback: (progress: IPdfSearchProgress) => void) => () => void;

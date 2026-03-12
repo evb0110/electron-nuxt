@@ -1,9 +1,21 @@
 import type { Ref } from 'vue';
 import type { IBookmarkItem } from '@app/types/pdf-outline';
-import { PDF_OUTLINE_TREE_KEY } from '@app/composables/pdf/usePdfOutlineKeys';
+import {
+    PDF_OUTLINE_TREE_KEY,
+    type IPdfOutlineTreeContext,
+} from '@app/composables/pdf/usePdfOutlineKeys';
+
+function requirePdfOutlineTreeContext(): IPdfOutlineTreeContext {
+    const treeContext = inject(PDF_OUTLINE_TREE_KEY, null);
+    if (!treeContext) {
+        throw new Error('usePdfOutlineItemState must be used within a PDF outline tree provider');
+    }
+
+    return treeContext;
+}
 
 export const usePdfOutlineItemState = (item: Ref<IBookmarkItem>) => {
-    const treeContext = inject(PDF_OUTLINE_TREE_KEY)!;
+    const treeContext = requirePdfOutlineTreeContext();
 
     const hasChildren = computed(() => item.value.items.length > 0);
     const isActive = computed(() => item.value.id === treeContext.activeItemId.value);
