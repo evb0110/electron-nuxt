@@ -2,15 +2,13 @@ import {
     DEFAULT_LOCALE,
     LOCALE_MESSAGES,
     type TLocale,
+    type TTranslateArgs,
     type TTranslationKey,
-    type TTranslationParams,
 } from '@i18n-app';
 import { getCurrentLocaleSync } from '@electron/settings';
 
 type TMessageParams = Record<string, string | number>;
-type TTeArgs<TKey extends TTranslationKey> = TTranslationParams<TKey> extends undefined
-    ? [params?: undefined]
-    : [params: TTranslationParams<TKey>];
+type TTeArgs<TKey extends TTranslationKey> = TTranslateArgs<TKey>;
 
 function getNestedMessage(messages: Record<string, unknown>, path: TTranslationKey): string | null {
     const parts = path.split('.');
@@ -70,7 +68,10 @@ function resolveLocale(locale: string): TLocale {
 }
 
 export function te<TKey extends TTranslationKey>(path: TKey, ...args: TTeArgs<TKey>): string {
-    const params = args[0] as TMessageParams | undefined;
+    const rawParams = args[0];
+    const params = typeof rawParams === 'number'
+        ? { count: rawParams }
+        : rawParams as TMessageParams | undefined;
     const locale = getCurrentLocaleSync();
     const resolvedLocale = resolveLocale(locale);
     const primary = getNestedMessage(LOCALE_MESSAGES[resolvedLocale], path);

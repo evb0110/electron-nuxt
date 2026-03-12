@@ -2,13 +2,13 @@ import {
     LOCALE_CODES,
     LOCALE_DEFINITIONS,
 } from '@i18n-core';
+import { difference } from 'es-toolkit/array';
 import path from 'node:path';
 import {
     fileURLToPath,
     pathToFileURL,
 } from 'node:url';
-import appSchema from '../app/locales/en';
-import { difference } from 'es-toolkit/array';
+import desktopSchema from '../packages/i18n-app/messages/en';
 import landingSchema from '../landing/app/locales/en';
 
 interface ILocaleDefinitionLike {code: string;}
@@ -26,37 +26,54 @@ function collectLeafPaths(node: unknown, prefix = ''): string[] {
 
     for (const key of Object.keys(node).sort()) {
         const value = node[key];
-        const path = prefix ? `${prefix}.${key}` : key;
+        const dottedPath = prefix ? `${prefix}.${key}` : key;
 
         if (typeof value === 'string') {
-            paths.push(path);
+            paths.push(dottedPath);
             continue;
         }
 
         if (isRecord(value)) {
-            paths.push(...collectLeafPaths(value, path));
+            paths.push(...collectLeafPaths(value, dottedPath));
             continue;
         }
 
-        throw new Error(`Unexpected value at "${path}"; expected string or object`);
+        throw new Error(`Unexpected value at "${dottedPath}"; expected string or object`);
     }
 
     return paths;
 }
 
-function hasStringPath(node: unknown, dottedPath: string): boolean {
+function getStringPath(node: unknown, dottedPath: string): string | null {
     const segments = dottedPath.split('.');
     let current: unknown = node;
 
     for (const segment of segments) {
         if (!isRecord(current) || !(segment in current)) {
-            return false;
+            return null;
         }
 
         current = current[segment];
     }
 
-    return typeof current === 'string';
+    return typeof current === 'string' ? current : null;
+}
+
+function hasStringPath(node: unknown, dottedPath: string): boolean {
+    return getStringPath(node, dottedPath) !== null;
+}
+
+function extractPlaceholders(text: string): string[] {
+    const placeholders = new Set<string>();
+
+    for (const match of text.matchAll(/\{([^}]+)\}/g)) {
+        const placeholder = match[1]?.split(',')[0]?.trim();
+        if (placeholder) {
+            placeholders.add(placeholder);
+        }
+    }
+
+    return Array.from(placeholders).sort();
 }
 
 function diffKeys(expected: Set<string>, actual: Set<string>) {
@@ -107,6 +124,38 @@ function assertParity(
     }
 }
 
+function assertPlaceholderParity(
+    label: string,
+    schema: unknown,
+    localeMessages: Record<string, unknown>,
+    errors: string[],
+) {
+    const expectedPaths = collectLeafPaths(schema);
+
+    for (const [
+        locale,
+        messages,
+    ] of Object.entries(localeMessages)) {
+        for (const dottedPath of expectedPaths) {
+            const expectedMessage = getStringPath(schema, dottedPath);
+            const actualMessage = getStringPath(messages, dottedPath);
+
+            if (expectedMessage === null || actualMessage === null) {
+                continue;
+            }
+
+            const expectedPlaceholders = extractPlaceholders(expectedMessage);
+            const actualPlaceholders = extractPlaceholders(actualMessage);
+
+            if (expectedPlaceholders.join('|') !== actualPlaceholders.join('|')) {
+                errors.push(
+                    `${label} locale "${locale}" placeholder mismatch at "${dottedPath}": expected=${formatKeyList(expectedPlaceholders)}; actual=${formatKeyList(actualPlaceholders)}`,
+                );
+            }
+        }
+    }
+}
+
 function assertLocaleMetadataParity(
     label: string,
     localeCodes: readonly string[],
@@ -143,21 +192,22 @@ async function loadLocaleMessages(relativeDirectory: string): Promise<Record<str
 async function main() {
     const errors: string[] = [];
     const [
-        appLocaleMessages,
+        desktopLocaleMessages,
         landingLocaleMessages,
     ] = await Promise.all([
-        loadLocaleMessages('app/locales'),
+        loadLocaleMessages('packages/i18n-app/messages'),
         loadLocaleMessages('landing/app/locales'),
     ]);
 
-    assertLocaleMetadataParity('app', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
+    assertLocaleMetadataParity('desktop', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
     assertLocaleMetadataParity('landing', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
 
-    if (!hasStringPath(appSchema, 'contextMenu.copySelectionToClipboard')) {
-        errors.push('App schema is missing required key "contextMenu.copySelectionToClipboard"');
+    if (!hasStringPath(desktopSchema, 'contextMenu.copySelectionToClipboard')) {
+        errors.push('Desktop schema is missing required key "contextMenu.copySelectionToClipboard"');
     }
 
-    assertParity('app', appSchema, appLocaleMessages, errors);
+    assertParity('desktop', desktopSchema, desktopLocaleMessages, errors);
+    assertPlaceholderParity('desktop', desktopSchema, desktopLocaleMessages, errors);
     assertParity('landing', landingSchema, landingLocaleMessages, errors);
 
     if (errors.length > 0) {
@@ -168,7 +218,7 @@ async function main() {
         process.exit(1);
     }
 
-    console.log('Locale parity check passed for app and landing locales.');
+    console.log('Locale parity check passed for desktop package locales and landing locales.');
 }
 
 main().catch((error) => {

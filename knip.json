@@ -9,7 +9,6 @@
         "app/composables/**/*.ts",
         "app/utils/**/*.ts",
         "app/constants/**/*.ts",
-        "app/locales/*.ts",
         "app/i18n/**/*.ts",
         "electron/main.ts",
         "electron/preload.ts",

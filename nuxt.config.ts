@@ -81,7 +81,7 @@ export default defineNuxtConfig({
         locales: LOCALE_DEFINITIONS,
         defaultLocale: DEFAULT_LOCALE,
         lazy: true,
-        langDir: 'locales/',
+        langDir: 'i18n/runtime-locales/',
         strategy: 'no_prefix',
         detectBrowserLanguage: false,
     },

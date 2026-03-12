@@ -20,7 +20,7 @@ export default {
         'closeFile': 'Закрыть файл',
         'settings': 'Настройки',
         'moreTools': 'Ещё',
-        'captureRegion': 'Снимок области',
+        'captureRegion': 'Скриншот',
         'captureHint': 'Выделите область PDF. Esc для отмены.',
         'captureCopied': 'Скопировано',
         'crop': 'Обрезка страниц',

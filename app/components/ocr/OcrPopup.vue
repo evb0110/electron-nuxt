@@ -88,7 +88,7 @@
                                             )
                                         "
                                     >
-                                    <span>{{ t(`ocr.languageName.${lang.code}` as TTranslationKey) }}</span>
+                                    <span>{{ translateLanguageName(lang.code) }}</span>
                                 </label>
                             </div>
                         </div>
@@ -118,7 +118,7 @@
                                             )
                                         "
                                     >
-                                    <span>{{ t(`ocr.languageName.${lang.code}` as TTranslationKey) }}</span>
+                                    <span>{{ translateLanguageName(lang.code) }}</span>
                                 </label>
                             </div>
                         </div>
@@ -148,7 +148,7 @@
                                             )
                                         "
                                     >
-                                    <span>{{ t(`ocr.languageName.${lang.code}` as TTranslationKey) }}</span>
+                                    <span>{{ translateLanguageName(lang.code) }}</span>
                                 </label>
                             </div>
                         </div>
@@ -268,6 +268,7 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/electron';
 
 const { t } = useTypedI18n();
+type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${string}`>;
 
 interface IProps {
     pdfDocument: PDFDocumentProxy | null;
@@ -329,6 +330,14 @@ const copyLogsTooltip = computed(() => {
     }
     return t('ocr.copyLogs');
 });
+
+function getLanguageNameKey(code: string): TOcrLanguageTranslationKey {
+    return `ocr.languageName.${code}` as TOcrLanguageTranslationKey;
+}
+
+function translateLanguageName(code: string) {
+    return t(getLanguageNameKey(code), undefined);
+}
 
 watch(isOpen, (value) => {
     if (value) {

@@ -1,0 +1,10 @@
+import { te } from '@electron/i18n';
+
+te('export.scopeCurrent', { page: 1 });
+te('toolbar.openPdf');
+
+// @ts-expect-error export.scopeCurrent requires page
+te('export.scopeCurrent');
+
+// @ts-expect-error toolbar.openPdf does not accept params
+te('toolbar.openPdf', { count: 1 });

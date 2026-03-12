@@ -256,6 +256,12 @@ export default withNuxt(
         },
     },
     {
+        files: ['app/i18n/runtime-locales/**/*.ts'],
+        rules: {
+            'no-restricted-imports': 'off',
+        },
+    },
+    {
         files: [
             '**/*.ts',
             '**/*.tsx',
