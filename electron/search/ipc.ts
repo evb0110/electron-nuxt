@@ -118,6 +118,9 @@ function parseSearchRequestPayload(raw: unknown): {
     query: string;
     pageCount?: number;
     requestId?: string;
+    matchCase?: boolean;
+    wholeWord?: boolean;
+    useRegex?: boolean;
 } {
     if (!isRecord(raw)) {
         throw new Error('Invalid search request payload');
@@ -149,12 +152,18 @@ function parseSearchRequestPayload(raw: unknown): {
     const requestId = typeof raw.requestId === 'string' && raw.requestId.trim().length > 0
         ? raw.requestId.trim()
         : undefined;
+    const matchCase = typeof raw.matchCase === 'boolean' ? raw.matchCase : undefined;
+    const wholeWord = typeof raw.wholeWord === 'boolean' ? raw.wholeWord : undefined;
+    const useRegex = typeof raw.useRegex === 'boolean' ? raw.useRegex : undefined;
 
     return {
         pdfPath,
         query,
         pageCount,
         requestId,
+        matchCase,
+        wholeWord,
+        useRegex,
     };
 }
 
@@ -689,6 +698,9 @@ interface IDispatchSearchRequestPayload {
     pageCount?: number;
     requestId?: string;
     warmup?: boolean;
+    matchCase?: boolean;
+    wholeWord?: boolean;
+    useRegex?: boolean;
     requestIdPrefix: string;
 }
 
@@ -747,6 +759,9 @@ function dispatchSearchRequest(
                     query: payload.query,
                     pageCount: payload.pageCount,
                     warmup: payload.warmup,
+                    matchCase: payload.matchCase,
+                    wholeWord: payload.wholeWord,
+                    useRegex: payload.useRegex,
                 },
             } satisfies TSearchWorkerInboundMessage);
         } catch (error) {
@@ -790,6 +805,9 @@ async function handlePdfSearch(
         pdfPath,
         query,
         pageCount,
+        matchCase,
+        wholeWord,
+        useRegex,
     } = parsedRequest;
 
     if (!query || query.trim().length === 0) {
@@ -814,6 +832,9 @@ async function handlePdfSearch(
         resolvedPdfPath,
         query,
         pageCount,
+        matchCase,
+        wholeWord,
+        useRegex,
         requestId: parsedRequest.requestId,
         requestIdPrefix: 'search',
     });

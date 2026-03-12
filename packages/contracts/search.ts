@@ -29,6 +29,9 @@ export interface IPdfSearchProgress {
 export interface IPdfSearchRequestOptions {
     requestId?: string;
     pageCount?: number;
+    matchCase?: boolean;
+    wholeWord?: boolean;
+    useRegex?: boolean;
 }
 
 export interface ISearchPreloadClient {

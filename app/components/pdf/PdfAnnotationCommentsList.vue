@@ -81,16 +81,19 @@
                 </span>
             </button>
 
-            <p v-if="filteredComments.length === 0" class="notes-empty">
-                {{ t('annotations.noNotesFound') }}
-            </p>
+            <PdfPanelEmptyState
+                v-if="filteredComments.length === 0"
+                icon="i-lucide-sticky-note"
+                :title="t('annotations.noNotesFound')"
+                :description="t('annotations.noNotesHint')"
+            />
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import PdfPanelEmptyState from '@app/components/pdf/PdfPanelEmptyState.vue';
 import {
     isTextNoteComment,
     compareComments,
@@ -379,12 +382,4 @@ function openComment(comment: IAnnotationCommentSummary) {
     padding: 0;
 }
 
-.notes-empty {
-    margin: 0;
-    border: 1px dashed var(--ui-border);
-    border-radius: 0.5rem;
-    padding: 0.65rem;
-    font-size: 0.8rem;
-    color: var(--ui-text-muted);
-}
 </style>

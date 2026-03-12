@@ -4,6 +4,7 @@
             <ToolbarButton
                 icon="lucide:folder-open"
                 :tooltip="t('toolbar.openPdf')"
+                :shortcut="shortcutLabels.openFile"
                 @click="emit('open-file')"
             />
             <div class="toolbar-separator" />
@@ -21,6 +22,7 @@
                 <ToolbarButton
                     icon="lucide:save"
                     :tooltip="t('toolbar.save')"
+                    :shortcut="shortcutLabels.save"
                     :disabled="!hasPdf || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
                     :loading="isSaving"
                     @click="emit('save')"
@@ -28,6 +30,7 @@
                 <ToolbarButton
                     icon="lucide:save-all"
                     :tooltip="t('toolbar.saveAs')"
+                    :shortcut="shortcutLabels.saveAs"
                     :disabled="!hasPdf || isAnySaving || isHistoryBusy || isDjvuMode"
                     :loading="isSavingAs"
                     @click="emit('save-as')"
@@ -40,12 +43,14 @@
                 <ToolbarButton
                     icon="lucide:undo-2"
                     :tooltip="t('toolbar.undo')"
+                    :shortcut="shortcutLabels.undo"
                     :disabled="!hasPdf || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
                     @click="emit('undo')"
                 />
                 <ToolbarButton
                     icon="lucide:redo-2"
                     :tooltip="t('toolbar.redo')"
+                    :shortcut="shortcutLabels.redo"
                     :disabled="!hasPdf || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
                     @click="emit('redo')"
                 />
@@ -83,6 +88,7 @@
                         icon="lucide:move-horizontal"
                         :active="isFitWidthActive"
                         :tooltip="t('zoom.fitWidth')"
+                        :shortcut="shortcutLabels.fitWidth"
                         :disabled="!hasPdf"
                         grouped
                         @click="emit('fit-width')"
@@ -93,6 +99,7 @@
                         icon="lucide:move-vertical"
                         :active="isFitHeightActive"
                         :tooltip="t('zoom.fitHeight')"
+                        :shortcut="shortcutLabels.fitHeight"
                         :disabled="!hasPdf"
                         grouped
                         @click="emit('fit-height')"
@@ -186,6 +193,7 @@
                 v-if="!isCollapsed(1)"
                 icon="lucide:file-text"
                 :tooltip="t('toolbar.exportDocx')"
+                :shortcut="shortcutLabels.exportDocx"
                 :disabled="!hasPdf || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
                 :loading="isExportingDocx"
                 @click="emit('export-docx')"
@@ -260,6 +268,23 @@ const {
     hasOverflowItems,
     isCollapsed,
 } = useToolbarOverflow();
+
+const shortcutModifier = computed(() => (
+    typeof navigator !== 'undefined' && /mac/i.test(navigator.platform)
+        ? 'Cmd'
+        : 'Ctrl'
+));
+
+const shortcutLabels = computed(() => ({
+    openFile: `${shortcutModifier.value}+O`,
+    save: `${shortcutModifier.value}+S`,
+    saveAs: `${shortcutModifier.value}+Shift+S`,
+    exportDocx: `${shortcutModifier.value}+Shift+E`,
+    undo: `${shortcutModifier.value}+Z`,
+    redo: shortcutModifier.value === 'Cmd' ? 'Cmd+Shift+Z' : 'Ctrl+Y',
+    fitWidth: `${shortcutModifier.value}+1`,
+    fitHeight: `${shortcutModifier.value}+2`,
+}));
 </script>
 
 <style scoped>

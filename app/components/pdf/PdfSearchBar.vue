@@ -13,17 +13,52 @@
                 <UIcon name="i-lucide-search" class="size-4" />
             </template>
             <template #trailing>
-                <UTooltip v-if="searchQuery" :text="t('search.clearSearch')" :delay-duration="1200">
-                    <UButton
-                        icon="i-lucide-x"
-                        variant="ghost"
-                        color="neutral"
-                        size="xs"
-                        class="min-w-auto px-1"
-                        :aria-label="t('search.clearSearchLabel')"
-                        @click="clearQuery"
-                    />
-                </UTooltip>
+                <div class="flex items-center gap-1">
+                    <UTooltip :text="t('search.caseSensitive')" :delay-duration="1200">
+                        <UButton
+                            label="Aa"
+                            :variant="options.matchCase ? 'soft' : 'ghost'"
+                            :color="options.matchCase ? 'primary' : 'neutral'"
+                            size="xs"
+                            class="min-w-auto px-1.5 text-[11px] font-semibold"
+                            :aria-label="t('search.caseSensitive')"
+                            @click="toggleOption('matchCase')"
+                        />
+                    </UTooltip>
+                    <UTooltip :text="t('search.wholeWord')" :delay-duration="1200">
+                        <UButton
+                            label="W"
+                            :variant="options.wholeWord ? 'soft' : 'ghost'"
+                            :color="options.wholeWord ? 'primary' : 'neutral'"
+                            size="xs"
+                            class="min-w-auto px-1.5 text-[11px] font-semibold"
+                            :aria-label="t('search.wholeWord')"
+                            @click="toggleOption('wholeWord')"
+                        />
+                    </UTooltip>
+                    <UTooltip :text="t('search.regex')" :delay-duration="1200">
+                        <UButton
+                            label=".*"
+                            :variant="options.useRegex ? 'soft' : 'ghost'"
+                            :color="options.useRegex ? 'primary' : 'neutral'"
+                            size="xs"
+                            class="min-w-auto px-1.5 text-[11px] font-semibold"
+                            :aria-label="t('search.regex')"
+                            @click="toggleOption('useRegex')"
+                        />
+                    </UTooltip>
+                    <UTooltip v-if="searchQuery" :text="t('search.clearSearch')" :delay-duration="1200">
+                        <UButton
+                            icon="i-lucide-x"
+                            variant="ghost"
+                            color="neutral"
+                            size="xs"
+                            class="min-w-auto px-1"
+                            :aria-label="t('search.clearSearchLabel')"
+                            @click="clearQuery"
+                        />
+                    </UTooltip>
+                </div>
             </template>
         </UInput>
 
@@ -55,18 +90,21 @@
 </template>
 
 <script setup lang="ts">
+import type { IPdfSearchRequestOptions } from '@contracts/search';
 
 const { t } = useTypedI18n();
 
 interface IProps {
     modelValue: string;
     totalMatches: number;
+    options: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>;
 }
 
 const props = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:modelValue', value: string): void;
+    (e: 'update:options', value: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>): void;
     (e: 'search'): void;
     (e: 'next'): void;
     (e: 'previous'): void;
@@ -94,6 +132,15 @@ function clearQuery() {
         return;
     }
     searchQuery.value = '';
+    focus();
+}
+
+function toggleOption(key: keyof IProps['options']) {
+    emit('update:options', {
+        ...props.options,
+        [key]: !props.options[key],
+    });
+    emit('search');
     focus();
 }
 

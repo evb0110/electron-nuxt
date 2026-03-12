@@ -4,6 +4,7 @@
             <ToolbarButton
                 icon="lucide:minus"
                 :tooltip="t('zoom.zoomOut')"
+                :shortcut="shortcutLabels.zoomOut"
                 :disabled="disabled || normalizedEffectiveZoom <= ZOOM.MIN"
                 grouped
                 icon-class="size-[1.1rem]"
@@ -105,6 +106,7 @@
             <ToolbarButton
                 icon="lucide:plus"
                 :tooltip="t('zoom.zoomIn')"
+                :shortcut="shortcutLabels.zoomIn"
                 :disabled="disabled || normalizedEffectiveZoom >= ZOOM.MAX"
                 grouped
                 icon-class="size-[1.1rem]"
@@ -167,6 +169,15 @@ const effectiveCompactLevel = computed(() => {
 });
 
 const showStepButtons = computed(() => effectiveCompactLevel.value < 1);
+const shortcutModifier = computed(() => (
+    typeof navigator !== 'undefined' && /mac/i.test(navigator.platform)
+        ? 'Cmd'
+        : 'Ctrl'
+));
+const shortcutLabels = computed(() => ({
+    zoomIn: `${shortcutModifier.value}+=`,
+    zoomOut: `${shortcutModifier.value}+-`,
+}));
 
 function normalizeZoomLevel(value: number) {
     if (!Number.isFinite(value)) {

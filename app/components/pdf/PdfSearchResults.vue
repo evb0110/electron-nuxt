@@ -12,27 +12,24 @@
                 </template>
             </span>
         </div>
-        <div
+        <PdfPanelEmptyState
             v-if="!trimmedQuery"
-            class="pdf-search-results-empty"
-        >
-            <UIcon name="i-lucide-search" />
-            <span>{{ t('searchResults.enterSearchTerm') }}</span>
-        </div>
-        <div
+            icon="i-lucide-search"
+            :title="t('searchResults.enterSearchTerm')"
+            :description="t('searchResults.enterSearchHint')"
+        />
+        <PdfPanelEmptyState
             v-else-if="isQueryTooShort"
-            class="pdf-search-results-empty"
-        >
-            <UIcon name="i-lucide-type" />
-            <span>{{ t('searchResults.typeMinChars', { count: minQueryLength }) }}</span>
-        </div>
-        <div
+            icon="i-lucide-type"
+            :title="t('searchResults.typeMinChars', { count: minQueryLength })"
+            :description="t('searchResults.enterSearchHint')"
+        />
+        <PdfPanelEmptyState
             v-else-if="!isSearching && results.length === 0"
-            class="pdf-search-results-empty"
-        >
-            <UIcon name="i-lucide-search-x" />
-            <span>{{ t('searchResults.noResults') }}</span>
-        </div>
+            icon="i-lucide-search-x"
+            :title="t('searchResults.noResults')"
+            :description="t('searchResults.noResultsHint')"
+        />
         <div
             v-else-if="results.length > 0"
             class="pdf-search-results-list-shell"
@@ -46,33 +43,55 @@
                     {{ t('searchResults.showingFirst', { count: results.length }) }}
                 </div>
             </div>
-            <div
-                v-bind="containerProps"
-                class="pdf-search-results-list app-scrollbar"
-            >
-                <div
-                    v-bind="wrapperProps"
-                    class="pdf-search-results-list-inner"
+            <div class="pdf-search-results-list app-scrollbar">
+                <section
+                    v-for="group in groupedResults"
+                    :key="group.pageIndex"
+                    class="pdf-search-results-group"
                 >
-                    <PdfSearchResultItem
-                        v-for="entry in virtualResults"
-                        :key="entry.index"
-                        :result="entry.data"
-                        :is-active="entry.index === currentResultIndex"
-                        :page-labels="pageLabels"
-                        @activate="$emit('goToResult', entry.index)"
-                    />
-                </div>
+                    <button
+                        type="button"
+                        class="pdf-search-results-group-toggle"
+                        :aria-expanded="isGroupExpanded(group.pageIndex)"
+                        @click="togglePage(group.pageIndex)"
+                    >
+                        <UIcon
+                            name="i-lucide-chevron-right"
+                            class="pdf-search-results-group-chevron"
+                            :class="{ 'is-open': isGroupExpanded(group.pageIndex) }"
+                        />
+                        <span class="pdf-search-results-group-label">
+                            {{ t('searchResults.pageWithCount', {
+                                page: formatPageIndicator(group.pageIndex + 1, pageLabels ?? null),
+                                count: group.matches.length,
+                            }) }}
+                        </span>
+                    </button>
+
+                    <div v-if="isGroupExpanded(group.pageIndex)" class="pdf-search-results-group-items">
+                        <PdfSearchResultItem
+                            v-for="match in group.matches"
+                            :key="match.matchIndex"
+                            :ref="element => setResultRef(match.matchIndex, element)"
+                            :result="match"
+                            :is-active="match.matchIndex === activeMatchIndex"
+                            :page-labels="pageLabels"
+                            :show-page-label="false"
+                            @activate="$emit('goToResult', match.matchIndex)"
+                        />
+                    </div>
+                </section>
             </div>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-
-import { useVirtualList } from '@vueuse/core';
+import type { ComponentPublicInstance } from 'vue';
 import type { IPdfSearchMatch } from '@app/types/pdf';
+import PdfPanelEmptyState from '@app/components/pdf/PdfPanelEmptyState.vue';
 import PdfSearchResultItem from '@app/components/pdf/PdfSearchResultItem.vue';
+import { formatPageIndicator } from '@app/utils/pdf-page-labels';
 
 const { t } = useTypedI18n();
 
@@ -80,6 +99,11 @@ interface IProps {
     results: IPdfSearchMatch[];
     currentResultIndex: number;
     searchQuery: string;
+    searchOptions?: {
+        matchCase?: boolean;
+        wholeWord?: boolean;
+        useRegex?: boolean;
+    };
     pageLabels?: string[] | null;
     isSearching?: boolean;
     searchProgress?: {
@@ -94,22 +118,31 @@ const props = defineProps<IProps>();
 
 defineEmits<{(e: 'goToResult', index: number): void;}>();
 
-const SEARCH_RESULT_ITEM_HEIGHT = 72;
-
-const resultsForVirtualization = computed(() => props.results);
-const {
-    list: virtualResults,
-    containerProps,
-    wrapperProps,
-    scrollTo,
-} = useVirtualList(resultsForVirtualization, {
-    itemHeight: SEARCH_RESULT_ITEM_HEIGHT,
-    overscan: 10,
-});
-
 const trimmedQuery = computed(() => props.searchQuery.trim());
-
 const minQueryLength = computed(() => props.minQueryLength ?? 0);
+const isTruncated = computed(() => props.isTruncated ?? false);
+const expandedPages = ref<Set<number>>(new Set());
+const resultItemRefs = new Map<number, HTMLElement>();
+
+const activeMatchIndex = computed(() => props.results[props.currentResultIndex]?.matchIndex ?? -1);
+
+const groupedResults = computed(() => {
+    const groups = new Map<number, IPdfSearchMatch[]>();
+
+    props.results.forEach((result) => {
+        const matches = groups.get(result.pageIndex) ?? [];
+        matches.push(result);
+        groups.set(result.pageIndex, matches);
+    });
+
+    return Array.from(groups.entries()).map(([
+        pageIndex,
+        matches,
+    ]) => ({
+        pageIndex,
+        matches,
+    }));
+});
 
 const isQueryTooShort = computed(() => {
     const min = minQueryLength.value;
@@ -118,8 +151,6 @@ const isQueryTooShort = computed(() => {
     }
     return trimmedQuery.value.length < min;
 });
-
-const isTruncated = computed(() => props.isTruncated ?? false);
 
 const progressText = computed(() => {
     if (!props.searchProgress || props.searchProgress.total === 0) {
@@ -134,6 +165,47 @@ const progressText = computed(() => {
     });
 });
 
+function isGroupExpanded(pageIndex: number) {
+    return expandedPages.value.has(pageIndex);
+}
+
+function togglePage(pageIndex: number) {
+    const next = new Set(expandedPages.value);
+    if (next.has(pageIndex)) {
+        next.delete(pageIndex);
+    } else {
+        next.add(pageIndex);
+    }
+    expandedPages.value = next;
+}
+
+function setResultRef(
+    matchIndex: number,
+    component: ComponentPublicInstance | Element | null,
+) {
+    if (!component) {
+        resultItemRefs.delete(matchIndex);
+        return;
+    }
+
+    if (component instanceof HTMLElement) {
+        resultItemRefs.set(matchIndex, component);
+        return;
+    }
+
+    if ('$el' in component && component.$el instanceof HTMLElement) {
+        resultItemRefs.set(matchIndex, component.$el);
+    }
+}
+
+watch(
+    groupedResults,
+    (groups) => {
+        expandedPages.value = new Set(groups.map(group => group.pageIndex));
+    },
+    { immediate: true },
+);
+
 watch(
     () => [
         props.currentResultIndex,
@@ -147,11 +219,18 @@ watch(
             return;
         }
 
-        await nextTick();
-        if (virtualResults.value.some(entry => entry.index === nextIndex)) {
+        const currentResult = props.results[nextIndex];
+        if (!currentResult) {
             return;
         }
-        scrollTo(nextIndex);
+
+        expandedPages.value = new Set(expandedPages.value).add(currentResult.pageIndex);
+
+        await nextTick();
+        resultItemRefs.get(currentResult.matchIndex)?.scrollIntoView({
+            block: 'nearest',
+            behavior: 'smooth',
+        });
     },
     { flush: 'post' },
 );
@@ -162,17 +241,6 @@ watch(
     display: flex;
     flex-direction: column;
     min-height: 100%;
-}
-
-.pdf-search-results-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 24px;
-    color: var(--ui-text-muted);
-    text-align: center;
 }
 
 .pdf-search-results-list-shell {
@@ -214,7 +282,43 @@ watch(
     overflow: auto;
 }
 
-.pdf-search-results-list-inner {
+.pdf-search-results-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.pdf-search-results-group + .pdf-search-results-group {
+    border-top: 1px solid var(--ui-border);
+}
+
+.pdf-search-results-group-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.45rem;
+    border: none;
+    background: color-mix(in oklab, var(--ui-bg-muted) 55%, transparent 45%);
+    padding: 0.55rem 0.75rem;
+    text-align: left;
+    color: var(--ui-text);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pdf-search-results-group-chevron {
+    transition: transform 0.15s ease;
+}
+
+.pdf-search-results-group-chevron.is-open {
+    transform: rotate(90deg);
+}
+
+.pdf-search-results-group-label {
+    min-width: 0;
+}
+
+.pdf-search-results-group-items {
     display: flex;
     flex-direction: column;
 }

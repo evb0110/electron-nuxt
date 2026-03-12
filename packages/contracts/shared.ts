@@ -23,6 +23,7 @@ export interface IOcrWord {
 export type TFitMode = 'width' | 'height';
 export type TZoomMode = 'custom' | 'fit-width' | 'fit-height';
 export type TPdfViewMode = 'single' | 'facing' | 'facing-first-single';
+export type TDefaultZoomPreset = 'fit-width' | 'fit-height' | '100' | '125' | '150';
 
 export type TAppTheme = 'light' | 'dark';
 export type TAppLocale = TLocale;
@@ -32,6 +33,10 @@ export interface ISettingsData {
     authorName: string;
     theme: TAppTheme;
     locale: TAppLocale;
+    defaultZoomPreset: TDefaultZoomPreset;
+    defaultViewMode: TPdfViewMode;
+    defaultContinuousScroll: boolean;
+    defaultAnnotationColor: string;
     suppressDefaultViewerPrompt?: boolean;
     skippedUpdateVersion?: string;
 }

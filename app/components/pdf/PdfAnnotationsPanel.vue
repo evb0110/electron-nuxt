@@ -5,14 +5,16 @@
             @set-tool="emit('set-tool', $event)"
         />
 
-        <PdfAnnotationStyleEditor
-            :tool="tool"
-            :settings="settings"
-            @set-tool="emit('set-tool', $event)"
-            @update-setting="emit('update-setting', $event)"
-        />
+        <template v-if="tool !== 'none'">
+            <PdfAnnotationStyleEditor
+                :tool="tool"
+                :settings="settings"
+                @set-tool="emit('set-tool', $event)"
+                @update-setting="emit('update-setting', $event)"
+            />
 
-        <div class="notes-panel-divider" />
+            <div class="notes-panel-divider" />
+        </template>
 
         <PdfAnnotationCommentsList
             :comments="comments"

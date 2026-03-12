@@ -81,6 +81,7 @@ export const useWorkspaceSidebarSearchSyncController = (
 
     const {
         searchQuery,
+        searchOptions,
         results,
         pageMatches,
         currentResultIndex,
@@ -112,6 +113,7 @@ export const useWorkspaceSidebarSearchSyncController = (
         workingCopyPath,
         totalPages,
         searchQuery,
+        searchOptions,
         search,
         goToResult,
         setResultIndex,
@@ -226,6 +228,7 @@ export const useWorkspaceSidebarSearchSyncController = (
         sidebarTab,
 
         searchQuery,
+        searchOptions,
         results,
         pageMatches,
         currentResultIndex,

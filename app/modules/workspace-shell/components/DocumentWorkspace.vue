@@ -162,6 +162,7 @@
                 <PdfSidebar
                     v-model:active-tab="sidebarTab"
                     v-model:search-query="searchQuery"
+                    :search-options="searchOptions"
                     :is-open="showSidebar"
                     :pdf-document="pdfDocument"
                     :current-page="currentPage"
@@ -189,6 +190,7 @@
                     @search="handleSearch"
                     @next="handleSearchNext"
                     @previous="handleSearchPrevious"
+                    @update:search-options="searchOptions = $event"
                     @go-to-page="handleGoToPage"
                     @go-to-result="handleGoToResult"
                     @update:page-label-ranges="handlePageLabelRangesUpdate"
@@ -540,6 +542,7 @@ const {
     handleAnnotationState,
     handleAnnotationModified,
     searchQuery,
+    searchOptions,
     results,
     pageMatches,
     currentResultIndex,

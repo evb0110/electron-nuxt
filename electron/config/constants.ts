@@ -5,7 +5,7 @@ export const MAX_CHUNK = 8 * 1024 * 1024;
 export const SEARCH_RESULT_LIMIT = 500;
 
 /** Characters of context to include before/after a search match in excerpts. */
-export const EXCERPT_CONTEXT_CHARS = 40;
+export const EXCERPT_CONTEXT_CHARS = 56;
 
 /** Maximum number of entries in the recent-files list. */
 export const MAX_RECENT_FILES = 10;

@@ -139,6 +139,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         showSettings,
         sidebarTab,
         searchQuery,
+        searchOptions,
         results,
         pageMatches,
         currentResultIndex,
@@ -603,6 +604,46 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         zoomMode.value = 'custom';
     }
 
+    function applyWorkspaceViewerDefaults() {
+        const defaultColor = appSettings.value.defaultAnnotationColor;
+        annotationSettings.value = {
+            ...annotationSettings.value,
+            highlightColor: defaultColor,
+            underlineColor: defaultColor,
+            strikethroughColor: defaultColor,
+            squigglyColor: defaultColor,
+            inkColor: defaultColor,
+            shapeColor: defaultColor,
+        };
+
+        viewMode.value = appSettings.value.defaultViewMode;
+        continuousScroll.value = appSettings.value.defaultContinuousScroll;
+
+        if (appSettings.value.defaultZoomPreset === 'fit-width') {
+            fitMode.value = 'width';
+            zoom.value = 1;
+            effectiveZoom.value = 1;
+            zoomMode.value = 'fit-width';
+            return;
+        }
+
+        if (appSettings.value.defaultZoomPreset === 'fit-height') {
+            fitMode.value = 'height';
+            zoom.value = 1;
+            effectiveZoom.value = 1;
+            zoomMode.value = 'fit-height';
+            return;
+        }
+
+        setCustomZoomFromDisplay(Number(appSettings.value.defaultZoomPreset) / 100);
+    }
+
+    watch(pdfSrc, (nextSrc, previousSrc) => {
+        if (nextSrc && !previousSrc) {
+            applyWorkspaceViewerDefaults();
+        }
+    });
+
     const {
         setupShortcuts,
         cleanupShortcuts,
@@ -1001,6 +1042,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleAnnotationModified,
 
         searchQuery,
+        searchOptions,
         results,
         pageMatches,
         currentResultIndex,

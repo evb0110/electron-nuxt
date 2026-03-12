@@ -1,5 +1,5 @@
 <template>
-    <UTooltip :text="tooltip" :delay-duration="1200">
+    <UTooltip :text="tooltipText" :delay-duration="1200">
         <button
             class="toolbar-btn"
             :class="{
@@ -9,7 +9,7 @@
                 'is-loading': loading,
             }"
             :disabled="disabled || loading"
-            :aria-label="tooltip"
+            :aria-label="tooltipText"
             :aria-pressed="active"
             @click="emit('click')"
         >
@@ -23,6 +23,7 @@
 const {
     icon,
     tooltip,
+    shortcut = '',
     active = undefined,
     disabled = false,
     loading = false,
@@ -31,6 +32,7 @@ const {
 } = defineProps<{
     icon: string;
     tooltip: string;
+    shortcut?: string;
     active?: boolean;
     disabled?: boolean;
     loading?: boolean;
@@ -39,6 +41,10 @@ const {
 }>();
 
 const emit = defineEmits<{ click: [] }>();
+
+const tooltipText = computed(() => shortcut.trim()
+    ? `${tooltip} (${shortcut.trim()})`
+    : tooltip);
 </script>
 
 <style scoped>

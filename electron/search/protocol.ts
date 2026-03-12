@@ -28,6 +28,9 @@ export interface ISearchWorkerRequest {
     query: string;
     pageCount?: number;
     warmup?: boolean;
+    matchCase?: boolean;
+    wholeWord?: boolean;
+    useRegex?: boolean;
 }
 
 type TSearchWorkerInboundByType = {
