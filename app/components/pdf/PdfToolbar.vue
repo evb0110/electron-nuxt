@@ -305,7 +305,6 @@ const shortcutLabels = computed(() => ({
     gap: 0.25rem;
     padding: 0.5rem;
     border-bottom: 1px solid var(--ui-border);
-    box-shadow: var(--app-toolbar-shadow);
     background: var(--app-chrome);
     white-space: nowrap;
     overflow: hidden;
