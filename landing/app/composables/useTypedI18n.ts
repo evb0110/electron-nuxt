@@ -15,7 +15,14 @@ export function useTypedI18n() {
     const typedComposer = createTypedI18nComposer<typeof composer, typeof composer.t, TLocale>(composer);
     const t: TTranslateFn = (key, ...args) => {
         const params = normalizeTranslationParams(args[0]);
-        const locale = composer.locale.value;
+        const locale = typeof composer.locale?.value === 'string'
+            ? composer.locale.value
+            : DEFAULT_LOCALE;
+        if (typeof composer.getLocaleMessage !== 'function') {
+            return params === undefined
+                ? composer.t(key)
+                : composer.t(key, params);
+        }
         const primaryMessages = composer.getLocaleMessage(locale);
         const fallbackMessages = composer.getLocaleMessage(DEFAULT_LOCALE);
         const primary = getNestedTranslationLeaf(primaryMessages, key);
