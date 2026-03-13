@@ -8,11 +8,14 @@ import pt from './messages/pt';
 import ru from './messages/ru';
 import {
     DEFAULT_LOCALE,
+    type TLocaleMessagesShapeFrom,
     type TLocaleSchemaFrom,
+    type TTranslationLeafFromSchema,
     type TLocale,
     type TTranslationMessageFromSchema,
     type TTranslationKeyFromNode,
     type TTranslationParamsFromSchema,
+    type IPluralMessage,
 } from '@i18n-core';
 
 export {
@@ -33,16 +36,20 @@ export const LOCALE_MESSAGES = {
     it,
     pt,
     nl,
-} as const satisfies Record<TLocale, TLocaleSchema>;
+} as const satisfies Record<TLocale, TLocaleMessagesShapeFrom<TBaseLocaleSchema>>;
 
 export type TTranslationKey = TTranslationKeyFromNode<TBaseLocaleSchema>;
 
 export type TTranslationParams<TKey extends TTranslationKey> = TTranslationParamsFromSchema<TBaseLocaleSchema, TKey>;
+type TTranslationLeaf<TKey extends TTranslationKey> = TTranslationLeafFromSchema<TBaseLocaleSchema, TKey>;
 type TTranslationMessage<TKey extends TTranslationKey> = TTranslationMessageFromSchema<TBaseLocaleSchema, TKey>;
 type THasPluralForms<TKey extends TTranslationKey> = TTranslationMessage<TKey> extends `${string}|${string}` ? true : false;
+type THasPluralMessage<TKey extends TTranslationKey> = TTranslationLeaf<TKey> extends IPluralMessage<string> ? true : false;
 type TAllowsCountShortcut<TKey extends TTranslationKey> = TTranslationParams<TKey> extends {count: number;}
     ? true
-    : THasPluralForms<TKey>;
+    : THasPluralMessage<TKey> extends true
+        ? true
+        : THasPluralForms<TKey>;
 
 export type TTranslateArgs<TKey extends TTranslationKey> = TTranslationParams<TKey> extends undefined
     ? TAllowsCountShortcut<TKey> extends true

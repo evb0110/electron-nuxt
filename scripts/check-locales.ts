@@ -1,6 +1,8 @@
 import {
     LOCALE_CODES,
     LOCALE_DEFINITIONS,
+    isPluralMessage,
+    type TTranslationLeaf,
 } from '@i18n-core';
 import { difference } from 'es-toolkit/array';
 import path from 'node:path';
@@ -28,7 +30,7 @@ function collectLeafPaths(node: unknown, prefix = ''): string[] {
         const value = node[key];
         const dottedPath = prefix ? `${prefix}.${key}` : key;
 
-        if (typeof value === 'string') {
+        if (typeof value === 'string' || isPluralMessage(value)) {
             paths.push(dottedPath);
             continue;
         }
@@ -44,7 +46,7 @@ function collectLeafPaths(node: unknown, prefix = ''): string[] {
     return paths;
 }
 
-function getStringPath(node: unknown, dottedPath: string): string | null {
+function getLeafPath(node: unknown, dottedPath: string): TTranslationLeaf | null {
     const segments = dottedPath.split('.');
     let current: unknown = node;
 
@@ -56,11 +58,13 @@ function getStringPath(node: unknown, dottedPath: string): string | null {
         current = current[segment];
     }
 
-    return typeof current === 'string' ? current : null;
+    return typeof current === 'string' || isPluralMessage(current)
+        ? current
+        : null;
 }
 
-function hasStringPath(node: unknown, dottedPath: string): boolean {
-    return getStringPath(node, dottedPath) !== null;
+function hasLeafPath(node: unknown, dottedPath: string): boolean {
+    return getLeafPath(node, dottedPath) !== null;
 }
 
 function extractPlaceholders(text: string): string[] {
@@ -71,6 +75,19 @@ function extractPlaceholders(text: string): string[] {
         if (placeholder) {
             placeholders.add(placeholder);
         }
+    }
+
+    return Array.from(placeholders).sort();
+}
+
+function extractPlaceholdersFromLeaf(leaf: TTranslationLeaf): string[] {
+    const texts = typeof leaf === 'string'
+        ? [leaf]
+        : Object.values(leaf.forms);
+    const placeholders = new Set<string>();
+
+    for (const text of texts) {
+        extractPlaceholders(text).forEach(placeholder => placeholders.add(placeholder));
     }
 
     return Array.from(placeholders).sort();
@@ -137,15 +154,15 @@ function assertPlaceholderParity(
         messages,
     ] of Object.entries(localeMessages)) {
         for (const dottedPath of expectedPaths) {
-            const expectedMessage = getStringPath(schema, dottedPath);
-            const actualMessage = getStringPath(messages, dottedPath);
+            const expectedMessage = getLeafPath(schema, dottedPath);
+            const actualMessage = getLeafPath(messages, dottedPath);
 
             if (expectedMessage === null || actualMessage === null) {
                 continue;
             }
 
-            const expectedPlaceholders = extractPlaceholders(expectedMessage);
-            const actualPlaceholders = extractPlaceholders(actualMessage);
+            const expectedPlaceholders = extractPlaceholdersFromLeaf(expectedMessage);
+            const actualPlaceholders = extractPlaceholdersFromLeaf(actualMessage);
 
             if (expectedPlaceholders.join('|') !== actualPlaceholders.join('|')) {
                 errors.push(
@@ -202,7 +219,7 @@ async function main() {
     assertLocaleMetadataParity('desktop', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
     assertLocaleMetadataParity('landing', LOCALE_CODES, LOCALE_DEFINITIONS, errors);
 
-    if (!hasStringPath(desktopSchema, 'contextMenu.copySelectionToClipboard')) {
+    if (!hasLeafPath(desktopSchema, 'contextMenu.copySelectionToClipboard')) {
         errors.push('Desktop schema is missing required key "contextMenu.copySelectionToClipboard"');
     }
 

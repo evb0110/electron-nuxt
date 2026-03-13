@@ -6,8 +6,24 @@ export {
 
 export { LOCALE_DEFINITIONS } from './locale-definitions';
 
+export {
+    formatTranslationLeaf,
+    getNestedTranslationLeaf,
+    isPluralMessage,
+    normalizeTranslationParams,
+    plural,
+    type IPluralMessage,
+    type TMessageInterpolationValue,
+    type TMessageParams,
+    type TPluralCategory,
+    type TPluralForms,
+    type TTranslationLeaf,
+} from './message-format';
+
 export type {
+    TLocaleMessagesShapeFrom,
     TLocaleSchemaFrom,
+    TTranslationLeafFromSchema,
     TTranslationKeyFromNode,
     TTranslationMessageFromSchema,
     TTranslationParamsFromSchema,
