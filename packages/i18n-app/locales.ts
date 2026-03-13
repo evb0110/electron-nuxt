@@ -44,7 +44,7 @@ export type TTranslationParams<TKey extends TTranslationKey> = TTranslationParam
 type TTranslationLeaf<TKey extends TTranslationKey> = TTranslationLeafFromSchema<TBaseLocaleSchema, TKey>;
 type TTranslationMessage<TKey extends TTranslationKey> = TTranslationMessageFromSchema<TBaseLocaleSchema, TKey>;
 type THasPluralForms<TKey extends TTranslationKey> = TTranslationMessage<TKey> extends `${string}|${string}` ? true : false;
-type THasPluralMessage<TKey extends TTranslationKey> = TTranslationLeaf<TKey> extends IPluralMessage<string> ? true : false;
+type THasPluralMessage<TKey extends TTranslationKey> = TTranslationLeaf<TKey> extends IPluralMessage ? true : false;
 type TAllowsCountShortcut<TKey extends TTranslationKey> = TTranslationParams<TKey> extends {count: number;}
     ? true
     : THasPluralMessage<TKey> extends true
