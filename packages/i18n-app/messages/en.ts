@@ -1,3 +1,5 @@
+import { plural } from '@i18n-core';
+
 export default {
     'app': {'title': 'EVB Viewer'},
     'toolbar': {
@@ -103,7 +105,10 @@ export default {
         'whereNotes': 'Where Notes Are',
         'whereNotesDescription': 'Pages that contain textual notes.',
         'page': 'Page',
-        'noteCount': '{count} note | {count} notes',
+        'noteCount': plural({
+            one: '{count} note',
+            other: '{count} notes',
+        }),
         'notes': 'Notes',
         'closeTool': 'Deactivate tool',
         'notesList': 'Notes List',
@@ -132,9 +137,15 @@ export default {
         'polygonLabel': 'Polygon',
         'decreaseWidth': 'Decrease width',
         'increaseWidth': 'Increase width',
-        'moreNotes': '+{count} more note | +{count} more notes',
+        'moreNotes': plural({
+            one: '+{count} more note',
+            other: '+{count} more notes',
+        }),
         'openPopUpNote': 'Open pop-up note',
-        'openPopUpNoteCount': 'Open pop-up note ({count} note) | Open pop-up note ({count} notes)',
+        'openPopUpNoteCount': plural({
+            one: 'Open pop-up note ({count} note)',
+            other: 'Open pop-up note ({count} notes)',
+        }),
     },
     'annotationProperties': {
         'close': 'Close',
@@ -345,14 +356,23 @@ export default {
         'pagesProgress': '{processed} of {total} pages',
         'enterSearchTerm': 'Enter a search term',
         'enterSearchHint': 'Type a word or phrase to search across the current document.',
-        'typeMinChars': 'Type at least {count} characters',
+        'typeMinChars': plural({
+            one: 'Type at least {count} character',
+            other: 'Type at least {count} characters',
+        }),
         'noResults': 'No results found',
         'noResultsHint': 'Try a different term or adjust the search options.',
-        'resultCount': '{count} result | {count} results',
+        'resultCount': plural({
+            one: '{count} result',
+            other: '{count} results',
+        }),
         'forQuery': 'for “{query}”',
         'showingFirst': 'Showing first {count} results — keep typing to narrow',
         'page': 'Page {page}',
-        'pageWithCount': 'Page {page} ({count} match) | Page {page} ({count} matches)',
+        'pageWithCount': plural({
+            one: 'Page {page} ({count} match)',
+            other: 'Page {page} ({count} matches)',
+        }),
         'match': 'Match {index}',
     },
     'emptyState': {
@@ -405,7 +425,10 @@ export default {
         'targetSelectedPages': 'Target: selected pages {range}.',
         'targetUnavailableNonContiguous': 'Target unavailable: selection is not contiguous.',
         'targetNone': 'Target: none. Enter a range or select contiguous thumbnails.',
-        'pageWord': 'page | pages',
+        'pageWord': plural({
+            one: 'page',
+            other: 'pages',
+        }),
         'rangePlaceholder': 'e.g. 1-12',
         'prefixPlaceholder': 'Section-',
     },
@@ -437,7 +460,10 @@ export default {
         'setStyleStart': 'Set style range start',
         'rangeStartSet': 'Range start set',
         'applyStyleRange': 'Apply style to range',
-        'applyStyleToCount': 'Apply style to {count} bookmark | Apply style to {count} bookmarks',
+        'applyStyleToCount': plural({
+            one: 'Apply style to {count} bookmark',
+            other: 'Apply style to {count} bookmarks',
+        }),
         'removeBookmark': 'Remove bookmark',
         'newBookmark': 'New Bookmark',
     },
@@ -454,11 +480,20 @@ export default {
     },
     'relativeTime': {
         'yesterday': 'Yesterday',
-        'daysAgo': '{count} days ago',
+        'daysAgo': plural({
+            one: '{count} day ago',
+            other: '{count} days ago',
+        }),
         'oneHourAgo': '1 hour ago',
-        'hoursAgo': '{count} hours ago',
+        'hoursAgo': plural({
+            one: '{count} hour ago',
+            other: '{count} hours ago',
+        }),
         'oneMinuteAgo': '1 minute ago',
-        'minutesAgo': '{count} minutes ago',
+        'minutesAgo': plural({
+            one: '{count} minute ago',
+            other: '{count} minutes ago',
+        }),
         'justNow': 'Just now',
     },
     'pageOps': {
@@ -470,7 +505,10 @@ export default {
         'insertAfter': 'Insert Pages After',
         'selectAll': 'Select All',
         'invertSelection': 'Invert Selection',
-        'pagesSelected': '{count} page selected | {count} pages selected',
+        'pagesSelected': plural({
+            one: '{count} page selected',
+            other: '{count} pages selected',
+        }),
         'deselect': 'Deselect All',
         'operationInProgress': 'Processing pages...',
         'exportPages': 'Export Pages',

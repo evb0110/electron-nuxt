@@ -79,7 +79,7 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "!(*.config).{ts,mts,vue}": "eslint --fix --max-warnings=0",
+    "!(*.config).{ts,mts,vue}": "eslint --fix --max-warnings=0 --no-warn-ignored",
     "app/**/*.{vue,scss,css}": "stylelint --fix"
   },
   "dependencies": {

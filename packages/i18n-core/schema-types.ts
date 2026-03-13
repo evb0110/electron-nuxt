@@ -1,13 +1,26 @@
+import type {
+    IPluralMessage,
+    TTranslationLeaf,
+} from './message-format';
+
 export type TLocaleSchemaFrom<TNode> = {
-    [TKey in keyof TNode]: TNode[TKey] extends string
+    [TKey in keyof TNode]: TNode[TKey] extends TTranslationLeaf
         ? string
         : TNode[TKey] extends object
             ? TLocaleSchemaFrom<TNode[TKey]>
             : never;
 };
 
+export type TLocaleMessagesShapeFrom<TNode> = {
+    [TKey in keyof TNode]: TNode[TKey] extends TTranslationLeaf
+        ? TTranslationLeaf
+        : TNode[TKey] extends object
+            ? TLocaleMessagesShapeFrom<TNode[TKey]>
+            : never;
+};
+
 export type TTranslationKeyFromNode<TNode extends object> = {
-    [TKey in keyof TNode & string]: TNode[TKey] extends string
+    [TKey in keyof TNode & string]: TNode[TKey] extends TTranslationLeaf
         ? TKey
         : TNode[TKey] extends object
             ? `${TKey}.${TTranslationKeyFromNode<TNode[TKey]>}`
@@ -46,22 +59,37 @@ type THasPluralForms<TText extends string> = TText extends `${string}|${string}`
     ? true
     : false;
 
-type TMessageParamNames<TText extends string> = THasPluralForms<TText> extends true
-    ? TPlaceholderNames<TText> | 'count'
-    : TPlaceholderNames<TText>;
+type TTextFromLeaf<TLeaf> = TLeaf extends string
+    ? TLeaf
+    : TLeaf extends IPluralMessage<infer TText>
+        ? TText
+        : never;
 
-type TParamsFromMessage<TText extends string> = [TMessageParamNames<TText>] extends [never]
+type TMessageParamNames<TLeaf> = TLeaf extends IPluralMessage<infer TText>
+    ? TPlaceholderNames<TText> | 'count'
+    : TLeaf extends string
+        ? THasPluralForms<TLeaf> extends true
+            ? TPlaceholderNames<TLeaf> | 'count'
+            : TPlaceholderNames<TLeaf>
+        : never;
+
+type TParamsFromMessage<TLeaf> = [TMessageParamNames<TLeaf>] extends [never]
     ? undefined
-    : { [TKey in TMessageParamNames<TText>]: TPlaceholderValue<TKey> };
+    : { [TKey in TMessageParamNames<TLeaf>]: TPlaceholderValue<TKey> };
+
+export type TTranslationLeafFromSchema<
+    TSchema extends object,
+    TKey extends TTranslationKeyFromNode<TSchema>,
+> = TValueAtPath<TSchema, TKey> extends TTranslationLeaf
+    ? TValueAtPath<TSchema, TKey>
+    : never;
 
 export type TTranslationMessageFromSchema<
     TSchema extends object,
     TKey extends TTranslationKeyFromNode<TSchema>,
-> = TValueAtPath<TSchema, TKey> extends string
-    ? TValueAtPath<TSchema, TKey>
-    : never;
+> = TTextFromLeaf<TTranslationLeafFromSchema<TSchema, TKey>>;
 
 export type TTranslationParamsFromSchema<
     TSchema extends object,
     TKey extends TTranslationKeyFromNode<TSchema>,
-> = TParamsFromMessage<TTranslationMessageFromSchema<TSchema, TKey>>;
+> = TParamsFromMessage<TTranslationLeafFromSchema<TSchema, TKey>>;
