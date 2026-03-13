@@ -61,12 +61,12 @@ type THasPluralForms<TText extends string> = TText extends `${string}|${string}`
 
 type TTextFromLeaf<TLeaf> = TLeaf extends string
     ? TLeaf
-    : TLeaf extends IPluralMessage<infer TText>
-        ? TText
+    : TLeaf extends IPluralMessage<infer TForms>
+        ? TForms[keyof TForms] & string
         : never;
 
 type TMessageParamNames<TLeaf> = TLeaf extends IPluralMessage<infer TText>
-    ? TPlaceholderNames<TText> | 'count'
+    ? TPlaceholderNames<TText[keyof TText] & string> | 'count'
     : TLeaf extends string
         ? THasPluralForms<TLeaf> extends true
             ? TPlaceholderNames<TLeaf> | 'count'

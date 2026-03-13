@@ -13,21 +13,21 @@ export type TPluralForms<TText extends string = string> = {
     many?: TText;
 };
 
-export interface IPluralMessage<TText extends string = string> {
+export interface IPluralMessage<TForms extends TPluralForms<string> = TPluralForms<string>> {
     kind: typeof PLURAL_MESSAGE_KIND;
-    forms: TPluralForms<TText>;
+    forms: TForms;
 }
 
-export type TTranslationLeaf = string | IPluralMessage<string>;
+export type TTranslationLeaf = string | IPluralMessage;
 
-export function plural<const TForms extends TPluralForms<string>>(forms: TForms): IPluralMessage<TForms[keyof TForms] & string> {
+export function plural<const TForms extends TPluralForms<string>>(forms: TForms): IPluralMessage<TForms> {
     return {
         kind: PLURAL_MESSAGE_KIND,
         forms,
     };
 }
 
-export function isPluralMessage(value: unknown): value is IPluralMessage<string> {
+export function isPluralMessage(value: unknown): value is IPluralMessage {
     return typeof value === 'object'
         && value !== null
         && 'kind' in value
@@ -88,7 +88,7 @@ function getFirstDefinedForm(forms: TPluralForms<string>): string {
         ?? forms.other;
 }
 
-function selectPluralMessageForm(message: IPluralMessage<string>, count: number | null, locale: string): string {
+function selectPluralMessageForm(message: IPluralMessage, count: number | null, locale: string): string {
     if (count === null) {
         return message.forms.other ?? getFirstDefinedForm(message.forms);
     }
