@@ -9,6 +9,7 @@ export function registerDocumentsIpcAdapter(
     service: IDocumentsService = createDocumentsService(),
 ) {
     registrar.handle(DOCUMENTS_CHANNELS.openPdfDialog, () => service.openPdfDialog());
+    registrar.handle(DOCUMENTS_CHANNELS.openImageDialog, () => service.openImageDialog());
     registrar.handle(DOCUMENTS_CHANNELS.openPdfDirect, (event: IpcMainInvokeEvent, filePath: string) =>
         service.openPdfDirect(event, filePath),
     );

@@ -215,6 +215,7 @@ type TAnnotationLabelKey = Extract<TTranslationKey,
     | 'annotations.circleLabel'
     | 'annotations.polygonLabel'
     | 'annotations.stamp'
+    | 'annotations.imageLabel'
 >;
 
 export function annotationKindLabelFromSubtype(
@@ -260,7 +261,7 @@ export function annotationKindLabelFromSubtype(
         case 'polygon':
             return label('annotations.polygonLabel', 'Polygon');
         case 'stamp':
-            return label('annotations.stamp', 'Stamp');
+            return label('annotations.imageLabel', 'Image');
         default:
             return label('annotations.annotationLabel', 'Annotation');
     }
@@ -288,6 +289,9 @@ export function detectEditorSubtype(editor: IPdfjsEditor | null | undefined) {
     if (className.includes('inkEditor')) {
         return 'Ink';
     }
+    if (className.includes('stampEditor')) {
+        return 'Stamp';
+    }
 
     const constructorType = getOptionalString(
         getOptionalObject(editor, 'constructor'),
@@ -302,9 +306,19 @@ export function detectEditorSubtype(editor: IPdfjsEditor | null | undefined) {
     if (constructorType === 'ink') {
         return 'Ink';
     }
+    if (constructorType === 'stamp') {
+        return 'Stamp';
+    }
 
     const serialize = getOptionalFunction(editor, 'serialize');
-    const serialized = serialize?.();
+    let serialized: unknown = null;
+    try {
+        serialized = serialize
+            ? serialize.call(editor)
+            : null;
+    } catch {
+        return null;
+    }
     if (isRecord(serialized)) {
         const annotationType = getOptionalString(serialized, 'annotationType');
         if (annotationType === 'freetext') {
@@ -315,6 +329,9 @@ export function detectEditorSubtype(editor: IPdfjsEditor | null | undefined) {
         }
         if (annotationType === 'ink') {
             return 'Ink';
+        }
+        if (annotationType === 'stamp') {
+            return 'Stamp';
         }
     }
     return null;

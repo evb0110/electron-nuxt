@@ -9,7 +9,11 @@ import {
 import { retry } from 'es-toolkit/function';
 import { ref } from 'vue';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    TAnnotationTool,
+} from '@app/types/annotations';
+import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 
 function createComment(stableKey: string): IAnnotationCommentSummary {
@@ -76,11 +80,20 @@ function createHarness() {
             9,
             9,
         ])),
+        startImagePlacement: vi.fn(async () => true),
+        restorePendingImagePlacement: vi.fn(),
     };
+
+    const annotationTool = ref<TAnnotationTool>('highlight');
+    const dragMode = ref(true);
+    const handleAnnotationToolChange = vi.fn((tool: TAnnotationTool) => {
+        annotationTool.value = tool;
+        dragMode.value = false;
+    });
 
     const deps = {
         pdfViewerRef: ref(viewer),
-        annotationTool: ref<'none' | 'highlight' | 'underline'>('highlight'),
+        annotationTool,
         annotationKeepActive: ref(false),
         annotationPlacingPageNote: ref(false),
         annotationSettings: ref({ ...DEFAULT_ANNOTATION_SETTINGS }),
@@ -96,12 +109,12 @@ function createHarness() {
         }),
         showSidebar: ref(false),
         sidebarTab: ref<'annotations' | 'thumbnails' | 'bookmarks' | 'search'>('search'),
-        dragMode: ref(true),
+        dragMode,
         currentPage: ref(3),
         workingCopyPath: ref<string | null>('/tmp/work.pdf'),
         closeAnnotationContextMenu: vi.fn(),
         showAnnotationContextMenu: vi.fn(),
-        handleAnnotationToolChange: vi.fn(),
+        handleAnnotationToolChange,
         openAnnotationNoteWindow: vi.fn(),
         removeAnnotationNoteWindow: vi.fn(),
         setAnnotationNoteWindowError: vi.fn(),
@@ -117,6 +130,10 @@ function createHarness() {
         persistPdfDataSilently: vi.fn(async () => {}),
         markAnnotationSaved: vi.fn(),
         resetAnnotationStorageModified: vi.fn(),
+        embedPlacedImageToPage: vi.fn(async (_data: Uint8Array, _placement: IPdfPlacedImageFinalizePayload) => new Uint8Array([
+            7,
+            7,
+        ])),
     };
 
     return {
@@ -214,6 +231,88 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.highlightSelection).toHaveBeenCalledOnce();
         expect(deps.annotationTool.value).toBe('none');
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
+    });
+
+    it('starts an image placement session from file without switching annotation tools', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const documents = {
+            openImageDialog: vi.fn(async () => '/tmp/test.png'),
+            readFile: vi.fn(async () => [
+                1,
+                2,
+                3,
+            ]),
+        };
+
+        Object.defineProperty(globalThis, 'window', {
+            value: globalThis,
+            configurable: true,
+            writable: true,
+        });
+        Object.defineProperty(globalThis, 'electronAPI', {
+            value: { documents },
+            configurable: true,
+            writable: true,
+        });
+
+        await actions.insertImageFromFileAt(2, 0.25, 0.5);
+
+        expect(deps.handleAnnotationToolChange).not.toHaveBeenCalledWith('stamp');
+        expect(deps.annotationTool.value).toBe('highlight');
+        expect(viewer.startImagePlacement).toHaveBeenCalledOnce();
+        expect(viewer.startImagePlacement).toHaveBeenCalledWith(
+            expect.any(File),
+            {
+                pageNumber: 2,
+                pageX: 0.25,
+                pageY: 0.5,
+            },
+        );
+    });
+
+    it('finalizes a placed image by embedding it into the reloaded PDF', async () => {
+        const {
+            deps,
+            actions,
+        } = createHarness();
+        const finalized = await actions.handleFinalizePlacedImage({
+            pageNumber: 4,
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.15,
+            fileName: 'image.png',
+            mimeType: 'image/png',
+            bytes: new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            targetPixelWidth: 240,
+            targetPixelHeight: 120,
+        });
+
+        expect(finalized).toBe(true);
+        expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(new Uint8Array([
+            9,
+            9,
+        ]), expect.objectContaining({
+            pageNumber: 4,
+            targetPixelWidth: 240,
+            targetPixelHeight: 120,
+        }));
+        expect(deps.waitForPdfReload).toHaveBeenCalledWith(4);
+        expect(deps.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
+            7,
+            7,
+        ]), {
+            pushHistory: true,
+            persistWorkingCopy: true,
+        });
     });
 
     it('serializes delete requests through a single queue', async () => {

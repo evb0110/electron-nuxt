@@ -296,6 +296,19 @@ function getEditMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
         label: te('menu.actions'),
         submenu: [
             createWindowMenuAction({
+                label: te('menu.insertImageFromFile'),
+                accelerator: 'CmdOrCtrl+Shift+I',
+                enabled: documentActionsEnabled,
+                channel: 'menu:insertImageFromFile',
+            }),
+            createWindowMenuAction({
+                label: te('menu.pasteImageFromClipboard'),
+                accelerator: 'CmdOrCtrl+Shift+V',
+                enabled: documentActionsEnabled,
+                channel: 'menu:pasteImageFromClipboard',
+            }),
+            { type: 'separator' },
+            createWindowMenuAction({
                 label: te('menu.undo'),
                 accelerator: 'CmdOrCtrl+Z',
                 enabled: documentActionsEnabled,

@@ -50,6 +50,12 @@ export function registerTabsMenuBindings(
         api.documents?.onMenuOpenPdf?.(() => {
             runMenuAction('open-pdf', () => deps.activeWorkspace.value?.handleOpenFileFromUi());
         }),
+        api.documents?.onMenuInsertImageFromFile?.(() => {
+            runMenuAction('insert-image-from-file', () => deps.activeWorkspace.value?.handleInsertImageFromFile());
+        }),
+        api.documents?.onMenuPasteImageFromClipboard?.(() => {
+            runMenuAction('paste-image-from-clipboard', () => deps.activeWorkspace.value?.handlePasteImageFromClipboard());
+        }),
         api.documents?.onMenuSave?.(() => {
             runMenuAction('save', () => deps.activeWorkspace.value?.handleSave());
         }),

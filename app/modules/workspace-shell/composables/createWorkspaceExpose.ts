@@ -57,6 +57,8 @@ interface ICreateWorkspaceExposeDeps {
     handleDisableDragMode: () => void;
     handleCaptureRegion: () => void;
     handleQuickNote: () => void;
+    handleInsertImageFromFile: () => Promise<void>;
+    handlePasteImageFromClipboard: () => Promise<void>;
     selectedThumbnailPages: Ref<number[]>;
     pageOpsDelete: (pages: number[], totalPages: number) => Promise<boolean>;
     pageOpsExtract: (pages: number[]) => Promise<boolean>;
@@ -195,6 +197,8 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleDisableDragMode: deps.handleDisableDragMode,
         handleCaptureRegion: deps.handleCaptureRegion,
         handleQuickNote: deps.handleQuickNote,
+        handleInsertImageFromFile: deps.handleInsertImageFromFile,
+        handlePasteImageFromClipboard: deps.handlePasteImageFromClipboard,
         handleViewModeSingle: () => {
             deps.viewMode.value = 'single';
         },

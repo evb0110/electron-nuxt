@@ -447,11 +447,16 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
         uiManager.addToAnnotationStorage = (editor) => {
             const result = originalAddToAnnotationStorage(editor);
             const editorObject = editor as object | null;
+            const normalizedEditor = editor as IPdfjsEditor | null;
+            const editorSubtype = normalizedEditor
+                ? detectEditorSubtype(normalizedEditor)
+                : null;
             if (editorObject && !commentSync.trackedCreatedEditors.has(editorObject)) {
                 commentSync.trackedCreatedEditors.add(editorObject);
-                toolManager.maybeAutoResetAnnotationTool();
+                if (editorSubtype !== 'Stamp') {
+                    toolManager.maybeAutoResetAnnotationTool();
+                }
             }
-            const normalizedEditor = editor as IPdfjsEditor | null;
             scheduleCreatedEditorPostProcessing(() => {
                 if (normalizedEditor) {
                     freeTextResize.ensureFreeTextEditorCanResize(normalizedEditor);

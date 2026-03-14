@@ -16,7 +16,7 @@
             class="pdfViewer app-scrollbar"
             :class="{
                 'is-dragging': isDragging,
-                'drag-mode': dragMode,
+                'drag-mode': isViewerPanDragModeActive,
                 'is-placing-comment': highlightComposable.isPlacingComment.value,
                 'pdfViewer--single-page': !continuousScroll,
                 'pdfViewer--mode-single': viewMode === 'single',
@@ -51,6 +51,11 @@
                 :force-skeleton="resizeTransitionVisible"
                 :spread-single="isSpreadSingle(page)"
                 :placeholder-style="getPagePlaceholderStyle(page)"
+                :placed-image="pendingImagePlacement?.pageNumber === page ? pendingImagePlacement : null"
+                :placed-image-busy="isPendingImagePlacementFinalizing"
+                @update-placed-image-rect="updatePendingImagePlacementRect"
+                @finalize-placed-image="requestPendingImagePlacementFinalize"
+                @cancel-placed-image="clearPendingImagePlacement"
             />
             <div
                 v-if="bottomVirtualSpacerStyle"
@@ -101,7 +106,6 @@
 <script setup lang="ts">
 
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import { AnnotationEditorParamsType } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import PdfViewerPage from '@app/components/pdf/PdfViewerPage.vue';
 import PdfRegionSnipOverlay from '@app/components/pdf/PdfRegionSnipOverlay.vue';
@@ -114,6 +118,7 @@ import { usePdfPageRenderer } from '@app/composables/pdf/usePdfPageRenderer';
 import { usePdfScale } from '@app/composables/pdf/usePdfScale';
 import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
 import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets';
+import { computeInitialImagePlacementDimensions } from '@app/composables/pdf/pdfImagePlacementSizing';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import { clamp } from 'es-toolkit/math';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
@@ -150,6 +155,11 @@ import type {
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
+import type {
+    IPdfImagePlacementDraft,
+    IPdfImagePlacementRectUpdate,
+    IPdfPlacedImageFinalizePayload,
+} from '@app/types/pdf-image-placement';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotations/types';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
 import { BrowserLogger } from '@app/utils/browser-logger';
@@ -232,6 +242,7 @@ const emit = defineEmits<{
         clientX: number;
         clientY: number;
     }): void;
+    (e: 'image-placement-finalize', payload: IPdfPlacedImageFinalizePayload): void;
 }>();
 
 const viewerHost = ref<HTMLElement | null>(null);
@@ -242,6 +253,10 @@ const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
 const pendingMarkerMoves = new Map<string, IAnnotationMarkerRect>();
 const activeCommentStableKey = ref<string | null>(null);
+const pendingImagePlacement = ref<IPdfImagePlacementDraft | null>(null);
+const isPendingImagePlacementFinalizing = ref(false);
+const isImagePlacementActive = computed(() => pendingImagePlacement.value !== null);
+const isViewerPanDragModeActive = computed(() => dragMode.value && !isImagePlacementActive.value);
 const regionSnip = usePdfRegionSnip({ viewerContainer });
 const cropSelection = usePdfCropSelection({ viewerContainer });
 const PDF_VIEWER_LOADER_ICON_SIZE_PX = 20;
@@ -398,7 +413,12 @@ const {
     startDrag,
     onDrag,
     stopDrag,
-} = usePdfDrag(() => dragMode.value);
+} = usePdfDrag(() => isViewerPanDragModeActive.value);
+watch(isImagePlacementActive, (active) => {
+    if (active) {
+        stopDrag();
+    }
+});
 const {
     containerStyle,
     scaledMargin,
@@ -943,6 +963,12 @@ watch(
     { immediate: true },
 );
 
+watch(() => src.value, (next, previous) => {
+    if (next !== previous) {
+        clearPendingImagePlacement();
+    }
+});
+
 watch(viewerContainer, () => {
     if (!src.value || isLoading.value || hasCompletedInitialRenderForCurrentSource.value) {
         stopInitialRenderObserver();
@@ -1093,6 +1119,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+    clearPendingImagePlacement();
     setPageLayoutMetrics(null);
     stopInitialRenderObserver();
     resizeTransitionVisible.value = false;
@@ -1703,6 +1730,12 @@ function handleViewerMouseDown(event: MouseEvent) {
         return;
     }
     if (
+        event.target instanceof HTMLElement
+        && event.target.closest('.pdf-image-placement')
+    ) {
+        return;
+    }
+    if (
         event.target instanceof HTMLElement &&
         event.target.closest(
             '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, .pdf-annotation-has-note-target, .pdf-annotation-has-comment, .annotationLayer .popupTriggerArea, .annotation-layer .popupTriggerArea',
@@ -1719,11 +1752,23 @@ function handleViewerMouseMove(event: MouseEvent) {
     if (isSnipActive()) {
         return;
     }
+    if (
+        event.target instanceof HTMLElement
+        && event.target.closest('.pdf-image-placement')
+    ) {
+        return;
+    }
     handleDragMove(event);
 }
 
-function handleViewerMouseUp() {
+function handleViewerMouseUp(event: MouseEvent) {
     if (isSnipActive()) {
+        return;
+    }
+    if (
+        event.target instanceof HTMLElement
+        && event.target.closest('.pdf-image-placement')
+    ) {
         return;
     }
     highlightComposable.handleViewerMouseUp();
@@ -1740,11 +1785,23 @@ function handleViewerClick(event: MouseEvent) {
     if (isSnipActive()) {
         return;
     }
+    if (
+        event.target instanceof HTMLElement
+        && event.target.closest('.pdf-image-placement')
+    ) {
+        return;
+    }
     void commentCrud.handleAnnotationCommentClick(event);
 }
 
 function handleViewerDblClick(event: MouseEvent) {
     if (isSnipActive()) {
+        return;
+    }
+    if (
+        event.target instanceof HTMLElement
+        && event.target.closest('.pdf-image-placement')
+    ) {
         return;
     }
     commentCrud.handleAnnotationEditorDblClick(event);
@@ -1755,15 +1812,257 @@ function handleViewerContextMenu(event: MouseEvent) {
         event.preventDefault();
         return;
     }
+    if (
+        event.target instanceof HTMLElement
+        && event.target.closest('.pdf-image-placement')
+    ) {
+        event.preventDefault();
+        return;
+    }
     commentCrud.handleAnnotationCommentContextMenu(event);
 }
 
-function applyStampImage(file: File) {
-    const uiManager = annotationUiManager.value;
-    if (!uiManager) {
+function revokePendingImagePlacementPreview() {
+    const previewUrl = pendingImagePlacement.value?.previewUrl;
+    if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+    }
+}
+
+function clearPendingImagePlacement() {
+    revokePendingImagePlacementPreview();
+    pendingImagePlacement.value = null;
+    isPendingImagePlacementFinalizing.value = false;
+}
+
+function restorePendingImagePlacement() {
+    if (!pendingImagePlacement.value) {
         return;
     }
-    uiManager.updateParams(AnnotationEditorParamsType.CREATE, { bitmapFile: file });
+    isPendingImagePlacementFinalizing.value = false;
+}
+
+function getImagePlacementTarget(options?: {
+    pageNumber?: number | null;
+    pageX?: number | null;
+    pageY?: number | null;
+}) {
+    const container = viewerContainer.value;
+    const requestedPageNumber = Number.isFinite(options?.pageNumber)
+        ? Math.max(1, Math.min(numPages.value, Math.floor(Number(options?.pageNumber))))
+        : currentPage.value;
+    const pageNumber = Math.max(1, requestedPageNumber);
+    const pageContainer = container?.querySelector<HTMLElement>(
+        `.page_container[data-page="${pageNumber}"]`,
+    ) ?? null;
+    const pageRect = pageContainer?.getBoundingClientRect() ?? null;
+    const pageX = Number.isFinite(options?.pageX) ? Number(options?.pageX) : 0.5;
+    const pageY = Number.isFinite(options?.pageY) ? Number(options?.pageY) : 0.5;
+
+    return {
+        pageNumber,
+        pageX: clamp(pageX, 0, 1),
+        pageY: clamp(pageY, 0, 1),
+        pageWidthPx: pageRect?.width ?? null,
+        pageHeightPx: pageRect?.height ?? null,
+    };
+}
+
+async function getImageIntrinsicSize(file: File) {
+    if (typeof createImageBitmap === 'function') {
+        const bitmap = await createImageBitmap(file);
+        try {
+            return {
+                width: bitmap.width,
+                height: bitmap.height,
+            };
+        } finally {
+            bitmap.close();
+        }
+    }
+
+    const imageUrl = URL.createObjectURL(file);
+    try {
+        const dimensions = await new Promise<{
+            width: number;
+            height: number;
+        }>((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => {
+                resolve({
+                    width: image.naturalWidth,
+                    height: image.naturalHeight,
+                });
+            };
+            image.onerror = () => {
+                reject(new Error('Failed to decode image dimensions'));
+            };
+            image.src = imageUrl;
+        });
+        return dimensions;
+    } finally {
+        URL.revokeObjectURL(imageUrl);
+    }
+}
+
+async function getInitialImagePlacementDimensions(
+    file: File,
+    pageWidthPx: number | null,
+    pageHeightPx: number | null,
+) {
+    if (
+        !pageWidthPx
+        || !pageHeightPx
+        || pageWidthPx <= 0
+        || pageHeightPx <= 0
+    ) {
+        return null;
+    }
+
+    const {
+        width: imageWidth,
+        height: imageHeight,
+    } = await getImageIntrinsicSize(file);
+    if (imageWidth <= 0 || imageHeight <= 0) {
+        return null;
+    }
+
+    const devicePixelRatioValue = typeof window !== 'undefined' && window.devicePixelRatio > 0
+        ? window.devicePixelRatio
+        : 1;
+    const imageCssWidth = imageWidth / devicePixelRatioValue;
+    const imageCssHeight = imageHeight / devicePixelRatioValue;
+    return computeInitialImagePlacementDimensions({
+        pageWidthPx,
+        pageHeightPx,
+        imageCssWidth,
+        imageCssHeight,
+    });
+}
+
+function getInitialImagePlacementRect(
+    target: {
+        pageNumber: number;
+        pageX: number;
+        pageY: number;
+        pageWidthPx: number | null;
+        pageHeightPx: number | null;
+    },
+    dimensions: {
+        width: number;
+        height: number;
+    },
+) {
+    const x = clamp(target.pageX - (dimensions.width / 2), 0, Math.max(0, 1 - dimensions.width));
+    const y = clamp(target.pageY - (dimensions.height / 2), 0, Math.max(0, 1 - dimensions.height));
+
+    return {
+        pageNumber: target.pageNumber,
+        x,
+        y,
+        width: dimensions.width,
+        height: dimensions.height,
+    };
+}
+
+async function startImagePlacement(
+    file: File,
+    options?: {
+        pageNumber?: number | null;
+        pageX?: number | null;
+        pageY?: number | null;
+    },
+) {
+    const {
+        pageNumber,
+        pageX,
+        pageY,
+        pageWidthPx,
+        pageHeightPx,
+    } = getImagePlacementTarget(options);
+    const initialDimensions = await getInitialImagePlacementDimensions(file, pageWidthPx, pageHeightPx);
+    if (!initialDimensions) {
+        return false;
+    }
+
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const previewUrl = URL.createObjectURL(new Blob([bytes], { type: file.type || 'image/png' }));
+    const intrinsicSize = await getImageIntrinsicSize(file);
+    const placementRect = getInitialImagePlacementRect({
+        pageNumber,
+        pageX,
+        pageY,
+        pageWidthPx,
+        pageHeightPx,
+    }, initialDimensions);
+
+    clearPendingImagePlacement();
+    pendingImagePlacement.value = {
+        ...placementRect,
+        previewUrl,
+        fileName: file.name,
+        mimeType: file.type || 'image/png',
+        bytes,
+        intrinsicWidth: intrinsicSize.width,
+        intrinsicHeight: intrinsicSize.height,
+    };
+    isPendingImagePlacementFinalizing.value = false;
+    return true;
+}
+
+function updatePendingImagePlacementRect(update: IPdfImagePlacementRectUpdate) {
+    if (!pendingImagePlacement.value) {
+        return;
+    }
+
+    pendingImagePlacement.value = {
+        ...pendingImagePlacement.value,
+        ...update,
+    };
+}
+
+function getPendingImagePlacementTargetPixels(placement: IPdfImagePlacementDraft) {
+    const pageContainer = viewerContainer.value?.querySelector<HTMLElement>(
+        `.page_container[data-page="${placement.pageNumber}"]`,
+    ) ?? null;
+    const canvas = pageContainer?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+    const devicePixelRatioValue = typeof window !== 'undefined' && window.devicePixelRatio > 0
+        ? window.devicePixelRatio
+        : 1;
+    const renderedPagePixelWidth = canvas?.width
+        ?? Math.max(1, Math.round((pageContainer?.clientWidth ?? 1) * devicePixelRatioValue));
+    const renderedPagePixelHeight = canvas?.height
+        ?? Math.max(1, Math.round((pageContainer?.clientHeight ?? 1) * devicePixelRatioValue));
+    const renderScale = effectiveScale.value > 0 ? effectiveScale.value : 1;
+    const basePagePixelWidth = Math.max(1, Math.round(renderedPagePixelWidth / renderScale));
+    const basePagePixelHeight = Math.max(1, Math.round(renderedPagePixelHeight / renderScale));
+
+    return {
+        width: Math.max(1, Math.round(placement.width * basePagePixelWidth)),
+        height: Math.max(1, Math.round(placement.height * basePagePixelHeight)),
+    };
+}
+
+function requestPendingImagePlacementFinalize() {
+    const placement = pendingImagePlacement.value;
+    if (!placement || isPendingImagePlacementFinalizing.value) {
+        return;
+    }
+
+    const targetPixels = getPendingImagePlacementTargetPixels(placement);
+    isPendingImagePlacementFinalizing.value = true;
+    emit('image-placement-finalize', {
+        pageNumber: placement.pageNumber,
+        x: placement.x,
+        y: placement.y,
+        width: placement.width,
+        height: placement.height,
+        fileName: placement.fileName,
+        mimeType: placement.mimeType,
+        bytes: placement.bytes.slice(),
+        targetPixelWidth: targetPixels.width,
+        targetPixelHeight: targetPixels.height,
+    });
 }
 
 function getSelectedShape(): IShapeAnnotation | null {
@@ -1865,7 +2164,9 @@ defineExpose({
     selectedShapeId: shapeComposable.selectedShapeId,
     updateShape,
     getSelectedShape,
-    applyStampImage,
+    startImagePlacement,
+    clearPendingImagePlacement,
+    restorePendingImagePlacement,
     invalidatePages,
     suppressAnnotationId: annotations.commentSync.suppressAnnotationId,
     removeAnnotationFromDom: commentCrud.removeAnnotationFromDom,

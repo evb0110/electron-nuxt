@@ -209,6 +209,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationContextMenuCanCopy,
         annotationContextMenuCanCopySelection,
         annotationContextMenuCanCreateFree,
+        annotationContextMenuCanInsertImage,
+        annotationContextMenuIsImage,
         contextMenuAnnotationLabel,
         contextMenuDeleteActionLabel,
         closeAnnotationContextMenu,
@@ -292,6 +294,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isExportingDocx,
         canSave,
         deleteEmbeddedByRef,
+        embedPlacedImageToPage,
     } = usePageSaveOrchestration({
         pdfData,
         pdfDocument,
@@ -439,9 +442,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         deleteContextMenuComment,
         createContextMenuFreeNote,
         createContextMenuSelectionNote,
+        insertContextMenuImageFromFile,
+        pasteContextMenuImageFromClipboard,
         createContextMenuMarkup,
         handleCopyAnnotationComment,
         handleDeleteAnnotationComment,
+        handleFinalizePlacedImage,
+        insertImageFromFileAt,
+        pasteImageFromClipboardAt,
     } = usePageAnnotationActions({
         pdfViewerRef,
         annotationTool,
@@ -474,6 +482,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         resetAnnotationStorageModified: () => {
             pdfDocument.value?.annotationStorage?.resetModified();
         },
+        embedPlacedImageToPage,
     });
 
     const {
@@ -1021,6 +1030,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationContextMenuCanCopy,
         annotationContextMenuCanCopySelection,
         annotationContextMenuCanCreateFree,
+        annotationContextMenuCanInsertImage,
+        annotationContextMenuIsImage,
         contextMenuAnnotationLabel,
         contextMenuDeleteActionLabel,
 
@@ -1115,9 +1126,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         deleteContextMenuComment,
         createContextMenuFreeNote,
         createContextMenuSelectionNote,
+        insertContextMenuImageFromFile,
+        pasteContextMenuImageFromClipboard,
         createContextMenuMarkup,
         handleCopyAnnotationComment,
         handleDeleteAnnotationComment,
+        handleFinalizePlacedImage,
+        handleInsertImageFromFile: () => insertImageFromFileAt(currentPage.value, 0.5, 0.5),
+        handlePasteImageFromClipboard: () => pasteImageFromClipboardAt(currentPage.value, 0.5, 0.5),
 
         statusFilePath,
         statusFileSizeLabel,

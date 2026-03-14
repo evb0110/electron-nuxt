@@ -630,6 +630,15 @@ const workspaceExpose: IWorkspaceExpose = {
     handleQuickNote: () => {
         void withLoadedWorkspace('handleQuickNote', workspace => workspace.handleQuickNote());
     },
+    handleInsertImageFromFile: async () => {
+        await withLoadedWorkspace('handleInsertImageFromFile', workspace => workspace.handleInsertImageFromFile());
+    },
+    handlePasteImageFromClipboard: async () => {
+        await withLoadedWorkspace(
+            'handlePasteImageFromClipboard',
+            workspace => workspace.handlePasteImageFromClipboard(),
+        );
+    },
     handleViewModeSingle: () => {
         void withLoadedWorkspace('handleViewModeSingle', workspace => workspace.handleViewModeSingle());
     },

@@ -257,6 +257,7 @@
                         @annotation-setting="handleAnnotationSettingChange"
                         @annotation-note-placement-change="annotationPlacingPageNote = $event"
                         @shape-context-menu="handleShapeContextMenu"
+                        @image-placement-finalize="handleFinalizePlacedImage"
                     />
                 </template>
                 <template #empty>
@@ -306,6 +307,8 @@
             :annotation-context-menu-can-copy="annotationContextMenuCanCopy"
             :annotation-context-menu-can-copy-selection="annotationContextMenuCanCopySelection"
             :annotation-context-menu-can-create-free="annotationContextMenuCanCreateFree"
+            :annotation-context-menu-can-insert-image="annotationContextMenuCanInsertImage"
+            :annotation-context-menu-is-image="annotationContextMenuIsImage"
             :context-menu-annotation-label="contextMenuAnnotationLabel"
             :context-menu-delete-action-label="contextMenuDeleteActionLabel"
             :page-context-menu="pageContextMenu"
@@ -328,6 +331,8 @@
             @context-markup="createContextMenuMarkup"
             @context-create-free-note="createContextMenuFreeNote"
             @context-create-selection-note="createContextMenuSelectionNote"
+            @context-insert-image-from-file="insertContextMenuImageFromFile"
+            @context-paste-image-from-clipboard="pasteContextMenuImageFromClipboard"
             @page-delete="handlePageContextMenuDelete"
             @page-extract="handlePageContextMenuExtract"
             @page-export="handlePageContextMenuExport"
@@ -524,6 +529,8 @@ const {
     annotationContextMenuCanCopy,
     annotationContextMenuCanCopySelection,
     annotationContextMenuCanCreateFree,
+    annotationContextMenuCanInsertImage,
+    annotationContextMenuIsImage,
     contextMenuAnnotationLabel,
     contextMenuDeleteActionLabel,
     pageContextMenu,
@@ -595,6 +602,8 @@ const {
     shapePropertiesPopover,
     selectedShapeForProperties,
     handleQuickNoteAction,
+    handleInsertImageFromFile,
+    handlePasteImageFromClipboard,
     handleStartPlaceNote,
     handleAnnotationFocusComment,
     handleAnnotationCommentClick,
@@ -609,7 +618,10 @@ const {
     deleteContextMenuComment,
     createContextMenuFreeNote,
     createContextMenuSelectionNote,
+    insertContextMenuImageFromFile,
+    pasteContextMenuImageFromClipboard,
     createContextMenuMarkup,
+    handleFinalizePlacedImage,
     handleDeleteAnnotationComment,
     statusFilePath,
     statusFileSizeLabel,
@@ -1187,6 +1199,12 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     },
     handleQuickNote: () => {
         void handleQuickNoteAction();
+    },
+    handleInsertImageFromFile: async () => {
+        await handleInsertImageFromFile();
+    },
+    handlePasteImageFromClipboard: async () => {
+        await handlePasteImageFromClipboard();
     },
     selectedThumbnailPages,
     pageOpsDelete,

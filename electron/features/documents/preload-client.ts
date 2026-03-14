@@ -65,6 +65,7 @@ function assertWorkingCopyFileName(value: unknown, fieldName: string) {
 export function createDocumentsPreloadClient(ipcRenderer: IpcRenderer) {
     return {
         openPdfDialog: () => ipcRenderer.invoke(DOCUMENTS_CHANNELS.openPdfDialog),
+        openImageDialog: () => ipcRenderer.invoke(DOCUMENTS_CHANNELS.openImageDialog),
         openPdfDirect: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.openPdfDirect, path),
         openPdfDirectBatch: (paths: string[], requestId?: string) =>
             ipcRenderer.invoke(DOCUMENTS_CHANNELS.openPdfDirectBatch, paths, requestId),
@@ -121,6 +122,10 @@ export function createDocumentsPreloadClient(ipcRenderer: IpcRenderer) {
         },
         onMenuOpenPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
             onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuOpenPdf, callback),
+        onMenuInsertImageFromFile: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile, callback),
+        onMenuPasteImageFromClipboard: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
+            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard, callback),
         onMenuSave: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
             onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuSave, callback),
         onMenuSaveAs: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>

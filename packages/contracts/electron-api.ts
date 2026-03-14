@@ -250,6 +250,8 @@ export interface IDocumentsMenuCapability {
     setMenuDocumentState: (hasDocument: boolean) => Promise<void>;
     setMenuTabCount: (tabCount: number) => Promise<void>;
     onMenuOpenPdf: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuInsertImageFromFile: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuPasteImageFromClipboard: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuExportDocx: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
@@ -278,6 +280,7 @@ export interface IDocumentsMenuCapability {
 
 export interface IDocumentsFileCapability {
     openPdfDialog: () => Promise<TOpenFileResult | null>;
+    openImageDialog: () => Promise<string | null>;
     openPdfDirect: (path: string) => Promise<TOpenFileResult | null>;
     openPdfDirectBatch: (paths: string[], requestId?: string) => Promise<TOpenFileResult | null>;
     savePdfAs: (workingCopyPath: string) => Promise<string | null>;

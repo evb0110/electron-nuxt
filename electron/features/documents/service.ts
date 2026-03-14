@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron';
 import {
     handleCreateWorkingCopyFromData,
+    handleOpenImageDialog,
     handleCreateWorkingCopyFromPath,
     handleOpenPdfDialog,
     handleOpenPdfDirect,
@@ -45,6 +46,7 @@ const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 export function createDocumentsService(): IDocumentsService {
     return {
         openPdfDialog: () => handleOpenPdfDialog(),
+        openImageDialog: () => handleOpenImageDialog(),
         openPdfDirect: (event, filePath) => handleOpenPdfDirect(event, filePath),
         openPdfDirectBatch: (event, filePaths, requestId) => handleOpenPdfDirectBatch(event, filePaths, requestId),
         createWorkingCopyFromData: (event, fileName, data, originalPath) =>

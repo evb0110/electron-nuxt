@@ -1,5 +1,6 @@
 export const DOCUMENTS_CHANNELS = {
     openPdfDialog: 'dialog:openPdf',
+    openImageDialog: 'dialog:openImage',
     openPdfDirect: 'dialog:openPdfDirect',
     openPdfDirectBatch: 'dialog:openPdfDirectBatch',
     createWorkingCopyFromData: 'working-copy:createFromData',
@@ -29,6 +30,8 @@ export const DOCUMENTS_CHANNELS = {
 
 export const DOCUMENTS_EVENT_CHANNELS = {
     menuOpenPdf: 'menu:openPdf',
+    menuInsertImageFromFile: 'menu:insertImageFromFile',
+    menuPasteImageFromClipboard: 'menu:pasteImageFromClipboard',
     menuSave: 'menu:save',
     menuSaveAs: 'menu:saveAs',
     menuExportDocx: 'menu:exportDocx',

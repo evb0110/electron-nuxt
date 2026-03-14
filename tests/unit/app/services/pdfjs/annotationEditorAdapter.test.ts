@@ -14,8 +14,8 @@ import {
     unselectAllEditors,
 } from '@app/services/pdfjs/annotationEditorAdapter';
 
-function asUiManager(value: Record<string, unknown>): AnnotationEditorUIManager {
-    return Object.assign({} as AnnotationEditorUIManager, value);
+function asUiManager<T extends object>(value: T): AnnotationEditorUIManager {
+    return value as AnnotationEditorUIManager;
 }
 
 describe('annotationEditorAdapter', () => {
@@ -38,6 +38,42 @@ describe('annotationEditorAdapter', () => {
         const withLayer = getEditorByUidFromLayer(asUiManager({getLayer: vi.fn(() => ({getEditorByUID: vi.fn(() => editor)}))}), 2, 'uid-2');
 
         expect(withLayer).toEqual(editor);
+    });
+
+    it('preserves method binding for private-field-backed layer accessors', () => {
+        const editor = { id: 'private-layer-editor' } as IPdfjsEditor;
+
+        class PrivateLayer {
+            #editors = new Map<string, IPdfjsEditor>();
+
+            constructor() {
+                this.#editors.set('uid-3', editor);
+            }
+
+            getEditorByUID(uid: string) {
+                return this.#editors.get(uid) ?? null;
+            }
+        }
+
+        class PrivateUiManager {
+            #layers = new Map<number, PrivateLayer>();
+
+            constructor() {
+                this.#layers.set(2, new PrivateLayer());
+            }
+
+            getLayer(pageIndex: number) {
+                return this.#layers.get(pageIndex) ?? null;
+            }
+        }
+
+        const resolved = getEditorByUidFromLayer(
+            asUiManager(new PrivateUiManager()),
+            2,
+            'uid-3',
+        );
+
+        expect(resolved).toEqual(editor);
     });
 
     it('selects comments only when selectComment runtime hook exists', () => {

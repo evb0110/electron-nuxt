@@ -15,10 +15,16 @@
                 />
                 {{ annotationLabel }}
             </p>
-            <button type="button" class="pdf-context-menu__action" @click="emit('open-note')">
+            <button
+                v-if="!isImageComment"
+                type="button"
+                class="pdf-context-menu__action"
+                @click="emit('open-note')"
+            >
                 {{ t('contextMenu.openPopUpNote') }}
             </button>
             <button
+                v-if="!isImageComment"
                 type="button"
                 class="pdf-context-menu__action"
                 :disabled="!canCopy"
@@ -91,6 +97,26 @@
         >
             {{ t('contextMenu.addNoteToSelection') }}
         </button>
+        <div class="pdf-context-menu__divider" />
+        <p class="pdf-context-menu__section-title">
+            {{ t('contextMenu.insertImage') }}
+        </p>
+        <button
+            type="button"
+            class="pdf-context-menu__action"
+            :disabled="!canInsertImage"
+            @click="emit('insert-image-from-file')"
+        >
+            {{ t('contextMenu.insertImageFromFile') }}
+        </button>
+        <button
+            type="button"
+            class="pdf-context-menu__action"
+            :disabled="!canInsertImage"
+            @click="emit('paste-image-from-clipboard')"
+        >
+            {{ t('contextMenu.pasteImageFromClipboard') }}
+        </button>
     </PdfContextMenuBase>
 </template>
 
@@ -119,8 +145,10 @@ defineProps<{
     canCopy: boolean;
     canCopySelection: boolean;
     canCreateFree: boolean;
+    canInsertImage: boolean;
     annotationLabel: string;
     deleteLabel: string;
+    isImageComment?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -131,6 +159,8 @@ const emit = defineEmits<{
     'markup': [tool: TAnnotationTool];
     'create-free-note': [];
     'create-selection-note': [];
+    'insert-image-from-file': [];
+    'paste-image-from-clipboard': [];
 }>();
 
 const { t } = useTypedI18n();

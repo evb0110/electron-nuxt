@@ -9,6 +9,13 @@
         <div class="text-layer textLayer"></div>
         <div class="annotation-layer annotationLayer"></div>
         <div class="annotation-editor-layer annotationEditorLayer"></div>
+        <PdfImagePlacementOverlay
+            :placement="placedImage"
+            :busy="placedImageBusy"
+            @update-rect="$emit('update-placed-image-rect', $event)"
+            @finalize="$emit('finalize-placed-image')"
+            @cancel="$emit('cancel-placed-image')"
+        />
         <PdfShapeOverlay
             v-if="shapeContext"
             :page-index="page - 1"
@@ -35,9 +42,14 @@
 <script setup lang="ts">
 
 import PdfPageSkeleton from '@app/components/pdf/PdfPageSkeleton.vue';
+import PdfImagePlacementOverlay from '@app/components/pdf/PdfImagePlacementOverlay.vue';
 import PdfShapeOverlay from '@app/components/pdf/PdfShapeOverlay.vue';
 import { usePdfSkeletonContext } from '@app/composables/pdf/usePdfSkeletonInsets';
 import type { IShapeContextProvide } from '@app/composables/pdf/useAnnotationShapes';
+import type {
+    IPdfImagePlacementDraft,
+    IPdfImagePlacementRectUpdate,
+} from '@app/types/pdf-image-placement';
 
 interface IProps {
     page: number;
@@ -45,9 +57,24 @@ interface IProps {
     forceSkeleton?: boolean;
     spreadSingle?: boolean;
     placeholderStyle?: Record<string, string> | null;
+    placedImage?: IPdfImagePlacementDraft | null;
+    placedImageBusy?: boolean;
 }
 
-const props = defineProps<IProps>();
+const {
+    page,
+    showSkeleton,
+    forceSkeleton = false,
+    spreadSingle = false,
+    placeholderStyle = null,
+    placedImage = null,
+    placedImageBusy = false,
+} = defineProps<IProps>();
+defineEmits<{
+    'update-placed-image-rect': [payload: IPdfImagePlacementRectUpdate];
+    'finalize-placed-image': [];
+    'cancel-placed-image': [];
+}>();
 
 const {
     scaledSkeletonPadding,
@@ -56,11 +83,11 @@ const {
 
 const shapeContext = inject<IShapeContextProvide | null>('shapeContext', null);
 
-const pageShapes = computed(() => shapeContext?.getShapesForPage(props.page - 1) ?? []);
+const pageShapes = computed(() => shapeContext?.getShapesForPage(page - 1) ?? []);
 
 const pageDrawingShape = computed(() => {
     const drawing = shapeContext?.drawingShape.value;
-    if (!drawing || drawing.pageIndex !== props.page - 1) {
+    if (!drawing || drawing.pageIndex !== page - 1) {
         return null;
     }
     return drawing;
