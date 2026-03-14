@@ -151,7 +151,6 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
     secrets: inherit
-    continue-on-error: true
 
   publish:
     name: Create GitHub Release
