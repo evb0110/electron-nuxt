@@ -10,32 +10,43 @@
         @dblclick.stop
         @contextmenu.prevent.stop
     >
-        <img
-            class="pdf-image-placement__preview"
-            :src="placement.previewUrl"
-            :alt="placement.fileName"
-            draggable="false"
-        >
-        <button
-            type="button"
-            class="pdf-image-placement__surface"
-            :disabled="busy"
-            :aria-label="t('annotations.imageLabel')"
-            @mousedown.stop.prevent
-            @pointerdown.stop.prevent="handleMovePointerDown"
-        />
-        <div class="pdf-image-placement__resizers">
+        <div class="pdf-image-placement__transform" :style="transformStyle">
+            <img
+                class="pdf-image-placement__preview"
+                :src="placement.previewUrl"
+                :alt="placement.fileName"
+                draggable="false"
+            >
             <button
-                v-for="handle in handles"
-                :key="handle"
                 type="button"
-                class="pdf-image-placement__resizer"
-                :class="`pdf-image-placement__resizer--${handle}`"
+                class="pdf-image-placement__surface"
                 :disabled="busy"
                 :aria-label="t('annotations.imageLabel')"
                 @mousedown.stop.prevent
-                @pointerdown.stop.prevent="handleResizePointerDown(handle, $event)"
+                @pointerdown.stop.prevent="handleMovePointerDown"
             />
+            <div class="pdf-image-placement__resizers">
+                <button
+                    v-for="handle in resizeHandles"
+                    :key="handle"
+                    type="button"
+                    class="pdf-image-placement__resizer"
+                    :class="`pdf-image-placement__resizer--${handle}`"
+                    :style="getResizeHandleStyle(handle)"
+                    :disabled="busy"
+                    :aria-label="t('annotations.imageLabel')"
+                    @mousedown.stop.prevent
+                    @pointerdown.stop.prevent="handleResizePointerDown(handle, $event)"
+                />
+                <button
+                    type="button"
+                    class="pdf-image-placement__rotate-handle"
+                    :disabled="busy"
+                    :aria-label="t('annotations.imageLabel')"
+                    @mousedown.stop.prevent
+                    @pointerdown.stop.prevent="handleRotatePointerDown"
+                />
+            </div>
         </div>
         <div class="pdf-image-placement__controls">
             <button
@@ -66,8 +77,15 @@ import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
 } from '@app/types/pdf-image-placement';
-
-type TResizeHandle = 'nw' | 'ne' | 'se' | 'sw';
+import {
+    getImagePlacementResizeCursorStyle,
+    moveImagePlacementRect,
+    rotateImagePlacementRect,
+    resizeImagePlacementRect,
+    type IImagePlacementContainerRect,
+    type IImagePlacementRectPx,
+    type TImagePlacementResizeHandle,
+} from '@app/composables/pdf/pdfImagePlacementSizing';
 
 const {
     placement,
@@ -85,11 +103,16 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 const frameRef = ref<HTMLElement | null>(null);
-const handles: TResizeHandle[] = [
+const GLOBAL_CURSOR_ATTRIBUTE = 'data-pdf-image-placement-cursor';
+const resizeHandles: TImagePlacementResizeHandle[] = [
     'nw',
+    'n',
     'ne',
+    'e',
     'se',
+    's',
     'sw',
+    'w',
 ];
 
 const frameStyle = computed((): Record<string, string> => {
@@ -105,32 +128,55 @@ const frameStyle = computed((): Record<string, string> => {
     };
 });
 
-interface IContainerRect {
-    width: number;
-    height: number;
-}
+const transformStyle = computed((): Record<string, string> => ({ '--pdf-image-placement-rotation': `${placement?.rotationDegrees ?? 0}deg` }));
 
-interface IRectPx {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
+function getResizeHandleStyle(handle: TImagePlacementResizeHandle) {
+    return { cursor: getImagePlacementResizeCursorStyle(handle, placement?.rotationDegrees ?? 0) };
 }
 
 interface IActiveInteraction {
-    mode: 'move' | 'resize';
-    handle?: TResizeHandle;
+    mode: 'move' | 'resize' | 'rotate';
+    handle?: TImagePlacementResizeHandle;
     pointerId: number;
-    originRectPx: IRectPx;
+    captureElement: HTMLElement | null;
+    originRectPx: IImagePlacementRectPx;
     startClientX: number;
     startClientY: number;
-    containerRect: IContainerRect;
-    aspectRatio: number;
+    containerRect: IImagePlacementContainerRect;
+    originRotationDegrees: number;
+    activeCursor: string;
 }
 
 let activeInteraction: IActiveInteraction | null = null;
 
-function getContainerRect(): IContainerRect | null {
+function setGlobalInteractionCursor(cursor: string) {
+    const root = document.documentElement;
+    root.style.setProperty('--pdf-image-placement-active-cursor', cursor);
+    root.setAttribute(GLOBAL_CURSOR_ATTRIBUTE, '');
+}
+
+function clearGlobalInteractionCursor() {
+    const root = document.documentElement;
+    root.style.removeProperty('--pdf-image-placement-active-cursor');
+    root.removeAttribute(GLOBAL_CURSOR_ATTRIBUTE);
+}
+
+function getInteractionCursor(
+    mode: IActiveInteraction['mode'],
+    handle?: TImagePlacementResizeHandle,
+) {
+    if (mode === 'move' || mode === 'rotate') {
+        return 'grabbing';
+    }
+
+    if (!handle) {
+        return 'move';
+    }
+
+    return getImagePlacementResizeCursorStyle(handle, placement?.rotationDegrees ?? 0);
+}
+
+function getContainerRect(): IImagePlacementContainerRect | null {
     const pageContainer = frameRef.value?.parentElement;
     if (!pageContainer) {
         return null;
@@ -145,7 +191,7 @@ function getContainerRect(): IContainerRect | null {
     };
 }
 
-function getOriginRectPx(containerRect: IContainerRect, placement: IPdfImagePlacementDraft): IRectPx {
+function getOriginRectPx(containerRect: IImagePlacementContainerRect, placement: IPdfImagePlacementDraft): IImagePlacementRectPx {
     return {
         left: placement.x * containerRect.width,
         top: placement.y * containerRect.height,
@@ -154,19 +200,27 @@ function getOriginRectPx(containerRect: IContainerRect, placement: IPdfImagePlac
     };
 }
 
-function toNormalizedRect(containerRect: IContainerRect, rectPx: IRectPx): IPdfImagePlacementRectUpdate {
-    return {
+function toNormalizedRect(
+    containerRect: IImagePlacementContainerRect,
+    rectPx: IImagePlacementRectPx,
+    rotationDegrees?: number,
+): IPdfImagePlacementRectUpdate {
+    const update: IPdfImagePlacementRectUpdate = {
         x: clamp(rectPx.left / containerRect.width, 0, 1),
         y: clamp(rectPx.top / containerRect.height, 0, 1),
         width: clamp(rectPx.width / containerRect.width, 0, 1),
         height: clamp(rectPx.height / containerRect.height, 0, 1),
     };
+    if (typeof rotationDegrees === 'number' && Number.isFinite(rotationDegrees)) {
+        update.rotationDegrees = rotationDegrees;
+    }
+    return update;
 }
 
 function startInteraction(
     mode: IActiveInteraction['mode'],
     event: PointerEvent,
-    handle?: TResizeHandle,
+    handle?: TImagePlacementResizeHandle,
 ) {
     if (!placement || busy) {
         return;
@@ -177,16 +231,26 @@ function startInteraction(
         return;
     }
 
+    const captureElement = event.currentTarget instanceof HTMLElement
+        ? event.currentTarget
+        : null;
+    const activeCursor = getInteractionCursor(mode, handle);
+
+    captureElement?.setPointerCapture(event.pointerId);
+
     activeInteraction = {
         mode,
         handle,
         pointerId: event.pointerId,
+        captureElement,
         originRectPx: getOriginRectPx(containerRect, placement),
         startClientX: event.clientX,
         startClientY: event.clientY,
         containerRect,
-        aspectRatio: placement.intrinsicWidth / Math.max(1, placement.intrinsicHeight),
+        originRotationDegrees: placement.rotationDegrees,
+        activeCursor,
     };
+    setGlobalInteractionCursor(activeCursor);
 
     window.addEventListener('pointermove', handleWindowPointerMove);
     window.addEventListener('pointerup', handleWindowPointerUp);
@@ -194,7 +258,16 @@ function startInteraction(
 }
 
 function stopInteraction() {
+    const interaction = activeInteraction;
+    if (
+        interaction?.captureElement
+        && interaction.captureElement.hasPointerCapture(interaction.pointerId)
+    ) {
+        interaction.captureElement.releasePointerCapture(interaction.pointerId);
+    }
+
     activeInteraction = null;
+    clearGlobalInteractionCursor();
     window.removeEventListener('pointermove', handleWindowPointerMove);
     window.removeEventListener('pointerup', handleWindowPointerUp);
     window.removeEventListener('pointercancel', handleWindowPointerUp);
@@ -204,32 +277,24 @@ function handleMovePointerDown(event: PointerEvent) {
     startInteraction('move', event);
 }
 
-function handleResizePointerDown(handle: TResizeHandle, event: PointerEvent) {
+function handleResizePointerDown(handle: TImagePlacementResizeHandle, event: PointerEvent) {
     startInteraction('resize', event, handle);
 }
 
-function applyMoveInteraction(interaction: IActiveInteraction, event: PointerEvent) {
-    const minLeft = 0;
-    const minTop = 0;
-    const maxLeft = Math.max(0, interaction.containerRect.width - interaction.originRectPx.width);
-    const maxTop = Math.max(0, interaction.containerRect.height - interaction.originRectPx.height);
-    const left = clamp(
-        interaction.originRectPx.left + (event.clientX - interaction.startClientX),
-        minLeft,
-        maxLeft,
-    );
-    const top = clamp(
-        interaction.originRectPx.top + (event.clientY - interaction.startClientY),
-        minTop,
-        maxTop,
-    );
+function handleRotatePointerDown(event: PointerEvent) {
+    startInteraction('rotate', event);
+}
 
-    emit('updateRect', toNormalizedRect(interaction.containerRect, {
-        left,
-        top,
-        width: interaction.originRectPx.width,
-        height: interaction.originRectPx.height,
-    }));
+function applyMoveInteraction(interaction: IActiveInteraction, event: PointerEvent) {
+    const rectPx = moveImagePlacementRect({
+        originRectPx: interaction.originRectPx,
+        containerRect: interaction.containerRect,
+        deltaX: event.clientX - interaction.startClientX,
+        deltaY: event.clientY - interaction.startClientY,
+        rotationDegrees: interaction.originRotationDegrees,
+    });
+
+    emit('updateRect', toNormalizedRect(interaction.containerRect, rectPx));
 }
 
 function applyResizeInteraction(interaction: IActiveInteraction, event: PointerEvent) {
@@ -238,83 +303,35 @@ function applyResizeInteraction(interaction: IActiveInteraction, event: PointerE
         return;
     }
 
-    const minWidth = 32;
-    const maxWidthFromHeight = interaction.containerRect.height * interaction.aspectRatio;
-    const origin = interaction.originRectPx;
-    let left = origin.left;
-    let top = origin.top;
-    let width = origin.width;
-    let height = origin.height;
+    const rectPx = resizeImagePlacementRect({
+        originRectPx: interaction.originRectPx,
+        containerRect: interaction.containerRect,
+        handle,
+        startClientX: interaction.startClientX,
+        startClientY: interaction.startClientY,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        rotationDegrees: interaction.originRotationDegrees,
+    });
 
-    switch (handle) {
-        case 'se': {
-            const anchorLeft = origin.left;
-            const anchorTop = origin.top;
-            width = clamp(event.clientX - interaction.startClientX + origin.width, minWidth, interaction.containerRect.width - anchorLeft);
-            height = width / interaction.aspectRatio;
-            if (height > (interaction.containerRect.height - anchorTop)) {
-                height = interaction.containerRect.height - anchorTop;
-                width = height * interaction.aspectRatio;
-            }
-            width = Math.min(width, maxWidthFromHeight);
-            height = width / interaction.aspectRatio;
-            left = anchorLeft;
-            top = anchorTop;
-            break;
-        }
-        case 'sw': {
-            const anchorRight = origin.left + origin.width;
-            const anchorTop = origin.top;
-            width = clamp(anchorRight - (origin.left + (event.clientX - interaction.startClientX)), minWidth, anchorRight);
-            height = width / interaction.aspectRatio;
-            if (height > (interaction.containerRect.height - anchorTop)) {
-                height = interaction.containerRect.height - anchorTop;
-                width = height * interaction.aspectRatio;
-            }
-            width = Math.min(width, maxWidthFromHeight);
-            height = width / interaction.aspectRatio;
-            left = anchorRight - width;
-            top = anchorTop;
-            break;
-        }
-        case 'ne': {
-            const anchorLeft = origin.left;
-            const anchorBottom = origin.top + origin.height;
-            width = clamp(event.clientX - interaction.startClientX + origin.width, minWidth, interaction.containerRect.width - anchorLeft);
-            height = width / interaction.aspectRatio;
-            if (height > anchorBottom) {
-                height = anchorBottom;
-                width = height * interaction.aspectRatio;
-            }
-            width = Math.min(width, maxWidthFromHeight);
-            height = width / interaction.aspectRatio;
-            left = anchorLeft;
-            top = anchorBottom - height;
-            break;
-        }
-        case 'nw': {
-            const anchorRight = origin.left + origin.width;
-            const anchorBottom = origin.top + origin.height;
-            width = clamp(anchorRight - (origin.left + (event.clientX - interaction.startClientX)), minWidth, anchorRight);
-            height = width / interaction.aspectRatio;
-            if (height > anchorBottom) {
-                height = anchorBottom;
-                width = height * interaction.aspectRatio;
-            }
-            width = Math.min(width, maxWidthFromHeight);
-            height = width / interaction.aspectRatio;
-            left = anchorRight - width;
-            top = anchorBottom - height;
-            break;
-        }
-    }
+    emit('updateRect', toNormalizedRect(interaction.containerRect, rectPx));
+}
 
-    emit('updateRect', toNormalizedRect(interaction.containerRect, {
-        left,
-        top,
-        width,
-        height,
-    }));
+function applyRotateInteraction(interaction: IActiveInteraction, event: PointerEvent) {
+    const { rotationDegrees } = rotateImagePlacementRect({
+        originRectPx: interaction.originRectPx,
+        originRotationDegrees: interaction.originRotationDegrees,
+        startClientX: interaction.startClientX,
+        startClientY: interaction.startClientY,
+        clientX: event.clientX,
+        clientY: event.clientY,
+    });
+
+    emit('updateRect', toNormalizedRect(
+        interaction.containerRect,
+        interaction.originRectPx,
+        rotationDegrees,
+    ));
 }
 
 function handleWindowPointerMove(event: PointerEvent) {
@@ -325,6 +342,11 @@ function handleWindowPointerMove(event: PointerEvent) {
 
     if (interaction.mode === 'move') {
         applyMoveInteraction(interaction, event);
+        return;
+    }
+
+    if (interaction.mode === 'rotate') {
+        applyRotateInteraction(interaction, event);
         return;
     }
 
@@ -382,16 +404,29 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     stopInteraction();
+    clearGlobalInteractionCursor();
     window.removeEventListener('keydown', handleWindowKeyDown);
 });
 </script>
 
 <style scoped>
+:global(html[data-pdf-image-placement-cursor]),
+:global(html[data-pdf-image-placement-cursor] *) {
+    cursor: var(--pdf-image-placement-active-cursor) !important;
+}
+
 .pdf-image-placement {
     position: absolute;
     z-index: 8;
     touch-action: none;
+}
+
+.pdf-image-placement__transform {
+    position: absolute;
+    inset: 0;
     border-radius: 0.45rem;
+    transform: rotate(var(--pdf-image-placement-rotation, 0deg));
+    transform-origin: center;
     box-shadow: 0 0 0 2px color-mix(in oklab, var(--ui-primary) 70%, var(--ui-bg) 30%);
 }
 
@@ -435,6 +470,12 @@ onBeforeUnmount(() => {
     pointer-events: auto;
 }
 
+.pdf-image-placement__resizer::after {
+    content: '';
+    position: absolute;
+    inset: -0.35rem;
+}
+
 .pdf-image-placement__resizer:disabled {
     cursor: progress;
 }
@@ -442,25 +483,80 @@ onBeforeUnmount(() => {
 .pdf-image-placement__resizer--nw {
     top: -0.45rem;
     left: -0.45rem;
-    cursor: nwse-resize;
+}
+
+.pdf-image-placement__resizer--n {
+    top: -0.45rem;
+    left: calc(50% - 0.45rem);
 }
 
 .pdf-image-placement__resizer--ne {
     top: -0.45rem;
     right: -0.45rem;
-    cursor: nesw-resize;
+}
+
+.pdf-image-placement__resizer--e {
+    top: calc(50% - 0.45rem);
+    right: -0.45rem;
 }
 
 .pdf-image-placement__resizer--se {
     right: -0.45rem;
     bottom: -0.45rem;
-    cursor: nwse-resize;
+}
+
+.pdf-image-placement__resizer--s {
+    bottom: -0.45rem;
+    left: calc(50% - 0.45rem);
 }
 
 .pdf-image-placement__resizer--sw {
     left: -0.45rem;
     bottom: -0.45rem;
-    cursor: nesw-resize;
+}
+
+.pdf-image-placement__resizer--w {
+    top: calc(50% - 0.45rem);
+    left: -0.45rem;
+}
+
+.pdf-image-placement__rotate-handle {
+    position: absolute;
+    top: -2.95rem;
+    left: calc(50% - 0.55rem);
+    width: 1.1rem;
+    height: 1.1rem;
+    border: 1px solid var(--ui-bg);
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--ui-bg) 18%, var(--ui-primary) 82%);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--ui-bg-inverted) 22%, transparent);
+    cursor: grab;
+    pointer-events: auto;
+}
+
+.pdf-image-placement__rotate-handle::after {
+    content: '';
+    position: absolute;
+    inset: -0.45rem;
+}
+
+.pdf-image-placement__rotate-handle::before {
+    content: '';
+    position: absolute;
+    left: calc(50% - 1px);
+    top: calc(100% - 1px);
+    width: 2px;
+    height: 1.9rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--ui-primary) 76%, var(--ui-bg) 24%);
+}
+
+.pdf-image-placement__rotate-handle:active {
+    cursor: grabbing;
+}
+
+.pdf-image-placement__rotate-handle:disabled {
+    cursor: progress;
 }
 
 .pdf-image-placement__controls {

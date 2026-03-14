@@ -4,12 +4,11 @@ export interface IPdfImagePlacementDraft {
     y: number;
     width: number;
     height: number;
+    rotationDegrees: number;
     previewUrl: string;
     fileName: string;
     mimeType: string;
     bytes: Uint8Array;
-    intrinsicWidth: number;
-    intrinsicHeight: number;
 }
 
 export interface IPdfImagePlacementRectUpdate {
@@ -17,6 +16,7 @@ export interface IPdfImagePlacementRectUpdate {
     y: number;
     width: number;
     height: number;
+    rotationDegrees?: number;
 }
 
 export interface IPdfPlacedImageFinalizePayload {
@@ -25,6 +25,7 @@ export interface IPdfPlacedImageFinalizePayload {
     y: number;
     width: number;
     height: number;
+    rotationDegrees: number;
     fileName: string;
     mimeType: string;
     bytes: Uint8Array;

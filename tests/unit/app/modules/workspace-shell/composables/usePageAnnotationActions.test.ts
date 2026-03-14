@@ -285,6 +285,7 @@ describe('usePageAnnotationActions', () => {
             y: 0.2,
             width: 0.3,
             height: 0.15,
+            rotationDegrees: 90,
             fileName: 'image.png',
             mimeType: 'image/png',
             bytes: new Uint8Array([
@@ -302,6 +303,7 @@ describe('usePageAnnotationActions', () => {
             9,
         ]), expect.objectContaining({
             pageNumber: 4,
+            rotationDegrees: 90,
             targetPixelWidth: 240,
             targetPixelHeight: 120,
         }));

@@ -1987,7 +1987,6 @@ async function startImagePlacement(
 
     const bytes = new Uint8Array(await file.arrayBuffer());
     const previewUrl = URL.createObjectURL(new Blob([bytes], { type: file.type || 'image/png' }));
-    const intrinsicSize = await getImageIntrinsicSize(file);
     const placementRect = getInitialImagePlacementRect({
         pageNumber,
         pageX,
@@ -1999,12 +1998,11 @@ async function startImagePlacement(
     clearPendingImagePlacement();
     pendingImagePlacement.value = {
         ...placementRect,
+        rotationDegrees: 0,
         previewUrl,
         fileName: file.name,
         mimeType: file.type || 'image/png',
         bytes,
-        intrinsicWidth: intrinsicSize.width,
-        intrinsicHeight: intrinsicSize.height,
     };
     isPendingImagePlacementFinalizing.value = false;
     return true;
@@ -2057,6 +2055,7 @@ function requestPendingImagePlacementFinalize() {
         y: placement.y,
         width: placement.width,
         height: placement.height,
+        rotationDegrees: placement.rotationDegrees,
         fileName: placement.fileName,
         mimeType: placement.mimeType,
         bytes: placement.bytes.slice(),
