@@ -46,6 +46,9 @@ const resolvedStyle = computed(() => {
 <style scoped>
 .pdf-context-menu-base {
     position: fixed;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: calc(100vw - 1rem);
     border: 1px solid var(--app-pdf-context-menu-border);
     background: var(--app-pdf-context-menu-grid-bg);
     box-shadow: var(--app-pdf-context-menu-grid-shadow);
@@ -79,6 +82,9 @@ const resolvedStyle = computed(() => {
     display: flex;
     align-items: center;
     gap: 0.35rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .pdf-context-menu-base :deep(.pdf-context-menu__divider) {
@@ -91,8 +97,14 @@ const resolvedStyle = computed(() => {
 }
 
 .pdf-context-menu-base :deep(.pdf-context-menu__action) {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
     text-align: left;
     color: var(--app-pdf-context-menu-item-fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .pdf-context-menu-base--grid :deep(.pdf-context-menu__action) {

@@ -22,7 +22,7 @@ export const usePdfOutlineContextMenu = (
     onEscape: () => void,
 ) => {
     const { t } = useTypedI18n();
-    const { clampToViewport } = useContextMenuPosition();
+    const { clampElementToViewport } = useContextMenuPosition();
     const windowTarget = typeof window === 'undefined' ? undefined : window;
 
     const bookmarkContextMenu = ref<{
@@ -85,19 +85,56 @@ export const usePdfOutlineContextMenu = (
         return t('bookmarks.applyStyleToCount', { count: info.count });
     });
 
+    function positionBookmarkContextMenu(
+        x: number,
+        y: number,
+        fallbackWidth: number,
+        fallbackHeight: number,
+    ) {
+        const clamped = clampElementToViewport(
+            x,
+            y,
+            contextMenuElement.value,
+            fallbackWidth,
+            fallbackHeight,
+        );
+        bookmarkContextMenu.value.x = clamped.x;
+        bookmarkContextMenu.value.y = clamped.y;
+    }
+
     function openBookmarkContextMenu(payload: IBookmarkMenuPayload) {
         if (!isEditMode.value) {
             return;
         }
 
-        const clamped = clampToViewport(payload.x, payload.y, 228, 380);
+        const fallbackWidth = 320;
+        const fallbackHeight = 380;
+        const initialPosition = clampElementToViewport(
+            payload.x,
+            payload.y,
+            contextMenuElement.value,
+            fallbackWidth,
+            fallbackHeight,
+        );
 
         bookmarkContextMenu.value = {
             visible: true,
-            x: clamped.x,
-            y: clamped.y,
+            x: initialPosition.x,
+            y: initialPosition.y,
             itemId: payload.id,
         };
+
+        void nextTick(() => {
+            if (!bookmarkContextMenu.value.visible) {
+                return;
+            }
+            positionBookmarkContextMenu(
+                payload.x,
+                payload.y,
+                fallbackWidth,
+                fallbackHeight,
+            );
+        });
     }
 
     function closeBookmarkContextMenu() {

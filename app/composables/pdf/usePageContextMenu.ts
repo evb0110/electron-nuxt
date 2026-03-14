@@ -9,7 +9,7 @@ interface IPageContextMenuState {
 }
 
 export const usePageContextMenu = () => {
-    const { clampToViewport } = useContextMenuPosition();
+    const { clampElementToViewport } = useContextMenuPosition();
 
     const pageContextMenu = ref<IPageContextMenuState>({
         visible: false,
@@ -17,27 +17,67 @@ export const usePageContextMenu = () => {
         y: 0,
         pages: [],
     });
+    const contextMenuElement = computed(() => (
+        typeof window === 'undefined'
+            ? null
+            : document.querySelector<HTMLElement>('.page-context-menu')
+    ));
 
     const pageContextMenuStyle = computed(() => ({
         left: `${pageContextMenu.value.x}px`,
         top: `${pageContextMenu.value.y}px`,
     }));
 
+    function positionPageContextMenu(
+        x: number,
+        y: number,
+        fallbackWidth: number,
+        fallbackHeight: number,
+    ) {
+        const clamped = clampElementToViewport(
+            x,
+            y,
+            contextMenuElement.value,
+            fallbackWidth,
+            fallbackHeight,
+        );
+        pageContextMenu.value.x = clamped.x;
+        pageContextMenu.value.y = clamped.y;
+    }
+
     function showPageContextMenu(payload: {
         clientX: number;
         clientY: number;
         pages: number[];
     }) {
-        const width = 220;
+        const fallbackWidth = 300;
         const estimatedHeight = 280;
-        const clamped = clampToViewport(payload.clientX, payload.clientY, width, estimatedHeight);
+        const initialPosition = clampElementToViewport(
+            payload.clientX,
+            payload.clientY,
+            contextMenuElement.value,
+            fallbackWidth,
+            estimatedHeight,
+        );
 
         pageContextMenu.value = {
             visible: true,
-            x: clamped.x,
-            y: clamped.y,
+            x: initialPosition.x,
+            y: initialPosition.y,
             pages: payload.pages,
         };
+
+        void nextTick(() => {
+            if (!pageContextMenu.value.visible) {
+                return;
+            }
+            positionPageContextMenu(
+                payload.clientX,
+                payload.clientY,
+                fallbackWidth,
+                estimatedHeight,
+            );
+        });
     }
 
     function closePageContextMenu() {
