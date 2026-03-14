@@ -6,6 +6,7 @@ import {
     PDFName,
     PDFNumber,
     PDFRef,
+    type PDFImage,
 } from 'pdf-lib';
 import type { Ref } from 'vue';
 import type {
@@ -13,7 +14,9 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
 import type { IPdfPageLabelRange } from '@app/types/pdf';
+import { resolvePlacedImageEmbedMode } from '@app/composables/pdf/pdfPlacedImageEmbedding';
 import { markerRectIoU } from '@app/composables/pdf/pdfAnnotationUtils';
 import {
     normalizePageRotation,
@@ -192,6 +195,89 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             }
         }
         return sourceData;
+    }
+
+    async function decodePlacedImageSource(payload: IPdfPlacedImageFinalizePayload) {
+        const imageBlob = new Blob([payload.bytes.slice().buffer], { type: payload.mimeType || 'image/png' });
+
+        if (typeof createImageBitmap === 'function') {
+            return createImageBitmap(imageBlob);
+        }
+
+        const imageUrl = URL.createObjectURL(imageBlob);
+        try {
+            return await new Promise<HTMLImageElement>((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = () => reject(new Error('Failed to decode image for PDF embedding'));
+                image.src = imageUrl;
+            });
+        } finally {
+            URL.revokeObjectURL(imageUrl);
+        }
+    }
+
+    async function rasterizePlacedImage(
+        payload: IPdfPlacedImageFinalizePayload,
+    ): Promise<Uint8Array | null> {
+        const targetPixelWidth = Math.max(1, Math.round(payload.targetPixelWidth));
+        const targetPixelHeight = Math.max(1, Math.round(payload.targetPixelHeight));
+        const image = await decodePlacedImageSource(payload);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetPixelWidth;
+        canvas.height = targetPixelHeight;
+
+        const context = canvas.getContext('2d');
+        if (!context) {
+            return null;
+        }
+
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = 'high';
+        context.drawImage(image, 0, 0, targetPixelWidth, targetPixelHeight);
+
+        if ('close' in image && typeof image.close === 'function') {
+            image.close();
+        }
+
+        const blob = await new Promise<Blob | null>((resolve) => {
+            canvas.toBlob((value) => {
+                resolve(value);
+            }, 'image/png');
+        });
+        if (!blob) {
+            return null;
+        }
+
+        return new Uint8Array(await blob.arrayBuffer());
+    }
+
+    async function embedPlacedImageSource(
+        doc: PDFDocument,
+        payload: IPdfPlacedImageFinalizePayload,
+    ): Promise<PDFImage | null> {
+        const embedMode = resolvePlacedImageEmbedMode(payload.mimeType);
+        switch (embedMode) {
+            case 'png':
+                return doc.embedPng(payload.bytes);
+            case 'jpg':
+                return doc.embedJpg(payload.bytes);
+            default: {
+                const rasterizedBytes = await rasterizePlacedImage(payload);
+                if (!rasterizedBytes) {
+                    BrowserLogger.warn(PDF_SERIALIZATION_LOG_SECTION, 'Failed to rasterize placed image for embedding', {
+                        pageNumber: payload.pageNumber,
+                        fileName: payload.fileName,
+                        targetPixelWidth: payload.targetPixelWidth,
+                        targetPixelHeight: payload.targetPixelHeight,
+                        mimeType: payload.mimeType,
+                    });
+                    return null;
+                }
+                return doc.embedPng(rasterizedBytes);
+            }
+        }
     }
 
     async function rewriteMarkupSubtypes(data: Uint8Array): Promise<Uint8Array> {
@@ -677,12 +763,70 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         return new Uint8Array(await doc.save());
     }
 
+    async function embedPlacedImageToPage(
+        data: Uint8Array,
+        placement: IPdfPlacedImageFinalizePayload,
+    ): Promise<Uint8Array> {
+        if (placement.bytes.length === 0) {
+            return data;
+        }
+
+        const doc = await loadPdfDocument(data, 'embedding placed image');
+        if (!doc) {
+            return data;
+        }
+
+        const pageIndex = placement.pageNumber - 1;
+        const page = doc.getPages()[pageIndex];
+        if (!page) {
+            return data;
+        }
+
+        const pageView = resolvePdfPageView(page);
+        if (!pageView) {
+            return data;
+        }
+
+        const pageRotation = normalizePageRotation(page.getRotation().angle);
+        const pdfRect = toPdfRectFromMarkerRect({
+            left: placement.x,
+            top: placement.y,
+            width: placement.width,
+            height: placement.height,
+        }, pageView, pageRotation);
+        if (!pdfRect) {
+            return data;
+        }
+
+        const embeddedImage = await embedPlacedImageSource(doc, placement);
+        if (!embeddedImage) {
+            return data;
+        }
+        const x = Math.min(pdfRect[0], pdfRect[2]);
+        const y = Math.min(pdfRect[1], pdfRect[3]);
+        const width = Math.abs(pdfRect[2] - pdfRect[0]);
+        const height = Math.abs(pdfRect[3] - pdfRect[1]);
+        if (width <= 0 || height <= 0) {
+            return data;
+        }
+
+        page.drawImage(embeddedImage, {
+            x,
+            y,
+            width,
+            height,
+        });
+
+        return new Uint8Array(await doc.save());
+    }
+
     return {
         getSourcePdfData,
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
         rewriteFreeTextNoteRects,
         rewriteEmbeddedNoteTexts,
+        embedPlacedImageToPage,
         updateEmbeddedAnnotationByRef,
         deleteEmbeddedAnnotationByRef,
         rewritePageLabels,

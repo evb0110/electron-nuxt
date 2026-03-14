@@ -82,8 +82,10 @@
         :can-copy="annotationContextMenuCanCopy"
         :can-copy-selection="annotationContextMenuCanCopySelection"
         :can-create-free="annotationContextMenuCanCreateFree"
+        :can-insert-image="annotationContextMenuCanInsertImage"
         :annotation-label="contextMenuAnnotationLabel"
         :delete-label="contextMenuDeleteActionLabel"
+        :is-image-comment="annotationContextMenuIsImage"
         @open-note="$emit('context-open-note')"
         @copy-text="$emit('context-copy-text')"
         @copy-selection-text="$emit('context-copy-selection-text')"
@@ -91,6 +93,8 @@
         @markup="(tool: TAnnotationTool) => $emit('context-markup', tool)"
         @create-free-note="$emit('context-create-free-note')"
         @create-selection-note="$emit('context-create-selection-note')"
+        @insert-image-from-file="$emit('context-insert-image-from-file')"
+        @paste-image-from-clipboard="$emit('context-paste-image-from-clipboard')"
     />
     <PdfPageContextMenu
         :menu="pageContextMenu"
@@ -174,8 +178,10 @@ const props = defineProps<{
     annotationContextMenuCanCopy: boolean;
     annotationContextMenuCanCopySelection: boolean;
     annotationContextMenuCanCreateFree: boolean;
+    annotationContextMenuCanInsertImage: boolean;
     contextMenuAnnotationLabel: string;
     contextMenuDeleteActionLabel: string;
+    annotationContextMenuIsImage: boolean;
     pageContextMenu: IPageContextMenuState;
     pageContextMenuStyle: Record<string, string>;
     isPageOperationInProgress: boolean;
@@ -752,6 +758,8 @@ const emit = defineEmits<{
     'context-markup': [tool: TAnnotationTool];
     'context-create-free-note': [];
     'context-create-selection-note': [];
+    'context-insert-image-from-file': [];
+    'context-paste-image-from-clipboard': [];
     'page-delete': [];
     'page-extract': [];
     'page-export': [];

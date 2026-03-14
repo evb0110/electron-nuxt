@@ -4,6 +4,7 @@ import type { TOpenFileResult } from '@electron/features/documents/contract';
 
 export interface IDocumentsService {
     openPdfDialog: () => Promise<TOpenFileResult | null>;
+    openImageDialog: () => Promise<string | null>;
     openPdfDirect: (event: IpcMainInvokeEvent, filePath: string) => Promise<TOpenFileResult | null>;
     openPdfDirectBatch: (event: IpcMainInvokeEvent, filePaths: string[], requestId?: string) => Promise<TOpenFileResult | null>;
     createWorkingCopyFromData: (

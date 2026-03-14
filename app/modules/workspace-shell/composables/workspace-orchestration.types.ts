@@ -43,7 +43,16 @@ export interface IPdfViewerExpose {
     selectedShapeId: string | null;
     updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
     getSelectedShape: () => IShapeAnnotation | null;
-    applyStampImage: (file: File) => void;
+    startImagePlacement: (
+        file: File,
+        options?: {
+            pageNumber?: number | null;
+            pageX?: number | null;
+            pageY?: number | null;
+        },
+    ) => Promise<boolean>;
+    clearPendingImagePlacement: () => void;
+    restorePendingImagePlacement: () => void;
     invalidatePages: (pages: number[]) => void;
     requestScrollToCurrentResult: () => void;
 }

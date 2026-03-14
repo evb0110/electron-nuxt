@@ -60,7 +60,9 @@ function getLayerFromUiManager(
     pageIndex: number,
 ): unknown {
     const getLayer = getOptionalFunction<[number], unknown>(uiManager, 'getLayer');
-    return getLayer?.(pageIndex);
+    return getLayer
+        ? getLayer.call(uiManager, pageIndex)
+        : null;
 }
 
 function hasSelectComment(
@@ -118,7 +120,12 @@ export function getEditorByUidFromLayer(
         return null;
     }
 
-    return toPdfjsEditor(layer.getEditorByUID(uid));
+    const getEditorByUID = getOptionalFunction<[string], unknown>(layer, 'getEditorByUID');
+    return toPdfjsEditor(
+        getEditorByUID
+            ? getEditorByUID.call(layer, uid)
+            : null,
+    );
 }
 
 export function selectCommentByUid(

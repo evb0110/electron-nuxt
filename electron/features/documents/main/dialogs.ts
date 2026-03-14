@@ -335,6 +335,35 @@ export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
     }
 }
 
+export async function handleOpenImageDialog(): Promise<string | null> {
+    const result = await dialog.showOpenDialog({
+        title: te('dialogs.openImage'),
+        filters: [{
+            name: te('dialogs.imagesFilter'),
+            extensions: [
+                'apng',
+                'avif',
+                'bmp',
+                'gif',
+                'jpeg',
+                'jpg',
+                'png',
+                'svg',
+                'svgz',
+                'webp',
+                'ico',
+            ],
+        }],
+        properties: ['openFile'],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+
+    return result.filePaths[0] ?? null;
+}
+
 export async function handleSavePdfAs(
     _event: Electron.IpcMainInvokeEvent,
     workingPath: string,

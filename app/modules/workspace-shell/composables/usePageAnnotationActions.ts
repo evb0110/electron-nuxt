@@ -7,8 +7,25 @@ import type {
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
+import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/electron';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
+const SUPPORTED_IMAGE_MIME_TYPES = [
+    'image/apng',
+    'image/avif',
+    'image/bmp',
+    'image/gif',
+    'image/jpeg',
+    'image/png',
+    'image/svg+xml',
+    'image/webp',
+    'image/x-icon',
+] as const;
+const PREFERRED_CLIPBOARD_IMAGE_TYPES = SUPPORTED_IMAGE_MIME_TYPES.filter(type => type !== 'image/svg+xml');
 
 interface IPdfViewerForAnnotationActions {
     commentSelection: () => Promise<boolean>;
@@ -31,6 +48,15 @@ interface IPdfViewerForAnnotationActions {
     updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
     getSelectedShape: () => IShapeAnnotation | null;
     saveDocument: () => Promise<Uint8Array | null>;
+    startImagePlacement: (
+        file: File,
+        options?: {
+            pageNumber?: number | null;
+            pageX?: number | null;
+            pageY?: number | null;
+        },
+    ) => Promise<boolean>;
+    restorePendingImagePlacement?: () => void;
 }
 
 interface IPageAnnotationActionsDeps {
@@ -81,6 +107,10 @@ interface IPageAnnotationActionsDeps {
     persistPdfDataSilently: (data: Uint8Array) => Promise<void>;
     markAnnotationSaved: () => void;
     resetAnnotationStorageModified: () => void;
+    embedPlacedImageToPage: (
+        data: Uint8Array,
+        placement: IPdfPlacedImageFinalizePayload,
+    ) => Promise<Uint8Array>;
 }
 
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
@@ -109,6 +139,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         annotationNoteWindows,
         loadPdfFromData,
         waitForPdfReload,
+        embedPlacedImageToPage,
     } = deps;
 
     const shapePropertiesPopover = ref<{
@@ -126,6 +157,103 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             ? pdfViewerRef.value?.getSelectedShape() ?? null
             : null,
     );
+
+    function mimeTypeFromPath(path: string) {
+        const normalized = path.toLowerCase();
+        if (normalized.endsWith('.apng')) {
+            return 'image/apng';
+        }
+        if (normalized.endsWith('.avif')) {
+            return 'image/avif';
+        }
+        if (normalized.endsWith('.bmp')) {
+            return 'image/bmp';
+        }
+        if (normalized.endsWith('.gif')) {
+            return 'image/gif';
+        }
+        if (normalized.endsWith('.jpeg') || normalized.endsWith('.jpg')) {
+            return 'image/jpeg';
+        }
+        if (normalized.endsWith('.png')) {
+            return 'image/png';
+        }
+        if (normalized.endsWith('.svg') || normalized.endsWith('.svgz')) {
+            return 'image/svg+xml';
+        }
+        if (normalized.endsWith('.webp')) {
+            return 'image/webp';
+        }
+        if (normalized.endsWith('.ico')) {
+            return 'image/x-icon';
+        }
+        return 'image/png';
+    }
+
+    function extensionForMimeType(mimeType: string) {
+        switch (mimeType) {
+            case 'image/apng':
+                return 'apng';
+            case 'image/avif':
+                return 'avif';
+            case 'image/bmp':
+                return 'bmp';
+            case 'image/gif':
+                return 'gif';
+            case 'image/jpeg':
+                return 'jpg';
+            case 'image/png':
+                return 'png';
+            case 'image/webp':
+                return 'webp';
+            case 'image/x-icon':
+                return 'ico';
+            default:
+                return 'img';
+        }
+    }
+
+    async function pickImageFile() {
+        if (!hasElectronAPI()) {
+            return null;
+        }
+
+        const imagePath = await getElectronAPI().documents.openImageDialog();
+        if (!imagePath) {
+            return null;
+        }
+
+        const bytes = await getElectronAPI().documents.readFile(imagePath);
+        const fileBytes = Uint8Array.from(bytes);
+        const mimeType = mimeTypeFromPath(imagePath);
+        const fileName = imagePath.split(/[\\/]/).pop() ?? `image.${extensionForMimeType(mimeType)}`;
+        return new File([fileBytes], fileName, {
+            type: mimeType,
+            lastModified: Date.now(),
+        });
+    }
+
+    async function readImageFileFromClipboard() {
+        if (!globalThis.navigator?.clipboard || typeof globalThis.navigator.clipboard.read !== 'function') {
+            return null;
+        }
+
+        const items = await globalThis.navigator.clipboard.read();
+        for (const item of items) {
+            const mimeType = PREFERRED_CLIPBOARD_IMAGE_TYPES.find(type => item.types.includes(type));
+            if (!mimeType) {
+                continue;
+            }
+
+            const blob = await item.getType(mimeType);
+            return new File([blob], `clipboard-image.${extensionForMimeType(mimeType)}`, {
+                type: mimeType,
+                lastModified: Date.now(),
+            });
+        }
+
+        return null;
+    }
 
     async function handleCommentSelection() {
         if (!pdfViewerRef.value) {
@@ -285,6 +413,88 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         showAnnotationContextMenu(payload);
     }
 
+    async function insertImageFromFileAt(
+        pageNumber?: number | null,
+        pageX?: number | null,
+        pageY?: number | null,
+    ) {
+        const viewer = pdfViewerRef.value;
+        if (!viewer) {
+            return;
+        }
+
+        closeAnnotationContextMenu();
+        const file = await pickImageFile();
+        if (!file) {
+            return;
+        }
+        await viewer.startImagePlacement(file, {
+            pageNumber,
+            pageX,
+            pageY,
+        });
+    }
+
+    async function pasteImageFromClipboardAt(
+        pageNumber?: number | null,
+        pageX?: number | null,
+        pageY?: number | null,
+    ) {
+        const viewer = pdfViewerRef.value;
+        if (!viewer) {
+            return;
+        }
+
+        closeAnnotationContextMenu();
+
+        try {
+            const file = await readImageFileFromClipboard();
+            if (!file) {
+                return;
+            }
+            await viewer.startImagePlacement(file, {
+                pageNumber,
+                pageX,
+                pageY,
+            });
+        } catch (error) {
+            BrowserLogger.warn('annotations', 'Failed to paste image from clipboard', error);
+        }
+    }
+
+    let imageFinalizeInFlight = false;
+
+    async function handleFinalizePlacedImage(placement: IPdfPlacedImageFinalizePayload) {
+        if (imageFinalizeInFlight || !pdfViewerRef.value) {
+            return false;
+        }
+
+        imageFinalizeInFlight = true;
+        try {
+            const rawData = await pdfViewerRef.value.saveDocument();
+            if (!rawData) {
+                pdfViewerRef.value.restorePendingImagePlacement?.();
+                return false;
+            }
+
+            const embeddedData = await embedPlacedImageToPage(rawData, placement);
+            const pageToRestore = placement.pageNumber || currentPage.value;
+            const restorePromise = waitForPdfReload(pageToRestore);
+            await loadPdfFromData(embeddedData, {
+                pushHistory: true,
+                persistWorkingCopy: !!workingCopyPath.value,
+            });
+            await restorePromise;
+            return true;
+        } catch (error) {
+            BrowserLogger.warn('annotations', 'Failed to finalize placed image', error);
+            pdfViewerRef.value.restorePendingImagePlacement?.();
+            return false;
+        } finally {
+            imageFinalizeInFlight = false;
+        }
+    }
+
     function openContextMenuNote() {
         const comment = annotationContextMenu.value.comment;
         if (!comment) {
@@ -357,6 +567,22 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     async function createContextMenuSelectionNote() {
         await pdfViewerRef.value?.commentSelection();
         closeAnnotationContextMenu();
+    }
+
+    async function insertContextMenuImageFromFile() {
+        await insertImageFromFileAt(
+            annotationContextMenu.value.pageNumber,
+            annotationContextMenu.value.pageX,
+            annotationContextMenu.value.pageY,
+        );
+    }
+
+    async function pasteContextMenuImageFromClipboard() {
+        await pasteImageFromClipboardAt(
+            annotationContextMenu.value.pageNumber,
+            annotationContextMenu.value.pageX,
+            annotationContextMenu.value.pageY,
+        );
     }
 
     async function createContextMenuMarkup(tool: TAnnotationTool) {
@@ -521,9 +747,14 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         deleteContextMenuComment,
         createContextMenuFreeNote,
         createContextMenuSelectionNote,
+        insertContextMenuImageFromFile,
+        pasteContextMenuImageFromClipboard,
         createContextMenuMarkup,
         serializeCurrentPdfForEmbeddedFallback,
         handleCopyAnnotationComment,
         handleDeleteAnnotationComment,
+        handleFinalizePlacedImage,
+        insertImageFromFileAt,
+        pasteImageFromClipboardAt,
     };
 };

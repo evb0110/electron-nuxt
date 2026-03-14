@@ -6,6 +6,8 @@ import {
 } from 'vitest';
 
 import {
+    annotationKindLabelFromSubtype,
+    detectEditorSubtype,
     getCommentText,
     hasEditorCommentPayload,
     type IPdfjsEditor,
@@ -63,5 +65,34 @@ describe('hasEditorCommentPayload', () => {
         }});
 
         expect(hasEditorCommentPayload(editor)).toBe(false);
+    });
+});
+
+describe('detectEditorSubtype', () => {
+    it('detects stamp editors from their constructor type without serializing', () => {
+        const serialize = vi.fn(() => {
+            throw new Error('should not serialize');
+        });
+        const editor = {
+            constructor: { _type: 'stamp' },
+            serialize,
+        } as IPdfjsEditor & { serialize: () => never; };
+
+        expect(detectEditorSubtype(editor)).toBe('Stamp');
+        expect(serialize).not.toHaveBeenCalled();
+    });
+
+    it('returns null when serialize throws for an unknown editor', () => {
+        const editor = { serialize: vi.fn(() => {
+            throw new Error('broken');
+        }) } as IPdfjsEditor & { serialize: () => never; };
+
+        expect(detectEditorSubtype(editor)).toBeNull();
+    });
+});
+
+describe('annotationKindLabelFromSubtype', () => {
+    it('labels stamp annotations as images for the UI', () => {
+        expect(annotationKindLabelFromSubtype('stamp')).toBe('Image');
     });
 });

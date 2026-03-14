@@ -108,6 +108,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         serializeShapeAnnotations,
         rewriteFreeTextNoteRects,
         rewriteEmbeddedNoteTexts,
+        embedPlacedImageToPage,
         updateEmbeddedAnnotationByRef: updateEmbeddedByRef,
         deleteEmbeddedAnnotationByRef: deleteEmbeddedByRef,
         rewritePageLabels,
@@ -218,6 +219,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     return {
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
+        embedPlacedImageToPage,
         updateEmbeddedByRef,
         deleteEmbeddedByRef,
         rewritePageLabels,

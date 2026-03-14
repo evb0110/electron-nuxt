@@ -50,10 +50,23 @@ export const useAnnotationContextMenu = () => {
         && Number.isFinite(annotationContextMenu.value.pageY)
     ));
 
+    const annotationContextMenuCanInsertImage = computed(() => (
+        Number.isFinite(annotationContextMenu.value.pageNumber)
+        && Number.isFinite(annotationContextMenu.value.pageX)
+        && Number.isFinite(annotationContextMenu.value.pageY)
+    ));
+
+    const annotationContextMenuIsImage = computed(() => (
+        (annotationContextMenu.value.comment?.subtype ?? '').trim().toLowerCase() === 'stamp'
+    ));
+
     const contextMenuAnnotationLabel = computed(() => {
         const comment = annotationContextMenu.value.comment;
         if (!comment) {
             return t('annotations.annotationLabel');
+        }
+        if ((comment.subtype ?? '').trim().toLowerCase() === 'stamp') {
+            return t('annotations.imageLabel');
         }
         return comment.kindLabel ?? comment.subtype ?? t('annotations.annotationLabel');
     });
@@ -65,6 +78,9 @@ export const useAnnotationContextMenu = () => {
         }
 
         const subtype = (comment.subtype ?? '').trim().toLowerCase();
+        if (subtype === 'stamp') {
+            return `${t('annotations.delete')} ${t('annotations.imageLabel')}`;
+        }
         const kind = comment.kindLabel?.trim() ?? '';
         const isMarkup = (
             subtype === 'highlight'
@@ -118,7 +134,7 @@ export const useAnnotationContextMenu = () => {
         const hasSelection = payload.hasSelection;
         const width = 258;
         const markupSectionHeight = hasSelection ? 200 : 0;
-        const estimatedHeight = (hasComment ? 258 : 0) + markupSectionHeight + 132;
+        const estimatedHeight = (hasComment ? 258 : 0) + markupSectionHeight + 252;
         const clamped = clampToViewport(payload.clientX, payload.clientY, width, estimatedHeight);
 
         annotationContextMenu.value = {
@@ -140,6 +156,8 @@ export const useAnnotationContextMenu = () => {
         annotationContextMenuCanCopy,
         annotationContextMenuCanCopySelection,
         annotationContextMenuCanCreateFree,
+        annotationContextMenuCanInsertImage,
+        annotationContextMenuIsImage,
         contextMenuAnnotationLabel,
         contextMenuDeleteActionLabel,
         closeAnnotationContextMenu,

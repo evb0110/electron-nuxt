@@ -67,6 +67,8 @@ export interface IWorkspaceViewPort {
     handleDisableDragMode: () => void;
     handleCaptureRegion: () => void;
     handleQuickNote: () => void;
+    handleInsertImageFromFile: () => Promise<void>;
+    handlePasteImageFromClipboard: () => Promise<void>;
     handleViewModeSingle: () => void;
     handleViewModeFacing: () => void;
     handleViewModeFacingFirstSingle: () => void;
