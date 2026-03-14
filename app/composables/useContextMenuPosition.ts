@@ -16,5 +16,25 @@ export const useContextMenuPosition = () => {
         };
     }
 
-    return { clampToViewport };
+    function clampElementToViewport(
+        x: number,
+        y: number,
+        menuElement: HTMLElement | null,
+        fallbackWidth: number,
+        fallbackHeight: number,
+        margin = 8,
+    ) {
+        return clampToViewport(
+            x,
+            y,
+            menuElement?.offsetWidth ?? fallbackWidth,
+            menuElement?.offsetHeight ?? fallbackHeight,
+            margin,
+        );
+    }
+
+    return {
+        clampToViewport,
+        clampElementToViewport,
+    };
 };

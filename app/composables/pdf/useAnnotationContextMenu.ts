@@ -16,7 +16,7 @@ interface IAnnotationContextMenuState {
 
 export const useAnnotationContextMenu = () => {
     const { t } = useTypedI18n();
-    const { clampToViewport } = useContextMenuPosition();
+    const { clampElementToViewport } = useContextMenuPosition();
 
     const annotationContextMenu = ref<IAnnotationContextMenuState>({
         visible: false,
@@ -29,6 +29,11 @@ export const useAnnotationContextMenu = () => {
         pageX: null,
         pageY: null,
     });
+    const contextMenuElement = computed(() => (
+        typeof window === 'undefined'
+            ? null
+            : document.querySelector<HTMLElement>('.annotation-context-menu')
+    ));
 
     const annotationContextMenuStyle = computed(() => ({
         left: `${annotationContextMenu.value.x}px`,
@@ -103,6 +108,23 @@ export const useAnnotationContextMenu = () => {
         return `${t('annotations.delete')} ${t('annotations.annotationLabel')}`;
     });
 
+    function positionAnnotationContextMenu(
+        x: number,
+        y: number,
+        fallbackWidth: number,
+        fallbackHeight: number,
+    ) {
+        const clamped = clampElementToViewport(
+            x,
+            y,
+            contextMenuElement.value,
+            fallbackWidth,
+            fallbackHeight,
+        );
+        annotationContextMenu.value.x = clamped.x;
+        annotationContextMenu.value.y = clamped.y;
+    }
+
     function closeAnnotationContextMenu() {
         if (!annotationContextMenu.value.visible) {
             return;
@@ -132,15 +154,22 @@ export const useAnnotationContextMenu = () => {
     }) {
         const hasComment = Boolean(payload.comment);
         const hasSelection = payload.hasSelection;
-        const width = 258;
+        const fallbackWidth = 360;
         const markupSectionHeight = hasSelection ? 200 : 0;
         const estimatedHeight = (hasComment ? 258 : 0) + markupSectionHeight + 252;
-        const clamped = clampToViewport(payload.clientX, payload.clientY, width, estimatedHeight);
+
+        const initialPosition = clampElementToViewport(
+            payload.clientX,
+            payload.clientY,
+            contextMenuElement.value,
+            fallbackWidth,
+            estimatedHeight,
+        );
 
         annotationContextMenu.value = {
             visible: true,
-            x: clamped.x,
-            y: clamped.y,
+            x: initialPosition.x,
+            y: initialPosition.y,
             comment: payload.comment,
             hasSelection: payload.hasSelection,
             selectionText: payload.selectionText,
@@ -148,6 +177,18 @@ export const useAnnotationContextMenu = () => {
             pageX: payload.pageX,
             pageY: payload.pageY,
         };
+
+        void nextTick(() => {
+            if (!annotationContextMenu.value.visible) {
+                return;
+            }
+            positionAnnotationContextMenu(
+                payload.clientX,
+                payload.clientY,
+                fallbackWidth,
+                estimatedHeight,
+            );
+        });
     }
 
     return {
