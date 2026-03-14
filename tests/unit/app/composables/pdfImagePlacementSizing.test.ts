@@ -14,6 +14,87 @@ import {
     snapImagePlacementRotationDegrees,
 } from '@app/composables/pdf/pdfImagePlacementSizing';
 
+function toRadians(degrees: number) {
+    return (degrees * Math.PI) / 180;
+}
+
+function rotatePoint(
+    point: {
+        x: number;
+        y: number;
+    },
+    rotationDegrees: number,
+) {
+    const radians = toRadians(rotationDegrees);
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+
+    return {
+        x: (point.x * cos) - (point.y * sin),
+        y: (point.x * sin) + (point.y * cos),
+    };
+}
+
+function getHandlePoint(
+    rect: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+    },
+    handle: 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w',
+    rotationDegrees: number,
+) {
+    const center = {
+        x: rect.left + (rect.width / 2),
+        y: rect.top + (rect.height / 2),
+    };
+    const vectors = {
+        nw: {
+            x: -1,
+            y: -1,
+        },
+        n: {
+            x: 0,
+            y: -1,
+        },
+        ne: {
+            x: 1,
+            y: -1,
+        },
+        e: {
+            x: 1,
+            y: 0,
+        },
+        se: {
+            x: 1,
+            y: 1,
+        },
+        s: {
+            x: 0,
+            y: 1,
+        },
+        sw: {
+            x: -1,
+            y: 1,
+        },
+        w: {
+            x: -1,
+            y: 0,
+        },
+    } as const;
+    const vector = vectors[handle];
+    const rotated = rotatePoint({
+        x: (vector.x * rect.width) / 2,
+        y: (vector.y * rect.height) / 2,
+    }, rotationDegrees);
+
+    return {
+        x: center.x + rotated.x,
+        y: center.y + rotated.y,
+    };
+}
+
 describe('computeInitialImagePlacementDimensions', () => {
     it('preserves aspect ratio for wide clipboard images when height minimum cannot be met', () => {
         const dimensions = computeInitialImagePlacementDimensions({
@@ -50,6 +131,8 @@ describe('computeInitialImagePlacementDimensions', () => {
                 height: 80,
             },
             containerRect: {
+                left: 0,
+                top: 0,
                 width: 800,
                 height: 600,
             },
@@ -66,27 +149,64 @@ describe('computeInitialImagePlacementDimensions', () => {
     });
 
     it('allows side handles to resize a rotated image on a single axis', () => {
+        const originRect = {
+            left: 180,
+            top: 160,
+            width: 140,
+            height: 90,
+        };
         const rect = resizeImagePlacementRect({
-            originRectPx: {
-                left: 180,
-                top: 160,
-                width: 140,
-                height: 90,
-            },
+            originRectPx: originRect,
             containerRect: {
+                left: 0,
+                top: 0,
                 width: 900,
                 height: 700,
             },
             handle: 'e',
-            startClientX: 0,
-            startClientY: 0,
-            clientX: 0,
-            clientY: 36,
+            startClientX: 250,
+            startClientY: 205,
+            clientX: 250,
+            clientY: 241,
             rotationDegrees: 90,
         });
+        const originAnchor = getHandlePoint(originRect, 'w', 90);
+        const nextAnchor = getHandlePoint(rect, 'w', 90);
 
         expect(rect.width).toBeGreaterThan(140);
         expect(rect.height).toBeCloseTo(90, 4);
+        expect(nextAnchor.x).toBeCloseTo(originAnchor.x, 4);
+        expect(nextAnchor.y).toBeCloseTo(originAnchor.y, 4);
+    });
+
+    it('keeps the opposite corner fixed while resizing a rotated rect', () => {
+        const resizeOptions = {
+            originRectPx: {
+                left: 220,
+                top: 170,
+                width: 160,
+                height: 100,
+            },
+            containerRect: {
+                left: 0,
+                top: 0,
+                width: 900,
+                height: 700,
+            },
+            handle: 'se',
+            startClientX: 360,
+            startClientY: 290,
+            clientX: 420,
+            clientY: 340,
+            rotationDegrees: 30,
+        } satisfies Parameters<typeof resizeImagePlacementRect>[0];
+        const rect = resizeImagePlacementRect(resizeOptions);
+        const fixedCorner = getHandlePoint(resizeOptions.originRectPx, 'nw', 30);
+        const nextFixedCorner = getHandlePoint(rect, 'nw', 30);
+
+        expect(nextFixedCorner.x).toBeCloseTo(fixedCorner.x, 4);
+        expect(nextFixedCorner.y).toBeCloseTo(fixedCorner.y, 4);
+        expect(rect.width / rect.height).toBeCloseTo(1.6, 4);
     });
 
     it('snaps rotation near straight angles', () => {
@@ -103,6 +223,10 @@ describe('computeInitialImagePlacementDimensions', () => {
                 top: 140,
                 width: 120,
                 height: 80,
+            },
+            containerOrigin: {
+                x: 0,
+                y: 0,
             },
             originRotationDegrees: 0,
             startClientX: 260,
@@ -144,6 +268,10 @@ describe('computeInitialImagePlacementDimensions', () => {
                 width: 100,
                 height: 60,
             },
+            containerOrigin: {
+                x: 0,
+                y: 0,
+            },
             originRotationDegrees: 15,
             startClientX: 100.152,
             startClientY: 154.792,
@@ -164,6 +292,8 @@ describe('computeInitialImagePlacementDimensions', () => {
                 height: 100,
             },
             containerRect: {
+                left: 0,
+                top: 0,
                 width: 500,
                 height: 400,
             },

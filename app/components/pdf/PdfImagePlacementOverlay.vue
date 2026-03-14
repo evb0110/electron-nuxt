@@ -79,6 +79,8 @@ import type {
 } from '@app/types/pdf-image-placement';
 import {
     getImagePlacementResizeCursorStyle,
+    getImagePlacementResizeHandleViewportPosition,
+    getImagePlacementRotateHandleViewportPosition,
     moveImagePlacementRect,
     rotateImagePlacementRect,
     resizeImagePlacementRect,
@@ -161,6 +163,58 @@ function clearGlobalInteractionCursor() {
     root.removeAttribute(GLOBAL_CURSOR_ATTRIBUTE);
 }
 
+let virtualCursorElement: HTMLElement | null = null;
+
+function createVirtualCursor(cursorSvgDataUri: string) {
+    removeVirtualCursor();
+    const element = document.createElement('div');
+    element.className = 'pdf-image-placement-virtual-cursor';
+    element.innerHTML = cursorSvgDataUri;
+    document.body.appendChild(element);
+    virtualCursorElement = element;
+}
+
+function updateVirtualCursorPosition(x: number, y: number) {
+    if (!virtualCursorElement) {
+        return;
+    }
+    virtualCursorElement.style.left = `${x}px`;
+    virtualCursorElement.style.top = `${y}px`;
+}
+
+function removeVirtualCursor() {
+    virtualCursorElement?.remove();
+    virtualCursorElement = null;
+}
+
+const ROTATE_HANDLE_OFFSET_REM = 2.4;
+
+function getRemPx() {
+    return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+}
+
+function buildVirtualCursorSvg(mode: IActiveInteraction['mode'], handle?: TImagePlacementResizeHandle) {
+    if (mode === 'rotate') {
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" fill="#0f172a" stroke="white" stroke-width="0.5"/></svg>';
+    }
+    if (mode === 'move') {
+        return '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M13 6v5h5V8l4 4-4 4v-3h-5v5h3l-4 4-4-4h3v-5H6v3l-4-4 4-4v3h5V6H8l4-4 4 4h-3z" fill="#0f172a" stroke="white" stroke-width="0.5"/></svg>';
+    }
+    const angleDeg = IMAGE_PLACEMENT_HANDLE_ANGLES_FOR_CURSOR[handle ?? 'e'] + (placement?.rotationDegrees ?? 0);
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g transform="rotate(${angleDeg} 12 12)"><line x1="6" y1="12" x2="18" y2="12" stroke="white" stroke-width="4" stroke-linecap="round"/><path d="M8.5 9 L5 12 L8.5 15" fill="none" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 9 L19 12 L15.5 15" fill="none" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><line x1="6" y1="12" x2="18" y2="12" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/><path d="M8.5 9 L5 12 L8.5 15" fill="none" stroke="#0f172a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 9 L19 12 L15.5 15" fill="none" stroke="#0f172a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`;
+}
+
+const IMAGE_PLACEMENT_HANDLE_ANGLES_FOR_CURSOR: Record<TImagePlacementResizeHandle, number> = {
+    n: -90,
+    ne: -45,
+    e: 0,
+    se: 45,
+    s: 90,
+    sw: 135,
+    w: 180,
+    nw: 225,
+};
+
 function getInteractionCursor(
     mode: IActiveInteraction['mode'],
     handle?: TImagePlacementResizeHandle,
@@ -186,6 +240,8 @@ function getContainerRect(): IImagePlacementContainerRect | null {
         return null;
     }
     return {
+        left: rect.left,
+        top: rect.top,
         width: rect.width,
         height: rect.height,
     };
@@ -250,7 +306,9 @@ function startInteraction(
         originRotationDegrees: placement.rotationDegrees,
         activeCursor,
     };
-    setGlobalInteractionCursor(activeCursor);
+    setGlobalInteractionCursor('none');
+    createVirtualCursor(buildVirtualCursorSvg(mode, handle));
+    updateVirtualCursorPosition(event.clientX, event.clientY);
 
     window.addEventListener('pointermove', handleWindowPointerMove);
     window.addEventListener('pointerup', handleWindowPointerUp);
@@ -268,6 +326,7 @@ function stopInteraction() {
 
     activeInteraction = null;
     clearGlobalInteractionCursor();
+    removeVirtualCursor();
     window.removeEventListener('pointermove', handleWindowPointerMove);
     window.removeEventListener('pointerup', handleWindowPointerUp);
     window.removeEventListener('pointercancel', handleWindowPointerUp);
@@ -294,6 +353,8 @@ function applyMoveInteraction(interaction: IActiveInteraction, event: PointerEve
         rotationDegrees: interaction.originRotationDegrees,
     });
 
+    updateVirtualCursorPosition(event.clientX, event.clientY);
+
     emit('updateRect', toNormalizedRect(interaction.containerRect, rectPx));
 }
 
@@ -314,18 +375,43 @@ function applyResizeInteraction(interaction: IActiveInteraction, event: PointerE
         rotationDegrees: interaction.originRotationDegrees,
     });
 
+    const containerOrigin = {
+        x: interaction.containerRect.left,
+        y: interaction.containerRect.top,
+    };
+    const handlePos = getImagePlacementResizeHandleViewportPosition(
+        rectPx,
+        handle,
+        interaction.originRotationDegrees,
+        containerOrigin,
+    );
+    updateVirtualCursorPosition(handlePos.x, handlePos.y);
+
     emit('updateRect', toNormalizedRect(interaction.containerRect, rectPx));
 }
 
 function applyRotateInteraction(interaction: IActiveInteraction, event: PointerEvent) {
+    const containerOrigin = {
+        x: interaction.containerRect.left,
+        y: interaction.containerRect.top,
+    };
     const { rotationDegrees } = rotateImagePlacementRect({
         originRectPx: interaction.originRectPx,
+        containerOrigin,
         originRotationDegrees: interaction.originRotationDegrees,
         startClientX: interaction.startClientX,
         startClientY: interaction.startClientY,
         clientX: event.clientX,
         clientY: event.clientY,
     });
+
+    const handlePos = getImagePlacementRotateHandleViewportPosition(
+        interaction.originRectPx,
+        rotationDegrees,
+        containerOrigin,
+        ROTATE_HANDLE_OFFSET_REM * getRemPx(),
+    );
+    updateVirtualCursorPosition(handlePos.x, handlePos.y);
 
     emit('updateRect', toNormalizedRect(
         interaction.containerRect,
@@ -405,6 +491,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
     stopInteraction();
     clearGlobalInteractionCursor();
+    removeVirtualCursor();
     window.removeEventListener('keydown', handleWindowKeyDown);
 });
 </script>
@@ -413,6 +500,16 @@ onBeforeUnmount(() => {
 :global(html[data-pdf-image-placement-cursor]),
 :global(html[data-pdf-image-placement-cursor] *) {
     cursor: var(--pdf-image-placement-active-cursor) !important;
+}
+
+:global(.pdf-image-placement-virtual-cursor) {
+    position: fixed;
+    pointer-events: none;
+    z-index: 2147483647;
+    width: 24px;
+    height: 24px;
+    transform: translate(-12px, -12px);
+    filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.3));
 }
 
 .pdf-image-placement {
