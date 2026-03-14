@@ -6,6 +6,7 @@ import {
     PDFName,
     PDFNumber,
     PDFRef,
+    degrees,
     type PDFImage,
 } from 'pdf-lib';
 import type { Ref } from 'vue';
@@ -810,11 +811,19 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             return data;
         }
 
+        const rotationDegrees = 0 - (placement.rotationDegrees ?? 0);
+        const radians = (rotationDegrees * Math.PI) / 180;
+        const centerX = x + (width / 2);
+        const centerY = y + (height / 2);
+        const rotatedHalfWidth = ((width / 2) * Math.cos(radians)) - ((height / 2) * Math.sin(radians));
+        const rotatedHalfHeight = ((width / 2) * Math.sin(radians)) + ((height / 2) * Math.cos(radians));
+
         page.drawImage(embeddedImage, {
-            x,
-            y,
+            x: centerX - rotatedHalfWidth,
+            y: centerY - rotatedHalfHeight,
             width,
             height,
+            rotate: degrees(rotationDegrees),
         });
 
         return new Uint8Array(await doc.save());
