@@ -1,0 +1,134 @@
+import {
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import { delay } from 'es-toolkit/promise';
+import { ref } from 'vue';
+import type { IElectronAPI } from '@contracts/electron-api';
+import { registerTabsMenuBindings } from '@app/modules/workspace-shell/composables/tabs-menu-bindings';
+
+function cast<T>(value: unknown): T {
+    return value as T;
+}
+
+async function flushMicrotasks() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await delay(0);
+}
+
+function createDeferred() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((res) => {
+        resolve = res;
+    });
+
+    return {
+        promise,
+        resolve,
+    };
+}
+
+function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBindings>[1]> = {}) {
+    return cast<Parameters<typeof registerTabsMenuBindings>[1]>({
+        activeWorkspace: ref(null),
+        activeTabId: ref(null),
+        createTab: vi.fn(() => ({ id: 'tab-1' })),
+        handleCloseTab: vi.fn(async (_tabId: string) => {}),
+        openPathInAppropriateTab: vi.fn(async (_path: string) => {}),
+        openPathsInAppropriateTab: vi.fn(async (_paths: string[]) => {}),
+        clearRecentFiles: vi.fn(async () => {}),
+        loadRecentFiles: vi.fn(async () => {}),
+        openSettings: vi.fn(),
+        checkForUpdates: vi.fn(async () => {}),
+        splitEditor: vi.fn(async (_direction) => {}),
+        focusGroup: vi.fn(),
+        moveActiveTab: vi.fn(async (_direction) => {}),
+        copyActiveTab: vi.fn(async (_direction) => {}),
+        handleWindowTabsAction: vi.fn(async (_action) => {}),
+        ...overrides,
+    });
+}
+
+function createElectronApi() {
+    let onMenuOpenExternalPaths: ((paths: string[]) => void) | null = null;
+    let onMenuOpenRecentFile: ((path: string) => void) | null = null;
+
+    const api = cast<IElectronAPI>({documents: {
+        onMenuOpenExternalPaths: vi.fn((callback: (paths: string[]) => void) => {
+            onMenuOpenExternalPaths = callback;
+            return () => {
+                onMenuOpenExternalPaths = null;
+            };
+        }),
+        onMenuOpenRecentFile: vi.fn((callback: (path: string) => void) => {
+            onMenuOpenRecentFile = callback;
+            return () => {
+                onMenuOpenRecentFile = null;
+            };
+        }),
+    }});
+
+    return {
+        api,
+        emitExternalPaths(paths: string[]) {
+            onMenuOpenExternalPaths?.(paths);
+        },
+        emitRecentFile(path: string) {
+            onMenuOpenRecentFile?.(path);
+        },
+    };
+}
+
+describe('registerTabsMenuBindings', () => {
+    it('serializes external open requests so later launches wait for the first one', async () => {
+        const firstOpen = createDeferred();
+        const secondOpen = createDeferred();
+        const openPathsInAppropriateTab = vi
+            .fn(async (_paths: string[]) => {})
+            .mockImplementationOnce(async () => firstOpen.promise)
+            .mockImplementationOnce(async () => secondOpen.promise);
+        const deps = createDeps({ openPathsInAppropriateTab });
+        const electronApi = createElectronApi();
+
+        registerTabsMenuBindings(electronApi.api, deps);
+
+        electronApi.emitExternalPaths(['/docs/first.pdf']);
+        electronApi.emitExternalPaths(['/docs/second.pdf']);
+        await flushMicrotasks();
+
+        expect(openPathsInAppropriateTab).toHaveBeenCalledTimes(1);
+        expect(openPathsInAppropriateTab).toHaveBeenNthCalledWith(1, ['/docs/first.pdf']);
+
+        firstOpen.resolve();
+        await flushMicrotasks();
+
+        expect(openPathsInAppropriateTab).toHaveBeenCalledTimes(2);
+        expect(openPathsInAppropriateTab).toHaveBeenNthCalledWith(2, ['/docs/second.pdf']);
+
+        secondOpen.resolve();
+        await flushMicrotasks();
+    });
+
+    it('keeps the queue flowing after a failed document-open request', async () => {
+        const openPathInAppropriateTab = vi
+            .fn(async (_path: string) => {})
+            .mockRejectedValueOnce(new Error('boom'))
+            .mockResolvedValueOnce(undefined);
+        const deps = createDeps({ openPathInAppropriateTab });
+        const electronApi = createElectronApi();
+
+        registerTabsMenuBindings(electronApi.api, deps);
+
+        electronApi.emitRecentFile('/docs/first.pdf');
+        await flushMicrotasks();
+        electronApi.emitRecentFile('/docs/second.pdf');
+        await flushMicrotasks();
+
+        expect(openPathInAppropriateTab).toHaveBeenCalledTimes(2);
+        expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(1, '/docs/first.pdf');
+        expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(2, '/docs/second.pdf');
+    });
+});
