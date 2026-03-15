@@ -25,7 +25,7 @@ export default {
     },
     overrides: [
         {
-            files: ['app/assets/css/**/*.css'],
+            files: ['app/assets/css/**/*.{css,scss}'],
             rules: {
                 'scss/at-rule-no-unknown': null,
                 'hue-degree-notation': null,

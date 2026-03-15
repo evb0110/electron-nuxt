@@ -27,9 +27,9 @@
             </template>
 
             <template #content>
-                <div class="pdf-sidebar-pages-editor">
-                    <div class="pdf-sidebar-pages-fields">
-                        <div class="pdf-sidebar-pages-field">
+                <div class="pdf-sidebar-pages-editor flex flex-col">
+                    <div class="flex flex-col gap-1.5">
+                        <div class="pdf-sidebar-pages-field flex flex-col gap-1">
                             <label class="pdf-sidebar-pages-label" for="page-label-range-input">{{ t('pageNumbering.pageRange') }}</label>
                             <input
                                 id="page-label-range-input"
@@ -41,7 +41,7 @@
                             >
                         </div>
 
-                        <div class="pdf-sidebar-pages-field">
+                        <div class="pdf-sidebar-pages-field flex flex-col gap-1">
                             <label class="pdf-sidebar-pages-label" for="page-label-style-input">{{ t('pageNumbering.style') }}</label>
                             <select
                                 id="page-label-style-input"
@@ -58,7 +58,7 @@
                             </select>
                         </div>
 
-                        <div class="pdf-sidebar-pages-field">
+                        <div class="pdf-sidebar-pages-field flex flex-col gap-1">
                             <label class="pdf-sidebar-pages-label" for="page-label-prefix-input">{{ t('pageNumbering.prefix') }}</label>
                             <input
                                 id="page-label-prefix-input"
@@ -69,7 +69,7 @@
                             >
                         </div>
 
-                        <div class="pdf-sidebar-pages-field">
+                        <div class="pdf-sidebar-pages-field flex flex-col gap-1">
                             <label class="pdf-sidebar-pages-label" for="page-label-start-input">{{ t('pageNumbering.startAt') }}</label>
                             <input
                                 id="page-label-start-input"
@@ -83,7 +83,7 @@
                         </div>
                     </div>
 
-                    <div class="pdf-sidebar-pages-selection">
+                    <div class="flex items-center gap-1.5">
                         <span class="pdf-sidebar-pages-selection-text">{{ selectionSummary }}</span>
                         <UButton
                             size="xs"
@@ -499,8 +499,6 @@ watch(
 }
 
 .pdf-sidebar-pages-editor {
-    display: flex;
-    flex-direction: column;
     gap: 0.625rem;
     padding-top: 0.375rem;
 }
@@ -512,16 +510,7 @@ watch(
     color: inherit;
 }
 
-.pdf-sidebar-pages-fields {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-}
-
 .pdf-sidebar-pages-field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
     min-width: 0;
 }
 
@@ -551,12 +540,6 @@ watch(
 
 .pdf-sidebar-pages-input:disabled {
     opacity: 0.6;
-}
-
-.pdf-sidebar-pages-selection {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
 }
 
 .pdf-sidebar-pages-selection-text {

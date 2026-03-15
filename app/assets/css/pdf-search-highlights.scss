@@ -1,0 +1,53 @@
+/* Search highlights: class-based (.pdf-search-highlight) and CSS Custom Highlight API (::highlight) */
+
+/* ── Class-Based Search Highlights ─────────────────────────────────── */
+
+.pdfViewer .pdf-search-highlight {
+    background-color: var(--app-pdf-search-highlight-bg);
+    color: transparent;
+    border-radius: 2px;
+    padding: 0;
+    margin: 0;
+}
+
+.pdfViewer .pdf-search-highlight--current {
+    background-color: var(--app-pdf-search-highlight-current-bg);
+    outline-offset: 0;
+}
+
+/* ── Dark Mode – Class-Based ───────────────────────────────────────── */
+
+/* .pdf-viewer-container--dark is toggled by invertColors prop (per-viewer),
+   independent of the .dark app theme. These selectors locally override the
+   tokens so highlights remain visible under the CSS invert() filter. */
+
+.pdf-viewer-container--dark .pdfViewer {
+    .pdf-search-highlight {
+        background-color: rgb(255 230 0 / 0.6);
+    }
+
+    .pdf-search-highlight--current {
+        background-color: rgb(255 150 0 / 0.8);
+        outline: 2px solid rgb(255 100 0 / 0.9);
+    }
+}
+
+/* ── CSS Custom Highlight API (Electron/Chromium) ──────────────────── */
+
+::highlight(pdf-search-match) {
+    background-color: var(--app-pdf-search-highlight-bg);
+}
+
+::highlight(pdf-search-current-match) {
+    background-color: var(--app-pdf-search-highlight-current-bg);
+}
+
+.pdf-viewer-container--dark {
+    ::highlight(pdf-search-match) {
+        background-color: rgb(255 230 0 / 0.6);
+    }
+
+    ::highlight(pdf-search-current-match) {
+        background-color: rgb(255 150 0 / 0.8);
+    }
+}

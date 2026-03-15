@@ -5,8 +5,8 @@
         :ui="{ footer: 'justify-end' }"
     >
         <template #body>
-            <div class="convert-body">
-                <div class="convert-info">
+            <div class="flex flex-col gap-4">
+                <div class="flex flex-col gap-1">
                     <div class="convert-info-row">
                         <span class="convert-info-label">{{ t('djvu.convertDialog.file') }}</span>
                         <span class="convert-info-value">{{ fileName }}</span>
@@ -27,7 +27,7 @@
                     </div>
                 </div>
 
-                <div class="convert-presets">
+                <div class="convert-presets flex flex-col gap-2">
                     <label class="convert-presets-title">{{ t('djvu.convertDialog.quality') }}</label>
                     <div
                         v-for="estimate in estimates"
@@ -71,7 +71,7 @@
                     v-if="info?.hasBookmarks"
                     class="convert-option"
                 >
-                    <label class="convert-checkbox-label">
+                    <label class="convert-checkbox-label flex items-center gap-2">
                         <input
                             v-model="preserveBookmarks"
                             type="checkbox"
@@ -179,19 +179,7 @@ function handleConvert() {
 }
 </script>
 
-<style scoped>
-.convert-body {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.convert-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
+<style lang="scss" scoped>
 .convert-info-row {
     display: flex;
     align-items: baseline;
@@ -209,12 +197,6 @@ function handleConvert() {
     font-weight: 500;
 }
 
-.convert-presets {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
 .convert-presets-title {
     font-size: 13px;
     font-weight: 600;
@@ -229,7 +211,7 @@ function handleConvert() {
     border: 1px solid var(--ui-border);
     border-radius: 8px;
     cursor: pointer;
-    transition: border-color 0.15s;
+    transition: border-color $ease-standard;
 }
 
 .convert-preset:hover {
@@ -312,9 +294,6 @@ function handleConvert() {
 }
 
 .convert-checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
     font-size: 13px;
     color: var(--ui-text);
     cursor: pointer;

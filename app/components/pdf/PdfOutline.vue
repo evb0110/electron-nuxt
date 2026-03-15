@@ -1,5 +1,5 @@
 <template>
-    <div class="pdf-bookmarks">
+    <div class="pdf-bookmarks flex flex-col gap-3">
         <PdfOutlineToolbar
             :display-mode="displayMode"
             :is-edit-mode="isEditMode"
@@ -42,7 +42,7 @@
 
         <div
             v-else
-            class="pdf-bookmarks-tree"
+            class="pdf-bookmarks-tree flex flex-col"
             @click="closeBookmarkContextMenu"
         >
             <PdfOutlineItem
@@ -495,9 +495,6 @@ onBeforeUnmount(() => {
 <style scoped>
 .pdf-bookmarks {
     padding: 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
 }
 
 .pdf-bookmarks-loading,
@@ -531,8 +528,6 @@ onBeforeUnmount(() => {
 }
 
 .pdf-bookmarks-tree {
-    display: flex;
-    flex-direction: column;
     user-select: none;
 }
 

@@ -11,11 +11,11 @@
         </template>
 
         <template #body>
-            <div class="settings-body">
-                <fieldset class="settings-group">
+            <div class="flex flex-col gap-4">
+                <fieldset class="settings-group flex flex-col gap-2.5">
                     <legend class="settings-legend">{{ t('settings.general') }}</legend>
 
-                    <div class="settings-field">
+                    <div class="settings-field flex flex-col gap-1">
                         <label class="settings-label" for="settings-author">
                             {{ t('settings.author') }}
                         </label>
@@ -29,7 +29,7 @@
                         <p class="settings-hint">{{ t('settings.authorDescription') }}</p>
                     </div>
 
-                    <div class="settings-field">
+                    <div class="settings-field flex flex-col gap-1">
                         <label class="settings-label">{{ t('settings.theme') }}</label>
                         <div class="settings-segmented">
                             <button
@@ -53,7 +53,7 @@
                         </div>
                     </div>
 
-                    <div class="settings-field">
+                    <div class="settings-field flex flex-col gap-1">
                         <label class="settings-label">{{ t('settings.language') }}</label>
                         <USelectMenu
                             :model-value="settings.locale"
@@ -66,10 +66,10 @@
                     </div>
                 </fieldset>
 
-                <fieldset class="settings-group">
+                <fieldset class="settings-group flex flex-col gap-2.5">
                     <legend class="settings-legend">{{ t('settings.viewerDefaults') }}</legend>
 
-                    <div class="settings-field">
+                    <div class="settings-field flex flex-col gap-1">
                         <label class="settings-label">{{ t('settings.defaultZoom') }}</label>
                         <USelectMenu
                             :model-value="settings.defaultZoomPreset"
@@ -80,7 +80,7 @@
                         />
                     </div>
 
-                    <div class="settings-field">
+                    <div class="settings-field flex flex-col gap-1">
                         <label class="settings-label">{{ t('settings.defaultViewMode') }}</label>
                         <USelectMenu
                             :model-value="settings.defaultViewMode"
@@ -91,7 +91,7 @@
                         />
                     </div>
 
-                    <div class="settings-field">
+                    <div class="settings-field flex flex-col gap-1">
                         <label class="settings-label">{{ t('settings.defaultScrollMode') }}</label>
                         <USelectMenu
                             :model-value="settings.defaultContinuousScroll"
@@ -102,9 +102,9 @@
                         />
                     </div>
 
-                    <div class="settings-field">
+                    <div class="settings-field flex flex-col gap-1">
                         <label class="settings-label">{{ t('settings.defaultAnnotationColor') }}</label>
-                        <div class="settings-swatch-row">
+                        <div class="flex gap-2">
                             <button
                                 v-for="swatch in annotationColorSwatches"
                                 :key="swatch"
@@ -119,18 +119,18 @@
                     </div>
                 </fieldset>
 
-                <details class="settings-details">
-                    <summary class="settings-legend settings-legend--toggle">
+                <details class="settings-details flex flex-col">
+                    <summary class="settings-legend is-toggle">
                         {{ t('settings.shortcuts') }}
                     </summary>
-                    <div class="settings-shortcuts">
+                    <div class="flex flex-col">
                         <div
                             v-for="item in shortcutItems"
                             :key="item.label"
-                            class="settings-shortcut-row"
+                            class="settings-shortcut-row flex items-center justify-between gap-3"
                         >
                             <span class="settings-shortcut-label">{{ item.label }}</span>
-                            <span class="settings-shortcut-keys">
+                            <span class="settings-shortcut-keys flex shrink-0">
                                 <kbd
                                     v-for="(part, i) in item.keys"
                                     :key="i"
@@ -143,7 +143,7 @@
 
                 <fieldset
                     v-if="isUpdateSupported"
-                    class="settings-group"
+                    class="settings-group flex flex-col gap-2.5"
                 >
                     <legend class="settings-legend">{{ t('settings.updates') }}</legend>
                     <UButton
@@ -414,19 +414,10 @@ onMounted(() => {
 });
 </script>
 
-<style scoped>
-.settings-body {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
-
+<style lang="scss" scoped>
 /* ─── Fieldset groups (no border dividers — spacing only) ─── */
 
 .settings-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.625rem;
     border: none;
     padding: 0;
     margin: 0;
@@ -444,16 +435,11 @@ onMounted(() => {
 
 /* ─── Collapsible shortcuts ─── */
 
-.settings-details {
-    display: flex;
-    flex-direction: column;
-}
-
 .settings-details[open] {
     gap: 0.375rem;
 }
 
-.settings-legend--toggle {
+.settings-legend.is-toggle {
     cursor: pointer;
     list-style: none;
     display: flex;
@@ -461,11 +447,11 @@ onMounted(() => {
     gap: 0.375rem;
 }
 
-.settings-legend--toggle::-webkit-details-marker {
+.settings-legend.is-toggle::-webkit-details-marker {
     display: none;
 }
 
-.settings-legend--toggle::before {
+.settings-legend.is-toggle::before {
     content: "";
     display: inline-block;
     width: 0;
@@ -473,21 +459,16 @@ onMounted(() => {
     border-style: solid;
     border-width: 0.3rem 0 0.3rem 0.4rem;
     border-color: transparent transparent transparent var(--ui-text-dimmed);
-    transition: transform 0.15s ease;
+    transition: transform $ease-standard;
     flex-shrink: 0;
 }
 
-.settings-details[open] > .settings-legend--toggle::before {
+.settings-details[open] > .settings-legend.is-toggle::before {
     transform: rotate(90deg);
 }
 
 /* ─── Fields ─── */
 
-.settings-field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
 
 .settings-label {
     font-size: 0.8125rem;
@@ -526,7 +507,7 @@ onMounted(() => {
     font-size: 0.8125rem;
     font-weight: 500;
     cursor: pointer;
-    transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    transition: background-color $ease-standard, color $ease-standard, box-shadow $ease-standard;
 }
 
 .settings-seg-btn + .settings-seg-btn {
@@ -555,11 +536,6 @@ onMounted(() => {
 
 /* ─── Color swatches ─── */
 
-.settings-swatch-row {
-    display: flex;
-    gap: 0.5rem;
-}
-
 .settings-swatch {
     width: 1.5rem;
     height: 1.5rem;
@@ -567,7 +543,7 @@ onMounted(() => {
     border: 2px solid transparent;
     background: var(--swatch-color);
     cursor: pointer;
-    transition: transform 0.12s ease, box-shadow 0.12s ease;
+    transition: transform $ease-quick, box-shadow $ease-quick;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-bg-inverted) 12%, transparent);
 }
 
@@ -584,16 +560,7 @@ onMounted(() => {
 
 /* ─── Keyboard shortcuts ─── */
 
-.settings-shortcuts {
-    display: flex;
-    flex-direction: column;
-}
-
 .settings-shortcut-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
     padding: 0.25rem 0;
 }
 
@@ -603,10 +570,8 @@ onMounted(() => {
 }
 
 .settings-shortcut-keys {
-    display: flex;
     gap: 0.15rem;
     white-space: nowrap;
-    flex-shrink: 0;
 }
 
 .settings-kbd {
