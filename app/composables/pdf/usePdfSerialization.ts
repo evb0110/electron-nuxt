@@ -829,12 +829,18 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
         const rotationDegrees = 0 - (placement.rotationDegrees ?? 0);
         const radians = (rotationDegrees * Math.PI) / 180;
-        const centerX = width / 2;
-        const centerY = height / 2;
-        const rotatedHalfWidth = ((width / 2) * Math.cos(radians)) - ((height / 2) * Math.sin(radians));
-        const rotatedHalfHeight = ((width / 2) * Math.sin(radians)) + ((height / 2) * Math.cos(radians));
-        const imageX = centerX - rotatedHalfWidth;
-        const imageY = centerY - rotatedHalfHeight;
+        const absCos = Math.abs(Math.cos(radians));
+        const absSin = Math.abs(Math.sin(radians));
+        const bboxWidth = (width * absCos) + (height * absSin);
+        const bboxHeight = (width * absSin) + (height * absCos);
+        const bboxCenterX = bboxWidth / 2;
+        const bboxCenterY = bboxHeight / 2;
+        const cos = Math.cos(radians);
+        const sin = Math.sin(radians);
+        const rotatedHalfWidth = ((width / 2) * cos) - ((height / 2) * sin);
+        const rotatedHalfHeight = ((width / 2) * sin) + ((height / 2) * cos);
+        const imageX = bboxCenterX - rotatedHalfWidth;
+        const imageY = bboxCenterY - rotatedHalfHeight;
         const imageName = doc.context.addRandomSuffix('Image', 10);
         const appearanceStream = doc.context.formXObject(
             drawImage(imageName, {
@@ -851,8 +857,8 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 BBox: doc.context.obj([
                     0,
                     0,
-                    width,
-                    height,
+                    bboxWidth,
+                    bboxHeight,
                 ]),
                 Matrix: doc.context.obj([
                     1,
@@ -865,14 +871,16 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             },
         );
         const appearanceRef = doc.context.register(appearanceStream);
+        const rectOffsetX = (bboxWidth - width) / 2;
+        const rectOffsetY = (bboxHeight - height) / 2;
         const stampDict = doc.context.obj({
             Type: PDFName.of('Annot'),
             Subtype: PDFName.of('Stamp'),
             Rect: doc.context.obj([
-                PDFNumber.of(x),
-                PDFNumber.of(y),
-                PDFNumber.of(x + width),
-                PDFNumber.of(y + height),
+                PDFNumber.of(x - rectOffsetX),
+                PDFNumber.of(y - rectOffsetY),
+                PDFNumber.of(x + width + rectOffsetX),
+                PDFNumber.of(y + height + rectOffsetY),
             ]),
             AP: doc.context.obj({ N: appearanceRef }),
             F: PDFNumber.of(4),
