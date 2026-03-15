@@ -307,8 +307,15 @@ function getPathBaseName(path: string | null | undefined) {
     if (!path) {
         return null;
     }
-    const segments = path.split(/[\\/]/);
-    return segments[segments.length - 1] ?? null;
+    const segment = path.split(/[\\/]/).pop() ?? null;
+    if (!segment) {
+        return null;
+    }
+    try {
+        return decodeURIComponent(segment);
+    } catch {
+        return segment;
+    }
 }
 
 function createDefaultToolbarSnapshot(): IWorkspaceToolbarSnapshot {

@@ -4,7 +4,12 @@ import {
     hasElectronAPI,
 } from '@app/utils/platform';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
-import type { TPdfSource } from '@app/types/pdf';
+import type {
+    IPdfConformanceProfile,
+    IPdfPersistResult,
+    TPdfSaveMode,
+    TPdfSource,
+} from '@app/types/pdf';
 import type { TOpenFileResult } from '@contracts/electron-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -23,7 +28,16 @@ function getPathBaseName(path: string | null) {
         return null;
     }
 
-    return path.split(/[\\/]/).pop() ?? null;
+    const segment = path.split(/[\\/]/).pop() ?? null;
+    if (!segment) {
+        return null;
+    }
+
+    try {
+        return decodeURIComponent(segment);
+    } catch {
+        return segment;
+    }
 }
 
 export const usePdfFile = () => {
@@ -35,6 +49,8 @@ export const usePdfFile = () => {
     const originalPath = ref<string | null>(null);
     const error = ref<string | null>(null);
     const isDirty = ref(false);
+    const pdfConformanceProfile = ref<IPdfConformanceProfile | null>(null);
+    const lastSaveMode = ref<TPdfSaveMode>('rewrite');
     const history = shallowRef<Uint8Array[]>([]);
     const historyIndex = ref(0);
     const historyCleanIndex = ref(-1);
@@ -272,6 +288,46 @@ export const usePdfFile = () => {
       historyIndex.value !== historyCleanIndex.value;
     }
 
+    function areByteArraysEqual(left: Uint8Array | null, right: Uint8Array | null) {
+        if (!left || !right) {
+            return false;
+        }
+        if (left.byteLength !== right.byteLength) {
+            return false;
+        }
+
+        for (let index = 0; index < left.byteLength; index += 1) {
+            if (left[index] !== right[index]) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    async function readPdfConformanceProfile(path: string) {
+        try {
+            return await getElectronAPI().documents.analyzePdfConformance(path);
+        } catch (conformanceError) {
+            BrowserLogger.warn('pdf-file', 'Failed to analyze PDF conformance profile', {
+                path,
+                error: conformanceError,
+            });
+            return null;
+        }
+    }
+
+    async function refreshPdfConformanceProfile(path: string | null) {
+        if (!path) {
+            pdfConformanceProfile.value = null;
+            return null;
+        }
+
+        const profile = await readPdfConformanceProfile(path);
+        pdfConformanceProfile.value = profile;
+        return profile;
+    }
+
     async function readPdfStateFromPath(path: string) {
         const api = getElectronAPI();
         const { size } = await api.documents.statFile(path);
@@ -295,6 +351,62 @@ export const usePdfFile = () => {
         };
     }
 
+    function markCurrentHistoryEntryClean(snapshot: Uint8Array | null) {
+        if (!snapshot) {
+            resetHistory(null);
+            isDirty.value = false;
+            return;
+        }
+
+        const currentSnapshot = history.value[historyIndex.value] ?? null;
+        if (!areByteArraysEqual(currentSnapshot, snapshot)) {
+            pushHistorySnapshot(snapshot);
+        }
+
+        historyCleanIndex.value = historyIndex.value;
+        syncDirtyFromHistory();
+        isDirty.value = false;
+    }
+
+    async function commitPersistedPdfState(snapshotHint?: Uint8Array | null) {
+        const path = workingCopyPath.value;
+        if (!path) {
+            return false;
+        }
+
+        if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
+            const snapshot = snapshotHint.slice();
+            pdfData.value = snapshot;
+            pdfSrc.value = new Blob([snapshot], { type: 'application/pdf' }) as TPdfSource;
+            markCurrentHistoryEntryClean(snapshot);
+        } else {
+            const nextState = await readPdfStateFromPath(path);
+            pdfData.value = nextState.pdfData;
+            pdfSrc.value = nextState.pdfSrc;
+
+            if (nextState.pdfData) {
+                markCurrentHistoryEntryClean(nextState.pdfData);
+            } else {
+                resetHistory(null);
+                isDirty.value = false;
+            }
+        }
+
+        await refreshPdfConformanceProfile(path);
+        return true;
+    }
+
+    function shouldForceSaveAs(mode: TPdfSaveMode) {
+        if (requiresSaveAsOnFirstSave.value) {
+            return true;
+        }
+        if (!pdfConformanceProfile.value?.isSigned) {
+            return false;
+        }
+
+        return mode === 'rewrite' || mode === 'save_as_rewrite';
+    }
+
     async function loadPdfFromPath(path: string, opts?: { markDirty?: boolean }) {
         const requestId = ++latestLoadRequestId;
         const api = getElectronAPI();
@@ -304,6 +416,7 @@ export const usePdfFile = () => {
         // (filename, dirty dot) but the content area shows the empty state
         // because pdfSrc was never set due to a failed read.
         const nextState = await readPdfStateFromPath(path);
+        const nextConformanceProfile = await readPdfConformanceProfile(path);
 
         if (requestId !== latestLoadRequestId) {
             BrowserLogger.debug('pdf-file', 'Skipped stale PDF load result', {
@@ -322,6 +435,7 @@ export const usePdfFile = () => {
         workingCopyPath.value = path;
         pdfData.value = nextState.pdfData;
         pdfSrc.value = nextState.pdfSrc;
+        pdfConformanceProfile.value = nextConformanceProfile;
 
         if (nextState.pdfData) {
             resetHistory(nextState.pdfData);
@@ -434,6 +548,10 @@ export const usePdfFile = () => {
         } else {
             isDirty.value = true;
         }
+
+        if (opts?.persistWorkingCopy && workingCopyPath.value) {
+            await refreshPdfConformanceProfile(workingCopyPath.value);
+        }
     }
 
     async function persistPdfDataSilently(data: Uint8Array) {
@@ -444,17 +562,41 @@ export const usePdfFile = () => {
         if (workingCopyPath.value) {
             const api = getElectronAPI();
             await api.documents.writeFile(workingCopyPath.value, snapshot);
+            await refreshPdfConformanceProfile(workingCopyPath.value);
         }
     }
 
-    async function saveFile(data: Uint8Array) {
+    async function readWorkingCopyBytes() {
+        const path = workingCopyPath.value;
+        if (!path) {
+            return null;
+        }
+
+        try {
+            const buffer = await getElectronAPI().documents.readFile(path);
+            return new Uint8Array(buffer);
+        } catch (readError) {
+            error.value = readError instanceof Error ? readError.message : t('errors.file.save');
+            return null;
+        }
+    }
+
+    async function saveFile(
+        data: Uint8Array,
+        opts?: { saveMode?: TPdfSaveMode },
+    ): Promise<IPdfPersistResult> {
+        const requestedSaveMode = opts?.saveMode ?? 'rewrite';
         if (!workingCopyPath.value) {
-            return false;
+            return {
+                success: false,
+                outPath: null,
+                saveMode: requestedSaveMode,
+                didSaveAs: false,
+            };
         }
         try {
-            if (requiresSaveAsOnFirstSave.value) {
-                const savedPath = await saveWorkingCopyAs(data);
-                return Boolean(savedPath);
+            if (shouldForceSaveAs(requestedSaveMode)) {
+                return await saveWorkingCopyAs(data, { saveMode: 'save_as_rewrite' });
             }
 
             const api = getElectronAPI();
@@ -462,41 +604,75 @@ export const usePdfFile = () => {
             await api.documents.writeFile(workingCopyPath.value, data);
             // Then save working copy back to original location
             await api.documents.saveFile(workingCopyPath.value);
-            isDirty.value = false;
-            historyCleanIndex.value = historyIndex.value;
-            syncDirtyFromHistory();
-            return true;
+            await commitPersistedPdfState(data);
+            lastSaveMode.value = requestedSaveMode;
+            return {
+                success: true,
+                outPath: originalPath.value,
+                saveMode: requestedSaveMode,
+                didSaveAs: false,
+            };
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.save');
-            return false;
+            return {
+                success: false,
+                outPath: null,
+                saveMode: requestedSaveMode,
+                didSaveAs: false,
+            };
         }
     }
 
-    async function saveWorkingCopy() {
+    async function saveWorkingCopy(
+        opts?: { saveMode?: TPdfSaveMode },
+    ): Promise<IPdfPersistResult> {
+        const requestedSaveMode = opts?.saveMode ?? 'rewrite';
         if (!workingCopyPath.value) {
-            return false;
+            return {
+                success: false,
+                outPath: null,
+                saveMode: requestedSaveMode,
+                didSaveAs: false,
+            };
         }
         try {
-            if (requiresSaveAsOnFirstSave.value) {
-                const savedPath = await saveWorkingCopyAs();
-                return Boolean(savedPath);
+            if (shouldForceSaveAs(requestedSaveMode)) {
+                return await saveWorkingCopyAs(undefined, { saveMode: 'save_as_rewrite' });
             }
 
             const api = getElectronAPI();
             await api.documents.saveFile(workingCopyPath.value);
-            isDirty.value = false;
-            historyCleanIndex.value = historyIndex.value;
-            syncDirtyFromHistory();
-            return true;
+            await commitPersistedPdfState();
+            lastSaveMode.value = requestedSaveMode;
+            return {
+                success: true,
+                outPath: originalPath.value,
+                saveMode: requestedSaveMode,
+                didSaveAs: false,
+            };
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.save');
-            return false;
+            return {
+                success: false,
+                outPath: null,
+                saveMode: requestedSaveMode,
+                didSaveAs: false,
+            };
         }
     }
 
-    async function saveWorkingCopyAs(data?: Uint8Array) {
+    async function saveWorkingCopyAs(
+        data?: Uint8Array,
+        opts?: { saveMode?: TPdfSaveMode },
+    ): Promise<IPdfPersistResult> {
+        const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
         if (!workingCopyPath.value) {
-            return null;
+            return {
+                success: false,
+                outPath: null,
+                saveMode: requestedSaveMode,
+                didSaveAs: true,
+            };
         }
         try {
             const api = getElectronAPI();
@@ -516,14 +692,23 @@ export const usePdfFile = () => {
                 }
                 originalPath.value = savedPath;
                 requiresSaveAsOnFirstSave.value = false;
-                isDirty.value = false;
-                historyCleanIndex.value = historyIndex.value;
-                syncDirtyFromHistory();
+                await commitPersistedPdfState(data ?? undefined);
+                lastSaveMode.value = requestedSaveMode;
             }
-            return savedPath;
+            return {
+                success: Boolean(savedPath),
+                outPath: savedPath,
+                saveMode: requestedSaveMode,
+                didSaveAs: true,
+            };
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.save');
-            return null;
+            return {
+                success: false,
+                outPath: null,
+                saveMode: requestedSaveMode,
+                didSaveAs: true,
+            };
         }
     }
 
@@ -542,6 +727,7 @@ export const usePdfFile = () => {
         originalPath.value = null;
         error.value = null;
         isDirty.value = false;
+        pdfConformanceProfile.value = null;
         pendingDjvu.value = null;
         openBatchProgress.value = null;
         requiresSaveAsOnFirstSave.value = false;
@@ -609,6 +795,8 @@ export const usePdfFile = () => {
         fileName,
         error,
         isDirty,
+        pdfConformanceProfile,
+        lastSaveMode,
         isElectron,
         pendingDjvu,
         openBatchProgress,
@@ -620,6 +808,7 @@ export const usePdfFile = () => {
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         persistPdfDataSilently,
+        readWorkingCopyBytes,
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,

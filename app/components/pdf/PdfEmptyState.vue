@@ -153,6 +153,9 @@ function formatRelativeTimeLocalized(timestamp: number) {
 }
 
 function getParentFolder(filePath: string) {
+    if (filePath.startsWith('browser://')) {
+        return '';
+    }
     const parts = filePath.split(/[\\/]/);
     parts.pop();
     const folderParts = parts.slice(-2);

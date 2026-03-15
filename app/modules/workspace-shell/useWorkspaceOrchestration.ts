@@ -96,6 +96,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         persistPdfDataSilently,
+        readWorkingCopyBytes,
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,
@@ -319,6 +320,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         markPageLabelsSaved,
         markBookmarksSaved,
         isDirty,
+        readWorkingCopyBytes,
+        validatePdfData: (data, fileName) => getElectronAPI().documents.validatePdfData(data, fileName),
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,
@@ -677,6 +680,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         },
         handleActualSize: () => {
             setCustomZoomFromDisplay(1);
+        },
+        handleSave: () => {
+            void handleSave();
         },
     });
 
