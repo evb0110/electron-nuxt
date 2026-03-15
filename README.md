@@ -139,7 +139,7 @@ EVB_AUTOMATION_HIDE_WINDOW=0 pnpm run test:e2e:electron
 The repository keeps commit-time checks intentionally fast:
 
 - `.husky/pre-commit` runs `pnpm run gate:commit`
-- Release commands run `pnpm run gate:pre-release` before versioning and publishing
+- Release commands run `pnpm run release:verify` after the version bump and before committing or pushing
 
 ### OCR Tuning
 

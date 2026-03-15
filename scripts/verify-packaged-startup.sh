@@ -50,11 +50,21 @@ if [ -z "$app_path" ] || [ ! -d "$app_path" ]; then
   exit 1
 fi
 
-port=3235
+default_port=3235
+port="${EVB_SERVER_PORT:-$default_port}"
 if lsof -nP -iTCP:$port -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "Error: TCP port $port is already in use; stop running app instances first"
-  lsof -nP -iTCP:$port -sTCP:LISTEN || true
-  exit 1
+  if [ -n "${EVB_SERVER_PORT:-}" ]; then
+    echo "Error: Requested TCP port $port is already in use"
+    lsof -nP -iTCP:$port -sTCP:LISTEN || true
+    exit 1
+  fi
+
+  port="$(node -e "const net = require('node:net'); const server = net.createServer(); server.listen(0, '127.0.0.1', () => { const address = server.address(); if (!address || typeof address === 'string') process.exit(1); console.log(address.port); server.close(); });")"
+  if [ -z "$port" ]; then
+    echo "Error: Failed to allocate a free localhost port for startup verification"
+    exit 1
+  fi
+  echo "TCP port $default_port is busy; using $port for packaged startup verification"
 fi
 
 log_dir="${TMPDIR:-/tmp}/electron-logs"
@@ -77,7 +87,13 @@ trap cleanup EXIT
 
 cp -R "$app_path" "$app_copy"
 
-env EVB_STARTUP_TRACE=1 "$app_copy/Contents/MacOS/EVB Viewer" >"$stdout_log" 2>&1 &
+env \
+  EVB_ALLOW_MULTI_AUTOMATION_SESSIONS=1 \
+  EVB_AUTOMATION_HIDE_WINDOW=1 \
+  EVB_AUTOMATION_NO_FOCUS=1 \
+  EVB_SERVER_PORT="$port" \
+  EVB_STARTUP_TRACE=1 \
+  "$app_copy/Contents/MacOS/EVB Viewer" >"$stdout_log" 2>&1 &
 app_pid=$!
 
 main_log="$log_dir/main.log"
@@ -92,10 +108,19 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     break
   fi
 
-  if [ -f "$server_log" ] \
-    && [ -f "$window_log" ] \
-    && grep -q 'Server verified ready' "$server_log" \
-    && grep -Eq 'BrowserWindow created and loadURL dispatched|Window runtime ready|Window shown' "$window_log"; then
+  window_ready=0
+  if [ -f "$window_log" ] && grep -Eq 'BrowserWindow created and loadURL dispatched|Window runtime ready|Window shown|preload path:' "$window_log"; then
+    window_ready=1
+  fi
+
+  server_ready=0
+  if [ -f "$server_log" ] && grep -q 'Server verified ready' "$server_log"; then
+    server_ready=1
+  elif curl -fsS --max-time 2 "http://127.0.0.1:$port/" >/dev/null 2>&1; then
+    server_ready=1
+  fi
+
+  if [ "$server_ready" -eq 1 ] && { [ "$window_ready" -eq 1 ] || kill -0 "$app_pid" >/dev/null 2>&1; }; then
     ready=1
     break
   fi

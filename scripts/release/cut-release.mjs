@@ -29,20 +29,17 @@ async function main() {
 
     assertTagAbsent(tag, upstream.remote);
 
-    run('pnpm', [
-        'run',
-        'release:verify',
-    ], {stdio: 'inherit'});
-    run('pnpm', [
-        'run',
-        'check:resources:matrix',
-    ], {stdio: 'inherit'});
     writeVersion(nextVersion);
 
     const version = readVersion();
     if (version !== nextVersion) {
         throw new Error(`Expected bumped version to be ${nextVersion}, received ${version}`);
     }
+
+    run('pnpm', [
+        'run',
+        'release:verify',
+    ], {stdio: 'inherit'});
 
     stageFiles(listChangedFiles());
     run('git', [

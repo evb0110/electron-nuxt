@@ -157,6 +157,68 @@ async function waitForAnnotationEditorMode(
     });
 }
 
+async function getLatestFreeTextHitPoints(page: Page) {
+    return page.evaluate(() => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
+        const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+            ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
+            ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
+        const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
+            .filter((editor) => {
+                const rect = editor.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+            });
+        const editor = editors[editors.length - 1];
+        if (!editor) {
+            return [] as Array<{
+                x: number;
+                y: number;
+            }>;
+        }
+
+        const overlay = editor.querySelector<HTMLElement>('.overlay');
+        const targetRect = (overlay ?? editor).getBoundingClientRect();
+        const clampInset = (size: number, inset: number) => Math.max(4, Math.min(size - 4, inset));
+        const candidates = [
+            {
+                x: Math.round(targetRect.left + clampInset(targetRect.width, 8)),
+                y: Math.round(targetRect.top + clampInset(targetRect.height, 8)),
+            },
+            {
+                x: Math.round(targetRect.left + clampInset(targetRect.width, targetRect.width / 2)),
+                y: Math.round(targetRect.top + clampInset(targetRect.height, targetRect.height / 2)),
+            },
+            {
+                x: Math.round(targetRect.left + clampInset(targetRect.width, targetRect.width - 8)),
+                y: Math.round(targetRect.top + clampInset(targetRect.height, 8)),
+            },
+        ];
+
+        const seen = new Set<string>();
+        return candidates.filter((candidate) => {
+            const key = `${candidate.x}:${candidate.y}`;
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
+        });
+    });
+}
+
 export async function clickAnnotationTool(page: Page, label: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await openAnnotationsTab(page, timeoutMs);
     await waitForViewerInteractive(page, timeoutMs);
@@ -909,51 +971,12 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
         return 0;
     }
 
-    await clickAnnotationTool(page, 'Select');
     await waitForViewerInteractive(page);
 
-    const editorPoint = await page.evaluate(() => {
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 100
-                    && rect.height > 100
-                );
-            });
-        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
-        const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-            ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
-            ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
-            .filter((editor) => {
-                const rect = editor.getBoundingClientRect();
-                return rect.width > 0 && rect.height > 0;
-            });
-        const editor = editors[editors.length - 1];
-        if (!editor) {
-            return null;
-        }
-
-        const overlay = editor.querySelector<HTMLElement>('.overlay');
-        const targetRect = (overlay ?? editor).getBoundingClientRect();
-        return {
-            x: Math.round(targetRect.left + Math.max(4, targetRect.width / 2)),
-            y: Math.round(targetRect.top + Math.max(4, targetRect.height / 2)),
-        };
-    });
-
-    if (!editorPoint) {
+    const editorPoints = await getLatestFreeTextHitPoints(page);
+    if (editorPoints.length === 0) {
         return before;
     }
-
-    await page.mouse.click(editorPoint.x, editorPoint.y);
-    await page.keyboard.press('Delete');
 
     const waitForCountDrop = async (timeoutMs: number) => {
         await page.waitForFunction((previousCount: number) => {
@@ -978,17 +1001,36 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
         }, {timeout: timeoutMs}, before);
     };
 
-    try {
-        await waitForCountDrop(Math.min(DEFAULT_TIMEOUT_MS, 3_500));
-    } catch {
+    for (const editorPoint of editorPoints) {
         await clickAnnotationTool(page, 'Select');
-        await page.mouse.click(editorPoint.x, editorPoint.y, { button: 'right' });
-        await page.waitForSelector('.annotation-context-menu .pdf-context-menu__action--danger', {timeout: 4_000});
-        await page.click('.annotation-context-menu .pdf-context-menu__action--danger');
-        await waitForCountDrop(DEFAULT_TIMEOUT_MS);
+        await page.mouse.click(editorPoint.x, editorPoint.y);
+        await page.keyboard.press('Delete');
+
+        try {
+            await waitForCountDrop(Math.min(DEFAULT_TIMEOUT_MS, 3_500));
+            return getFreeTextEditorCount(page);
+        } catch {
+            await clickAnnotationTool(page, 'Select');
+            await page.mouse.click(editorPoint.x, editorPoint.y, { button: 'right' });
+
+            const hasDeleteAction = await page.waitForFunction(() => (
+                Boolean(document.querySelector('.annotation-context-menu .pdf-context-menu__action--danger'))
+            ), {timeout: 2_500})
+                .then(() => true)
+                .catch(() => false);
+
+            if (!hasDeleteAction) {
+                await page.keyboard.press('Escape').catch(() => {});
+                continue;
+            }
+
+            await page.click('.annotation-context-menu .pdf-context-menu__action--danger');
+            await waitForCountDrop(DEFAULT_TIMEOUT_MS);
+            return getFreeTextEditorCount(page);
+        }
     }
 
-    return getFreeTextEditorCount(page);
+    throw new Error('Unable to delete the latest FreeText annotation from any hit target');
 }
 
 export async function createHighlightFromVisibleText(page: Page) {
@@ -1041,36 +1083,38 @@ export async function createHighlightFromVisibleText(page: Page) {
 }
 
 export async function openContextMenuOnLatestFreeText(page: Page) {
-    await clickAnnotationTool(page, 'Select');
-
-    const point = await page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
-            ?? null;
-        const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? [])
-            .filter((editor) => {
-                const rect = editor.getBoundingClientRect();
-                return rect.width > 0 && rect.height > 0;
-            });
-        const editor = editors[editors.length - 1];
-        if (!editor) {
-            return null;
-        }
-        const rect = editor.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + Math.max(4, rect.width / 2)),
-            y: Math.round(rect.top + Math.max(4, rect.height / 2)),
-        };
-    });
-
-    if (!point) {
+    const points = await getLatestFreeTextHitPoints(page);
+    if (points.length === 0) {
         return {
             visible: false,
             items: [] as string[],
         };
     }
 
-    await page.mouse.click(point.x, point.y, { button: 'right' });
-    await page.waitForSelector('.annotation-context-menu', {timeout: 4_000});
+    let opened = false;
+    for (const point of points) {
+        await clickAnnotationTool(page, 'Select');
+        await page.mouse.click(point.x, point.y, { button: 'right' });
+
+        opened = await page.waitForFunction(() => (
+            Boolean(document.querySelector('.annotation-context-menu .pdf-context-menu__action--danger'))
+        ), {timeout: 2_500})
+            .then(() => true)
+            .catch(() => false);
+
+        if (opened) {
+            break;
+        }
+
+        await page.keyboard.press('Escape').catch(() => {});
+    }
+
+    if (!opened) {
+        return {
+            visible: false,
+            items: [] as string[],
+        };
+    }
 
     return page.evaluate(() => {
         const menu = document.querySelector('.annotation-context-menu');
