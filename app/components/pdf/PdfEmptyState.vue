@@ -1,6 +1,6 @@
 <template>
     <div class="empty-state">
-        <div class="empty-state-content">
+        <div class="empty-state-content flex flex-col items-center">
             <div
                 v-if="props.openBatchProgress"
                 class="w-full mb-4 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-bg-elevated)] px-4 py-3"
@@ -24,7 +24,7 @@
             </div>
 
             <!-- No recent files: centered standalone prompt -->
-            <div v-if="recentFiles.length === 0" class="open-file-section">
+            <div v-if="recentFiles.length === 0" class="flex flex-col items-center gap-3">
                 <UTooltip :text="t('toolbar.openPdf')" :delay-duration="1200">
                     <button
                         class="open-file-action group"
@@ -44,7 +44,7 @@
 
             <!-- Recent files: unified block with open-file integrated as last row -->
             <div v-else class="recent-files">
-                <div class="recent-files-header">
+                <div class="recent-files-header flex items-center justify-between">
                     <h3 class="text-sm font-medium text-[var(--ui-text-muted)]">
                         {{ t('emptyState.recentFiles') }}
                     </h3>
@@ -60,7 +60,7 @@
                         />
                     </UTooltip>
                 </div>
-                <ul class="recent-files-list">
+                <ul class="recent-files-list flex flex-col gap-0.5">
                     <li
                         v-for="file in recentFiles"
                         :key="file.originalPath"
@@ -71,7 +71,7 @@
                             name="i-lucide-file-text"
                             class="size-5 text-[var(--ui-text-dimmed)] flex-shrink-0"
                         />
-                        <div class="recent-file-info">
+                        <div class="flex-1 min-w-0 flex flex-col gap-0.5">
                             <span class="recent-file-name">{{ file.fileName }}</span>
                             <span class="recent-file-path">{{ getParentFolder(file.originalPath) }}</span>
                         </div>
@@ -187,7 +187,7 @@ function formatEtaDuration(etaMs: number | null) {
 }
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .empty-state {
     width: 100%;
     height: 100%;
@@ -199,20 +199,10 @@ function formatEtaDuration(etaMs: number | null) {
 }
 
 .empty-state-content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
     width: min(100%, 640px);
 }
 
 /* Standalone open-file prompt (no recent files) */
-
-.open-file-section {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.75rem;
-}
 
 .empty-state-hint {
     margin: 0;
@@ -254,9 +244,6 @@ function formatEtaDuration(etaMs: number | null) {
 }
 
 .recent-files-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
     margin-bottom: 0.5rem;
     padding: 0 0.5rem;
 }
@@ -265,9 +252,6 @@ function formatEtaDuration(etaMs: number | null) {
     list-style: none;
     padding: 0;
     margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
     max-height: min(50vh, 28rem);
     overflow-y: auto;
 }
@@ -279,20 +263,13 @@ function formatEtaDuration(etaMs: number | null) {
     padding: 0.625rem 0.75rem;
     border-radius: 0.375rem;
     cursor: pointer;
-    transition: background-color 0.15s ease;
+    transition: background-color $ease-standard;
 }
 
 .recent-file-item:hover {
     background: var(--ui-bg-elevated);
 }
 
-.recent-file-info {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
 
 .recent-file-name {
     color: var(--ui-text);
@@ -319,7 +296,7 @@ function formatEtaDuration(etaMs: number | null) {
 
 .recent-file-remove {
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity $ease-standard;
 }
 
 .recent-file-item:hover .recent-file-remove {
@@ -340,7 +317,7 @@ function formatEtaDuration(etaMs: number | null) {
     border-radius: 0 0 0.375rem 0.375rem;
     background: transparent;
     cursor: pointer;
-    transition: background-color 0.15s ease;
+    transition: background-color $ease-standard;
 }
 
 .open-file-row:hover {

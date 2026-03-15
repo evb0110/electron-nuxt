@@ -1,5 +1,5 @@
 <template>
-    <div class="annotation-style-editor" :class="{ 'is-idle': tool === 'none' }">
+    <div class="annotation-style-editor flex flex-col gap-2" :class="{ 'is-idle': tool === 'none' }">
         <template v-if="tool !== 'none'">
             <div class="swatch-row">
                 <button
@@ -13,7 +13,7 @@
                 />
             </div>
 
-            <div v-if="activeWidthControl" class="style-row style-row-width">
+            <div v-if="activeWidthControl" class="style-row style-row-width flex flex-col">
                 <label class="style-label" for="annotation-width-input">
                     {{ activeWidthControl.label }} {{ activeWidthValue }}
                 </label>
@@ -47,7 +47,7 @@
                 </div>
             </div>
 
-            <div v-if="tool === 'draw'" class="draw-style-row">
+            <div v-if="tool === 'draw'" class="draw-style-row flex flex-col">
                 <span class="style-label">{{ t('annotations.penType') }}</span>
                 <div class="draw-style-list">
                     <button
@@ -267,9 +267,6 @@ function applyDrawStyle(style: TDrawStyle) {
 
 <style scoped>
 .annotation-style-editor {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
     min-height: 9rem;
 }
 
@@ -294,8 +291,6 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .style-row {
-    display: flex;
-    flex-direction: column;
     gap: 0.35rem;
 }
 
@@ -361,8 +356,6 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .draw-style-row {
-    display: flex;
-    flex-direction: column;
     gap: 0.35rem;
 }
 

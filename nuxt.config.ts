@@ -228,6 +228,13 @@ export default defineNuxtConfig({
     },
 
     vite: {
+        css: {
+            preprocessorOptions: {
+                scss: {
+                    additionalData: '@use "~/assets/css/transitions" as *;\n',
+                },
+            },
+        },
         build: {
             // Electron desktop bundle tolerates larger chunks, but still split heavy vendors to keep rebuilds snappier.
             chunkSizeWarningLimit: 1400,

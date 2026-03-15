@@ -3,7 +3,7 @@
         v-if="isConverting"
         class="djvu-overlay"
     >
-        <div class="djvu-overlay-card">
+        <div class="djvu-overlay-card flex flex-col items-center gap-3">
             <UIcon
                 name="i-lucide-loader-circle"
                 class="djvu-overlay-spinner"
@@ -57,10 +57,6 @@ defineEmits<{cancel: [];}>();
 }
 
 .djvu-overlay-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
     padding: 32px 48px;
     border-radius: 12px;
     background: var(--ui-bg);

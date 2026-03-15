@@ -18,7 +18,7 @@
             />
         </div>
 
-        <div class="annotation-properties-body">
+        <div class="annotation-properties-body flex flex-col gap-2">
             <label class="annotation-properties-field">
                 <span class="annotation-properties-label">{{ t('annotationProperties.color') }}</span>
                 <input
@@ -171,9 +171,6 @@ function toggleFill() {
 
 .annotation-properties-body {
     padding: 8px 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
 }
 
 .annotation-properties-field {

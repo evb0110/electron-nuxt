@@ -9,21 +9,21 @@
                 :loading="progress.isRunning"
             />
         </template>
-        <span v-else class="ocr-popup__hidden-trigger" aria-hidden="true" />
+        <span v-else class="hidden-trigger" aria-hidden="true" />
 
         <template #content>
             <div class="ocr-popup">
-                <div class="ocr-popup__header">
-                    <span class="ocr-popup__title">{{ t('ocr.runTitle') }}</span>
+                <div class="header">
+                    <span class="title">{{ t('ocr.runTitle') }}</span>
                 </div>
 
-                <div class="ocr-popup__divider" />
+                <div class="divider" />
 
                 <!-- Page Range Selection -->
-                <div class="ocr-popup__section">
-                    <div class="ocr-popup__label">{{ t('ocr.pages') }}</div>
-                    <div class="ocr-popup__radios">
-                        <label class="ocr-popup__radio">
+                <div class="section">
+                    <div class="label">{{ t('ocr.pages') }}</div>
+                    <div class="flex flex-col gap-1.5">
+                        <label class="radio-item">
                             <input
                                 v-model="settings.pageRange"
                                 type="radio"
@@ -32,7 +32,7 @@
                             >
                             <span>{{ t('ocr.allPages', { total: totalPages }) }}</span>
                         </label>
-                        <label class="ocr-popup__radio">
+                        <label class="radio-item">
                             <input
                                 v-model="settings.pageRange"
                                 type="radio"
@@ -41,7 +41,7 @@
                             >
                             <span>{{ t('ocr.currentPage', { page: currentPage }) }}</span>
                         </label>
-                        <label class="ocr-popup__radio">
+                        <label class="radio-item">
                             <input
                                 v-model="settings.pageRange"
                                 type="radio"
@@ -56,24 +56,24 @@
                         v-model="settings.customRange"
                         :placeholder="t('ocr.customRangePlaceholder')"
                         size="sm"
-                        class="ocr-popup__custom-input"
+                        class="custom-input"
                     />
                 </div>
 
                 <!-- Language Selection -->
-                <div class="ocr-popup__section">
-                    <div class="ocr-popup__label">{{ t('ocr.languages') }}</div>
-                    <div class="ocr-popup__languages">
+                <div class="section">
+                    <div class="label">{{ t('ocr.languages') }}</div>
+                    <div class="flex flex-col gap-3">
                         <div
                             v-if="latinCyrillicLanguages.length > 0"
-                            class="ocr-popup__lang-group"
+                            class="flex flex-col gap-1"
                         >
-                            <span class="ocr-popup__group-label">{{ t('ocr.latinCyrillic') }}</span>
-                            <div class="ocr-popup__checkboxes">
+                            <span class="group-label">{{ t('ocr.latinCyrillic') }}</span>
+                            <div class="checkboxes">
                                 <label
                                     v-for="lang in latinCyrillicLanguages"
                                     :key="lang.code"
-                                    class="ocr-popup__checkbox"
+                                    class="checkbox-item"
                                 >
                                     <input
                                         type="checkbox"
@@ -96,14 +96,14 @@
                         </div>
                         <div
                             v-if="greekLanguages.length > 0"
-                            class="ocr-popup__lang-group"
+                            class="flex flex-col gap-1"
                         >
-                            <span class="ocr-popup__group-label">{{ t('ocr.greek') }}</span>
-                            <div class="ocr-popup__checkboxes">
+                            <span class="group-label">{{ t('ocr.greek') }}</span>
+                            <div class="checkboxes">
                                 <label
                                     v-for="lang in greekLanguages"
                                     :key="lang.code"
-                                    class="ocr-popup__checkbox"
+                                    class="checkbox-item"
                                 >
                                     <input
                                         type="checkbox"
@@ -126,14 +126,14 @@
                         </div>
                         <div
                             v-if="rtlLanguages.length > 0"
-                            class="ocr-popup__lang-group"
+                            class="flex flex-col gap-1"
                         >
-                            <span class="ocr-popup__group-label">{{ t('ocr.rtlScripts') }}</span>
-                            <div class="ocr-popup__checkboxes">
+                            <span class="group-label">{{ t('ocr.rtlScripts') }}</span>
+                            <div class="checkboxes">
                                 <label
                                     v-for="lang in rtlLanguages"
                                     :key="lang.code"
-                                    class="ocr-popup__checkbox"
+                                    class="checkbox-item"
                                 >
                                     <input
                                         type="checkbox"
@@ -159,10 +159,10 @@
 
                 <!-- Progress Display -->
                 <template v-if="progress.isRunning">
-                    <div class="ocr-popup__divider" />
-                    <div class="ocr-popup__progress">
+                    <div class="divider" />
+                    <div class="progress flex flex-col gap-1.5">
                         <UProgress :value="progressPercent" />
-                        <span class="ocr-popup__progress-text">
+                        <span class="progress-text">
                             <template v-if="progress.phase === 'preparing'">
                                 {{ t('ocr.preparing') }}
                             </template>
@@ -181,18 +181,18 @@
 
                 <!-- Error Display -->
                 <template v-if="effectiveError">
-                    <div class="ocr-popup__divider" />
-                    <div class="ocr-popup__error">
+                    <div class="divider" />
+                    <div class="error">
                         <UIcon name="i-lucide-alert-circle" class="size-4" />
-                        <div class="ocr-popup__error-content">
-                            <span class="ocr-popup__error-text">{{ effectiveError }}</span>
+                        <div class="error-content flex flex-1 flex-col gap-2">
+                            <span class="error-text">{{ effectiveError }}</span>
                             <UTooltip :text="copyLogsTooltip" :delay-duration="1200">
                                 <UButton
                                     icon="i-lucide-copy"
                                     variant="ghost"
                                     color="neutral"
                                     size="xs"
-                                    class="ocr-popup__copy-logs"
+                                    class="copy-logs"
                                     :loading="isCopyingLogs"
                                     :aria-label="t('ocr.copyLogs')"
                                     @click="handleCopyLogs"
@@ -204,17 +204,17 @@
 
                 <!-- Results Summary -->
                 <template v-if="hasResults && !progress.isRunning">
-                    <div class="ocr-popup__divider" />
-                    <div class="ocr-popup__results">
+                    <div class="divider" />
+                    <div class="results">
                         <UIcon name="i-lucide-check-circle" class="size-4" />
                         <span>{{ t('ocr.complete') }}</span>
                     </div>
                 </template>
 
-                <div class="ocr-popup__divider" />
+                <div class="divider" />
 
                 <!-- Actions -->
-                <div class="ocr-popup__actions">
+                <div class="actions flex justify-end gap-2">
                     <UTooltip :text="t('ocr.exportDocx')" :delay-duration="1200">
                         <UButton
                             icon="i-lucide-file-text"
@@ -462,7 +462,7 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     max-width: 20rem;
 }
 
-.ocr-popup__hidden-trigger {
+.hidden-trigger {
     display: block;
     width: 0;
     height: 0;
@@ -470,20 +470,20 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     pointer-events: none;
 }
 
-.ocr-popup__header {
+.header {
     padding: 0.5rem 0.75rem 0.25rem;
 }
 
-.ocr-popup__title {
+.title {
     font-weight: 600;
     font-size: 0.875rem;
 }
 
-.ocr-popup__section {
+.section {
     padding: 0.25rem 0.75rem;
 }
 
-.ocr-popup__label {
+.label {
     font-size: 0.6875rem;
     color: var(--ui-text-muted);
     margin-bottom: 0.5rem;
@@ -491,19 +491,13 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     letter-spacing: 0.05em;
 }
 
-.ocr-popup__divider {
+.divider {
     height: 1px;
     background-color: var(--ui-border);
     margin: 0.25rem 0;
 }
 
-.ocr-popup__radios {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-}
-
-.ocr-popup__radio {
+.radio-item {
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -511,41 +505,29 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     cursor: pointer;
 }
 
-.ocr-popup__radio input {
+.radio-item input {
     accent-color: var(--ui-primary);
 }
 
-.ocr-popup__custom-input {
+.custom-input {
     margin-top: 0.5rem;
 }
 
-.ocr-popup__languages {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.ocr-popup__lang-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.ocr-popup__group-label {
+.group-label {
     font-size: 0.625rem;
     color: var(--ui-text-dimmed);
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
 
-.ocr-popup__checkboxes {
+.checkboxes {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 0.25rem 0.5rem;
     padding-left: 0.25rem;
 }
 
-.ocr-popup__checkbox {
+.checkbox-item {
     display: flex;
     align-items: center;
     gap: 0.375rem;
@@ -553,24 +535,21 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     cursor: pointer;
 }
 
-.ocr-popup__checkbox input {
+.checkbox-item input {
     accent-color: var(--ui-primary);
 }
 
-.ocr-popup__progress {
+.progress {
     padding: 0.5rem 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
 }
 
-.ocr-popup__progress-text {
+.progress-text {
     font-size: 0.75rem;
     color: var(--ui-text-muted);
     text-align: center;
 }
 
-.ocr-popup__error {
+.error {
     padding: 0.5rem 0.75rem;
     display: flex;
     align-items: flex-start;
@@ -579,23 +558,19 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     font-size: 0.75rem;
 }
 
-.ocr-popup__error-content {
+.error-content {
     min-width: 0;
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    gap: 0.5rem;
 }
 
-.ocr-popup__error-text {
+.error-text {
     overflow-wrap: anywhere;
 }
 
-.ocr-popup__copy-logs {
+.copy-logs {
     align-self: flex-start;
 }
 
-.ocr-popup__results {
+.results {
     padding: 0.5rem 0.75rem;
     display: flex;
     align-items: center;
@@ -604,10 +579,7 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     font-size: 0.75rem;
 }
 
-.ocr-popup__actions {
+.actions {
     padding: 0.25rem 0.75rem 0.5rem;
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
 }
 </style>

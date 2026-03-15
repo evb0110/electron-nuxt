@@ -1,0 +1,17 @@
+// Transition timing constants
+$ease-fast: 0.1s ease;
+$ease-quick: 0.12s ease;
+$ease-standard: 0.15s ease;
+
+// Semantic transition mixins
+@mixin reveal-transition {
+    transition: opacity $ease-quick, transform $ease-quick;
+}
+
+@mixin hover-transition {
+    transition: background-color $ease-fast, color $ease-fast;
+}
+
+@mixin state-transition {
+    transition: background-color $ease-standard, border-color $ease-standard, transform $ease-standard, opacity $ease-standard;
+}

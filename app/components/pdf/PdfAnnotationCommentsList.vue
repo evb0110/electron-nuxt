@@ -1,5 +1,5 @@
 <template>
-    <div class="notes-list-section">
+    <div class="notes-list-section flex flex-col gap-2">
         <div class="notes-list-header">
             <span class="notes-list-title">{{ t('annotations.notes') }}</span>
             <span class="notes-count">({{ filteredComments.length }})</span>
@@ -32,12 +32,12 @@
             @keyup.stop
         />
 
-        <div class="notes-list app-scrollbar">
+        <div class="notes-list app-scrollbar flex flex-col">
             <button
                 v-for="comment in filteredComments"
                 :key="comment.stableKey"
                 type="button"
-                class="note-item"
+                class="note-item flex flex-col"
                 :class="{ 'is-active': activeCommentStableKey === comment.stableKey }"
                 @click="focusComment(comment)"
                 @dblclick.prevent.stop="openComment(comment)"
@@ -224,11 +224,8 @@ function openComment(comment: IAnnotationCommentSummary) {
 
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .notes-list-section {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
     flex: 1 1 0;
     min-height: 0;
 }
@@ -287,8 +284,6 @@ function openComment(comment: IAnnotationCommentSummary) {
     flex: 1 1 0;
     min-height: 5rem;
     overflow: auto;
-    display: flex;
-    flex-direction: column;
     gap: 0.45rem;
     padding-right: 0.1rem;
 }
@@ -301,8 +296,6 @@ function openComment(comment: IAnnotationCommentSummary) {
     color: var(--ui-text-highlighted);
     text-align: left;
     padding: 0.5rem;
-    display: flex;
-    flex-direction: column;
     gap: 0.35rem;
     cursor: pointer;
 }
@@ -343,7 +336,7 @@ function openComment(comment: IAnnotationCommentSummary) {
     font-size: 0.75rem;
     cursor: pointer;
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity $ease-standard;
 }
 
 .note-item-delete:hover {

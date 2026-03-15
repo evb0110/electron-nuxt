@@ -1,7 +1,7 @@
 <template>
     <button
         type="button"
-        class="pdf-search-result"
+        class="pdf-search-result flex flex-col gap-1"
         :class="{ 'is-active': isActive }"
         :aria-current="isActive ? 'true' : undefined"
         @click="emit('activate')"
@@ -46,18 +46,15 @@ const pageIndicator = computed(() => formatPageIndicator(props.result.pageIndex 
 const matchIndicator = computed(() => (props.result.pageMatchIndex ?? props.result.matchIndex) + 1);
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .pdf-search-result {
     width: 100%;
     border: none;
     text-align: left;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
     padding: 8px 12px;
     cursor: pointer;
     background: transparent;
-    transition: background-color 0.15s;
+    transition: background-color $ease-standard;
 }
 
 .pdf-search-result:hover {

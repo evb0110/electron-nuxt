@@ -1,39 +1,39 @@
 <template>
     <div class="pdf-page-skeleton" :style="paddingStyle">
-        <div class="pdf-page-skeleton__inner">
-            <div class="pdf-page-skeleton__header">
-                <USkeleton class="pdf-page-skeleton__title" />
-                <USkeleton class="pdf-page-skeleton__subtitle" />
+        <div class="inner flex flex-col">
+            <div class="header flex flex-col gap-2">
+                <USkeleton class="title-line" />
+                <USkeleton class="subtitle-line" />
             </div>
 
-            <div class="pdf-page-skeleton__paragraph">
-                <USkeleton class="pdf-page-skeleton__line" />
-                <USkeleton class="pdf-page-skeleton__line" />
-                <USkeleton class="pdf-page-skeleton__line pdf-page-skeleton__line--short" />
+            <div class="paragraph flex flex-col">
+                <USkeleton class="line" />
+                <USkeleton class="line" />
+                <USkeleton class="line is-short" />
             </div>
 
-            <div class="pdf-page-skeleton__paragraph">
-                <USkeleton class="pdf-page-skeleton__line" />
-                <USkeleton class="pdf-page-skeleton__line" />
-                <USkeleton class="pdf-page-skeleton__line pdf-page-skeleton__line--short" />
+            <div class="paragraph flex flex-col">
+                <USkeleton class="line" />
+                <USkeleton class="line" />
+                <USkeleton class="line is-short" />
             </div>
 
-            <div class="pdf-page-skeleton__formula-block">
-                <USkeleton class="pdf-page-skeleton__formula" />
-                <div class="pdf-page-skeleton__formula-inline-row">
-                    <USkeleton class="pdf-page-skeleton__formula-inline" />
-                    <USkeleton class="pdf-page-skeleton__formula-inline" />
+            <div class="formula-block">
+                <USkeleton class="formula" />
+                <div class="formula-inline-row">
+                    <USkeleton class="formula-inline" />
+                    <USkeleton class="formula-inline" />
                 </div>
             </div>
 
             <div
                 v-for="i in repeatParagraphs"
                 :key="`pdf-page-skeleton-paragraph-${i}`"
-                class="pdf-page-skeleton__paragraph"
+                class="paragraph flex flex-col"
             >
-                <USkeleton class="pdf-page-skeleton__line" />
-                <USkeleton class="pdf-page-skeleton__line" />
-                <USkeleton class="pdf-page-skeleton__line pdf-page-skeleton__line--short" />
+                <USkeleton class="line" />
+                <USkeleton class="line" />
+                <USkeleton class="line is-short" />
             </div>
         </div>
     </div>
@@ -121,10 +121,8 @@ const repeatParagraphs = computed(() => {
     box-sizing: border-box;
 }
 
-.pdf-page-skeleton__inner {
+.inner {
     position: relative;
-    display: flex;
-    flex-direction: column;
     gap: 0.9rem;
     width: 100%;
     max-width: 100%;
@@ -133,80 +131,75 @@ const repeatParagraphs = computed(() => {
     box-sizing: border-box;
 }
 
-.pdf-page-skeleton__inner > * {
+.inner > * {
     position: relative;
     z-index: 1;
 }
 
-.pdf-page-skeleton__header {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+.header {
     margin-bottom: 0.5rem;
 }
 
-.pdf-page-skeleton__title,
-.pdf-page-skeleton__subtitle,
-.pdf-page-skeleton__line,
-.pdf-page-skeleton__formula,
-.pdf-page-skeleton__formula-inline {
+.title-line,
+.subtitle-line,
+.line,
+.formula,
+.formula-inline {
     border-radius: 999px;
 }
 
-.pdf-page-skeleton__title {
+.title-line {
     width: 60%;
     height: 1.2rem;
 }
 
-.pdf-page-skeleton__subtitle {
+.subtitle-line {
     width: 42%;
     height: 0.95rem;
     opacity: 0.8;
 }
 
-.pdf-page-skeleton__paragraph {
-    display: flex;
-    flex-direction: column;
+.paragraph {
     gap: 0.65rem;
 }
 
-.pdf-page-skeleton__line {
+.line {
     width: 100%;
     height: 0.95rem;
 }
 
-.pdf-page-skeleton__paragraph .pdf-page-skeleton__line:nth-child(1) {
+.paragraph .line:nth-child(1) {
     height: 1.05rem;
 }
 
-.pdf-page-skeleton__paragraph .pdf-page-skeleton__line:nth-child(2) {
+.paragraph .line:nth-child(2) {
     height: 0.95rem;
 }
 
-.pdf-page-skeleton__paragraph .pdf-page-skeleton__line:nth-child(3) {
+.paragraph .line:nth-child(3) {
     height: 0.85rem;
 }
 
-.pdf-page-skeleton__line--short {
+.is-short {
     width: 78%;
 }
 
-.pdf-page-skeleton__formula-block {
+.formula-block {
     margin-top: 0.55rem;
 }
 
-.pdf-page-skeleton__formula {
+.formula {
     width: 100%;
     height: 1.3rem;
 }
 
-.pdf-page-skeleton__formula-inline-row {
+.formula-inline-row {
     display: flex;
     gap: 0.55rem;
     margin-top: 0.45rem;
 }
 
-.pdf-page-skeleton__formula-inline {
+.formula-inline {
     flex: 1;
     height: 0.95rem;
 }

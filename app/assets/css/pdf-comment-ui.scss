@@ -1,0 +1,156 @@
+/* Comment tooltips, popup editors, textarea, action buttons, and visibility states */
+
+.pdfViewer {
+    /* ── Comment Tooltips ──────────────────────────────────────────────── */
+
+    .pdf-annotation-comment-tooltip {
+        position: absolute;
+        z-index: 5;
+        max-width: 260px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        background: var(--ui-bg);
+        color: var(--ui-text);
+        border: 1px solid var(--ui-border);
+        box-shadow: var(--app-pdf-comment-tooltip-shadow);
+        font-size: 12px;
+        line-height: 1.4;
+        opacity: 0;
+        transform: translate3d(0, 4px, 0);
+        pointer-events: none;
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
+
+        @include reveal-transition;
+
+        &.is-visible {
+            opacity: 1;
+            transform: translate3d(0, 0, 0);
+        }
+
+        &::before {
+            content: '';
+            position: absolute;
+            left: 14px;
+            bottom: -6px;
+            width: 0;
+            height: 0;
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-top: 6px solid var(--ui-bg);
+            filter: drop-shadow(0 1px 1px var(--app-pdf-comment-arrow-shadow));
+        }
+
+        &.is-below::before {
+            top: -6px;
+            bottom: auto;
+            border-top: none;
+            border-bottom: 6px solid var(--ui-bg);
+            filter: drop-shadow(0 -1px 1px var(--app-pdf-comment-arrow-shadow));
+        }
+    }
+
+    /* ── Popup Comment Editors ─────────────────────────────────────────── */
+
+    .pdf-annotation-comment-popup {
+        position: absolute;
+        z-index: 6;
+        min-width: 180px;
+        max-width: 280px;
+        padding: 12px 14px;
+        border-radius: 8px;
+        background: var(--ui-bg);
+        color: var(--ui-text);
+        border: 1px solid var(--ui-border);
+        box-shadow: var(--shadow-popup);
+        opacity: 1;
+        transform: translate3d(0, 0, 0);
+        pointer-events: auto;
+
+        @include reveal-transition;
+
+        &::before {
+            content: '';
+            position: absolute;
+            top: -8px;
+            left: 16px;
+            width: 0;
+            height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-bottom: 8px solid var(--ui-bg);
+            filter: drop-shadow(0 -1px 1px var(--app-pdf-comment-arrow-shadow-light));
+        }
+
+        &.is-hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: translate3d(0, 6px, 0);
+        }
+
+        &.is-editing {
+            .pdf-annotation-comment-popup__text {
+                display: none;
+            }
+
+            .pdf-annotation-comment-popup__btn--edit,
+            .pdf-annotation-comment-popup__btn--close {
+                display: none;
+            }
+        }
+
+        &:not(.is-editing) {
+            .pdf-annotation-comment-popup__textarea {
+                display: none;
+            }
+
+            .pdf-annotation-comment-popup__btn--save,
+            .pdf-annotation-comment-popup__btn--cancel {
+                display: none;
+            }
+        }
+    }
+
+    .pdf-annotation-comment-popup__text {
+        font-size: 13px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
+    }
+
+    .pdf-annotation-comment-popup__textarea {
+        width: 100%;
+        min-height: 84px;
+        margin-top: 8px;
+        border-radius: 8px;
+        border: 1px solid var(--ui-border);
+        background: var(--ui-bg-muted);
+        color: inherit;
+        font-size: 12px;
+        line-height: 1.4;
+        padding: 6px 8px;
+        resize: vertical;
+    }
+
+    .pdf-annotation-comment-popup__actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 10px;
+        justify-content: flex-end;
+    }
+
+    .pdf-annotation-comment-popup__btn {
+        border-radius: 4px;
+        border: 1px solid var(--ui-border);
+        background: var(--ui-bg-muted);
+        color: inherit;
+        font-size: 12px;
+        padding: 4px 10px;
+        min-height: 26px;
+        cursor: pointer;
+
+        &:hover {
+            background: var(--ui-bg-accented);
+        }
+    }
+}

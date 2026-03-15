@@ -1,5 +1,5 @@
 <template>
-    <div class="pdf-search-results">
+    <div class="pdf-search-results flex flex-col">
         <div
             v-if="isSearching"
             class="pdf-search-results-status"
@@ -32,7 +32,7 @@
         />
         <div
             v-else-if="results.length > 0"
-            class="pdf-search-results-list-shell"
+            class="pdf-search-results-list-shell flex flex-1 min-h-0 flex-col"
         >
             <div class="pdf-search-results-header">
                 {{ t('searchResults.resultCount', { count: results.length }) }} {{ t('searchResults.forQuery', { query: trimmedQuery }) }}
@@ -47,7 +47,7 @@
                 <section
                     v-for="group in groupedResults"
                     :key="group.pageIndex"
-                    class="pdf-search-results-group"
+                    class="pdf-search-results-group flex flex-col"
                 >
                     <button
                         type="button"
@@ -68,7 +68,7 @@
                         </span>
                     </button>
 
-                    <div v-if="isGroupExpanded(group.pageIndex)" class="pdf-search-results-group-items">
+                    <div v-if="isGroupExpanded(group.pageIndex)" class="flex flex-col">
                         <PdfSearchResultItem
                             v-for="match in group.matches"
                             :key="match.matchIndex"
@@ -236,19 +236,11 @@ watch(
 );
 </script>
 
-<style scoped>
+<style lang="scss" scoped>
 .pdf-search-results {
-    display: flex;
-    flex-direction: column;
     min-height: 100%;
 }
 
-.pdf-search-results-list-shell {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-    flex-direction: column;
-}
 
 .pdf-search-results-header {
     padding: 8px 12px;
@@ -282,10 +274,6 @@ watch(
     overflow: auto;
 }
 
-.pdf-search-results-group {
-    display: flex;
-    flex-direction: column;
-}
 
 .pdf-search-results-group + .pdf-search-results-group {
     border-top: 1px solid var(--ui-border);
@@ -307,7 +295,7 @@ watch(
 }
 
 .pdf-search-results-group-chevron {
-    transition: transform 0.15s ease;
+    transition: transform $ease-standard;
 }
 
 .pdf-search-results-group-chevron.is-open {
@@ -316,11 +304,6 @@ watch(
 
 .pdf-search-results-group-label {
     min-width: 0;
-}
-
-.pdf-search-results-group-items {
-    display: flex;
-    flex-direction: column;
 }
 
 @keyframes pdf-search-spin {
