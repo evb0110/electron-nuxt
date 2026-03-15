@@ -37,6 +37,9 @@ vi.stubGlobal('window', {
 
 const { usePdfFile } = await import('@app/composables/usePdfFile');
 
+interface IShowOpenFilePickerHandle {getFile: () => Promise<File>;}
+interface IWindowWithShowOpenFilePicker extends Window {showOpenFilePicker?: () => Promise<IShowOpenFilePickerHandle[]>;}
+
 function deferred<T>() {
     let resolve: ((value: T | PromiseLike<T>) => void) | null = null;
     const promise = new Promise<T>((resolvePromise) => {
@@ -52,6 +55,7 @@ describe('usePdfFile', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockHasElectronAPI.mockReturnValue(true);
+        delete (window as Window & { showOpenFilePicker?: unknown }).showOpenFilePicker;
     });
 
     describe('initial state', () => {
@@ -138,6 +142,30 @@ describe('usePdfFile', () => {
             await file.openFile();
 
             expect(file.error.value).toBe('Access denied');
+        });
+
+        it('loads a browser-picked PDF when Electron is unavailable', async () => {
+            const pdfBytes = new Uint8Array([
+                0x25,
+                0x50,
+                0x44,
+                0x46,
+            ]);
+            mockHasElectronAPI.mockReturnValue(false);
+            const getFile = async () => new File([pdfBytes], 'browser-open.pdf', { type: 'application/pdf' });
+            const pickerHandle: IShowOpenFilePickerHandle = { getFile };
+            (window as IWindowWithShowOpenFilePicker).showOpenFilePicker = vi.fn(async () => [pickerHandle]);
+
+            const file = usePdfFile();
+            await file.openFile();
+
+            expect(file.workingCopyPath.value).toBeNull();
+            expect(file.originalPath.value).toBe('browser-open.pdf');
+            expect(file.fileName.value).toBe('browser-open.pdf');
+            expect(file.isDirty.value).toBe(false);
+            expect(file.pdfData.value).toEqual(pdfBytes);
+            expect(file.pdfSrc.value).toBeInstanceOf(Blob);
+            expect(mockDocuments.openPdfDialog).not.toHaveBeenCalled();
         });
     });
 

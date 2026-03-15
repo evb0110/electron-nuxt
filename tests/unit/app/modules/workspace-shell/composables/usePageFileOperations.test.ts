@@ -9,6 +9,10 @@ import { ref } from 'vue';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
+const { mockHasElectronAPI } = vi.hoisted(() => ({mockHasElectronAPI: vi.fn(() => true)}));
+
+vi.mock('@app/utils/electron', () => ({hasElectronAPI: () => mockHasElectronAPI()}));
+
 function cast<T>(obj: unknown): T {
     return obj as T;
 }
@@ -42,6 +46,7 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
 describe('usePageFileOperations', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
+        mockHasElectronAPI.mockReturnValue(true);
     });
 
     it('persists unsaved changes before closing by default', async () => {
@@ -91,6 +96,18 @@ describe('usePageFileOperations', () => {
             'Switch blocked: save before switch threw',
             { error: 'disk full' },
         );
+    });
+
+    it('opens through openFile directly in browser mode', async () => {
+        mockHasElectronAPI.mockReturnValue(false);
+        const deps = createDeps();
+        const { handleOpenFileFromUi } = usePageFileOperations(deps);
+
+        await expect(handleOpenFileFromUi()).resolves.toBeUndefined();
+
+        expect(deps.pickFileToOpen).not.toHaveBeenCalled();
+        expect(deps.openFile).toHaveBeenCalledOnce();
+        expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
     });
 
     it('blocks close when save throws instead of bubbling an uncaught rejection', async () => {

@@ -18,6 +18,38 @@ interface IOpenBatchProgressState {
 }
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
+const BROWSER_PDF_ACCEPT = '.pdf,application/pdf';
+
+interface IOpenFilePickerAcceptType {
+    description?: string;
+    accept: Record<string, string[]>;
+}
+
+interface IOpenFilePickerOptions {
+    multiple?: boolean;
+    excludeAcceptAllOption?: boolean;
+    types?: IOpenFilePickerAcceptType[];
+}
+
+interface IOpenFilePickerHandle {getFile: () => Promise<File>;}
+interface IWindowWithOpenFilePicker extends Window {showOpenFilePicker?: (options?: IOpenFilePickerOptions) => Promise<IOpenFilePickerHandle[]>;}
+const BROWSER_PDF_PICKER_ACCEPT: Record<string, string[]> = { 'application/pdf': ['.pdf'] };
+const BROWSER_PDF_PICKER_TYPES: IOpenFilePickerAcceptType[] = [{
+    description: 'PDF Documents',
+    accept: BROWSER_PDF_PICKER_ACCEPT,
+}];
+
+function getPathBaseName(path: string | null) {
+    if (!path) {
+        return null;
+    }
+
+    return path.split(/[\\/]/).pop() ?? null;
+}
+
+function isPdfFile(file: File) {
+    return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+}
 
 export const usePdfFile = () => {
     const { t } = useTypedI18n();
@@ -37,7 +69,7 @@ export const usePdfFile = () => {
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
-    const fileName = computed(() => workingCopyPath.value?.split(/[\\/]/).pop() ?? null);
+    const fileName = computed(() => getPathBaseName(workingCopyPath.value) ?? getPathBaseName(originalPath.value));
     const isElectron = computed(() => hasElectronAPI());
 
     const pendingDjvu = ref<string | null>(null);
@@ -49,11 +81,118 @@ export const usePdfFile = () => {
         return api.documents.openPdfDialog();
     }
 
+    async function pickBrowserPdfFileWithInput() {
+        if (typeof document === 'undefined' || typeof window === 'undefined') {
+            return null;
+        }
+
+        return new Promise<File | null>((resolve) => {
+            const input = document.createElement('input');
+            let settled = false;
+
+            const cleanup = () => {
+                input.remove();
+                window.removeEventListener('focus', handleFocus);
+            };
+
+            const finish = (file: File | null) => {
+                if (settled) {
+                    return;
+                }
+
+                settled = true;
+                cleanup();
+                resolve(file);
+            };
+
+            const handleFocus = () => {
+                window.setTimeout(() => {
+                    if (!settled) {
+                        finish(null);
+                    }
+                }, 0);
+            };
+
+            input.type = 'file';
+            input.accept = BROWSER_PDF_ACCEPT;
+            input.style.display = 'none';
+            input.addEventListener('change', () => {
+                const file = input.files?.[0] ?? null;
+                finish(file);
+            }, { once: true });
+
+            document.body.append(input);
+            window.addEventListener('focus', handleFocus, { once: true });
+            input.click();
+        });
+    }
+
+    async function pickBrowserPdfFile() {
+        if (typeof window === 'undefined') {
+            return null;
+        }
+
+        const openFilePicker = (window as IWindowWithOpenFilePicker).showOpenFilePicker;
+        if (typeof openFilePicker === 'function') {
+            try {
+                const [handle] = await openFilePicker({
+                    multiple: false,
+                    types: BROWSER_PDF_PICKER_TYPES,
+                });
+
+                return handle ? handle.getFile() : null;
+            } catch (error) {
+                if (error instanceof DOMException && error.name === 'AbortError') {
+                    return null;
+                }
+
+                throw error;
+            }
+        }
+
+        return pickBrowserPdfFileWithInput();
+    }
+
+    async function loadPdfFromBrowserFile(file: File) {
+        if (!isPdfFile(file)) {
+            error.value = t('errors.file.invalid');
+            return;
+        }
+
+        const data = new Uint8Array(await file.arrayBuffer());
+        const prevPath = workingCopyPath.value;
+
+        latestLoadRequestId += 1;
+        workingCopyPath.value = null;
+        originalPath.value = file.name;
+        pdfData.value = data;
+        pdfSrc.value = new Blob([data], { type: file.type || 'application/pdf' });
+        requiresSaveAsOnFirstSave.value = false;
+        resetHistory(data);
+        isDirty.value = false;
+        pendingDjvu.value = null;
+        openBatchProgress.value = null;
+
+        if (prevPath && prevPath !== workingCopyPath.value) {
+            clearOcrCache(prevPath);
+        }
+    }
+
     async function openFile(preSelected?: TOpenFileResult) {
         error.value = null;
         pendingDjvu.value = null;
         openBatchProgress.value = null;
         try {
+            if (!preSelected && !hasElectronAPI()) {
+                const browserFile = await pickBrowserPdfFile();
+                if (!browserFile) {
+                    return;
+                }
+
+                await loadPdfFromBrowserFile(browserFile);
+                return;
+            }
+
             const result = preSelected ?? await pickFileToOpen();
             if (!result) {
                 return;
