@@ -9,6 +9,7 @@ import {
     useResizeObserver,
 } from '@vueuse/core';
 import { PixelsPerInch } from 'pdfjs-dist';
+import { PDF_PAGE_STALL_RECOVERY_COOLDOWN_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { waitForVisualFrames } from '@app/utils/async-helpers';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
@@ -29,6 +30,7 @@ import type {
 } from '@app/types/pdf';
 import type { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import type { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
+import type { IPageRenderStallPayload } from '@app/composables/pdf/usePdfPageRenderer';
 import { runGuardedTask } from '@app/utils/async-guard';
 import { getVisiblePageDebugSnapshot } from '@app/composables/pdf/pdfScrollVisibility';
 import { captureScrollSnapshot } from '@app/composables/pdf/pdfPageRenderPipeline';
@@ -266,11 +268,14 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     let lastZoomRerenderFrameAtMs = 0;
     let zoomGestureLowResRerenderUsed = false;
     let zoomSettleCheckTimer: ReturnType<typeof setTimeout> | null = null;
+    let renderStallRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
     let deferredResizeSyncAfterZoom: {
         stage: string;
         syncOptions: ICurrentPageSyncOptions;
     } | null = null;
     let lastReportedZoomBusy = false;
+    const pendingRenderStallRecoveryPages = new Set<number>();
+    const renderStallRecoveryCooldownByPage = new Map<number, number>();
 
     function isZoomRerenderBusy() {
         return zoomRerenderQueueProcessing
@@ -290,6 +295,13 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         if (zoomSettleCheckTimer !== null) {
             clearTimeout(zoomSettleCheckTimer);
             zoomSettleCheckTimer = null;
+        }
+    }
+
+    function clearRenderStallRecoveryTimer() {
+        if (renderStallRecoveryTimer !== null) {
+            clearTimeout(renderStallRecoveryTimer);
+            renderStallRecoveryTimer = null;
         }
     }
 
@@ -989,7 +1001,90 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     let pendingInvalidation: number[] | null = null;
     function invalidatePages(pages: number[]) {
-        pendingInvalidation = pages;
+        const next = new Set(pendingInvalidation ?? []);
+        pages.forEach(page => next.add(page));
+        pendingInvalidation = Array.from(next);
+    }
+
+    function handlePageRenderStall(payload: IPageRenderStallPayload) {
+        if (!src.value || isLoading.value) {
+            return;
+        }
+
+        const maxPage = numPages.value > 0 ? numPages.value : payload.pageNumber;
+        const pageNumber = Math.max(1, Math.min(payload.pageNumber, maxPage));
+        const now = Date.now();
+        const cooldownUntil = renderStallRecoveryCooldownByPage.get(pageNumber) ?? 0;
+        if (cooldownUntil > now) {
+            BrowserLogger.warn(
+                'pdf-renderer',
+                `Skipped stalled page recovery for page ${pageNumber} during cooldown`,
+                {
+                    pageNumber,
+                    stage: payload.stage,
+                    timeoutMs: payload.timeoutMs,
+                    cooldownRemainingMs: cooldownUntil - now,
+                },
+            );
+            return;
+        }
+
+        renderStallRecoveryCooldownByPage.set(
+            pageNumber,
+            now + PDF_PAGE_STALL_RECOVERY_COOLDOWN_MS,
+        );
+        pendingRenderStallRecoveryPages.add(pageNumber);
+        BrowserLogger.warn(
+            'pdf-renderer',
+            `Queued stalled page recovery for page ${pageNumber}`,
+            {
+                pageNumber,
+                stage: payload.stage,
+                timeoutMs: payload.timeoutMs,
+                currentPage: currentPage.value,
+                visibleRange: {
+                    start: visibleRange.value.start,
+                    end: visibleRange.value.end,
+                },
+                viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+            },
+        );
+
+        if (renderStallRecoveryTimer !== null) {
+            return;
+        }
+
+        renderStallRecoveryTimer = setTimeout(() => {
+            renderStallRecoveryTimer = null;
+            if (!src.value) {
+                pendingRenderStallRecoveryPages.clear();
+                return;
+            }
+
+            const pages = Array.from(pendingRenderStallRecoveryPages)
+                .sort((left, right) => left - right);
+            pendingRenderStallRecoveryPages.clear();
+            if (pages.length === 0) {
+                return;
+            }
+
+            BrowserLogger.warn(
+                'pdf-renderer',
+                'Reloading PDF source to recover stalled page render',
+                {
+                    pages,
+                    currentPage: currentPage.value,
+                    visibleRange: {
+                        start: visibleRange.value.start,
+                        end: visibleRange.value.end,
+                    },
+                    viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+                },
+            );
+            cancelInFlightPageRenders?.();
+            invalidatePages(pages);
+            scheduleLoadFromSource(true);
+        }, 0);
     }
 
     async function loadFromSource(isReload = false) {
@@ -1265,12 +1360,15 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         pendingZoomSyncOptions = null;
         clearZoomRerenderDeferredTimer();
         clearZoomSettleCheckTimer();
+        clearRenderStallRecoveryTimer();
         zoomRerenderFrameScheduled = false;
         zoomRerenderQueueProcessing = false;
         lastZoomRerenderFrameAtMs = 0;
         zoomGestureLowResRerenderUsed = false;
         deferredResizeSyncAfterZoom = null;
         lastReportedZoomBusy = false;
+        pendingRenderStallRecoveryPages.clear();
+        renderStallRecoveryCooldownByPage.clear();
         setZoomRerenderBusy?.(false);
         if (pendingResizeTransitionHideTimer !== null) {
             clearTimeout(pendingResizeTransitionHideTimer);
@@ -1334,6 +1432,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     watch(src, (newSrc, oldSrc) => {
         if (newSrc !== oldSrc) {
+            clearRenderStallRecoveryTimer();
+            pendingRenderStallRecoveryPages.clear();
+            renderStallRecoveryCooldownByPage.clear();
             const isReload = !!oldSrc && !!newSrc;
             if (!newSrc) {
                 emit('update:document', null);
@@ -1484,5 +1585,6 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         undoAnnotation,
         redoAnnotation,
         invalidatePages,
+        handlePageRenderStall,
     };
 };
