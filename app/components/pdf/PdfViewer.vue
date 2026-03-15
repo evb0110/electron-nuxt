@@ -251,6 +251,7 @@ const emit = defineEmits<{
 const viewerHost = ref<HTMLElement | null>(null);
 const viewerContainer = ref<HTMLElement | null>(null);
 const resizeTransitionVisible = ref(false);
+const resizeTransitionAnchorPage = ref<number | null>(null);
 const annotationUiManager = shallowRef<AnnotationEditorUIManager | null>(null);
 const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
@@ -368,12 +369,18 @@ function handleResizeTransitionSignal(payload: {
     token: number;
     anchorPage: number | null;
 }) {
-    if (resizeTransitionVisible.value === payload.active) {
+    const nextAnchorPage = payload.active ? payload.anchorPage : null;
+    if (
+        resizeTransitionVisible.value === payload.active
+        && resizeTransitionAnchorPage.value === nextAnchorPage
+    ) {
         return;
     }
     resizeTransitionVisible.value = payload.active;
+    resizeTransitionAnchorPage.value = nextAnchorPage;
     BrowserLogger.warn('pdf-nav', `[resize-transition-ui] active=${payload.active}`, {
         ...payload,
+        storedAnchorPage: resizeTransitionAnchorPage.value,
         viewer: summarizeViewerStateForLog(),
         currentPage: currentPage.value,
         visibleRange: {
@@ -827,6 +834,7 @@ const {
     scaledMargin,
     visibleRange,
     searchNavigationTargetPage: singlePageScroll.searchNavigationTargetPage,
+    resizeTransitionAnchorPage,
     zoomVirtualizationFreeze,
 });
 
@@ -1135,6 +1143,7 @@ onBeforeUnmount(() => {
     setPageLayoutMetrics(null);
     stopInitialRenderObserver();
     resizeTransitionVisible.value = false;
+    resizeTransitionAnchorPage.value = null;
     clearWheelZoomSessionIdleTimer();
     clearZoomSnapSuppressedTimer();
     activeWheelZoomSession = null;
@@ -2491,7 +2500,6 @@ defineExpose({
     .pdf-link-overlay-layer,
     .pdf-link-overlay-layer *,
     .pdf-comment-marker-layer-vue,
-    .pdf-comment-marker-layer-vue *,
     .pdf-shape-overlay,
     .pdf-shape-overlay *,
     .annotationLayer,

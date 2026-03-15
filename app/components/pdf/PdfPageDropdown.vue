@@ -46,14 +46,20 @@
                 >{{ totalPages }}</span>
             </button>
             <div v-else class="page-controls-display is-editing" :style="pageDisplayStyle">
-                <input
-                    ref="pageInputRef"
-                    v-model="pageInputValue"
-                    class="page-controls-inline-input"
-                    @keydown.enter.prevent="commitPageInput"
-                    @keydown.escape.prevent="cancelEditing"
-                    @blur="commitPageInput"
-                />
+                <span class="page-controls-current">
+                    <input
+                        ref="pageInputRef"
+                        v-model="pageInputValue"
+                        class="page-controls-inline-input"
+                        @keydown.enter.prevent="commitPageInput"
+                        @keydown.escape.prevent="cancelEditing"
+                        @blur="commitPageInput"
+                    />
+                    <span
+                        v-if="pageIndicatorParts.secondary"
+                        class="page-controls-current-secondary"
+                    >{{ pageIndicatorParts.secondary }}</span>
+                </span>
                 <span
                     v-if="showTotalInDisplay"
                     :class="['page-controls-slash', { 'is-hidden': !hasPages }]"
@@ -372,9 +378,10 @@ onClickOutside(pageControlsRef, () => {
     background: transparent;
     border: none;
     outline: none;
+    flex: 1 1 auto;
     text-align: right;
     padding: 0;
-    min-width: var(--page-current-width-ch);
-    width: 100%;
+    min-width: 0;
+    width: auto;
 }
 </style>
