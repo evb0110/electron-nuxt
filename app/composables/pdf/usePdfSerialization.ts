@@ -7,6 +7,7 @@ import {
     PDFNumber,
     PDFRef,
     degrees,
+    drawImage,
     type PDFImage,
 } from 'pdf-lib';
 import type { Ref } from 'vue';
@@ -144,6 +145,21 @@ function readPdfRectFromDict(dict: PDFDict): [number, number, number, number] | 
         x2,
         y2,
     ];
+}
+
+function appendAnnotationRefToPage(
+    page: ReturnType<PDFDocument['getPages']>[number],
+    doc: PDFDocument,
+    annotRef: PDFRef,
+) {
+    const annots = page.node.Annots() ?? doc.context.obj([]);
+    if (annots instanceof PDFArray) {
+        annots.push(annotRef);
+        page.node.set(PDFName.of('Annots'), annots);
+        return;
+    }
+
+    page.node.set(PDFName.of('Annots'), doc.context.obj([annotRef]));
 }
 
 export interface IPdfSerializationDeps {
@@ -813,18 +829,58 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
         const rotationDegrees = 0 - (placement.rotationDegrees ?? 0);
         const radians = (rotationDegrees * Math.PI) / 180;
-        const centerX = x + (width / 2);
-        const centerY = y + (height / 2);
+        const centerX = width / 2;
+        const centerY = height / 2;
         const rotatedHalfWidth = ((width / 2) * Math.cos(radians)) - ((height / 2) * Math.sin(radians));
         const rotatedHalfHeight = ((width / 2) * Math.sin(radians)) + ((height / 2) * Math.cos(radians));
-
-        page.drawImage(embeddedImage, {
-            x: centerX - rotatedHalfWidth,
-            y: centerY - rotatedHalfHeight,
-            width,
-            height,
-            rotate: degrees(rotationDegrees),
+        const imageX = centerX - rotatedHalfWidth;
+        const imageY = centerY - rotatedHalfHeight;
+        const imageName = doc.context.addRandomSuffix('Image', 10);
+        const appearanceStream = doc.context.formXObject(
+            drawImage(imageName, {
+                x: imageX,
+                y: imageY,
+                width,
+                height,
+                rotate: degrees(rotationDegrees),
+                xSkew: degrees(0),
+                ySkew: degrees(0),
+            }),
+            {
+                Resources: { XObject: { [imageName]: embeddedImage.ref } },
+                BBox: doc.context.obj([
+                    0,
+                    0,
+                    width,
+                    height,
+                ]),
+                Matrix: doc.context.obj([
+                    1,
+                    0,
+                    0,
+                    1,
+                    0,
+                    0,
+                ]),
+            },
+        );
+        const appearanceRef = doc.context.register(appearanceStream);
+        const stampDict = doc.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Stamp'),
+            Rect: doc.context.obj([
+                PDFNumber.of(x),
+                PDFNumber.of(y),
+                PDFNumber.of(x + width),
+                PDFNumber.of(y + height),
+            ]),
+            AP: doc.context.obj({ N: appearanceRef }),
+            F: PDFNumber.of(4),
+            NM: PDFHexString.fromText(`placed-image-${crypto.randomUUID()}`),
+            Name: PDFName.of('Approved'),
         });
+        const stampRef = doc.context.register(stampDict);
+        appendAnnotationRefToPage(page, doc, stampRef);
 
         return new Uint8Array(await doc.save());
     }
