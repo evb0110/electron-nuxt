@@ -28,6 +28,8 @@ function createScaleComposable(options: {
     mode?: TFitMode;
     zoom?: number;
     viewMode?: TPdfViewMode;
+    currentPage?: number;
+    continuousScroll?: boolean;
 }) {
     const zoom = ref(options.zoom ?? 1);
     const fitMode = ref<TFitMode>(options.mode ?? 'width');
@@ -39,11 +41,15 @@ function createScaleComposable(options: {
     const numPages = ref(pageMetrics.value.length);
     const baseWidth = ref(options.width);
     const baseHeight = ref(options.height);
+    const currentPage = ref(options.currentPage ?? 1);
+    const continuousScroll = ref(options.continuousScroll ?? true);
 
     return {
         baseWidth,
         baseHeight,
         pageMetrics,
+        currentPage,
+        continuousScroll,
         scale: usePdfScale(
             zoom,
             fitMode,
@@ -52,6 +58,8 @@ function createScaleComposable(options: {
             pageMetrics,
             baseWidth,
             baseHeight,
+            currentPage,
+            continuousScroll,
         ),
     };
 }
