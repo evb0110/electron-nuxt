@@ -28,6 +28,7 @@ interface IPageShortcutsDeps {
     handleZoomIn: () => void;
     handleZoomOut: () => void;
     handleActualSize: () => void;
+    handleSave: () => void;
 }
 
 export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
@@ -94,6 +95,12 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         }
 
         if (hasZoomModifier && pdfSrc.value && !hasElectronAPI()) {
+            if (event.key.toLowerCase() === 's' && !event.shiftKey) {
+                event.preventDefault();
+                deps.handleSave();
+                return;
+            }
+
             if (isZoomInShortcut(event)) {
                 event.preventDefault();
                 deps.handleZoomIn();

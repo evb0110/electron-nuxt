@@ -41,6 +41,7 @@ function createDeps() {
         handleZoomIn: vi.fn(),
         handleZoomOut: vi.fn(),
         handleActualSize: vi.fn(),
+        handleSave: vi.fn(),
     };
 }
 
