@@ -21,6 +21,12 @@ interface IUiManagerWithUnselectAll {unselectAll: () => void;}
 
 interface IEditorLayerWithGetEditorByUid {getEditorByUID: (uid: string) => unknown;}
 
+interface IAnnotationEditorLayer {
+    div: HTMLElement;
+    createAndAddNewEditor: (event: PointerEvent, isCentered: boolean, data?: Record<string, unknown>) => unknown;
+}
+
+
 export function isPdfjsEditor(value: unknown): value is IPdfjsEditor {
     if (!isRecord(value)) {
         return false;
@@ -161,4 +167,41 @@ export function unselectAllEditors(
 
     uiManager.unselectAll();
     return true;
+}
+
+function isAnnotationEditorLayer(value: unknown): value is IAnnotationEditorLayer {
+    if (!isRecord(value)) {
+        return false;
+    }
+    return value.div instanceof HTMLElement
+        && getOptionalFunction(value, 'createAndAddNewEditor') !== null;
+}
+
+
+export function getAnnotationEditorLayer(
+    uiManager: AnnotationEditorUIManager,
+    pageIndex: number,
+): IAnnotationEditorLayer | null {
+    if (!hasGetLayer(uiManager)) {
+        return null;
+    }
+    const layer: unknown = getLayerFromUiManager(uiManager, pageIndex)
+        ?? (uiManager.currentLayer as unknown);
+    return isAnnotationEditorLayer(layer) ? layer : null;
+}
+
+export function getAnnotationEditorLayerDiv(
+    uiManager: AnnotationEditorUIManager,
+    pageIndex: number,
+): HTMLElement | null {
+    if (!hasGetLayer(uiManager)) {
+        const current: unknown = uiManager.currentLayer as unknown;
+        return isRecord(current) && current.div instanceof HTMLElement ? current.div : null;
+    }
+    const layer: unknown = getLayerFromUiManager(uiManager, pageIndex)
+        ?? (uiManager.currentLayer as unknown);
+    if (isRecord(layer) && layer.div instanceof HTMLElement) {
+        return layer.div;
+    }
+    return null;
 }

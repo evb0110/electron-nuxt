@@ -1,4 +1,9 @@
 import type {
+    IPdfPersistResult,
+    IPdfSaveResult,
+    TPdfSaveMode,
+} from '@app/types/pdf';
+import type {
     Ref,
     ShallowRef,
 } from 'vue';
@@ -15,9 +20,11 @@ export interface IFileOperationsDeps {
     bookmarksDirty: Ref<boolean>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     saveDocument: () => Promise<Uint8Array | null>;
-    saveFile: (data: Uint8Array) => Promise<boolean>;
-    saveWorkingCopy: () => Promise<boolean>;
-    saveWorkingCopyAs: (data?: Uint8Array) => Promise<string | null>;
+    readWorkingCopyBytes: () => Promise<Uint8Array | null>;
+    validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfSaveResult['validation']>;
+    saveFile: (data: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
+    saveWorkingCopy: (opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
+    saveWorkingCopyAs: (data?: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
     markAnnotationSaved: () => void;
     markPageLabelsSaved: () => void;
     markBookmarksSaved: () => void;
@@ -44,6 +51,8 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         bookmarksDirty,
         pdfDocument,
         saveDocument,
+        readWorkingCopyBytes,
+        validatePdfData,
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,
@@ -62,6 +71,90 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         annotationNoteWindowsCount,
         loadRecentFiles,
     } = deps;
+
+    function getValidationFileName() {
+        return workingCopyPath.value?.split(/[\\/]/u).pop() ?? undefined;
+    }
+
+    async function buildSerializedSaveResult(
+        rawData: Uint8Array,
+        pendingTexts: Map<string, string> | null,
+        opts?: {
+            includeShapes?: boolean;
+            saveMode?: TPdfSaveMode;
+        },
+    ): Promise<IPdfSaveResult | null> {
+        let data = await rewriteMarkupSubtypes(rawData);
+
+        if (opts?.includeShapes ?? true) {
+            data = await serializeShapeAnnotations(data);
+        }
+
+        data = await rewriteFreeTextNoteRects(data);
+        if (pendingTexts) {
+            data = await rewriteEmbeddedNoteTexts(data, pendingTexts);
+        }
+        data = await rewritePageLabels(data);
+        data = await rewriteBookmarks(data);
+
+        const validation = await validatePdfData(data, getValidationFileName());
+        if (!validation.isValid) {
+            BrowserLogger.warn('workspace', 'Save aborted because PDF validation failed', {
+                errors: validation.errors,
+                warnings: validation.warnings,
+            });
+            return null;
+        }
+
+        return {
+            finalBytes: data,
+            saveMode: opts?.saveMode ?? 'rewrite',
+            warnings: validation.warnings,
+            validation,
+        };
+    }
+
+    async function validateWorkingCopySnapshot(saveMode: TPdfSaveMode) {
+        const data = await readWorkingCopyBytes();
+        if (!data) {
+            return null;
+        }
+
+        const validation = await validatePdfData(data, getValidationFileName());
+        if (!validation.isValid) {
+            BrowserLogger.warn('workspace', 'Save aborted because PDF validation failed', {
+                errors: validation.errors,
+                warnings: validation.warnings,
+            });
+            return null;
+        }
+
+        return {
+            finalBytes: data,
+            saveMode,
+            warnings: validation.warnings,
+            validation,
+        } satisfies IPdfSaveResult;
+    }
+
+    function finalizeSuccessfulSave(result: IPdfPersistResult, opts?: { resetAnnotationStorage?: boolean }) {
+        if (!result.success) {
+            return false;
+        }
+
+        if (opts?.resetAnnotationStorage !== false) {
+            pdfDocument.value?.annotationStorage?.resetModified();
+        }
+        markAnnotationSaved();
+        markPageLabelsSaved();
+        markBookmarksSaved();
+
+        if (result.didSaveAs && result.outPath) {
+            loadRecentFiles();
+        }
+
+        return true;
+    }
 
     async function saveDocumentWithRetry(maxAttempts = 4, retryDelayMs = 50) {
         try {
@@ -99,48 +192,34 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 if (shouldSerialize) {
                     const rawData = await saveDocumentWithRetry();
                     if (rawData) {
-                        let data = await rewriteMarkupSubtypes(rawData);
-                        data = await serializeShapeAnnotations(data);
-                        data = await rewriteFreeTextNoteRects(data);
-                        if (pendingTexts) {
-                            data = await rewriteEmbeddedNoteTexts(data, pendingTexts);
-                        }
-                        data = await rewritePageLabels(data);
-                        data = await rewriteBookmarks(data);
-                        const saved = await saveFile(data);
-                        if (saved) {
-                            pdfDocument.value?.annotationStorage?.resetModified();
-                            markAnnotationSaved();
-                            markPageLabelsSaved();
-                            markBookmarksSaved();
+                        const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, {
+                            includeShapes: true,
+                            saveMode: 'rewrite',
+                        });
+                        if (saveResult) {
+                            const persisted = await saveFile(saveResult.finalBytes, { saveMode: saveResult.saveMode });
+                            finalizeSuccessfulSave(persisted);
                         }
                     }
                     return;
                 }
-                const saved = await saveWorkingCopy();
-                if (saved) {
-                    markAnnotationSaved();
-                    markPageLabelsSaved();
-                    markBookmarksSaved();
+                const saveResult = await validateWorkingCopySnapshot('rewrite');
+                if (saveResult) {
+                    const persisted = await saveWorkingCopy({ saveMode: saveResult.saveMode });
+                    finalizeSuccessfulSave(persisted, { resetAnnotationStorage: false });
                 }
                 return;
             }
 
             const rawData = await saveDocumentWithRetry();
             if (rawData) {
-                let data = await rewriteMarkupSubtypes(rawData);
-                data = await rewriteFreeTextNoteRects(data);
-                if (pendingTexts) {
-                    data = await rewriteEmbeddedNoteTexts(data, pendingTexts);
-                }
-                data = await rewritePageLabels(data);
-                data = await rewriteBookmarks(data);
-                const saved = await saveFile(data);
-                if (saved) {
-                    pdfDocument.value?.annotationStorage?.resetModified();
-                    markAnnotationSaved();
-                    markPageLabelsSaved();
-                    markBookmarksSaved();
+                const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, {
+                    includeShapes: false,
+                    saveMode: 'rewrite',
+                });
+                if (saveResult) {
+                    const persisted = await saveFile(saveResult.finalBytes, { saveMode: saveResult.saveMode });
+                    finalizeSuccessfulSave(persisted);
                 }
             }
         } finally {
@@ -162,37 +241,25 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         const pendingTexts = consumePendingEmbeddedTextUpdates();
         isSavingAs.value = true;
         try {
-            let outPath: string | null = null;
             const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || !!pendingTexts;
             if (shouldSerialize) {
                 const rawData = await saveDocumentWithRetry();
                 if (rawData) {
-                    let data = await rewriteMarkupSubtypes(rawData);
-                    data = await serializeShapeAnnotations(data);
-                    data = await rewriteFreeTextNoteRects(data);
-                    if (pendingTexts) {
-                        data = await rewriteEmbeddedNoteTexts(data, pendingTexts);
-                    }
-                    data = await rewritePageLabels(data);
-                    data = await rewriteBookmarks(data);
-                    outPath = await saveWorkingCopyAs(data);
-                    if (outPath) {
-                        pdfDocument.value?.annotationStorage?.resetModified();
-                        markAnnotationSaved();
-                        markPageLabelsSaved();
-                        markBookmarksSaved();
+                    const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, {
+                        includeShapes: true,
+                        saveMode: 'save_as_rewrite',
+                    });
+                    if (saveResult) {
+                        const persisted = await saveWorkingCopyAs(saveResult.finalBytes, { saveMode: saveResult.saveMode });
+                        finalizeSuccessfulSave(persisted);
                     }
                 }
             } else {
-                outPath = await saveWorkingCopyAs();
-                if (outPath) {
-                    markAnnotationSaved();
-                    markPageLabelsSaved();
-                    markBookmarksSaved();
+                const saveResult = await validateWorkingCopySnapshot('save_as_rewrite');
+                if (saveResult) {
+                    const persisted = await saveWorkingCopyAs(undefined, { saveMode: saveResult.saveMode });
+                    finalizeSuccessfulSave(persisted, { resetAnnotationStorage: false });
                 }
-            }
-            if (outPath) {
-                loadRecentFiles();
             }
         } finally {
             isSavingAs.value = false;

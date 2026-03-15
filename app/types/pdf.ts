@@ -1,4 +1,8 @@
 import type {
+    IPdfValidationResult,
+    TPdfSaveMode,
+} from '@contracts/electron-api';
+import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
@@ -10,6 +14,11 @@ export type {
     TZoomMode,
     TPdfViewMode,
 } from '@contracts/shared';
+export type {
+    IPdfConformanceProfile,
+    IPdfValidationResult,
+    TPdfSaveMode,
+} from '@contracts/electron-api';
 
 export type {IPdfBookmarkEntry} from '@contracts/pdf';
 
@@ -129,6 +138,20 @@ export interface IPdfPageRange {
 export interface IPdfRawDims {
     pageWidth: number;
     pageHeight: number;
+}
+
+export interface IPdfSaveResult {
+    finalBytes: Uint8Array;
+    saveMode: TPdfSaveMode;
+    warnings: string[];
+    validation: IPdfValidationResult;
+}
+
+export interface IPdfPersistResult {
+    success: boolean;
+    outPath: string | null;
+    saveMode: TPdfSaveMode;
+    didSaveAs: boolean;
 }
 
 export type {

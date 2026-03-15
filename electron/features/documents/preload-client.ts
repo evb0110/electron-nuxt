@@ -82,6 +82,19 @@ export function createDocumentsPreloadClient(ipcRenderer: IpcRenderer) {
             ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileReadRange, path, offset, length),
         readTextFile: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileReadText, path),
         fileExists: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileExists, path),
+        analyzePdfConformance: (path: string) =>
+            ipcRenderer.invoke(
+                DOCUMENTS_CHANNELS.pdfAnalyzeConformance,
+                assertAbsolutePath(path, 'analyzePdfConformance.path'),
+            ),
+        validatePdfData: (data: Uint8Array, fileName?: string) =>
+            ipcRenderer.invoke(
+                DOCUMENTS_CHANNELS.pdfValidateData,
+                assertWriteData(data, 'validatePdfData.data'),
+                typeof fileName === 'string'
+                    ? assertNonEmptyString(fileName, 'validatePdfData.fileName', MAX_IPC_FILE_NAME_LENGTH)
+                    : undefined,
+            ),
         writeFile: (path: string, data: Uint8Array) =>
             ipcRenderer.invoke(
                 DOCUMENTS_CHANNELS.fileWrite,

@@ -13,12 +13,14 @@ import {
     handleShowItemInFolder,
 } from '@electron/features/documents/main/dialogs';
 import {
+    handleAnalyzePdfConformance,
     handleCleanupOcrTemp,
     handleFileExists,
     handleFileRead,
     handleFileReadRange,
     handleFileReadText,
     handleFileStat,
+    handleValidatePdfData,
     handleFileWrite,
     handleFileWriteDocx,
 } from '@electron/features/documents/main/file-ops';
@@ -61,6 +63,8 @@ export function createDocumentsService(): IDocumentsService {
         readFileRange: (event, filePath, offset, length) => handleFileReadRange(event, filePath, offset, length),
         readTextFile: (event, filePath) => handleFileReadText(event, filePath),
         fileExists: (event, filePath) => handleFileExists(event, filePath),
+        analyzePdfConformance: (event, filePath) => handleAnalyzePdfConformance(event, filePath),
+        validatePdfData: (event, data, fileName) => handleValidatePdfData(event, data, fileName),
         writeFile: (event, filePath, data) => handleFileWrite(event, filePath, data),
         writeDocxFile: (event, filePath, data) => handleFileWriteDocx(event, filePath, data),
         saveFile: (event, workingPath) => handleFileSave(event, workingPath),

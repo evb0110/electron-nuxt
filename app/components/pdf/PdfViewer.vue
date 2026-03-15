@@ -18,6 +18,7 @@
                 'is-dragging': isDragging,
                 'drag-mode': isViewerPanDragModeActive,
                 'is-placing-comment': highlightComposable.isPlacingComment.value,
+                'is-selection-markup-tool': isSelectionMarkupToolActive,
                 'pdfViewer--single-page': !continuousScroll,
                 'pdfViewer--mode-single': viewMode === 'single',
                 'pdfViewer--mode-facing': viewMode === 'facing',
@@ -37,6 +38,7 @@
             @click="handleViewerClick"
             @dblclick="handleViewerDblClick"
             @contextmenu="handleViewerContextMenu"
+            @selectstart="handleSelectStart"
         >
             <div
                 v-if="topVirtualSpacerStyle"
@@ -161,6 +163,7 @@ import type {
     IPdfPlacedImageFinalizePayload,
 } from '@app/types/pdf-image-placement';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotations/types';
+import { isSelectionMarkupTool } from '@app/composables/pdf/annotations/types';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -257,6 +260,7 @@ const pendingImagePlacement = ref<IPdfImagePlacementDraft | null>(null);
 const isPendingImagePlacementFinalizing = ref(false);
 const isImagePlacementActive = computed(() => pendingImagePlacement.value !== null);
 const isViewerPanDragModeActive = computed(() => dragMode.value && !isImagePlacementActive.value);
+const isSelectionMarkupToolActive = computed(() => isSelectionMarkupTool(annotationTool.value));
 const regionSnip = usePdfRegionSnip({ viewerContainer });
 const cropSelection = usePdfCropSelection({ viewerContainer });
 const PDF_VIEWER_LOADER_ICON_SIZE_PX = 20;
@@ -1781,6 +1785,12 @@ function handleViewerMouseLeave() {
     stopDrag();
 }
 
+function handleSelectStart(event: Event) {
+    if (isViewerPanDragModeActive.value) {
+        event.preventDefault();
+    }
+}
+
 function handleViewerClick(event: MouseEvent) {
     if (isSnipActive()) {
         return;
@@ -2356,6 +2366,11 @@ defineExpose({
     position: absolute;
     inset: 0;
     z-index: 3;
+}
+
+.pdfViewer.is-selection-markup-tool .annotation-editor-layer,
+.pdfViewer.is-selection-markup-tool .annotationEditorLayer {
+    pointer-events: none;
 }
 
 .pdfViewer.pdfViewer--resize-transition .page_container .pdf-page-skeleton {

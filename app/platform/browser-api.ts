@@ -1,5 +1,6 @@
 import {
     degrees,
+    PDFDict,
     PDFDocument,
     PDFName,
 } from 'pdf-lib';
@@ -13,6 +14,8 @@ import type {
     IElectronAPI,
     IMenuEventUnsubscribe,
     IOcrCapability,
+    IPdfConformanceProfile,
+    IPdfValidationResult,
     IRendererLogEntry,
     ISearchCapability,
     ISettingsCapability,
@@ -121,6 +124,7 @@ const searchPreparedPagesCache = new Map<
 const canceledSearchRequests = new Set<string>();
 let browserSettingsLoaded = false;
 let pdfjsLibPromise: Promise<TPdfJsLib> | null = null;
+const pdfBinaryDecoder = new TextDecoder('latin1');
 
 function noopUnsubscribe(): IMenuEventUnsubscribe {
     return () => {};
@@ -129,6 +133,136 @@ function noopUnsubscribe(): IMenuEventUnsubscribe {
 async function getPdfjsLib() {
     pdfjsLibPromise ??= import('pdfjs-dist');
     return pdfjsLibPromise;
+}
+
+function createDefaultPdfConformanceProfile(): IPdfConformanceProfile {
+    return {
+        isSigned: false,
+        isEncrypted: false,
+        isTagged: false,
+        pdfaLevel: null,
+        hasAcroForm: false,
+        hasXfa: false,
+        canIncrementalSave: true,
+        saveRestrictions: [],
+    };
+}
+
+function decodePdfBinary(bytes: Uint8Array) {
+    return pdfBinaryDecoder.decode(bytes);
+}
+
+function detectBrowserPdfaLevel(bytes: Uint8Array) {
+    const text = decodePdfBinary(bytes);
+    const partMatch = text.match(/<pdfaid:part>\s*([^<\s]+)\s*<\/pdfaid:part>/iu);
+    if (!partMatch?.[1]) {
+        return null;
+    }
+
+    const conformanceMatch = text.match(/<pdfaid:conformance>\s*([^<\s]+)\s*<\/pdfaid:conformance>/iu);
+    const conformance = conformanceMatch?.[1]?.trim().toUpperCase() ?? '';
+    return `PDF/A-${partMatch[1].trim()}${conformance}`;
+}
+
+function detectBrowserSignatureMarkers(bytes: Uint8Array) {
+    return /\/(?:ByteRange|FT\s*\/Sig|Type\s*\/Sig)\b/u.test(decodePdfBinary(bytes));
+}
+
+function buildBrowserSaveRestrictions(profile: Omit<IPdfConformanceProfile, 'saveRestrictions'>) {
+    const restrictions: string[] = [];
+
+    if (profile.isSigned) {
+        restrictions.push('signed_original_requires_save_as');
+    }
+    if (profile.isEncrypted) {
+        restrictions.push('encrypted_document_requires_preservation');
+    }
+    if (profile.hasXfa) {
+        restrictions.push('xfa_forms_are_not_supported_for_rewrite');
+    }
+    if (profile.isTagged) {
+        restrictions.push('tagged_pdf_requires_structure_preservation');
+    }
+    if (profile.pdfaLevel) {
+        restrictions.push(`pdfa_preservation_required:${profile.pdfaLevel}`);
+    }
+    if (!profile.canIncrementalSave) {
+        restrictions.push('incremental_save_not_supported');
+    }
+
+    return restrictions;
+}
+
+async function analyzeBrowserPdfConformance(path: string): Promise<IPdfConformanceProfile> {
+    const fallback = createDefaultPdfConformanceProfile();
+    const bytes = await browserDocumentStore.read(path);
+
+    try {
+        const doc = await PDFDocument.load(bytes, {
+            ignoreEncryption: true,
+            updateMetadata: false,
+        });
+        const catalog = doc.catalog;
+        const acroForm = catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
+        const structTreeRoot = catalog.lookupMaybe(PDFName.of('StructTreeRoot'), PDFDict);
+        const hasXfa = acroForm instanceof PDFDict && acroForm.has(PDFName.of('XFA'));
+        const baseProfile = {
+            isSigned: detectBrowserSignatureMarkers(bytes),
+            isEncrypted: doc.isEncrypted,
+            isTagged: structTreeRoot instanceof PDFDict,
+            pdfaLevel: detectBrowserPdfaLevel(bytes),
+            hasAcroForm: acroForm instanceof PDFDict,
+            hasXfa,
+            canIncrementalSave: !doc.isEncrypted && !hasXfa,
+        };
+
+        return {
+            ...baseProfile,
+            saveRestrictions: buildBrowserSaveRestrictions(baseProfile),
+        };
+    } catch {
+        return {
+            ...fallback,
+            isSigned: detectBrowserSignatureMarkers(bytes),
+            pdfaLevel: detectBrowserPdfaLevel(bytes),
+            saveRestrictions: buildBrowserSaveRestrictions({
+                ...fallback,
+                isSigned: detectBrowserSignatureMarkers(bytes),
+                pdfaLevel: detectBrowserPdfaLevel(bytes),
+            }),
+        };
+    }
+}
+
+async function validateBrowserPdfData(data: Uint8Array): Promise<IPdfValidationResult> {
+    if (!(data instanceof Uint8Array) || data.byteLength === 0) {
+        return {
+            isValid: false,
+            tool: 'browser',
+            errors: ['PDF validation failed: empty document data'],
+            warnings: [],
+        };
+    }
+
+    try {
+        await PDFDocument.load(data, {
+            ignoreEncryption: true,
+            updateMetadata: false,
+        });
+        return {
+            isValid: true,
+            tool: 'browser',
+            errors: [],
+            warnings: [],
+        };
+    } catch (error) {
+        return {
+            isValid: false,
+            tool: 'browser',
+            errors: [error instanceof Error ? error.message : 'PDF validation failed'],
+            warnings: [],
+        };
+    }
 }
 
 function getWindowWithPickers() {
@@ -1085,6 +1219,12 @@ const browserDocumentsCapability: IDocumentsCapability = {
     },
     async fileExists(path) {
         return browserDocumentStore.exists(path);
+    },
+    async analyzePdfConformance(path) {
+        return analyzeBrowserPdfConformance(path);
+    },
+    async validatePdfData(data) {
+        return validateBrowserPdfData(data);
     },
     async writeFile(path, data) {
         clearSearchCaches();

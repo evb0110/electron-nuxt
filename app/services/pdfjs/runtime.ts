@@ -58,6 +58,13 @@ export function getOptionalObject(
         : null;
 }
 
+/**
+ * @remarks The returned function is **unbound** — calling it directly will lose the
+ * original `this` context.  Use `.call(value, ...)` at each call site, or prefer
+ * structural type guards (see `annotationEditorAdapter.ts`) that narrow the original
+ * object so methods keep their `this` binding.  Never store the result on a wrapper
+ * object and call it there — that silently rebinds `this` to the wrapper.
+ */
 export function getOptionalFunction<TArgs extends unknown[] = unknown[], TResult = unknown>(
     value: unknown,
     key: PropertyKey,

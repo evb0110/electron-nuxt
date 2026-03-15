@@ -20,6 +20,14 @@ import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
 import { consumeAllowedDocxWritePath } from '@electron/ipc/docxExportPaths';
 import { MAX_CHUNK } from '@electron/config/constants';
 import { createLogger } from '@electron/utils/logger';
+import type {
+    IPdfConformanceProfile,
+    IPdfValidationResult,
+} from '@contracts/electron-api';
+import {
+    analyzePdfConformanceData,
+    validatePdfData as validatePdfBytes,
+} from '@electron/features/documents/main/pdf-conformance';
 
 const logger = createLogger('documents-file-ops');
 const MAX_IPC_WRITE_BYTES = (() => {
@@ -260,6 +268,29 @@ export function handleFileExists(
     }
 
     return true;
+}
+
+export async function handleAnalyzePdfConformance(
+    event: Electron.IpcMainInvokeEvent,
+    filePath: unknown,
+): Promise<IPdfConformanceProfile> {
+    const data = await handleFileRead(event, filePath);
+    return analyzePdfConformanceData(data);
+}
+
+export async function handleValidatePdfData(
+    _event: Electron.IpcMainInvokeEvent,
+    data: unknown,
+    fileName?: unknown,
+): Promise<IPdfValidationResult> {
+    if (!(data instanceof Uint8Array)) {
+        throw new Error('Invalid data: must be a Uint8Array');
+    }
+    if (typeof fileName !== 'undefined' && typeof fileName !== 'string') {
+        throw new Error('Invalid file name: must be a string');
+    }
+
+    return validatePdfBytes(data, fileName);
 }
 
 export async function handleCleanupOcrTemp(

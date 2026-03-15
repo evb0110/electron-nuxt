@@ -528,7 +528,6 @@ class BrowserDocumentStore {
 }
 
 export const browserDocumentStore = new BrowserDocumentStore();
-export { BROWSER_REF_PREFIX };
 export function isBrowserDocumentRef(path: string) {
     return path.startsWith(BROWSER_REF_PREFIX);
 }

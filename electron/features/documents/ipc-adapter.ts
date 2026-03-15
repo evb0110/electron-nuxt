@@ -54,6 +54,14 @@ export function registerDocumentsIpcAdapter(
     registrar.handle(DOCUMENTS_CHANNELS.fileExists, (event: IpcMainInvokeEvent, filePath: string) =>
         service.fileExists(event, filePath),
     );
+    registrar.handle(DOCUMENTS_CHANNELS.pdfAnalyzeConformance, (event: IpcMainInvokeEvent, filePath: string) =>
+        service.analyzePdfConformance(event, filePath),
+    );
+    registrar.handle(
+        DOCUMENTS_CHANNELS.pdfValidateData,
+        (event: IpcMainInvokeEvent, data: Uint8Array, fileName?: string) =>
+            service.validatePdfData(event, data, fileName),
+    );
     registrar.handle(DOCUMENTS_CHANNELS.fileWrite, (event: IpcMainInvokeEvent, filePath: string, data: Uint8Array) =>
         service.writeFile(event, filePath, data),
     );
