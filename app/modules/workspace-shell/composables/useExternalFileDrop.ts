@@ -1,8 +1,5 @@
 import { useDropZone } from '@vueuse/core';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/electron';
+import { getElectronAPI } from '@app/utils/platform';
 
 interface IUseExternalFileDropOptions {openPathInAppropriateTab: (path: string) => Promise<void>;}
 
@@ -25,7 +22,7 @@ function isSidebarDropArea(event: DragEvent) {
 }
 
 function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
-    if (!dataTransfer || !hasElectronAPI()) {
+    if (!dataTransfer) {
         return [];
     }
 

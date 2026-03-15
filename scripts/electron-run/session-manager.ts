@@ -24,6 +24,7 @@ import { uniq } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
 import { createCommandHandler } from './commands';
 import {
+    DEFAULT_NUXT_PORT,
     getNuxtPort,
     setNuxtPort,
     SESSION_WAIT_TIMEOUT_MS,
@@ -269,9 +270,9 @@ async function cleanupStaleNuxtPortOwners(reason: string) {
 }
 
 async function startNuxtServer(forceClean = false): Promise<ChildProcess | null> {
-    const dynamicPort = await findFreePort();
-    setNuxtPort(dynamicPort);
-    console.log(`[Nuxt] Allocated dynamic port ${dynamicPort}`);
+    setNuxtPort(DEFAULT_NUXT_PORT);
+    console.log(`[Nuxt] Using fixed dev port ${getNuxtPort()}`);
+    console.log(`[Nuxt] Browser dev server: http://localhost:${getNuxtPort()}/`);
 
     if (forceClean) {
         console.log('[Nuxt] Force clean start...');

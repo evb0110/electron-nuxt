@@ -101,7 +101,7 @@
 
 <script setup lang="ts">
 
-import { getElectronAPI } from '@app/utils/electron';
+import { getElectronAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 const { t } = useTypedI18n();

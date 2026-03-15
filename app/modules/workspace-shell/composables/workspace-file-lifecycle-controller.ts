@@ -7,7 +7,6 @@ import { usePageFileOperations } from '@app/modules/workspace-shell/composables/
 import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/types';
 import type { TOpenFileResult } from '@contracts/electron-api';
 import type { TPdfSource } from '@app/types/pdf';
-import { hasElectronAPI } from '@app/utils/electron';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 export const useWorkspaceFileLifecycleController = () => {
@@ -99,9 +98,7 @@ export const useWorkspaceFileLifecycleController = () => {
             BrowserLogger.debug('workspace', 'Electron API available', isElectron.value);
         }
 
-        if (hasElectronAPI()) {
-            void loadRecentFiles();
-        }
+        void loadRecentFiles();
     }
 
     const hasPdf = computed(() => !!pdfSrc.value);

@@ -1,5 +1,5 @@
 
-import { getElectronAPI } from '@app/utils/electron';
+import { getElectronAPI } from '@app/utils/platform';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
 import { BrowserLogger } from '@app/utils/browser-logger';
 

@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/electron';
+import { getElectronAPI } from '@app/utils/platform';
 
 type TExportDialogMode = 'images' | 'multipage-tiff';
 

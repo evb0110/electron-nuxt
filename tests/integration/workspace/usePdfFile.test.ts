@@ -20,7 +20,7 @@ const mockDocuments = {
 const mockElectronAPI = { documents: mockDocuments };
 const mockHasElectronAPI = vi.fn(() => true);
 
-vi.mock('@app/utils/electron', () => ({
+vi.mock('@app/utils/platform', () => ({
     getElectronAPI: () => mockElectronAPI,
     hasElectronAPI: () => mockHasElectronAPI(),
 }));
@@ -37,9 +37,6 @@ vi.stubGlobal('window', {
 
 const { usePdfFile } = await import('@app/composables/usePdfFile');
 
-interface IShowOpenFilePickerHandle {getFile: () => Promise<File>;}
-interface IWindowWithShowOpenFilePicker extends Window {showOpenFilePicker?: () => Promise<IShowOpenFilePickerHandle[]>;}
-
 function deferred<T>() {
     let resolve: ((value: T | PromiseLike<T>) => void) | null = null;
     const promise = new Promise<T>((resolvePromise) => {
@@ -55,7 +52,6 @@ describe('usePdfFile', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockHasElectronAPI.mockReturnValue(true);
-        delete (window as Window & { showOpenFilePicker?: unknown }).showOpenFilePicker;
     });
 
     describe('initial state', () => {
@@ -152,20 +148,24 @@ describe('usePdfFile', () => {
                 0x46,
             ]);
             mockHasElectronAPI.mockReturnValue(false);
-            const getFile = async () => new File([pdfBytes], 'browser-open.pdf', { type: 'application/pdf' });
-            const pickerHandle: IShowOpenFilePickerHandle = { getFile };
-            (window as IWindowWithShowOpenFilePicker).showOpenFilePicker = vi.fn(async () => [pickerHandle]);
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: 'browser://documents/source/browser-open.pdf',
+                workingPath: 'browser://documents/working/browser-open.pdf',
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
+            mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
 
             const file = usePdfFile();
             await file.openFile();
 
-            expect(file.workingCopyPath.value).toBeNull();
-            expect(file.originalPath.value).toBe('browser-open.pdf');
+            expect(file.workingCopyPath.value).toBe('browser://documents/working/browser-open.pdf');
+            expect(file.originalPath.value).toBe('browser://documents/source/browser-open.pdf');
             expect(file.fileName.value).toBe('browser-open.pdf');
             expect(file.isDirty.value).toBe(false);
             expect(file.pdfData.value).toEqual(pdfBytes);
             expect(file.pdfSrc.value).toBeInstanceOf(Blob);
-            expect(mockDocuments.openPdfDialog).not.toHaveBeenCalled();
+            expect(mockDocuments.openPdfDialog).toHaveBeenCalledOnce();
         });
     });
 

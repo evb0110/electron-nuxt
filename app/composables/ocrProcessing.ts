@@ -1,6 +1,6 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { safeDestr } from 'destr';
-import { getElectronAPI } from '@app/utils/electron';
+import { getElectronAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface IOcrManifestIndex {pages: Record<number, { path: string }>;}

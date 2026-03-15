@@ -38,7 +38,7 @@ import type { TTabUpdate } from '@app/types/tabs';
 import {
     getElectronAPI,
     hasElectronAPI,
-} from '@app/utils/electron';
+} from '@app/utils/platform';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspace-view-state';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import type { TSplitPayload } from '@contracts/window-tabs';

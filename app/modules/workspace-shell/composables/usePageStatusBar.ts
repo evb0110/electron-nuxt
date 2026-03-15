@@ -3,7 +3,7 @@ import type { TPdfSource } from '@app/types/pdf';
 import {
     getElectronAPI,
     hasElectronAPI,
-} from '@app/utils/electron';
+} from '@app/utils/platform';
 import { formatBytes } from '@app/utils/formatters';
 
 type TSaveDotState = 'idle' | 'saving' | 'dirty' | 'clean';

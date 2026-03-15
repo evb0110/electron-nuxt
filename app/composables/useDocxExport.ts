@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { getElectronAPI } from '@app/utils/electron';
+import { getElectronAPI } from '@app/utils/platform';
 import { createDocxFromText } from '@app/utils/docx';
 import {
     loadOcrText,

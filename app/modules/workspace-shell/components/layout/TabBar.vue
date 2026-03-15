@@ -90,7 +90,7 @@ import type { IWindowTabTargetWindow } from '@contracts/window-tabs';
 import {
     getElectronAPI,
     hasElectronAPI,
-} from '@app/utils/electron';
+} from '@app/utils/platform';
 
 const { t } = useTypedI18n();
 const { clampToViewport } = useContextMenuPosition();

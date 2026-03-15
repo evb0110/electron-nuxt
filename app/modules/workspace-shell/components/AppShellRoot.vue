@@ -99,7 +99,7 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     getElectronAPI,
     hasElectronAPI,
-} from '@app/utils/electron';
+} from '@app/utils/platform';
 import { guardAsync } from '@app/utils/async-guard';
 import { traceRendererStartup } from '@app/utils/startup-trace';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
@@ -850,9 +850,6 @@ const activeWindowTitle = computed(() => {
 });
 
 watch(activeWindowTitle, (title) => {
-    if (!hasElectronAPI()) {
-        return;
-    }
     const setWindowTitle = getElectronAPI().documents?.setWindowTitle;
     if (!setWindowTitle) {
         return;

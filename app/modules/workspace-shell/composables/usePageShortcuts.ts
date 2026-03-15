@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
-import { hasElectronAPI } from '@app/utils/electron';
+import { hasElectronAPI } from '@app/utils/platform';
 import type { TAnnotationTool } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdf';
 

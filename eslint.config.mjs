@@ -600,4 +600,19 @@ export default withNuxt(
             'custom/tailwind-class-shorthand': 'error',
         },
     },
+    {
+        files: [
+            'app/**/*.ts',
+            'app/**/*.vue',
+        ],
+        rules: {
+            'no-restricted-imports': [
+                'error',
+                {paths: [{
+                    name: '@app/utils/electron',
+                    message: 'Use @app/utils/platform so renderer code stays platform-neutral.',
+                }]},
+            ],
+        },
+    },
 );

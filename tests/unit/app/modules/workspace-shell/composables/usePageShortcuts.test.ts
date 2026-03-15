@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
-vi.mock('@app/utils/electron', () => ({hasElectronAPI: mocks.hasElectronAPI}));
+vi.mock('@app/utils/platform', () => ({hasElectronAPI: mocks.hasElectronAPI}));
 
 function cast<T>(obj: unknown): T {
     return obj as T;

@@ -22,7 +22,7 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     getElectronAPI,
     hasElectronAPI,
-} from '@app/utils/electron';
+} from '@app/utils/platform';
 
 interface IAnnotationEditorLayerProto {
     disable?: (...args: unknown[]) => unknown;

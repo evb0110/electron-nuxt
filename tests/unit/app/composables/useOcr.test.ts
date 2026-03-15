@@ -28,7 +28,7 @@ const mockElectronAPI = {
     documents: mockDocuments,
 };
 
-vi.mock('@app/utils/electron', () => ({getElectronAPI: () => mockElectronAPI}));
+vi.mock('@app/utils/platform', () => ({getElectronAPI: () => mockElectronAPI}));
 
 vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     callback(0);

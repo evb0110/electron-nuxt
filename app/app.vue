@@ -46,7 +46,7 @@
 <script setup lang="ts">
 import AgentationWidget from '@app/components/AgentationWidget.vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { hasElectronAPI } from '@app/utils/electron';
+import { hasElectronAPI } from '@app/utils/platform';
 import { waitForVisualFrames } from '@app/utils/async-helpers';
 
 const {
@@ -83,9 +83,7 @@ async function preloadStartupContent() {
 
     const warmupTasks: Array<Promise<unknown>> = [import('@app/modules/workspace-shell/components/DocumentWorkspace.vue')];
 
-    if (hasElectronAPI()) {
-        warmupTasks.push(loadRecentFiles());
-    }
+    warmupTasks.push(loadRecentFiles());
 
     const results = await Promise.allSettled(warmupTasks);
     BrowserLogger.debug('loader', 'Startup content warmup settled', {

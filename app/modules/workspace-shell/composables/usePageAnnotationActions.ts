@@ -8,10 +8,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/electron';
+import {getElectronAPI} from '@app/utils/platform';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 const SUPPORTED_IMAGE_MIME_TYPES = [
@@ -214,10 +211,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     async function pickImageFile() {
-        if (!hasElectronAPI()) {
-            return null;
-        }
-
         const imagePath = await getElectronAPI().documents.openImageDialog();
         if (!imagePath) {
             return null;
