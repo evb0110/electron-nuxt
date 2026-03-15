@@ -2041,6 +2041,32 @@ function getPendingImagePlacementTargetPixels(placement: IPdfImagePlacementDraft
     };
 }
 
+function captureViewerScrollSnapshot() {
+    return captureScrollSnapshot(viewerContainer.value, { preferredAnchorPage: currentPage.value });
+}
+
+function restoreViewerScrollSnapshot(
+    snapshot: IScrollSnapshot | null,
+    options?: { fallbackPage?: number | null; },
+) {
+    const fallbackPage = typeof options?.fallbackPage === 'number' && Number.isFinite(options.fallbackPage)
+        ? Math.max(1, Math.floor(options.fallbackPage))
+        : currentPage.value;
+    const container = viewerContainer.value;
+
+    if (snapshot && container && container.scrollWidth > 0 && container.scrollHeight > 0) {
+        restoreScrollFromSnapshot(container, snapshot, {
+            restoreHorizontal: true,
+            restoreVertical: true,
+            preferPageAnchor: true,
+            allowVerticalRatioFallback: true,
+        });
+        return;
+    }
+
+    singlePageScroll.scrollToPage(fallbackPage);
+}
+
 function requestPendingImagePlacementFinalize() {
     const placement = pendingImagePlacement.value;
     if (!placement || isPendingImagePlacementFinalizing.value) {
@@ -2143,6 +2169,8 @@ defineExpose({
         cancelPendingSearchScroll();
         singlePageScroll.scrollToPage(pageNumber);
     },
+    captureScrollSnapshot: captureViewerScrollSnapshot,
+    restoreScrollSnapshot: restoreViewerScrollSnapshot,
     saveDocument,
     highlightSelection: highlightComposable.highlightSelection,
     commentSelection: highlightComposable.commentSelection,

@@ -4,12 +4,18 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type { ICropSelectionResult } from '@app/types/crop';
+import type { IScrollSnapshot } from '@app/types/pdf';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
 export interface IPdfViewerExpose {
     getViewerContainer: () => HTMLElement | null;
     scrollToPage: (page: number) => void;
+    captureScrollSnapshot?: () => IScrollSnapshot | null;
+    restoreScrollSnapshot?: (
+        snapshot: IScrollSnapshot | null,
+        options?: { fallbackPage?: number | null; },
+    ) => void;
     captureRegionToClipboard: () => Promise<boolean>;
     isCapturingRegion: boolean;
     startCropSelection: () => Promise<ICropSelectionResult | null>;
