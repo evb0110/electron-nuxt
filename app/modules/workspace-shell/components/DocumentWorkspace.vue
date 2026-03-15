@@ -396,7 +396,6 @@ import DjvuBanner from '@app/components/djvu/DjvuBanner.vue';
 import DjvuConversionOverlay from '@app/components/djvu/DjvuConversionOverlay.vue';
 import OcrPopup from '@app/components/ocr/OcrPopup.vue';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
-import type { ICropMargins } from '@app/types/crop';
 import PdfCropDialog from '@app/components/pdf/PdfCropDialog.vue';
 import PdfExportScopeDialog from '@app/components/pdf/PdfExportScopeDialog.vue';
 import PdfPageDropdown from '@app/components/pdf/PdfPageDropdown.vue';
@@ -412,6 +411,8 @@ import WorkspaceShell from '@app/modules/workspace-shell/components/layout/Works
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
 import WorkspaceViewerHost from '@app/modules/workspace-shell/components/layout/WorkspaceViewerHost.vue';
+import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
+import { useDocumentWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceToolbar';
 import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
@@ -446,22 +447,12 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
-const SPLIT_CACHE_LOG_SECTION = 'split-cache';
 const isRestoringSplitPayload = ref(false);
 const currentPageTransitionHistory = ref<Array<{
     page: number;
     at: number 
 }>>([]);
-const sidebarToggleCheckpointTimers = new Set<ReturnType<typeof setTimeout>>();
-
-const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(props.tabId));
-const isExternallyRestoring = computed(() => workspaceRestoreTracker.has(props.tabId));
-const suppressEmptyState = computed(() => (
-    isRestoringSplitPayload.value
-    || hasQueuedSplitRestore.value
-    || isExternallyRestoring.value
-    || props.pendingDocumentOpen === true
-));
+const pendingDocumentOpen = computed(() => props.pendingDocumentOpen === true);
 
 const w = useWorkspaceOrchestration({
     isActive: toRef(props, 'isActive'),
@@ -691,168 +682,60 @@ function handleViewerTotalPagesUpdate(value: number) {
     totalPages.value = value;
 }
 
-const canExportDocx = computed(() => (
-    Boolean(workingCopyPath.value)
-    && !isAnySaving.value
-    && !isHistoryBusy.value
-    && !isExportingDocx.value
-));
-
-function clearSidebarToggleCheckpointTimers() {
-    for (const timer of sidebarToggleCheckpointTimers) {
-        clearTimeout(timer);
-    }
-    sidebarToggleCheckpointTimers.clear();
-}
-
-function runToolbarAction(action: () => unknown) {
-    const result = action();
-    if (result instanceof Promise) {
-        void result.catch((error) => {
-            BrowserLogger.error('workspace', 'Toolbar action failed', {
-                tabId: props.tabId,
-                error,
-            });
-        });
-    }
-    closeAllDropdowns();
-}
-
-function handleToolbarSave() {
-    runToolbarAction(handleSave);
-}
-
-function handleToolbarSaveAs() {
-    runToolbarAction(handleSaveAs);
-}
-
-function handleToolbarExportDocx() {
-    runToolbarAction(handleExportDocx);
-}
-
-function handleToolbarUndo() {
-    runToolbarAction(handleUndo);
-}
-
-function handleToolbarRedo() {
-    runToolbarAction(handleRedo);
-}
-
-function handleToolbarToggleSidebar() {
-    clearSidebarToggleCheckpointTimers();
-    const attemptId = `sidebar-toggle-${crypto.randomUUID()}`;
-    const beforePage = currentPage.value;
-    const beforeSidebar = showSidebar.value;
-    const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
-    const beforeViewerScrollTop = viewer ? Math.round(viewer.scrollTop) : null;
-    BrowserLogger.warn('pdf-nav', 'Toolbar sidebar toggle requested', {
-        attemptId,
-        beforeSidebar,
-        beforePage,
-        sidebarTab: sidebarTab.value,
-        totalPages: totalPages.value,
-        isLoading: isLoading.value,
-        continuousScroll: continuousScroll.value,
-        fitMode: fitMode.value,
-        viewMode: viewMode.value,
-        zoom: zoom.value,
-        viewerScrollTop: beforeViewerScrollTop,
-    });
-    runToolbarAction(() => {
-        showSidebar.value = !showSidebar.value;
-        BrowserLogger.warn('pdf-nav', 'Toolbar sidebar toggle applied', {
-            attemptId,
-            afterSidebar: showSidebar.value,
-            pageAfterToggleWrite: currentPage.value,
-        });
-    });
-
-    const checkpointSchedule = [
-        0,
-        50,
-        150,
-        350,
-        700,
-        1200,
-    ];
-    checkpointSchedule.forEach((delayMs) => {
-        const timer = setTimeout(() => {
-            sidebarToggleCheckpointTimers.delete(timer);
-            const checkpointViewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
-            BrowserLogger.warn(
-                'pdf-nav',
-                `[sidebar-toggle-checkpoint] attempt=${attemptId} t+${delayMs}ms page=${currentPage.value} sidebar=${showSidebar.value}`,
-                {
-                    attemptId,
-                    delayMs,
-                    page: currentPage.value,
-                    sidebarOpen: showSidebar.value,
-                    sidebarTab: sidebarTab.value,
-                    isResizingSidebar: isResizingSidebar.value,
-                    fitMode: fitMode.value,
-                    viewMode: viewMode.value,
-                    continuousScroll: continuousScroll.value,
-                    zoom: zoom.value,
-                    viewerScrollTop: checkpointViewer ? Math.round(checkpointViewer.scrollTop) : null,
-                    viewerScrollLeft: checkpointViewer ? Math.round(checkpointViewer.scrollLeft) : null,
-                    viewerClientHeight: checkpointViewer ? Math.round(checkpointViewer.clientHeight) : null,
-                },
-            );
-        }, delayMs);
-        sidebarToggleCheckpointTimers.add(timer);
-    });
-}
-
-function handleToolbarFitWidth() {
-    runToolbarAction(() => {
-        handleFitMode('width');
-    });
-}
-
-function handleToolbarFitHeight() {
-    runToolbarAction(() => {
-        handleFitMode('height');
-    });
-}
-
-function handleToolbarToggleContinuousScroll() {
-    runToolbarAction(() => {
-        continuousScroll.value = !continuousScroll.value;
-    });
-}
-
-function handleToolbarEnableDrag() {
-    runToolbarAction(enableDragMode);
-}
-
-function handleToolbarDisableDrag() {
-    runToolbarAction(() => {
-        handleAnnotationToolChange('none');
-    });
-}
-
-function handleToolbarCaptureRegion() {
-    runToolbarAction(handleCaptureRegion);
-}
-
-function handleToolbarCrop() {
-    runToolbarAction(handleCrop);
-}
-
-function handleCropApply(payload: {
-    margins: ICropMargins;
-    pages: number[];
-}) {
-    void handleCropPages(payload.pages, payload.margins);
-}
-
-function handleCropRemove(payload: { pages: number[] }) {
-    void handleRemoveCrop(payload.pages);
-}
-
-function handleToolbarQuickNote() {
-    runToolbarAction(handleQuickNoteAction);
-}
+const {
+    canExportDocx,
+    clearSidebarToggleCheckpointTimers,
+    handleCropApply,
+    handleCropRemove,
+    handleOverflowOpenSettings,
+    handleOverflowSetViewMode,
+    handleToolbarCaptureRegion,
+    handleToolbarCrop,
+    handleToolbarDisableDrag,
+    handleToolbarEnableDrag,
+    handleToolbarExportDocx,
+    handleToolbarFitHeight,
+    handleToolbarFitWidth,
+    handleToolbarQuickNote,
+    handleToolbarRedo,
+    handleToolbarSave,
+    handleToolbarSaveAs,
+    handleToolbarToggleContinuousScroll,
+    handleToolbarToggleSidebar,
+    handleToolbarUndo,
+} = useDocumentWorkspaceToolbar({
+    tabId: props.tabId,
+    emitOpenSettings: () => emit('open-settings'),
+    closeAllDropdowns,
+    handleSave,
+    handleSaveAs,
+    handleExportDocx,
+    handleUndo,
+    handleRedo,
+    handleCaptureRegion,
+    handleCrop,
+    handleQuickNoteAction,
+    handleFitMode,
+    handleAnnotationToolChange,
+    enableDragMode,
+    handleRemoveCrop,
+    handleCropPages,
+    workingCopyPath,
+    isAnySaving,
+    isHistoryBusy,
+    isExportingDocx,
+    showSidebar,
+    sidebarTab,
+    currentPage,
+    totalPages,
+    isLoading,
+    continuousScroll,
+    fitMode,
+    viewMode,
+    zoom,
+    pdfViewerRef,
+    isResizingSidebar,
+});
 
 function handleViewerCurrentPageUpdate(page: number) {
     const previousPage = currentPage.value;
@@ -875,268 +758,37 @@ function handleViewerCurrentPageUpdate(page: number) {
     currentPage.value = page;
 }
 
-function handleOverflowSetViewMode(mode: typeof viewMode.value) {
-    runToolbarAction(() => {
-        viewMode.value = mode;
-    });
-}
-
-function handleOverflowOpenSettings() {
-    runToolbarAction(() => {
-        emit('open-settings');
-    });
-}
-
-async function restoreCachedSplitPayloadIfNeeded() {
-    if (!workspaceSplitCache.has(props.tabId) || hasPdf.value || props.pendingDocumentOpen === true) {
-        return;
-    }
-
-    const payload = workspaceSplitCache.consume(props.tabId);
-    if (!payload) {
-        return;
-    }
-
-    isRestoringSplitPayload.value = true;
-    try {
-        if (payload.kind === 'pdfSnapshot') {
-            if (payload.currentPage && Number.isFinite(payload.currentPage)) {
-                currentPage.value = Math.max(1, Math.floor(payload.currentPage));
-            }
-            if (payload.totalPages && Number.isFinite(payload.totalPages)) {
-                const normalizedTotalPages = Math.max(
-                    currentPage.value,
-                    Math.floor(payload.totalPages),
-                );
-                totalPages.value = Math.max(totalPages.value, normalizedTotalPages);
-            }
-        }
-        BrowserLogger.warn('toolbar-transition', 'Restoring cached split payload', {
-            tabId: props.tabId,
-            payloadKind: payload.kind,
-            hadPdfBeforeRestore: hasPdf.value,
-            payloadCurrentPage: payload.kind === 'pdfSnapshot' ? payload.currentPage : null,
-            payloadTotalPages: payload.kind === 'pdfSnapshot' ? payload.totalPages : null,
-            preseededCurrentPage: currentPage.value,
-            preseededTotalPages: totalPages.value,
-        });
-
-        await restoreSplitPayload(payload);
-    } catch (error) {
-        BrowserLogger.warn('workspace', 'Failed to restore cached split payload', {
-            tabId: props.tabId,
-            payloadKind: payload.kind,
-            error,
-        });
-    } finally {
-        isRestoringSplitPayload.value = false;
-    }
-}
-
-const canCacheSplitPayloadForRemount = computed(() => (
-    props.isTabTransitionBusy === true
-    && !isRestoringSplitPayload.value
-    && !isExternallyRestoring.value
-    && props.pendingDocumentOpen !== true
-));
-
-async function cacheSplitPayloadForRemount() {
-    if (!canCacheSplitPayloadForRemount.value) {
-        BrowserLogger.debug(SPLIT_CACHE_LOG_SECTION, 'Skipping split payload cache on unmount', {
-            tabId: props.tabId,
-            reason: 'guard-blocked',
-            isTabTransitionBusy: props.isTabTransitionBusy,
-            isRestoringSplitPayload: isRestoringSplitPayload.value,
-            isExternallyRestoring: isExternallyRestoring.value,
-            pendingDocumentOpen: props.pendingDocumentOpen === true,
-        });
-        return;
-    }
-
-    if (workspaceSplitCache.has(props.tabId)) {
-        BrowserLogger.debug(SPLIT_CACHE_LOG_SECTION, 'Skipping split payload cache on unmount', {
-            tabId: props.tabId,
-            reason: 'cache-already-populated',
-        });
-        return;
-    }
-
-    try {
-        const payload = await captureSplitPayload();
-        if (payload.kind === 'empty') {
-            BrowserLogger.debug(SPLIT_CACHE_LOG_SECTION, 'Skipping split payload cache on unmount', {
-                tabId: props.tabId,
-                reason: 'captured-empty-payload',
-            });
-            return;
-        }
-        workspaceSplitCache.set(props.tabId, payload);
-        BrowserLogger.debug(SPLIT_CACHE_LOG_SECTION, 'Cached split payload on unmount', {
-            tabId: props.tabId,
-            payloadKind: payload.kind,
-        });
-    } catch (error) {
-        BrowserLogger.warn('workspace', 'Failed to cache split payload on unmount', {
-            tabId: props.tabId,
-            error,
-        });
-    }
-}
-
-onMounted(() => {
-    initFromStorage();
-    setupShortcuts();
-});
-
-watch(
-    [
-        hasQueuedSplitRestore,
-        hasPdf,
-        isRestoringSplitPayload,
-        isExternallyRestoring,
-        () => props.pendingDocumentOpen === true,
-    ],
-    ([
-        hasQueued,
-        hasLoadedPdf,
-        isRestoring,
-        isExternalRestoreInProgress,
-        pendingDocumentOpen,
-    ]) => {
-        if (!hasQueued || hasLoadedPdf || isRestoring || isExternalRestoreInProgress || pendingDocumentOpen) {
-            return;
-        }
-        void restoreCachedSplitPayloadIfNeeded();
-    },
-    { immediate: true },
-);
-
-onBeforeUnmount(() => {
-    void cacheSplitPayloadForRemount();
-});
-
-watch(showSidebar, (next, previous) => {
-    if (next === previous) {
-        return;
-    }
-    const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
-    BrowserLogger.warn('pdf-nav', `[workspace-sidebar] ${previous ? 'open' : 'closed'} -> ${next ? 'open' : 'closed'}`, {
-        previous,
-        next,
-        currentPage: currentPage.value,
-        sidebarTab: sidebarTab.value,
-        isResizingSidebar: isResizingSidebar.value,
-        totalPages: totalPages.value,
-        isLoading: isLoading.value,
-        viewerScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
-    });
-});
-
-watch(currentPage, (next, previous) => {
-    if (next === previous) {
-        return;
-    }
-    const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
-    BrowserLogger.warn('pdf-nav', `[workspace-page-ref] ${previous}->${next}`, {
-        previous,
-        next,
-        sidebarOpen: showSidebar.value,
-        sidebarTab: sidebarTab.value,
-        isLoading: isLoading.value,
-        continuousScroll: continuousScroll.value,
-        fitMode: fitMode.value,
-        viewMode: viewMode.value,
-        zoom: zoom.value,
-        viewerScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
-        viewerScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
-    });
-
-    const now = Date.now();
-    currentPageTransitionHistory.value = [
-        ...currentPageTransitionHistory.value,
-        {
-            page: next,
-            at: now,
-        },
-    ].filter((entry) => now - entry.at <= 2000).slice(-8);
-
-    const history = currentPageTransitionHistory.value;
-    if (history.length >= 3) {
-        const last = history[history.length - 1]!;
-        const mid = history[history.length - 2]!;
-        const first = history[history.length - 3]!;
-        const isBounce = first.page === last.page && first.page !== mid.page;
-        if (isBounce) {
-            BrowserLogger.warn('pdf-nav', `[workspace-page-bounce] detected ${first.page}->${mid.page}->${last.page}`, {
-                history: history.map((entry) => ({
-                    page: entry.page,
-                    dtMs: now - entry.at,
-                })),
-                sidebarOpen: showSidebar.value,
-                sidebarTab: sidebarTab.value,
-                isResizingSidebar: isResizingSidebar.value,
-                fitMode: fitMode.value,
-                viewMode: viewMode.value,
-                continuousScroll: continuousScroll.value,
-                zoom: zoom.value,
-            });
-        }
-    }
-});
-
-watch(
-    () => [
-        fitMode.value,
-        viewMode.value,
-        continuousScroll.value,
-        zoom.value,
-    ] as const,
-    ([
-        nextFit,
-        nextViewMode,
-        nextContinuous,
-        nextZoom,
-    ], [
-        prevFit,
-        prevViewMode,
-        prevContinuous,
-        prevZoom,
-    ]) => {
-        if (
-            nextFit === prevFit
-            && nextViewMode === prevViewMode
-            && nextContinuous === prevContinuous
-            && nextZoom === prevZoom
-        ) {
-            return;
-        }
-        BrowserLogger.warn('pdf-nav', 'DocumentWorkspace view controls changed', {
-            fitMode: {
-                previous: prevFit,
-                next: nextFit, 
-            },
-            viewMode: {
-                previous: prevViewMode,
-                next: nextViewMode, 
-            },
-            continuousScroll: {
-                previous: prevContinuous,
-                next: nextContinuous, 
-            },
-            zoom: {
-                previous: prevZoom,
-                next: nextZoom, 
-            },
-            currentPage: currentPage.value,
-            sidebarOpen: showSidebar.value,
-        });
-    },
-);
-
-onUnmounted(() => {
-    clearSidebarToggleCheckpointTimers();
-    cleanupSidebarResizeListeners();
-    cleanupShortcuts();
+const {
+    hasQueuedSplitRestore,
+    isExternallyRestoring,
+    suppressEmptyState,
+} = useDocumentWorkspaceSplitRestore({
+    tabId: props.tabId,
+    pendingDocumentOpen,
+    isTabTransitionBusy: computed(() => props.isTabTransitionBusy === true),
+    workspaceSplitCache,
+    workspaceRestoreTracker,
+    hasPdf,
+    currentPage,
+    totalPages,
+    showSidebar,
+    sidebarTab,
+    isResizingSidebar,
+    isLoading,
+    continuousScroll,
+    fitMode,
+    viewMode,
+    zoom,
+    pdfViewerRef,
+    initFromStorage,
+    setupShortcuts,
+    cleanupShortcuts,
+    cleanupSidebarResizeListeners,
+    captureSplitPayload,
+    restoreSplitPayload,
+    isRestoringSplitPayload,
+    currentPageTransitionHistory,
+    clearSidebarToggleCheckpointTimers,
 });
 
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
