@@ -1468,6 +1468,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         () => continuousScroll.value,
         () => {
             resetContinuousScrollState();
+            if (fitMode.value === 'height' && pdfDocument.value) {
+                computeFitWidthScale(viewerContainer.value);
+            }
         },
     );
 
@@ -1503,6 +1506,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
 
     watch(currentPage, (page) => {
         annotationUiManager.value?.onPageChanging({ pageNumber: page });
+        if (fitMode.value === 'height' && !continuousScroll.value && pdfDocument.value) {
+            computeFitWidthScale(viewerContainer.value);
+        }
     });
 
     watch(

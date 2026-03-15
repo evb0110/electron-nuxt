@@ -22,6 +22,8 @@ export const usePdfScale = (
     pageMetrics: MaybeRefOrGetter<IPdfPageMetric[]>,
     basePageWidth: MaybeRefOrGetter<number | null>,
     basePageHeight: MaybeRefOrGetter<number | null>,
+    currentPage: MaybeRefOrGetter<number>,
+    continuousScroll: MaybeRefOrGetter<boolean>,
 ) => {
     const fitWidthScale = ref(1);
     const lastContainerSize = ref<number | null>(null);
@@ -94,9 +96,17 @@ export const usePdfScale = (
             });
             return false;
         }
-        const baseDimension = mode === 'height'
-            ? height
-            : width;
+        const baseDimension = (() => {
+            if (mode !== 'height') {
+                return width;
+            }
+            if (toValue(continuousScroll)) {
+                return height;
+            }
+            const page = toValue(currentPage);
+            const pageHeight = normalizedPageMetrics[page - 1]?.height ?? null;
+            return (pageHeight != null && pageHeight > 0) ? pageHeight : height;
+        })();
 
         if (
             lastContainerSize.value !== null

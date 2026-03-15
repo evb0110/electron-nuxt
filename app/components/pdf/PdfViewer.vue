@@ -332,6 +332,8 @@ const {
     pageMetrics,
     basePageWidth,
     basePageHeight,
+    currentPage,
+    continuousScroll,
 );
 
 watch(

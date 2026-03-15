@@ -434,7 +434,7 @@ export function usePdfSinglePageScroll(
         const activePage = getMostVisiblePage(container, numPages.value);
         const bounds = getPageScrollBounds(activePage);
 
-        if (bounds) {
+        if (bounds && isTallPage(activePage)) {
             const canScrollWithinPage =
                 direction > 0
                     ? container.scrollTop < bounds.max - PAGE_SCROLL_EDGE_EPSILON
@@ -476,7 +476,11 @@ export function usePdfSinglePageScroll(
             return;
         }
 
-        snapToPage(targetPage, resolveSnapAnchorForWheelDirection(direction));
+        const anchor = isTallPage(targetPage)
+            ? resolveSnapAnchorForWheelDirection(direction)
+            : 'center';
+        snapToPage(targetPage, anchor);
+        suppressSnapFor(250);
     }
 
     function handleScroll() {
