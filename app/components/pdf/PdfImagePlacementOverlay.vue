@@ -403,6 +403,7 @@ function applyRotateInteraction(interaction: IActiveInteraction, event: PointerE
         startClientY: interaction.startClientY,
         clientX: event.clientX,
         clientY: event.clientY,
+        shiftKey: event.shiftKey,
     });
 
     const handlePos = getImagePlacementRotateHandleViewportPosition(

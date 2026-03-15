@@ -55,8 +55,8 @@ interface IImagePlacementPointerRotateOptions {
     startClientY: number;
     clientX: number;
     clientY: number;
+    shiftKey?: boolean;
     snapStepDegrees?: number;
-    snapThresholdDegrees?: number;
 }
 
 interface IPoint2D {
@@ -65,8 +65,7 @@ interface IPoint2D {
 }
 
 const DEFAULT_MIN_IMAGE_PLACEMENT_SIZE_PX = 32;
-const DEFAULT_ROTATION_SNAP_STEP_DEGREES = 90;
-const DEFAULT_ROTATION_SNAP_THRESHOLD_DEGREES = 5;
+const DEFAULT_ROTATION_SNAP_STEP_DEGREES = 15;
 const EPSILON = 0.0001;
 const IMAGE_PLACEMENT_CURSOR_SIZE_PX = 32;
 const IMAGE_PLACEMENT_CURSOR_HOTSPOT_PX = 16;
@@ -461,21 +460,15 @@ export function normalizeImagePlacementRotationDegrees(value: number) {
 export function snapImagePlacementRotationDegrees(
     value: number,
     stepDegrees: number = DEFAULT_ROTATION_SNAP_STEP_DEGREES,
-    thresholdDegrees: number = DEFAULT_ROTATION_SNAP_THRESHOLD_DEGREES,
 ) {
     const normalized = normalizeImagePlacementRotationDegrees(value);
-    if (!Number.isFinite(stepDegrees) || stepDegrees <= 0 || thresholdDegrees < 0) {
+    if (!Number.isFinite(stepDegrees) || stepDegrees <= 0) {
         return normalized;
     }
 
-    const snapped = Math.round(normalized / stepDegrees) * stepDegrees;
-    const snappedNormalized = normalizeImagePlacementRotationDegrees(snapped);
-    const distanceToSnap = Math.abs(normalizeImagePlacementRotationDegrees(normalized - snappedNormalized));
-    if (distanceToSnap <= thresholdDegrees) {
-        return snappedNormalized;
-    }
-
-    return normalized;
+    return normalizeImagePlacementRotationDegrees(
+        Math.round(normalized / stepDegrees) * stepDegrees,
+    );
 }
 
 export function moveImagePlacementRect(
@@ -644,8 +637,8 @@ export function rotateImagePlacementRect(
         startClientY,
         clientX,
         clientY,
+        shiftKey = false,
         snapStepDegrees = DEFAULT_ROTATION_SNAP_STEP_DEGREES,
-        snapThresholdDegrees = DEFAULT_ROTATION_SNAP_THRESHOLD_DEGREES,
     } = options;
     const center = getRectCenter(originRectPx);
     const viewportCenter = {
@@ -655,11 +648,10 @@ export function rotateImagePlacementRect(
     const startAngle = getPointerAngleFromCenter(viewportCenter, startClientX, startClientY);
     const nextAngle = getPointerAngleFromCenter(viewportCenter, clientX, clientY);
     const angleDelta = getShortestImagePlacementAngleDelta(nextAngle - startAngle);
-    const rotationDegrees = snapImagePlacementRotationDegrees(
-        normalizeImagePlacementRotationDegrees(originRotationDegrees + angleDelta),
-        snapStepDegrees,
-        snapThresholdDegrees,
-    );
+    const rawRotation = normalizeImagePlacementRotationDegrees(originRotationDegrees + angleDelta);
+    const rotationDegrees = shiftKey
+        ? snapImagePlacementRotationDegrees(rawRotation, snapStepDegrees)
+        : rawRotation;
 
     return {
         rectPx: toRectFromCenter(center, originRectPx.width, originRectPx.height),

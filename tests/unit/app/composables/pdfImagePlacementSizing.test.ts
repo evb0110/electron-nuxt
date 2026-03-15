@@ -209,14 +209,15 @@ describe('computeInitialImagePlacementDimensions', () => {
         expect(rect.width / rect.height).toBeCloseTo(1.6, 4);
     });
 
-    it('snaps rotation near straight angles', () => {
+    it('quantizes rotation to 15-degree increments', () => {
         expect(snapImagePlacementRotationDegrees(2)).toBe(0);
+        expect(snapImagePlacementRotationDegrees(8)).toBe(15);
         expect(snapImagePlacementRotationDegrees(88)).toBe(90);
+        expect(snapImagePlacementRotationDegrees(44)).toBe(45);
         expect(snapImagePlacementRotationDegrees(182)).toBe(180);
-        expect(snapImagePlacementRotationDegrees(44)).toBe(44);
     });
 
-    it('computes a snapped rotation from the rotate handle pointer path', () => {
+    it('snaps rotation to 15-degree increments when Shift is held', () => {
         const rotated = rotateImagePlacementRect({
             originRectPx: {
                 left: 200,
@@ -233,11 +234,34 @@ describe('computeInitialImagePlacementDimensions', () => {
             startClientY: 80,
             clientX: 320,
             clientY: 180,
+            shiftKey: true,
         });
 
         expect(rotated.rotationDegrees).toBe(90);
         expect(rotated.rectPx.width).toBeCloseTo(120, 4);
         expect(rotated.rectPx.height).toBeCloseTo(80, 4);
+    });
+
+    it('rotates freely without snapping when Shift is not held', () => {
+        const rotated = rotateImagePlacementRect({
+            originRectPx: {
+                left: 200,
+                top: 140,
+                width: 120,
+                height: 80,
+            },
+            containerOrigin: {
+                x: 0,
+                y: 0,
+            },
+            originRotationDegrees: 0,
+            startClientX: 260,
+            startClientY: 80,
+            clientX: 310,
+            clientY: 160,
+        });
+
+        expect(rotated.rotationDegrees % 15).not.toBe(0);
     });
 
     it('keeps rotation deltas continuous across the angle wrap boundary', () => {
@@ -277,7 +301,6 @@ describe('computeInitialImagePlacementDimensions', () => {
             startClientY: 154.792,
             clientX: 101.223,
             clientY: 151.32,
-            snapThresholdDegrees: 0,
         });
 
         expect(rotated.rotationDegrees).toBeCloseTo(17, 1);
