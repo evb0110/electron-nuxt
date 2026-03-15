@@ -11,7 +11,7 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 
 const { mockHasElectronAPI } = vi.hoisted(() => ({mockHasElectronAPI: vi.fn(() => true)}));
 
-vi.mock('@app/utils/electron', () => ({hasElectronAPI: () => mockHasElectronAPI()}));
+vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mockHasElectronAPI()}));
 
 function cast<T>(obj: unknown): T {
     return obj as T;
@@ -100,13 +100,18 @@ describe('usePageFileOperations', () => {
 
     it('opens through openFile directly in browser mode', async () => {
         mockHasElectronAPI.mockReturnValue(false);
-        const deps = createDeps();
+        const openResult = {
+            kind: 'pdf' as const,
+            originalPath: 'browser://documents/source/browser-open.pdf',
+            workingPath: 'browser://documents/working/browser-open.pdf',
+        };
+        const deps = createDeps({pickFileToOpen: vi.fn(async () => openResult)});
         const { handleOpenFileFromUi } = usePageFileOperations(deps);
 
         await expect(handleOpenFileFromUi()).resolves.toBeUndefined();
 
-        expect(deps.pickFileToOpen).not.toHaveBeenCalled();
-        expect(deps.openFile).toHaveBeenCalledOnce();
+        expect(deps.pickFileToOpen).toHaveBeenCalledOnce();
+        expect(deps.openFile).toHaveBeenCalledWith(openResult);
         expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
     });
 

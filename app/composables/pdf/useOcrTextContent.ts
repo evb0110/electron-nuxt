@@ -1,7 +1,7 @@
 import type { PageViewport } from 'pdfjs-dist';
 import { safeDestr } from 'destr';
 import type { IPdfRawDims } from '@app/types/pdf';
-import { getElectronAPI } from '@app/utils/electron';
+import { getElectronAPI } from '@app/utils/platform';
 import type { IOcrWord } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browser-logger';
 

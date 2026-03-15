@@ -267,7 +267,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TTranslationKey } from '@i18n-app';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/electron';
+import { getElectronAPI } from '@app/utils/platform';
 
 const { t } = useTypedI18n();
 type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${string}`>;

@@ -45,7 +45,7 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     getElectronAPI,
     hasElectronAPI,
-} from '@app/utils/electron';
+} from '@app/utils/platform';
 
 export {
     getPdfPopupDict, parsePdfJsAnnotationRef, resolveCommentPdfRefInDocument,

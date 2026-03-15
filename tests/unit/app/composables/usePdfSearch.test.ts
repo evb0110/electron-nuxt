@@ -18,7 +18,7 @@ const mockElectronAPI = { search: mockSearch };
 
 const hasElectronApiMock = vi.fn(() => true);
 
-vi.mock('@app/utils/electron', () => ({
+vi.mock('@app/utils/platform', () => ({
     getElectronAPI: () => mockElectronAPI,
     hasElectronAPI: () => hasElectronApiMock(),
 }));

@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import {
     getElectronAPI,
     hasElectronAPI,
-} from '@app/utils/electron';
+} from '@app/utils/platform';
 import { guardAsync } from '@app/utils/async-guard';
 import type { ITab } from '@app/types/tabs';
 import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';

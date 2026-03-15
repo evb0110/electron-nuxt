@@ -5,19 +5,7 @@ import {
 } from '@contracts/settings';
 import type { ISettingsData } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/electron';
-
-// Vite HMR types (not exposed by Nuxt's type system)
-declare global {
-    // eslint-disable-next-line @typescript-eslint/naming-convention -- augmenting built-in ImportMeta
-    interface ImportMeta {hot?: {
-        data?: Record<string, unknown>;
-        dispose: (callback: (data: Record<string, unknown>) => void) => void;
-    };}
-}
+import { getElectronAPI } from '@app/utils/platform';
 
 // Shared state across all composable instances
 const settings = ref<ISettingsData>({ ...DEFAULT_SETTINGS });
@@ -29,10 +17,6 @@ let loadPromise: Promise<void> | null = null;
 export const useSettings = () => {
 
     async function load() {
-        if (!hasElectronAPI()) {
-            return;
-        }
-
         // Deduplicate: if already loading, return existing promise
         if (loadPromise) {
             return loadPromise;
@@ -54,10 +38,6 @@ export const useSettings = () => {
     }
 
     async function save() {
-        if (!hasElectronAPI()) {
-            return;
-        }
-
         try {
             const payload = sanitizeSettings(toRaw(settings.value));
             await getElectronAPI().settings.save(payload);
@@ -85,7 +65,7 @@ export const useSettings = () => {
 
 // HMR support: preserve and restore state across hot updates
 if (import.meta.hot) {
-    import.meta.hot.dispose((data) => {
+    import.meta.hot.dispose((data: Record<string, unknown>) => {
         data.settings = settings.value;
         data.isLoaded = isLoaded.value;
     });

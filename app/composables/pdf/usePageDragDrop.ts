@@ -3,10 +3,7 @@ import {
     useEventListener,
     useIntervalFn,
 } from '@vueuse/core';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/electron';
+import {getElectronAPI} from '@app/utils/platform';
 
 interface IPageDragDropDeps {
     containerRef: Ref<HTMLElement | null>;
@@ -378,7 +375,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         dropInsertIndex.value = null;
         dragEnterCounter = 0;
 
-        if (!onExternalFileDrop || !e.dataTransfer || !hasElectronAPI()) {
+        if (!onExternalFileDrop || !e.dataTransfer) {
             return;
         }
 

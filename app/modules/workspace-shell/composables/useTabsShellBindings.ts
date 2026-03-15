@@ -6,7 +6,7 @@ import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import {
     getElectronAPI,
     hasElectronAPI,
-} from '@app/utils/electron';
+} from '@app/utils/platform';
 import { traceRendererStartup } from '@app/utils/startup-trace';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/composables/tabs-menu-bindings';
 

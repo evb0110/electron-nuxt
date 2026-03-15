@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
     setMenuTabCount: vi.fn(async () => {}),
 }));
 
-vi.mock('@app/utils/electron', () => ({
+vi.mock('@app/utils/platform', () => ({
     hasElectronAPI: () => mocks.hasElectronAPI(),
     getElectronAPI: () => ({documents: {
         setMenuDocumentState: mocks.setMenuDocumentState,

@@ -1,9 +1,8 @@
-
 import { clamp } from 'es-toolkit/math';
 import {
     getElectronAPI,
     hasElectronAPI,
-} from '@app/utils/electron';
+} from '@app/utils/platform';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type { TPdfSource } from '@app/types/pdf';
 import type { TOpenFileResult } from '@contracts/electron-api';
@@ -18,26 +17,6 @@ interface IOpenBatchProgressState {
 }
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
-const BROWSER_PDF_ACCEPT = '.pdf,application/pdf';
-
-interface IOpenFilePickerAcceptType {
-    description?: string;
-    accept: Record<string, string[]>;
-}
-
-interface IOpenFilePickerOptions {
-    multiple?: boolean;
-    excludeAcceptAllOption?: boolean;
-    types?: IOpenFilePickerAcceptType[];
-}
-
-interface IOpenFilePickerHandle {getFile: () => Promise<File>;}
-interface IWindowWithOpenFilePicker extends Window {showOpenFilePicker?: (options?: IOpenFilePickerOptions) => Promise<IOpenFilePickerHandle[]>;}
-const BROWSER_PDF_PICKER_ACCEPT: Record<string, string[]> = { 'application/pdf': ['.pdf'] };
-const BROWSER_PDF_PICKER_TYPES: IOpenFilePickerAcceptType[] = [{
-    description: 'PDF Documents',
-    accept: BROWSER_PDF_PICKER_ACCEPT,
-}];
 
 function getPathBaseName(path: string | null) {
     if (!path) {
@@ -45,10 +24,6 @@ function getPathBaseName(path: string | null) {
     }
 
     return path.split(/[\\/]/).pop() ?? null;
-}
-
-function isPdfFile(file: File) {
-    return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
 }
 
 export const usePdfFile = () => {
@@ -69,7 +44,11 @@ export const usePdfFile = () => {
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
-    const fileName = computed(() => getPathBaseName(workingCopyPath.value) ?? getPathBaseName(originalPath.value));
+    const fileName = computed(
+        () =>
+            getPathBaseName(workingCopyPath.value) ??
+      getPathBaseName(originalPath.value),
+    );
     const isElectron = computed(() => hasElectronAPI());
 
     const pendingDjvu = ref<string | null>(null);
@@ -81,119 +60,12 @@ export const usePdfFile = () => {
         return api.documents.openPdfDialog();
     }
 
-    async function pickBrowserPdfFileWithInput() {
-        if (typeof document === 'undefined' || typeof window === 'undefined') {
-            return null;
-        }
-
-        return new Promise<File | null>((resolve) => {
-            const input = document.createElement('input');
-            let settled = false;
-
-            const cleanup = () => {
-                input.remove();
-                window.removeEventListener('focus', handleFocus);
-            };
-
-            const finish = (file: File | null) => {
-                if (settled) {
-                    return;
-                }
-
-                settled = true;
-                cleanup();
-                resolve(file);
-            };
-
-            const handleFocus = () => {
-                window.setTimeout(() => {
-                    if (!settled) {
-                        finish(null);
-                    }
-                }, 0);
-            };
-
-            input.type = 'file';
-            input.accept = BROWSER_PDF_ACCEPT;
-            input.style.display = 'none';
-            input.addEventListener('change', () => {
-                const file = input.files?.[0] ?? null;
-                finish(file);
-            }, { once: true });
-
-            document.body.append(input);
-            window.addEventListener('focus', handleFocus, { once: true });
-            input.click();
-        });
-    }
-
-    async function pickBrowserPdfFile() {
-        if (typeof window === 'undefined') {
-            return null;
-        }
-
-        const openFilePicker = (window as IWindowWithOpenFilePicker).showOpenFilePicker;
-        if (typeof openFilePicker === 'function') {
-            try {
-                const [handle] = await openFilePicker({
-                    multiple: false,
-                    types: BROWSER_PDF_PICKER_TYPES,
-                });
-
-                return handle ? handle.getFile() : null;
-            } catch (error) {
-                if (error instanceof DOMException && error.name === 'AbortError') {
-                    return null;
-                }
-
-                throw error;
-            }
-        }
-
-        return pickBrowserPdfFileWithInput();
-    }
-
-    async function loadPdfFromBrowserFile(file: File) {
-        if (!isPdfFile(file)) {
-            error.value = t('errors.file.invalid');
-            return;
-        }
-
-        const data = new Uint8Array(await file.arrayBuffer());
-        const prevPath = workingCopyPath.value;
-
-        latestLoadRequestId += 1;
-        workingCopyPath.value = null;
-        originalPath.value = file.name;
-        pdfData.value = data;
-        pdfSrc.value = new Blob([data], { type: file.type || 'application/pdf' });
-        requiresSaveAsOnFirstSave.value = false;
-        resetHistory(data);
-        isDirty.value = false;
-        pendingDjvu.value = null;
-        openBatchProgress.value = null;
-
-        if (prevPath && prevPath !== workingCopyPath.value) {
-            clearOcrCache(prevPath);
-        }
-    }
-
     async function openFile(preSelected?: TOpenFileResult) {
         error.value = null;
         pendingDjvu.value = null;
         openBatchProgress.value = null;
         try {
-            if (!preSelected && !hasElectronAPI()) {
-                const browserFile = await pickBrowserPdfFile();
-                if (!browserFile) {
-                    return;
-                }
-
-                await loadPdfFromBrowserFile(browserFile);
-                return;
-            }
-
-            const result = preSelected ?? await pickFileToOpen();
+            const result = preSelected ?? (await pickFileToOpen());
             if (!result) {
                 return;
             }
@@ -201,7 +73,7 @@ export const usePdfFile = () => {
                 pendingDjvu.value = result.originalPath;
                 return;
             }
-            await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
+            await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
             if (workingCopyPath.value !== result.workingPath) {
                 return;
             }
@@ -216,42 +88,63 @@ export const usePdfFile = () => {
         error.value = null;
         pendingDjvu.value = null;
         openBatchProgress.value = null;
-        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect started', { path });
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect started', {path});
         try {
             const api = getElectronAPI();
             const result = await api.documents.openPdfDirect(path);
             if (!result) {
                 error.value = t('errors.file.invalid');
-                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'openPdfDirect returned null', { path });
+                BrowserLogger.warn(
+                    RECENT_OPEN_LOG_SECTION,
+                    'openPdfDirect returned null',
+                    { path },
+                );
                 return;
             }
 
-            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openPdfDirect returned result', {
-                path,
-                kind: result.kind,
-                isGenerated: result.kind === 'pdf' ? Boolean(result.isGenerated) : undefined,
-                workingPath: result.kind === 'pdf' ? result.workingPath : undefined,
-            });
+            BrowserLogger.debug(
+                RECENT_OPEN_LOG_SECTION,
+                'openPdfDirect returned result',
+                {
+                    path,
+                    kind: result.kind,
+                    isGenerated:
+            result.kind === 'pdf' ? Boolean(result.isGenerated) : undefined,
+                    workingPath: result.kind === 'pdf' ? result.workingPath : undefined,
+                },
+            );
 
             if (result.kind === 'djvu') {
                 pendingDjvu.value = result.originalPath;
-                BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect entered DjVu mode', {
-                    path,
-                    djvuPath: result.originalPath,
-                });
+                BrowserLogger.debug(
+                    RECENT_OPEN_LOG_SECTION,
+                    'openFileDirect entered DjVu mode',
+                    {
+                        path,
+                        djvuPath: result.originalPath,
+                    },
+                );
                 return;
             }
 
-            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Loading PDF from working path', {
-                path,
-                workingPath: result.workingPath,
-            });
-            await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
-            if (workingCopyPath.value !== result.workingPath) {
-                BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect skipped stale load result', {
+            BrowserLogger.debug(
+                RECENT_OPEN_LOG_SECTION,
+                'Loading PDF from working path',
+                {
                     path,
                     workingPath: result.workingPath,
-                });
+                },
+            );
+            await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
+            if (workingCopyPath.value !== result.workingPath) {
+                BrowserLogger.debug(
+                    RECENT_OPEN_LOG_SECTION,
+                    'openFileDirect skipped stale load result',
+                    {
+                        path,
+                        workingPath: result.workingPath,
+                    },
+                );
                 return;
             }
             originalPath.value = result.originalPath;
@@ -278,8 +171,8 @@ export const usePdfFile = () => {
         try {
             const api = getElectronAPI();
             const normalizedPaths = paths
-                .map(path => path.trim())
-                .filter(path => path.length > 0);
+                .map((path) => path.trim())
+                .filter((path) => path.length > 0);
 
             if (normalizedPaths.length === 0) {
                 error.value = t('errors.file.invalid');
@@ -295,25 +188,31 @@ export const usePdfFile = () => {
                 estimatedRemainingMs: null,
             };
 
-            const stopProgress = api.documents.onOpenPdfDirectBatchProgress((progress) => {
-                if (progress.requestId !== requestId) {
-                    return;
-                }
+            const stopProgress = api.documents.onOpenPdfDirectBatchProgress(
+                (progress) => {
+                    if (progress.requestId !== requestId) {
+                        return;
+                    }
 
-                openBatchProgress.value = {
-                    processed: Math.max(0, progress.processed),
-                    total: Math.max(0, progress.total),
-                    percent: clamp(progress.percent, 0, 100),
-                    elapsedMs: Math.max(0, progress.elapsedMs),
-                    estimatedRemainingMs: typeof progress.estimatedRemainingMs === 'number'
-                        ? Math.max(0, progress.estimatedRemainingMs)
-                        : null,
-                };
-            });
+                    openBatchProgress.value = {
+                        processed: Math.max(0, progress.processed),
+                        total: Math.max(0, progress.total),
+                        percent: clamp(progress.percent, 0, 100),
+                        elapsedMs: Math.max(0, progress.elapsedMs),
+                        estimatedRemainingMs:
+              typeof progress.estimatedRemainingMs === 'number'
+                  ? Math.max(0, progress.estimatedRemainingMs)
+                  : null,
+                    };
+                },
+            );
 
             let result: TOpenFileResult | null = null;
             try {
-                result = await api.documents.openPdfDirectBatch(normalizedPaths, requestId);
+                result = await api.documents.openPdfDirectBatch(
+                    normalizedPaths,
+                    requestId,
+                );
             } finally {
                 stopProgress();
             }
@@ -328,7 +227,7 @@ export const usePdfFile = () => {
                 pendingDjvu.value = result.originalPath;
                 return;
             }
-            await loadPdfFromPath(result.workingPath, { markDirty: !!result.isGenerated });
+            await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
             if (workingCopyPath.value !== result.workingPath) {
                 openBatchProgress.value = null;
                 return;
@@ -345,7 +244,10 @@ export const usePdfFile = () => {
     const MAX_IN_MEMORY_PDF_BYTES = 256 * 1024 * 1024;
 
     function getHistoryBytes(snapshots: Uint8Array[]) {
-        return snapshots.reduce((total, snapshot) => total + snapshot.byteLength, 0);
+        return snapshots.reduce(
+            (total, snapshot) => total + snapshot.byteLength,
+            0,
+        );
     }
 
     function resetHistory(snapshot: Uint8Array | null) {
@@ -365,7 +267,9 @@ export const usePdfFile = () => {
             isDirty.value = false;
             return;
         }
-        isDirty.value = historyCleanIndex.value < 0 || historyIndex.value !== historyCleanIndex.value;
+        isDirty.value =
+            historyCleanIndex.value < 0 ||
+      historyIndex.value !== historyCleanIndex.value;
     }
 
     async function readPdfStateFromPath(path: string) {
@@ -433,10 +337,14 @@ export const usePdfFile = () => {
             try {
                 await api.documents.cleanupFile(prevPath);
             } catch (cleanupError) {
-                BrowserLogger.warn('pdf-file', 'Failed to cleanup previous working copy', {
-                    path: prevPath,
-                    error: cleanupError,
-                });
+                BrowserLogger.warn(
+                    'pdf-file',
+                    'Failed to cleanup previous working copy',
+                    {
+                        path: prevPath,
+                        error: cleanupError,
+                    },
+                );
             }
         }
     }
@@ -503,7 +411,7 @@ export const usePdfFile = () => {
 
     async function applySnapshot(snapshot: Uint8Array, persist = false) {
         pdfData.value = snapshot;
-        pdfSrc.value = new Blob([snapshot.slice().buffer], { type: 'application/pdf' });
+        pdfSrc.value = new Blob([snapshot.slice().buffer], {type: 'application/pdf'});
 
         if (persist && workingCopyPath.value) {
             const api = getElectronAPI();
@@ -511,10 +419,13 @@ export const usePdfFile = () => {
         }
     }
 
-    async function loadPdfFromData(data: Uint8Array, opts?: {
-        pushHistory?: boolean;
-        persistWorkingCopy?: boolean 
-    }) {
+    async function loadPdfFromData(
+        data: Uint8Array,
+        opts?: {
+            pushHistory?: boolean;
+            persistWorkingCopy?: boolean;
+        },
+    ) {
         const snapshot = data.slice();
         await applySnapshot(snapshot, opts?.persistWorkingCopy ?? false);
 
@@ -589,11 +500,20 @@ export const usePdfFile = () => {
         }
         try {
             const api = getElectronAPI();
+            const previousWorkingPath = workingCopyPath.value;
             if (data) {
                 await api.documents.writeFile(workingCopyPath.value, data);
             }
             const savedPath = await api.documents.savePdfAs(workingCopyPath.value);
             if (savedPath) {
+                if (!hasElectronAPI()) {
+                    const nextWorkingPath =
+                        await api.documents.createWorkingCopyFromPath(savedPath);
+                    workingCopyPath.value = nextWorkingPath;
+                    if (previousWorkingPath !== nextWorkingPath) {
+                        await api.documents.cleanupFile(previousWorkingPath);
+                    }
+                }
                 originalPath.value = savedPath;
                 requiresSaveAsOnFirstSave.value = false;
                 isDirty.value = false;
@@ -631,10 +551,14 @@ export const usePdfFile = () => {
             try {
                 await api.documents.cleanupFile(pathToCleanup);
             } catch (cleanupError) {
-                BrowserLogger.warn('pdf-file', 'Failed to cleanup closed working copy', {
-                    path: pathToCleanup,
-                    error: cleanupError,
-                });
+                BrowserLogger.warn(
+                    'pdf-file',
+                    'Failed to cleanup closed working copy',
+                    {
+                        path: pathToCleanup,
+                        error: cleanupError,
+                    },
+                );
             }
         }
     }
@@ -643,8 +567,13 @@ export const usePdfFile = () => {
         isDirty.value = true;
     }
 
-    const canUndo = computed(() => history.value.length > 0 && historyIndex.value > 0);
-    const canRedo = computed(() => history.value.length > 0 && historyIndex.value < history.value.length - 1);
+    const canUndo = computed(
+        () => history.value.length > 0 && historyIndex.value > 0,
+    );
+    const canRedo = computed(
+        () =>
+            history.value.length > 0 && historyIndex.value < history.value.length - 1,
+    );
 
     async function undo() {
         if (!canUndo.value) {

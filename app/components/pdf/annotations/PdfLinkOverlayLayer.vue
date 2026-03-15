@@ -25,7 +25,7 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     hasElectronAPI,
     getElectronAPI,
-} from '@app/utils/electron';
+} from '@app/utils/platform';
 
 defineProps<{links: ILinkAnnotation[];}>();
 

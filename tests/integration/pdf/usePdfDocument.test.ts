@@ -54,7 +54,7 @@ vi.mock('pdfjs-dist', () => pdfjsState);
 
 const electronApi = {documents: {readFileRange: vi.fn()}};
 
-vi.mock('@app/utils/electron', () => ({getElectronAPI: () => electronApi}));
+vi.mock('@app/utils/platform', () => ({getElectronAPI: () => electronApi}));
 
 const { usePdfDocument } = await import('@app/composables/pdf/usePdfDocument');
 

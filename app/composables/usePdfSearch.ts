@@ -14,10 +14,7 @@ import {
     useDebounceFn,
 } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/electron';
+import { getElectronAPI } from '@app/utils/platform';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 
 export type {
@@ -102,7 +99,7 @@ export const usePdfSearch = () => {
     }
 
     async function cancelActiveSearch() {
-        if (!activeRequestId || !hasElectronAPI()) {
+        if (!activeRequestId) {
             return;
         }
 
@@ -370,16 +367,14 @@ export const usePdfSearch = () => {
 
     function resetSearchCache() {
         clearSearch();
-        if (hasElectronAPI()) {
-            const api = getElectronAPI();
-            void Promise.resolve(api.search.resetCache()).catch((error) => {
-                BrowserLogger.debug(
-                    'pdf-search',
-                    'Failed to reset search cache',
-                    error,
-                );
-            });
-        }
+        const api = getElectronAPI();
+        void Promise.resolve(api.search.resetCache()).catch((error) => {
+            BrowserLogger.debug(
+                'pdf-search',
+                'Failed to reset search cache',
+                error,
+            );
+        });
     }
 
     tryOnScopeDispose(() => {

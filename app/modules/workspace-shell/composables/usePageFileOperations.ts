@@ -6,7 +6,6 @@ import type { TPdfSource } from '@app/types/pdf';
 import type { IRecentFile } from '@contracts/shared';
 import { waitUntilIdle } from '@app/utils/async-helpers';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { hasElectronAPI } from '@app/utils/electron';
 
 const DJVU_PATH_REGEX = /\.djvu?$/i;
 const OPEN_SETTLE_DELAY_MS = 25;
@@ -168,12 +167,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     async function handleOpenFileFromUi() {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
-            return;
-        }
-
-        if (!hasElectronAPI()) {
-            await openFile();
-            closeAllDropdowns();
             return;
         }
 

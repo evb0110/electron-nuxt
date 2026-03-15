@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import type { ICropMargins } from '@app/types/crop';
 import type { TTranslationKey } from '@i18n-app';
-import { getElectronAPI } from '@app/utils/electron';
+import { getElectronAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 type TPageOpsRotation = 90 | 180 | 270;
