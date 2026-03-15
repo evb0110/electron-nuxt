@@ -29,7 +29,13 @@
                 :style="pageDisplayStyle"
                 @click="startEditing"
             >
-                <span class="page-controls-current">{{ pageIndicator }}</span>
+                <span class="page-controls-current">
+                    <span class="page-controls-current-primary">{{ pageIndicatorParts.primary }}</span>
+                    <span
+                        v-if="pageIndicatorParts.secondary"
+                        class="page-controls-current-secondary"
+                    >{{ pageIndicatorParts.secondary }}</span>
+                </span>
                 <span
                     v-if="showTotalInDisplay"
                     :class="['page-controls-slash', { 'is-hidden': !hasPages }]"
@@ -88,8 +94,7 @@ import type { TPdfViewMode } from '@contracts/shared';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 import {
     findPageByPageLabelInput,
-    formatPageIndicator,
-    getMaxPageIndicatorLength,
+    getPageIndicatorLayoutMetrics,
 } from '@app/utils/pdf-page-labels';
 import { stepBySpread } from '@app/utils/pdf-view-mode';
 
@@ -158,49 +163,40 @@ watch(
     },
 );
 
-const pageIndicator = computed(() => {
+const pageIndicatorParts = computed(() => {
     if (!hasPages.value) {
-        return '-';
+        return {
+            primary: '-',
+            secondary: '',
+        };
     }
-    return formatPageIndicator(currentPage, effectivePageLabels.value);
-});
 
-const pageCurrentWidthCh = computed(() => {
-    const minimumWidth = showTotalInDisplay.value ? 5 : 3;
-    const reservedWidth = getMaxPageIndicatorLength(totalPages, effectivePageLabels.value);
-    return Math.max(minimumWidth, reservedWidth);
-});
-
-const pageTotalWidthCh = computed(() => {
-    if (!showTotalInDisplay.value) {
-        return 0;
+    const logical = effectivePageLabels.value[currentPage - 1]?.trim() ?? '';
+    if (!logical || logical === String(currentPage)) {
+        return {
+            primary: String(currentPage),
+            secondary: '',
+        };
     }
-    return Math.max(1, String(totalPages).length);
+
+    return {
+        primary: logical,
+        secondary: `(${currentPage})`,
+    };
 });
 
-const pageSideWidthCh = computed(() => {
-    if (!showTotalInDisplay.value) {
-        return pageCurrentWidthCh.value;
-    }
-    return Math.max(pageCurrentWidthCh.value, pageTotalWidthCh.value);
-});
-
-const pageDisplayWidthCh = computed(() => {
-    const separatorWidth = showTotalInDisplay.value ? 1 : 0;
-    const horizontalPaddingWidth = 2;
-    return (
-        pageSideWidthCh.value * 2
-        + separatorWidth
-        + horizontalPaddingWidth
-    );
-});
+const pageLayoutMetrics = computed(() => getPageIndicatorLayoutMetrics(
+    totalPages,
+    effectivePageLabels.value,
+    showTotalInDisplay.value,
+    { compactPhysicalPage: true },
+));
 
 const pageDisplayStyle = computed(() => ({
-    '--page-current-width-ch': `${pageCurrentWidthCh.value}ch`,
-    '--page-total-width-ch': `${pageTotalWidthCh.value}ch`,
-    '--page-side-width-ch': `${pageSideWidthCh.value}ch`,
-    '--page-separator-width-ch': `${showTotalInDisplay.value ? 1 : 0}ch`,
-    '--page-display-width-ch': `${pageDisplayWidthCh.value}ch`,
+    '--page-current-width-ch': `${pageLayoutMetrics.value.currentWidthCh}ch`,
+    '--page-total-width-ch': `${pageLayoutMetrics.value.totalWidthCh}ch`,
+    '--page-separator-width-ch': `${pageLayoutMetrics.value.separatorWidthCh}ch`,
+    '--page-display-width-ch': `${pageLayoutMetrics.value.displayWidthCh}ch`,
 }));
 
 function startEditing() {
@@ -296,9 +292,9 @@ onClickOutside(pageControlsRef, () => {
 .page-controls-display {
     display: grid;
     grid-template-columns:
-        var(--page-side-width-ch)
+        var(--page-current-width-ch)
         var(--page-separator-width-ch)
-        var(--page-side-width-ch);
+        var(--page-total-width-ch);
     align-items: center;
     padding: 0 0.5rem;
     width: var(--page-display-width-ch);
@@ -342,11 +338,21 @@ onClickOutside(pageControlsRef, () => {
 }
 
 .page-controls-current {
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 0;
     text-align: right;
     min-width: var(--page-current-width-ch);
 }
 
+.page-controls-current-primary {
+    color: var(--ui-text);
+}
+
+.page-controls-current-secondary,
 .page-controls-slash {
+    color: var(--ui-text-dimmed);
     text-align: center;
 }
 
@@ -356,6 +362,7 @@ onClickOutside(pageControlsRef, () => {
 }
 
 .page-controls-total {
+    color: var(--ui-text-dimmed);
     text-align: left;
     min-width: var(--page-total-width-ch);
 }
