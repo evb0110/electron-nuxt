@@ -34,21 +34,6 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         const deltaX = event.clientX - resizeStartX;
         const nextWidth = resizeStartWidth + deltaX;
 
-        if (nextWidth < SIDEBAR.COLLAPSE_WIDTH) {
-            BrowserLogger.warn('pdf-nav', '[sidebar-resize] collapse threshold reached', {
-                nextWidth: Math.round(nextWidth),
-                collapseWidth: SIDEBAR.COLLAPSE_WIDTH,
-                resizeStartWidth: Math.round(resizeStartWidth),
-                deltaX: Math.round(deltaX),
-            });
-            isResizingSidebar.value = false;
-            cleanupSidebarResizeListeners();
-            lastOpenSidebarWidth.value = SIDEBAR.MIN_WIDTH;
-            sidebarWidth.value = SIDEBAR.MIN_WIDTH;
-            showSidebar.value = false;
-            return;
-        }
-
         const clampedWidth = Math.min(
             Math.max(nextWidth, SIDEBAR.MIN_WIDTH),
             SIDEBAR.MAX_WIDTH,

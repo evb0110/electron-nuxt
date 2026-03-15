@@ -1,7 +1,6 @@
 export const SIDEBAR = {
     DEFAULT_WIDTH: 272,
     MIN_WIDTH: 220,
-    COLLAPSE_WIDTH: 160,
     MAX_WIDTH: 520,
     RESIZER_WIDTH: 8,
 };
