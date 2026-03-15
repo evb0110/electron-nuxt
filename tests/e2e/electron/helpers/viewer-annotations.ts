@@ -943,8 +943,8 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
         const overlay = editor.querySelector<HTMLElement>('.overlay');
         const targetRect = (overlay ?? editor).getBoundingClientRect();
         return {
-            x: Math.round(targetRect.left + Math.max(4, Math.min(targetRect.width - 4, 8))),
-            y: Math.round(targetRect.top + Math.max(4, Math.min(targetRect.height - 4, 8))),
+            x: Math.round(targetRect.left + Math.max(4, targetRect.width / 2)),
+            y: Math.round(targetRect.top + Math.max(4, targetRect.height / 2)),
         };
     });
 
@@ -981,6 +981,7 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
     try {
         await waitForCountDrop(Math.min(DEFAULT_TIMEOUT_MS, 3_500));
     } catch {
+        await clickAnnotationTool(page, 'Select');
         await page.mouse.click(editorPoint.x, editorPoint.y, { button: 'right' });
         await page.waitForSelector('.annotation-context-menu .pdf-context-menu__action--danger', {timeout: 4_000});
         await page.click('.annotation-context-menu .pdf-context-menu__action--danger');

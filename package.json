@@ -58,7 +58,7 @@
     "dist:mac": "pnpm run build && electron-builder --mac",
     "dist:win": "pnpm run build && electron-builder --win",
     "dist:linux": "pnpm run build && electron-builder --linux",
-    "release:verify": "pnpm run validate && pnpm test",
+    "release:verify": "pnpm run validate && pnpm test && pnpm run test:e2e:electron:smoke",
     "release:patch": "HUSKY=0 node scripts/release/cut-release.mjs patch",
     "release:minor": "HUSKY=0 node scripts/release/cut-release.mjs minor",
     "release:major": "HUSKY=0 node scripts/release/cut-release.mjs major",

@@ -398,14 +398,33 @@ export function getVisiblePageLabel(page: number, pageLabels: string[] | null): 
 }
 
 export function formatPageIndicator(page: number, pageLabels: string[] | null): string {
+    return formatPageIndicatorWithOptions(page, pageLabels);
+}
+
+export interface IPageIndicatorFormatOptions { compactPhysicalPage?: boolean; }
+
+export function formatPageIndicatorWithOptions(
+    page: number,
+    pageLabels: string[] | null,
+    options: IPageIndicatorFormatOptions = {},
+): string {
     const logical = getVisiblePageLabel(page, pageLabels);
     if (!logical || logical === String(page)) {
         return String(page);
     }
-    return `${logical} (${page})`;
+
+    const physicalPage = options.compactPhysicalPage
+        ? `(${page})`
+        : ` (${page})`;
+
+    return `${logical}${physicalPage}`;
 }
 
-export function getMaxPageIndicatorLength(totalPages: number, pageLabels: string[] | null): number {
+export function getMaxPageIndicatorLength(
+    totalPages: number,
+    pageLabels: string[] | null,
+    options: IPageIndicatorFormatOptions = {},
+): number {
     if (totalPages <= 0) {
         return 0;
     }
@@ -416,10 +435,46 @@ export function getMaxPageIndicatorLength(totalPages: number, pageLabels: string
 
     let maxLength = 0;
     for (let page = 1; page <= totalPages; page += 1) {
-        maxLength = Math.max(maxLength, formatPageIndicator(page, pageLabels).length);
+        maxLength = Math.max(maxLength, formatPageIndicatorWithOptions(page, pageLabels, options).length);
     }
 
     return maxLength;
+}
+
+export interface IPageIndicatorLayoutMetrics {
+    currentWidthCh: number;
+    totalWidthCh: number;
+    separatorWidthCh: number;
+    displayWidthCh: number;
+}
+
+export function getPageIndicatorLayoutMetrics(
+    totalPages: number,
+    pageLabels: string[] | null,
+    showTotal: boolean,
+    options: IPageIndicatorFormatOptions = {},
+): IPageIndicatorLayoutMetrics {
+    const currentMinimumWidth = showTotal ? 5 : 3;
+    const currentWidthCh = Math.max(currentMinimumWidth, getMaxPageIndicatorLength(totalPages, pageLabels, options));
+
+    if (!showTotal) {
+        return {
+            currentWidthCh,
+            totalWidthCh: 0,
+            separatorWidthCh: 0,
+            displayWidthCh: currentWidthCh + 2,
+        };
+    }
+
+    const totalWidthCh = Math.max(1, String(totalPages).length);
+    const separatorWidthCh = 1;
+
+    return {
+        currentWidthCh,
+        totalWidthCh,
+        separatorWidthCh,
+        displayWidthCh: currentWidthCh + totalWidthCh + separatorWidthCh + 2,
+    };
 }
 
 export function isImplicitDefaultPageLabels(ranges: IPdfPageLabelRange[], totalPages: number): boolean {
