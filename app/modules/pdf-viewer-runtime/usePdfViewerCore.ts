@@ -36,6 +36,10 @@ import { getVisiblePageDebugSnapshot } from '@app/composables/pdf/pdfScrollVisib
 import { captureScrollSnapshot } from '@app/composables/pdf/pdfPageRenderPipeline';
 import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer-runtime/resizeAnchor';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer-runtime/reloadZoom';
+import {
+    isResizeRerenderSource,
+    shouldPreserveExistingRerenderContent,
+} from '@app/modules/pdf-viewer-runtime/rerenderStrategy';
 
 type TPdfDocumentResult = ReturnType<typeof usePdfDocument>;
 type TAnnotationOrchestrator = ReturnType<typeof useAnnotationOrchestrator>;
@@ -163,10 +167,6 @@ interface IZoomViewportAnchor {
     x: number;
     y: number;
     capturedAtMs: number;
-}
-
-function isResizeSource(source: string) {
-    return source === 'resize-observer' || source === 'resize-settle';
 }
 
 function summarizeViewerMetrics(container: HTMLElement | null) {
@@ -519,7 +519,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         syncOptions: ICurrentPageSyncOptions = {},
     ) {
         const source = syncOptions.source ?? 're-render';
-        if (isResizeSource(source) && isZoomRerenderBusy()) {
+        if (isResizeRerenderSource(source) && isZoomRerenderBusy()) {
             deferResizeRerenderUntilZoomSettles(stage, syncOptions);
             return;
         }
@@ -668,10 +668,6 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             + ` changed=${changed} fallback=${fallbackToCurrent}`
             + ` samples=${sampleText}`
             + ` range=${visibleRange.value.start}-${visibleRange.value.end}`;
-    }
-
-    function shouldPreserveExistingPagesDuringRerender(source: string) {
-        return source === 'zoom-change' || source === 'zoom-settle' || source === 'fit-mode';
     }
 
     function resolveRerenderBufferOverride(source: string) {
@@ -831,7 +827,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         }
 
         const source = options.source ?? 'default';
-        if (options.resizeAnchor && isResizeSource(source)) {
+        if (options.resizeAnchor && isResizeRerenderSource(source)) {
             BrowserLogger.warn(
                 'pdf-nav',
                 `[resize-anchor] fixed current-page sync source=${source}`
@@ -899,12 +895,18 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
             },
             viewer: summarizeViewerMetricsForLog(viewerContainer.value),
         });
+        const visibleRangeForDecision = getVisibleRange();
+        const preserveExistingPages = shouldPreserveExistingRerenderContent({
+            source,
+            visibleRange: visibleRangeForDecision,
+            isPageRendered,
+        });
         const maxCanvasPixelsOverride = resolveMaxCanvasPixelsOverride(source);
         if (maxCanvasPixelsOverride !== undefined) {
             zoomGestureLowResRerenderUsed = true;
         }
         await reRenderAllVisiblePages(getVisibleRange, {
-            preserveExistingPages: shouldPreserveExistingPagesDuringRerender(source),
+            preserveExistingPages,
             anchorSnapshot: syncOptions.resizeAnchor?.snapshot ?? null,
             rerenderSource: source,
             renderBufferOverride: resolveRerenderBufferOverride(source),
