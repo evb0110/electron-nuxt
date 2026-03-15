@@ -22,6 +22,10 @@ import { usePdfTextLayerRenderer } from '@app/composables/pdf/usePdfTextLayerRen
 import { usePdfAnnotationLayerRenderer } from '@app/composables/pdf/usePdfAnnotationLayerRenderer';
 import { CONCURRENT_RENDERS } from '@app/constants/pdf-layout';
 import {
+    PDF_PAGE_LOAD_TIMEOUT_MS,
+    PDF_PAGE_RENDER_TIMEOUT_MS,
+} from '@app/constants/timeouts';
+import {
     isRenderingCancelledError,
     captureScrollSnapshot,
     restoreScrollFromSnapshot,
@@ -78,11 +82,52 @@ interface IUsePdfPageRendererOptions {
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
 
     workingCopyPath?: MaybeRefOrGetter<string | null>;
+    onRenderStall?: (payload: IPageRenderStallPayload) => void;
 }
 
 interface ICancelableRenderTask {
     cancel: () => void;
     promise: Promise<unknown>;
+}
+
+type TPageRenderStallStage = 'page-load' | 'canvas-render';
+
+export interface IPageRenderStallPayload {
+    pageNumber: number;
+    stage: TPageRenderStallStage;
+    timeoutMs: number;
+}
+
+interface IPageRenderTimeoutError extends Error {
+    pageNumber: number;
+    stage: TPageRenderStallStage;
+    timeoutMs: number;
+}
+
+function createPageRenderTimeoutError(
+    pageNumber: number,
+    stage: TPageRenderStallStage,
+    timeoutMs: number,
+): IPageRenderTimeoutError {
+    const error = new Error(
+        `Timed out waiting for ${stage} on page ${pageNumber} after ${timeoutMs}ms`,
+    ) as IPageRenderTimeoutError;
+    error.name = 'PdfPageRenderTimeoutError';
+    error.pageNumber = pageNumber;
+    error.stage = stage;
+    error.timeoutMs = timeoutMs;
+    return error;
+}
+
+function isPageRenderTimeoutError(error: unknown): error is IPageRenderTimeoutError {
+    return Boolean(
+        error
+        && typeof error === 'object'
+        && 'name' in error
+        && 'stage' in error
+        && 'timeoutMs' in error
+        && (error as { name?: unknown }).name === 'PdfPageRenderTimeoutError',
+    );
 }
 
 export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
@@ -143,6 +188,53 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const textLayerCleanupFns = new Map<number, () => void>();
 
     const RENDERED_CONTAINER_CLASS = 'page_container--rendered';
+
+    async function withPageStageTimeout<T>(
+        promise: Promise<T>,
+        payload: IPageRenderStallPayload,
+        shouldNotify: () => boolean,
+        onTimeout?: () => void,
+    ) {
+        return new Promise<T>((resolve, reject) => {
+            let settled = false;
+            const timeoutHandle = setTimeout(() => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                onTimeout?.();
+                if (shouldNotify()) {
+                    options.onRenderStall?.(payload);
+                }
+                reject(
+                    createPageRenderTimeoutError(
+                        payload.pageNumber,
+                        payload.stage,
+                        payload.timeoutMs,
+                    ),
+                );
+            }, payload.timeoutMs);
+
+            promise.then(
+                (value) => {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    clearTimeout(timeoutHandle);
+                    resolve(value);
+                },
+                (error) => {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    clearTimeout(timeoutHandle);
+                    reject(error);
+                },
+            );
+        });
+    }
 
     function cancelActiveRenderTask(pageNumber: number) {
         const activeRenderTask = activeRenderTasks.get(pageNumber);
@@ -421,34 +513,53 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             return;
                         }
 
-                        const pdfPage = await getPage(pageNumber);
+                        const pdfPage = await withPageStageTimeout(
+                            getPage(pageNumber),
+                            {
+                                pageNumber,
+                                stage: 'page-load',
+                                timeoutMs: PDF_PAGE_LOAD_TIMEOUT_MS,
+                            },
+                            () => renderVersion === version,
+                        );
                         if (renderVersion !== version) {
                             return;
                         }
 
-                        const renderResult = await canvasRenderer.renderCanvas(
-                            pdfPage,
-                            scale,
-                            {
-                                maxCanvasPixels: renderOptions?.maxCanvasPixelsOverride,
-                                onRenderTask: (task) => {
-                                    if (renderVersion !== version) {
-                                        try {
-                                            task.cancel();
-                                        } catch {
-                                            // Ignore cancellation failures.
+                        const renderResult = await withPageStageTimeout(
+                            canvasRenderer.renderCanvas(
+                                pdfPage,
+                                scale,
+                                {
+                                    maxCanvasPixels: renderOptions?.maxCanvasPixelsOverride,
+                                    onRenderTask: (task) => {
+                                        if (renderVersion !== version) {
+                                            try {
+                                                task.cancel();
+                                            } catch {
+                                                // Ignore cancellation failures.
+                                            }
+                                            return;
                                         }
-                                        return;
-                                    }
-                                    const previousTask = activeRenderTasks.get(pageNumber);
-                                    if (previousTask && previousTask.task !== task) {
-                                        cancelActiveRenderTask(pageNumber);
-                                    }
-                                    activeRenderTasks.set(pageNumber, {
-                                        version,
-                                        task,
-                                    });
+                                        const previousTask = activeRenderTasks.get(pageNumber);
+                                        if (previousTask && previousTask.task !== task) {
+                                            cancelActiveRenderTask(pageNumber);
+                                        }
+                                        activeRenderTasks.set(pageNumber, {
+                                            version,
+                                            task,
+                                        });
+                                    },
                                 },
+                            ),
+                            {
+                                pageNumber,
+                                stage: 'canvas-render',
+                                timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
+                            },
+                            () => renderVersion === version,
+                            () => {
+                                cancelActiveRenderTask(pageNumber);
                             },
                         );
                         if (!renderResult) {
@@ -667,6 +778,30 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                         bufferOverride: 0,
                                     });
                                 }, 0);
+                            }
+                            return;
+                        }
+
+                        if (isPageRenderTimeoutError(error)) {
+                            BrowserLogger.warn(
+                                'pdf-renderer',
+                                `Timed out waiting for ${error.stage} on page ${error.pageNumber}`,
+                                {
+                                    pageNumber: error.pageNumber,
+                                    stage: error.stage,
+                                    timeoutMs: error.timeoutMs,
+                                    renderVersion: version,
+                                    currentRenderVersion: renderVersion,
+                                    currentPage: options.currentPage.value,
+                                    totalPages: numPages.value,
+                                },
+                            );
+                            if (renderingPages.get(pageNumber) === version) {
+                                if (shouldKeepStaleRenderedPage(pageNumber)) {
+                                    renderingPages.delete(pageNumber);
+                                } else {
+                                    cleanupPage(pageNumber);
+                                }
                             }
                             return;
                         }

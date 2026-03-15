@@ -117,6 +117,7 @@ import PdfLinkOverlayLayer from '@app/components/pdf/annotations/PdfLinkOverlayL
 import { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import { usePdfDrag } from '@app/composables/pdf/usePdfDrag';
 import { usePdfPageRenderer } from '@app/composables/pdf/usePdfPageRenderer';
+import type { IPageRenderStallPayload } from '@app/composables/pdf/usePdfPageRenderer';
 import { usePdfScale } from '@app/composables/pdf/usePdfScale';
 import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
 import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets';
@@ -452,6 +453,11 @@ const {
 } = usePdfSkeletonInsets(basePageWidth, basePageHeight, effectiveScale);
 
 const shapeComposable = useAnnotationShapes();
+let pageRenderStallRecoveryHandler: ((payload: IPageRenderStallPayload) => void) | null = null;
+
+function relayPageRenderStall(payload: IPageRenderStallPayload) {
+    pageRenderStallRecoveryHandler?.(payload);
+}
 
 function registerShapeHistoryCommand(command: {
     cmd: () => void;
@@ -519,6 +525,7 @@ const {
     searchPageMatches,
     currentSearchMatch,
     workingCopyPath,
+    onRenderStall: relayPageRenderStall,
 });
 
 const singlePageScroll = usePdfSinglePageScroll({
@@ -664,6 +671,7 @@ const {
     undoAnnotation,
     redoAnnotation,
     invalidatePages,
+    handlePageRenderStall: handlePageRenderStallFromCore,
 } = usePdfViewerCore({
     viewerContainer,
     src,
@@ -796,6 +804,7 @@ const {
     setResizeTransitionVisible: handleResizeTransitionSignal,
     emit,
 });
+pageRenderStallRecoveryHandler = handlePageRenderStallFromCore;
 
 const {
     pageLayout,
