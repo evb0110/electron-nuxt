@@ -94,7 +94,6 @@
 <script setup lang="ts">
 import SettingsDialog from '@app/components/SettingsDialog.vue';
 import { uniq } from 'es-toolkit/array';
-import { withTimeout } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/async-guard';
@@ -103,15 +102,17 @@ import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdates
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
 import EditorGroupsHost from '@app/modules/workspace-shell/components/EditorGroupsHost.vue';
 import FallbackWorkspaceToolbar from '@app/modules/workspace-shell/components/FallbackWorkspaceToolbar.vue';
+import { useAppShellUpdatesDialog } from '@app/modules/workspace-shell/composables/useAppShellUpdatesDialog';
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
 import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import { useFallbackWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useFallbackWorkspaceToolbar';
 import {
     useMenuSync,
     workspaceHasPdf,
 } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { useToolbarTeleportBridge } from '@app/modules/workspace-shell/composables/useToolbarTeleportBridge';
 import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
-import { isWorkspaceExpose } from '@app/modules/workspace-shell/composables/workspace-expose-contract';
+import { useWorkspaceRefRegistry } from '@app/modules/workspace-shell/composables/useWorkspaceRefRegistry';
 import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
 import { useAppUpdates } from '@app/composables/useAppUpdates';
 import { useEditorGroupsManager } from '@app/modules/workspace-shell/composables/useEditorGroupsManager';
@@ -124,15 +125,8 @@ import {
 import type { TOpenFileResult } from '@contracts/electron-api';
 import type { ITab } from '@app/types/tabs';
 import type { TGroupDirection } from '@app/types/editor-groups';
-import type {
-    TFitMode,
-    TZoomMode,
-    TPdfViewMode,
-} from '@contracts/shared';
-import type {
-    IWorkspaceExpose,
-    IWorkspaceToolbarSnapshot,
-} from '@app/types/workspace-expose';
+import type { TPdfViewMode } from '@contracts/shared';
+import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import type {
     TSplitPayload,
     ITransferredTabState,
@@ -186,9 +180,6 @@ const {
     installUpdateNow,
     skipUpdateVersion,
 } = useAppUpdates();
-
-const workspaceRefs = shallowRef<Map<string, IWorkspaceExpose>>(new Map());
-const pendingWorkspaceWaiters = new Map<string, Set<(workspace: IWorkspaceExpose) => void>>();
 const WORKSPACE_REF_WAIT_TIMEOUT_MS = 4000;
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
 const DIRECTION_ORDER: TGroupDirection[] = [
@@ -218,88 +209,12 @@ const {
     observeToolbarHost,
     disposeToolbarTeleportBridge,
 } = useToolbarTeleportBridge(isTabTransitionBusy);
-const showFallbackToolbar = computed(() => (
-    !hasTeleportedToolbarContent.value
-));
-const fallbackZoom = ref(1);
-const fallbackEffectiveZoom = ref(1);
-const fallbackZoomMode = ref<TZoomMode>('fit-width');
-const fallbackFitMode = ref<TFitMode>('width');
-const fallbackViewMode = ref<TPdfViewMode>('single');
-const fallbackCurrentPage = ref(1);
-const fallbackTotalPages = ref(0);
-const fallbackCanSave = ref(false);
-const fallbackCanUndo = ref(false);
-const fallbackCanRedo = ref(false);
-const fallbackCanExportDocx = ref(false);
-const fallbackIsSaving = ref(false);
-const fallbackIsSavingAs = ref(false);
-const fallbackIsAnySaving = ref(false);
-const fallbackIsHistoryBusy = ref(false);
-const fallbackIsExportingDocx = ref(false);
-const fallbackIsFitWidthActive = ref(false);
-const fallbackIsFitHeightActive = ref(false);
-const fallbackShowSidebar = ref(false);
-const fallbackDragMode = ref(false);
-const fallbackContinuousScroll = ref(false);
-const fallbackIsDjvuMode = ref(false);
-const fallbackIsCapturingRegion = ref(false);
-const fallbackIsCropSelecting = ref(false);
-const fallbackIsPlacingPageNote = ref(false);
-const fallbackOcrPopupOpen = ref(false);
-const fallbackZoomDropdownOpen = ref(false);
-const fallbackPageDropdownOpen = ref(false);
-const fallbackOverflowMenuOpen = ref(false);
-const fallbackHasPdfSignal = computed(() => {
-    if (workspaceHasPdf(activeWorkspace.value)) {
-        return true;
-    }
-
-    const tabId = activeTabId.value;
-    if (!tabId) {
-        return false;
-    }
-
-    const tab = getTabById(tabId);
-    if (!tab) {
-        return false;
-    }
-
-    if (fallbackTotalPages.value > 0) {
-        return true;
-    }
-
-    return hasDocumentMountHint(tab);
-});
-const fallbackHasPdf = computed(() => fallbackHasPdfSignal.value);
-const fallbackToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
-    hasPdf: fallbackHasPdf.value,
-    canSave: fallbackCanSave.value,
-    canUndo: fallbackCanUndo.value,
-    canRedo: fallbackCanRedo.value,
-    canExportDocx: fallbackCanExportDocx.value,
-    isSaving: fallbackIsSaving.value,
-    isSavingAs: fallbackIsSavingAs.value,
-    isAnySaving: fallbackIsAnySaving.value,
-    isHistoryBusy: fallbackIsHistoryBusy.value,
-    isExportingDocx: fallbackIsExportingDocx.value,
-    isFitWidthActive: fallbackIsFitWidthActive.value,
-    isFitHeightActive: fallbackIsFitHeightActive.value,
-    showSidebar: fallbackShowSidebar.value,
-    dragMode: fallbackDragMode.value,
-    continuousScroll: fallbackContinuousScroll.value,
-    isDjvuMode: fallbackIsDjvuMode.value,
-    isCapturingRegion: fallbackIsCapturingRegion.value,
-    isCropSelecting: fallbackIsCropSelecting.value,
-    isPlacingPageNote: fallbackIsPlacingPageNote.value,
-    zoom: fallbackZoom.value,
-    effectiveZoom: fallbackEffectiveZoom.value,
-    zoomMode: fallbackZoomMode.value,
-    fitMode: fallbackFitMode.value,
-    viewMode: fallbackViewMode.value,
-    currentPage: fallbackCurrentPage.value,
-    totalPages: fallbackTotalPages.value,
-}));
+const {
+    activeWorkspace,
+    setWorkspaceRef,
+    waitForWorkspace,
+    workspaceRefs,
+} = useWorkspaceRefRegistry({ activeTabId });
 
 function noopFallbackAction() {}
 
@@ -318,96 +233,6 @@ function getPathBaseName(path: string | null | undefined) {
     }
 }
 
-function createDefaultToolbarSnapshot(): IWorkspaceToolbarSnapshot {
-    return {
-        hasPdf: false,
-        canSave: false,
-        canUndo: false,
-        canRedo: false,
-        canExportDocx: false,
-        isSaving: false,
-        isSavingAs: false,
-        isAnySaving: false,
-        isHistoryBusy: false,
-        isExportingDocx: false,
-        isFitWidthActive: false,
-        isFitHeightActive: false,
-        showSidebar: false,
-        dragMode: false,
-        continuousScroll: false,
-        isDjvuMode: false,
-        isCapturingRegion: false,
-        isCropSelecting: false,
-        isPlacingPageNote: false,
-        zoom: 1,
-        effectiveZoom: 1,
-        zoomMode: 'fit-width',
-        fitMode: 'width',
-        viewMode: 'single',
-        currentPage: 1,
-        totalPages: 0,
-    };
-}
-
-function applyFallbackToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot | null | undefined) {
-    if (!snapshot) {
-        return;
-    }
-
-    const normalizedCurrentPage = Math.max(1, Math.floor(snapshot.currentPage));
-    const normalizedTotalPages = Math.max(
-        normalizedCurrentPage,
-        Math.floor(snapshot.totalPages),
-    );
-
-    fallbackCanSave.value = snapshot.canSave;
-    fallbackCanUndo.value = snapshot.canUndo;
-    fallbackCanRedo.value = snapshot.canRedo;
-    fallbackCanExportDocx.value = snapshot.canExportDocx;
-    fallbackIsSaving.value = snapshot.isSaving;
-    fallbackIsSavingAs.value = snapshot.isSavingAs;
-    fallbackIsAnySaving.value = snapshot.isAnySaving;
-    fallbackIsHistoryBusy.value = snapshot.isHistoryBusy;
-    fallbackIsExportingDocx.value = snapshot.isExportingDocx;
-    fallbackIsFitWidthActive.value = snapshot.isFitWidthActive;
-    fallbackIsFitHeightActive.value = snapshot.isFitHeightActive;
-    fallbackShowSidebar.value = snapshot.showSidebar;
-    fallbackDragMode.value = snapshot.dragMode;
-    fallbackContinuousScroll.value = snapshot.continuousScroll;
-    fallbackIsDjvuMode.value = snapshot.isDjvuMode;
-    fallbackIsCapturingRegion.value = snapshot.isCapturingRegion;
-    fallbackIsCropSelecting.value = snapshot.isCropSelecting;
-    fallbackIsPlacingPageNote.value = snapshot.isPlacingPageNote;
-    fallbackZoom.value = snapshot.zoom;
-    fallbackEffectiveZoom.value = snapshot.effectiveZoom;
-    fallbackZoomMode.value = snapshot.zoomMode;
-    fallbackFitMode.value = snapshot.fitMode;
-    fallbackViewMode.value = snapshot.viewMode;
-    fallbackCurrentPage.value = normalizedCurrentPage;
-    fallbackTotalPages.value = normalizedTotalPages;
-}
-
-function readToolbarSnapshot(workspace: IWorkspaceExpose | null) {
-    if (!workspace) {
-        return null;
-    }
-
-    try {
-        return workspace.getToolbarSnapshot();
-    } catch (error) {
-        BrowserLogger.debug('toolbar-transition', 'Failed to read toolbar snapshot', {
-            activeTabId: activeTabId.value,
-            activeGroupId: activeGroupId.value,
-            error,
-        });
-        return null;
-    }
-}
-
-function primeFallbackToolbarFromWorkspace(workspace: IWorkspaceExpose | null) {
-    applyFallbackToolbarSnapshot(readToolbarSnapshot(workspace));
-}
-
 function runFallbackWorkspaceAction(action: (workspace: IWorkspaceExpose) => Promise<void> | void) {
     const workspace = activeWorkspace.value;
     if (!workspace) {
@@ -423,22 +248,33 @@ function runFallbackWorkspaceAction(action: (workspace: IWorkspaceExpose) => Pro
     }
 }
 
-function handleFallbackOverflowSetViewMode(mode: TPdfViewMode) {
-    fallbackViewMode.value = mode;
-    runFallbackWorkspaceAction((workspace) => {
-        if (mode === 'single') {
-            workspace.handleViewModeSingle();
-            return;
-        }
-        if (mode === 'facing') {
-            workspace.handleViewModeFacing();
-            return;
-        }
-        workspace.handleViewModeFacingFirstSingle();
-    });
-}
+const {
+    fallbackCurrentPage,
+    fallbackEffectiveZoom,
+    fallbackFitMode,
+    fallbackHasPdf,
+    fallbackOcrPopupOpen,
+    fallbackOverflowMenuOpen,
+    fallbackPageDropdownOpen,
+    fallbackToolbarSnapshot,
+    fallbackViewMode,
+    fallbackZoom,
+    fallbackZoomMode,
+    fallbackZoomDropdownOpen,
+    handleFallbackOverflowSetViewMode: handleFallbackOverflowSetViewModeInternal,
+    showFallbackToolbar,
+} = useFallbackWorkspaceToolbar({
+    activeGroupId,
+    activeTabId,
+    activeWorkspace,
+    hasTeleportedToolbarContent,
+    isTabTransitionBusy,
+    getTabById,
+});
 
-applyFallbackToolbarSnapshot(createDefaultToolbarSnapshot());
+function handleFallbackOverflowSetViewMode(mode: TPdfViewMode) {
+    handleFallbackOverflowSetViewModeInternal(mode, runFallbackWorkspaceAction);
+}
 
 function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
     const chained = tabTransitionQueue.then(async () => {
@@ -458,36 +294,6 @@ function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
     );
 
     return chained;
-}
-
-function setWorkspaceRef(tabId: string, el: unknown) {
-    if (isWorkspaceExpose(el)) {
-        if (workspaceRefs.value.get(tabId) === el) {
-            return;
-        }
-        workspaceRefs.value.set(tabId, el);
-        const waiters = pendingWorkspaceWaiters.get(tabId);
-        if (waiters && waiters.size > 0) {
-            pendingWorkspaceWaiters.delete(tabId);
-            for (const waiter of waiters) {
-                waiter(el);
-            }
-        }
-        triggerRef(workspaceRefs);
-        return;
-    }
-
-    if (el) {
-        BrowserLogger.warn('tabs', 'Ignoring workspace ref with unexpected shape', {
-            tabId,
-            receivedType: typeof el,
-        });
-    }
-    if (!workspaceRefs.value.has(tabId)) {
-        return;
-    }
-    workspaceRefs.value.delete(tabId);
-    triggerRef(workspaceRefs);
 }
 
 function updateTab(tabId: string, updates: Partial<ITab>) {
@@ -542,62 +348,6 @@ function updateTab(tabId: string, updates: Partial<ITab>) {
     }
 
     Object.assign(tab, updates);
-}
-
-async function waitForWorkspace(tabId: string, timeoutMs = WORKSPACE_REF_WAIT_TIMEOUT_MS) {
-    const existingWorkspace = workspaceRefs.value.get(tabId) ?? null;
-    if (existingWorkspace) {
-        return existingWorkspace;
-    }
-    let waiter: ((workspace: IWorkspaceExpose) => void) | null = null;
-
-    const cleanupWaiter = () => {
-        if (!waiter) {
-            return;
-        }
-        const activeWaiters = pendingWorkspaceWaiters.get(tabId);
-        activeWaiters?.delete(waiter);
-        if (activeWaiters && activeWaiters.size === 0) {
-            pendingWorkspaceWaiters.delete(tabId);
-        }
-        waiter = null;
-    };
-
-    const waiterPromise = new Promise<IWorkspaceExpose>((resolve) => {
-        waiter = (workspace: IWorkspaceExpose) => {
-            resolve(workspace);
-        };
-
-        const waiters = pendingWorkspaceWaiters.get(tabId);
-        if (waiters) {
-            waiters.add(waiter);
-        } else {
-            pendingWorkspaceWaiters.set(tabId, new Set([waiter]));
-        }
-
-        const currentWorkspace = workspaceRefs.value.get(tabId) ?? null;
-        if (currentWorkspace && waiter) {
-            const currentWaiters = pendingWorkspaceWaiters.get(tabId);
-            currentWaiters?.delete(waiter);
-            if (currentWaiters && currentWaiters.size === 0) {
-                pendingWorkspaceWaiters.delete(tabId);
-            }
-            waiter = null;
-            resolve(currentWorkspace);
-        }
-    });
-
-    try {
-        return await withTimeout(() => waiterPromise, timeoutMs);
-    } catch {
-        BrowserLogger.warn('tabs', 'Workspace did not mount in time', {
-            tabId,
-            timeoutMs,
-        });
-        return null;
-    } finally {
-        cleanupWaiter();
-    }
 }
 
 function removeTabFromState(tabId: string) {
@@ -828,13 +578,6 @@ async function handoffActiveTabBeforeClose(groupId: string, tabId: string) {
     await nextTick();
 }
 
-const activeWorkspace = computed(() => {
-    if (!activeTabId.value) {
-        return null;
-    }
-    return workspaceRefs.value.get(activeTabId.value) ?? null;
-});
-
 const activeWindowTitle = computed(() => {
     const activeTab = activeTabId.value ? getTabById(activeTabId.value) : null;
     if (!activeTab) {
@@ -863,36 +606,6 @@ watch(activeWindowTitle, (title) => {
         message: 'Failed to sync window title',
     });
 }, { immediate: true });
-
-watch(activeWorkspace, (workspace) => {
-    primeFallbackToolbarFromWorkspace(workspace);
-}, { immediate: true });
-
-
-watch(
-    [
-        activeTabId,
-        activeWorkspace,
-    ],
-    () => {
-        if (isTabTransitionBusy.value || !hasTeleportedToolbarContent.value) {
-            return;
-        }
-
-        if (workspaceHasPdf(activeWorkspace.value)) {
-            return;
-        }
-
-        const tabId = activeTabId.value;
-        const tab = tabId ? getTabById(tabId) : null;
-        if (tab && hasDocumentMountHint(tab)) {
-            return;
-        }
-
-        applyFallbackToolbarSnapshot(createDefaultToolbarSnapshot());
-    },
-    { immediate: true },
-);
 
 useMenuSync({
     activeWorkspace,
@@ -952,68 +665,21 @@ const tabContextAvailabilityByGroup = computed<Record<string, ITabContextAvailab
     return result;
 });
 
-const updatesDialogTitle = computed(() => {
-    if (updatesDialog.value.kind === 'ready') {
-        return t('updates.readyTitle');
-    }
-
-    switch (updatesDialog.value.phase) {
-        case 'checking':
-            return t('updates.checkingTitle');
-        case 'downloading':
-            return t('updates.downloadingTitle');
-        case 'no-update':
-            return t('updates.upToDateTitle');
-        case 'error':
-            return t('updates.errorTitle');
-        case 'unsupported':
-            return t('updates.unsupportedTitle');
-        default:
-            return t('updates.checkingTitle');
-    }
+const {
+    handleDeferUpdate,
+    handleInstallUpdate,
+    handleSkipUpdate,
+    updatesDialogDescription,
+    updatesDialogTitle,
+} = useAppShellUpdatesDialog({
+    updatesDialog,
+    updatesDialogVersion,
+    closeUpdatesDialog,
+    deferUpdate,
+    skipUpdateVersion,
+    installUpdateNow,
+    t: (key, params) => (params ? t(key as never, params as never) : t(key as never)),
 });
-
-const updatesDialogDescription = computed(() => {
-    const version = updatesDialogVersion.value ?? t('updates.unknownVersion');
-
-    if (updatesDialog.value.kind === 'ready') {
-        return t('updates.readyDescription', { version });
-    }
-
-    switch (updatesDialog.value.phase) {
-        case 'checking':
-            return t('updates.checkingDescription');
-        case 'downloading': {
-            const percent = Math.max(0, Math.round(updatesDialog.value.percent ?? 0));
-            return t('updates.downloadingDescription', {
-                version,
-                percent,
-            });
-        }
-        case 'no-update':
-            return t('updates.upToDateDescription', { version });
-        case 'error':
-            return t('updates.errorDescription', { message: updatesDialog.value.message ?? t('updates.unknownError') });
-        case 'unsupported':
-            return t('updates.unsupportedDescription');
-        default:
-            return t('updates.checkingDescription');
-    }
-});
-
-function handleDeferUpdate() {
-    closeUpdatesDialog();
-    void deferUpdate();
-}
-
-function handleSkipUpdate() {
-    closeUpdatesDialog();
-    void skipUpdateVersion();
-}
-
-function handleInstallUpdate() {
-    void installUpdateNow();
-}
 
 async function handleCloseTab(groupId: string, tabId: string) {
     if (isSingletonPlaceholderCloseBlocked(groupId, tabId)) {

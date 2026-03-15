@@ -2,8 +2,6 @@ import {
     BrowserWindow,
     app,
     dialog,
-    session,
-    shell,
 } from 'electron';
 import {
     dirname,
@@ -13,13 +11,10 @@ import { fileURLToPath } from 'url';
 import { config } from '@electron/config';
 import { WINDOW_RENDERER_READY_TIMEOUT_MS } from '@electron/config/constants';
 import { te } from '@electron/i18n';
-import {
-    startServer,
-    stopServer,
-    waitForServer,
-} from '@electron/server';
-import { setupContentSecurityPolicy } from '@electron/security/csp';
+import { stopServer } from '@electron/server';
 import { createLogger } from '@electron/utils/logger';
+import { createWindowRuntime } from '@electron/window/runtime';
+import { createWindowSecurity } from '@electron/window/security';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -30,11 +25,6 @@ const windowIconPath = !app.isPackaged && !config.isMac
 const logger = createLogger('window');
 const windowStartupStartedAt = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
-const ALLOWED_EXTERNAL_PROTOCOLS = new Set([
-    'http:',
-    'https:',
-    'mailto:',
-]);
 const UNRESPONSIVE_RECOVERY_DELAY_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_WINDOW_UNRESPONSIVE_RECOVERY_MS ?? '15000', 10);
     if (!Number.isFinite(parsed) || parsed < 0) {
@@ -61,9 +51,6 @@ function logWindowStartup(phase: string, details?: Record<string, unknown>) {
 const appWindows = new Map<number, BrowserWindow>();
 let mainWindowId: number | null = null;
 let createMainWindowPromise: Promise<BrowserWindow> | null = null;
-let serverReadyPromise: Promise<void> | null = null;
-let isDevCacheCleared = false;
-let isCspConfigured = false;
 const windowStartupWaiters = new Map<number, IWindowStartupWaiter>();
 const windowRendererReadyCallbacks = new Map<number, () => void>();
 
@@ -84,76 +71,15 @@ function formatErrorMessage(error: unknown) {
         ? error.message
         : String(error);
 }
-
-function parseUrl(value: string): URL | null {
-    try {
-        return new URL(value);
-    } catch {
-        return null;
-    }
-}
-
-function getTrustedServerOrigin() {
-    try {
-        return new URL(config.server.url).origin;
-    } catch {
-        return '';
-    }
-}
-
-function isTrustedRendererUrl(value: string) {
-    const trustedOrigin = getTrustedServerOrigin();
-    if (!trustedOrigin) {
-        return false;
-    }
-    const parsed = parseUrl(value);
-    if (!parsed) {
-        return false;
-    }
-    return parsed.origin === trustedOrigin;
-}
-
-function isAllowedExternalUrl(value: string) {
-    const parsed = parseUrl(value);
-    if (!parsed) {
-        return false;
-    }
-    return ALLOWED_EXTERNAL_PROTOCOLS.has(parsed.protocol);
-}
-
-function isRuntimeServerUrl(value: string) {
-    return (
-        value === config.server.url
-        || value === `${config.server.url}/`
-        || value.startsWith(`${config.server.url}/`)
-    );
-}
-
-function openExternalSafely(url: string, source: 'window-open' | 'navigation') {
-    if (!isAllowedExternalUrl(url)) {
-        logger.warn(`Blocked ${source} URL with unsupported protocol: ${url}`);
-        return;
-    }
-    void shell.openExternal(url).catch((error) => {
-        logger.warn(`Failed to open external URL (${source}): ${error instanceof Error ? error.message : String(error)}`);
-    });
-}
-
-function hardenWindowWebContents(window: BrowserWindow) {
-    window.webContents.setWindowOpenHandler(({ url }) => {
-        openExternalSafely(url, 'window-open');
-        return { action: 'deny' };
-    });
-
-    window.webContents.on('will-navigate', (event, url) => {
-        if (isTrustedRendererUrl(url) || url === 'about:blank') {
-            return;
-        }
-
-        event.preventDefault();
-        openExternalSafely(url, 'navigation');
-    });
-}
+const windowSecurity = createWindowSecurity({
+    logger,
+    serverUrl: config.server.url,
+});
+const windowRuntime = createWindowRuntime({
+    isDev: config.isDev,
+    logger,
+    logWindowStartup,
+});
 
 async function lockRendererZoom(window: BrowserWindow) {
     try {
@@ -240,7 +166,7 @@ function waitForInitialRendererReady(
                 && !config.isDev
                 && !waiter.retryableConnectionRefusalSeen
                 && errorCode === -102
-                && isRuntimeServerUrl(validatedURL)
+                && windowSecurity.isRuntimeServerUrl(validatedURL)
             ) {
                 waiter.retryableConnectionRefusalSeen = true;
                 return;
@@ -338,61 +264,6 @@ async function promptUnresponsiveRendererRecovery(
     }
 }
 
-async function ensureWindowRuntimeReady() {
-    const runtimeStart = Date.now();
-    if (!isCspConfigured) {
-        isCspConfigured = true;
-        setupContentSecurityPolicy();
-    }
-
-    if (config.isDev && !isDevCacheCleared) {
-        isDevCacheCleared = true;
-        try {
-            // Prevent stale HTML/asset caching from causing Vite 504 "Outdated Optimize Dep" errors.
-            await session.defaultSession.clearCache();
-        } catch (err) {
-            logger.warn(`Failed to clear HTTP cache: ${err instanceof Error ? err.message : String(err)}`);
-        }
-    }
-
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-        if (!serverReadyPromise) {
-            const pendingServerReady = (async () => {
-                const serverBootStart = Date.now();
-                logWindowStartup('Ensuring Nuxt runtime server is ready');
-                await startServer();
-                logWindowStartup(`Nuxt runtime process ensured (step +${Date.now() - serverBootStart}ms)`);
-            })();
-            serverReadyPromise = pendingServerReady.catch((error) => {
-                // Allow the next window creation attempt to retry runtime boot.
-                serverReadyPromise = null;
-                throw error;
-            });
-        }
-
-        try {
-            await serverReadyPromise;
-            await waitForServer();
-            logWindowStartup(`Nuxt runtime server is healthy (step +${Date.now() - runtimeStart}ms)`);
-            logWindowStartup(`Window runtime ready (step +${Date.now() - runtimeStart}ms)`);
-            return;
-        } catch (error) {
-            serverReadyPromise = null;
-            if (attempt >= 2) {
-                throw error;
-            }
-
-            logger.warn(
-                `Runtime server health check failed; restarting before retry: ${
-                    error instanceof Error ? error.message : String(error)
-                }`,
-            );
-            await stopServer();
-        }
-    }
-
-}
-
 function attachRendererDiagnostics(window: BrowserWindow) {
     const webContents = window.webContents;
     const windowId = window.id;
@@ -418,7 +289,7 @@ function attachRendererDiagnostics(window: BrowserWindow) {
         logger.warn(`[renderer] attempting one-time recovery load (${reason}, windowId=${windowId})`);
         void (async () => {
             try {
-                await ensureWindowRuntimeReady();
+                await windowRuntime.ensureReady();
                 if (window.isDestroyed()) {
                     return;
                 }
@@ -786,7 +657,7 @@ function attachShowLifecycle(
             !config.isDev
             && !runtimeServerLoadRetried
             && errorCode === -102
-            && isRuntimeServerUrl(validatedURL)
+            && windowSecurity.isRuntimeServerUrl(validatedURL)
         );
         if (shouldRetryRuntimeServerLoad) {
             runtimeServerLoadRetried = true;
@@ -795,8 +666,8 @@ function attachShowLifecycle(
             void (async () => {
                 try {
                     await stopServer();
-                    serverReadyPromise = null;
-                    await ensureWindowRuntimeReady();
+                    windowRuntime.resetServerPromise();
+                    await windowRuntime.ensureReady();
                     await window.loadURL(config.server.url);
                     logger.info('Recovered window load after runtime server restart');
                 } catch (error) {
@@ -854,7 +725,7 @@ function attachShowLifecycle(
 
 export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const createStart = Date.now();
-    await ensureWindowRuntimeReady();
+    await windowRuntime.ensureReady();
 
     const preloadPath = join(__dirname, 'preload.js');
     logger.debug(`__dirname: ${__dirname}`);
@@ -887,7 +758,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     }
 
     const shouldWaitForInitialRendererReady = options.waitForInitialRendererReady ?? false;
-    hardenWindowWebContents(window);
+    windowSecurity.hardenWindowWebContents(window);
     attachRendererDiagnostics(window);
     attachShowLifecycle(window, { blockShowUntilRendererReady: shouldWaitForInitialRendererReady });
     const initialLoadPromise = window.loadURL(config.server.url);
