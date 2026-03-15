@@ -36,11 +36,39 @@ interface IUsePdfViewerVirtualizationOptions {
         end: number;
     }>;
     searchNavigationTargetPage: Ref<number | null>;
+    resizeTransitionAnchorPage: Ref<number | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
 }
 
 const VIRTUAL_MOUNT_BUFFER_MIN = 6;
 const SEARCH_NAV_VIRTUAL_BUFFER_MIN = 18;
+
+export function expandVirtualWindowForAnchor(options: {
+    baseStart: number;
+    baseEnd: number;
+    anchorPage: number | null;
+    totalPages: number;
+    buffer: number;
+}) {
+    const baseStart = Math.max(1, Math.trunc(options.baseStart));
+    const baseEnd = Math.max(baseStart, Math.trunc(options.baseEnd));
+    const totalPages = Math.max(baseEnd, Math.trunc(options.totalPages));
+    const anchorPage = typeof options.anchorPage === 'number' && Number.isFinite(options.anchorPage)
+        ? Math.max(1, Math.min(totalPages, Math.trunc(options.anchorPage)))
+        : null;
+    if (anchorPage === null) {
+        return {
+            start: baseStart,
+            end: Math.min(totalPages, baseEnd),
+        };
+    }
+
+    const buffer = Math.max(0, Math.trunc(options.buffer));
+    return {
+        start: Math.max(1, Math.min(baseStart, anchorPage - buffer)),
+        end: Math.min(totalPages, Math.max(baseEnd, anchorPage + buffer)),
+    };
+}
 
 export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationOptions) {
     const {
@@ -55,6 +83,7 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
         scaledMargin,
         visibleRange,
         searchNavigationTargetPage,
+        resizeTransitionAnchorPage,
         zoomVirtualizationFreeze,
     } = options;
 
@@ -146,6 +175,28 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
         };
     });
 
+    const resizeTransitionWindow = computed<{
+        start: number;
+        end: number;
+    } | null>(() => {
+        if (!virtualizedContinuousMode.value || numPages.value <= 0) {
+            return null;
+        }
+
+        const anchorPage = resizeTransitionAnchorPage.value;
+        if (anchorPage === null) {
+            return null;
+        }
+
+        return expandVirtualWindowForAnchor({
+            baseStart: baseVirtualWindowStart.value,
+            baseEnd: baseVirtualWindowEnd.value,
+            anchorPage,
+            totalPages: numPages.value,
+            buffer: virtualMountBuffer.value,
+        });
+    });
+
     const virtualWindowStart = computed(() => {
         if (!virtualizedContinuousMode.value) {
             return 1;
@@ -154,10 +205,14 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
             return zoomVirtualizationFreeze.value.windowStart;
         }
 
+        let nextStart = baseVirtualWindowStart.value;
         if (searchNavigationWindow.value) {
-            return searchNavigationWindow.value.start;
+            nextStart = Math.min(nextStart, searchNavigationWindow.value.start);
         }
-        return baseVirtualWindowStart.value;
+        if (resizeTransitionWindow.value) {
+            nextStart = Math.min(nextStart, resizeTransitionWindow.value.start);
+        }
+        return nextStart;
     });
 
     const virtualWindowEnd = computed(() => {
@@ -168,10 +223,14 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
             return zoomVirtualizationFreeze.value.windowEnd;
         }
 
+        let nextEnd = baseVirtualWindowEnd.value;
         if (searchNavigationWindow.value) {
-            return searchNavigationWindow.value.end;
+            nextEnd = Math.max(nextEnd, searchNavigationWindow.value.end);
         }
-        return baseVirtualWindowEnd.value;
+        if (resizeTransitionWindow.value) {
+            nextEnd = Math.max(nextEnd, resizeTransitionWindow.value.end);
+        }
+        return nextEnd;
     });
 
     const topVirtualSpacerStyle = computed<Record<string, string> | null>(() => {
@@ -242,6 +301,7 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
         getPagePlaceholderStyle,
         virtualizedContinuousMode,
         searchNavigationWindow,
+        resizeTransitionWindow,
         virtualWindowStart,
         virtualWindowEnd,
         topVirtualSpacerStyle,

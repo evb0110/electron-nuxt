@@ -16,6 +16,15 @@ describe('resolveResizeAnchorPage', () => {
         })).toBe(4);
     });
 
+    it('falls back to the viewport when the current page drifts too far away', () => {
+        expect(resolveResizeAnchorPage({
+            totalPages: 20,
+            mostVisiblePage: 9,
+            snapshotAnchorPage: 10,
+            currentPage: 4,
+        })).toBe(9);
+    });
+
     it('falls back to the most visible page when the current page is unavailable', () => {
         expect(resolveResizeAnchorPage({
             totalPages: 12,
