@@ -32,7 +32,7 @@
             @shape-contextmenu="shapeContext.handleShapeContextMenu($event)"
         />
         <PdfPageSkeleton
-            v-if="showSkeleton || forceSkeleton"
+            v-if="showSkeleton"
             :padding="scaledSkeletonPadding"
             :content-height="scaledPageHeight"
         />
@@ -54,7 +54,6 @@ import type {
 interface IProps {
     page: number;
     showSkeleton: boolean;
-    forceSkeleton?: boolean;
     spreadSingle?: boolean;
     placeholderStyle?: Record<string, string> | null;
     placedImage?: IPdfImagePlacementDraft | null;
@@ -64,7 +63,6 @@ interface IProps {
 const {
     page,
     showSkeleton,
-    forceSkeleton = false,
     spreadSingle = false,
     placeholderStyle = null,
     placedImage = null,

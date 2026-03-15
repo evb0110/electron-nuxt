@@ -50,7 +50,6 @@
                 :key="page"
                 :page="page"
                 :show-skeleton="shouldShowSkeleton(page)"
-                :force-skeleton="resizeTransitionVisible"
                 :spread-single="isSpreadSingle(page)"
                 :placeholder-style="getPagePlaceholderStyle(page)"
                 :placed-image="pendingImagePlacement?.pageNumber === page ? pendingImagePlacement : null"
@@ -2382,14 +2381,12 @@ defineExpose({
     pointer-events: none;
 }
 
-.pdfViewer.pdfViewer--resize-transition .page_container .pdf-page-skeleton {
-    display: flex !important;
-}
-
-.pdfViewer.pdfViewer--resize-transition .page_canvas,
 .pdfViewer.pdfViewer--resize-transition .text-layer,
+.pdfViewer.pdfViewer--resize-transition .textLayer,
 .pdfViewer.pdfViewer--resize-transition .annotation-layer,
+.pdfViewer.pdfViewer--resize-transition .annotationLayer,
 .pdfViewer.pdfViewer--resize-transition .annotation-editor-layer,
+.pdfViewer.pdfViewer--resize-transition .annotationEditorLayer,
 .pdfViewer.pdfViewer--resize-transition .pdf-shape-overlay {
     opacity: 0;
     pointer-events: none;
