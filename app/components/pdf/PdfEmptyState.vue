@@ -73,7 +73,7 @@
                         />
                         <div class="recent-file-info">
                             <span class="recent-file-name">{{ file.fileName }}</span>
-                            <span v-if="getParentFolder(file.originalPath)" class="recent-file-path">{{ getParentFolder(file.originalPath) }}</span>
+                            <span class="recent-file-path">{{ getParentFolder(file.originalPath) }}</span>
                         </div>
                         <span class="recent-file-time">{{ formatRelativeTimeLocalized(file.timestamp) }}</span>
                         <UTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
@@ -154,7 +154,7 @@ function formatRelativeTimeLocalized(timestamp: number) {
 
 function getParentFolder(filePath: string) {
     if (filePath.startsWith('browser://')) {
-        return '';
+        return t('emptyState.browserStorage');
     }
     const parts = filePath.split(/[\\/]/);
     parts.pop();
