@@ -42,6 +42,7 @@ const DIAGNOSTIC_WARNING_SECTIONS = new Set([
     'note-placement',
     'loader',
     'pdf-zoom-debug',
+    'toolbar-transition',
 ]);
 const THROTTLED_LOG_STATE = new Map<string, {
     lastAtMs: number;
