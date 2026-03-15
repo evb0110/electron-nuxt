@@ -4,16 +4,18 @@ import {
     ipcMain,
     nativeImage,
 } from 'electron';
-import { randomUUID } from 'node:crypto';
 import type { IAppUpdateStatus } from '@contracts/electron-api';
 import {
     dirname,
-    extname,
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
-import { uniq } from 'es-toolkit/array';
-import { withTimeout } from 'es-toolkit/promise';
+import { createExternalOpenManager } from '@electron/bootstrap/external-open';
+import {
+    createShutdownCoordinator,
+    runShutdownSteps,
+} from '@electron/bootstrap/shutdown';
+import { createStartupTrace } from '@electron/bootstrap/startup-trace';
 import { config } from '@electron/config';
 import {
     registerIpcHandlers,
@@ -61,42 +63,11 @@ if (automationUserDataDir) {
 }
 
 const logger = createLogger('main');
-const SHUTDOWN_TOTAL_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SHUTDOWN_TIMEOUT_MS ?? '20000', 10);
-    if (!Number.isFinite(parsed) || parsed < 3_000) {
-        return 20_000;
-    }
-    return parsed;
-})();
-const SHUTDOWN_STEP_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SHUTDOWN_STEP_TIMEOUT_MS ?? '8000', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_000) {
-        return 8_000;
-    }
-    return Math.min(parsed, SHUTDOWN_TOTAL_TIMEOUT_MS);
-})();
-const GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS ?? '3000', 10);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-        return 3_000;
-    }
-    return parsed;
-})();
 // Keep fatal shutdown opt-in for unhandled rejections: many promise failures are
 // feature-local and should not crash the entire public app.
 const FATAL_UNHANDLED_REJECTION_ENABLED = process.env.EVB_MAIN_FATAL_UNHANDLED_REJECTION === '1';
-let gracefulShutdownPromise: Promise<void> | null = null;
-let gracefulQuitForceTimer: NodeJS.Timeout | null = null;
-let isQuittingAfterCleanup = false;
-let isFatalShutdownInProgress = false;
-
-function clearGracefulQuitForceTimer() {
-    if (!gracefulQuitForceTimer) {
-        return;
-    }
-    clearTimeout(gracefulQuitForceTimer);
-    gracefulQuitForceTimer = null;
-}
+const startupTrace = createStartupTrace(logger);
+const logStartupPhase = startupTrace.log;
 
 function isIgnorableUnhandledRejection(reason: unknown) {
     if (!(reason instanceof Error)) {
@@ -116,31 +87,15 @@ function isIgnorableUnhandledRejection(reason: unknown) {
     return false;
 }
 
-function requestFatalShutdown(reason: string, exitCode = 1) {
-    if (isFatalShutdownInProgress) {
-        return;
-    }
-
-    isFatalShutdownInProgress = true;
-    logger.error(reason);
-    void (async () => {
-        try {
-            await performShutdownCleanup();
-        } finally {
-            app.exit(exitCode);
-        }
-    })();
-}
-
 process.on('unhandledRejection', (reason) => {
     logger.error(`Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
     if (!FATAL_UNHANDLED_REJECTION_ENABLED || isIgnorableUnhandledRejection(reason)) {
         return;
     }
-    requestFatalShutdown('Unhandled promise rejection requires fatal shutdown');
+    shutdownCoordinator.requestFatalShutdown('Unhandled promise rejection requires fatal shutdown');
 });
 process.on('uncaughtException', (error) => {
-    requestFatalShutdown(`Uncaught exception in main process: ${error.stack ?? error.message}`);
+    shutdownCoordinator.requestFatalShutdown(`Uncaught exception in main process: ${error.stack ?? error.message}`);
 });
 
 if (process.platform === 'darwin' && config.automation.noFocus) {
@@ -156,25 +111,6 @@ if (process.platform === 'darwin' && config.automation.noFocus) {
     }
 }
 
-const startupStartedAt = Date.now();
-const startupSessionId = `${startupStartedAt}-${randomUUID()}`;
-const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
-
-function logStartupPhase(phase: string) {
-    if (!STARTUP_TRACE_ENABLED) {
-        return;
-    }
-
-    const now = Date.now();
-    const elapsedMs = now - startupStartedAt;
-    const message = `[startup] ${phase} (+${elapsedMs}ms)`;
-    logger.info(message);
-    console.info(`[${new Date(now).toISOString()}] [main] ${message}`, {
-        startupSessionId,
-        elapsedMs,
-    });
-}
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const devDockIconPath = join(__dirname, '..', 'resources', 'icon.png');
 const aboutIconPath = app.isPackaged
@@ -182,38 +118,9 @@ const aboutIconPath = app.isPackaged
     : devDockIconPath;
 const DEV_DOCK_BADGE_TEXT = 'DEV';
 
-const SUPPORTED_EXTENSIONS = new Set([
-    '.pdf',
-    '.djvu',
-    '.djv',
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.tif',
-    '.tiff',
-    '.bmp',
-    '.webp',
-    '.gif',
-]);
-const pendingExternalOpenPaths: string[] = [];
-const pendingExternalOpenPathSet = new Set<string>();
 const readyWindowIds = new Set<number>();
 let defaultViewerPromptShown = false;
 let defaultViewerPromptTimer: NodeJS.Timeout | null = null;
-let flushPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
-let batchWindowStartTime: number | null = null;
-let externalOpenBootstrapReady = false;
-let ensureWindowForExternalOpenPromise: Promise<void> | null = null;
-let hasHandledInitialExternalOpenDispatch = false;
-const EXTERNAL_OPEN_BATCH_WINDOW_MS = 800;
-const EXTERNAL_OPEN_MAX_BATCH_WAIT_MS = 10_000;
-const EXTERNAL_OPEN_PENDING_MAX_PATHS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_EXTERNAL_OPEN_PENDING_MAX_PATHS ?? '256', 10);
-    if (!Number.isFinite(parsed) || parsed < 8) {
-        return 256;
-    }
-    return Math.min(parsed, 4_096);
-})();
 
 function blendColorChannel(base: number, overlay: number, alpha: number) {
     return Math.round((base * (255 - alpha) + overlay * alpha) / 255);
@@ -341,136 +248,6 @@ function isMainWindowRendererReady() {
     return readyWindowIds.has(mainWindow.id);
 }
 
-function isSupportedFile(filePath: string) {
-    return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
-}
-
-function normalizeCommandLineArg(arg: string): string | null {
-    let normalized = arg.trim();
-    if (!normalized || normalized.startsWith('-')) {
-        return null;
-    }
-
-    if (
-        (normalized.startsWith('"') && normalized.endsWith('"'))
-        || (normalized.startsWith('\'') && normalized.endsWith('\''))
-    ) {
-        normalized = normalized.slice(1, -1);
-    }
-
-    if (!normalized) {
-        return null;
-    }
-
-    if (process.platform === 'win32' && normalized.startsWith('/')) {
-        return null;
-    }
-
-    if (normalized.startsWith('file://')) {
-        try {
-            return fileURLToPath(normalized);
-        } catch {
-            return null;
-        }
-    }
-
-    return normalized;
-}
-
-function collectSupportedPathsFromArgs(args: string[]): string[] {
-    const files: string[] = [];
-    for (let i = 0; i < args.length; i++) {
-        const normalized = normalizeCommandLineArg(args[i] ?? '');
-        if (!normalized) {
-            continue;
-        }
-
-        if (isSupportedFile(normalized)) {
-            files.push(normalized);
-            continue;
-        }
-
-        // Some shell verbs can emit unquoted multi-token paths (e.g., from %*).
-        // Reconstruct path candidates by joining subsequent tokens with spaces.
-        let candidate = normalized;
-        for (let j = i + 1; j < args.length && j <= i + 7; j++) {
-            const nextToken = normalizeCommandLineArg(args[j] ?? '');
-            if (!nextToken) {
-                break;
-            }
-            candidate = `${candidate} ${nextToken}`;
-            if (isSupportedFile(candidate)) {
-                files.push(candidate);
-                i = j;
-                break;
-            }
-        }
-    }
-    return files;
-}
-
-function queueOpenRequest(paths: string[]) {
-    const normalizedPaths = uniq(paths
-        .map(path => path.trim())
-        .filter(path => path.length > 0));
-    if (normalizedPaths.length === 0) {
-        return;
-    }
-
-    let coalescedCount = 0;
-    let droppedCount = 0;
-    for (const normalizedPath of normalizedPaths) {
-        if (pendingExternalOpenPathSet.has(normalizedPath)) {
-            coalescedCount += 1;
-            const existingIndex = pendingExternalOpenPaths.indexOf(normalizedPath);
-            if (existingIndex >= 0) {
-                pendingExternalOpenPaths.splice(existingIndex, 1);
-            } else {
-                pendingExternalOpenPathSet.delete(normalizedPath);
-            }
-        }
-
-        pendingExternalOpenPaths.push(normalizedPath);
-        pendingExternalOpenPathSet.add(normalizedPath);
-
-        while (pendingExternalOpenPaths.length > EXTERNAL_OPEN_PENDING_MAX_PATHS) {
-            const droppedPath = pendingExternalOpenPaths.shift();
-            if (!droppedPath) {
-                break;
-            }
-            pendingExternalOpenPathSet.delete(droppedPath);
-            droppedCount += 1;
-        }
-    }
-
-    if (coalescedCount > 0) {
-        logger.debug(`Coalesced ${coalescedCount} duplicate external open path(s)`);
-    }
-    if (droppedCount > 0) {
-        logger.warn(
-            `External open queue exceeded cap (${EXTERNAL_OPEN_PENDING_MAX_PATHS}); dropped ${droppedCount} oldest path(s)`,
-        );
-    }
-}
-
-function collectMergedPendingPaths() {
-    if (pendingExternalOpenPaths.length === 0) {
-        return [];
-    }
-    const mergedPaths = pendingExternalOpenPaths.slice();
-    pendingExternalOpenPaths.length = 0;
-    pendingExternalOpenPathSet.clear();
-    return mergedPaths;
-}
-
-function queueOpenRequestFromArgs(args: string[]) {
-    const parsedPaths = collectSupportedPathsFromArgs(args);
-    if (parsedPaths.length > 0) {
-        logger.info(`Parsed external open paths (${parsedPaths.length}): ${parsedPaths.join(' | ')}`);
-    }
-    queueOpenRequest(parsedPaths);
-}
-
 function focusMainWindow() {
     const window = getMainWindow();
     if (!window) {
@@ -487,96 +264,25 @@ function focusMainWindow() {
 
     window.focus();
 }
-
-async function ensureMainWindowForExternalOpen() {
-    await app.whenReady();
-
-    if (!externalOpenBootstrapReady) {
-        // Initial startup flow creates the first window after IPC/bootstrap wiring is ready.
-        // Avoid creating windows earlier to prevent missing renderer-ready signals.
-        return;
-    }
-
-    if (!hasWindows()) {
-        logger.info('External open requested without active windows; creating main window');
+const externalOpenManager = createExternalOpenManager({
+    logger,
+    noFocus: config.automation.noFocus,
+    logStartupPhase,
+    isMainWindowRendererReady,
+    getMainWindow,
+    hasWindows,
+    createWindow: async () => {
         readyWindowIds.clear();
         await createWindow();
-        logStartupPhase('Main window creation requested by external open');
-    }
-
-    focusMainWindow();
-    scheduleFlushPendingFiles();
-}
-
-function requestMainWindowForExternalOpen() {
-    if (ensureWindowForExternalOpenPromise) {
-        return;
-    }
-
-    ensureWindowForExternalOpenPromise = (async () => {
-        try {
-            await ensureMainWindowForExternalOpen();
-        } catch (error) {
-            logger.error(`Failed to prepare window for external open: ${error instanceof Error ? error.message : String(error)}`);
-        } finally {
-            ensureWindowForExternalOpenPromise = null;
+    },
+    dispatchOpenPaths: (paths) => {
+        const window = getMainWindow();
+        if (!window) {
+            return;
         }
-    })();
-}
-
-function flushPendingFiles() {
-    if (flushPendingFilesTimer) {
-        clearTimeout(flushPendingFilesTimer);
-        flushPendingFilesTimer = null;
-    }
-    batchWindowStartTime = null;
-
-    if (!isMainWindowRendererReady()) {
-        return;
-    }
-
-    const window = getMainWindow();
-    if (!window) {
-        return;
-    }
-
-    const paths = collectMergedPendingPaths();
-    if (paths.length > 0) {
-        logger.info(`Flushing ${paths.length} batched external open path(s)`);
         sendToWindow(window, 'menu:openExternalPaths', paths);
-        logStartupPhase(`Dispatched external file open batch (${paths.length} path(s))`);
-    }
-}
-
-function scheduleFlushPendingFiles() {
-    if (!isMainWindowRendererReady()) {
-        return;
-    }
-
-    if (!hasHandledInitialExternalOpenDispatch) {
-        hasHandledInitialExternalOpenDispatch = true;
-        flushPendingFiles();
-        return;
-    }
-
-    const now = Date.now();
-    if (batchWindowStartTime === null) {
-        batchWindowStartTime = now;
-    }
-
-    if (now - batchWindowStartTime >= EXTERNAL_OPEN_MAX_BATCH_WAIT_MS) {
-        flushPendingFiles();
-        return;
-    }
-
-    if (flushPendingFilesTimer) {
-        clearTimeout(flushPendingFilesTimer);
-    }
-
-    flushPendingFilesTimer = setTimeout(() => {
-        flushPendingFiles();
-    }, EXTERNAL_OPEN_BATCH_WINDOW_MS);
-}
+    },
+});
 
 function maybePromptForDefaultViewer() {
     if (config.automation.noFocus) {
@@ -605,77 +311,38 @@ async function performShutdownCleanup() {
         clearTimeout(defaultViewerPromptTimer);
         defaultViewerPromptTimer = null;
     }
-    if (flushPendingFilesTimer) {
-        clearTimeout(flushPendingFilesTimer);
-        flushPendingFilesTimer = null;
-    }
-    batchWindowStartTime = null;
-    clearGracefulQuitForceTimer();
+    externalOpenManager.clearTimers();
+    shutdownCoordinator.clearGracefulQuitForceTimer();
 
-    const runShutdownStep = async (label: string, step: () => Promise<void> | void) => {
-        try {
-            await withTimeout(async () => {
-                await step();
-            }, SHUTDOWN_STEP_TIMEOUT_MS);
-        } catch (error) {
-            const timeout = error instanceof Error && error.name === 'TimeoutError';
-            logger.error(
-                timeout
-                    ? `Shutdown step timed out (${label}, ${SHUTDOWN_STEP_TIMEOUT_MS}ms)`
-                    : `Shutdown step failed (${label}): ${error instanceof Error ? error.message : String(error)}`,
-            );
-        }
-    };
-
-    try {
-        await withTimeout(async () => {
-            await runShutdownStep('updates', () => shutdownUpdates());
-            await runShutdownStep('djvu-viewing', () => performDjvuViewingShutdownCleanup());
-            await runShutdownStep('ocr-job-manager', () => shutdownOcrJobManager());
-            await runShutdownStep('working-copies', () => clearAllWorkingCopies());
-            await runShutdownStep('runtime-server', () => stopServer());
-        }, SHUTDOWN_TOTAL_TIMEOUT_MS);
-    } catch (error) {
-        if (error instanceof Error && error.name === 'TimeoutError') {
-            logger.error(`Global shutdown cleanup timed out after ${SHUTDOWN_TOTAL_TIMEOUT_MS}ms`);
-            return;
-        }
-        logger.error(`Global shutdown cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    await runShutdownSteps(logger, [
+        {
+            label: 'updates',
+            run: () => shutdownUpdates(), 
+        },
+        {
+            label: 'djvu-viewing',
+            run: () => performDjvuViewingShutdownCleanup(), 
+        },
+        {
+            label: 'ocr-job-manager',
+            run: () => shutdownOcrJobManager(), 
+        },
+        {
+            label: 'working-copies',
+            run: () => clearAllWorkingCopies(), 
+        },
+        {
+            label: 'runtime-server',
+            run: () => stopServer(), 
+        },
+    ]);
 }
 
-function requestGracefulQuit() {
-    if (isQuittingAfterCleanup) {
-        return;
-    }
-    if (!gracefulShutdownPromise) {
-        gracefulShutdownPromise = (async () => {
-            try {
-                await performShutdownCleanup();
-            } catch (error) {
-                logger.error(`Graceful shutdown cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
-            }
-        })();
-    }
-
-    if (!gracefulQuitForceTimer) {
-        gracefulQuitForceTimer = setTimeout(() => {
-            logger.error(`Graceful quit exceeded deadline (${SHUTDOWN_TOTAL_TIMEOUT_MS + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS}ms); forcing exit`);
-            isQuittingAfterCleanup = true;
-            app.exit(1);
-        }, SHUTDOWN_TOTAL_TIMEOUT_MS + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS);
-        gracefulQuitForceTimer.unref?.();
-    }
-
-    void gracefulShutdownPromise.then(() => {
-        clearGracefulQuitForceTimer();
-        if (isQuittingAfterCleanup) {
-            return;
-        }
-        isQuittingAfterCleanup = true;
-        app.quit();
-    });
-}
+const shutdownCoordinator = createShutdownCoordinator({
+    app,
+    logger,
+    runCleanupSteps: performShutdownCleanup,
+});
 
 function broadcastUpdateStatus(status: IAppUpdateStatus) {
     for (const window of getAllAppWindows()) {
@@ -699,22 +366,22 @@ if (!allowMultipleAutomationSessions) {
 // Must register before app.whenReady() because macOS sends it early during launch.
 app.on('open-file', (event, filePath) => {
     event.preventDefault();
-    if (!isSupportedFile(filePath)) {
+    if (!externalOpenManager.isSupportedFile(filePath)) {
         logger.warn(`Ignoring unsupported macOS open-file path: ${filePath}`);
         return;
     }
-    queueOpenRequest([filePath]);
-    requestMainWindowForExternalOpen();
+    externalOpenManager.queueOpenRequest([filePath]);
+    externalOpenManager.requestMainWindowForExternalOpen();
 });
 
 // Windows/Linux: the OS passes the file path as a command-line argument
 if (process.platform !== 'darwin') {
-    queueOpenRequestFromArgs(process.argv.slice(1));
+    externalOpenManager.queueOpenRequestFromArgs(process.argv.slice(1));
 }
 
 app.on('second-instance', (_event, commandLine) => {
-    queueOpenRequestFromArgs(commandLine.slice(1));
-    requestMainWindowForExternalOpen();
+    externalOpenManager.queueOpenRequestFromArgs(commandLine.slice(1));
+    externalOpenManager.requestMainWindowForExternalOpen();
 });
 
 async function init() {
@@ -767,7 +434,7 @@ async function init() {
         readyWindowIds.add(window.id);
         markWindowTabTransferReady(window.id);
 
-        scheduleFlushPendingFiles();
+        externalOpenManager.scheduleFlushPendingFiles();
         if (window.id === getMainWindow()?.id) {
             logStartupPhase(`Main renderer signaled ready (windowId=${window.id})`);
             maybePromptForDefaultViewer();
@@ -795,11 +462,11 @@ async function init() {
     });
 
     app.on('before-quit', (event) => {
-        if (isQuittingAfterCleanup || isFatalShutdownInProgress) {
+        if (shutdownCoordinator.isQuittingAfterCleanup() || shutdownCoordinator.isFatalShutdownInProgress()) {
             return;
         }
         event.preventDefault();
-        requestGracefulQuit();
+        shutdownCoordinator.requestGracefulQuit();
     });
 
     app.on('activate', () => {
@@ -815,10 +482,10 @@ async function init() {
             return;
         }
         focusMainWindow();
-        scheduleFlushPendingFiles();
+        externalOpenManager.scheduleFlushPendingFiles();
     });
 
-    externalOpenBootstrapReady = true;
+    externalOpenManager.markBootstrapReady();
     readyWindowIds.clear();
     logStartupPhase('Creating main window');
     await createWindow({ waitForInitialRendererReady: true });
@@ -860,5 +527,5 @@ async function init() {
 }
 
 void init().catch((error) => {
-    requestFatalShutdown(`Application bootstrap failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    shutdownCoordinator.requestFatalShutdown(`Application bootstrap failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
 });
