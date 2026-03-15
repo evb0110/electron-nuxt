@@ -4,10 +4,7 @@ import type {
     TAppUpdatePhase,
 } from '@contracts/electron-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+import { getElectronAPI } from '@app/utils/platform';
 
 type TStatusDialogPhase = Exclude<TAppUpdatePhase, 'idle' | 'downloaded'>;
 
@@ -94,7 +91,7 @@ function applyStatus(nextStatus: IAppUpdateStatus) {
 }
 
 async function ensureInitialized() {
-    if (initialized.value || !hasElectronAPI()) {
+    if (initialized.value) {
         return;
     }
 
@@ -114,9 +111,6 @@ async function ensureInitialized() {
 }
 
 async function checkForUpdates() {
-    if (!hasElectronAPI()) {
-        return;
-    }
     try {
         await ensureInitialized();
         await getElectronAPI().updates.check();
@@ -134,10 +128,6 @@ async function checkForUpdates() {
 }
 
 async function installUpdateNow() {
-    if (!hasElectronAPI()) {
-        return;
-    }
-
     try {
         closeDialog();
         await getElectronAPI().updates.install();
@@ -155,10 +145,6 @@ async function installUpdateNow() {
 }
 
 async function deferUpdate() {
-    if (!hasElectronAPI()) {
-        return;
-    }
-
     try {
         closeDialog();
         await getElectronAPI().updates.defer();
@@ -176,10 +162,6 @@ async function deferUpdate() {
 }
 
 async function skipUpdateVersion() {
-    if (!hasElectronAPI()) {
-        return;
-    }
-
     const version = dialog.value.version || status.value.version;
     if (!version) {
         closeDialog();

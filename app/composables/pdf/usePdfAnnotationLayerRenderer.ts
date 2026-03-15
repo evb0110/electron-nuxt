@@ -19,10 +19,7 @@ import type {
 } from 'vue';
 import { defaultDocument } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+import { getElectronAPI } from '@app/utils/platform';
 
 interface IAnnotationEditorLayerProto {
     disable?: (...args: unknown[]) => unknown;
@@ -237,27 +234,13 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 link.rel = 'noopener noreferrer';
                 link.addEventListener('click', (event) => {
                     event.preventDefault();
-                    if (hasElectronAPI()) {
-                        void getElectronAPI().shell.openExternal(url).catch((error) => {
-                            BrowserLogger.warn(
-                                'pdf-annotation-layer',
-                                `Failed to open annotation link: ${url}`,
-                                error,
-                            );
-                        });
-                    } else {
-                        const openedWindow = window.open(
-                            url,
-                            '_blank',
-                            'noopener,noreferrer',
+                    void getElectronAPI().shell.openExternal(url).catch((error) => {
+                        BrowserLogger.warn(
+                            'pdf-annotation-layer',
+                            `Failed to open annotation link: ${url}`,
+                            error,
                         );
-                        if (!openedWindow) {
-                            BrowserLogger.warn(
-                                'pdf-annotation-layer',
-                                `Failed to open annotation link in browser: ${url}`,
-                            );
-                        }
-                    }
+                    });
                 });
             },
             getDestinationHash: () => '#',
