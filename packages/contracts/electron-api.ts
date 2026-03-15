@@ -230,6 +230,25 @@ interface IOpenDjvuResult {
 }
 
 export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
+export type TPdfSaveMode = 'incremental' | 'rewrite' | 'save_as_rewrite';
+
+export interface IPdfConformanceProfile {
+    isSigned: boolean;
+    isEncrypted: boolean;
+    isTagged: boolean;
+    pdfaLevel: string | null;
+    hasAcroForm: boolean;
+    hasXfa: boolean;
+    canIncrementalSave: boolean;
+    saveRestrictions: string[];
+}
+
+export interface IPdfValidationResult {
+    isValid: boolean;
+    tool: 'qpdf' | 'browser';
+    errors: string[];
+    warnings: string[];
+}
 
 export interface IImageExportCapability {
     exportPdfToImages: (workingCopyPath: string, pageNumbers?: number[]) => Promise<{
@@ -291,6 +310,8 @@ export interface IDocumentsFileCapability {
     readFileRange: (path: string, offset: number, length: number) => Promise<Uint8Array>;
     readTextFile: (path: string) => Promise<string>;
     fileExists: (path: string) => Promise<boolean>;
+    analyzePdfConformance: (path: string) => Promise<IPdfConformanceProfile>;
+    validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
     writeFile: (path: string, data: Uint8Array) => Promise<boolean>;
     writeDocxFile: (path: string, data: Uint8Array) => Promise<boolean>;
     createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: string) => Promise<string>;

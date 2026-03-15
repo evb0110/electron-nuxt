@@ -1,5 +1,6 @@
 import type { ComponentPublicInstance } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { getIgnorableRuntimeErrorMessage } from '@app/utils/runtime-error-filter';
 
 const INSTALL_FLAG = '__evbRendererErrorGuardInstalled';
 
@@ -64,6 +65,24 @@ export default defineNuxtPlugin((nuxtApp) => {
     };
 
     window.addEventListener('error', (event) => {
+        const ignorableMessage = getIgnorableRuntimeErrorMessage(event.error ?? event.message);
+        if (ignorableMessage) {
+            BrowserLogger.warnThrottled(
+                'renderer-guard',
+                ignorableMessage,
+                5000,
+                'Ignored benign window error',
+                {
+                    message: event.message,
+                    filename: event.filename,
+                    lineno: event.lineno,
+                    colno: event.colno,
+                    error: serializeError(event.error),
+                },
+            );
+            return;
+        }
+
         report('Unhandled window error', {
             message: event.message,
             filename: event.filename,
@@ -75,6 +94,18 @@ export default defineNuxtPlugin((nuxtApp) => {
     });
 
     window.addEventListener('unhandledrejection', (event) => {
+        const ignorableMessage = getIgnorableRuntimeErrorMessage(event.reason);
+        if (ignorableMessage) {
+            BrowserLogger.warnThrottled(
+                'renderer-guard',
+                ignorableMessage,
+                5000,
+                'Ignored benign promise rejection',
+                {reason: serializeError(event.reason)},
+            );
+            return;
+        }
+
         report('Unhandled promise rejection in renderer', { reason: serializeError(event.reason) });
         setFatalRuntimeError('runtime', event.reason, 'window:unhandledrejection');
     });

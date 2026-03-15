@@ -39,9 +39,35 @@ function createDeps() {
             2,
             3,
         ])),
-        saveFile: vi.fn(async () => true),
-        saveWorkingCopy: vi.fn(async () => true),
-        saveWorkingCopyAs: vi.fn(async () => '/tmp/exported.pdf'),
+        readWorkingCopyBytes: vi.fn(async () => new Uint8Array([
+            1,
+            2,
+            3,
+        ])),
+        validatePdfData: vi.fn(async () => ({
+            isValid: true,
+            tool: 'qpdf' as const,
+            errors: [],
+            warnings: [],
+        })),
+        saveFile: vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/working.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        })),
+        saveWorkingCopy: vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/working.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        })),
+        saveWorkingCopyAs: vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/exported.pdf',
+            saveMode: 'save_as_rewrite' as const,
+            didSaveAs: true,
+        })),
         markAnnotationSaved: vi.fn(),
         markPageLabelsSaved: vi.fn(),
         markBookmarksSaved: vi.fn(),
@@ -91,6 +117,7 @@ describe('useFileOperations', () => {
         expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
         expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
         expect(deps.isSaving.value).toBe(false);
+        expect(deps.validatePdfData).toHaveBeenCalledOnce();
     });
 
     it('uses working-copy save path when no serialized changes exist', async () => {
@@ -102,6 +129,7 @@ describe('useFileOperations', () => {
         expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.saveFile).not.toHaveBeenCalled();
+        expect(deps.readWorkingCopyBytes).toHaveBeenCalledOnce();
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
     });
 
@@ -120,6 +148,7 @@ describe('useFileOperations', () => {
         expect(annotationReset).toHaveBeenCalledOnce();
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
         expect(deps.isSavingAs.value).toBe(false);
+        expect(deps.validatePdfData).toHaveBeenCalledOnce();
     });
 
     it('aborts save when note persistence fails', async () => {
@@ -134,5 +163,22 @@ describe('useFileOperations', () => {
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(deps.isSaving.value).toBe(false);
+    });
+
+    it('stops before persisting when validation fails', async () => {
+        const { deps } = createDeps();
+        deps.annotationDirty.value = true;
+        deps.validatePdfData = vi.fn(async () => ({
+            isValid: false,
+            tool: 'qpdf' as const,
+            errors: ['invalid'],
+            warnings: [],
+        }));
+
+        const { handleSave } = useFileOperations(deps);
+        await handleSave();
+
+        expect(deps.saveFile).not.toHaveBeenCalled();
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
     });
 });

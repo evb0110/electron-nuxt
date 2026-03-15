@@ -1,4 +1,8 @@
 import type { IpcMainInvokeEvent } from 'electron';
+import type {
+    IPdfConformanceProfile,
+    IPdfValidationResult,
+} from '@contracts/electron-api';
 import type { IRecentFile } from '@contracts/shared';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
 
@@ -26,6 +30,8 @@ export interface IDocumentsService {
     readFileRange: (event: IpcMainInvokeEvent, filePath: string, offset: number, length: number) => Promise<Uint8Array>;
     readTextFile: (event: IpcMainInvokeEvent, filePath: string) => Promise<string>;
     fileExists: (event: IpcMainInvokeEvent, filePath: string) => boolean;
+    analyzePdfConformance: (event: IpcMainInvokeEvent, filePath: string) => Promise<IPdfConformanceProfile>;
+    validatePdfData: (event: IpcMainInvokeEvent, data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
     writeFile: (event: IpcMainInvokeEvent, filePath: string, data: Uint8Array) => Promise<boolean>;
     writeDocxFile: (event: IpcMainInvokeEvent, filePath: string, data: Uint8Array) => Promise<boolean>;
     saveFile: (event: IpcMainInvokeEvent, workingPath: string) => Promise<boolean>;

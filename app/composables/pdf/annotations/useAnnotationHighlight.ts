@@ -31,9 +31,9 @@ import { SELECTION_CACHE_TTL_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { runGuardedTask } from '@app/utils/async-guard';
 import {
-    getOptionalFunction,
-    isRecord,
-} from '@app/services/pdfjs/runtime';
+    getAnnotationEditorLayer,
+    getAnnotationEditorLayerDiv,
+} from '@app/services/pdfjs/annotationEditorAdapter';
 
 interface IHighlightIdentity {
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
@@ -103,26 +103,6 @@ interface IGeometryResolution {
     candidates: IPageCandidateLogEntry[] | null;
 }
 
-interface IAnnotationEditorLayerLike {
-    div?: HTMLElement | null;
-    createAndAddNewEditor?: (...args: unknown[]) => unknown;
-}
-
-function toAnnotationEditorLayerLike(value: unknown): IAnnotationEditorLayerLike | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-
-    const div = value.div;
-    if (div !== undefined && div !== null && !(div instanceof HTMLElement)) {
-        return null;
-    }
-
-    return {
-        div: div instanceof HTMLElement ? div : null,
-        createAndAddNewEditor: getOptionalFunction(value, 'createAndAddNewEditor') ?? undefined,
-    };
-}
 
 export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) {
     const {
@@ -401,10 +381,8 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             }
             await uiManager.waitForEditorsRendered(pageNumber);
 
-            const layer = toAnnotationEditorLayerLike(
-                uiManager.getLayer(pageNumber - 1) ?? uiManager.currentLayer,
-            );
-            const createdEditor = layer?.createAndAddNewEditor?.(
+            const layer = getAnnotationEditorLayer(uiManager, pageNumber - 1);
+            const createdEditor = layer?.createAndAddNewEditor(
                 new PointerEvent('pointerdown'),
                 false,
                 {
@@ -1074,10 +1052,8 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                     : new Error(String(freeTextModeError));
             }
             await uiManager.waitForEditorsRendered(pageNumber);
-            const layer = toAnnotationEditorLayerLike(
-                uiManager.getLayer(pageNumber - 1) ?? uiManager.currentLayer,
-            );
-            if (!layer?.div) {
+            const layerDiv = getAnnotationEditorLayerDiv(uiManager, pageNumber - 1);
+            if (!layerDiv) {
                 return false;
             }
 
@@ -1090,8 +1066,8 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 pointerType: 'mouse',
                 isPrimary: true,
             };
-            layer.div.dispatchEvent(new PointerEvent('pointerdown', eventInit));
-            layer.div.dispatchEvent(new PointerEvent('pointerup', eventInit));
+            layerDiv.dispatchEvent(new PointerEvent('pointerdown', eventInit));
+            layerDiv.dispatchEvent(new PointerEvent('pointerup', eventInit));
 
             const resolvedEditor = await resolveCreatedEditor(null);
             if (!resolvedEditor) {

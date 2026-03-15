@@ -387,6 +387,7 @@ export default {
         'recentFiles': 'Zuletzt verwendete Dateien',
         'clearRecentFiles': 'Zuletzt verwendete Dateien löschen',
         'removeFromRecent': 'Aus zuletzt verwendet entfernen',
+        'browserStorage': 'Browserspeicher',
         'openAnother': 'Andere Datei öffnen...',
         'openPdf': 'Datei öffnen',
         'preparingBatch': 'Dokument wird vorbereitet...',

@@ -10,7 +10,10 @@ import type {
 } from '@app/types/annotations';
 import type {
     IPdfBookmarkEntry,
+    IPdfPersistResult,
     IPdfPageLabelRange,
+    IPdfSaveResult,
+    TPdfSaveMode,
 } from '@app/types/pdf';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import { rewriteBookmarks } from '@app/composables/pdf/usePdfBookmarkSerialization';
@@ -50,9 +53,11 @@ interface IPageSaveOrchestrationDeps {
     markPageLabelsSaved: () => void;
     markBookmarksSaved: () => void;
     isDirty: Ref<boolean>;
-    saveFile: (data: Uint8Array) => Promise<boolean>;
-    saveWorkingCopy: () => Promise<boolean>;
-    saveWorkingCopyAs: (data?: Uint8Array) => Promise<string | null>;
+    readWorkingCopyBytes: () => Promise<Uint8Array | null>;
+    validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfSaveResult['validation']>;
+    saveFile: (data: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
+    saveWorkingCopy: (opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
+    saveWorkingCopyAs: (data?: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
     consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
     loadRecentFiles: () => void;
@@ -91,6 +96,8 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         markPageLabelsSaved,
         markBookmarksSaved,
         isDirty,
+        readWorkingCopyBytes,
+        validatePdfData,
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,
@@ -135,6 +142,8 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         bookmarksDirty,
         pdfDocument,
         saveDocument: () => pdfViewerRef.value?.saveDocument() ?? Promise.resolve(null),
+        readWorkingCopyBytes,
+        validatePdfData,
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,

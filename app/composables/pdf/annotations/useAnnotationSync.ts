@@ -276,8 +276,11 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
             let sourceOrder = 0;
 
             const uiManager = annotationUiManager.value;
-            const isDeletedAnnotationElement = uiManager
-                ? getOptionalFunction<[annotationElementId: string], boolean>(uiManager, 'isDeletedAnnotationElement')?.bind(uiManager)
+            const isDeletedFn = uiManager
+                ? getOptionalFunction<[annotationElementId: string], boolean>(uiManager, 'isDeletedAnnotationElement')
+                : null;
+            const isDeletedAnnotationElement = isDeletedFn
+                ? (id: string) => isDeletedFn.call(uiManager, id)
                 : null;
 
             if (uiManager) {

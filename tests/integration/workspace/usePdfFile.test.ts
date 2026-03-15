@@ -15,6 +15,17 @@ const mockDocuments = {
     savePdfAs: vi.fn(),
     statFile: vi.fn(),
     cleanupFile: vi.fn(),
+    analyzePdfConformance: vi.fn(async () => ({
+        isSigned: false,
+        isEncrypted: false,
+        isTagged: false,
+        pdfaLevel: null,
+        hasAcroForm: false,
+        hasXfa: false,
+        canIncrementalSave: true,
+        saveRestrictions: [] as string[],
+    })),
+    validatePdfData: vi.fn(),
     onOpenPdfDirectBatchProgress: vi.fn(() => vi.fn()),
 };
 const mockElectronAPI = { documents: mockDocuments };
@@ -443,17 +454,26 @@ describe('usePdfFile', () => {
     });
 
     describe('saveFile', () => {
-        it('returns false when no working copy path', async () => {
+        it('returns a failed persist result when no working copy path', async () => {
             const file = usePdfFile();
 
             const result = await file.saveFile(new Uint8Array([1]));
-            expect(result).toBe(false);
+            expect(result).toEqual({
+                success: false,
+                outPath: null,
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            });
         });
 
-        it('saves and clears dirty flag', async () => {
+        it('saves, commits the persisted bytes, and clears dirty flag', async () => {
             const pdfBytes = new Uint8Array([
                 1,
                 2,
+            ]);
+            const savedBytes = new Uint8Array([
+                9,
+                9,
             ]);
             mockDocuments.openPdfDialog.mockResolvedValue({
                 kind: 'pdf',
@@ -461,7 +481,9 @@ describe('usePdfFile', () => {
                 workingPath: '/tmp/save.pdf',
             });
             mockDocuments.statFile.mockResolvedValue({ size: 2 });
-            mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
+            mockDocuments.readFile
+                .mockResolvedValueOnce(pdfBytes.buffer)
+                .mockResolvedValueOnce(savedBytes.buffer);
             mockDocuments.writeFile.mockResolvedValue(undefined);
             mockDocuments.saveFile.mockResolvedValue(undefined);
 
@@ -471,10 +493,56 @@ describe('usePdfFile', () => {
 
             expect(file.isDirty.value).toBe(true);
 
-            const result = await file.saveFile(pdfBytes);
+            const result = await file.saveFile(savedBytes);
 
-            expect(result).toBe(true);
+            expect(result).toEqual({
+                success: true,
+                outPath: '/save.pdf',
+                saveMode: 'rewrite',
+                didSaveAs: false,
+            });
             expect(file.isDirty.value).toBe(false);
+            expect(file.pdfData.value).toEqual(savedBytes);
+        });
+
+        it('routes signed-document rewrites to Save As', async () => {
+            const pdfBytes = new Uint8Array([
+                1,
+                2,
+            ]);
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/signed.pdf',
+                workingPath: '/tmp/signed.pdf',
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: 2 });
+            mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
+            mockDocuments.analyzePdfConformance.mockResolvedValueOnce({
+                isSigned: true,
+                isEncrypted: false,
+                isTagged: false,
+                pdfaLevel: null,
+                hasAcroForm: true,
+                hasXfa: false,
+                canIncrementalSave: true,
+                saveRestrictions: ['signed_original_requires_save_as'] as string[],
+            });
+            mockDocuments.writeFile.mockResolvedValue(undefined);
+            mockDocuments.savePdfAs.mockResolvedValue('/exports/signed-copy.pdf');
+
+            const file = usePdfFile();
+            await file.openFile();
+
+            const result = await file.saveFile(pdfBytes, { saveMode: 'rewrite' });
+
+            expect(mockDocuments.saveFile).not.toHaveBeenCalled();
+            expect(mockDocuments.savePdfAs).toHaveBeenCalledWith('/tmp/signed.pdf');
+            expect(result).toEqual({
+                success: true,
+                outPath: '/exports/signed-copy.pdf',
+                saveMode: 'save_as_rewrite',
+                didSaveAs: true,
+            });
         });
     });
 });

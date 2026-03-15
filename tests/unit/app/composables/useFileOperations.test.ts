@@ -16,8 +16,18 @@ function cast<T>(value: unknown): T {
 
 function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> = {}) {
     const resetModified = vi.fn();
-    const saveFile = vi.fn(async (_data: Uint8Array) => true);
-    const saveWorkingCopyAs = vi.fn(async (_data?: Uint8Array) => '/tmp/new.pdf');
+    const saveFile = vi.fn(async (_data: Uint8Array) => ({
+        success: true,
+        outPath: '/tmp/work.pdf',
+        saveMode: 'rewrite' as const,
+        didSaveAs: false,
+    }));
+    const saveWorkingCopyAs = vi.fn(async (_data?: Uint8Array) => ({
+        success: true,
+        outPath: '/tmp/new.pdf',
+        saveMode: 'save_as_rewrite' as const,
+        didSaveAs: true,
+    }));
 
     return {
         deps: cast<Parameters<typeof useFileOperations>[0]>({
@@ -29,8 +39,20 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
             bookmarksDirty: ref(false),
             pdfDocument: shallowRef(cast({ annotationStorage: { resetModified } })),
             saveDocument: vi.fn(async () => new Uint8Array([1])),
+            readWorkingCopyBytes: vi.fn(async () => new Uint8Array([1])),
+            validatePdfData: vi.fn(async () => ({
+                isValid: true,
+                tool: 'qpdf' as const,
+                errors: [],
+                warnings: [],
+            })),
             saveFile,
-            saveWorkingCopy: vi.fn(async () => true),
+            saveWorkingCopy: vi.fn(async () => ({
+                success: true,
+                outPath: '/tmp/work.pdf',
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            })),
             saveWorkingCopyAs,
             markAnnotationSaved: vi.fn(),
             markPageLabelsSaved: vi.fn(),
@@ -101,6 +123,7 @@ describe('useFileOperations', () => {
         expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
         expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
         expect(deps.isSaving.value).toBe(false);
+        expect(deps.validatePdfData).toHaveBeenCalledOnce();
     });
 
     it('saves working copy directly when no serialization work is required', async () => {
@@ -110,6 +133,8 @@ describe('useFileOperations', () => {
         await handleSave();
 
         expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.readWorkingCopyBytes).toHaveBeenCalledOnce();
+        expect(deps.validatePdfData).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
         expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
@@ -144,6 +169,7 @@ describe('useFileOperations', () => {
         expect(resetModified).toHaveBeenCalledOnce();
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
         expect(deps.isSavingAs.value).toBe(false);
+        expect(deps.validatePdfData).toHaveBeenCalledOnce();
     });
 
     it('aborts save early when note windows cannot be persisted', async () => {
@@ -159,5 +185,23 @@ describe('useFileOperations', () => {
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(deps.isSaving.value).toBe(false);
+    });
+
+    it('aborts save when validation fails', async () => {
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            validatePdfData: vi.fn(async () => ({
+                isValid: false,
+                tool: 'qpdf' as const,
+                errors: ['broken pdf'],
+                warnings: [],
+            })),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(deps.saveFile).not.toHaveBeenCalled();
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
     });
 });

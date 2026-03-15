@@ -13,6 +13,8 @@ export const DOCUMENTS_CHANNELS = {
     fileReadRange: 'file:readRange',
     fileReadText: 'file:readText',
     fileExists: 'file:exists',
+    pdfAnalyzeConformance: 'pdf:analyzeConformance',
+    pdfValidateData: 'pdf:validateData',
     fileWrite: 'file:write',
     fileWriteDocx: 'file:writeDocx',
     fileSave: 'file:save',
