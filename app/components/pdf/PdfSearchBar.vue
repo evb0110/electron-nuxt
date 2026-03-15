@@ -1,88 +1,89 @@
 <template>
-    <div class="flex items-center gap-2 px-2 py-1.5">
-        <UInput
-            ref="inputRef"
-            v-model="searchQuery"
-            class="min-w-0 flex-1"
-            :placeholder="t('search.placeholder')"
-            autofocus
-            @keydown.enter.exact="emit('next')"
-            @keydown.shift.enter="emit('previous')"
-        >
-            <template #leading>
-                <UIcon name="i-lucide-search" class="size-4" />
-            </template>
-            <template #trailing>
-                <div class="flex items-center gap-1">
-                    <UTooltip :text="t('search.caseSensitive')" :delay-duration="1200">
-                        <UButton
-                            label="Aa"
-                            :variant="options.matchCase ? 'soft' : 'ghost'"
-                            :color="options.matchCase ? 'primary' : 'neutral'"
-                            size="xs"
-                            class="min-w-auto px-1.5 text-[11px] font-semibold"
-                            :aria-label="t('search.caseSensitive')"
-                            @click="toggleOption('matchCase')"
-                        />
-                    </UTooltip>
-                    <UTooltip :text="t('search.wholeWord')" :delay-duration="1200">
-                        <UButton
-                            label="W"
-                            :variant="options.wholeWord ? 'soft' : 'ghost'"
-                            :color="options.wholeWord ? 'primary' : 'neutral'"
-                            size="xs"
-                            class="min-w-auto px-1.5 text-[11px] font-semibold"
-                            :aria-label="t('search.wholeWord')"
-                            @click="toggleOption('wholeWord')"
-                        />
-                    </UTooltip>
-                    <UTooltip :text="t('search.regex')" :delay-duration="1200">
-                        <UButton
-                            label=".*"
-                            :variant="options.useRegex ? 'soft' : 'ghost'"
-                            :color="options.useRegex ? 'primary' : 'neutral'"
-                            size="xs"
-                            class="min-w-auto px-1.5 text-[11px] font-semibold"
-                            :aria-label="t('search.regex')"
-                            @click="toggleOption('useRegex')"
-                        />
-                    </UTooltip>
-                    <UTooltip v-if="searchQuery" :text="t('search.clearSearch')" :delay-duration="1200">
-                        <UButton
-                            icon="i-lucide-x"
-                            variant="ghost"
-                            color="neutral"
-                            size="xs"
-                            class="min-w-auto px-1"
-                            :aria-label="t('search.clearSearchLabel')"
-                            @click="clearQuery"
-                        />
-                    </UTooltip>
-                </div>
-            </template>
-        </UInput>
+    <div class="flex flex-col gap-1 px-2 py-1.5">
+        <div class="flex items-center gap-1.5">
+            <UInput
+                ref="inputRef"
+                v-model="searchQuery"
+                class="min-w-0 flex-1"
+                :placeholder="t('search.placeholder')"
+                autofocus
+                @keydown.enter.exact="emit('next')"
+                @keydown.shift.enter="emit('previous')"
+            >
+                <template #leading>
+                    <UIcon name="i-lucide-search" class="size-4" />
+                </template>
+                <template v-if="searchQuery" #trailing>
+                    <UButton
+                        icon="i-lucide-x"
+                        variant="ghost"
+                        color="neutral"
+                        size="xs"
+                        class="min-w-auto px-1"
+                        :aria-label="t('search.clearSearchLabel')"
+                        @click="clearQuery"
+                    />
+                </template>
+            </UInput>
 
-        <div class="flex shrink-0 items-center gap-0.5">
-            <UTooltip :text="t('search.previousMatch')" :delay-duration="1200">
+            <div class="flex shrink-0 items-center gap-0.5">
+                <UTooltip :text="t('search.previousMatch')" :delay-duration="1200">
+                    <UButton
+                        icon="i-lucide-chevron-up"
+                        variant="ghost"
+                        color="neutral"
+                        size="xs"
+                        :disabled="totalMatches === 0"
+                        :aria-label="t('search.previousMatchLabel')"
+                        @click="emit('previous')"
+                    />
+                </UTooltip>
+                <UTooltip :text="t('search.nextMatch')" :delay-duration="1200">
+                    <UButton
+                        icon="i-lucide-chevron-down"
+                        variant="ghost"
+                        color="neutral"
+                        size="xs"
+                        :disabled="totalMatches === 0"
+                        :aria-label="t('search.nextMatchLabel')"
+                        @click="emit('next')"
+                    />
+                </UTooltip>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-1">
+            <UTooltip :text="t('search.caseSensitive')" :delay-duration="1200">
                 <UButton
-                    icon="i-lucide-chevron-up"
-                    variant="ghost"
-                    color="neutral"
+                    label="Aa"
+                    :variant="options.matchCase ? 'soft' : 'ghost'"
+                    :color="options.matchCase ? 'primary' : 'neutral'"
                     size="xs"
-                    :disabled="totalMatches === 0"
-                    :aria-label="t('search.previousMatchLabel')"
-                    @click="emit('previous')"
+                    class="min-w-auto px-1.5 text-[11px] font-semibold"
+                    :aria-label="t('search.caseSensitive')"
+                    @click="toggleOption('matchCase')"
                 />
             </UTooltip>
-            <UTooltip :text="t('search.nextMatch')" :delay-duration="1200">
+            <UTooltip :text="t('search.wholeWord')" :delay-duration="1200">
                 <UButton
-                    icon="i-lucide-chevron-down"
-                    variant="ghost"
-                    color="neutral"
+                    label="W"
+                    :variant="options.wholeWord ? 'soft' : 'ghost'"
+                    :color="options.wholeWord ? 'primary' : 'neutral'"
                     size="xs"
-                    :disabled="totalMatches === 0"
-                    :aria-label="t('search.nextMatchLabel')"
-                    @click="emit('next')"
+                    class="min-w-auto px-1.5 text-[11px] font-semibold"
+                    :aria-label="t('search.wholeWord')"
+                    @click="toggleOption('wholeWord')"
+                />
+            </UTooltip>
+            <UTooltip :text="t('search.regex')" :delay-duration="1200">
+                <UButton
+                    label=".*"
+                    :variant="options.useRegex ? 'soft' : 'ghost'"
+                    :color="options.useRegex ? 'primary' : 'neutral'"
+                    size="xs"
+                    class="min-w-auto px-1.5 text-[11px] font-semibold"
+                    :aria-label="t('search.regex')"
+                    @click="toggleOption('useRegex')"
                 />
             </UTooltip>
         </div>
