@@ -10,26 +10,19 @@
                 <span class="text-sm text-[var(--ui-text-muted)]">{{ t('common.loading') }}</span>
             </div>
         </div>
-        <div
-            id="pdf-viewer"
-            ref="viewerContainer"
-            class="pdfViewer app-scrollbar"
-            :class="{
-                'is-dragging': isDragging,
-                'drag-mode': isViewerPanDragModeActive,
-                'is-placing-comment': highlightComposable.isPlacingComment.value,
-                'is-selection-markup-tool': isSelectionMarkupToolActive,
-                'pdfViewer--single-page': !continuousScroll,
-                'pdfViewer--mode-single': viewMode === 'single',
-                'pdfViewer--mode-facing': viewMode === 'facing',
-                'pdfViewer--mode-facing-first-single': viewMode === 'facing-first-single',
-                'pdfViewer--hidden': isViewerLoadingOverlayVisible,
-                'pdfViewer--fit-height': fitMode === 'height',
-                'pdfViewer--resize-transition': resizeTransitionVisible,
-                'pdfViewer--zoom-snap-suppressed': zoomSnapSuppressed,
-            }"
-            :style="containerStyle"
-            @scroll.passive="handleViewerScroll"
+        <PdfViewerViewport
+            :set-viewer-container="handleViewerContainerRef"
+            :viewer-class="viewerClass"
+            :container-style="containerStyle"
+            :pages-to-render="pagesToRender"
+            :should-show-skeleton="shouldShowSkeleton"
+            :is-spread-single="isSpreadSingle"
+            :get-page-placeholder-style="getPagePlaceholderStyle"
+            :top-virtual-spacer-style="topVirtualSpacerStyle"
+            :bottom-virtual-spacer-style="bottomVirtualSpacerStyle"
+            :pending-image-placement="pendingImagePlacement"
+            :is-pending-image-placement-finalizing="isPendingImagePlacementFinalizing"
+            @scroll="handleViewerScroll"
             @wheel="handleViewerWheel"
             @mousedown="handleViewerMouseDown"
             @mousemove="handleViewerMouseMove"
@@ -39,31 +32,10 @@
             @dblclick="handleViewerDblClick"
             @contextmenu="handleViewerContextMenu"
             @selectstart="handleSelectStart"
-        >
-            <div
-                v-if="topVirtualSpacerStyle"
-                class="pdf-viewer-virtual-spacer"
-                :style="topVirtualSpacerStyle"
-            />
-            <PdfViewerPage
-                v-for="page in pagesToRender"
-                :key="page"
-                :page="page"
-                :show-skeleton="shouldShowSkeleton(page)"
-                :spread-single="isSpreadSingle(page)"
-                :placeholder-style="getPagePlaceholderStyle(page)"
-                :placed-image="pendingImagePlacement?.pageNumber === page ? pendingImagePlacement : null"
-                :placed-image-busy="isPendingImagePlacementFinalizing"
-                @update-placed-image-rect="updatePendingImagePlacementRect"
-                @finalize-placed-image="requestPendingImagePlacementFinalize"
-                @cancel-placed-image="clearPendingImagePlacement"
-            />
-            <div
-                v-if="bottomVirtualSpacerStyle"
-                class="pdf-viewer-virtual-spacer"
-                :style="bottomVirtualSpacerStyle"
-            />
-        </div>
+            @update-placed-image-rect="updatePendingImagePlacementRect"
+            @finalize-placed-image="requestPendingImagePlacementFinalize"
+            @cancel-placed-image="clearPendingImagePlacement"
+        />
         <PdfRegionSnipOverlay
             :active="regionSnip.isActive.value"
             :selection-rect="regionSnip.selectionRect.value"
@@ -85,22 +57,14 @@
             @pointer-end="cropSelection.onPointerEnd"
             @cancel="cropSelection.cancelSelection"
         />
-        <template v-for="[pageNum, markers] in markersByPage" :key="`markers-${pageNum}`">
-            <Teleport v-if="markerLayerTargets.get(pageNum)" :to="markerLayerTargets.get(pageNum)!">
-                <PdfCommentMarkerLayer
-                    :page-number="pageNum"
-                    :markers="markers"
-                    @open-note="handleMarkerOpenNote"
-                    @context-menu="handleMarkerContextMenu"
-                    @move-marker="handleMarkerMove"
-                />
-            </Teleport>
-        </template>
-        <template v-for="(links, pageNum) in linksByPage" :key="`links-${pageNum}`">
-            <Teleport v-if="linkLayerTargets.get(Number(pageNum))" :to="linkLayerTargets.get(Number(pageNum))!">
-                <PdfLinkOverlayLayer :links="links" />
-            </Teleport>
-        </template>
+        <PdfViewerPortalLayers
+            :viewer-container="viewerContainer"
+            :markers-by-page="markersByPage"
+            :links-by-page="linksByPage"
+            @open-note="handleMarkerOpenNote"
+            @context-menu="handleMarkerContextMenu"
+            @move-marker="handleMarkerMove"
+        />
     </div>
 </template>
 
@@ -108,11 +72,10 @@
 
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
-import PdfViewerPage from '@app/components/pdf/PdfViewerPage.vue';
+import PdfViewerPortalLayers from '@app/components/pdf/PdfViewerPortalLayers.vue';
+import PdfViewerViewport from '@app/components/pdf/PdfViewerViewport.vue';
 import PdfRegionSnipOverlay from '@app/components/pdf/PdfRegionSnipOverlay.vue';
 import PdfCropOverlay from '@app/components/pdf/PdfCropOverlay.vue';
-import PdfCommentMarkerLayer from '@app/components/pdf/annotations/PdfCommentMarkerLayer.vue';
-import PdfLinkOverlayLayer from '@app/components/pdf/annotations/PdfLinkOverlayLayer.vue';
 import { usePdfDocument } from '@app/composables/pdf/usePdfDocument';
 import { usePdfDrag } from '@app/composables/pdf/usePdfDrag';
 import { usePdfPageRenderer } from '@app/composables/pdf/usePdfPageRenderer';
@@ -120,9 +83,8 @@ import type { IPageRenderStallPayload } from '@app/composables/pdf/usePdfPageRen
 import { usePdfScale } from '@app/composables/pdf/usePdfScale';
 import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
 import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets';
-import { computeInitialImagePlacementDimensions } from '@app/composables/pdf/pdfImagePlacementSizing';
+import { usePdfImagePlacement } from '@app/composables/pdf/usePdfImagePlacement';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
-import { clamp } from 'es-toolkit/math';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { usePdfViewerCore } from '@app/modules/pdf-viewer-runtime/usePdfViewerCore';
@@ -130,6 +92,9 @@ import {
     usePdfViewerVirtualization,
     type IZoomVirtualizationFreeze,
 } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
+import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerLoadingState';
+import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerMouseInteractions';
+import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerWheelZoom';
 import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
 import { usePdfCropSelection } from '@app/composables/pdf/usePdfCropSelection';
@@ -137,7 +102,6 @@ import {
     captureScrollSnapshot,
     restoreScrollFromSnapshot,
 } from '@app/composables/pdf/pdfPageRenderPipeline';
-import { ZOOM } from '@app/constants/pdf-layout';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -157,11 +121,7 @@ import type {
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type {
-    IPdfImagePlacementDraft,
-    IPdfImagePlacementRectUpdate,
-    IPdfPlacedImageFinalizePayload,
-} from '@app/types/pdf-image-placement';
+import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotations/types';
 import { isSelectionMarkupTool } from '@app/composables/pdf/annotations/types';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
@@ -257,75 +217,10 @@ const annotationL10n = shallowRef<GenericL10n | null>(null);
 const annotationCommentsCache = shallowRef<IAnnotationCommentSummary[]>([]);
 const pendingMarkerMoves = new Map<string, IAnnotationMarkerRect>();
 const activeCommentStableKey = ref<string | null>(null);
-const pendingImagePlacement = ref<IPdfImagePlacementDraft | null>(null);
-const isPendingImagePlacementFinalizing = ref(false);
-const isImagePlacementActive = computed(() => pendingImagePlacement.value !== null);
-const isViewerPanDragModeActive = computed(() => dragMode.value && !isImagePlacementActive.value);
-const isSelectionMarkupToolActive = computed(() => isSelectionMarkupTool(annotationTool.value));
+const PDF_VIEWER_LOADER_ICON_SIZE_PX = 20;
+const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
 const regionSnip = usePdfRegionSnip({ viewerContainer });
 const cropSelection = usePdfCropSelection({ viewerContainer });
-const PDF_VIEWER_LOADER_ICON_SIZE_PX = 20;
-const WHEEL_ZOOM_SENSITIVITY = 0.0016;
-const WHEEL_LINE_DELTA_PX = 16;
-const ZOOM_VIEWPORT_ANCHOR_MAX_AGE_MS = 240;
-const WHEEL_ZOOM_GESTURE_GRACE_MS = 180;
-const WHEEL_ZOOM_SESSION_IDLE_MS = 220;
-const WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS = 260;
-const WHEEL_DISPATCH_LOG_THROTTLE_MS = 420;
-const WHEEL_SCROLL_LOG_THROTTLE_MS = 420;
-const WHEEL_DETAIL_LOG_THROTTLE_MS = 320;
-const WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS = 1400;
-
-interface IZoomViewportAnchorIntent {
-    id: number;
-    sessionId: number;
-    x: number;
-    y: number;
-    capturedAtMs: number;
-}
-
-interface IWheelZoomSession {
-    id: number;
-    anchorX: number;
-    anchorY: number;
-    startZoom: number;
-    cumulativeDelta: number;
-    lastEmittedZoom: number;
-    startedAtMs: number;
-    lastPacketAtMs: number;
-    lockUntilMs: number;
-    lastEventId: number;
-    packetCount: number;
-    emittedCount: number;
-    startScrollTop: number | null;
-    startScrollLeft: number | null;
-}
-
-interface IImmediateZoomRestoreIntent {
-    id: number;
-    sessionId: number;
-    snapshot: IScrollSnapshot;
-    capturedAtMs: number;
-}
-
-const pendingZoomViewportAnchor = ref<IZoomViewportAnchorIntent | null>(null);
-let zoomDebugWheelEventId = 0;
-let lastViewerScrollTop = 0;
-let lastViewerScrollLeft = 0;
-let lastModifierWheelZoomAtMs = 0;
-let lastModifierWheelZoomEventId = 0;
-let wheelZoomSessionId = 0;
-let activeWheelZoomSession: IWheelZoomSession | null = null;
-let wheelZoomSessionIdleTimer: ReturnType<typeof setTimeout> | null = null;
-let isZoomRerenderBusyFromCore = false;
-let zoomRerenderBusyLockUntilMs = 0;
-let expectedZoomScrollUntilMs = 0;
-const zoomSnapSuppressed = ref(false);
-const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
-let zoomSnapSuppressedTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingImmediateZoomRestoreIntent: IImmediateZoomRestoreIntent | null = null;
-const hasCompletedInitialRenderForCurrentSource = ref(false);
-let initialRenderObserver: MutationObserver | null = null;
 
 const pdfDocumentResult = usePdfDocument();
 const {
@@ -390,6 +285,10 @@ function handleResizeTransitionSignal(payload: {
     });
 }
 
+function handleViewerContainerRef(element: HTMLElement | null) {
+    viewerContainer.value = element;
+}
+
 watch(
     [
         () => Boolean(src.value),
@@ -419,17 +318,6 @@ watch(
     },
     { immediate: true },
 );
-const {
-    isDragging,
-    startDrag,
-    onDrag,
-    stopDrag,
-} = usePdfDrag(() => isViewerPanDragModeActive.value);
-watch(isImagePlacementActive, (active) => {
-    if (active) {
-        stopDrag();
-    }
-});
 const {
     containerStyle,
     scaledMargin,
@@ -552,6 +440,39 @@ const singlePageScroll = usePdfSinglePageScroll({
     emitCurrentPage: (page) => emit('update:currentPage', page),
 });
 
+const {
+    pendingImagePlacement,
+    isPendingImagePlacementFinalizing,
+    startImagePlacement,
+    updatePendingImagePlacementRect,
+    requestPendingImagePlacementFinalize,
+    clearPendingImagePlacement,
+    restorePendingImagePlacement,
+} = usePdfImagePlacement({
+    viewerContainer,
+    currentPage,
+    numPages,
+    effectiveScale,
+    emitFinalize: (payload) => emit('image-placement-finalize', payload),
+});
+
+const isImagePlacementActive = computed(() => pendingImagePlacement.value !== null);
+const isViewerPanDragModeActive = computed(() => dragMode.value && !isImagePlacementActive.value);
+const isSelectionMarkupToolActive = computed(() => isSelectionMarkupTool(annotationTool.value));
+
+const {
+    isDragging,
+    startDrag,
+    onDrag,
+    stopDrag,
+} = usePdfDrag(() => isViewerPanDragModeActive.value);
+
+watch(isImagePlacementActive, (active) => {
+    if (active) {
+        stopDrag();
+    }
+});
+
 const annotations = useAnnotationOrchestrator({
     viewerContainer,
     pdfDocument,
@@ -606,40 +527,6 @@ const commentCrud = annotations.crud;
 const markersByPage = annotations.markersByPage;
 const linksByPage = annotations.linksByPage;
 
-const markerLayerTargets = computed<Map<number, HTMLElement>>(() => {
-    const container = viewerContainer.value;
-    if (!container) {
-        return new Map();
-    }
-    const targets = new Map<number, HTMLElement>();
-    for (const pageNumber of markersByPage.value.keys()) {
-        const pageEl = container.querySelector<HTMLElement>(
-            `.page_container[data-page="${pageNumber}"]`,
-        );
-        if (pageEl) {
-            targets.set(pageNumber, pageEl);
-        }
-    }
-    return targets;
-});
-
-const linkLayerTargets = computed<Map<number, HTMLElement>>(() => {
-    const container = viewerContainer.value;
-    if (!container) {
-        return new Map();
-    }
-    const targets = new Map<number, HTMLElement>();
-    for (const pageNumber of Object.keys(linksByPage.value).map(Number)) {
-        const pageEl = container.querySelector<HTMLElement>(
-            `.page_container[data-page="${pageNumber}"]`,
-        );
-        if (pageEl) {
-            targets.set(pageNumber, pageEl);
-        }
-    }
-    return targets;
-});
-
 function handleMarkerOpenNote(comment: IAnnotationCommentSummary) {
     activeCommentStableKey.value = comment.stableKey;
     emit('annotation-open-note', comment);
@@ -669,6 +556,66 @@ function handleMarkerMove(comment: IAnnotationCommentSummary, markerRect: IAnnot
     emit('annotation-comments', next);
     emit('annotation-modified');
 }
+
+const {
+    pageLayout,
+    getPagePlaceholderStyle,
+    virtualizedContinuousMode,
+    searchNavigationWindow,
+    virtualWindowStart,
+    virtualWindowEnd,
+    topVirtualSpacerStyle,
+    bottomVirtualSpacerStyle,
+    pagesToRender,
+} = usePdfViewerVirtualization({
+    bufferPages,
+    continuousScroll,
+    viewMode,
+    numPages,
+    basePageWidth,
+    basePageHeight,
+    pageMetrics,
+    effectiveScale,
+    scaledMargin,
+    visibleRange,
+    searchNavigationTargetPage: singlePageScroll.searchNavigationTargetPage,
+    resizeTransitionAnchorPage,
+    zoomVirtualizationFreeze,
+});
+
+const {
+    zoomSnapSuppressed,
+    handleViewerWheel,
+    handleViewerScroll,
+    consumeZoomViewportAnchor,
+    isZoomInteractionLocked,
+    setZoomRerenderBusy,
+} = usePdfViewerWheelZoom({
+    viewerContainer,
+    src,
+    isLoading,
+    zoom,
+    zoomMode,
+    effectiveScale,
+    currentPage,
+    visibleRange,
+    virtualizedContinuousMode,
+    virtualWindowStart,
+    virtualWindowEnd,
+    topVirtualSpacerStyle,
+    bottomVirtualSpacerStyle,
+    zoomVirtualizationFreeze,
+    singlePageScroll,
+    cancelPendingSearchScroll,
+    isSnipActive: () => regionSnip.isActive.value || cropSelection.isSelecting.value,
+    emit,
+});
+
+watch(() => src.value, (next, previous) => {
+    if (next !== previous) {
+        clearPendingImagePlacement();
+    }
+});
 
 const {
     shouldShowSkeleton,
@@ -723,289 +670,57 @@ const {
     startDrag,
     onDrag,
     stopDrag,
-    consumeZoomViewportAnchor: () => {
-        const nowMs = Date.now();
-        const pendingAnchor = pendingZoomViewportAnchor.value;
-        if (!pendingAnchor) {
-            const activeSession = getActiveWheelZoomSession(nowMs);
-            const canUseSessionFallback = Boolean(
-                activeSession
-                && nowMs - activeSession.lastPacketAtMs <= WHEEL_ZOOM_GESTURE_GRACE_MS,
-            );
-            if (canUseSessionFallback && activeSession) {
-                const fallbackAnchor: IZoomViewportAnchorIntent = {
-                    id: activeSession.lastEventId,
-                    sessionId: activeSession.id,
-                    x: activeSession.anchorX,
-                    y: activeSession.anchorY,
-                    capturedAtMs: activeSession.lastPacketAtMs,
-                };
-                BrowserLogger.warnThrottled(
-                    'pdf-zoom-debug',
-                    'anchor-consume-session-fallback',
-                    WHEEL_DETAIL_LOG_THROTTLE_MS,
-                    `[anchor-consume] session-fallback id=${fallbackAnchor.id}`,
-                    {
-                        id: fallbackAnchor.id,
-                        sessionId: fallbackAnchor.sessionId,
-                        anchor: fallbackAnchor,
-                        viewer: summarizeViewerStateForLog(),
-                    },
-                );
-                return fallbackAnchor;
-            }
-            BrowserLogger.warnThrottled(
-                'pdf-zoom-debug',
-                'anchor-consume-none',
-                WHEEL_DETAIL_LOG_THROTTLE_MS,
-                '[anchor-consume] none',
-            );
-            return null;
-        }
-        const ageMs = nowMs - pendingAnchor.capturedAtMs;
-        const zoomLockActive = isZoomInteractionLocked(nowMs);
-        const activeSession = getActiveWheelZoomSession(nowMs);
-        const belongsToActiveSession = activeSession?.id === pendingAnchor.sessionId;
-        const staleWithoutZoomContext =
-            ageMs > ZOOM_VIEWPORT_ANCHOR_MAX_AGE_MS
-            && !zoomLockActive
-            && !belongsToActiveSession;
-        if (staleWithoutZoomContext) {
-            pendingZoomViewportAnchor.value = null;
-            BrowserLogger.warnThrottled(
-                'pdf-zoom-debug',
-                'anchor-consume-stale',
-                WHEEL_DETAIL_LOG_THROTTLE_MS,
-                `[anchor-consume] stale id=${pendingAnchor.id}`,
-                {
-                    id: pendingAnchor.id,
-                    sessionId: pendingAnchor.sessionId,
-                    ageMs,
-                    anchor: pendingAnchor,
-                    viewer: summarizeViewerStateForLog(),
-                },
-            );
-            return null;
-        }
-        pendingZoomViewportAnchor.value = null;
-        BrowserLogger.warnThrottled(
-            'pdf-zoom-debug',
-            'anchor-consume',
-            WHEEL_DETAIL_LOG_THROTTLE_MS,
-            `[anchor-consume] id=${pendingAnchor.id}`,
-            {
-                id: pendingAnchor.id,
-                sessionId: pendingAnchor.sessionId,
-                ageMs,
-                zoomLockActive,
-                anchor: pendingAnchor,
-                viewer: summarizeViewerStateForLog(),
-            },
-        );
-        return pendingAnchor;
-    },
-    isZoomInteractionLocked: () => isWheelZoomGestureLocked(),
-    isZoomGestureSessionLocked: () => isWheelZoomGestureLocked(),
-    setZoomRerenderBusy: (busy) => updateZoomRerenderBusyState(busy, 'viewer-core-callback'),
+    consumeZoomViewportAnchor,
+    isZoomInteractionLocked,
+    isZoomGestureSessionLocked: isZoomInteractionLocked,
+    setZoomRerenderBusy,
     setResizeTransitionVisible: handleResizeTransitionSignal,
     emit,
 });
 pageRenderStallRecoveryHandler = handlePageRenderStallFromCore;
 
 const {
-    pageLayout,
-    getPagePlaceholderStyle,
-    virtualizedContinuousMode,
-    searchNavigationWindow,
-    virtualWindowStart,
-    virtualWindowEnd,
-    topVirtualSpacerStyle,
-    bottomVirtualSpacerStyle,
-    pagesToRender,
-} = usePdfViewerVirtualization({
-    bufferPages,
-    continuousScroll,
-    viewMode,
-    numPages,
-    basePageWidth,
-    basePageHeight,
-    pageMetrics,
-    effectiveScale,
-    scaledMargin,
-    visibleRange,
-    searchNavigationTargetPage: singlePageScroll.searchNavigationTargetPage,
-    resizeTransitionAnchorPage,
-    zoomVirtualizationFreeze,
+    handleViewerMouseDown,
+    handleViewerMouseMove,
+    handleViewerMouseUp,
+    handleViewerMouseLeave,
+    handleSelectStart,
+    handleViewerClick,
+    handleViewerDblClick,
+    handleViewerContextMenu,
+} = usePdfViewerMouseInteractions({
+    isSnipActive: () => regionSnip.isActive.value || cropSelection.isSelecting.value,
+    isViewerPanDragModeActive,
+    cancelPendingSearchScroll,
+    handleDragStart,
+    handleDragMove,
+    stopDrag,
+    handleViewerMouseUpAnnotation: () => highlightComposable.handleViewerMouseUp(),
+    handleViewerClickAnnotation: (event) => commentCrud.handleAnnotationCommentClick(event),
+    handleViewerDblClickAnnotation: (event) => commentCrud.handleAnnotationEditorDblClick(event),
+    handleViewerContextMenuAnnotation: (event) => commentCrud.handleAnnotationCommentContextMenu(event),
 });
 
-function captureZoomVirtualizationFreeze(sessionId: number | null, reason: string) {
-    if (!virtualizedContinuousMode.value || numPages.value <= 0) {
-        zoomVirtualizationFreeze.value = null;
-        return;
-    }
-
-    const topSpacerHeight = Number.parseFloat(
-        topVirtualSpacerStyle.value?.height ?? '0',
-    );
-    const bottomSpacerHeight = Number.parseFloat(
-        bottomVirtualSpacerStyle.value?.height ?? '0',
-    );
-
-    zoomVirtualizationFreeze.value = {
-        sessionId,
-        capturedAtMs: Date.now(),
-        windowStart: virtualWindowStart.value,
-        windowEnd: virtualWindowEnd.value,
-        topSpacerHeight: Number.isFinite(topSpacerHeight) ? Math.max(0, topSpacerHeight) : 0,
-        bottomSpacerHeight: Number.isFinite(bottomSpacerHeight) ? Math.max(0, bottomSpacerHeight) : 0,
-    };
-
-    BrowserLogger.warnThrottled(
-        'pdf-zoom-debug',
-        'virtualization-freeze-capture',
-        WHEEL_DETAIL_LOG_THROTTLE_MS,
-        `[zoom-virtualization] capture reason=${reason}`,
-        {
-            reason,
-            freeze: zoomVirtualizationFreeze.value,
-            currentPage: currentPage.value,
-            visibleRange: {
-                start: visibleRange.value.start,
-                end: visibleRange.value.end,
-            },
-            viewer: summarizeViewerStateForLog(),
-        },
-    );
-}
-
-function releaseZoomVirtualizationFreeze(reason: string) {
-    if (!zoomVirtualizationFreeze.value) {
-        return;
-    }
-
-    BrowserLogger.warnThrottled(
-        'pdf-zoom-debug',
-        'virtualization-freeze-release',
-        WHEEL_DETAIL_LOG_THROTTLE_MS,
-        `[zoom-virtualization] release reason=${reason}`,
-        {
-            reason,
-            freeze: zoomVirtualizationFreeze.value,
-            viewer: summarizeViewerStateForLog(),
-        },
-    );
-    zoomVirtualizationFreeze.value = null;
-}
-
-function shouldHoldZoomVirtualizationFreeze(nowMs = Date.now()) {
-    if (!virtualizedContinuousMode.value) {
-        return false;
-    }
-
-    if (isZoomRerenderBusyFromCore || zoomSnapSuppressed.value || nowMs <= expectedZoomScrollUntilMs) {
-        return true;
-    }
-
-    return Boolean(getActiveWheelZoomSession(nowMs));
-}
-
-function maybeReleaseZoomVirtualizationFreeze(reason: string) {
-    if (shouldHoldZoomVirtualizationFreeze()) {
-        return;
-    }
-    releaseZoomVirtualizationFreeze(reason);
-}
-
-function stopInitialRenderObserver() {
-    initialRenderObserver?.disconnect();
-    initialRenderObserver = null;
-}
-
-function hasRenderedCanvasInDom() {
-    const container = viewerContainer.value;
-    if (!container) {
-        return false;
-    }
-
-    return Boolean(container.querySelector('.page_container--rendered .page_canvas canvas'));
-}
-
-function markInitialRenderCompleteIfReady() {
-    if (hasCompletedInitialRenderForCurrentSource.value) {
-        return true;
-    }
-
-    if (!hasRenderedCanvasInDom()) {
-        return false;
-    }
-
-    hasCompletedInitialRenderForCurrentSource.value = true;
-    stopInitialRenderObserver();
-    return true;
-}
-
-function ensureInitialRenderObserver() {
-    if (initialRenderObserver || hasCompletedInitialRenderForCurrentSource.value || !viewerContainer.value) {
-        return;
-    }
-
-    initialRenderObserver = new MutationObserver(() => {
-        markInitialRenderCompleteIfReady();
-    });
-    initialRenderObserver.observe(viewerContainer.value, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['class'],
-    });
-}
-
-watch(
-    [
-        () => src.value,
-        isLoading,
-    ],
-    async ([
-        hasSrc,
-        loading,
-    ]) => {
-        if (!hasSrc || loading) {
-            hasCompletedInitialRenderForCurrentSource.value = false;
-            stopInitialRenderObserver();
-            return;
-        }
-
-        await nextTick();
-        if (!markInitialRenderCompleteIfReady()) {
-            ensureInitialRenderObserver();
-        }
-    },
-    { immediate: true },
-);
-
-watch(() => src.value, (next, previous) => {
-    if (next !== previous) {
-        clearPendingImagePlacement();
-    }
+const { isViewerLoadingOverlayVisible } = usePdfViewerLoadingState({
+    src,
+    isLoading,
+    viewerContainer,
 });
 
-watch(viewerContainer, () => {
-    if (!src.value || isLoading.value || hasCompletedInitialRenderForCurrentSource.value) {
-        stopInitialRenderObserver();
-        return;
-    }
-
-    if (!markInitialRenderCompleteIfReady()) {
-        ensureInitialRenderObserver();
-    }
-});
-
-const isViewerLoadingOverlayVisible = computed(() => (
-    Boolean(src.value) && (
-        isLoading.value
-        || !hasCompletedInitialRenderForCurrentSource.value
-    )
-));
+const viewerClass = computed(() => ({
+    'is-dragging': isDragging.value,
+    'drag-mode': isViewerPanDragModeActive.value,
+    'is-placing-comment': highlightComposable.isPlacingComment.value,
+    'is-selection-markup-tool': isSelectionMarkupToolActive.value,
+    'pdfViewer--single-page': !continuousScroll.value,
+    'pdfViewer--mode-single': viewMode.value === 'single',
+    'pdfViewer--mode-facing': viewMode.value === 'facing',
+    'pdfViewer--mode-facing-first-single': viewMode.value === 'facing-first-single',
+    'pdfViewer--hidden': isViewerLoadingOverlayVisible.value,
+    'pdfViewer--fit-height': fitMode.value === 'height',
+    'pdfViewer--resize-transition': resizeTransitionVisible.value,
+    'pdfViewer--zoom-snap-suppressed': zoomSnapSuppressed.value,
+}));
 
 watch(
     () => [
@@ -1106,966 +821,15 @@ watchEffect(() => {
     setPageLayoutMetrics(null);
 });
 
-watch(
-    () => zoom.value,
-    (nextZoom, previousZoom) => {
-        const pendingIntent = pendingImmediateZoomRestoreIntent;
-        if (!pendingIntent) {
-            return;
-        }
-        const container = viewerContainer.value;
-        if (!container) {
-            pendingImmediateZoomRestoreIntent = null;
-            return;
-        }
-
-        restoreScrollFromSnapshot(container, pendingIntent.snapshot, {
-            restoreHorizontal: true,
-            restoreVertical: true,
-            preferPageAnchor: true,
-            allowVerticalRatioFallback: false,
-        });
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-zoom-immediate-restore', WHEEL_DETAIL_LOG_THROTTLE_MS, `[wheel-zoom] immediate-restore id=${pendingIntent.id}`, {
-            id: pendingIntent.id,
-            sessionId: pendingIntent.sessionId,
-            capturedAtMs: pendingIntent.capturedAtMs,
-            previousZoom,
-            nextZoom,
-            viewer: summarizeViewerStateForLog(),
-        });
-        pendingImmediateZoomRestoreIntent = null;
-    },
-    { flush: 'post' },
-);
-
 onBeforeUnmount(() => {
     clearPendingImagePlacement();
     setPageLayoutMetrics(null);
-    stopInitialRenderObserver();
     resizeTransitionVisible.value = false;
     resizeTransitionAnchorPage.value = null;
-    clearWheelZoomSessionIdleTimer();
-    clearZoomSnapSuppressedTimer();
-    activeWheelZoomSession = null;
-    isZoomRerenderBusyFromCore = false;
-    zoomRerenderBusyLockUntilMs = 0;
-    expectedZoomScrollUntilMs = 0;
-    zoomSnapSuppressed.value = false;
-    zoomVirtualizationFreeze.value = null;
-    pendingImmediateZoomRestoreIntent = null;
 });
 
 function isSpreadSingle(page: number) {
     return isStandaloneSpreadPage(page, viewMode.value, numPages.value);
-}
-
-function isSnipActive() {
-    return regionSnip.isActive.value || cropSelection.isSelecting.value;
-}
-
-function normalizeWheelZoomDelta(event: WheelEvent, container: HTMLElement) {
-    if (event.deltaMode === 1) {
-        return event.deltaY * WHEEL_LINE_DELTA_PX;
-    }
-    if (event.deltaMode === 2) {
-        return event.deltaY * Math.max(container.clientHeight, 1);
-    }
-    return event.deltaY;
-}
-
-function clampZoomLevel(level: number) {
-    return clamp(level, ZOOM.MIN, ZOOM.MAX);
-}
-
-function resolveZoomBaselineScale() {
-    if (!Number.isFinite(zoom.value) || Math.abs(zoom.value) < 0.0001) {
-        return 1;
-    }
-    const baseline = effectiveScale.value / zoom.value;
-    if (!Number.isFinite(baseline) || baseline <= 0) {
-        return 1;
-    }
-    return baseline;
-}
-
-function summarizeWheelEventForDebug(event: WheelEvent) {
-    return {
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        altKey: event.altKey,
-        shiftKey: event.shiftKey,
-        deltaMode: event.deltaMode,
-        deltaX: event.deltaX,
-        deltaY: event.deltaY,
-        deltaZ: event.deltaZ,
-        cancelable: event.cancelable,
-        defaultPrevented: event.defaultPrevented,
-    };
-}
-
-function clearWheelZoomSessionIdleTimer() {
-    if (wheelZoomSessionIdleTimer !== null) {
-        clearTimeout(wheelZoomSessionIdleTimer);
-        wheelZoomSessionIdleTimer = null;
-    }
-}
-
-function clearZoomSnapSuppressedTimer() {
-    if (zoomSnapSuppressedTimer !== null) {
-        clearTimeout(zoomSnapSuppressedTimer);
-        zoomSnapSuppressedTimer = null;
-    }
-}
-
-function scheduleZoomSnapSuppressedRelease() {
-    clearZoomSnapSuppressedTimer();
-    const delayMs = expectedZoomScrollUntilMs - Date.now();
-    if (delayMs <= 0) {
-        zoomSnapSuppressed.value = false;
-        maybeReleaseZoomVirtualizationFreeze('expected-scroll-window-expired');
-        return;
-    }
-    zoomSnapSuppressedTimer = setTimeout(() => {
-        zoomSnapSuppressedTimer = null;
-        if (Date.now() <= expectedZoomScrollUntilMs) {
-            scheduleZoomSnapSuppressedRelease();
-            return;
-        }
-        zoomSnapSuppressed.value = false;
-        maybeReleaseZoomVirtualizationFreeze('expected-scroll-window-expired');
-    }, delayMs + 32);
-}
-
-function markExpectedZoomScroll(ms: number) {
-    expectedZoomScrollUntilMs = Math.max(
-        expectedZoomScrollUntilMs,
-        Date.now() + Math.max(0, ms),
-    );
-    zoomSnapSuppressed.value = true;
-    captureZoomVirtualizationFreeze(
-        activeWheelZoomSession?.id ?? null,
-        'expected-scroll-window',
-    );
-    scheduleZoomSnapSuppressedRelease();
-}
-
-function endWheelZoomSession(reason: string) {
-    clearWheelZoomSessionIdleTimer();
-    const finishedSession = activeWheelZoomSession;
-    if (!finishedSession) {
-        return;
-    }
-    const viewerState = summarizeViewerStateForLog();
-    BrowserLogger.warn('pdf-zoom-debug', `[wheel-zoom-session] end reason=${reason}`, {
-        reason,
-        session: finishedSession,
-        viewer: viewerState,
-        sessionDurationMs: Date.now() - finishedSession.startedAtMs,
-        packetCount: finishedSession.packetCount,
-        emittedCount: finishedSession.emittedCount,
-        scrollDriftFromSessionStart: {
-            top: (
-                viewerState?.scrollTop !== undefined
-                && finishedSession.startScrollTop !== null
-            )
-                ? viewerState.scrollTop - finishedSession.startScrollTop
-                : null,
-            left: (
-                viewerState?.scrollLeft !== undefined
-                && finishedSession.startScrollLeft !== null
-            )
-                ? viewerState.scrollLeft - finishedSession.startScrollLeft
-                : null,
-        },
-    });
-    activeWheelZoomSession = null;
-    maybeReleaseZoomVirtualizationFreeze(`session-end:${reason}`);
-}
-
-function getActiveWheelZoomSession(nowMs = Date.now()) {
-    if (!activeWheelZoomSession) {
-        return null;
-    }
-    if (nowMs > activeWheelZoomSession.lockUntilMs) {
-        endWheelZoomSession('lock-expired');
-        return null;
-    }
-    return activeWheelZoomSession;
-}
-
-function scheduleWheelZoomSessionIdleTimeout(sessionId: number) {
-    clearWheelZoomSessionIdleTimer();
-    wheelZoomSessionIdleTimer = setTimeout(() => {
-        if (!activeWheelZoomSession || activeWheelZoomSession.id !== sessionId) {
-            return;
-        }
-        const idleMs = Date.now() - activeWheelZoomSession.lastPacketAtMs;
-        if (idleMs < WHEEL_ZOOM_SESSION_IDLE_MS) {
-            scheduleWheelZoomSessionIdleTimeout(sessionId);
-            return;
-        }
-        endWheelZoomSession('idle-timeout');
-    }, WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS);
-}
-
-function ensureWheelZoomSession(
-    nowMs: number,
-    anchorX: number,
-    anchorY: number,
-    eventId: number,
-) {
-    const current = activeWheelZoomSession;
-    const shouldReuseCurrent = Boolean(
-        current
-        && nowMs - current.lastPacketAtMs <= WHEEL_ZOOM_GESTURE_GRACE_MS,
-    );
-    if (shouldReuseCurrent && current) {
-        if (!zoomVirtualizationFreeze.value) {
-            captureZoomVirtualizationFreeze(current.id, 'session-reuse');
-        }
-        current.lastPacketAtMs = nowMs;
-        current.lockUntilMs = nowMs + WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS;
-        current.lastEventId = eventId;
-        scheduleWheelZoomSessionIdleTimeout(current.id);
-        return {
-            session: current,
-            reused: true,
-        };
-    }
-
-    wheelZoomSessionId += 1;
-    const nextSession: IWheelZoomSession = {
-        id: wheelZoomSessionId,
-        anchorX,
-        anchorY,
-        startZoom: effectiveScale.value,
-        cumulativeDelta: 0,
-        lastEmittedZoom: effectiveScale.value,
-        startedAtMs: nowMs,
-        lastPacketAtMs: nowMs,
-        lockUntilMs: nowMs + WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
-        lastEventId: eventId,
-        packetCount: 0,
-        emittedCount: 0,
-        startScrollTop: viewerContainer.value ? Math.round(viewerContainer.value.scrollTop) : null,
-        startScrollLeft: viewerContainer.value ? Math.round(viewerContainer.value.scrollLeft) : null,
-    };
-    activeWheelZoomSession = nextSession;
-    captureZoomVirtualizationFreeze(nextSession.id, 'session-start');
-    BrowserLogger.warn('pdf-zoom-debug', '[wheel-zoom-session] start', {
-        session: nextSession,
-        viewer: summarizeViewerStateForLog(),
-    });
-    scheduleWheelZoomSessionIdleTimeout(nextSession.id);
-    return {
-        session: nextSession,
-        reused: false,
-    };
-}
-
-function updateZoomRerenderBusyState(busy: boolean, reason: string) {
-    isZoomRerenderBusyFromCore = busy;
-    zoomRerenderBusyLockUntilMs = Date.now()
-        + (busy ? WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS : WHEEL_ZOOM_GESTURE_GRACE_MS);
-    if (busy) {
-        markExpectedZoomScroll(WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS);
-        captureZoomVirtualizationFreeze(
-            activeWheelZoomSession?.id ?? null,
-            'core-rerender-busy',
-        );
-    } else {
-        maybeReleaseZoomVirtualizationFreeze('core-rerender-idle');
-    }
-    BrowserLogger.warn('pdf-zoom-debug', `[wheel-zoom-session] core-busy=${busy}`, {
-        reason,
-        busy,
-        lockUntilMs: zoomRerenderBusyLockUntilMs,
-        activeSessionId: activeWheelZoomSession?.id ?? null,
-    });
-}
-
-function isWheelZoomGestureLocked(nowMs = Date.now()) {
-    const session = getActiveWheelZoomSession(nowMs);
-    return Boolean(session && nowMs <= session.lockUntilMs);
-}
-
-function isZoomInteractionLocked(nowMs = Date.now()) {
-    const sessionLocked = isWheelZoomGestureLocked(nowMs);
-    const coreLocked = isZoomRerenderBusyFromCore || nowMs <= zoomRerenderBusyLockUntilMs;
-    return sessionLocked || coreLocked;
-}
-
-function handleViewerModifierWheelZoom(event: WheelEvent) {
-    const nowMs = Date.now();
-    const debugId = ++zoomDebugWheelEventId;
-    const activeSession = getActiveWheelZoomSession(nowMs);
-    const isContinuationPacket = Boolean(
-        activeSession
-        && nowMs - activeSession.lastPacketAtMs <= WHEEL_ZOOM_GESTURE_GRACE_MS,
-    );
-    const hasModifierZoomSignal = event.ctrlKey
-        || event.metaKey
-        || Math.abs(event.deltaZ) > Number.EPSILON;
-    const shouldTreatAsZoomSignal = hasModifierZoomSignal || isContinuationPacket;
-    BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-zoom-received', WHEEL_DETAIL_LOG_THROTTLE_MS, `[wheel-zoom] received id=${debugId}`, {
-        id: debugId,
-        hasModifierZoomSignal,
-        shouldTreatAsZoomSignal,
-        isContinuationPacket,
-        activeSessionId: activeSession?.id ?? null,
-        viewer: summarizeViewerStateForLog(),
-        wheel: summarizeWheelEventForDebug(event),
-    });
-    if (!shouldTreatAsZoomSignal) {
-        BrowserLogger.warnThrottled(
-            'pdf-zoom-debug',
-            'wheel-zoom-ignored-no-modifier',
-            WHEEL_DETAIL_LOG_THROTTLE_MS,
-            `[wheel-zoom] ignored id=${debugId} reason=no-zoom-signal`,
-        );
-        return false;
-    }
-
-    lastModifierWheelZoomAtMs = nowMs;
-    lastModifierWheelZoomEventId = debugId;
-    markExpectedZoomScroll(WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS);
-
-    event.preventDefault();
-    BrowserLogger.warnThrottled(
-        'pdf-zoom-debug',
-        'wheel-zoom-prevent-default',
-        WHEEL_DETAIL_LOG_THROTTLE_MS,
-        `[wheel-zoom] prevent-default id=${debugId}`,
-        {
-            id: debugId,
-            cancelable: event.cancelable,
-            defaultPrevented: event.defaultPrevented,
-        },
-    );
-    const container = viewerContainer.value;
-    if (!container || !src.value || isLoading.value) {
-        BrowserLogger.warnThrottled(
-            'pdf-zoom-debug',
-            'wheel-zoom-ignored-not-ready',
-            WHEEL_DETAIL_LOG_THROTTLE_MS,
-            `[wheel-zoom] ignored id=${debugId} reason=viewer-not-ready`,
-            {
-                id: debugId,
-                hasContainer: Boolean(container),
-                hasSrc: Boolean(src.value),
-                isLoading: isLoading.value,
-                viewer: summarizeViewerStateForLog(),
-            },
-        );
-        return true;
-    }
-
-    const containerRect = container.getBoundingClientRect();
-    const eventAnchorX = clamp(
-        event.clientX - containerRect.left,
-        0,
-        Math.max(container.clientWidth, 0),
-    );
-    const eventAnchorY = clamp(
-        event.clientY - containerRect.top,
-        0,
-        Math.max(container.clientHeight, 0),
-    );
-    const {
-        session,
-        reused: reusedGestureAnchor,
-    } = ensureWheelZoomSession(nowMs, eventAnchorX, eventAnchorY, debugId);
-    session.packetCount += 1;
-    const anchorX = session.anchorX;
-    const anchorY = session.anchorY;
-
-    let delta = normalizeWheelZoomDelta(event, container);
-    if (Math.abs(delta) < Number.EPSILON && Math.abs(event.deltaZ) > Number.EPSILON) {
-        delta = event.deltaMode === 1
-            ? event.deltaZ * WHEEL_LINE_DELTA_PX
-            : event.deltaMode === 2
-                ? event.deltaZ * Math.max(container.clientHeight, 1)
-                : event.deltaZ;
-    }
-    if (Math.abs(delta) < Number.EPSILON) {
-        BrowserLogger.warnThrottled(
-            'pdf-zoom-debug',
-            'wheel-zoom-ignored-zero-delta',
-            WHEEL_DETAIL_LOG_THROTTLE_MS,
-            `[wheel-zoom] ignored id=${debugId} reason=zero-delta`,
-            {
-                id: debugId,
-                wheel: summarizeWheelEventForDebug(event),
-            },
-        );
-        return true;
-    }
-
-    session.cumulativeDelta += delta;
-    // Match browser feel: wheel up zooms in, wheel down zooms out with
-    // exponential scaling for smooth touchpad pinch and Ctrl/Cmd+wheel.
-    const zoomFactor = Math.exp(-session.cumulativeDelta * WHEEL_ZOOM_SENSITIVITY);
-    if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
-        BrowserLogger.warnThrottled(
-            'pdf-zoom-debug',
-            'wheel-zoom-ignored-invalid-factor',
-            WHEEL_DETAIL_LOG_THROTTLE_MS,
-            `[wheel-zoom] ignored id=${debugId} reason=invalid-factor`,
-            {
-                id: debugId,
-                deltaCumulative: session.cumulativeDelta,
-                zoomFactor,
-                sessionId: session.id,
-            },
-        );
-        return true;
-    }
-
-    const nextEffectiveZoom = clampZoomLevel(session.startZoom * zoomFactor);
-    const previousEmittedZoom = session.lastEmittedZoom;
-    if (Math.abs(nextEffectiveZoom - previousEmittedZoom) < 0.001) {
-        BrowserLogger.warnThrottled(
-            'pdf-zoom-debug',
-            'wheel-zoom-ignored-no-change',
-            WHEEL_DETAIL_LOG_THROTTLE_MS,
-            `[wheel-zoom] ignored id=${debugId} reason=no-zoom-change`,
-            {
-                id: debugId,
-                sessionId: session.id,
-                currentZoomMultiplier: zoom.value,
-                currentEffectiveZoom: effectiveScale.value,
-                previousEmittedZoom,
-                nextEffectiveZoom,
-                delta,
-                zoomFactor,
-                cumulativeDelta: session.cumulativeDelta,
-            },
-        );
-        return true;
-    }
-    session.lastEmittedZoom = nextEffectiveZoom;
-    session.lastPacketAtMs = nowMs;
-    session.lockUntilMs = nowMs + WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS;
-    session.emittedCount += 1;
-    const baselineScale = resolveZoomBaselineScale();
-    const nextZoom = clampZoomLevel(nextEffectiveZoom / baselineScale);
-    const snapshotForImmediateRestore = captureScrollSnapshot(container, {
-        anchorViewportX: anchorX,
-        anchorViewportY: anchorY,
-    });
-    if (snapshotForImmediateRestore) {
-        pendingImmediateZoomRestoreIntent = {
-            id: debugId,
-            sessionId: session.id,
-            snapshot: snapshotForImmediateRestore,
-            capturedAtMs: nowMs,
-        };
-    }
-
-    pendingZoomViewportAnchor.value = {
-        id: debugId,
-        sessionId: session.id,
-        x: anchorX,
-        y: anchorY,
-        capturedAtMs: nowMs,
-    };
-    BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-zoom-emit', WHEEL_DETAIL_LOG_THROTTLE_MS, `[wheel-zoom] emit id=${debugId}`, {
-        id: debugId,
-        sessionId: session.id,
-        gestureAnchorReused: reusedGestureAnchor,
-        sessionStartZoom: session.startZoom,
-        sessionCumulativeDelta: session.cumulativeDelta,
-        eventAnchorX,
-        eventAnchorY,
-        delta,
-        zoomFactor,
-        currentZoomMultiplier: zoom.value,
-        currentEffectiveZoom: effectiveScale.value,
-        baselineScale,
-        previousEmittedZoom,
-        nextEffectiveZoom,
-        nextZoom,
-        anchor: pendingZoomViewportAnchor.value,
-        viewerBeforeEmit: summarizeViewerStateForLog(),
-        wheel: summarizeWheelEventForDebug(event),
-    });
-
-    if (zoomMode.value !== 'custom') {
-        emit('update:zoomMode', 'custom');
-    }
-    emit('update:effectiveZoom', nextEffectiveZoom);
-    emit('update:zoom', nextZoom);
-    markExpectedZoomScroll(WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS);
-    return true;
-}
-
-function handleViewerWheel(event: WheelEvent) {
-    const nowMs = Date.now();
-    const recentZoomAnchor = pendingZoomViewportAnchor.value;
-    const recentZoomAgeMs = recentZoomAnchor
-        ? nowMs - recentZoomAnchor.capturedAtMs
-        : null;
-    const modifierZoomAgeMs = lastModifierWheelZoomAtMs > 0
-        ? nowMs - lastModifierWheelZoomAtMs
-        : null;
-    const isWithinModifierZoomGraceWindow = modifierZoomAgeMs !== null
-        && modifierZoomAgeMs <= WHEEL_ZOOM_GESTURE_GRACE_MS;
-    const activeSession = getActiveWheelZoomSession(nowMs);
-    const zoomInteractionLocked = isZoomInteractionLocked(nowMs);
-    BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-dispatch', WHEEL_DISPATCH_LOG_THROTTLE_MS, '[wheel] dispatch', {
-        recentZoomIntentId: recentZoomAnchor?.id ?? null,
-        recentZoomAgeMs,
-        recentModifierZoomEventId: lastModifierWheelZoomEventId || null,
-        modifierZoomAgeMs,
-        withinModifierZoomGraceWindow: isWithinModifierZoomGraceWindow,
-        activeSessionId: activeSession?.id ?? null,
-        zoomInteractionLocked,
-        coreZoomRerenderBusy: isZoomRerenderBusyFromCore,
-        coreZoomRerenderLockAgeMs: zoomRerenderBusyLockUntilMs > nowMs
-            ? zoomRerenderBusyLockUntilMs - nowMs
-            : 0,
-        viewer: summarizeViewerStateForLog(),
-        wheel: summarizeWheelEventForDebug(event),
-    });
-    if (isSnipActive()) {
-        event.preventDefault();
-        BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-blocked-snip', WHEEL_DETAIL_LOG_THROTTLE_MS, '[wheel] blocked by snip mode');
-        return;
-    }
-
-    if (handleViewerModifierWheelZoom(event)) {
-        singlePageScroll.suppressSnapFor(
-            Math.max(
-                WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
-                WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS,
-            ),
-        );
-        cancelPendingSearchScroll();
-        return;
-    }
-
-    if (zoomInteractionLocked || isWithinModifierZoomGraceWindow) {
-        event.preventDefault();
-        singlePageScroll.suppressSnapFor(
-            Math.max(
-                WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
-                WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS,
-            ),
-        );
-        BrowserLogger.warnThrottled(
-            'pdf-zoom-debug',
-            'wheel-suppressed-non-modifier',
-            WHEEL_DETAIL_LOG_THROTTLE_MS,
-            '[wheel] suppressed non-modifier packet during active zoom lock',
-            {
-                zoomInteractionLocked,
-                graceWindowMs: WHEEL_ZOOM_GESTURE_GRACE_MS,
-                recentModifierZoomEventId: lastModifierWheelZoomEventId || null,
-                modifierZoomAgeMs,
-                activeSessionId: activeSession?.id ?? null,
-                viewer: summarizeViewerStateForLog(),
-                wheel: summarizeWheelEventForDebug(event),
-            },
-        );
-        cancelPendingSearchScroll();
-        return;
-    }
-
-    cancelPendingSearchScroll();
-    singlePageScroll.handleWheel(event);
-}
-
-function handleViewerScroll(event: Event) {
-    const nowMs = Date.now();
-    const container = viewerContainer.value;
-    const currentTop = container ? Math.round(container.scrollTop) : null;
-    const currentLeft = container ? Math.round(container.scrollLeft) : null;
-    const deltaTop = currentTop === null ? null : currentTop - lastViewerScrollTop;
-    const deltaLeft = currentLeft === null ? null : currentLeft - lastViewerScrollLeft;
-
-    if (currentTop !== null) {
-        lastViewerScrollTop = currentTop;
-    }
-    if (currentLeft !== null) {
-        lastViewerScrollLeft = currentLeft;
-    }
-
-    const activeZoomIntent = pendingZoomViewportAnchor.value;
-    const activeSession = getActiveWheelZoomSession(nowMs);
-    const zoomInteractionLocked = isZoomInteractionLocked(nowMs);
-    const zoomScrollExpected = nowMs <= expectedZoomScrollUntilMs;
-    BrowserLogger.warnThrottled('pdf-zoom-debug', 'scroll-viewer', WHEEL_SCROLL_LOG_THROTTLE_MS, '[scroll] viewer', {
-        type: event.type,
-        deltaTop,
-        deltaLeft,
-        viewer: summarizeViewerStateForLog(),
-        activeZoomIntentId: activeZoomIntent?.id ?? null,
-        activeZoomIntentAgeMs: activeZoomIntent
-            ? nowMs - activeZoomIntent.capturedAtMs
-            : null,
-        activeSessionId: activeSession?.id ?? null,
-        zoomInteractionLocked,
-        zoomScrollExpected,
-    });
-    if (
-        zoomInteractionLocked
-        && !zoomScrollExpected
-        && (
-            (typeof deltaTop === 'number' && Math.abs(deltaTop) >= 10)
-            || (typeof deltaLeft === 'number' && Math.abs(deltaLeft) >= 10)
-        )
-    ) {
-        BrowserLogger.warnThrottled(
-            'pdf-zoom-debug',
-            'scroll-drift-unexpected-during-zoom-lock',
-            WHEEL_SCROLL_LOG_THROTTLE_MS,
-            '[scroll-drift] unexpected scroll delta during active zoom lock',
-            {
-                deltaTop,
-                deltaLeft,
-                activeSessionId: activeSession?.id ?? null,
-                recentZoomIntentId: activeZoomIntent?.id ?? null,
-                recentZoomIntentAgeMs: activeZoomIntent
-                    ? nowMs - activeZoomIntent.capturedAtMs
-                    : null,
-                expectedZoomScrollUntilMs,
-                viewer: summarizeViewerStateForLog(),
-            },
-        );
-    }
-
-    if (zoomInteractionLocked || zoomScrollExpected) {
-        singlePageScroll.suppressSnapFor(
-            Math.max(
-                WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
-                WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS,
-            ),
-        );
-    }
-
-    singlePageScroll.handleScroll();
-}
-
-function handleViewerMouseDown(event: MouseEvent) {
-    if (isSnipActive()) {
-        return;
-    }
-    if (
-        event.target instanceof HTMLElement
-        && event.target.closest('.pdf-image-placement')
-    ) {
-        return;
-    }
-    if (
-        event.target instanceof HTMLElement &&
-        event.target.closest(
-            '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, .pdf-annotation-has-note-target, .pdf-annotation-has-comment, .annotationLayer .popupTriggerArea, .annotation-layer .popupTriggerArea',
-        )
-    ) {
-        event.preventDefault();
-        return;
-    }
-    cancelPendingSearchScroll();
-    handleDragStart(event);
-}
-
-function handleViewerMouseMove(event: MouseEvent) {
-    if (isSnipActive()) {
-        return;
-    }
-    if (
-        event.target instanceof HTMLElement
-        && event.target.closest('.pdf-image-placement')
-    ) {
-        return;
-    }
-    handleDragMove(event);
-}
-
-function handleViewerMouseUp(event: MouseEvent) {
-    if (isSnipActive()) {
-        return;
-    }
-    if (
-        event.target instanceof HTMLElement
-        && event.target.closest('.pdf-image-placement')
-    ) {
-        return;
-    }
-    highlightComposable.handleViewerMouseUp();
-}
-
-function handleViewerMouseLeave() {
-    if (isSnipActive()) {
-        return;
-    }
-    stopDrag();
-}
-
-function handleSelectStart(event: Event) {
-    if (isViewerPanDragModeActive.value) {
-        event.preventDefault();
-    }
-}
-
-function handleViewerClick(event: MouseEvent) {
-    if (isSnipActive()) {
-        return;
-    }
-    if (
-        event.target instanceof HTMLElement
-        && event.target.closest('.pdf-image-placement')
-    ) {
-        return;
-    }
-    void commentCrud.handleAnnotationCommentClick(event);
-}
-
-function handleViewerDblClick(event: MouseEvent) {
-    if (isSnipActive()) {
-        return;
-    }
-    if (
-        event.target instanceof HTMLElement
-        && event.target.closest('.pdf-image-placement')
-    ) {
-        return;
-    }
-    commentCrud.handleAnnotationEditorDblClick(event);
-}
-
-function handleViewerContextMenu(event: MouseEvent) {
-    if (isSnipActive()) {
-        event.preventDefault();
-        return;
-    }
-    if (
-        event.target instanceof HTMLElement
-        && event.target.closest('.pdf-image-placement')
-    ) {
-        event.preventDefault();
-        return;
-    }
-    commentCrud.handleAnnotationCommentContextMenu(event);
-}
-
-function revokePendingImagePlacementPreview() {
-    const previewUrl = pendingImagePlacement.value?.previewUrl;
-    if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-    }
-}
-
-function clearPendingImagePlacement() {
-    revokePendingImagePlacementPreview();
-    pendingImagePlacement.value = null;
-    isPendingImagePlacementFinalizing.value = false;
-}
-
-function restorePendingImagePlacement() {
-    if (!pendingImagePlacement.value) {
-        return;
-    }
-    isPendingImagePlacementFinalizing.value = false;
-}
-
-function getImagePlacementTarget(options?: {
-    pageNumber?: number | null;
-    pageX?: number | null;
-    pageY?: number | null;
-}) {
-    const container = viewerContainer.value;
-    const requestedPageNumber = Number.isFinite(options?.pageNumber)
-        ? Math.max(1, Math.min(numPages.value, Math.floor(Number(options?.pageNumber))))
-        : currentPage.value;
-    const pageNumber = Math.max(1, requestedPageNumber);
-    const pageContainer = container?.querySelector<HTMLElement>(
-        `.page_container[data-page="${pageNumber}"]`,
-    ) ?? null;
-    const pageRect = pageContainer?.getBoundingClientRect() ?? null;
-    const pageX = Number.isFinite(options?.pageX) ? Number(options?.pageX) : 0.5;
-    const pageY = Number.isFinite(options?.pageY) ? Number(options?.pageY) : 0.5;
-
-    return {
-        pageNumber,
-        pageX: clamp(pageX, 0, 1),
-        pageY: clamp(pageY, 0, 1),
-        pageWidthPx: pageRect?.width ?? null,
-        pageHeightPx: pageRect?.height ?? null,
-    };
-}
-
-async function getImageIntrinsicSize(file: File) {
-    if (typeof createImageBitmap === 'function') {
-        const bitmap = await createImageBitmap(file);
-        try {
-            return {
-                width: bitmap.width,
-                height: bitmap.height,
-            };
-        } finally {
-            bitmap.close();
-        }
-    }
-
-    const imageUrl = URL.createObjectURL(file);
-    try {
-        const dimensions = await new Promise<{
-            width: number;
-            height: number;
-        }>((resolve, reject) => {
-            const image = new Image();
-            image.onload = () => {
-                resolve({
-                    width: image.naturalWidth,
-                    height: image.naturalHeight,
-                });
-            };
-            image.onerror = () => {
-                reject(new Error('Failed to decode image dimensions'));
-            };
-            image.src = imageUrl;
-        });
-        return dimensions;
-    } finally {
-        URL.revokeObjectURL(imageUrl);
-    }
-}
-
-async function getInitialImagePlacementDimensions(
-    file: File,
-    pageWidthPx: number | null,
-    pageHeightPx: number | null,
-) {
-    if (
-        !pageWidthPx
-        || !pageHeightPx
-        || pageWidthPx <= 0
-        || pageHeightPx <= 0
-    ) {
-        return null;
-    }
-
-    const {
-        width: imageWidth,
-        height: imageHeight,
-    } = await getImageIntrinsicSize(file);
-    if (imageWidth <= 0 || imageHeight <= 0) {
-        return null;
-    }
-
-    const devicePixelRatioValue = typeof window !== 'undefined' && window.devicePixelRatio > 0
-        ? window.devicePixelRatio
-        : 1;
-    const imageCssWidth = imageWidth / devicePixelRatioValue;
-    const imageCssHeight = imageHeight / devicePixelRatioValue;
-    return computeInitialImagePlacementDimensions({
-        pageWidthPx,
-        pageHeightPx,
-        imageCssWidth,
-        imageCssHeight,
-    });
-}
-
-function getInitialImagePlacementRect(
-    target: {
-        pageNumber: number;
-        pageX: number;
-        pageY: number;
-        pageWidthPx: number | null;
-        pageHeightPx: number | null;
-    },
-    dimensions: {
-        width: number;
-        height: number;
-    },
-) {
-    const x = clamp(target.pageX - (dimensions.width / 2), 0, Math.max(0, 1 - dimensions.width));
-    const y = clamp(target.pageY - (dimensions.height / 2), 0, Math.max(0, 1 - dimensions.height));
-
-    return {
-        pageNumber: target.pageNumber,
-        x,
-        y,
-        width: dimensions.width,
-        height: dimensions.height,
-    };
-}
-
-async function startImagePlacement(
-    file: File,
-    options?: {
-        pageNumber?: number | null;
-        pageX?: number | null;
-        pageY?: number | null;
-    },
-) {
-    const {
-        pageNumber,
-        pageX,
-        pageY,
-        pageWidthPx,
-        pageHeightPx,
-    } = getImagePlacementTarget(options);
-    const initialDimensions = await getInitialImagePlacementDimensions(file, pageWidthPx, pageHeightPx);
-    if (!initialDimensions) {
-        return false;
-    }
-
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const previewUrl = URL.createObjectURL(new Blob([bytes], { type: file.type || 'image/png' }));
-    const placementRect = getInitialImagePlacementRect({
-        pageNumber,
-        pageX,
-        pageY,
-        pageWidthPx,
-        pageHeightPx,
-    }, initialDimensions);
-
-    clearPendingImagePlacement();
-    pendingImagePlacement.value = {
-        ...placementRect,
-        rotationDegrees: 0,
-        previewUrl,
-        fileName: file.name,
-        mimeType: file.type || 'image/png',
-        bytes,
-    };
-    isPendingImagePlacementFinalizing.value = false;
-    return true;
-}
-
-function updatePendingImagePlacementRect(update: IPdfImagePlacementRectUpdate) {
-    if (!pendingImagePlacement.value) {
-        return;
-    }
-
-    pendingImagePlacement.value = {
-        ...pendingImagePlacement.value,
-        ...update,
-    };
-}
-
-function getPendingImagePlacementTargetPixels(placement: IPdfImagePlacementDraft) {
-    const pageContainer = viewerContainer.value?.querySelector<HTMLElement>(
-        `.page_container[data-page="${placement.pageNumber}"]`,
-    ) ?? null;
-    const canvas = pageContainer?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
-    const devicePixelRatioValue = typeof window !== 'undefined' && window.devicePixelRatio > 0
-        ? window.devicePixelRatio
-        : 1;
-    const renderedPagePixelWidth = canvas?.width
-        ?? Math.max(1, Math.round((pageContainer?.clientWidth ?? 1) * devicePixelRatioValue));
-    const renderedPagePixelHeight = canvas?.height
-        ?? Math.max(1, Math.round((pageContainer?.clientHeight ?? 1) * devicePixelRatioValue));
-    const renderScale = effectiveScale.value > 0 ? effectiveScale.value : 1;
-    const basePagePixelWidth = Math.max(1, Math.round(renderedPagePixelWidth / renderScale));
-    const basePagePixelHeight = Math.max(1, Math.round(renderedPagePixelHeight / renderScale));
-
-    return {
-        width: Math.max(1, Math.round(placement.width * basePagePixelWidth)),
-        height: Math.max(1, Math.round(placement.height * basePagePixelHeight)),
-    };
 }
 
 function captureViewerScrollSnapshot() {
@@ -2092,29 +856,6 @@ function restoreViewerScrollSnapshot(
     }
 
     singlePageScroll.scrollToPage(fallbackPage);
-}
-
-function requestPendingImagePlacementFinalize() {
-    const placement = pendingImagePlacement.value;
-    if (!placement || isPendingImagePlacementFinalizing.value) {
-        return;
-    }
-
-    const targetPixels = getPendingImagePlacementTargetPixels(placement);
-    isPendingImagePlacementFinalizing.value = true;
-    emit('image-placement-finalize', {
-        pageNumber: placement.pageNumber,
-        x: placement.x,
-        y: placement.y,
-        width: placement.width,
-        height: placement.height,
-        rotationDegrees: placement.rotationDegrees,
-        fileName: placement.fileName,
-        mimeType: placement.mimeType,
-        bytes: placement.bytes.slice(),
-        targetPixelWidth: targetPixels.width,
-        targetPixelHeight: targetPixels.height,
-    });
 }
 
 function getSelectedShape(): IShapeAnnotation | null {
