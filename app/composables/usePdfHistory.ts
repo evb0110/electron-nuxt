@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import { until } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { IScrollSnapshot } from '@app/types/pdf';
 
 const PDF_RELOAD_TIMEOUT_MS = 8000;
 
@@ -8,6 +9,11 @@ export const usePdfHistory = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
     pdfViewerRef: Ref<{
         scrollToPage: (page: number) => void;
+        captureScrollSnapshot?: () => IScrollSnapshot | null;
+        restoreScrollSnapshot?: (
+            snapshot: IScrollSnapshot | null,
+            options?: { fallbackPage?: number | null; },
+        ) => void;
         undoAnnotation: () => void;
         redoAnnotation: () => void 
     } | null>;
@@ -47,6 +53,7 @@ export const usePdfHistory = (deps: {
     function createPdfReloadWaiter(pageToRestore: number) {
         const initialDoc = pdfDocument.value;
         const isCancelled = ref(false);
+        const scrollSnapshot = pdfViewerRef.value?.captureScrollSnapshot?.() ?? null;
 
         const promise = until(() => ({
             doc: pdfDocument.value,
@@ -66,7 +73,12 @@ export const usePdfHistory = (deps: {
 
                 resetSearchCache();
                 await nextTick();
-                pdfViewerRef.value?.scrollToPage(pageToRestore);
+                const viewer = pdfViewerRef.value;
+                if (viewer?.restoreScrollSnapshot) {
+                    viewer.restoreScrollSnapshot(scrollSnapshot, { fallbackPage: pageToRestore });
+                    return;
+                }
+                viewer?.scrollToPage(pageToRestore);
             });
 
         return {

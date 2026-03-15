@@ -12,6 +12,7 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePdfHistory } from '@app/composables/usePdfHistory';
+import type { IScrollSnapshot } from '@app/types/pdf';
 
 function cast<T>(obj: unknown): T {
     return obj as T;
@@ -22,6 +23,11 @@ function createMockDeps(overrides: Partial<Parameters<typeof usePdfHistory>[0]> 
         pdfDocument: ref<PDFDocumentProxy | null>(null),
         pdfViewerRef: ref<{
             scrollToPage: (page: number) => void;
+            captureScrollSnapshot?: () => IScrollSnapshot | null;
+            restoreScrollSnapshot?: (
+                snapshot: IScrollSnapshot | null,
+                options?: { fallbackPage?: number | null; },
+            ) => void;
             undoAnnotation: () => void;
             redoAnnotation: () => void;
         } | null>(null),
@@ -191,6 +197,47 @@ describe('usePdfHistory', () => {
         await promise;
 
         expect(deps.resetSearchCache).toHaveBeenCalledOnce();
+    });
+
+    it('restores the captured scroll snapshot when the viewer exposes exact restore hooks', async () => {
+        const deps = createMockDeps();
+        const scrollToPage = vi.fn();
+        const captureScrollSnapshot = vi.fn(() => ({
+            width: 1200,
+            height: 2400,
+            centerX: 600,
+            centerY: 900,
+            anchorPage: 5,
+            anchorViewportX: 200,
+            anchorViewportY: 160,
+        }) satisfies IScrollSnapshot);
+        const restoreScrollSnapshot = vi.fn();
+        deps.pdfViewerRef.value = {
+            scrollToPage,
+            captureScrollSnapshot,
+            restoreScrollSnapshot,
+            undoAnnotation: vi.fn(),
+            redoAnnotation: vi.fn(),
+        };
+        const { waitForPdfReload } = usePdfHistory(deps);
+
+        const promise = waitForPdfReload(5);
+
+        deps.pdfDocument.value = { numPages: 10 } as PDFDocumentProxy;
+        await nextTick();
+        await promise;
+
+        expect(captureScrollSnapshot).toHaveBeenCalledOnce();
+        expect(restoreScrollSnapshot).toHaveBeenCalledWith({
+            width: 1200,
+            height: 2400,
+            centerX: 600,
+            centerY: 900,
+            anchorPage: 5,
+            anchorViewportX: 200,
+            anchorViewportY: 160,
+        }, { fallbackPage: 5 });
+        expect(scrollToPage).not.toHaveBeenCalled();
     });
 
     it('does not call scrollToPage if doc reference stays the same', async () => {
