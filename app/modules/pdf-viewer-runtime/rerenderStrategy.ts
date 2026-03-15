@@ -1,4 +1,4 @@
-export interface IPageRange {
+interface IPageRange {
     start: number;
     end: number;
 }
