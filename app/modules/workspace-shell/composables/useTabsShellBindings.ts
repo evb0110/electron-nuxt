@@ -105,6 +105,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
 
     onMounted(() => {
         const onMountedStart = performance.now();
+        const electronApi = getElectronAPI();
         traceRendererStartup('tabs shell onMounted start');
         ensureAtLeastOneTab();
         traceRendererStartup('tabs shell ensured at least one tab', {tabCount: tabs.value.length});
@@ -115,31 +116,28 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
             (window as Window & { __handleSave?: () => Promise<void> }).__handleSave = debugHandleSave;
         }
 
-        if (hasElectronAPI()) {
-            const electronApi = getElectronAPI();
-            menuCleanups.push(...registerTabsMenuBindings(electronApi, {
-                activeWorkspace,
-                activeTabId,
-                createTab,
-                handleCloseTab,
-                openPathInAppropriateTab,
-                openPathsInAppropriateTab,
-                clearRecentFiles,
-                loadRecentFiles,
-                openSettings,
-                checkForUpdates,
-                splitEditor,
-                focusGroup,
-                moveActiveTab,
-                copyActiveTab,
-                handleWindowTabsAction,
-            }));
-            traceRendererStartup('tabs shell menu bindings registered');
-            void nextTick(() => {
-                traceRendererStartup('tabs shell dispatching app:rendererReady');
-                electronApi.windowTabs?.notifyRendererReady();
-            });
-        }
+        menuCleanups.push(...registerTabsMenuBindings(electronApi, {
+            activeWorkspace,
+            activeTabId,
+            createTab,
+            handleCloseTab,
+            openPathInAppropriateTab,
+            openPathsInAppropriateTab,
+            clearRecentFiles,
+            loadRecentFiles,
+            openSettings,
+            checkForUpdates,
+            splitEditor,
+            focusGroup,
+            moveActiveTab,
+            copyActiveTab,
+            handleWindowTabsAction,
+        }));
+        traceRendererStartup('tabs shell menu bindings registered');
+        void nextTick(() => {
+            traceRendererStartup('tabs shell dispatching app:rendererReady');
+            electronApi.windowTabs.notifyRendererReady();
+        });
 
         traceRendererStartup('tabs shell onMounted finished', {durationMs: Math.round(performance.now() - onMountedStart)});
     });

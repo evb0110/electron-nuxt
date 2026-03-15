@@ -35,10 +35,7 @@ import type {
 import { screenRectToMargins } from '@app/utils/pdf-crop-coordinates';
 import type { TOpenFileResult } from '@contracts/electron-api';
 import type { TTabUpdate } from '@app/types/tabs';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+import { getElectronAPI } from '@app/utils/platform';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspace-view-state';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import type { TSplitPayload } from '@contracts/window-tabs';
@@ -850,10 +847,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         }
 
         const normalizedCurrentPage = normalizeSplitPayloadPage(currentPage.value) ?? 1;
-        if (!hasElectronAPI()) {
-            return { kind: 'empty' };
-        }
-
         const api = getElectronAPI();
         const normalizedFileName = fileName.value ?? 'document.pdf';
 
@@ -943,10 +936,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
                 });
             })
             : null;
-
-        if (!hasElectronAPI()) {
-            return;
-        }
 
         await loadPdfFromPath(payload.snapshotPath, { markDirty: payload.isDirty });
         originalPath.value = payload.originalPath;

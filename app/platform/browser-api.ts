@@ -18,7 +18,6 @@ import type {
     ISettingsCapability,
     IShellCapability,
     IUpdatesCapability,
-    IWindowTabsCapability,
     TOpenFileResult,
 } from '@contracts/electron-api';
 import type {
@@ -31,7 +30,6 @@ import type {
     IPdfSearchResponse,
     IPdfSearchResult,
 } from '@contracts/search';
-import type { IWindowTabTransferRequest } from '@contracts/window-tabs';
 import {
     DEFAULT_SETTINGS,
     sanitizeSettings,
@@ -41,6 +39,10 @@ import {
     getBrowserDocumentFileName,
     isBrowserDocumentRef,
 } from '@app/platform/browser-document-store';
+import {
+    browserWindowTabsCapability,
+    syncBrowserWindowTitle,
+} from '@app/platform/browser-window-tabs';
 import {
     safeGetLocalStorageItem,
     safeSetLocalStorageItem,
@@ -107,9 +109,11 @@ interface IPreparedSearchPage {
 }
 
 type TSearchListener = (progress: IPdfSearchProgress) => void;
+type TUpdateStatusListener = (status: IAppUpdateStatus) => void;
 
 const settingsState = ref<ISettingsData>({ ...DEFAULT_SETTINGS });
 const searchProgressListeners = new Set<TSearchListener>();
+const updateStatusListeners = new Set<TUpdateStatusListener>();
 const searchPreparedPagesCache = new Map<
     string,
     Promise<IPreparedSearchPage[]>
@@ -1143,6 +1147,7 @@ const browserDocumentsCapability: IDocumentsCapability = {
         if (typeof document !== 'undefined') {
             document.title = title;
         }
+        syncBrowserWindowTitle();
         return Promise.resolve();
     },
     showItemInFolder(_path) {
@@ -1738,7 +1743,7 @@ const browserSettingsCapability: ISettingsCapability = {
 
 const browserUpdateState: IAppUpdateStatus = {
     phase: 'unsupported',
-    origin: 'manual',
+    origin: 'auto',
     version: null,
     percent: null,
     message: null,
@@ -1749,6 +1754,13 @@ const browserUpdatesCapability: IUpdatesCapability = {
         return Promise.resolve(browserUpdateState);
     },
     check() {
+        const manualUnsupportedStatus: IAppUpdateStatus = {
+            ...browserUpdateState,
+            origin: 'manual',
+        };
+        updateStatusListeners.forEach((listener) => {
+            listener(manualUnsupportedStatus);
+        });
         return Promise.resolve({ started: false });
     },
     install() {
@@ -1760,41 +1772,13 @@ const browserUpdatesCapability: IUpdatesCapability = {
     skipVersion(_version) {
         return Promise.resolve();
     },
-    onStatus: noopUnsubscribe,
+    onStatus(callback) {
+        updateStatusListeners.add(callback);
+        return () => {
+            updateStatusListeners.delete(callback);
+        };
+    },
     onMenuCheckForUpdates: noopUnsubscribe,
-};
-
-const browserWindowTabsCapability: IWindowTabsCapability = {
-    transfer(request: IWindowTabTransferRequest) {
-        return Promise.resolve({
-            transferId: crypto.randomUUID(),
-            success: false,
-            targetWindowId:
-        request.target.kind === 'window' ? request.target.windowId : -1,
-            error: 'Window transfer is not available in the browser runtime',
-        });
-    },
-    transferAck() {
-        return Promise.resolve(false);
-    },
-    listTargetWindows() {
-        return Promise.resolve([]);
-    },
-    showContextMenu(_tabId) {
-        return Promise.resolve();
-    },
-    onIncomingTransfer: noopUnsubscribe,
-    onWindowAction: noopUnsubscribe,
-    closeCurrentWindow() {
-        return Promise.resolve(false);
-    },
-    notifyRendererReady() {},
-    onMenuNewTab: noopUnsubscribe,
-    onMenuCloseTab: noopUnsubscribe,
-    onMenuSplitEditor: noopUnsubscribe,
-    onMenuFocusEditorGroup: noopUnsubscribe,
-    onMenuMoveTabToGroup: noopUnsubscribe,
-    onMenuCopyTabToGroup: noopUnsubscribe,
 };
 
 const browserDjvuCapability: IDjvuCapability = {

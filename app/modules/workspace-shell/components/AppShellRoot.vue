@@ -96,10 +96,7 @@ import SettingsDialog from '@app/components/SettingsDialog.vue';
 import { uniq } from 'es-toolkit/array';
 import { withTimeout } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+import { getElectronAPI } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/async-guard';
 import { traceRendererStartup } from '@app/utils/startup-trace';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
@@ -1288,7 +1285,7 @@ async function finalizeTransferredSourceTab(groupId: string, tabId: string): Pro
         return 'failed';
     }
 
-    if (shouldCloseSourceWindowAfterTransfer(tabs.value.length, hasElectronAPI())) {
+    if (shouldCloseSourceWindowAfterTransfer(tabs.value.length, true)) {
         const closed = await getElectronAPI().windowTabs.closeCurrentWindow();
         if (closed) {
             return 'window-closed';
@@ -1301,10 +1298,6 @@ async function finalizeTransferredSourceTab(groupId: string, tabId: string): Pro
 }
 
 async function transferTabToTarget(tabId: string, target: TWindowTabTransferTarget): Promise<TSourceTransferOutcome> {
-    if (!hasElectronAPI()) {
-        return 'failed';
-    }
-
     const tab = getTabById(tabId);
     const sourceGroup = getGroupByTabId(tabId);
     if (!tab || !sourceGroup) {
@@ -1374,10 +1367,6 @@ async function mergeWindowInto(targetWindowId: number) {
 }
 
 async function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
-    if (!hasElectronAPI()) {
-        return;
-    }
-
     const ackFailure = async (error: string) => {
         await getElectronAPI().windowTabs.transferAck({
             transferId: transfer.transferId,
@@ -1721,11 +1710,9 @@ onMounted(() => {
     cleanupEmptyGroups();
     void ensureUpdatesInitialized();
 
-    if (hasElectronAPI()) {
-        incomingTabTransferCleanup = getElectronAPI().windowTabs?.onIncomingTransfer((transfer) => {
-            void handleIncomingTabTransfer(transfer);
-        });
-    }
+    incomingTabTransferCleanup = getElectronAPI().windowTabs.onIncomingTransfer((transfer) => {
+        void handleIncomingTabTransfer(transfer);
+    });
     traceRendererStartup('index.vue onMounted finished', {durationMs: Math.round(performance.now() - start)});
 });
 

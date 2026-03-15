@@ -1,8 +1,5 @@
 import type { Ref } from 'vue';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+import { getElectronAPI } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/async-guard';
 import type { ITab } from '@app/types/tabs';
 import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
@@ -46,9 +43,6 @@ export function useMenuSync(deps: IUseMenuSyncDeps) {
     }
 
     function syncMenuDocumentState() {
-        if (!hasElectronAPI()) {
-            return;
-        }
         const hasDocument = workspaceHasPdf(activeWorkspace.value) || activeTabHasDocumentHint();
         if (lastSyncedMenuDocumentState === hasDocument) {
             return;
@@ -65,10 +59,6 @@ export function useMenuSync(deps: IUseMenuSyncDeps) {
     }
 
     function syncMenuTabCount() {
-        if (!hasElectronAPI()) {
-            return;
-        }
-
         const tabCount = tabs.value.length;
         if (lastSyncedMenuTabCount === tabCount) {
             return;

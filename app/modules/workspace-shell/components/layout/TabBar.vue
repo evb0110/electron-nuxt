@@ -87,14 +87,10 @@ import type {
     TTabContextCommand,
 } from '@app/types/tab-context-menu';
 import type { IWindowTabTargetWindow } from '@contracts/window-tabs';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+import { getElectronAPI } from '@app/utils/platform';
 
 const { t } = useTypedI18n();
 const { clampToViewport } = useContextMenuPosition();
-const hasElectronBridge = hasElectronAPI();
 const DIRECTION_ORDER: TGroupDirection[] = [
     'right',
     'left',
@@ -217,10 +213,6 @@ const primaryActions = computed<IContextMenuAction[]>(() => {
 });
 
 const windowActions = computed<IContextMenuAction[]>(() => {
-    if (!hasElectronBridge) {
-        return [];
-    }
-
     const actions: IContextMenuAction[] = [];
     if (isCommandEnabled({kind: 'move-to-new-window'})) {
         actions.push({
@@ -384,11 +376,6 @@ function positionContextMenu(x: number, y: number) {
 }
 
 async function loadWindowTransferTargets() {
-    if (!hasElectronBridge) {
-        windowTransferTargets.value = [];
-        return;
-    }
-
     try {
         windowTransferTargets.value = await getElectronAPI().windowTabs.listTargetWindows();
     } catch {
