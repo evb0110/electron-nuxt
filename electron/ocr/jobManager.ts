@@ -16,6 +16,30 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import { uniq } from 'es-toolkit/array';
 import { withTimeout } from 'es-toolkit/promise';
+import {
+    OCR_JOB_MAX_RUNTIME_MS,
+    OCR_MODEL_PREP_TIMEOUT_MS,
+    OCR_QUEUE_MAX_AGE_MS,
+    OCR_QUEUE_MAX_BUFFERED_BYTES,
+    OCR_QUEUE_MAX_SIZE,
+    OCR_RESULT_FILE_ACK_TTL_MS,
+    OCR_WORKER_POOL_SIZE,
+    OCR_WORKER_TERMINATE_TIMEOUT_MS,
+} from '@electron/ocr/jobManager.config';
+import {
+    createAbortError,
+    createTimeoutError,
+    isAbortError,
+    isScopedJobOwnedBySender,
+    parseWorkerMessage,
+    toScopedOcrJobId,
+} from '@electron/ocr/jobManager.protocol';
+import { createPendingResultFileStore } from '@electron/ocr/jobManager.resultFiles';
+import type {
+    IOcrActiveJob,
+    IOcrPreparingJob,
+    IOcrQueuedJob,
+} from '@electron/ocr/jobManager.types';
 import { ensureTessdataLanguages } from '@electron/ocr/language-models';
 import { getOcrToolPaths } from '@electron/ocr/paths';
 import type {
@@ -29,233 +53,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const log = createLogger('ocr-ipc');
-const OCR_WORKER_POOL_SIZE = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_WORKER_POOL_SIZE ?? '2', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 2;
-    }
-    return parsed;
-})();
-
-interface IOcrQueuedJob {
-    scopedJobId: string;
-    requestId: string;
-    webContentsId: number;
-    sourcePdfPath: string;
-    pages: IOcrPdfPageRequest[];
-    renderDpi?: number;
-    queuedAtMs: number;
-    requestedBytes: number;
-}
-
-interface IOcrPreparingJob {
-    scopedJobId: string;
-    requestId: string;
-    webContentsId: number;
-    requestedBytes: number;
-    startedAtMs: number;
-    abortController: AbortController;
-}
-
-interface IOcrActiveJob extends IOcrQueuedJob {
-    worker: Worker;
-    completed: boolean;
-    terminatedByUs: boolean;
-    startedAtMs: number;
-    watchdogTimer: NodeJS.Timeout | null;
-}
-
-interface IOcrPendingResultFile {
-    scopedJobId: string;
-    requestId: string;
-    webContentsId: number;
-    pdfPath: string;
-    createdAtMs: number;
-    cleanupTimer: NodeJS.Timeout | null;
-}
 
 const activeJobs = new Map<string, IOcrActiveJob>();
 const queuedJobs: IOcrQueuedJob[] = [];
 const queuedJobIds = new Set<string>();
 const preparingJobs = new Map<string, IOcrPreparingJob>();
 const cancelledJobs = new Set<string>();
-const pendingResultFiles = new Map<string, IOcrPendingResultFile>();
-const OCR_QUEUE_MAX_SIZE = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_QUEUE_MAX_SIZE ?? '8', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 8;
-    }
-    return parsed;
-})();
-const OCR_QUEUE_MAX_BUFFERED_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_QUEUE_MAX_BUFFERED_MB ?? '768', 10);
-    if (!Number.isFinite(parsed) || parsed < 32) {
-        return 768 * 1024 * 1024;
-    }
-    return parsed * 1024 * 1024;
-})();
-const OCR_QUEUE_MAX_AGE_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_QUEUE_MAX_AGE_MS ?? `${10 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 5_000) {
-        return 10 * 60 * 1000;
-    }
-    return parsed;
-})();
-const OCR_RESULT_FILE_ACK_TTL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_RESULT_FILE_TTL_MS ?? `${15 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 60_000) {
-        return 15 * 60 * 1000;
-    }
-    return parsed;
-})();
-const OCR_JOB_MAX_RUNTIME_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_JOB_MAX_RUNTIME_MS ?? `${15 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 15_000) {
-        return 15 * 60 * 1000;
-    }
-    return parsed;
-})();
-const OCR_MODEL_PREP_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_MODEL_PREP_TIMEOUT_MS ?? `${2 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 10_000) {
-        return 2 * 60 * 1000;
-    }
-    return parsed;
-})();
-const OCR_WORKER_TERMINATE_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_WORKER_TERMINATE_TIMEOUT_MS ?? '10000', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_000) {
-        return 10_000;
-    }
-    return parsed;
-})();
 const registeredSenderCleanupIds = new Set<number>();
-
-function createAbortError(message: string) {
-    const error = new Error(message);
-    error.name = 'AbortError';
-    return error;
-}
-
-function createTimeoutError(message: string) {
-    const error = new Error(message);
-    error.name = 'TimeoutError';
-    return error;
-}
-
-function isAbortError(error: unknown) {
-    return error instanceof Error && error.name === 'AbortError';
-}
-
-function toScopedOcrJobId(webContentsId: number, requestId: string) {
-    return `${webContentsId}:${requestId}`;
-}
-
-function isScopedJobOwnedBySender(scopedJobId: string, webContentsId: number) {
-    return scopedJobId.startsWith(`${webContentsId}:`);
-}
-
-function assertNever(value: never): never {
-    throw new Error(`Unhandled OCR worker outbound message: ${JSON.stringify(value)}`);
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
-function isStringArray(value: unknown): value is string[] {
-    return Array.isArray(value) && value.every(item => typeof item === 'string');
-}
-
-function parseWorkerMessage(message: unknown): TOcrWorkerOutboundMessage | null {
-    if (!isRecord(message) || typeof message.type !== 'string') {
-        return null;
-    }
-
-    switch (message.type) {
-        case 'log':
-            if (
-                (message.level === 'debug' || message.level === 'warn' || message.level === 'error')
-                && typeof message.message === 'string'
-            ) {
-                return {
-                    type: 'log',
-                    level: message.level,
-                    message: message.message,
-                };
-            }
-            return null;
-        case 'progress':
-            if (!isRecord(message.progress)) {
-                return null;
-            }
-            if (
-                typeof message.jobId === 'string'
-                && typeof message.progress.requestId === 'string'
-                && typeof message.progress.currentPage === 'number'
-                && Number.isFinite(message.progress.currentPage)
-                && typeof message.progress.processedCount === 'number'
-                && Number.isFinite(message.progress.processedCount)
-                && typeof message.progress.totalPages === 'number'
-                && Number.isFinite(message.progress.totalPages)
-            ) {
-                return {
-                    type: 'progress',
-                    jobId: message.jobId,
-                    progress: {
-                        requestId: message.progress.requestId,
-                        currentPage: message.progress.currentPage,
-                        processedCount: message.progress.processedCount,
-                        totalPages: message.progress.totalPages,
-                    },
-                };
-            }
-            return null;
-        case 'complete':
-            if (!isRecord(message.result)) {
-                return null;
-            }
-            if (typeof message.jobId !== 'string' || typeof message.result.success !== 'boolean' || !isStringArray(message.result.errors)) {
-                return null;
-            }
-
-            if (message.result.success) {
-                const normalizedPdfPath = typeof message.result.pdfPath === 'string'
-                    ? message.result.pdfPath.trim()
-                    : '';
-                if (normalizedPdfPath.length === 0) {
-                    return null;
-                }
-                if (typeof message.result.requiresCleanupAck !== 'boolean') {
-                    return null;
-                }
-                return {
-                    type: 'complete',
-                    jobId: message.jobId,
-                    result: {
-                        success: true,
-                        pdfPath: normalizedPdfPath,
-                        requiresCleanupAck: message.result.requiresCleanupAck,
-                        errors: message.result.errors,
-                    },
-                };
-            }
-
-            return {
-                type: 'complete',
-                jobId: message.jobId,
-                result: {
-                    success: false,
-                    errors: message.result.errors,
-                },
-            };
-        default:
-            return null;
-    }
-}
-
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
     return isRecord(error) && ('code' in error);
+}
+
+function assertNever(value: never): never {
+    throw new Error(`Unhandled OCR worker message: ${JSON.stringify(value)}`);
 }
 
 export function safeSendToWindow(
@@ -350,88 +165,11 @@ async function removeResultFile(path: string) {
         }
     }
 }
-
-function clearPendingResultFileCleanupTimer(entry: IOcrPendingResultFile | null | undefined) {
-    if (!entry?.cleanupTimer) {
-        return;
-    }
-    clearTimeout(entry.cleanupTimer);
-    entry.cleanupTimer = null;
-}
-
-function removePendingResultFileEntry(scopedJobId: string) {
-    const pending = pendingResultFiles.get(scopedJobId);
-    if (!pending) {
-        return null;
-    }
-    pendingResultFiles.delete(scopedJobId);
-    clearPendingResultFileCleanupTimer(pending);
-    return pending;
-}
-
-function findPendingResultFileEntry(webContentsId: number, requestId: string) {
-    return Array.from(pendingResultFiles.values())
-        .find(entry => entry.webContentsId === webContentsId && entry.requestId === requestId)
-        ?? null;
-}
-
-function trackPendingResultFile(
-    scopedJobId: string,
-    requestId: string,
-    webContentsId: number,
-    pdfPath: string,
-) {
-    const normalizedPath = typeof pdfPath === 'string' ? pdfPath.trim() : '';
-    if (!normalizedPath) {
-        return;
-    }
-
-    const previousEntry = removePendingResultFileEntry(scopedJobId);
-    if (previousEntry && previousEntry.pdfPath !== normalizedPath) {
-        void removeResultFile(previousEntry.pdfPath);
-    }
-
-    const cleanupTimer = setTimeout(() => {
-        const pending = removePendingResultFileEntry(scopedJobId);
-        if (!pending) {
-            return;
-        }
-
-        void removeResultFile(pending.pdfPath);
-        log.warn(`Cleaned up stale OCR result file for job "${requestId}" after acknowledgement timeout`);
-    }, OCR_RESULT_FILE_ACK_TTL_MS);
-    cleanupTimer.unref?.();
-
-    pendingResultFiles.set(scopedJobId, {
-        scopedJobId,
-        requestId,
-        webContentsId,
-        pdfPath: normalizedPath,
-        createdAtMs: Date.now(),
-        cleanupTimer,
-    });
-}
-
-async function evictStaleResultFiles(nowMs = Date.now()) {
-    if (pendingResultFiles.size === 0) {
-        return;
-    }
-
-    const staleEntries = Array.from(pendingResultFiles.values())
-        .filter(entry => nowMs - entry.createdAtMs > OCR_RESULT_FILE_ACK_TTL_MS);
-    if (staleEntries.length === 0) {
-        return;
-    }
-
-    for (const entry of staleEntries) {
-        const removedEntry = removePendingResultFileEntry(entry.scopedJobId);
-        if (removedEntry) {
-            await removeResultFile(removedEntry.pdfPath);
-        }
-    }
-
-    log.warn(`Cleaned up ${staleEntries.length} stale OCR result file(s) without renderer acknowledgement`);
-}
+const pendingResultFileStore = createPendingResultFileStore({
+    logger: log,
+    ttlMs: OCR_RESULT_FILE_ACK_TTL_MS,
+    removeResultFile,
+});
 
 function ensureQueueCapacity(additionalBytes: number) {
     if (queuedJobs.length + preparingJobs.size > OCR_QUEUE_MAX_SIZE) {
@@ -574,17 +312,6 @@ function terminateAndFinalizeActiveJob(
     });
 }
 
-async function cleanupPendingResultFilesForSender(webContentsId: number) {
-    const pendingEntries = Array.from(pendingResultFiles.values())
-        .filter(entry => entry.webContentsId === webContentsId);
-    for (const pendingEntry of pendingEntries) {
-        const removedEntry = removePendingResultFileEntry(pendingEntry.scopedJobId);
-        if (removedEntry) {
-            await removeResultFile(removedEntry.pdfPath);
-        }
-    }
-}
-
 function cancelJobsForSender(webContentsId: number, reason: string) {
     for (const preparingJob of Array.from(preparingJobs.values())) {
         if (!isScopedJobOwnedBySender(preparingJob.scopedJobId, webContentsId)) {
@@ -615,7 +342,7 @@ function cancelJobsForSender(webContentsId: number, reason: string) {
         log.info(`[${activeJob.requestId}] Cancelled active OCR job: ${reason}`);
     }
 
-    void cleanupPendingResultFilesForSender(webContentsId);
+    void pendingResultFileStore.cleanupForSender(webContentsId);
 }
 
 function registerSenderCleanup(event: IpcMainInvokeEvent) {
@@ -695,8 +422,8 @@ function handleWorkerMessage(
                 return;
             }
             if (message.result.success) {
-                trackPendingResultFile(scopedJobId, requestId, webContentsId, message.result.pdfPath);
-                void evictStaleResultFiles();
+                pendingResultFileStore.track(scopedJobId, requestId, webContentsId, message.result.pdfPath);
+                void pendingResultFileStore.evictStale();
             }
 
             safeSendToWindow(window, 'ocr:complete', {
@@ -862,7 +589,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         }
 
         evictStaleQueuedJobs();
-        await evictStaleResultFiles();
+        await pendingResultFileStore.evictStale();
 
         if (activeJobs.has(scopedJobId) || queuedJobIds.has(scopedJobId) || preparingJobs.has(scopedJobId)) {
             return {
@@ -871,7 +598,7 @@ export async function handleOcrCreateSearchablePdfAsync(
                 error: `OCR job with id "${requestId}" already exists`,
             };
         }
-        if (findPendingResultFileEntry(event.sender.id, requestId)) {
+        if (pendingResultFileStore.find(event.sender.id, requestId)) {
             return {
                 started: false,
                 jobId: requestId,
@@ -969,7 +696,7 @@ export async function handleOcrCreateSearchablePdfAsync(
                 error: `OCR job with id "${requestId}" already exists`,
             };
         }
-        if (findPendingResultFileEntry(event.sender.id, requestId)) {
+        if (pendingResultFileStore.find(event.sender.id, requestId)) {
             return {
                 started: false,
                 jobId: requestId,
@@ -1052,7 +779,7 @@ export async function handleOcrAcknowledgeResultFile(
     error?: string; 
 }> {
     registerSenderCleanup(event);
-    await evictStaleResultFiles();
+    await pendingResultFileStore.evictStale();
 
     const requestId = typeof requestIdPayload === 'string' ? requestIdPayload.trim() : '';
     if (!requestId) {
@@ -1062,34 +789,11 @@ export async function handleOcrAcknowledgeResultFile(
         };
     }
 
-    const pending = findPendingResultFileEntry(event.sender.id, requestId);
-    if (!pending) {
-        return {
-            cleaned: false,
-            error: `No pending OCR result file for requestId "${requestId}"`,
-        };
-    }
-
-    if (typeof pdfPathPayload === 'string' && pdfPathPayload.trim().length > 0) {
-        const normalizedPayloadPath = pdfPathPayload.trim();
-        if (normalizedPayloadPath !== pending.pdfPath) {
-            return {
-                cleaned: false,
-                error: 'Acknowledged OCR result path does not match pending result path',
-            };
-        }
-    }
-
-    const removedEntry = removePendingResultFileEntry(pending.scopedJobId);
-    if (!removedEntry) {
-        return {
-            cleaned: false,
-            error: `No pending OCR result file for requestId "${requestId}"`,
-        };
-    }
-
-    await removeResultFile(removedEntry.pdfPath);
-    return { cleaned: true };
+    return pendingResultFileStore.acknowledge(
+        event.sender.id,
+        requestId,
+        typeof pdfPathPayload === 'string' ? pdfPathPayload : undefined,
+    );
 }
 
 export function handleOcrCancel(
@@ -1153,12 +857,7 @@ export async function shutdownOcrJobManager() {
             terminateWorkerSafely(scopedJobId, activeJob.worker, 'app shutdown')),
     );
 
-    const pendingEntries = Array.from(pendingResultFiles.values());
-    pendingResultFiles.clear();
-    for (const pendingEntry of pendingEntries) {
-        clearPendingResultFileCleanupTimer(pendingEntry);
-        await removeResultFile(pendingEntry.pdfPath);
-    }
+    await pendingResultFileStore.shutdown();
 
     cancelledJobs.clear();
     registeredSenderCleanupIds.clear();
