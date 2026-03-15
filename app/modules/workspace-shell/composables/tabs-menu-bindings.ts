@@ -33,6 +33,9 @@ export function registerTabsMenuBindings(
     deps: ITabsMenuBindingDeps,
 ) {
     const api = electronApi as Partial<IElectronAPI>;
+    let documentOpenQueue: Promise<void> = Promise.resolve();
+    let disposed = false;
+
     const runMenuAction = (actionName: string, action: () => unknown) => {
         try {
             const result = action();
@@ -46,7 +49,28 @@ export function registerTabsMenuBindings(
         }
     };
 
-    return [
+    const enqueueDocumentOpenAction = (
+        actionName: string,
+        action: () => Promise<void>,
+    ) => {
+        if (disposed) {
+            return;
+        }
+
+        documentOpenQueue = documentOpenQueue.then(async () => {
+            if (disposed) {
+                return;
+            }
+
+            try {
+                await action();
+            } catch (error) {
+                BrowserLogger.warn('tabs-menu', `Queued document open failed: ${actionName}`, error);
+            }
+        });
+    };
+
+    const cleanups = [
         api.documents?.onMenuOpenPdf?.(() => {
             runMenuAction('open-pdf', () => deps.activeWorkspace.value?.handleOpenFileFromUi());
         }),
@@ -102,10 +126,10 @@ export function registerTabsMenuBindings(
             runMenuAction('view-mode-facing-first-single', () => deps.activeWorkspace.value?.handleViewModeFacingFirstSingle());
         }),
         api.documents?.onMenuOpenRecentFile?.((path: string) => {
-            runMenuAction('open-recent-file', () => deps.openPathInAppropriateTab(path));
+            enqueueDocumentOpenAction('open-recent-file', () => deps.openPathInAppropriateTab(path));
         }),
         api.documents?.onMenuOpenExternalPaths?.((paths: string[]) => {
-            runMenuAction('open-external-paths', () => deps.openPathsInAppropriateTab(paths));
+            enqueueDocumentOpenAction('open-external-paths', () => deps.openPathsInAppropriateTab(paths));
         }),
         api.documents?.onMenuClearRecentFiles?.(() => {
             runMenuAction('clear-recent-files', async () => {
@@ -164,4 +188,12 @@ export function registerTabsMenuBindings(
             runMenuAction('window-action', () => deps.handleWindowTabsAction(action));
         }),
     ].filter((cleanup): cleanup is () => void => typeof cleanup === 'function');
+
+    return [
+        ...cleanups,
+        () => {
+            disposed = true;
+            documentOpenQueue = Promise.resolve();
+        },
+    ];
 }
