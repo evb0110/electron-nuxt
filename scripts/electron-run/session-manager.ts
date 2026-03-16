@@ -144,6 +144,16 @@ export function buildElectronAutomationArgs(options: {
     return args;
 }
 
+export function resolveAutomationWindowEnv(env: NodeJS.ProcessEnv = process.env) {
+    const noFocus = env.EVB_AUTOMATION_NO_FOCUS ?? '1';
+    const hideWindow = env.EVB_AUTOMATION_HIDE_WINDOW ?? env.EVB_AUTOMATION_NO_FOCUS ?? '1';
+
+    return {
+        EVB_AUTOMATION_NO_FOCUS: noFocus,
+        EVB_AUTOMATION_HIDE_WINDOW: hideWindow,
+    };
+}
+
 async function killProcessTreeForPids(pids: number[], graceMs = 1200) {
     for (const pid of uniq(pids)) {
         await killProcessTree(pid, graceMs);
@@ -484,9 +494,6 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
     };
 
     const automationUserDataDir = electronUserDataPath();
-    const interactiveTerminal = process.stdin.isTTY === true && process.stdout.isTTY === true;
-    const defaultAutomationNoFocus = interactiveTerminal ? '0' : '1';
-    const defaultAutomationHideWindow = interactiveTerminal ? '0' : '1';
     const electronPath = join(projectRoot, 'node_modules/.bin/electron');
     const electron = spawn(electronPath, buildElectronAutomationArgs({
         cdpPort,
@@ -503,8 +510,7 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
             ...process.env,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
             EVB_SERVER_PORT: String(getNuxtPort()),
-            EVB_AUTOMATION_NO_FOCUS: process.env.EVB_AUTOMATION_NO_FOCUS ?? defaultAutomationNoFocus,
-            EVB_AUTOMATION_HIDE_WINDOW: process.env.EVB_AUTOMATION_HIDE_WINDOW ?? defaultAutomationHideWindow,
+            ...resolveAutomationWindowEnv(process.env),
             EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
             EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),
             ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
