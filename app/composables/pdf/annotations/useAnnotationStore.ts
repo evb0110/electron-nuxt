@@ -27,8 +27,6 @@ export function useAnnotationStore(options: IUseAnnotationStoreOptions = {}) {
     const linkAnnotations = ref<ILinkAnnotation[]>([]);
     const activeAnnotationKey = ref<string | null>(null);
 
-    let pendingDebounceCancel: (() => void) | null = null;
-
     const byPage = computed(() =>
         groupBy(annotations.value, comment => comment.pageNumber),
     );
@@ -65,10 +63,6 @@ export function useAnnotationStore(options: IUseAnnotationStoreOptions = {}) {
     }
 
     function setAnnotations(comments: IAnnotationCommentSummary[]) {
-        if (pendingDebounceCancel) {
-            pendingDebounceCancel();
-            pendingDebounceCancel = null;
-        }
         annotations.value = comments;
     }
 

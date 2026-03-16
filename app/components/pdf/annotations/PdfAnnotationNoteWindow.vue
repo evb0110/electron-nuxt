@@ -54,6 +54,10 @@
 
 <script setup lang="ts">
 
+import {
+    useEventListener,
+    useResizeObserver,
+} from '@vueuse/core';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { NOTE_WINDOW } from '@app/constants/pdf-layout';
 import { clamp } from 'es-toolkit/math';
@@ -104,9 +108,10 @@ const dragStartY = ref(0);
 const frameStartX = ref(0);
 const frameStartY = ref(0);
 const isDragging = ref(false);
-let resizeObserver: ResizeObserver | null = null;
 let focusGuardTimer: ReturnType<typeof setTimeout> | null = null;
 let focusGuardToken = 0;
+let stopDragMoveListener: (() => void) | null = null;
+let stopDragUpListener: (() => void) | null = null;
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
@@ -315,8 +320,10 @@ function stopDrag() {
     }
 
     isDragging.value = false;
-    window.removeEventListener('mousemove', handlePointerMove);
-    window.removeEventListener('mouseup', stopDrag);
+    stopDragMoveListener?.();
+    stopDragMoveListener = null;
+    stopDragUpListener?.();
+    stopDragUpListener = null;
     emitPositionUpdate();
 }
 
@@ -328,8 +335,10 @@ function startDrag(event: MouseEvent) {
     frameStartX.value = offsetX.value;
     frameStartY.value = offsetY.value;
 
-    window.addEventListener('mousemove', handlePointerMove);
-    window.addEventListener('mouseup', stopDrag);
+    stopDragMoveListener?.();
+    stopDragUpListener?.();
+    stopDragMoveListener = useEventListener(window, 'mousemove', handlePointerMove);
+    stopDragUpListener = useEventListener(window, 'mouseup', stopDrag);
 }
 
 function handleViewportResize() {
@@ -360,45 +369,33 @@ function measureObservedWindowSize(entry: ResizeObserverEntry) {
     };
 }
 
+useEventListener(typeof window !== 'undefined' ? window : undefined, 'resize', handleViewportResize);
+
+useResizeObserver(noteWindowRef, (entries) => {
+    const entry = entries[0];
+    if (!entry || isDragging.value) {
+        return;
+    }
+    const measuredSize = measureObservedWindowSize(entry);
+    const nextSize = clampSize(measuredSize.width, measuredSize.height);
+    if (nextSize.width === width.value && nextSize.height === height.value) {
+        return;
+    }
+    width.value = nextSize.width;
+    height.value = nextSize.height;
+    const clampedPosition = clampPosition(offsetX.value, offsetY.value, nextSize.width, nextSize.height);
+    offsetX.value = clampedPosition.x;
+    offsetY.value = clampedPosition.y;
+    emitPositionUpdate();
+}, { box: 'border-box' });
+
 onMounted(() => {
     applyPosition(position);
-    if (typeof window !== 'undefined') {
-        window.addEventListener('resize', handleViewportResize);
-    }
-    if (noteWindowRef.value && typeof ResizeObserver !== 'undefined') {
-        resizeObserver = new ResizeObserver((entries) => {
-            const entry = entries[0];
-            if (!entry || isDragging.value) {
-                return;
-            }
-            const measuredSize = measureObservedWindowSize(entry);
-            const nextSize = clampSize(measuredSize.width, measuredSize.height);
-            if (nextSize.width === width.value && nextSize.height === height.value) {
-                return;
-            }
-            width.value = nextSize.width;
-            height.value = nextSize.height;
-            const clampedPosition = clampPosition(offsetX.value, offsetY.value, nextSize.width, nextSize.height);
-            offsetX.value = clampedPosition.x;
-            offsetY.value = clampedPosition.y;
-            emitPositionUpdate();
-        });
-        try {
-            resizeObserver.observe(noteWindowRef.value, { box: 'border-box' });
-        } catch {
-            resizeObserver.observe(noteWindowRef.value);
-        }
-    }
     void focusTextInput();
     startFocusGuard();
 });
 
 onBeforeUnmount(() => {
-    if (typeof window !== 'undefined') {
-        window.removeEventListener('resize', handleViewportResize);
-    }
-    resizeObserver?.disconnect();
-    resizeObserver = null;
     clearFocusGuard();
     focusGuardToken += 1;
     stopDrag();

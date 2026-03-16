@@ -1,4 +1,6 @@
 import type { Ref } from 'vue';
+import { useTimeoutFn } from '@vueuse/core';
+import { groupBy } from 'es-toolkit/array';
 import { debounce } from 'es-toolkit/function';
 import { clamp } from 'es-toolkit/math';
 import type {
@@ -89,22 +91,15 @@ function computeMarkersByPage(
         return result;
     }
 
-    const byPage = new Map<number, IAnnotationCommentSummary[]>();
-    for (const comment of withRect) {
-        const page = comment.pageNumber;
-        let arr = byPage.get(page);
-        if (!arr) {
-            arr = [];
-            byPage.set(page, arr);
-        }
-        arr.push(comment);
-    }
+    const byPage = groupBy(withRect, comment => comment.pageNumber);
 
     for (const [
-        pageNumber,
+        pageNumberKey,
         pageComments,
-    ] of byPage) {
-        const clusters = clusterDetachedComments(pageComments);
+    ] of Object.entries(byPage)) {
+        const pageNumber = Number(pageNumberKey);
+        const typedPageComments: IAnnotationCommentSummary[] = pageComments;
+        const clusters = clusterDetachedComments(typedPageComments);
         const occupied: IDetachedMarkerOccupied[] = [];
         const markers: IMarkerViewModel[] = [];
         const pageContainer = viewerContainer?.querySelector<HTMLElement>(
@@ -189,7 +184,17 @@ export function useAnnotationMarkerViewModel(options: IUseAnnotationMarkerViewMo
         70,
     );
 
-    let pulseTimer: ReturnType<typeof setTimeout> | null = null;
+    const {
+        start: startPulseCleanup,
+        stop: stopPulseCleanup,
+    } = useTimeoutFn(() => {
+        const container = viewerContainer.value;
+        if (!container) {
+            return;
+        }
+        const pulsing = container.querySelectorAll('.pdf-comment-focus-pulse');
+        pulsing.forEach(el => el.classList.remove('pdf-comment-focus-pulse'));
+    }, FOCUS_PULSE_MS, { immediate: false });
 
     function pulseCommentIndicator(stableKey: string) {
         const container = viewerContainer.value;
@@ -197,11 +202,7 @@ export function useAnnotationMarkerViewModel(options: IUseAnnotationMarkerViewMo
             return;
         }
 
-        if (pulseTimer !== null) {
-            clearTimeout(pulseTimer);
-            pulseTimer = null;
-        }
-
+        stopPulseCleanup();
         const pulsing = container.querySelectorAll('.pdf-comment-focus-pulse');
         pulsing.forEach(el => el.classList.remove('pdf-comment-focus-pulse'));
 
@@ -210,10 +211,7 @@ export function useAnnotationMarkerViewModel(options: IUseAnnotationMarkerViewMo
         );
         if (marker) {
             marker.classList.add('pdf-comment-focus-pulse');
-            pulseTimer = setTimeout(() => {
-                marker.classList.remove('pdf-comment-focus-pulse');
-                pulseTimer = null;
-            }, FOCUS_PULSE_MS);
+            startPulseCleanup();
         }
     }
 
@@ -234,10 +232,7 @@ export function useAnnotationMarkerViewModel(options: IUseAnnotationMarkerViewMo
     }
 
     function cleanup() {
-        if (pulseTimer !== null) {
-            clearTimeout(pulseTimer);
-            pulseTimer = null;
-        }
+        stopPulseCleanup();
         debouncedSyncInlineCommentIndicators.cancel();
     }
 
