@@ -301,8 +301,9 @@ function openComment(comment: IAnnotationCommentSummary) {
 }
 
 .note-item.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 75%, var(--ui-border) 25%);
-    box-shadow: var(--app-notes-item-selected-ring);
+    border-color: var(--app-notes-item-selected-ring);
+    border-width: 2px;
+    padding: calc(0.5rem - 1px);
 }
 
 .note-item-top {
