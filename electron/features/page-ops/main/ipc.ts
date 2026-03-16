@@ -34,14 +34,14 @@ import {
     cropPages,
     getPageGeometry,
     removeCropFromPages,
-} from '@electron/features/page-ops/main/crop';
+} from '@electron/page-ops/crop';
 import {
     deletePages,
     extractPages,
     reorderPages,
     rotatePages,
-} from '@electron/features/page-ops/main/qpdf';
-import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
+} from '@electron/page-ops/qpdf';
+import type { TRotationAngle } from '@electron/page-ops/qpdf';
 import { createLogger } from '@electron/utils/logger';
 import { isAllowedWritePath } from '@electron/utils/path-validator';
 
