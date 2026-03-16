@@ -66,6 +66,8 @@
     --app-status-save-dot-clean-ring: oklch(44% 0.11 147);
     --app-status-save-dot-saving-bg: oklch(61% 0.18 259);
     --app-status-save-dot-saving-ring: oklch(43% 0.10 259);
+    --app-chrome-depth: 0 1px 2px color-mix(in oklab, var(--ui-border) 28%, transparent 72%);
+    --app-toolbar-group-tint: color-mix(in oklab, var(--ui-bg) 55%, var(--ui-border) 45%);
     --app-pdf-viewer-bg: var(--ui-bg-muted);
     --app-snip-cutout-fill: color-mix(in oklab, var(--ui-bg) 62%, transparent);
     --app-snip-selection-border: color-mix(in oklab, var(--ui-primary) 90%, var(--ui-bg) 10%);
@@ -232,6 +234,8 @@
     --app-status-save-dot-clean-ring: oklch(53% 0.10 147);
     --app-status-save-dot-saving-bg: oklch(68% 0.16 259);
     --app-status-save-dot-saving-ring: oklch(51% 0.10 259);
+    --app-chrome-depth: 0 1px 3px color-mix(in oklab, black 22%, transparent 78%);
+    --app-toolbar-group-tint: color-mix(in oklab, var(--ui-bg) 65%, var(--ui-border) 35%);
     --app-pdf-viewer-bg: color-mix(in oklab, var(--ui-bg-muted) 88%, var(--ui-text) 12%);
     --app-snip-cutout-fill: color-mix(in oklab, var(--ui-bg) 55%, transparent);
     --app-snip-flash-fill: color-mix(in oklab, var(--ui-bg-elevated) 45%, var(--ui-primary) 55%);

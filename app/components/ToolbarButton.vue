@@ -56,7 +56,7 @@ const tooltipText = computed(() => shortcut.trim()
     height: var(--toolbar-control-height);
     padding: 0.25rem;
     border: 1px solid transparent;
-    border-radius: 3px;
+    border-radius: 0.25rem;
     background: transparent;
     color: var(--ui-text);
     cursor: pointer;

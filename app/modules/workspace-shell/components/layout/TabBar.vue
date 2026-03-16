@@ -496,6 +496,7 @@ onClickOutside(contextMenuRef, () => {
 .tab.is-active {
     background: var(--ui-bg);
     color: var(--ui-text);
+    font-weight: 500;
 }
 
 .tab-label {
@@ -586,6 +587,8 @@ onClickOutside(contextMenuRef, () => {
     display: grid;
     gap: 1px;
     border: 1px solid var(--ui-border);
+    border-radius: 0.375rem;
+    overflow: hidden;
     background: var(--ui-border);
     box-shadow: var(--app-tab-context-menu-shadow);
 }
