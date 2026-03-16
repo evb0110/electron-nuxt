@@ -306,6 +306,7 @@ const shortcutLabels = computed(() => ({
     padding: 0.5rem;
     border-bottom: 1px solid var(--ui-border);
     background: var(--app-chrome);
+    box-shadow: var(--app-chrome-depth);
     white-space: nowrap;
     overflow: hidden;
     position: relative;
@@ -341,8 +342,8 @@ const shortcutLabels = computed(() => ({
 
 .toolbar-separator {
     width: 1px;
-    height: 0.875rem;
-    background: color-mix(in oklab, var(--ui-border) 45%, transparent 55%);
+    height: 1rem;
+    background: color-mix(in oklab, var(--ui-border) 55%, transparent 45%);
     flex-shrink: 0;
     margin: 0 0.125rem;
 }
@@ -361,6 +362,7 @@ const shortcutLabels = computed(() => ({
     overflow: hidden;
     flex-shrink: 0;
     min-width: max-content;
+    background: var(--app-toolbar-group-tint, transparent);
 }
 
 .toolbar-group-item {

@@ -230,6 +230,7 @@ function formatEtaDuration(etaMs: number | null) {
 .open-file-action:hover {
     border-color: var(--ui-primary);
     background: color-mix(in oklab, var(--ui-bg) 95%, var(--ui-primary) 5%);
+    box-shadow: 0 2px 8px color-mix(in oklab, var(--ui-primary) 12%, transparent 88%);
 }
 
 .open-file-action:active {
