@@ -11,7 +11,7 @@ import {
 } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerWheelZoom.constants';
 import { usePdfViewerZoomInteractionLock } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerZoomInteractionLock';
 
-export interface IZoomViewportAnchorIntent {
+interface IZoomViewportAnchorIntent {
     id: number;
     sessionId: number;
     x: number;
@@ -19,7 +19,7 @@ export interface IZoomViewportAnchorIntent {
     capturedAtMs: number;
 }
 
-export interface IWheelZoomSession {
+interface IWheelZoomSession {
     id: number;
     anchorX: number;
     anchorY: number;
@@ -36,7 +36,7 @@ export interface IWheelZoomSession {
     startScrollLeft: number | null;
 }
 
-export interface IImmediateZoomRestoreIntent {
+interface IImmediateZoomRestoreIntent {
     id: number;
     sessionId: number;
     snapshot: IScrollSnapshot;
