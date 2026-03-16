@@ -17,36 +17,77 @@ const resizeObserverCallbacks: Array<() => void> = [];
 
 vi.mock('@vueuse/core', () => ({
     tryOnMounted: (callback: () => void) => callback(),
-    tryOnScopeDispose: vi.fn(),
     useResizeObserver: (_target: unknown, callback: () => void) => {
         resizeObserverCallbacks.push(callback);
     },
     useMutationObserver: vi.fn(),
     useEventListener: vi.fn(),
-    useDebounceFn: (callback: () => void, delay: number) => {
+    useRafFn: (callback: () => void, options?: { immediate?: boolean }) => {
         let timer: ReturnType<typeof setTimeout> | null = null;
-        return () => {
+        let active = Boolean(options?.immediate);
+
+        const run = () => {
+            timer = null;
+            if (!active) {
+                return;
+            }
+            callback();
+        };
+
+        const resume = () => {
+            active = true;
+            if (timer) {
+                return;
+            }
+            timer = setTimeout(run, 0);
+        };
+
+        const pause = () => {
+            active = false;
             if (timer) {
                 clearTimeout(timer);
-            }
-            timer = setTimeout(() => {
                 timer = null;
-                callback();
-            }, delay);
+            }
+        };
+
+        if (active) {
+            resume();
+        }
+
+        return {
+            pause,
+            resume,
+            isActive: ref(active),
         };
     },
 }));
 
 class FakeElement {
     public children: unknown[] = [];
-    public clientWidth = 0;
-    public scrollWidth = 0;
+    private _clientWidth = 0;
+    private _scrollWidth = 0;
     public rectLeft = 0;
 
     constructor(width: number, scrollWidth: number, rectLeft = 0) {
-        this.clientWidth = width;
-        this.scrollWidth = scrollWidth;
+        this._clientWidth = width;
+        this._scrollWidth = scrollWidth;
         this.rectLeft = rectLeft;
+    }
+
+    get clientWidth() {
+        return this._clientWidth;
+    }
+
+    set clientWidth(value: number) {
+        this._clientWidth = value;
+    }
+
+    get scrollWidth() {
+        return this._scrollWidth;
+    }
+
+    set scrollWidth(value: number) {
+        this._scrollWidth = value;
     }
 
     querySelector<T = FakeElement>(_selector: string): T | null {
@@ -146,5 +187,44 @@ describe('useToolbarOverflow', () => {
 
         expect(overflow.collapseTier.value).toBe(5);
         expect(overflow.hasOverflowItems.value).toBe(true);
+    });
+
+    it('does not repeatedly retry a failed expand when the narrower tier changes measured width', async () => {
+        const { useToolbarOverflow } = await import('@app/composables/useToolbarOverflow');
+        const overflow = useToolbarOverflow();
+        const tierChanges: number[] = [];
+
+        watch(overflow.collapseTier, value => tierChanges.push(value));
+
+        class ResponsiveToolbarElement extends FakeElement {
+            constructor() {
+                super(500, 500);
+            }
+
+            override get clientWidth() {
+                return overflow.collapseTier.value === 0 ? 490 : 500;
+            }
+
+            override get scrollWidth() {
+                return 500;
+            }
+        }
+
+        overflow.collapseTier.value = 1;
+        overflow.toolbarRef.value = cast<HTMLElement>(new ResponsiveToolbarElement());
+        await nextTick();
+        await vi.runAllTimersAsync();
+
+        expect(overflow.collapseTier.value).toBe(1);
+        expect(tierChanges).toContain(0);
+        expect(tierChanges.at(-1)).toBe(1);
+
+        const retriesAfterInitialPass = tierChanges.length;
+
+        resizeObserverCallbacks.forEach(cb => cb());
+        await vi.runAllTimersAsync();
+
+        expect(overflow.collapseTier.value).toBe(1);
+        expect(tierChanges).toHaveLength(retriesAfterInitialPass);
     });
 });
