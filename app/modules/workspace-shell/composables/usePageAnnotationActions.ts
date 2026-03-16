@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { clamp } from 'es-toolkit/math';
+import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
@@ -112,6 +112,7 @@ interface IPageAnnotationActionsDeps {
 
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     const { t } = useTypedI18n();
+    const { clampToViewport } = useContextMenuPosition();
 
     const {
         pdfViewerRef,
@@ -374,16 +375,18 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         clientY: number;
     }) {
         closeAnnotationContextMenu();
-        const popoverWidth = 260;
-        const popoverHeight = 200;
-        const margin = 8;
-        const maxX = Math.max(margin, window.innerWidth - popoverWidth - margin);
-        const maxY = Math.max(margin, window.innerHeight - popoverHeight - margin);
+        const clampedPosition = clampToViewport(
+            payload.clientX,
+            payload.clientY,
+            260,
+            200,
+            8,
+        );
 
         shapePropertiesPopover.value = {
             visible: true,
-            x: clamp(payload.clientX, margin, maxX),
-            y: clamp(payload.clientY, margin, maxY),
+            x: clampedPosition.x,
+            y: clampedPosition.y,
         };
     }
 

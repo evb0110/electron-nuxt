@@ -106,6 +106,8 @@
 
 <script setup lang="ts">
 
+import { useEventListener } from '@vueuse/core';
+import { clamp } from 'es-toolkit/math';
 import type {
     ITab,
     TTabUpdate,
@@ -193,7 +195,7 @@ const firstPaneStyle = computed(() => {
         return undefined;
     }
 
-    return {flexBasis: `${Math.max(0.15, Math.min(0.85, splitNode.value.ratio)) * 100}%`};
+    return {flexBasis: `${clamp(splitNode.value.ratio, 0.15, 0.85) * 100}%`};
 });
 
 const groupForLeaf = computed(() => {
@@ -228,18 +230,19 @@ function handleGroupPointerDown(groupId: string) {
 
 let moveListener: ((event: PointerEvent) => void) | null = null;
 let upListener: ((event: PointerEvent) => void) | null = null;
+let stopMoveListener: (() => void) | null = null;
+let stopUpListener: (() => void) | null = null;
+let stopCancelListener: (() => void) | null = null;
 
 function clearResizeListeners() {
-    if (moveListener) {
-        window.removeEventListener('pointermove', moveListener);
-        moveListener = null;
-    }
-
-    if (upListener) {
-        window.removeEventListener('pointerup', upListener);
-        window.removeEventListener('pointercancel', upListener);
-        upListener = null;
-    }
+    stopMoveListener?.();
+    stopMoveListener = null;
+    stopUpListener?.();
+    stopUpListener = null;
+    stopCancelListener?.();
+    stopCancelListener = null;
+    moveListener = null;
+    upListener = null;
 }
 
 function startResize(event: PointerEvent, splitId: string, orientation: TGroupOrientation) {
@@ -265,9 +268,9 @@ function startResize(event: PointerEvent, splitId: string, orientation: TGroupOr
         clearResizeListeners();
     };
 
-    window.addEventListener('pointermove', moveListener);
-    window.addEventListener('pointerup', upListener);
-    window.addEventListener('pointercancel', upListener);
+    stopMoveListener = useEventListener(window, 'pointermove', moveListener);
+    stopUpListener = useEventListener(window, 'pointerup', upListener);
+    stopCancelListener = useEventListener(window, 'pointercancel', upListener);
 
     const sash = event.currentTarget;
     if (sash instanceof Element && 'setPointerCapture' in sash) {
