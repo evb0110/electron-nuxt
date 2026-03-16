@@ -23,7 +23,7 @@ export const usePdfScale = (
     basePageWidth: MaybeRefOrGetter<number | null>,
     basePageHeight: MaybeRefOrGetter<number | null>,
     currentPage: MaybeRefOrGetter<number>,
-    continuousScroll: MaybeRefOrGetter<boolean>,
+    _continuousScroll: MaybeRefOrGetter<boolean>,
 ) => {
     const fitWidthScale = ref(1);
     const lastContainerSize = ref<number | null>(null);
@@ -100,9 +100,10 @@ export const usePdfScale = (
             if (mode !== 'height') {
                 return width;
             }
-            if (toValue(continuousScroll)) {
-                return height;
-            }
+
+            // Fit-height should be anchored to the active page instead of the
+            // tallest page in the document so toggling continuous scroll does
+            // not nudge the zoom level on mixed-height PDFs.
             const page = toValue(currentPage);
             const pageHeight = normalizedPageMetrics[page - 1]?.height ?? null;
             return (pageHeight != null && pageHeight > 0) ? pageHeight : height;

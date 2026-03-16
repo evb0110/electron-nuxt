@@ -124,6 +124,49 @@ describe('usePdfScale', () => {
         });
     });
 
+    it('keeps fit-height scale stable when continuous scroll toggles on mixed-height PDFs', () => {
+        const pageMetrics = [
+            {
+                width: 600,
+                height: 800,
+            },
+            {
+                width: 600,
+                height: 900,
+            },
+            {
+                width: 600,
+                height: 800,
+            },
+        ] satisfies IPdfPageMetric[];
+        const container = createContainer(1536, 900);
+        const paged = createScaleComposable({
+            width: 600,
+            height: 900,
+            pageMetrics,
+            mode: 'height',
+            currentPage: 1,
+            continuousScroll: false,
+        });
+        const continuous = createScaleComposable({
+            width: 600,
+            height: 900,
+            pageMetrics,
+            mode: 'height',
+            currentPage: 1,
+            continuousScroll: true,
+        });
+
+        paged.scale.computeFitWidthScale(container);
+        continuous.scale.computeFitWidthScale(container);
+
+        expect(paged.scale.effectiveScale.value).toBeCloseTo(
+            continuous.scale.effectiveScale.value,
+            6,
+        );
+        expect(continuous.scale.effectiveScale.value * pageMetrics[0]!.height).toBeCloseTo(860, 6);
+    });
+
     it('fits the widest page span instead of assuming page 1 geometry for every page', () => {
         const { scale } = createScaleComposable({
             width: 400,
