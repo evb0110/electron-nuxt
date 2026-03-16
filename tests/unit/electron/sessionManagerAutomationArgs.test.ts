@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     buildElectronAutomationArgs,
+    resolveAutomationWindowEnv,
     shouldDisableAutomationSandbox,
 } from '../../../scripts/electron-run/session-manager';
 
@@ -47,5 +48,27 @@ describe('session-manager automation launch args', () => {
 
     it('allows an explicit opt-in override on any platform', () => {
         expect(shouldDisableAutomationSandbox({ EVB_AUTOMATION_DISABLE_SANDBOX: 'true' }, 'darwin')).toBe(true);
+    });
+
+    it('defaults automation sessions to hidden, unfocused windows', () => {
+        expect(resolveAutomationWindowEnv({})).toEqual({
+            EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+        });
+    });
+
+    it('keeps hide-window aligned with the explicit no-focus override unless hide-window is set', () => {
+        expect(resolveAutomationWindowEnv({ EVB_AUTOMATION_NO_FOCUS: '0' })).toEqual({
+            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '0',
+        });
+
+        expect(resolveAutomationWindowEnv({
+            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+        })).toEqual({
+            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+        });
     });
 });
