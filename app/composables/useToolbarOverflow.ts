@@ -166,7 +166,7 @@ export const useToolbarOverflow = () => {
         rafPending = false;
         pauseRaf();
         void runRecalculation();
-    }, {immediate: false});
+    }, { immediate: false });
 
     function scheduleRecalculation() {
         if (typeof window === 'undefined') {
