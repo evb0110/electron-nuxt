@@ -31,8 +31,13 @@ import { SELECTION_CACHE_TTL_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { runGuardedTask } from '@app/utils/async-guard';
 import {
+    asPdfjsEditor,
+    clearSelectedEditorState,
+    getActiveEditor,
     getAnnotationEditorLayer,
     getAnnotationEditorLayerDiv,
+    getEditorsOnPage,
+    isPdfjsEditorWithEditComment,
 } from '@app/services/pdfjs/annotationEditorAdapter';
 
 interface IHighlightIdentity {
@@ -269,7 +274,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             : currentPage.value;
         const pageIndex = Math.max(0, pageNumber - 1);
 
-        const editorsBefore = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
+        const editorsBefore = getEditorsOnPage(uiManager, pageIndex);
         const editorsBeforeRefs = new Set<IPdfjsEditor>(editorsBefore);
         const editorsBeforeIds = new Set<string>(editorsBefore.map(editor => identity.getEditorIdentity(editor, pageIndex)));
 
@@ -285,7 +290,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         const modeRestoredPromise = new Promise<void>((resolve) => { modeRestoredResolve = resolve; });
 
         const pickCreatedEditorCandidate = () => {
-            const editorsAfter = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
+            const editorsAfter = getEditorsOnPage(uiManager, pageIndex);
             return editorsAfter.find((editor) => {
                 if (!editorsBeforeRefs.has(editor)) {
                     return true;
@@ -299,8 +304,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             if (createdEditor) {
                 return createdEditor;
             }
-            const activeEditor = (uiManager as AnnotationEditorUIManager & { getActive?: () => unknown })
-                .getActive?.() as IPdfjsEditor | null | undefined;
+            const activeEditor = getActiveEditor(uiManager);
             if (activeEditor) {
                 return activeEditor;
             }
@@ -325,16 +329,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         };
 
         const clearEditorSelectionVisuals = (editor: IPdfjsEditor | null) => {
-            const managerWithSelection = uiManager as AnnotationEditorUIManager & {
-                unselectAll?: () => void;
-                setSelected?: (editor: unknown) => void;
-            };
-            managerWithSelection.unselectAll?.();
-            try {
-                managerWithSelection.setSelected?.(null);
-            } catch (error) {
-                BrowserLogger.debug('annotations', `Failed to clear selected editor via uiManager: ${errorToLogText(error)}`);
-            }
+            clearSelectedEditorState(uiManager);
 
             const activeElement = document.activeElement as HTMLElement | null;
             if (activeElement && activeElement !== document.body) {
@@ -396,7 +391,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 },
             );
             createdAnnotation = true;
-            const targetEditor = await resolveCreatedEditor((createdEditor ?? null) as IPdfjsEditor | null);
+            const targetEditor = await resolveCreatedEditor(asPdfjsEditor(createdEditor));
             applySubtypeOverrideToEditor(targetEditor);
 
             if (!targetEditor && !withComment && markupSubtypeOverride) {
@@ -1013,12 +1008,12 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         }
 
         const pageIndex = Math.max(0, pageNumber - 1);
-        const editorsBefore = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
+        const editorsBefore = getEditorsOnPage(uiManager, pageIndex);
         const editorsBeforeRefs = new Set<IPdfjsEditor>(editorsBefore);
         const editorsBeforeIds = new Set<string>(editorsBefore.map(editor => identity.getEditorIdentity(editor, pageIndex)));
 
         const pickCreatedEditorCandidate = () => {
-            const editorsAfter = Array.from(uiManager.getEditors(pageIndex)) as IPdfjsEditor[];
+            const editorsAfter = getEditorsOnPage(uiManager, pageIndex);
             return editorsAfter.find((editor) => {
                 if (!editorsBeforeRefs.has(editor)) {
                     return true;
@@ -1151,8 +1146,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             try {
                 emitAnnotationOpenNote(summaryForNote);
             } catch (error) {
-                const resolvedEditorWithComment = resolvedEditor as IPdfjsEditor & { editComment?: () => void };
-                if (typeof resolvedEditorWithComment.editComment !== 'function') {
+                if (!isPdfjsEditorWithEditComment(resolvedEditor)) {
                     throw error instanceof Error
                         ? error
                         : new Error(String(error));
@@ -1186,7 +1180,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 };
 
                 pinViewerScroll();
-                resolvedEditorWithComment.editComment();
+                resolvedEditor.editComment();
                 pinViewerScroll();
             }
             return true;

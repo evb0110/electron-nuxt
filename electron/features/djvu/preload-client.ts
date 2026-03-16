@@ -1,8 +1,6 @@
+import type {IpcRenderer} from 'electron';
 import type {
-    IpcRenderer,
-    IpcRendererEvent,
-} from 'electron';
-import type {
+    IDjvuCapability,
     IMenuEventCallback,
     IMenuEventUnsubscribe,
 } from '@contracts/electron-api';
@@ -10,66 +8,68 @@ import {
     DJVU_CHANNELS,
     DJVU_EVENT_CHANNELS,
 } from '@electron/features/djvu/contract';
+import {
+    createIpcInvoker,
+    createTypedIpcEventSubscriber,
+} from '@electron/preload/ipc-client';
 
-function onNoArgEvent(ipcRenderer: IpcRenderer, channel: string, callback: IMenuEventCallback): IMenuEventUnsubscribe {
-    const handler = (_event: IpcRendererEvent) => callback();
-    ipcRenderer.on(channel, handler);
-    return () => ipcRenderer.removeListener(channel, handler);
+interface IDjvuEventMap {
+    [DJVU_EVENT_CHANNELS.progress]: {
+        jobId: string;
+        phase: 'converting' | 'bookmarks' | 'loading';
+        current?: number;
+        total?: number;
+        percent: number;
+    };
+    [DJVU_EVENT_CHANNELS.viewingReady]: {
+        pdfPath: string;
+        isPartial: boolean;
+        jobId?: string;
+    };
+    [DJVU_EVENT_CHANNELS.viewingError]: {
+        error: string;
+        jobId?: string;
+    };
+    [DJVU_EVENT_CHANNELS.menuConvertToPdf]: undefined;
 }
 
-export function createDjvuPreloadClient(ipcRenderer: IpcRenderer) {
+export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapability {
+    const invoke = createIpcInvoker(ipcRenderer);
+    const eventSubscriber = createTypedIpcEventSubscriber<IDjvuEventMap>(ipcRenderer);
+
     return {
-        openForViewing: (djvuPath: string) => ipcRenderer.invoke(DJVU_CHANNELS.openForViewing, djvuPath),
+        openForViewing: (djvuPath: string) =>
+            invoke<Awaited<ReturnType<IDjvuCapability['openForViewing']>>>(DJVU_CHANNELS.openForViewing, djvuPath),
         convertToPdf: (djvuPath: string, outputPath: string, options: {
             subsample?: number;
             preserveBookmarks?: boolean;
-        }) => ipcRenderer.invoke(DJVU_CHANNELS.convertToPdf, djvuPath, outputPath, options),
-        cancel: (jobId: string) => ipcRenderer.invoke(DJVU_CHANNELS.cancel, jobId),
-        getInfo: (djvuPath: string) => ipcRenderer.invoke(DJVU_CHANNELS.getInfo, djvuPath),
-        estimateSizes: (djvuPath: string) => ipcRenderer.invoke(DJVU_CHANNELS.estimateSizes, djvuPath),
-        cleanupTemp: (tempPdfPath: string) => ipcRenderer.invoke(DJVU_CHANNELS.cleanupTemp, tempPdfPath),
+        }) => invoke<Awaited<ReturnType<IDjvuCapability['convertToPdf']>>>(
+            DJVU_CHANNELS.convertToPdf,
+            djvuPath,
+            outputPath,
+            options,
+        ),
+        cancel: (jobId: string) => invoke<Awaited<ReturnType<IDjvuCapability['cancel']>>>(DJVU_CHANNELS.cancel, jobId),
+        getInfo: (djvuPath: string) => invoke<Awaited<ReturnType<IDjvuCapability['getInfo']>>>(DJVU_CHANNELS.getInfo, djvuPath),
+        estimateSizes: (djvuPath: string) => invoke<Awaited<ReturnType<IDjvuCapability['estimateSizes']>>>(DJVU_CHANNELS.estimateSizes, djvuPath),
+        cleanupTemp: (tempPdfPath: string) => invoke<Awaited<ReturnType<IDjvuCapability['cleanupTemp']>>>(DJVU_CHANNELS.cleanupTemp, tempPdfPath),
         onProgress: (callback: (progress: {
             jobId: string;
             phase: 'converting' | 'bookmarks' | 'loading';
             current?: number;
             total?: number;
             percent: number;
-        }) => void): (() => void) => {
-            const handler = (_event: IpcRendererEvent, progress: {
-                jobId: string;
-                phase: 'converting' | 'bookmarks' | 'loading';
-                current?: number;
-                total?: number;
-                percent: number;
-            }) => callback(progress);
-            ipcRenderer.on(DJVU_EVENT_CHANNELS.progress, handler);
-            return () => ipcRenderer.removeListener(DJVU_EVENT_CHANNELS.progress, handler);
-        },
+        }) => void): (() => void) => eventSubscriber.onPayload(DJVU_EVENT_CHANNELS.progress, callback),
         onViewingReady: (callback: (data: {
             pdfPath: string;
             isPartial: boolean;
             jobId?: string;
-        }) => void): (() => void) => {
-            const handler = (_event: IpcRendererEvent, data: {
-                pdfPath: string;
-                isPartial: boolean;
-                jobId?: string;
-            }) => callback(data);
-            ipcRenderer.on(DJVU_EVENT_CHANNELS.viewingReady, handler);
-            return () => ipcRenderer.removeListener(DJVU_EVENT_CHANNELS.viewingReady, handler);
-        },
+        }) => void): (() => void) => eventSubscriber.onPayload(DJVU_EVENT_CHANNELS.viewingReady, callback),
         onViewingError: (callback: (data: {
             error: string;
             jobId?: string;
-        }) => void): (() => void) => {
-            const handler = (_event: IpcRendererEvent, data: {
-                error: string;
-                jobId?: string;
-            }) => callback(data);
-            ipcRenderer.on(DJVU_EVENT_CHANNELS.viewingError, handler);
-            return () => ipcRenderer.removeListener(DJVU_EVENT_CHANNELS.viewingError, handler);
-        },
+        }) => void): (() => void) => eventSubscriber.onPayload(DJVU_EVENT_CHANNELS.viewingError, callback),
         onMenuConvertToPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DJVU_EVENT_CHANNELS.menuConvertToPdf, callback),
+            eventSubscriber.onNoArg(DJVU_EVENT_CHANNELS.menuConvertToPdf, callback),
     };
 }

@@ -1,44 +1,23 @@
 import type { Ref } from 'vue';
-import {
-    syncRef,
-    useStorage,
-} from '@vueuse/core';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
-import { ZOOM } from '@app/constants/pdf-layout';
-import { STORAGE_KEYS } from '@app/constants/storage-keys';
-import { useAnnotationContextMenu } from '@app/composables/pdf/useAnnotationContextMenu';
-import { BrowserLogger } from '@app/utils/browser-logger';
 import { usePageContextMenu } from '@app/composables/pdf/usePageContextMenu';
-import { useAnnotationNoteWindows } from '@app/composables/pdf/useAnnotationNoteWindows';
 import { usePageLabelState } from '@app/composables/pdf/usePageLabelState';
 import { useBookmarkState } from '@app/composables/pdf/useBookmarkState';
 import { usePdfHistory } from '@app/composables/usePdfHistory';
-import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
-import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
-import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
-import { usePageShortcuts } from '@app/modules/workspace-shell/composables/usePageShortcuts';
-import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
+import { useWorkspaceDocumentControls } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentControls';
+import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
-import {
-    useWorkspaceFileLifecycleController,
-    useWorkspaceFileOperationController,
-} from '@app/modules/workspace-shell/composables/workspace-file-lifecycle-controller';
+import { useWorkspaceInteractionControls } from '@app/modules/workspace-shell/composables/useWorkspaceInteractionControls';
+import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/workspace-file-lifecycle-controller';
 import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-shell/composables/workspace-sidebar-search-sync-controller';
-import { setupWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/workspace-ui-sync';
-import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/composables/workspace-annotation-utils';
-import type {
-    ICropMargins,
-    IPageGeometry,
-} from '@app/types/crop';
-import { screenRectToMargins } from '@app/utils/pdf-crop-coordinates';
+import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import type { TOpenFileResult } from '@contracts/electron-api';
 import type { TTabUpdate } from '@app/types/tabs';
 import { getElectronAPI } from '@app/utils/platform';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspace-view-state';
 import { useDocxExport } from '@app/composables/useDocxExport';
-import type { TSplitPayload } from '@contracts/window-tabs';
 
 interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
@@ -202,6 +181,21 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
 
     const {
+        pageContextMenu,
+        pageContextMenuStyle,
+        showPageContextMenu,
+        closePageContextMenu,
+    } = usePageContextMenu();
+
+    const { clearCache: clearOcrCache } = useOcrTextContent();
+    const {
+        isExportingDocx: isDocxExporting,
+        docxExportError,
+        exportDocx,
+        clearDocxExportError,
+    } = useDocxExport();
+
+    const {
         annotationContextMenu,
         annotationContextMenuStyle,
         annotationContextMenuCanCopy,
@@ -213,31 +207,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         contextMenuDeleteActionLabel,
         closeAnnotationContextMenu,
         showAnnotationContextMenu,
-    } = useAnnotationContextMenu();
-
-    const {
-        pageContextMenu,
-        pageContextMenuStyle,
-        showPageContextMenu,
-        closePageContextMenu,
-    } = usePageContextMenu();
-
-    function clearAnnotationChanges() {
-        try {
-            pdfDocument.value?.annotationStorage?.resetModified();
-        } catch (error) {
-            BrowserLogger.debug('workspace', 'Failed to reset annotation storage modified state', error);
-        }
-    }
-
-    function hasAnnotationChanges() {
-        return detectAnnotationChanges({
-            pdfViewerRef,
-            pdfDocument,
-        });
-    }
-
-    const {
+        hasAnnotationChanges,
         annotationTool,
         annotationKeepActive,
         annotationPlacingPageNote,
@@ -252,36 +222,32 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleAnnotationSettingChange,
         handleAnnotationState,
         handleAnnotationModified,
-        markAnnotationDirty,
         markAnnotationSaved,
         resetAnnotationTracking,
-    } = usePageAnnotationTools({
+        annotationNoteWindows,
+        annotationNotePositions,
+        sortedAnnotationNoteWindows,
+        hasOpenAnnotationNotes,
+        isAnyAnnotationNoteSaving,
+        updateAnnotationNoteText,
+        updateAnnotationNotePosition,
+        minimizeAnnotationNote,
+        restoreAnnotationNote,
+        persistAllAnnotationNotes,
+        closeAnnotationNote,
+        closeAllAnnotationNotes,
+        openAnnotationNoteWindow,
+        removeAnnotationNoteWindow,
+        setAnnotationNoteWindowError,
+        bringAnnotationNoteToFront,
+        isSameAnnotationComment,
+        consumePendingEmbeddedTextUpdates,
+    } = useWorkspaceAnnotationSession({
         pdfViewerRef,
+        pdfDocument,
         dragMode,
         markDirty,
-        clearAnnotationChanges,
-        closeAnnotationContextMenu,
-        hasAnnotationChanges,
     });
-
-    const annotationKeepActiveStorage = useStorage<string>(
-        STORAGE_KEYS.ANNOTATION_KEEP_ACTIVE,
-        '0',
-        undefined,
-        { initOnMounted: true },
-    );
-    syncRef(annotationKeepActive, annotationKeepActiveStorage, {transform: {
-        ltr: value => (value ? '1' : '0'),
-        rtl: stored => stored === '1',
-    }});
-
-    const { clearCache: clearOcrCache } = useOcrTextContent();
-    const {
-        isExportingDocx: isDocxExporting,
-        docxExportError,
-        exportDocx,
-        clearDocxExportError,
-    } = useDocxExport();
 
     const {
         handleSave,
@@ -336,8 +302,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         waitForPdfReload: (page: number) => waitForPdfReload(page),
     });
 
-    const hasOpenAnnotationNotes = ref(false);
-
     const {
         isFitWidthActive,
         isFitHeightActive,
@@ -384,36 +348,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         redo,
     });
 
-
-    const {
-        annotationNoteWindows,
-        annotationNotePositions,
-        sortedAnnotationNoteWindows,
-        isAnyAnnotationNoteSaving,
-        updateAnnotationNoteText,
-        updateAnnotationNotePosition,
-        minimizeAnnotationNote,
-        restoreAnnotationNote,
-        persistAllAnnotationNotes,
-        closeAnnotationNote,
-        closeAllAnnotationNotes,
-        handleOpenAnnotationNote: openAnnotationNoteWindow,
-        removeAnnotationNoteWindow,
-        setAnnotationNoteWindowError,
-        bringAnnotationNoteToFront,
-        isSameAnnotationComment,
-        consumePendingEmbeddedTextUpdates,
-    } = useAnnotationNoteWindows({
-        annotationComments,
-        markAnnotationDirty,
-        updateAnnotationCommentInViewer: (comment, text) => pdfViewerRef.value?.updateAnnotationComment(comment, text) ?? false,
-    });
-
-    // Bridge note window count to annotationCursorMode so the editor layer
-    // stays active while any note window is open (see docs/freetext-note-persistence.md)
-    watch(() => annotationNoteWindows.value.length, (count) => {
-        hasOpenAnnotationNotes.value = count > 0;
-    }, { immediate: true });
 
     const hasPendingTabChanges = computed(() => (
         annotationDirty.value
@@ -475,7 +409,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         loadPdfFromData,
         waitForPdfReload,
         removeAnnotationFromCache: (stableKey: string) => {
-            annotationComments.value = annotationComments.value.filter(c => c.stableKey !== stableKey);
+            annotationComments.value = annotationComments.value.filter(comment => comment.stableKey !== stableKey);
         },
         persistPdfDataSilently,
         markAnnotationSaved,
@@ -498,19 +432,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         statusSaveDotAriaLabel,
         handleStatusSaveClick,
         handleStatusShowInFolderClick,
-    } = usePageStatusBar({
-        pdfSrc,
-        pdfData,
-        originalPath,
-        workingCopyPath,
-        effectiveZoom,
-        canSave,
-        isAnySaving,
-        isHistoryBusy,
-        handleSave,
-    });
-
-    const {
         isPageOperationInProgress,
         pageOpsDelete,
         pageOpsExtract,
@@ -529,34 +450,33 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handlePageContextMenuInvertSelection,
         handleCropPages,
         handleRemoveCrop,
-    } = usePageOpsHandlers({
-        workingCopyPath,
-        totalPages,
-        selectedThumbnailPages,
-        setSelectedThumbnailPages,
-        invalidateThumbnailPages: requestThumbnailInvalidation,
-        pdfViewerRef,
-        pageContextMenu,
-        closePageContextMenu,
-        onExportPages: (pages: number[]) => {
-            void handleExportImages(pages);
-        },
-        reloadWorkingCopyIntoHistory,
-        clearOcrCache: (path: string) => clearOcrCache(path),
-        resetSearchCache,
-    });
-
-    const {
         handleOpenFileFromUi,
         handleOpenFileDirectWithPersist,
         handleOpenFileDirectBatchWithPersist,
         handleOpenFileWithResult,
         handleCloseFileFromUi,
         openRecentFile,
-    } = useWorkspaceFileOperationController({
+    } = useWorkspaceDocumentControls({
+        pdfData,
         pdfSrc,
+        originalPath,
+        workingCopyPath,
+        effectiveZoom,
+        canSave,
         isAnySaving,
         isHistoryBusy,
+        handleSave,
+        totalPages,
+        selectedThumbnailPages,
+        setSelectedThumbnailPages,
+        requestThumbnailInvalidation,
+        pdfViewerRef,
+        pageContextMenu,
+        closePageContextMenu,
+        handleExportImages,
+        reloadWorkingCopyIntoHistory,
+        clearOcrCache: (path: string) => clearOcrCache(path),
+        resetSearchCache,
         isExportingDocx,
         isAnyAnnotationNoteSaving,
         annotationNoteWindows,
@@ -566,98 +486,39 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         bookmarksDirty,
         hasAnnotationChanges,
         persistAllAnnotationNotes,
-        handleSave,
         pickFileToOpenWithDjvuCleanup,
         openFileWithDjvuCleanup,
         openFileDirectWithDjvuCleanup,
         openFileDirectBatchWithDjvuCleanup,
         closeFileWithDjvuCleanup,
         closeAllDropdowns,
-        emitOpenInNewTab: (result: TOpenFileResult) => {
-            emit('open-in-new-tab', result);
-        },
-    });
-
-    function clampWorkspaceZoomLevel(level: number) {
-        if (!Number.isFinite(level)) {
-            return 1;
-        }
-        return Math.min(ZOOM.MAX, Math.max(ZOOM.MIN, level));
-    }
-
-    function resolveDisplayZoom() {
-        if (Number.isFinite(effectiveZoom.value) && effectiveZoom.value > 0) {
-            return effectiveZoom.value;
-        }
-        return clampWorkspaceZoomLevel(zoom.value);
-    }
-
-    function resolveZoomBaselineScale() {
-        if (!Number.isFinite(zoom.value) || Math.abs(zoom.value) < 0.0001) {
-            return 1;
-        }
-        const baseline = resolveDisplayZoom() / zoom.value;
-        if (!Number.isFinite(baseline) || baseline <= 0) {
-            return 1;
-        }
-        return baseline;
-    }
-
-    function setCustomZoomFromDisplay(displayZoom: number) {
-        const targetDisplayZoom = clampWorkspaceZoomLevel(displayZoom);
-        const baselineScale = resolveZoomBaselineScale();
-        zoom.value = clampWorkspaceZoomLevel(
-            targetDisplayZoom / baselineScale,
-        );
-        effectiveZoom.value = targetDisplayZoom;
-        zoomMode.value = 'custom';
-    }
-
-    function applyWorkspaceViewerDefaults() {
-        const defaultColor = appSettings.value.defaultAnnotationColor;
-        annotationSettings.value = {
-            ...annotationSettings.value,
-            highlightColor: defaultColor,
-            underlineColor: defaultColor,
-            strikethroughColor: defaultColor,
-            squigglyColor: defaultColor,
-            inkColor: defaultColor,
-            shapeColor: defaultColor,
-        };
-
-        viewMode.value = appSettings.value.defaultViewMode;
-        continuousScroll.value = appSettings.value.defaultContinuousScroll;
-
-        if (appSettings.value.defaultZoomPreset === 'fit-width') {
-            fitMode.value = 'width';
-            zoom.value = 1;
-            effectiveZoom.value = 1;
-            zoomMode.value = 'fit-width';
-            return;
-        }
-
-        if (appSettings.value.defaultZoomPreset === 'fit-height') {
-            fitMode.value = 'height';
-            zoom.value = 1;
-            effectiveZoom.value = 1;
-            zoomMode.value = 'fit-height';
-            return;
-        }
-
-        setCustomZoomFromDisplay(Number(appSettings.value.defaultZoomPreset) / 100);
-    }
-
-    watch(pdfSrc, (nextSrc, previousSrc) => {
-        if (nextSrc && !previousSrc) {
-            applyWorkspaceViewerDefaults();
-        }
+        emitOpenInNewTab: (result: TOpenFileResult) => emit('open-in-new-tab', result),
     });
 
     const {
         setupShortcuts,
         cleanupShortcuts,
-    } = usePageShortcuts({
+        isCapturingRegion,
+        handleCaptureRegion,
+        cropDialogOpen,
+        cropDialogMargins,
+        cropDialogMediaBox,
+        cropDialogCurrentBox,
+        isCropSelecting,
+        handleCrop,
+        handleDropdownOpen,
+        captureSplitPayload,
+        restoreSplitPayload,
+    } = useWorkspaceInteractionControls({
         isActive,
+        appSettings,
+        annotationSettings,
+        viewMode,
+        continuousScroll,
+        fitMode,
+        zoom,
+        effectiveZoom,
+        zoomMode,
         pdfSrc,
         showSettings,
         annotationTool,
@@ -672,42 +533,42 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openSearch,
         openAnnotations,
         handleAnnotationToolChange,
-        handleZoomIn: () => {
-            setCustomZoomFromDisplay(resolveDisplayZoom() + ZOOM.STEP);
-        },
-        handleZoomOut: () => {
-            setCustomZoomFromDisplay(resolveDisplayZoom() - ZOOM.STEP);
-        },
-        handleActualSize: () => {
-            setCustomZoomFromDisplay(1);
-        },
-        handleSave: () => {
-            void handleSave();
-        },
+        handleSave,
+        handleDropdownOpenChange,
+        clearDocxExportError,
+        workingCopyPath,
+        isDjvuMode,
+        djvuSourcePath,
+        currentPage,
+        totalPages,
+        fileName,
+        originalPath,
+        hasPendingTabChanges,
+        pdfData,
+        openFileWithDjvuCleanup,
+        waitForPdfReload,
+        loadPdfFromPath,
     });
 
-    setupWorkspaceUiSyncWatchers({
+    useWorkspaceDocumentLifecycleEffects({
         pendingDjvu,
         openDjvuFile,
         loadPdfFromPath,
         currentPage,
         pdfViewerRef,
         originalPath,
+        openBatchProgress,
         isActive,
         fileName,
-        isDirty: hasPendingTabChanges,
+        hasPendingTabChanges,
         isDjvuMode,
         djvuSourcePath,
-        openBatchProgress,
         showSettings,
         emitUpdateTab: (updates) => emit('update-tab', updates),
         emitOpenSettings: () => emit('open-settings'),
         onOpenDjvuError: (error) => {
             pdfError.value = error instanceof Error ? error.message : t('errors.djvu.open');
         },
-    });
-
-    useDocumentTransitions({
         pdfSrc,
         workingCopyPath,
         pdfError,
@@ -725,7 +586,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
-        pdfViewerRef,
         resetAnnotationTracking,
         resetSearchCache,
         closeSearch,
@@ -736,220 +596,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             void loadRecentFiles();
         },
     });
-
-    // --- Helper functions ---
-
-    const isCapturingRegion = computed(() => pdfViewerRef.value?.isCapturingRegion ?? false);
-    const isCropSelecting = computed(() => pdfViewerRef.value?.isCropSelecting ?? false);
-
-    function handleCaptureRegion() {
-        if (!pdfViewerRef.value) {
-            return;
-        }
-        void pdfViewerRef.value.captureRegionToClipboard();
-    }
-
-    const cropDialogOpen = ref(false);
-    const cropDialogMargins = ref<ICropMargins>({
-        top: 0,
-        bottom: 0,
-        left: 0,
-        right: 0,
-    });
-    const cropDialogMediaBox = ref({
-        x: 0,
-        y: 0,
-        width: 612,
-        height: 792,
-    });
-    const cropDialogCurrentBox = ref<IPageGeometry['cropBox']>(null);
-
-    async function handleCrop() {
-        if (!pdfViewerRef.value || !workingCopyPath.value) {
-            return;
-        }
-
-        if (isCropSelecting.value) {
-            pdfViewerRef.value.cancelCropSelection();
-            return;
-        }
-
-        const result = await pdfViewerRef.value.startCropSelection();
-        if (!result) {
-            return;
-        }
-
-        let geometry: IPageGeometry | null = null;
-        const api = getElectronAPI();
-        try {
-            geometry = await api.documents.pageOps.getPageGeometry(
-                workingCopyPath.value,
-                result.pageNumber,
-            );
-        } catch {
-            return;
-        }
-
-        if (!geometry) {
-            return;
-        }
-
-        const effectiveBox = geometry.cropBox ?? geometry.mediaBox;
-        const margins = screenRectToMargins(
-            result.pageLocalRect,
-            {
-                left: 0,
-                top: 0,
-                width: result.pageRect.width,
-                height: result.pageRect.height,
-            },
-            effectiveBox,
-            geometry.mediaBox,
-            geometry.rotation,
-        );
-
-        cropDialogMargins.value = margins;
-        cropDialogMediaBox.value = geometry.mediaBox;
-        cropDialogCurrentBox.value = geometry.cropBox;
-        cropDialogOpen.value = true;
-    }
-
-    function handleDropdownOpen(
-        dropdown: 'zoom' | 'page' | 'ocr' | 'overflow',
-        isOpen: boolean,
-    ) {
-        handleDropdownOpenChange(dropdown, isOpen);
-        if (isOpen && dropdown === 'ocr') {
-            clearDocxExportError();
-        }
-    }
-
-    function normalizeSplitPayloadPage(page: number | undefined) {
-        if (typeof page !== 'number' || !Number.isFinite(page)) {
-            return null;
-        }
-
-        return Math.max(1, Math.floor(page));
-    }
-
-    function normalizeSplitPayloadTotalPages(total: number | undefined, fallbackPage: number) {
-        if (typeof total !== 'number' || !Number.isFinite(total)) {
-            return fallbackPage;
-        }
-
-        return Math.max(fallbackPage, Math.floor(total));
-    }
-
-    async function captureSplitPayload(): Promise<TSplitPayload> {
-        if (!pdfSrc.value) {
-            return { kind: 'empty' };
-        }
-
-        if (isDjvuMode.value && djvuSourcePath.value) {
-            return {
-                kind: 'djvu',
-                sourcePath: djvuSourcePath.value,
-            };
-        }
-
-        const normalizedCurrentPage = normalizeSplitPayloadPage(currentPage.value) ?? 1;
-        const api = getElectronAPI();
-        const normalizedFileName = fileName.value ?? 'document.pdf';
-
-        if (workingCopyPath.value && !hasPendingTabChanges.value) {
-            try {
-                const snapshotPath = await api.documents.createWorkingCopyFromPath(
-                    workingCopyPath.value,
-                    originalPath.value ?? undefined,
-                );
-                return {
-                    kind: 'pdfSnapshot',
-                    fileName: normalizedFileName,
-                    originalPath: originalPath.value,
-                    snapshotPath,
-                    isDirty: false,
-                    currentPage: normalizedCurrentPage,
-                    totalPages: normalizeSplitPayloadTotalPages(totalPages.value, normalizedCurrentPage),
-                };
-            } catch (error) {
-                BrowserLogger.warn('workspace', 'Failed to create split payload from working copy path', {
-                    path: workingCopyPath.value,
-                    error,
-                });
-            }
-        }
-
-        let snapshot = await pdfViewerRef.value?.saveDocument?.() ?? null;
-        if (!snapshot && pdfData.value) {
-            snapshot = pdfData.value.slice();
-        }
-
-        if (!snapshot && workingCopyPath.value) {
-            try {
-                snapshot = await api.documents.readFile(workingCopyPath.value);
-            } catch (error) {
-                BrowserLogger.warn('workspace', 'Failed to read working copy for split payload', {
-                    path: workingCopyPath.value,
-                    error,
-                });
-            }
-        }
-
-        if (!snapshot) {
-            return { kind: 'empty' };
-        }
-
-        const snapshotPath = await api.documents.createWorkingCopyFromData(
-            normalizedFileName,
-            snapshot,
-            originalPath.value ?? undefined,
-        );
-        return {
-            kind: 'pdfSnapshot',
-            fileName: normalizedFileName,
-            originalPath: originalPath.value,
-            snapshotPath,
-            isDirty: hasPendingTabChanges.value,
-            currentPage: normalizedCurrentPage,
-            totalPages: normalizeSplitPayloadTotalPages(totalPages.value, normalizedCurrentPage),
-        };
-    }
-
-    async function restoreSplitPayload(payload: TSplitPayload): Promise<void> {
-        if (payload.kind === 'empty') {
-            return;
-        }
-
-        if (payload.kind === 'djvu') {
-            await openFileWithDjvuCleanup({
-                kind: 'djvu',
-                workingPath: '',
-                originalPath: payload.sourcePath,
-            });
-            return;
-        }
-
-        const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
-        if (payload.totalPages && Number.isFinite(payload.totalPages)) {
-            totalPages.value = Math.max(totalPages.value, Math.floor(payload.totalPages));
-        }
-        const restorePagePromise = pageToRestore && pageToRestore > 1
-            ? waitForPdfReload(pageToRestore).catch((error) => {
-                const restorePageError: unknown = error;
-                BrowserLogger.debug('workspace', 'Split payload page restore wait failed', {
-                    pageToRestore,
-                    error: restorePageError,
-                });
-            })
-            : null;
-
-        await loadPdfFromPath(payload.snapshotPath, { markDirty: payload.isDirty });
-        originalPath.value = payload.originalPath;
-
-        if (restorePagePromise) {
-            await restorePagePromise;
-        }
-    }
 
     return {
         pdfSrc,

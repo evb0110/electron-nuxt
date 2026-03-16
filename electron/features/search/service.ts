@@ -1,4 +1,4 @@
-import { registerSearchHandlers } from '@electron/search/ipc';
+import { registerSearchHandlers } from '@electron/features/search/main/ipc';
 import type {
     IIpcMainRegistrar,
     ISearchService,

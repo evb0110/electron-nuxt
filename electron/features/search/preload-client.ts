@@ -1,7 +1,4 @@
-import type {
-    IpcRenderer,
-    IpcRendererEvent,
-} from 'electron';
+import type {IpcRenderer} from 'electron';
 import type {
     IPdfSearchProgress,
     IPdfSearchRequestOptions,
@@ -12,14 +9,23 @@ import {
     SEARCH_CHANNELS,
     SEARCH_EVENT_CHANNELS,
 } from '@electron/features/search/contract';
+import {
+    createIpcInvoker,
+    createTypedIpcEventSubscriber,
+} from '@electron/preload/ipc-client';
+
+interface ISearchEventMap {[SEARCH_EVENT_CHANNELS.progress]: IPdfSearchProgress;}
 
 export function createSearchPreloadClient(ipcRenderer: IpcRenderer): ISearchPreloadClient {
+    const invoke = createIpcInvoker(ipcRenderer);
+    const eventSubscriber = createTypedIpcEventSubscriber<ISearchEventMap>(ipcRenderer);
+
     return {
         run: (
             pdfPath: string,
             query: string,
             options?: IPdfSearchRequestOptions,
-        ): Promise<IPdfSearchResponse> => ipcRenderer.invoke(SEARCH_CHANNELS.search, {
+        ): Promise<IPdfSearchResponse> => invoke(SEARCH_CHANNELS.search, {
             pdfPath,
             query,
             ...options,
@@ -27,17 +33,14 @@ export function createSearchPreloadClient(ipcRenderer: IpcRenderer): ISearchPrel
         warmIndex: (
             pdfPath: string,
             options?: IPdfSearchRequestOptions,
-        ): Promise<boolean> => ipcRenderer.invoke(SEARCH_CHANNELS.warmIndex, {
+        ): Promise<boolean> => invoke(SEARCH_CHANNELS.warmIndex, {
             pdfPath,
             ...options,
         }),
         cancel: (requestId?: string): Promise<{ canceled: boolean }> =>
-            ipcRenderer.invoke(SEARCH_CHANNELS.cancel, requestId),
-        onProgress: (callback: (progress: IPdfSearchProgress) => void): (() => void) => {
-            const handler = (_event: IpcRendererEvent, progress: IPdfSearchProgress) => callback(progress);
-            ipcRenderer.on(SEARCH_EVENT_CHANNELS.progress, handler);
-            return () => ipcRenderer.removeListener(SEARCH_EVENT_CHANNELS.progress, handler);
-        },
-        resetCache: (): Promise<boolean> => ipcRenderer.invoke(SEARCH_CHANNELS.resetCache),
+            invoke(SEARCH_CHANNELS.cancel, requestId),
+        onProgress: (callback: (progress: IPdfSearchProgress) => void): (() => void) =>
+            eventSubscriber.onPayload(SEARCH_EVENT_CHANNELS.progress, callback),
+        resetCache: (): Promise<boolean> => invoke(SEARCH_CHANNELS.resetCache),
     };
 }

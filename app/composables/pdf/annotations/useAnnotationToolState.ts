@@ -28,6 +28,7 @@ import {
     rectCenterDistance,
     errorToLogText,
 } from '@app/composables/pdf/pdfAnnotationUtils';
+import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 const MARKUP_EDITOR_CLASS_PREFIX = 'pdf-markup-subtype-';
@@ -445,8 +446,7 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
             return;
         }
         for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
-            for (const editor of uiManager.getEditors(pageIndex)) {
-                const normalizedEditor = editor as IPdfjsEditor;
+            for (const normalizedEditor of getEditorsOnPage(uiManager, pageIndex)) {
                 const subtype = (
                     resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex)
                     ?? resolveEditorSubtypeFromPresentation(normalizedEditor)

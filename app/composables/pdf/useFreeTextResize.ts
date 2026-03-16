@@ -5,12 +5,14 @@ import {
 import type { IAnnotationSettings } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/composables/pdf/pdfAnnotationUtils';
 import { detectEditorSubtype } from '@app/composables/pdf/pdfAnnotationUtils';
+import {
+    getEditorsOnPage,
+    setSelectedEditor,
+} from '@app/services/pdfjs/annotationEditorAdapter';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 const FREE_TEXT_FONT_SIZE_MIN = 8;
 const FREE_TEXT_FONT_SIZE_MAX = 96;
-
-type TUiManagerSelectedEditor = Parameters<AnnotationEditorUIManager['setSelected']>[0];
 
 interface IUseFreeTextResizeOptions {
     getAnnotationUiManager: () => AnnotationEditorUIManager | null;
@@ -153,7 +155,7 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
             }
             const uiManager = getAnnotationUiManager();
             if (uiManager) {
-                uiManager.setSelected(editor as TUiManagerSelectedEditor);
+                setSelectedEditor(uiManager, editor);
             }
         }, { capture: true });
     }
@@ -366,7 +368,7 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
                 if (typeof editor.updateParams === 'function') {
                     editor.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, targetFont);
                 } else {
-                    uiManager.setSelected(editor as TUiManagerSelectedEditor);
+                    setSelectedEditor(uiManager, editor);
                     uiManager.updateParams(AnnotationEditorParamsType.FREETEXT_SIZE, targetFont);
                 }
             } finally {
@@ -431,11 +433,8 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
 
     function patchResizableFreeTextEditors(uiManager: AnnotationEditorUIManager) {
         for (let pageIndex = 0; pageIndex < getNumPages(); pageIndex += 1) {
-            for (const editor of uiManager.getEditors(pageIndex)) {
-                if (!editor) {
-                    continue;
-                }
-                ensureFreeTextEditorCanResize(editor as IPdfjsEditor);
+            for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
+                ensureFreeTextEditorCanResize(editor);
             }
         }
     }

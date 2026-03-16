@@ -42,3 +42,20 @@ export interface IPdfjsEditor {
     delete?: () => void;
     isEmpty?: () => boolean;
 }
+
+export interface IPdfjsEditorWithEditComment extends IPdfjsEditor {editComment: () => void;}
+
+export interface IPdfjsEditorConstructorLike {updateDefaultParams?: (type: number, value: unknown) => void;}
+
+export interface IPdfjsEditorWithConstructor extends IPdfjsEditor {constructor?: IPdfjsEditorConstructorLike;}
+
+export interface IPdfjsEditorLayerWithGetEditorByUid {getEditorByUID: (uid: string) => unknown;}
+
+export interface IPdfjsAnnotationEditorLayer {
+    div: HTMLElement;
+    createAndAddNewEditor: (
+        event: PointerEvent,
+        isCentered: boolean,
+        data?: Record<string, unknown>,
+    ) => unknown;
+}

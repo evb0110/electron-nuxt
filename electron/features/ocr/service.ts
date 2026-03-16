@@ -1,4 +1,4 @@
-import { registerOcrHandlers } from '@electron/ocr/ipc';
+import { registerOcrHandlers } from '@electron/features/ocr/main/ipc';
 import type {
     IIpcMainRegistrar,
     IOcrService,

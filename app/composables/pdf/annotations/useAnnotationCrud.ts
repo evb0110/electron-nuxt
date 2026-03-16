@@ -43,6 +43,7 @@ import type { IEditorTargetMatch } from '@app/composables/pdf/annotationCommentC
 import { runGuardedTask } from '@app/utils/async-guard';
 import {
     getEditorById,
+    getEditorsOnPage,
     getEditorByUidFromLayer,
     selectCommentByUid,
     setSelectedEditor,
@@ -247,8 +248,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         const targetText = comment.text.trim();
 
         for (const pageIndex of pages) {
-            for (const editor of uiManager.getEditors(pageIndex)) {
-                const normalizedEditor = editor as IPdfjsEditor;
+            for (const normalizedEditor of getEditorsOnPage(uiManager, pageIndex)) {
                 const distance = markerRectCenterDistance(
                     comment.markerRect,
                     toMarkerRectFromEditor(normalizedEditor),
@@ -575,10 +575,11 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
                 ...getCommentCandidateIds(comment),
                 ...getCommentCandidateIds(resolvedComment),
             ]);
-            const editorCountsByPage = annotationUiManager.value
+            const uiManager = annotationUiManager.value;
+            const editorCountsByPage = uiManager
                 ? Array.from({ length: Math.max(0, numPages.value) }, (_, pageIndex) => ({
                     pageIndex,
-                    count: Array.from(annotationUiManager.value?.getEditors(pageIndex) ?? []).length,
+                    count: getEditorsOnPage(uiManager, pageIndex).length,
                 }))
                 : [];
             const nonEmptyPages = editorCountsByPage
