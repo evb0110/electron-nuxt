@@ -1,28 +1,25 @@
 import {
+    useRafFn,
     tryOnMounted,
-    tryOnScopeDispose,
-    useDebounceFn,
     useEventListener,
     useMutationObserver,
     useResizeObserver,
 } from '@vueuse/core';
 
 const MAX_COLLAPSE_TIER = 5;
-const LIVE_RESIZE_MAX_TIER = 3;
 const OVERFLOW_TOLERANCE_PX = 0.5;
-const RESIZE_SETTLE_MS = 160;
 const EXPAND_RETRY_WIDTH_DELTA_PX = 8;
 
 export const useToolbarOverflow = () => {
     const toolbarRef = ref<HTMLElement | null>(null);
     const collapseTier = ref(0);
 
-    let frameId: number | null = null;
     let isRecalculating = false;
     let needsRecalculation = false;
     let suppressMutationEvents = false;
     let failedExpandTier: number | null = null;
     let failedExpandWidth = 0;
+    let rafPending = false;
 
     function isElementOverflowing(el: HTMLElement) {
         return (el.scrollWidth - el.clientWidth) > OVERFLOW_TOLERANCE_PX;
@@ -64,18 +61,9 @@ export const useToolbarOverflow = () => {
 
     async function waitForLayout() {
         await nextTick();
-        if (typeof window === 'undefined') {
-            return;
-        }
-
-        await new Promise<void>((resolve) => {
-            window.requestAnimationFrame(() => {
-                resolve();
-            });
-        });
     }
 
-    async function recalculateCollapseTier(allowExpand: boolean) {
+    async function recalculateCollapseTier() {
         suppressMutationEvents = true;
         const toolbar = toolbarRef.value;
         if (!toolbar) {
@@ -95,9 +83,8 @@ export const useToolbarOverflow = () => {
             }
 
             let collapsedDuringPass = false;
-            const maxTierForPass = allowExpand ? MAX_COLLAPSE_TIER : LIVE_RESIZE_MAX_TIER;
 
-            while (tier < maxTierForPass && isOverflowing(currentToolbar)) {
+            while (tier < MAX_COLLAPSE_TIER && isOverflowing(currentToolbar)) {
                 tier += 1;
                 collapseTier.value = tier;
                 collapsedDuringPass = true;
@@ -111,9 +98,6 @@ export const useToolbarOverflow = () => {
 
             if (collapsedDuringPass) {
                 failedExpandTier = null;
-            }
-
-            if (!allowExpand) {
                 return;
             }
 
@@ -123,9 +107,11 @@ export const useToolbarOverflow = () => {
                     return;
                 }
 
+                const currentTierWidth = currentToolbar.clientWidth;
+
                 if (
                     failedExpandTier === tier
-                    && currentToolbar.clientWidth <= (failedExpandWidth + EXPAND_RETRY_WIDTH_DELTA_PX)
+                    && currentTierWidth <= (failedExpandWidth + EXPAND_RETRY_WIDTH_DELTA_PX)
                 ) {
                     return;
                 }
@@ -138,7 +124,7 @@ export const useToolbarOverflow = () => {
                 if (!currentToolbar || isOverflowing(currentToolbar)) {
                     collapseTier.value = tier;
                     failedExpandTier = tier;
-                    failedExpandWidth = currentToolbar?.clientWidth ?? failedExpandWidth;
+                    failedExpandWidth = currentTierWidth;
                     return;
                 }
 
@@ -150,7 +136,7 @@ export const useToolbarOverflow = () => {
         }
     }
 
-    async function runRecalculation(allowExpand: boolean) {
+    async function runRecalculation() {
         if (isRecalculating) {
             needsRecalculation = true;
             return;
@@ -158,7 +144,7 @@ export const useToolbarOverflow = () => {
 
         isRecalculating = true;
         try {
-            await recalculateCollapseTier(allowExpand);
+            await recalculateCollapseTier();
         } finally {
             isRecalculating = false;
             if (needsRecalculation) {
@@ -168,9 +154,19 @@ export const useToolbarOverflow = () => {
         }
     }
 
-    const runSettledRecalculation = useDebounceFn(() => {
-        void runRecalculation(true);
-    }, RESIZE_SETTLE_MS);
+    const {
+        pause: pauseRaf,
+        resume: resumeRaf,
+    } = useRafFn(() => {
+        if (!rafPending) {
+            pauseRaf();
+            return;
+        }
+
+        rafPending = false;
+        pauseRaf();
+        void runRecalculation();
+    }, {immediate: false});
 
     function scheduleRecalculation() {
         if (typeof window === 'undefined') {
@@ -182,15 +178,8 @@ export const useToolbarOverflow = () => {
             return;
         }
 
-        if (frameId !== null) {
-            window.cancelAnimationFrame(frameId);
-        }
-
-        frameId = window.requestAnimationFrame(() => {
-            frameId = null;
-            void runRecalculation(false);
-        });
-        void runSettledRecalculation();
+        rafPending = true;
+        resumeRaf();
     }
 
     watch(toolbarRef, () => {
@@ -219,12 +208,6 @@ export const useToolbarOverflow = () => {
 
     tryOnMounted(() => {
         scheduleRecalculation();
-    });
-
-    tryOnScopeDispose(() => {
-        if (frameId !== null && typeof window !== 'undefined') {
-            window.cancelAnimationFrame(frameId);
-        }
     });
 
     const hasOverflowItems = computed(() => collapseTier.value > 0);
