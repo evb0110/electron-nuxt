@@ -24,7 +24,7 @@ interface IUiManagerWithUnselectAll {unselectAll: () => void;}
 interface IUiManagerWithGetActive {getActive: () => unknown;}
 
 
-export function isPdfjsEditor(value: unknown): value is IPdfjsEditor {
+function isPdfjsEditor(value: unknown): value is IPdfjsEditor {
     if (!isRecord(value)) {
         return false;
     }

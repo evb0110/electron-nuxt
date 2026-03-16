@@ -47,8 +47,6 @@ export interface IPdfjsEditorWithEditComment extends IPdfjsEditor {editComment: 
 
 export interface IPdfjsEditorConstructorLike {updateDefaultParams?: (type: number, value: unknown) => void;}
 
-export interface IPdfjsEditorWithConstructor extends IPdfjsEditor {constructor?: IPdfjsEditorConstructorLike;}
-
 export interface IPdfjsEditorLayerWithGetEditorByUid {getEditorByUID: (uid: string) => unknown;}
 
 export interface IPdfjsAnnotationEditorLayer {

@@ -11,9 +11,9 @@ function parseIntEnv(name: string, fallback: number, minimum: number, maximum?: 
     return parsed;
 }
 
-export const SHUTDOWN_TOTAL_TIMEOUT_MS = parseIntEnv('EVB_SHUTDOWN_TIMEOUT_MS', 20_000, 3_000);
-export const SHUTDOWN_STEP_TIMEOUT_MS = parseIntEnv('EVB_SHUTDOWN_STEP_TIMEOUT_MS', 8_000, 1_000, SHUTDOWN_TOTAL_TIMEOUT_MS);
-export const GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS = parseIntEnv('EVB_GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS', 3_000, 0);
+const SHUTDOWN_TOTAL_TIMEOUT_MS = parseIntEnv('EVB_SHUTDOWN_TIMEOUT_MS', 20_000, 3_000);
+const SHUTDOWN_STEP_TIMEOUT_MS = parseIntEnv('EVB_SHUTDOWN_STEP_TIMEOUT_MS', 8_000, 1_000, SHUTDOWN_TOTAL_TIMEOUT_MS);
+const GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS = parseIntEnv('EVB_GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS', 3_000, 0);
 
 interface ILogger {error(message: string): void;}
 
