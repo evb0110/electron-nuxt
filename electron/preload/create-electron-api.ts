@@ -1,6 +1,5 @@
 import type {
     IpcRenderer,
-    IpcRendererEvent,
     webUtils,
 } from 'electron';
 import type { ISettingsData } from '@contracts/shared';
@@ -21,6 +20,10 @@ import {createDocumentsPreloadClient} from '@electron/features/documents/preload
 import {createOcrPreloadClient} from '@electron/features/ocr/preload-client';
 import {createSearchPreloadClient} from '@electron/features/search/preload-client';
 import {createDjvuPreloadClient} from '@electron/features/djvu/preload-client';
+import {
+    createTypedIpcEventSubscriber,
+    createTypedIpcInvoker,
+} from '@electron/preload/ipc-client';
 
 const preloadStartupStart = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -94,12 +97,6 @@ interface ICoreEventMap {
     'menu:copyTabToGroup': 'left' | 'right' | 'up' | 'down';
 }
 
-type TNoArgEventChannel = {
-    [TChannel in keyof ICoreEventMap]: ICoreEventMap[TChannel] extends undefined ? TChannel : never;
-}[keyof ICoreEventMap];
-
-type TSingleArgEventChannel = Exclude<keyof ICoreEventMap, TNoArgEventChannel>;
-
 function stringifyDetails(details?: Record<string, unknown>) {
     if (!details) {
         return '';
@@ -141,36 +138,10 @@ async function invokeWithStartupTrace<T>(label: string, invoke: () => Promise<T>
     }
 }
 
-function invokeCore<TChannel extends keyof ICoreInvokeMap>(
-    ipcRenderer: IpcRenderer,
-    channel: TChannel,
-    ...args: ICoreInvokeMap[TChannel]['args']
-): Promise<ICoreInvokeMap[TChannel]['result']> {
-    return ipcRenderer.invoke(channel, ...args) as Promise<ICoreInvokeMap[TChannel]['result']>;
-}
-
-function onNoArgEvent(
-    ipcRenderer: IpcRenderer,
-    channel: TNoArgEventChannel,
-    callback: () => void,
-): IMenuEventUnsubscribe {
-    const handler = (_event: IpcRendererEvent) => callback();
-    ipcRenderer.on(channel, handler);
-    return () => ipcRenderer.removeListener(channel, handler);
-}
-
-function onSingleArgEvent<TChannel extends TSingleArgEventChannel>(
-    ipcRenderer: IpcRenderer,
-    channel: TChannel,
-    callback: (arg: ICoreEventMap[TChannel]) => void,
-): IMenuEventUnsubscribe {
-    const handler = (_event: IpcRendererEvent, arg: ICoreEventMap[TChannel]) => callback(arg);
-    ipcRenderer.on(channel, handler);
-    return () => ipcRenderer.removeListener(channel, handler);
-}
-
 export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: typeof webUtils): IElectronAPI {
-    const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
+    const invokeCore = createTypedIpcInvoker<ICoreInvokeMap>(ipcRenderer);
+    const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
+    const baseDocuments = createDocumentsPreloadClient(ipcRenderer) as Omit<IElectronAPI['documents'], 'getPathForFile'>;
 
     const api = {
         documents: {
@@ -189,54 +160,54 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         djvu: createDjvuPreloadClient(ipcRenderer),
 
         settings: {
-            get: () => invokeWithStartupTrace('settings:get', () => invokeCore(ipcRenderer, 'settings:get')),
-            save: (settings: ISettingsData) => invokeCore(ipcRenderer, 'settings:save', settings),
+            get: () => invokeWithStartupTrace('settings:get', () => invokeCore('settings:get')),
+            save: (settings: ISettingsData) => invokeCore('settings:save', settings),
             getDebugLogs: () => Promise.resolve(getDebugLogMessages()),
             rendererLog: (entry: IRendererLogEntry) => ipcRenderer.send('renderer:log', entry),
             onMenuOpenSettings: (callback): IMenuEventUnsubscribe =>
-                onNoArgEvent(ipcRenderer, 'menu:openSettings', callback),
+                eventSubscriber.onNoArg('menu:openSettings', callback),
         },
 
         updates: {
-            getState: () => invokeCore(ipcRenderer, 'updates:getState'),
-            check: () => invokeCore(ipcRenderer, 'updates:check'),
-            install: () => invokeCore(ipcRenderer, 'updates:install'),
-            defer: () => invokeCore(ipcRenderer, 'updates:defer'),
-            skipVersion: (version: string) => invokeCore(ipcRenderer, 'updates:skipVersion', version),
+            getState: () => invokeCore('updates:getState'),
+            check: () => invokeCore('updates:check'),
+            install: () => invokeCore('updates:install'),
+            defer: () => invokeCore('updates:defer'),
+            skipVersion: (version: string) => invokeCore('updates:skipVersion', version),
             onStatus: (callback): IMenuEventUnsubscribe =>
-                onSingleArgEvent(ipcRenderer, 'updates:status', callback),
+                eventSubscriber.onPayload('updates:status', callback),
             onMenuCheckForUpdates: (callback): IMenuEventUnsubscribe =>
-                onNoArgEvent(ipcRenderer, 'menu:checkForUpdates', callback),
+                eventSubscriber.onNoArg('menu:checkForUpdates', callback),
         },
 
-        shell: {openExternal: (url: string) => invokeCore(ipcRenderer, 'shell:openExternal', url)},
+        shell: {openExternal: (url: string) => invokeCore('shell:openExternal', url)},
 
         windowTabs: {
-            closeCurrentWindow: () => invokeCore(ipcRenderer, 'window:closeCurrent'),
+            closeCurrentWindow: () => invokeCore('window:closeCurrent'),
             notifyRendererReady: () => {
                 tracePreloadStartup('app:rendererReady dispatched');
                 ipcRenderer.send('app:rendererReady');
             },
-            transfer: (request: IWindowTabTransferRequest) => invokeCore(ipcRenderer, 'tabs:transfer', request),
-            transferAck: (ack: IWindowTabTransferAck) => invokeCore(ipcRenderer, 'tabs:transferAck', ack),
-            listTargetWindows: () => invokeCore(ipcRenderer, 'tabs:listTargets'),
-            showContextMenu: (tabId: string) => invokeCore(ipcRenderer, 'tabs:showContextMenu', tabId),
+            transfer: (request: IWindowTabTransferRequest) => invokeCore('tabs:transfer', request),
+            transferAck: (ack: IWindowTabTransferAck) => invokeCore('tabs:transferAck', ack),
+            listTargetWindows: () => invokeCore('tabs:listTargets'),
+            showContextMenu: (tabId: string) => invokeCore('tabs:showContextMenu', tabId),
             onIncomingTransfer: (callback): IMenuEventUnsubscribe =>
-                onSingleArgEvent(ipcRenderer, 'tabs:incomingTransfer', callback),
+                eventSubscriber.onPayload('tabs:incomingTransfer', callback),
             onWindowAction: (callback): IMenuEventUnsubscribe =>
-                onSingleArgEvent(ipcRenderer, 'menu:windowTabsAction', callback),
+                eventSubscriber.onPayload('menu:windowTabsAction', callback),
             onMenuNewTab: (callback): IMenuEventUnsubscribe =>
-                onNoArgEvent(ipcRenderer, 'menu:newTab', callback),
+                eventSubscriber.onNoArg('menu:newTab', callback),
             onMenuCloseTab: (callback): IMenuEventUnsubscribe =>
-                onNoArgEvent(ipcRenderer, 'menu:closeTab', callback),
+                eventSubscriber.onNoArg('menu:closeTab', callback),
             onMenuSplitEditor: (callback): IMenuEventUnsubscribe =>
-                onSingleArgEvent(ipcRenderer, 'menu:splitEditor', callback),
+                eventSubscriber.onPayload('menu:splitEditor', callback),
             onMenuFocusEditorGroup: (callback): IMenuEventUnsubscribe =>
-                onSingleArgEvent(ipcRenderer, 'menu:focusEditorGroup', callback),
+                eventSubscriber.onPayload('menu:focusEditorGroup', callback),
             onMenuMoveTabToGroup: (callback): IMenuEventUnsubscribe =>
-                onSingleArgEvent(ipcRenderer, 'menu:moveTabToGroup', callback),
+                eventSubscriber.onPayload('menu:moveTabToGroup', callback),
             onMenuCopyTabToGroup: (callback): IMenuEventUnsubscribe =>
-                onSingleArgEvent(ipcRenderer, 'menu:copyTabToGroup', callback),
+                eventSubscriber.onPayload('menu:copyTabToGroup', callback),
         },
     } satisfies IElectronAPI;
 

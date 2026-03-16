@@ -20,6 +20,7 @@ import type {
     TMarkupSubtype,
     IPdfjsEditor,
 } from '@app/composables/pdf/annotations/types';
+import type { IPdfjsEditorConstructorLike } from '@app/types/pdfjs';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import {
     getCommentText,
@@ -27,14 +28,17 @@ import {
     detectEditorSubtype,
     errorToLogText,
 } from '@app/composables/pdf/pdfAnnotationUtils';
-import { unselectAllEditors } from '@app/services/pdfjs/annotationEditorAdapter';
+import {
+    asPdfjsEditor,
+    getEditorConstructor,
+    getEditorsOnPage,
+    unselectAllEditors,
+} from '@app/services/pdfjs/annotationEditorAdapter';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { runGuardedTask } from '@app/utils/async-guard';
 
 type TEditorParamType = Parameters<AnnotationEditorUIManager['updateParams']>[0];
 type TEditorParamValue = Parameters<AnnotationEditorUIManager['updateParams']>[1];
-
-interface IPdfjsEditorConstructor {updateDefaultParams?: (type: TEditorParamType, value: TEditorParamValue) => void;}
 
 function toEditorParamValue(value: unknown): TEditorParamValue {
     return value as TEditorParamValue;
@@ -290,11 +294,11 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
         type: TEditorParamType,
         value: TEditorParamValue,
     ) {
-        const constructors = new Set<IPdfjsEditorConstructor>();
+        const constructors = new Set<IPdfjsEditorConstructorLike>();
         for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
-            for (const editor of uiManager.getEditors(pageIndex)) {
-                const ctor = (editor as IPdfjsEditor & { constructor?: IPdfjsEditorConstructor }).constructor;
-                if (ctor && typeof ctor.updateDefaultParams === 'function') {
+            for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
+                const ctor = getEditorConstructor(editor);
+                if (ctor) {
                     constructors.add(ctor);
                 }
             }
@@ -447,7 +451,7 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
         uiManager.addToAnnotationStorage = (editor) => {
             const result = originalAddToAnnotationStorage(editor);
             const editorObject = editor as object | null;
-            const normalizedEditor = editor as IPdfjsEditor | null;
+            const normalizedEditor = asPdfjsEditor(editor);
             const editorSubtype = normalizedEditor
                 ? detectEditorSubtype(normalizedEditor)
                 : null;
@@ -495,8 +499,9 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
         const originalSetSelected = uiManager.setSelected.bind(uiManager);
         uiManager.setSelected = (editor) => {
             const result = originalSetSelected(editor);
-            if (editor) {
-                freeTextResize.ensureFreeTextEditorCanResize(editor as IPdfjsEditor);
+            const normalizedEditor = asPdfjsEditor(editor);
+            if (normalizedEditor) {
+                freeTextResize.ensureFreeTextEditorCanResize(normalizedEditor);
             }
             return result;
         };

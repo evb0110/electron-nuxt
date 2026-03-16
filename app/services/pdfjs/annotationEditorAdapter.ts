@@ -1,15 +1,17 @@
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import type { IPdfjsEditor } from '@app/types/pdfjs';
+import type {
+    IPdfjsAnnotationEditorLayer,
+    IPdfjsEditor,
+    IPdfjsEditorConstructorLike,
+    IPdfjsEditorLayerWithGetEditorByUid,
+    IPdfjsEditorWithEditComment,
+} from '@app/types/pdfjs';
 import {
     getOptionalFunction,
     getOptionalNumber,
     getOptionalString,
     isRecord,
 } from '@app/services/pdfjs/runtime';
-
-type TUiManagerSelectedEditor = Parameters<
-    AnnotationEditorUIManager['setSelected']
->[0];
 
 interface IUiManagerWithGetLayer {getLayer: (pageIndex: number) => unknown;}
 
@@ -19,12 +21,7 @@ interface IUiManagerWithGetEditor {getEditor: (id: string) => unknown;}
 
 interface IUiManagerWithUnselectAll {unselectAll: () => void;}
 
-interface IEditorLayerWithGetEditorByUid {getEditorByUID: (uid: string) => unknown;}
-
-interface IAnnotationEditorLayer {
-    div: HTMLElement;
-    createAndAddNewEditor: (event: PointerEvent, isCentered: boolean, data?: Record<string, unknown>) => unknown;
-}
+interface IUiManagerWithGetActive {getActive: () => unknown;}
 
 
 export function isPdfjsEditor(value: unknown): value is IPdfjsEditor {
@@ -49,10 +46,19 @@ export function isPdfjsEditor(value: unknown): value is IPdfjsEditor {
     );
 }
 
-function toPdfjsEditor(value: unknown): IPdfjsEditor | null {
+export function asPdfjsEditor(value: unknown): IPdfjsEditor | null {
     return isPdfjsEditor(value)
         ? value
         : null;
+}
+
+export function isPdfjsEditorWithEditComment(
+    editor: IPdfjsEditor | null | undefined,
+): editor is IPdfjsEditorWithEditComment {
+    return Boolean(
+        editor
+        && getOptionalFunction(editor, 'editComment') !== null,
+    );
 }
 
 function hasGetLayer(
@@ -91,12 +97,18 @@ function hasUnselectAll(
 
 function hasGetEditorByUid(
     layer: unknown,
-): layer is IEditorLayerWithGetEditorByUid {
+): layer is IPdfjsEditorLayerWithGetEditorByUid {
     if (!isRecord(layer)) {
         return false;
     }
 
     return getOptionalFunction(layer, 'getEditorByUID') !== null;
+}
+
+function hasGetActive(
+    uiManager: AnnotationEditorUIManager,
+): uiManager is AnnotationEditorUIManager & IUiManagerWithGetActive {
+    return getOptionalFunction(uiManager, 'getActive') !== null;
 }
 
 export function setSelectedEditor(
@@ -107,9 +119,59 @@ export function setSelectedEditor(
         return false;
     }
 
-    const setSelected = uiManager.setSelected as (value: TUiManagerSelectedEditor) => void;
-    setSelected(editor as TUiManagerSelectedEditor);
+    const setSelected = uiManager.setSelected as (value: unknown) => void;
+    setSelected(editor);
     return true;
+}
+
+export function clearSelectedEditorState(uiManager: AnnotationEditorUIManager) {
+    let cleared = false;
+    if (hasUnselectAll(uiManager)) {
+        uiManager.unselectAll();
+        cleared = true;
+    }
+
+    const setSelected = uiManager.setSelected as ((value: unknown) => void) | undefined;
+    if (typeof setSelected === 'function') {
+        try {
+            setSelected(null);
+            cleared = true;
+        } catch {
+            // Ignore: older PDF.js builds may reject nullable selection values.
+        }
+    }
+
+    return cleared;
+}
+
+export function getEditorsOnPage(
+    uiManager: AnnotationEditorUIManager,
+    pageIndex: number,
+) {
+    return Array.from(uiManager.getEditors(pageIndex))
+        .map(asPdfjsEditor)
+        .filter((editor): editor is IPdfjsEditor => editor !== null);
+}
+
+export function getActiveEditor(uiManager: AnnotationEditorUIManager) {
+    if (!hasGetActive(uiManager)) {
+        return null;
+    }
+    return asPdfjsEditor(uiManager.getActive());
+}
+
+export function getEditorConstructor(editor: unknown): IPdfjsEditorConstructorLike | null {
+    if (!isPdfjsEditor(editor)) {
+        return null;
+    }
+    const ctor = (editor as { constructor?: unknown }).constructor;
+    if (
+        (typeof ctor === 'function' || isRecord(ctor))
+        && typeof (ctor as { updateDefaultParams?: unknown }).updateDefaultParams === 'function'
+    ) {
+        return ctor as IPdfjsEditorConstructorLike;
+    }
+    return null;
 }
 
 export function getEditorByUidFromLayer(
@@ -127,7 +189,7 @@ export function getEditorByUidFromLayer(
     }
 
     const getEditorByUID = getOptionalFunction<[string], unknown>(layer, 'getEditorByUID');
-    return toPdfjsEditor(
+    return asPdfjsEditor(
         getEditorByUID
             ? getEditorByUID.call(layer, uid)
             : null,
@@ -155,7 +217,7 @@ export function getEditorById(
         return null;
     }
 
-    return toPdfjsEditor(uiManager.getEditor(id));
+    return asPdfjsEditor(uiManager.getEditor(id));
 }
 
 export function unselectAllEditors(
@@ -169,7 +231,7 @@ export function unselectAllEditors(
     return true;
 }
 
-function isAnnotationEditorLayer(value: unknown): value is IAnnotationEditorLayer {
+function isAnnotationEditorLayer(value: unknown): value is IPdfjsAnnotationEditorLayer {
     if (!isRecord(value)) {
         return false;
     }
@@ -181,7 +243,7 @@ function isAnnotationEditorLayer(value: unknown): value is IAnnotationEditorLaye
 export function getAnnotationEditorLayer(
     uiManager: AnnotationEditorUIManager,
     pageIndex: number,
-): IAnnotationEditorLayer | null {
+): IPdfjsAnnotationEditorLayer | null {
     if (!hasGetLayer(uiManager)) {
         return null;
     }

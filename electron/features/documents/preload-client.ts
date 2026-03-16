@@ -1,7 +1,4 @@
-import type {
-    IpcRenderer,
-    IpcRendererEvent,
-} from 'electron';
+import type {IpcRenderer} from 'electron';
 import type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
@@ -17,25 +14,50 @@ import {
 } from '@electron/features/documents/contract';
 import { IMAGE_EXPORT_CHANNELS } from '@electron/features/image-export/index';
 import { PAGE_OPS_CHANNELS } from '@electron/features/page-ops/index';
+import {
+    createIpcInvoker,
+    createTypedIpcEventSubscriber,
+} from '@electron/preload/ipc-client';
 import type { ICropMargins } from '@contracts/shared';
 
 const MAX_IPC_FILE_NAME_LENGTH = 255;
 const MAX_IPC_WRITE_BYTES = 512 * 1024 * 1024;
 
-function onNoArgEvent(ipcRenderer: IpcRenderer, channel: string, callback: IMenuEventCallback): IMenuEventUnsubscribe {
-    const handler = (_event: IpcRendererEvent) => callback();
-    ipcRenderer.on(channel, handler);
-    return () => ipcRenderer.removeListener(channel, handler);
-}
-
-function onSingleArgEvent<T>(
-    ipcRenderer: IpcRenderer,
-    channel: string,
-    callback: (arg: T) => void,
-): IMenuEventUnsubscribe {
-    const handler = (_event: IpcRendererEvent, arg: T) => callback(arg);
-    ipcRenderer.on(channel, handler);
-    return () => ipcRenderer.removeListener(channel, handler);
+interface IDocumentsEventMap {
+    [DOCUMENTS_EVENT_CHANNELS.menuOpenPdf]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuSave]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuSaveAs]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuExportDocx]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuExportImages]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuExportMultiPageTiff]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuZoomIn]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuZoomOut]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuActualSize]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuFitWidth]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuFitHeight]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuUndo]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuRedo]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuDeletePages]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuExtractPages]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuRotateCw]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuRotateCcw]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuInsertPages]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile]: string;
+    [DOCUMENTS_EVENT_CHANNELS.menuOpenExternalPaths]: string[];
+    [DOCUMENTS_EVENT_CHANNELS.menuClearRecentFiles]: undefined;
+    [DOCUMENTS_EVENT_CHANNELS.openPdfDirectBatchProgress]: {
+        requestId: string;
+        processed: number;
+        total: number;
+        percent: number;
+        elapsedMs: number;
+        estimatedRemainingMs: number | null;
+    };
 }
 
 function assertWriteData(value: unknown, fieldName: string) {
@@ -63,32 +85,35 @@ function assertWorkingCopyFileName(value: unknown, fieldName: string) {
 }
 
 export function createDocumentsPreloadClient(ipcRenderer: IpcRenderer) {
+    const invoke = createIpcInvoker(ipcRenderer);
+    const eventSubscriber = createTypedIpcEventSubscriber<IDocumentsEventMap>(ipcRenderer);
+
     return {
-        openPdfDialog: () => ipcRenderer.invoke(DOCUMENTS_CHANNELS.openPdfDialog),
-        openImageDialog: () => ipcRenderer.invoke(DOCUMENTS_CHANNELS.openImageDialog),
-        openPdfDirect: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.openPdfDirect, path),
+        openPdfDialog: () => invoke(DOCUMENTS_CHANNELS.openPdfDialog),
+        openImageDialog: () => invoke(DOCUMENTS_CHANNELS.openImageDialog),
+        openPdfDirect: (path: string) => invoke(DOCUMENTS_CHANNELS.openPdfDirect, path),
         openPdfDirectBatch: (paths: string[], requestId?: string) =>
-            ipcRenderer.invoke(DOCUMENTS_CHANNELS.openPdfDirectBatch, paths, requestId),
-        savePdfAs: (workingPath: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.savePdfAs, workingPath),
-        savePdfDialog: (suggestedName: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.savePdfDialog, suggestedName),
-        saveDocxAs: (workingPath: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.saveDocxAs, workingPath),
+            invoke(DOCUMENTS_CHANNELS.openPdfDirectBatch, paths, requestId),
+        savePdfAs: (workingPath: string) => invoke(DOCUMENTS_CHANNELS.savePdfAs, workingPath),
+        savePdfDialog: (suggestedName: string) => invoke(DOCUMENTS_CHANNELS.savePdfDialog, suggestedName),
+        saveDocxAs: (workingPath: string) => invoke(DOCUMENTS_CHANNELS.saveDocxAs, workingPath),
         exportPdfToImages: (workingPath: string, pageNumbers?: number[]) =>
-            ipcRenderer.invoke(IMAGE_EXPORT_CHANNELS.exportImages, workingPath, pageNumbers),
+            invoke(IMAGE_EXPORT_CHANNELS.exportImages, workingPath, pageNumbers),
         exportPdfToMultiPageTiff: (workingPath: string, pageNumbers?: number[]) =>
-            ipcRenderer.invoke(IMAGE_EXPORT_CHANNELS.exportMultiPageTiff, workingPath, pageNumbers),
-        readFile: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileRead, path),
-        statFile: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileStat, path),
+            invoke(IMAGE_EXPORT_CHANNELS.exportMultiPageTiff, workingPath, pageNumbers),
+        readFile: (path: string) => invoke(DOCUMENTS_CHANNELS.fileRead, path),
+        statFile: (path: string) => invoke(DOCUMENTS_CHANNELS.fileStat, path),
         readFileRange: (path: string, offset: number, length: number) =>
-            ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileReadRange, path, offset, length),
-        readTextFile: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileReadText, path),
-        fileExists: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileExists, path),
+            invoke(DOCUMENTS_CHANNELS.fileReadRange, path, offset, length),
+        readTextFile: (path: string) => invoke(DOCUMENTS_CHANNELS.fileReadText, path),
+        fileExists: (path: string) => invoke(DOCUMENTS_CHANNELS.fileExists, path),
         analyzePdfConformance: (path: string) =>
-            ipcRenderer.invoke(
+            invoke(
                 DOCUMENTS_CHANNELS.pdfAnalyzeConformance,
                 assertAbsolutePath(path, 'analyzePdfConformance.path'),
             ),
         validatePdfData: (data: Uint8Array, fileName?: string) =>
-            ipcRenderer.invoke(
+            invoke(
                 DOCUMENTS_CHANNELS.pdfValidateData,
                 assertWriteData(data, 'validatePdfData.data'),
                 typeof fileName === 'string'
@@ -96,95 +121,95 @@ export function createDocumentsPreloadClient(ipcRenderer: IpcRenderer) {
                     : undefined,
             ),
         writeFile: (path: string, data: Uint8Array) =>
-            ipcRenderer.invoke(
+            invoke(
                 DOCUMENTS_CHANNELS.fileWrite,
                 assertAbsolutePath(path, 'writeFile.path'),
                 assertWriteData(data, 'writeFile.data'),
             ),
         writeDocxFile: (path: string, data: Uint8Array) =>
-            ipcRenderer.invoke(
+            invoke(
                 DOCUMENTS_CHANNELS.fileWriteDocx,
                 assertAbsolutePath(path, 'writeDocxFile.path'),
                 assertWriteData(data, 'writeDocxFile.data'),
             ),
         createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: string) =>
-            ipcRenderer.invoke(
+            invoke(
                 DOCUMENTS_CHANNELS.createWorkingCopyFromData,
                 assertWorkingCopyFileName(fileName, 'createWorkingCopyFromData.fileName'),
                 assertWriteData(data, 'createWorkingCopyFromData.data'),
                 assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromData.originalPath'),
             ),
         createWorkingCopyFromPath: (sourcePath: string, originalPath?: string) =>
-            ipcRenderer.invoke(
+            invoke(
                 DOCUMENTS_CHANNELS.createWorkingCopyFromPath,
                 assertAbsolutePath(sourcePath, 'createWorkingCopyFromPath.sourcePath'),
                 assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath'),
             ),
-        saveFile: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileSave, path),
-        cleanupFile: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileCleanup, path),
-        cleanupOcrTemp: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, path),
-        setWindowTitle: (title: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.windowSetTitle, title),
-        showItemInFolder: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.shellShowItemInFolder, path),
-        setMenuDocumentState: (hasDocument: boolean) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.menuSetDocumentState, hasDocument),
-        setMenuTabCount: (tabCount: number) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.menuSetTabCount, tabCount),
+        saveFile: (path: string) => invoke(DOCUMENTS_CHANNELS.fileSave, path),
+        cleanupFile: (path: string) => invoke(DOCUMENTS_CHANNELS.fileCleanup, path),
+        cleanupOcrTemp: (path: string) => invoke(DOCUMENTS_CHANNELS.fileCleanupOcrTemp, path),
+        setWindowTitle: (title: string) => invoke(DOCUMENTS_CHANNELS.windowSetTitle, title),
+        showItemInFolder: (path: string) => invoke(DOCUMENTS_CHANNELS.shellShowItemInFolder, path),
+        setMenuDocumentState: (hasDocument: boolean) => invoke(DOCUMENTS_CHANNELS.menuSetDocumentState, hasDocument),
+        setMenuTabCount: (tabCount: number) => invoke(DOCUMENTS_CHANNELS.menuSetTabCount, tabCount),
         recentFiles: {
-            get: () => ipcRenderer.invoke(DOCUMENTS_CHANNELS.recentFilesGet),
-            add: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.recentFilesAdd, path),
-            remove: (path: string) => ipcRenderer.invoke(DOCUMENTS_CHANNELS.recentFilesRemove, path),
-            clear: () => ipcRenderer.invoke(DOCUMENTS_CHANNELS.recentFilesClear),
+            get: () => invoke(DOCUMENTS_CHANNELS.recentFilesGet),
+            add: (path: string) => invoke(DOCUMENTS_CHANNELS.recentFilesAdd, path),
+            remove: (path: string) => invoke(DOCUMENTS_CHANNELS.recentFilesRemove, path),
+            clear: () => invoke(DOCUMENTS_CHANNELS.recentFilesClear),
         },
         onMenuOpenPdf: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuOpenPdf, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuOpenPdf, callback),
         onMenuInsertImageFromFile: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuInsertImageFromFile, callback),
         onMenuPasteImageFromClipboard: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPasteImageFromClipboard, callback),
         onMenuSave: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuSave, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuSave, callback),
         onMenuSaveAs: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuSaveAs, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuSaveAs, callback),
         onMenuExportDocx: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuExportDocx, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExportDocx, callback),
         onMenuExportImages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuExportImages, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExportImages, callback),
         onMenuExportMultiPageTiff: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuExportMultiPageTiff, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExportMultiPageTiff, callback),
         onMenuZoomIn: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuZoomIn, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuZoomIn, callback),
         onMenuZoomOut: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuZoomOut, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuZoomOut, callback),
         onMenuActualSize: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuActualSize, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuActualSize, callback),
         onMenuFitWidth: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuFitWidth, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuFitWidth, callback),
         onMenuFitHeight: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuFitHeight, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuFitHeight, callback),
         onMenuViewModeSingle: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeSingle, callback),
         onMenuViewModeFacing: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeFacing, callback),
         onMenuViewModeFacingFirstSingle: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuViewModeFacingFirstSingle, callback),
         onMenuUndo: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuUndo, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuUndo, callback),
         onMenuRedo: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuRedo, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuRedo, callback),
         onMenuDeletePages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuDeletePages, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuDeletePages, callback),
         onMenuExtractPages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuExtractPages, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExtractPages, callback),
         onMenuRotateCw: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuRotateCw, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuRotateCw, callback),
         onMenuRotateCcw: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuRotateCcw, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuRotateCcw, callback),
         onMenuInsertPages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuInsertPages, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuInsertPages, callback),
         onMenuOpenRecentFile: (callback: (filePath: string) => void): IMenuEventUnsubscribe =>
-            onSingleArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile, callback),
+            eventSubscriber.onPayload(DOCUMENTS_EVENT_CHANNELS.menuOpenRecentFile, callback),
         onMenuOpenExternalPaths: (callback: (paths: string[]) => void): IMenuEventUnsubscribe =>
-            onSingleArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuOpenExternalPaths, callback),
+            eventSubscriber.onPayload(DOCUMENTS_EVENT_CHANNELS.menuOpenExternalPaths, callback),
         onMenuClearRecentFiles: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
-            onNoArgEvent(ipcRenderer, DOCUMENTS_EVENT_CHANNELS.menuClearRecentFiles, callback),
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuClearRecentFiles, callback),
         onOpenPdfDirectBatchProgress: (callback: (progress: {
             requestId: string;
             processed: number;
@@ -192,30 +217,29 @@ export function createDocumentsPreloadClient(ipcRenderer: IpcRenderer) {
             percent: number;
             elapsedMs: number;
             estimatedRemainingMs: number | null;
-        }) => void): IMenuEventUnsubscribe => onSingleArgEvent(
-            ipcRenderer,
+        }) => void): IMenuEventUnsubscribe => eventSubscriber.onPayload(
             DOCUMENTS_EVENT_CHANNELS.openPdfDirectBatchProgress,
             callback,
         ),
         pageOps: {
             delete: (workingCopyPath: string, pages: number[], totalPages: number) =>
-                ipcRenderer.invoke(PAGE_OPS_CHANNELS.delete, workingCopyPath, pages, totalPages),
+                invoke(PAGE_OPS_CHANNELS.delete, workingCopyPath, pages, totalPages),
             extract: (workingCopyPath: string, pages: number[]) =>
-                ipcRenderer.invoke(PAGE_OPS_CHANNELS.extract, workingCopyPath, pages),
+                invoke(PAGE_OPS_CHANNELS.extract, workingCopyPath, pages),
             reorder: (workingCopyPath: string, newOrder: number[]) =>
-                ipcRenderer.invoke(PAGE_OPS_CHANNELS.reorder, workingCopyPath, newOrder),
+                invoke(PAGE_OPS_CHANNELS.reorder, workingCopyPath, newOrder),
             insert: (workingCopyPath: string, totalPages: number, afterPage: number) =>
-                ipcRenderer.invoke(PAGE_OPS_CHANNELS.insert, workingCopyPath, totalPages, afterPage),
+                invoke(PAGE_OPS_CHANNELS.insert, workingCopyPath, totalPages, afterPage),
             insertFile: (workingCopyPath: string, totalPages: number, afterPage: number, sourcePaths: string[]) =>
-                ipcRenderer.invoke(PAGE_OPS_CHANNELS.insertFile, workingCopyPath, totalPages, afterPage, sourcePaths),
+                invoke(PAGE_OPS_CHANNELS.insertFile, workingCopyPath, totalPages, afterPage, sourcePaths),
             rotate: (workingCopyPath: string, pages: number[], angle: number) =>
-                ipcRenderer.invoke(PAGE_OPS_CHANNELS.rotate, workingCopyPath, pages, angle),
+                invoke(PAGE_OPS_CHANNELS.rotate, workingCopyPath, pages, angle),
             crop: (workingCopyPath: string, pages: number[], margins: ICropMargins) =>
-                ipcRenderer.invoke(PAGE_OPS_CHANNELS.crop, workingCopyPath, pages, margins),
+                invoke(PAGE_OPS_CHANNELS.crop, workingCopyPath, pages, margins),
             removeCrop: (workingCopyPath: string, pages: number[]) =>
-                ipcRenderer.invoke(PAGE_OPS_CHANNELS.removeCrop, workingCopyPath, pages),
+                invoke(PAGE_OPS_CHANNELS.removeCrop, workingCopyPath, pages),
             getPageGeometry: (workingCopyPath: string, pageNumber: number) =>
-                ipcRenderer.invoke(PAGE_OPS_CHANNELS.getPageGeometry, workingCopyPath, pageNumber),
+                invoke(PAGE_OPS_CHANNELS.getPageGeometry, workingCopyPath, pageNumber),
         },
     };
 }

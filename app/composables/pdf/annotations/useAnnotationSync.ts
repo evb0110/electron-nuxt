@@ -41,7 +41,7 @@ import {
 } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { runGuardedTask } from '@app/utils/async-guard';
-import { isPdfjsEditor } from '@app/services/pdfjs/annotationEditorAdapter';
+import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 
 function isMarkupSubtype(value: unknown): value is TMarkupSubtype {
     return (
@@ -285,11 +285,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
 
             if (uiManager) {
                 for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
-                    for (const editor of uiManager.getEditors(pageIndex)) {
-                        if (!isPdfjsEditor(editor)) {
-                            continue;
-                        }
-
+                    for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
                         const text = getCommentText(editor);
                         const summary = toEditorSummary(editor, pageIndex, text, sourceOrder);
                         sourceOrder += 1;

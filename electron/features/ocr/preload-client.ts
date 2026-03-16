@@ -1,7 +1,5 @@
-import type {
-    IpcRenderer,
-    IpcRendererEvent,
-} from 'electron';
+import type {IpcRenderer} from 'electron';
+import type { IOcrCapability } from '@contracts/electron-api';
 import {
     assertAbsolutePath,
     assertNonEmptyString,
@@ -11,18 +9,43 @@ import {
     OCR_CHANNELS,
     OCR_EVENT_CHANNELS,
 } from '@electron/features/ocr/contract';
+import {
+    createIpcInvoker,
+    createTypedIpcEventSubscriber,
+} from '@electron/preload/ipc-client';
 
 function assertRequestId(value: unknown, fieldName: string) {
     return assertNonEmptyString(value, fieldName, 128);
 }
 
-export function createOcrPreloadClient(ipcRenderer: IpcRenderer) {
+interface IOcrEventMap {
+    [OCR_EVENT_CHANNELS.progress]: {
+        requestId: string;
+        currentPage: number;
+        processedCount: number;
+        totalPages: number;
+    };
+    [OCR_EVENT_CHANNELS.complete]: {
+        requestId: string;
+        success: boolean;
+        pdfPath?: string;
+        requiresCleanupAck?: boolean;
+        errors: string[];
+    };
+}
+
+type TOcrPreprocessing = IOcrCapability['preprocessing'];
+
+export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability {
+    const invoke = createIpcInvoker(ipcRenderer);
+    const eventSubscriber = createTypedIpcEventSubscriber<IOcrEventMap>(ipcRenderer);
+
     return {
         recognize: (request: {
             pageNumber: number;
             imageData: Uint8Array;
             languages: string[];
-        }) => ipcRenderer.invoke(OCR_CHANNELS.recognize, request),
+        }) => invoke<Awaited<ReturnType<IOcrCapability['recognize']>>>(OCR_CHANNELS.recognize, request),
 
         recognizeBatch: (
             pages: Array<{
@@ -31,17 +54,18 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer) {
                 languages: string[];
             }>,
             requestId: string,
-        ) => ipcRenderer.invoke(OCR_CHANNELS.recognizeBatch, pages, requestId),
+        ) => invoke<Awaited<ReturnType<IOcrCapability['recognizeBatch']>>>(OCR_CHANNELS.recognizeBatch, pages, requestId),
 
-        cancel: (requestId: string) => ipcRenderer.invoke(OCR_CHANNELS.cancel, requestId),
+        cancel: (requestId: string) => invoke<Awaited<ReturnType<IOcrCapability['cancel']>>>(OCR_CHANNELS.cancel, requestId),
 
-        getLanguages: () => ipcRenderer.invoke(OCR_CHANNELS.getLanguages),
+        getLanguages: () => invoke<Awaited<ReturnType<IOcrCapability['getLanguages']>>>(OCR_CHANNELS.getLanguages),
 
-        acknowledgeResultFile: (requestId: string, pdfPath?: string) => ipcRenderer.invoke(
-            OCR_CHANNELS.acknowledgeResultFile,
-            assertRequestId(requestId, 'ocrAcknowledgeResultFile.requestId'),
-            assertOptionalAbsolutePath(pdfPath, 'ocrAcknowledgeResultFile.pdfPath'),
-        ),
+        acknowledgeResultFile: (requestId: string, pdfPath?: string) =>
+            invoke<Awaited<ReturnType<IOcrCapability['acknowledgeResultFile']>>>(
+                OCR_CHANNELS.acknowledgeResultFile,
+                assertRequestId(requestId, 'ocrAcknowledgeResultFile.requestId'),
+                assertOptionalAbsolutePath(pdfPath, 'ocrAcknowledgeResultFile.pdfPath'),
+            ),
 
         createSearchablePdf: (
             sourcePdfPath: string,
@@ -51,7 +75,7 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer) {
             }>,
             requestId: string,
             renderDpi?: number,
-        ) => ipcRenderer.invoke(
+        ) => invoke<Awaited<ReturnType<IOcrCapability['createSearchablePdf']>>>(
             OCR_CHANNELS.createSearchablePdf,
             assertAbsolutePath(sourcePdfPath, 'ocrCreateSearchablePdf.sourcePdfPath'),
             pages,
@@ -64,16 +88,7 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer) {
             currentPage: number;
             processedCount: number;
             totalPages: number;
-        }) => void): (() => void) => {
-            const handler = (_event: IpcRendererEvent, progress: {
-                requestId: string;
-                currentPage: number;
-                processedCount: number;
-                totalPages: number;
-            }) => callback(progress);
-            ipcRenderer.on(OCR_EVENT_CHANNELS.progress, handler);
-            return () => ipcRenderer.removeListener(OCR_EVENT_CHANNELS.progress, handler);
-        },
+        }) => void): (() => void) => eventSubscriber.onPayload(OCR_EVENT_CHANNELS.progress, callback),
 
         onComplete: (callback: (result: {
             requestId: string;
@@ -81,22 +96,16 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer) {
             pdfPath?: string;
             requiresCleanupAck?: boolean;
             errors: string[];
-        }) => void): (() => void) => {
-            const handler = (_event: IpcRendererEvent, result: {
-                requestId: string;
-                success: boolean;
-                pdfPath?: string;
-                requiresCleanupAck?: boolean;
-                errors: string[];
-            }) => callback(result);
-            ipcRenderer.on(OCR_EVENT_CHANNELS.complete, handler);
-            return () => ipcRenderer.removeListener(OCR_EVENT_CHANNELS.complete, handler);
-        },
+        }) => void): (() => void) => eventSubscriber.onPayload(OCR_EVENT_CHANNELS.complete, callback),
 
         preprocessing: {
-            validate: () => ipcRenderer.invoke(OCR_CHANNELS.preprocessingValidate),
+            validate: () => invoke<Awaited<ReturnType<TOcrPreprocessing['validate']>>>(OCR_CHANNELS.preprocessingValidate),
             preprocessPage: (imageData: Uint8Array, usePreprocessing: boolean) =>
-                ipcRenderer.invoke(OCR_CHANNELS.preprocessingPreprocessPage, imageData, usePreprocessing),
+                invoke<Awaited<ReturnType<TOcrPreprocessing['preprocessPage']>>>(
+                    OCR_CHANNELS.preprocessingPreprocessPage,
+                    imageData,
+                    usePreprocessing,
+                ),
         },
     };
 }

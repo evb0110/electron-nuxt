@@ -1,4 +1,4 @@
-import { registerPageOpsHandlers } from '@electron/page-ops/ipc';
+import { registerPageOpsHandlers } from '@electron/features/page-ops/main/ipc';
 import type {
     IPageOpsService,
     IIpcMainRegistrar,

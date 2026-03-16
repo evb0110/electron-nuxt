@@ -2,6 +2,7 @@ import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/composables/pdf/pdfAnnotationUtils';
 import { normalizeMarkerRect } from '@app/composables/pdf/pdfAnnotationUtils';
+import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 import { uniq } from 'es-toolkit/array';
 
 export interface IEditorTargetMatch {
@@ -129,9 +130,8 @@ export function findEditorForComment(
     ];
 
     for (const pageIndex of pageIndexes) {
-        for (const editor of uiManager.getEditors(pageIndex)) {
-            const editorIdentity = getEditorIdentity(editor as IPdfjsEditor, pageIndex);
-            const normalizedEditor = editor as IPdfjsEditor;
+        for (const normalizedEditor of getEditorsOnPage(uiManager, pageIndex)) {
+            const editorIdentity = getEditorIdentity(normalizedEditor, pageIndex);
             if (
                 candidateIds.some(candidateId => (
                     editorIdsLikelyMatch(editorIdentity, candidateId)
@@ -165,8 +165,7 @@ export function findEditorByAnnotationElementId(
     ];
 
     for (const candidatePageIndex of pageIndexes) {
-        for (const editor of uiManager.getEditors(candidatePageIndex)) {
-            const normalizedEditor = editor as IPdfjsEditor;
+        for (const normalizedEditor of getEditorsOnPage(uiManager, candidatePageIndex)) {
             if (normalizedEditor.annotationElementId === annotationId) {
                 return normalizedEditor;
             }
@@ -202,8 +201,7 @@ export function findEditorFromTarget(
         : currentPage;
     const pageIndex = Math.max(0, pageNumber - 1);
 
-    for (const editor of uiManager.getEditors(pageIndex)) {
-        const normalizedEditor = editor as IPdfjsEditor;
+    for (const normalizedEditor of getEditorsOnPage(uiManager, pageIndex)) {
         const editorDiv = normalizedEditor.div;
         if (!editorDiv) {
             continue;
