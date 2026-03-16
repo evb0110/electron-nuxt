@@ -77,7 +77,25 @@ useHead(() => ({
     link: [
         {
             rel: 'icon',
-            href: '/favicon.ico',
+            type: 'image/png',
+            sizes: '16x16',
+            href: '/favicon-16x16.png?v=5',
+        },
+        {
+            rel: 'icon',
+            type: 'image/png',
+            sizes: '32x32',
+            href: '/favicon-32x32.png?v=5',
+        },
+        {
+            rel: 'icon',
+            type: 'image/svg+xml',
+            href: '/favicon.svg?v=5',
+        },
+        {
+            rel: 'icon',
+            type: 'image/x-icon',
+            href: '/favicon.ico?v=5',
         },
         {
             rel: 'canonical',
