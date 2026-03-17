@@ -18,6 +18,7 @@
     "clean:cache": "rm -rf node_modules/.vite node_modules/.cache .nuxt nuxt-output",
     "build": "nuxt build && pnpm run build:electron",
     "build:web": "nuxt build",
+    "generate:web": "nuxi generate",
     "build:log": "mkdir -p .tmp && bash -lc 'set -o pipefail; pnpm run build 2>&1 | tee .tmp/build.log'",
     "build:warnings:check": "node scripts/check-build-warnings.mjs .tmp/build.log",
     "build:strict": "pnpm run build:log && pnpm run build:warnings:check",
