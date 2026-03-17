@@ -15,7 +15,7 @@
 
 ## Current Scope
 
-- PDF-first browser runtime
+- PDF-and-images-first browser runtime
 - Browser-backed open/save/recent-files/search/page-ops flows
 - OCR unavailable in browser runtime
 - DjVu unavailable in browser runtime

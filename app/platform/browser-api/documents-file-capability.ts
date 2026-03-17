@@ -786,6 +786,11 @@ export function createBrowserDocumentsFileCapability(
                 const validatedFiles: IRecentFile[] = [];
 
                 for (const file of recentFiles) {
+                    if (isDjvuFileName(getBrowserDocumentFileName(file.originalPath))) {
+                        browserDocumentStore.removeRecentFile(file.originalPath);
+                        continue;
+                    }
+
                     if (await browserDocumentStore.exists(file.originalPath)) {
                         validatedFiles.push(file);
                         continue;
@@ -797,6 +802,10 @@ export function createBrowserDocumentsFileCapability(
                 return validatedFiles;
             },
             async add(path) {
+                if (isDjvuFileName(getBrowserDocumentFileName(path))) {
+                    return;
+                }
+
                 await browserDocumentStore.touchRecentFile(path);
             },
             remove(path) {
