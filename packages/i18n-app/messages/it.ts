@@ -390,6 +390,8 @@ export default {
         'browserStorage': 'Archiviazione del browser',
         'openAnother': 'Apri un altro file...',
         'openPdf': 'Apri un file',
+        'openBrowser': 'Apri un PDF o un\'immagine',
+        'browserHint': 'Nel browser sono supportati i PDF e i formati immagine più comuni.',
         'preparingBatch': 'Preparazione del documento...',
         'preparingBatchProgress': 'File di origine elaborati: {processed}/{total}',
         'preparingBatchEta': 'Tempo rimanente stimato: {eta}',

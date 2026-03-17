@@ -390,6 +390,8 @@ export default {
         'browserStorage': 'Browseropslag',
         'openAnother': 'Een ander bestand openen...',
         'openPdf': 'Een bestand openen',
+        'openBrowser': 'Open een PDF of afbeelding',
+        'browserHint': 'PDF\'s en gangbare afbeeldingsbestanden worden in de browser ondersteund.',
         'preparingBatch': 'Document voorbereiden...',
         'preparingBatchProgress': 'Verwerkte bronbestanden: {processed}/{total}',
         'preparingBatchEta': 'Geschatte resterende tijd: {eta}',
