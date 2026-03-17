@@ -402,6 +402,8 @@ export default {
         'browserStorage': 'Хранилище браузера',
         'openAnother': 'Открыть другой файл...',
         'openPdf': 'Откройте файл',
+        'openBrowser': 'Откройте PDF или изображение',
+        'browserHint': 'В браузере поддерживаются PDF и распространённые графические файлы.',
         'preparingBatch': 'Подготавливаем документ...',
         'preparingBatchProgress': 'Обработано исходных файлов: {processed}/{total}',
         'preparingBatchEta': 'Осталось примерно: {eta}',

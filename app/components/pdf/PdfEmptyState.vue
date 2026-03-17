@@ -38,7 +38,10 @@
                     </button>
                 </UTooltip>
                 <p class="empty-state-hint text-[var(--ui-text-muted)]">
-                    {{ t('emptyState.openPdf') }}
+                    {{ isBrowserRuntime ? t('emptyState.openBrowser') : t('emptyState.openPdf') }}
+                </p>
+                <p v-if="isBrowserRuntime" class="empty-state-subhint text-[var(--ui-text-dimmed)]">
+                    {{ t('emptyState.browserHint') }}
                 </p>
             </div>
 
@@ -102,6 +105,9 @@
                         {{ t('emptyState.openAnother') }}
                     </span>
                 </button>
+                <p v-if="isBrowserRuntime" class="empty-state-subhint px-2 pt-3 text-[var(--ui-text-dimmed)]">
+                    {{ t('emptyState.browserHint') }}
+                </p>
             </div>
         </div>
     </div>
@@ -110,6 +116,7 @@
 <script setup lang="ts">
 import type { TDocumentRef } from '@contracts/platform-api';
 import { formatRelativeTime } from '@app/utils/formatters';
+import { hasElectronAPI } from '@app/utils/platform';
 import { clamp } from 'es-toolkit/math';
 
 interface IRecentFile {
@@ -140,6 +147,7 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 
 const batchEtaText = computed(() => formatEtaDuration(props.openBatchProgress?.estimatedRemainingMs ?? null));
+const isBrowserRuntime = computed(() => !hasElectronAPI());
 
 function formatRelativeTimeLocalized(timestamp: number) {
     return formatRelativeTime(timestamp, {
@@ -209,6 +217,14 @@ function formatEtaDuration(etaMs: number | null) {
     margin: 0;
     text-align: center;
     font-size: 0.8125rem;
+}
+
+.empty-state-subhint {
+    margin: 0;
+    max-width: 28rem;
+    text-align: center;
+    font-size: 0.75rem;
+    line-height: 1.4;
 }
 
 .open-file-action {

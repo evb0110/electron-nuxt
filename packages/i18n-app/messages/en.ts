@@ -390,6 +390,8 @@ export default {
         'browserStorage': 'Browser storage',
         'openAnother': 'Open another file...',
         'openPdf': 'Open a file',
+        'openBrowser': 'Open a PDF or image',
+        'browserHint': 'PDFs and common image files are supported in the browser.',
         'preparingBatch': 'Preparing document...',
         'preparingBatchProgress': 'Processed {processed}/{total} source files',
         'preparingBatchEta': 'Estimated time left: {eta}',
