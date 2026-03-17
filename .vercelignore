@@ -10,12 +10,11 @@ python/
 .nuxt/
 nuxt-output/
 
-# Electron source (not needed for landing site)
+# Electron-only source and tooling
 electron/
-app/
-public/
 build/
 tests/
+landing/
 
 # IDE / tooling
 .idea/
@@ -27,6 +26,6 @@ tests/
 .github/
 docs/
 
-# Config files not needed for landing
+# Build-time config not needed for the web deployment
 electron-builder.yml
 eslint-plugin-custom.mjs
