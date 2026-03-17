@@ -9,8 +9,10 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "start": "pnpm run build:electron && electron .",
-    "dev": "pnpm electron:run stop --session=default && nuxt prepare && pnpm run build:electron && tsx scripts/electron-run.ts start",
+    "dev": "pnpm run dev:all",
     "dev:clean": "pnpm run clean:cache && nuxt prepare && pnpm run build:electron && tsx scripts/electron-run.ts start",
+    "dev:all": "pnpm electron:run stop --session=default && nuxt prepare && pnpm run build:electron && tsx scripts/electron-run.ts start",
+    "dev:electron": "pnpm run dev:all",
     "dev:nuxt": "nuxt dev --host 127.0.0.1 --port 3235",
     "dev:web": "nuxt dev --host 127.0.0.1 --port 3235",
     "dev:quick": "pnpm run build:electron && tsx scripts/electron-run.ts start",

@@ -8,7 +8,9 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
 const DEFAULT_SERVER_PORT = parsePositiveInt(process.env.EVB_SERVER_PORT, 3235);
+const DEFAULT_SERVER_PATH = normalizeServerPath(process.env.EVB_SERVER_PATH, '/electron');
 let runtimeServerPort = DEFAULT_SERVER_PORT;
+let runtimeServerPath = DEFAULT_SERVER_PATH;
 
 function parsePositiveInt(raw: string | undefined, fallback: number) {
     if (!raw) {
@@ -21,6 +23,21 @@ function parsePositiveInt(raw: string | undefined, fallback: number) {
     }
 
     return parsed;
+}
+
+function normalizeServerPath(raw: string | undefined, fallback: string) {
+    const trimmed = raw?.trim();
+    if (!trimmed) {
+        return fallback;
+    }
+
+    if (trimmed === '/') {
+        return trimmed;
+    }
+
+    return trimmed.startsWith('/')
+        ? trimmed
+        : `/${trimmed}`;
 }
 
 export const config = {
@@ -36,8 +53,14 @@ export const config = {
             // attaching to pre-bound localhost ports owned by other processes.
             runtimeServerPort = parsePositiveInt(String(port), DEFAULT_SERVER_PORT);
         },
+        get path() {
+            return runtimeServerPath;
+        },
+        setPath(path: string) {
+            runtimeServerPath = normalizeServerPath(path, DEFAULT_SERVER_PATH);
+        },
         get url() {
-            return `http://127.0.0.1:${this.port}`;
+            return `http://127.0.0.1:${this.port}${this.path}`;
         },
         get entryPath() {
             if (isPackaged) {
