@@ -43,10 +43,7 @@ import {
     groupMarkupSubtypeHintsByPage,
 } from '@app/composables/pdf/pdfSerializationSubtypeHints';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+import { getElectronAPI } from '@app/utils/platform';
 
 export {
     getPdfPopupDict, parsePdfJsAnnotationRef, resolveCommentPdfRefInDocument,
@@ -200,7 +197,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
     async function getSourcePdfData() {
         let sourceData = pdfData.value ? pdfData.value.slice() : null;
-        if (!sourceData && workingCopyPath.value && hasElectronAPI()) {
+        if (!sourceData && workingCopyPath.value) {
             try {
                 const buffer = await getElectronAPI().documents.readFile(workingCopyPath.value);
                 sourceData = new Uint8Array(buffer);

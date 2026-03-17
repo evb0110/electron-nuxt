@@ -735,7 +735,7 @@ export const usePdfFile = () => {
         openBatchProgress.value = null;
         requiresSaveAsOnFirstSave.value = false;
         resetHistory(null);
-        if (pathToCleanup && hasElectronAPI()) {
+        if (pathToCleanup) {
             const api = getElectronAPI();
             try {
                 await api.documents.cleanupFile(pathToCleanup);

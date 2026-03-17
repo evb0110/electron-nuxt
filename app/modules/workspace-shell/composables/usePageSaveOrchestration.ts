@@ -20,10 +20,7 @@ import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import { rewriteBookmarks } from '@app/composables/pdf/usePdfBookmarkSerialization';
 import { useFileOperations } from '@app/composables/useFileOperations';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+import { getElectronAPI } from '@app/utils/platform';
 
 interface IPdfViewerForSave {
     saveDocument: () => Promise<Uint8Array | null>;
@@ -200,7 +197,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 persistWorkingCopy: !!workingCopyPath.value,
             });
 
-            if (warmupWorkingPath && hasElectronAPI()) {
+            if (warmupWorkingPath) {
                 const api = getElectronAPI();
                 // Prewarm search index and worker caches after OCR persistence so
                 // first user search does not pay the indexing setup cost.
