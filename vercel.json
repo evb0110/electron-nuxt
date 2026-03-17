@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "NITRO_PRESET=vercel-static pnpm generate:web",
+  "outputDirectory": "nuxt-output/static",
+  "framework": "nuxtjs",
+  "devCommand": "pnpm dev:web"
+}
