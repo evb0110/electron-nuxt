@@ -6,11 +6,13 @@
 - `pnpm build:web`
 - `pnpm generate:web`
 - `pnpm preview:web`
+- `pnpm validate:web`
 
 ## Intended Use
 
 - `build:web` produces the standard Nuxt web build.
 - `generate:web` produces a prerendered static web artifact for static hosting.
+- `validate:web` runs lint, typecheck, `build:web`, and `generate:web` sequentially.
 - Static output is written to `nuxt-output/public`.
 
 ## Current Scope
