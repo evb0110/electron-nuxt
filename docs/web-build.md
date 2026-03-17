@@ -21,6 +21,10 @@
 
 ## Current Scope
 
+- Browser routes:
+  - `/` shared browser workspace
+  - `/workspace` compatibility redirect to `/`
+  - `/electron` desktop-only shell entry
 - PDF-and-images-first browser runtime
 - Browser-backed open/save/recent-files/search/page-ops flows
 - OCR unavailable in browser runtime

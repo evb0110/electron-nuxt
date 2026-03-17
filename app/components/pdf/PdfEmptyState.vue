@@ -116,6 +116,7 @@
 <script setup lang="ts">
 import type { TDocumentRef } from '@contracts/platform-api';
 import { formatRelativeTime } from '@app/utils/formatters';
+import { isBrowserDocumentRef } from '@app/utils/document-ref';
 import { hasElectronAPI } from '@app/utils/platform';
 import { clamp } from 'es-toolkit/math';
 
@@ -162,7 +163,7 @@ function formatRelativeTimeLocalized(timestamp: number) {
 }
 
 function getParentFolder(filePath: string) {
-    if (filePath.startsWith('browser://')) {
+    if (isBrowserDocumentRef(filePath)) {
         return t('emptyState.browserStorage');
     }
     const parts = filePath.split(/[\\/]/);
