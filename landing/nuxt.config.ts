@@ -3,7 +3,7 @@ import {fileURLToPath} from 'node:url';
 import {
     DEFAULT_LOCALE,
     LOCALE_DEFINITIONS,
-} from '../packages/i18n-core';
+} from './app/i18n/core';
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -17,9 +17,8 @@ export default defineNuxtConfig({
     css: ['~/assets/css/main.css'],
 
     alias: {
-        '@contracts': fileURLToPath(new URL('../packages/contracts', import.meta.url)),
-        '@i18n-core': fileURLToPath(new URL('../packages/i18n-core', import.meta.url)),
-        '@release-selection': fileURLToPath(new URL('../packages/release-selection', import.meta.url)),
+        '@i18n-core': fileURLToPath(new URL('./app/i18n/core.ts', import.meta.url)),
+        '@release-selection': fileURLToPath(new URL('./shared/release-selection.ts', import.meta.url)),
     },
 
     runtimeConfig: {
