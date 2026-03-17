@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
 import type { IWindowTabIncomingTransfer } from '@contracts/window-tabs';
-import { getElectronAPI } from '@app/utils/platform';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/platform';
 import { traceRendererStartup } from '@app/utils/startup-trace';
 
 interface IUseAppShellLifecycleOptions {
@@ -45,7 +48,9 @@ export function useAppShellLifecycle(options: IUseAppShellLifecycleOptions) {
         chromeHostsReady.value = true;
         traceRendererStartup('index.vue chrome hosts marked ready');
         cleanupEmptyGroups();
-        void ensureUpdatesInitialized();
+        if (hasElectronAPI()) {
+            void ensureUpdatesInitialized();
+        }
 
         incomingTabTransferCleanup = getElectronAPI().windowTabs.onIncomingTransfer((transfer) => {
             void handleIncomingTabTransfer(transfer);

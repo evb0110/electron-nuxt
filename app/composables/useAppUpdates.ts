@@ -4,7 +4,10 @@ import type {
     TAppUpdatePhase,
 } from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/platform';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/platform';
 
 type TStatusDialogPhase = Exclude<TAppUpdatePhase, 'idle' | 'downloaded'>;
 
@@ -96,6 +99,11 @@ async function ensureInitialized() {
     }
 
     initialized.value = true;
+    if (!hasElectronAPI()) {
+        status.value = { ...browserUnsupportedStatus() };
+        return;
+    }
+
     const electronApi = getElectronAPI();
 
     try {
@@ -111,6 +119,10 @@ async function ensureInitialized() {
 }
 
 async function checkForUpdates() {
+    if (!hasElectronAPI()) {
+        return;
+    }
+
     try {
         await ensureInitialized();
         await getElectronAPI().updates.check();
@@ -128,6 +140,10 @@ async function checkForUpdates() {
 }
 
 async function installUpdateNow() {
+    if (!hasElectronAPI()) {
+        return;
+    }
+
     try {
         closeDialog();
         await getElectronAPI().updates.install();
@@ -145,6 +161,10 @@ async function installUpdateNow() {
 }
 
 async function deferUpdate() {
+    if (!hasElectronAPI()) {
+        return;
+    }
+
     try {
         closeDialog();
         await getElectronAPI().updates.defer();
@@ -162,6 +182,11 @@ async function deferUpdate() {
 }
 
 async function skipUpdateVersion() {
+    if (!hasElectronAPI()) {
+        closeDialog();
+        return;
+    }
+
     const version = dialog.value.version || status.value.version;
     if (!version) {
         closeDialog();
@@ -189,10 +214,20 @@ const isCheckInProgress = computed(() => {
 });
 
 const isUpdateSupported = computed(() => {
-    return status.value.phase !== 'unsupported';
+    return hasElectronAPI() && status.value.phase !== 'unsupported';
 });
 
 const dialogVersion = computed(() => dialog.value.version || status.value.version);
+
+function browserUnsupportedStatus(): IAppUpdateStatus {
+    return {
+        phase: 'unsupported',
+        origin: 'auto',
+        version: null,
+        percent: null,
+        message: null,
+    };
+}
 
 export function useAppUpdates() {
     return {
