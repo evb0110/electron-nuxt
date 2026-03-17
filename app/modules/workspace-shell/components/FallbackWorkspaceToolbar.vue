@@ -36,7 +36,7 @@
         @crop="emit('crop')"
         @quick-note="emit('quick-note')"
     >
-        <template #ocr="{ isCollapsed }">
+        <template v-if="canUseOcr" #ocr="{ isCollapsed }">
             <OcrPopup
                 :pdf-document="null"
                 :pdf-data="null"
@@ -91,6 +91,7 @@
                 :is-history-busy="snapshot.isHistoryBusy"
                 :is-exporting-docx="snapshot.isExportingDocx"
                 :can-export-docx="snapshot.canExportDocx"
+                :can-use-ocr="canUseOcr"
                 :drag-mode="snapshot.dragMode"
                 :continuous-scroll="snapshot.continuousScroll"
                 :view-mode="snapshot.viewMode"
@@ -127,6 +128,7 @@ import PdfPageDropdown from '@app/components/pdf/PdfPageDropdown.vue';
 import PdfToolbar from '@app/components/pdf/PdfToolbar.vue';
 import PdfZoomDropdown from '@app/components/pdf/PdfZoomDropdown.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
+import { hasElectronAPI } from '@app/utils/platform';
 
 const props = defineProps<{
     snapshot: IWorkspaceToolbarSnapshot;
@@ -136,6 +138,8 @@ const props = defineProps<{
     pageDropdownOpen: boolean;
     overflowMenuOpen: boolean;
 }>();
+
+const canUseOcr = hasElectronAPI();
 
 const emit = defineEmits<{
     'update:ocrPopupOpen': [open: boolean];

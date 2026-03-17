@@ -38,7 +38,7 @@
                 @crop="handleToolbarCrop"
                 @quick-note="handleToolbarQuickNote"
             >
-                <template #ocr="{ isCollapsed }">
+                <template v-if="canUseOcr" #ocr="{ isCollapsed }">
                     <OcrPopup
                         :pdf-document="pdfDocument"
                         :current-page="currentPage"
@@ -94,6 +94,7 @@
                         :is-history-busy="isHistoryBusy"
                         :is-exporting-docx="isExportingDocx"
                         :can-export-docx="canExportDocx"
+                        :can-use-ocr="canUseOcr"
                         :drag-mode="dragMode"
                         :continuous-scroll="continuousScroll"
                         :view-mode="viewMode"
@@ -420,6 +421,7 @@ import type { TOpenFileResult } from '@contracts/platform-api';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { hasElectronAPI } from '@app/utils/platform';
 
 const props = defineProps<{
     tabId: string;
@@ -436,6 +438,7 @@ const canTeleportStatus = computed(() => (
     import.meta.client
     && Boolean(document.getElementById('editor-global-status-host'))
 ));
+const canUseOcr = hasElectronAPI();
 
 const emit = defineEmits<{
     'update-tab': [updates: TTabUpdate];
