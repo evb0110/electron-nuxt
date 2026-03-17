@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { until } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollSnapshot } from '@app/types/pdf';
@@ -23,9 +24,9 @@ export const usePdfHistory = (deps: {
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
     isAnnotationUndoContext: Ref<boolean>;
-    workingCopyPath: Ref<string | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     resetSearchCache: () => void;
-    clearOcrCache: (path: string) => void;
+    clearOcrCache: (path: TDocumentRef) => void;
     undo: () => Promise<boolean>;
     redo: () => Promise<boolean>;
 }) => {

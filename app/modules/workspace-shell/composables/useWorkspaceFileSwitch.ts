@@ -1,15 +1,18 @@
 import type { Ref } from 'vue';
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platform-api';
 
 interface IWorkspaceFileSwitchDeps {
-    workingCopyPath: Ref<string | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     isDjvuMode: Ref<boolean>;
     cleanupDjvuTemp: () => Promise<void>;
     exitDjvuMode: () => void;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFile: (preSelected?: TOpenFileResult) => Promise<void>;
-    openFileDirect: (path: string) => Promise<void>;
-    openFileDirectBatch: (paths: string[]) => Promise<void>;
+    openFileDirect: (path: TDocumentRef) => Promise<void>;
+    openFileDirectBatch: (paths: TDocumentRef[]) => Promise<void>;
     closeFile: () => Promise<void>;
 }
 
@@ -39,7 +42,7 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
         }
     }
 
-    async function openFileDirectWithDjvuCleanup(path: string) {
+    async function openFileDirectWithDjvuCleanup(path: TDocumentRef) {
         const oldPath = workingCopyPath.value;
         await openFileDirect(path);
         if (isDjvuMode.value && workingCopyPath.value !== oldPath) {
@@ -48,7 +51,7 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
         }
     }
 
-    async function openFileDirectBatchWithDjvuCleanup(paths: string[]) {
+    async function openFileDirectBatchWithDjvuCleanup(paths: TDocumentRef[]) {
         const oldPath = workingCopyPath.value;
         await openFileDirectBatch(paths);
         if (isDjvuMode.value && workingCopyPath.value !== oldPath) {

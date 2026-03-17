@@ -122,7 +122,7 @@ import type {
     TEditorLayoutNode,
     TGroupOrientation,
 } from '@app/types/editor-groups';
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type { TOpenFileResult } from '@contracts/platform-api';
 import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
 import DeferredDocumentWorkspaceHost from '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue';
 import TabBar from '@app/modules/workspace-shell/components/layout/TabBar.vue';

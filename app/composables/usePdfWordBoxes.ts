@@ -1,5 +1,6 @@
 import type { PageViewport } from 'pdfjs-dist';
 import { safeDestr } from 'destr';
+import type { TDocumentRef } from '@contracts/platform-api';
 import type { IOcrWord } from '@app/types/pdf';
 import { getElectronAPI } from '@app/utils/platform';
 import {
@@ -92,7 +93,7 @@ export const usePdfWordBoxes = () => {
     }
 
     async function loadOcrPageData(
-        workingCopyPath: string,
+        workingCopyPath: TDocumentRef,
         pageNumber: number,
     ): Promise<IOcrIndexV2Page | null> {
         try {
@@ -116,7 +117,7 @@ export const usePdfWordBoxes = () => {
     async function renderOcrDebugBoxes(
         pageContainer: HTMLElement,
         pageNumber: number,
-        workingCopyPath: string | null,
+        workingCopyPath: TDocumentRef | null,
         viewport: PageViewport,
         pageWidth: number,
         pageHeight: number,

@@ -1,7 +1,7 @@
 import type {
     IAppUpdateStatus,
     IUpdatesCapability,
-} from '@contracts/electron-api';
+} from '@contracts/platform-api';
 import { noopUnsubscribe } from '@app/platform/browser-api/common';
 
 type TUpdateStatusListener = (status: IAppUpdateStatus) => void;

@@ -1,11 +1,11 @@
-import type { IElectronAPI } from '@contracts/electron-api';
+import type { IPlatformApi } from '@contracts/platform-api';
 import { browserWindowTabsCapability } from '@app/platform/browser-window-tabs';
 import { browserDjvuCapability } from '@app/platform/browser-api/djvu-capability';
 import { createBrowserDocumentsCapability } from '@app/platform/browser-api/documents-capability';
 import { browserOcrCapability } from '@app/platform/browser-api/ocr-capability';
 import { createBrowserSearchCapability } from '@app/platform/browser-api/search-capability';
 import { browserSettingsCapability } from '@app/platform/browser-api/settings-capability';
-import { browserShellCapability } from '@app/platform/browser-api/shell-capability';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import { browserUpdatesCapability } from '@app/platform/browser-api/updates-capability';
 
 const {
@@ -14,8 +14,20 @@ const {
 } = createBrowserSearchCapability();
 
 const browserDocumentsCapability = createBrowserDocumentsCapability({clearSearchCaches});
+const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
+    if (typeof window === 'undefined') {
+        return Promise.resolve();
+    }
 
-export const browserPlatformApi: IElectronAPI = {
+    const openedWindow = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!openedWindow) {
+        BrowserLogger.warn('shell', 'Failed to open external URL', { url });
+    }
+
+    return Promise.resolve();
+} };
+
+export const browserPlatformApi = {
     documents: browserDocumentsCapability,
     ocr: browserOcrCapability,
     search: browserSearchCapability,
@@ -23,5 +35,5 @@ export const browserPlatformApi: IElectronAPI = {
     settings: browserSettingsCapability,
     updates: browserUpdatesCapability,
     windowTabs: browserWindowTabsCapability,
-    shell: browserShellCapability,
-};
+    shell: browserShellApi,
+} satisfies IPlatformApi;

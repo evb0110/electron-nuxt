@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/platform';
@@ -6,7 +7,7 @@ import { getElectronAPI } from '@app/utils/platform';
 type TExportDialogMode = 'images' | 'multipage-tiff';
 
 interface IWorkspaceExportDeps {
-    workingCopyPath: Ref<string | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     totalPages: Ref<number>;
 }
 

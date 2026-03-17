@@ -3,6 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { TDocumentRef } from '@contracts/platform-api';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -15,7 +16,7 @@ interface IWorkspacePdfViewerForAnnotationUtils {
 interface ISerializeEmbeddedFallbackDeps {
     pdfViewerRef: Ref<IWorkspacePdfViewerForAnnotationUtils | null>;
     currentPage: Ref<number>;
-    workingCopyPath: Ref<string | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromData: (
         data: Uint8Array,

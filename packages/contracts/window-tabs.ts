@@ -1,15 +1,17 @@
+import type { TDocumentRef } from './document';
+
 export interface IEmptySplitPayload {kind: 'empty';}
 
 export interface IDjvuSplitPayload {
     kind: 'djvu';
-    sourcePath: string;
+    sourcePath: TDocumentRef;
 }
 
 export interface IPdfSnapshotSplitPayload {
     kind: 'pdfSnapshot';
     fileName: string;
-    originalPath: string | null;
-    snapshotPath: string;
+    originalPath: TDocumentRef | null;
+    snapshotPath: TDocumentRef;
     isDirty: boolean;
     currentPage?: number;
     totalPages?: number;
@@ -19,7 +21,7 @@ export type TSplitPayload = IEmptySplitPayload | IDjvuSplitPayload | IPdfSnapsho
 
 export interface ITransferredTabState {
     fileName: string | null;
-    originalPath: string | null;
+    originalPath: TDocumentRef | null;
     isDirty: boolean;
     isDjvu: boolean;
 }

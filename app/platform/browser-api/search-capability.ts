@@ -3,7 +3,7 @@ import type {
     IPdfSearchResponse,
     IPdfSearchResult,
 } from '@contracts/search';
-import type { ISearchCapability } from '@contracts/electron-api';
+import type { ISearchCapability } from '@contracts/platform-api';
 import { browserDocumentStore } from '@app/platform/browser-document-store';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,

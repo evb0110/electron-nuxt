@@ -6,7 +6,7 @@ import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMen
 import type { IEditorGroupState } from '@app/types/editor-groups';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type { TOpenFileResult } from '@contracts/platform-api';
 import type { TWindowTabsAction } from '@contracts/window-tabs';
 
 interface IResolvedTabAction {

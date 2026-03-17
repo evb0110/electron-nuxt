@@ -1,4 +1,7 @@
-import type { IElectronAPI } from '@contracts/electron-api';
+import type {
+    IPlatformApi,
+    TDocumentRef,
+} from '@contracts/platform-api';
 import type { Ref } from 'vue';
 import type { TGroupDirection } from '@app/types/editor-groups';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
@@ -10,8 +13,8 @@ interface ITabsMenuBindingDeps {
     activeTabId: Ref<string | null>;
     createTab: () => { id: string };
     handleCloseTab: (tabId: string) => Promise<void>;
-    openPathInAppropriateTab: (path: string) => Promise<void>;
-    openPathsInAppropriateTab: (paths: string[]) => Promise<void>;
+    openPathInAppropriateTab: (path: TDocumentRef) => Promise<void>;
+    openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
     clearRecentFiles: () => Promise<void>;
     loadRecentFiles: () => Promise<void>;
     openSettings: () => void;
@@ -29,10 +32,10 @@ interface ITabsMenuBindingDeps {
  * mismatch) degrades gracefully rather than crashing the renderer.
  */
 export function registerTabsMenuBindings(
-    electronApi: IElectronAPI,
+    electronApi: IPlatformApi,
     deps: ITabsMenuBindingDeps,
 ) {
-    const api = electronApi as Partial<IElectronAPI>;
+    const api = electronApi as Partial<IPlatformApi>;
     let documentOpenQueue: Promise<void> = Promise.resolve();
     let disposed = false;
 
@@ -125,10 +128,10 @@ export function registerTabsMenuBindings(
         api.documents?.onMenuViewModeFacingFirstSingle?.(() => {
             runMenuAction('view-mode-facing-first-single', () => deps.activeWorkspace.value?.handleViewModeFacingFirstSingle());
         }),
-        api.documents?.onMenuOpenRecentFile?.((path: string) => {
+        api.documents?.onMenuOpenRecentFile?.((path: TDocumentRef) => {
             enqueueDocumentOpenAction('open-recent-file', () => deps.openPathInAppropriateTab(path));
         }),
-        api.documents?.onMenuOpenExternalPaths?.((paths: string[]) => {
+        api.documents?.onMenuOpenExternalPaths?.((paths: TDocumentRef[]) => {
             enqueueDocumentOpenAction('open-external-paths', () => deps.openPathsInAppropriateTab(paths));
         }),
         api.documents?.onMenuClearRecentFiles?.(() => {

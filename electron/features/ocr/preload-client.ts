@@ -1,5 +1,6 @@
 import type {IpcRenderer} from 'electron';
 import type { IOcrCapability } from '@contracts/electron-api';
+import type { TDocumentRef } from '@contracts/platform-api';
 import {
     assertAbsolutePath,
     assertNonEmptyString,
@@ -28,7 +29,7 @@ interface IOcrEventMap {
     [OCR_EVENT_CHANNELS.complete]: {
         requestId: string;
         success: boolean;
-        pdfPath?: string;
+        pdfPath?: TDocumentRef;
         requiresCleanupAck?: boolean;
         errors: string[];
     };
@@ -60,7 +61,7 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
 
         getLanguages: () => invoke<Awaited<ReturnType<IOcrCapability['getLanguages']>>>(OCR_CHANNELS.getLanguages),
 
-        acknowledgeResultFile: (requestId: string, pdfPath?: string) =>
+        acknowledgeResultFile: (requestId: string, pdfPath?: TDocumentRef) =>
             invoke<Awaited<ReturnType<IOcrCapability['acknowledgeResultFile']>>>(
                 OCR_CHANNELS.acknowledgeResultFile,
                 assertRequestId(requestId, 'ocrAcknowledgeResultFile.requestId'),
@@ -93,7 +94,7 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
         onComplete: (callback: (result: {
             requestId: string;
             success: boolean;
-            pdfPath?: string;
+            pdfPath?: TDocumentRef;
             requiresCleanupAck?: boolean;
             errors: string[];
         }) => void): (() => void) => eventSubscriber.onPayload(OCR_EVENT_CHANNELS.complete, callback),

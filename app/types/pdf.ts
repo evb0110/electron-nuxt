@@ -1,7 +1,8 @@
 import type {
     IPdfValidationResult,
+    TDocumentRef,
     TPdfSaveMode,
-} from '@contracts/electron-api';
+} from '@contracts/platform-api';
 import type {
     PDFDocumentProxy,
     PDFPageProxy,
@@ -18,7 +19,7 @@ export type {
     IPdfConformanceProfile,
     IPdfValidationResult,
     TPdfSaveMode,
-} from '@contracts/electron-api';
+} from '@contracts/platform-api';
 
 export type {IPdfBookmarkEntry} from '@contracts/pdf';
 
@@ -61,7 +62,7 @@ export interface IPdfPageMetric {
 
 export interface IPdfPathSource {
     kind: 'path';
-    path: string;
+    path: TDocumentRef;
     size: number;
 }
 
@@ -149,7 +150,7 @@ export interface IPdfSaveResult {
 
 export interface IPdfPersistResult {
     success: boolean;
-    outPath: string | null;
+    outPath: TDocumentRef | null;
     saveMode: TPdfSaveMode;
     didSaveAs: boolean;
 }

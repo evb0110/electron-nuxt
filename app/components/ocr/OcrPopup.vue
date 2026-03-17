@@ -264,6 +264,7 @@
 <script setup lang="ts">
 import { useTimeoutFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { TDocumentRef } from '@contracts/platform-api';
 import type { TTranslationKey } from '@i18n-app';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
@@ -276,7 +277,7 @@ interface IProps {
     pdfDocument: PDFDocumentProxy | null;
     currentPage: number;
     totalPages: number;
-    workingCopyPath: string | null;
+    workingCopyPath: TDocumentRef | null;
     open: boolean;
     isExportingDocx?: boolean;
     externalError?: string | null;

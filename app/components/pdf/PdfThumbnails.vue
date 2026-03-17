@@ -45,6 +45,7 @@ import {
     useDebounceFn,
     useResizeObserver,
 } from '@vueuse/core';
+import type { TDocumentRef } from '@contracts/platform-api';
 import type {
     PDFDocumentProxy,
     RenderTask,
@@ -103,7 +104,7 @@ const emit = defineEmits<{
         e: 'file-drop',
         payload: {
             afterPage: number;
-            filePaths: string[];
+            filePaths: TDocumentRef[];
         },
     ): void;
 }>();

@@ -5,13 +5,16 @@ import { useWorkspaceFileOperationController } from '@app/modules/workspace-shel
 import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/types';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
 import type { TPdfSource } from '@app/types/pdf';
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platform-api';
 
 interface IWorkspaceDocumentControlsOptions {
     pdfSrc: Ref<TPdfSource | null>;
     pdfData: Ref<Uint8Array | null>;
-    originalPath: Ref<string | null>;
-    workingCopyPath: Ref<string | null>;
+    originalPath: Ref<TDocumentRef | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     effectiveZoom: Ref<number>;
     canSave: Ref<boolean>;
     isAnySaving: Ref<boolean>;
@@ -29,7 +32,7 @@ interface IWorkspaceDocumentControlsOptions {
     closePageContextMenu: () => void;
     handleExportImages: (pages: number[]) => Promise<void>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
-    clearOcrCache: (path: string) => void;
+    clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
     isExportingDocx: Ref<boolean>;
     isAnyAnnotationNoteSaving: Ref<boolean>;
@@ -42,8 +45,8 @@ interface IWorkspaceDocumentControlsOptions {
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
     pickFileToOpenWithDjvuCleanup: () => Promise<TOpenFileResult | null>;
     openFileWithDjvuCleanup: (preSelected?: TOpenFileResult) => Promise<void>;
-    openFileDirectWithDjvuCleanup: (path: string) => Promise<void>;
-    openFileDirectBatchWithDjvuCleanup: (paths: string[]) => Promise<void>;
+    openFileDirectWithDjvuCleanup: (path: TDocumentRef) => Promise<void>;
+    openFileDirectBatchWithDjvuCleanup: (paths: TDocumentRef[]) => Promise<void>;
     closeFileWithDjvuCleanup: () => Promise<void>;
     closeAllDropdowns: () => void;
     emitOpenInNewTab: (result: TOpenFileResult) => void;
@@ -114,7 +117,7 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
             void handleExportImages(pages);
         },
         reloadWorkingCopyIntoHistory,
-        clearOcrCache: (path: string) => clearOcrCache(path),
+        clearOcrCache,
         resetSearchCache,
     });
 

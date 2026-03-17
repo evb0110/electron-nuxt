@@ -108,11 +108,12 @@
 </template>
 
 <script setup lang="ts">
+import type { TDocumentRef } from '@contracts/platform-api';
 import { formatRelativeTime } from '@app/utils/formatters';
 import { clamp } from 'es-toolkit/math';
 
 interface IRecentFile {
-    originalPath: string;
+    originalPath: TDocumentRef;
     fileName: string;
     timestamp: number;
 }

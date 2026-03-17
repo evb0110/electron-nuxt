@@ -2,7 +2,7 @@ import type {
     IDebugLogEntry,
     IRendererLogEntry,
     ISettingsCapability,
-} from '@contracts/electron-api';
+} from '@contracts/platform-api';
 import type { ISettingsData } from '@contracts/shared';
 import {
     DEFAULT_SETTINGS,

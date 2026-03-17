@@ -3,6 +3,7 @@ import type {
     IPdfSaveResult,
     TPdfSaveMode,
 } from '@app/types/pdf';
+import type { TDocumentRef } from '@contracts/platform-api';
 import type {
     Ref,
     ShallowRef,
@@ -14,7 +15,7 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 export interface IFileOperationsDeps {
     isSaving: Ref<boolean>;
     isSavingAs: Ref<boolean>;
-    workingCopyPath: Ref<string | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     annotationDirty: Ref<boolean>;
     pageLabelsDirty: Ref<boolean>;
     bookmarksDirty: Ref<boolean>;

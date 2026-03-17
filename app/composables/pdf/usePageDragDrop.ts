@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type { TDocumentRef } from '@contracts/platform-api';
 import {
     useEventListener,
     useIntervalFn,
@@ -11,7 +12,7 @@ interface IPageDragDropDeps {
     selectedPages: Ref<number[]>;
     onReorder: (newOrder: number[]) => void;
     resolveDropIndex?: (clientY: number, container: HTMLElement) => number | null;
-    onExternalFileDrop?: (afterPage: number, filePaths: string[]) => void;
+    onExternalFileDrop?: (afterPage: number, filePaths: TDocumentRef[]) => void;
 }
 
 interface IDragReorderContext {

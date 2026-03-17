@@ -21,6 +21,7 @@ export type {
     IMenuEventCallback,
     IMenuEventUnsubscribe,
     IOcrCapability,
+    IPlatformApi,
     IRendererLogEntry,
     ISearchCapability,
     ISettingsCapability,
@@ -29,7 +30,9 @@ export type {
     TAppUpdateCheckOrigin,
     TAppUpdatePhase,
     TOpenFileResult,
-} from './electron-api';
+} from './platform-api';
+
+export type { TDocumentRef } from './document';
 
 export type {
     IEditorGroupRect,

@@ -1,10 +1,11 @@
 import type { Ref } from 'vue';
 import type { TTabUpdate } from '@app/types/tabs';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { clamp } from 'es-toolkit/math';
 
 interface IWorkspaceWindowTitleState {
     isDjvuMode: boolean;
-    djvuSourcePath: string | null;
+    djvuSourcePath: TDocumentRef | null;
     fileName: string | null;
     pendingOpenDisplayName: string | null;
     fallbackTitle: string;
@@ -13,10 +14,10 @@ interface IWorkspaceWindowTitleState {
 interface IWorkspaceTabState {
     fileName: string | null;
     pendingOpenDisplayName: string | null;
-    originalPath: string | null;
+    originalPath: TDocumentRef | null;
     isDirty: boolean;
     isDjvuMode: boolean;
-    djvuSourcePath: string | null;
+    djvuSourcePath: TDocumentRef | null;
 }
 
 interface IOpenBatchProgressState {
@@ -25,31 +26,31 @@ interface IOpenBatchProgressState {
 }
 
 interface IWorkspaceUiSyncDeps {
-    pendingDjvu: Ref<string | null>;
+    pendingDjvu: Ref<TDocumentRef | null>;
     openDjvuFile: (
-        djvuPath: string,
-        loadPdfFromPath: (path: string) => Promise<void>,
+        djvuPath: TDocumentRef,
+        loadPdfFromPath: (path: TDocumentRef) => Promise<void>,
         getCurrentPage?: () => number,
         setPage?: (page: number) => void,
-        setOriginalPath?: (path: string | null) => void,
+        setOriginalPath?: (path: TDocumentRef | null) => void,
     ) => Promise<void>;
-    loadPdfFromPath: (path: string) => Promise<void>;
+    loadPdfFromPath: (path: TDocumentRef) => Promise<void>;
     currentPage: Ref<number>;
     pdfViewerRef: Ref<{ scrollToPage: (page: number) => void } | null>;
-    originalPath: Ref<string | null>;
+    originalPath: Ref<TDocumentRef | null>;
     openBatchProgress: Ref<IOpenBatchProgressState | null>;
     isActive: Ref<boolean>;
     fileName: Ref<string | null>;
     isDirty: Readonly<Ref<boolean>>;
     isDjvuMode: Ref<boolean>;
-    djvuSourcePath: Ref<string | null>;
+    djvuSourcePath: Ref<TDocumentRef | null>;
     showSettings: Ref<boolean>;
     emitUpdateTab: (updates: TTabUpdate) => void;
     emitOpenSettings: () => void;
     onOpenDjvuError?: (error: unknown) => void;
 }
 
-function getBaseName(path: string | null) {
+function getBaseName(path: TDocumentRef | null) {
     if (!path) {
         return null;
     }

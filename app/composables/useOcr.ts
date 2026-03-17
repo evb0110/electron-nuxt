@@ -2,6 +2,7 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@contracts/shared';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
 import { createDocxFromText } from '@app/utils/docx';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
@@ -92,7 +93,7 @@ export const useOcr = () => {
     async function runOcr(
         currentPage: number,
         totalPages: number,
-        workingCopyPath: string | null = null,
+        workingCopyPath: TDocumentRef | null = null,
     ) {
         BrowserLogger.debug('ocr', 'runOcr called', {
             currentPage,
@@ -200,7 +201,7 @@ export const useOcr = () => {
             ensureRunActive();
             const ocrPromise = new Promise<{
                 success: boolean;
-                pdfPath?: string;
+                pdfPath?: TDocumentRef;
                 requiresCleanupAck?: boolean;
                 errors: string[];
             }>((resolve, reject) => {
@@ -441,7 +442,7 @@ export const useOcr = () => {
     );
 
     async function exportDocx(
-        workingCopyPath: string | null,
+        workingCopyPath: TDocumentRef | null,
         pdfDocument: PDFDocumentProxy | null = null,
     ): Promise<boolean> {
         const workingPath = workingCopyPath ?? '';

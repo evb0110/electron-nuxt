@@ -1,7 +1,8 @@
 import type { TLocale } from '@i18n-core';
+import type { TDocumentRef } from './document';
 
 export interface IRecentFile {
-    originalPath: string;
+    originalPath: TDocumentRef;
     fileName: string;
     timestamp: number;
     fileSize?: number;

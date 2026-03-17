@@ -1,9 +1,10 @@
 import type { Ref } from 'vue';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { useWorkspaceSearchSidebar } from '@app/modules/workspace-shell/composables/useWorkspaceSearchSidebar';
 import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
 
-interface IWorkspaceSidebarSearchSyncControllerDeps {workingCopyPath: Ref<string | null>;}
+interface IWorkspaceSidebarSearchSyncControllerDeps {workingCopyPath: Ref<TDocumentRef | null>;}
 
 export const useWorkspaceSidebarSearchSyncController = (
     deps: IWorkspaceSidebarSearchSyncControllerDeps,
