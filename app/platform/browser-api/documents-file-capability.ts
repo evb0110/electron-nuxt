@@ -476,16 +476,7 @@ async function openDocumentPaths(paths: string[]) {
             isDjvuFileName(getBrowserDocumentFileName(path)),
         )
     ) {
-        if (normalizedPaths.length !== 1 || !isDjvuFileName(firstFileName)) {
-            throw new Error('Only one DjVu file can be opened at a time');
-        }
-
-        await browserDocumentStore.touchRecentFile(normalizedPaths[0]!);
-        return {
-            kind: 'djvu',
-            workingPath: '',
-            originalPath: normalizedPaths[0]!,
-        } satisfies TOpenFileResult;
+        return null;
     }
 
     if (normalizedPaths.length === 1 && isPdfFileName(firstFileName)) {
@@ -519,7 +510,7 @@ async function openDocumentPaths(paths: string[]) {
 
     for (const path of normalizedPaths.filter((path) => {
         const name = getBrowserDocumentFileName(path);
-        return isPdfFileName(name) || isDjvuFileName(name);
+        return isPdfFileName(name);
     })) {
         await browserDocumentStore.touchRecentFile(path);
     }

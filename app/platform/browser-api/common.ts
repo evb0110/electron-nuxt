@@ -21,8 +21,6 @@ const OPEN_IMAGE_ACCEPT = 'image/*';
 const OPEN_PDF_ACCEPT = '.pdf,application/pdf';
 const OPEN_INPUT_ACCEPT = [
     OPEN_PDF_ACCEPT,
-    '.djvu',
-    '.djv',
     ...SUPPORTED_IMAGE_EXTENSIONS,
 ].join(',');
 
