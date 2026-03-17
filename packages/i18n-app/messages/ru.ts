@@ -3,7 +3,7 @@ import { plural } from '@i18n-core';
 export default {
     'app': {'title': 'EVB Viewer'},
     'toolbar': {
-        'openPdf': 'Открыть PDF',
+        'openPdf': 'Открыть файл',
         'save': 'Сохранить',
         'saveAs': 'Сохранить как…',
         'exportDocx': 'Экспорт DOCX',
@@ -401,7 +401,7 @@ export default {
         'removeFromRecent': 'Удалить из недавних',
         'browserStorage': 'Хранилище браузера',
         'openAnother': 'Открыть другой файл...',
-        'openPdf': 'Откройте файл PDF',
+        'openPdf': 'Откройте файл',
         'preparingBatch': 'Подготавливаем документ...',
         'preparingBatchProgress': 'Обработано исходных файлов: {processed}/{total}',
         'preparingBatchEta': 'Осталось примерно: {eta}',
