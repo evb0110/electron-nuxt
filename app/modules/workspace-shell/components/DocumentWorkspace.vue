@@ -134,7 +134,7 @@
         />
 
         <UAlert
-            v-if="isDjvuMode && djvuError"
+            v-if="canUseDjvu && isDjvuMode && djvuError"
             color="error"
             variant="soft"
             class="mx-3 mt-2"
@@ -143,7 +143,7 @@
         />
 
         <DjvuBanner
-            v-if="isDjvuMode"
+            v-if="canUseDjvu && isDjvuMode"
             :visible="djvuShowBanner"
             :is-loading-pages="djvuIsLoadingPages"
             :loading-current="djvuLoadingProgress.current"
@@ -348,6 +348,7 @@
         />
 
         <DjvuConversionOverlay
+            v-if="canUseDjvu"
             :is-converting="conversionState.isConverting && !djvuIsLoadingPages"
             :phase="conversionState.phase"
             :percent="conversionState.percent"
@@ -377,7 +378,7 @@
         />
 
         <DjvuConvertDialog
-            v-if="isDjvuMode"
+            v-if="canUseDjvu && isDjvuMode"
             v-model:open="showConvertDialog"
             :djvu-path="djvuSourcePath"
             @convert="handleDjvuConvert"
@@ -392,10 +393,6 @@ import '@app/assets/css/pdf-comment-ui.css';
 import '@app/assets/css/pdf-search-highlights.css';
 import '@app/assets/css/pdf-animations.css';
 import '@app/assets/css/pdf-debug-overlays.css';
-import DjvuConvertDialog from '@app/components/djvu/DjvuConvertDialog.vue';
-import DjvuBanner from '@app/components/djvu/DjvuBanner.vue';
-import DjvuConversionOverlay from '@app/components/djvu/DjvuConversionOverlay.vue';
-import OcrPopup from '@app/components/ocr/OcrPopup.vue';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
 import PdfCropDialog from '@app/components/pdf/PdfCropDialog.vue';
 import PdfExportScopeDialog from '@app/components/pdf/PdfExportScopeDialog.vue';
@@ -423,6 +420,11 @@ import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { hasElectronAPI } from '@app/utils/platform';
 
+const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
+const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));
+const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/components/djvu/DjvuConversionOverlay.vue'));
+const DjvuConvertDialog = defineAsyncComponent(() => import('@app/components/djvu/DjvuConvertDialog.vue'));
+
 const props = defineProps<{
     tabId: string;
     isActive: boolean;
@@ -438,7 +440,9 @@ const canTeleportStatus = computed(() => (
     import.meta.client
     && Boolean(document.getElementById('editor-global-status-host'))
 ));
-const canUseOcr = hasElectronAPI();
+const hasDesktopRuntime = hasElectronAPI();
+const canUseOcr = hasDesktopRuntime;
+const canUseDjvu = hasDesktopRuntime;
 
 const emit = defineEmits<{
     'update-tab': [updates: TTabUpdate];
