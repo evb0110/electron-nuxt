@@ -1,7 +1,9 @@
-<template>
-    <AppShellRoot />
-</template>
-
 <script setup lang="ts">
-import AppShellRoot from '@app/modules/workspace-shell/components/AppShellRoot.vue';
+import { hasElectronAPI } from '@app/utils/platform';
+
+if (import.meta.client && hasElectronAPI()) {
+    await navigateTo('/electron', { replace: true });
+} else {
+    await navigateTo('/', { replace: true });
+}
 </script>

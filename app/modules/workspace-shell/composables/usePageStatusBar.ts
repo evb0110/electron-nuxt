@@ -5,6 +5,7 @@ import {
     getElectronAPI,
     hasElectronAPI,
 } from '@app/utils/platform';
+import { getDocumentRefDisplayLabel } from '@app/utils/document-ref';
 import { formatBytes } from '@app/utils/formatters';
 
 type TSaveDotState = 'idle' | 'saving' | 'dirty' | 'clean';
@@ -42,7 +43,10 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
     } = deps;
     const { t } = useTypedI18n();
 
-    const statusFilePath = computed(() => originalPath.value ?? workingCopyPath.value ?? t('status.noFileOpen'));
+    const statusFilePath = computed(() => {
+        const path = originalPath.value ?? workingCopyPath.value;
+        return getDocumentRefDisplayLabel(path) ?? t('status.noFileOpen');
+    });
     const statusShowInFolderPath = computed(() => {
         const path = originalPath.value ?? workingCopyPath.value;
         if (typeof path !== 'string') {

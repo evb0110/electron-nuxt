@@ -6,7 +6,7 @@
     >
         <template #description>
             <span class="sr-only">
-                {{ t('settings.dialogDescription') }}
+                {{ settingsDialogDescription }}
             </span>
         </template>
 
@@ -123,6 +123,9 @@
                     <summary class="settings-legend is-toggle">
                         {{ t('settings.shortcuts') }}
                     </summary>
+                    <p class="settings-hint">
+                        {{ shortcutsDescription }}
+                    </p>
                     <div class="flex flex-col">
                         <div
                             v-for="item in shortcutItems"
@@ -177,8 +180,10 @@ import type {
     TPdfViewMode,
 } from '@contracts/shared';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdf-colors';
+import { hasElectronAPI } from '@app/utils/platform';
 
 const open = defineModel<boolean>('open', { required: true });
+const isDesktopRuntime = hasElectronAPI();
 
 const {
     t,
@@ -209,6 +214,12 @@ const LOCALE_FLAGS: Record<string, string> = {
 
 const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale] ?? LOCALE_FLAGS.en);
 const annotationColorSwatches = ANNOTATION_COLOR_SWATCHES;
+const settingsDialogDescription = computed(() => isDesktopRuntime
+    ? t('settings.dialogDescription')
+    : t('settings.browserDialogDescription'));
+const shortcutsDescription = computed(() => isDesktopRuntime
+    ? t('settings.shortcutsDescription')
+    : t('settings.browserShortcutsDescription'));
 
 const localeItems = computed(() => [
     {
@@ -312,72 +323,82 @@ const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform
 const mod = isMac ? '\u2318' : 'Ctrl';
 const shift = isMac ? '\u21E7' : 'Shift';
 
-const shortcutItems = computed(() => [
-    {
-        label: t('toolbar.openPdf'),
-        keys: [
-            mod,
-            'O',
-        ],
-    },
-    {
-        label: t('toolbar.save'),
-        keys: [
-            mod,
-            'S',
-        ],
-    },
-    {
-        label: t('toolbar.saveAs'),
-        keys: [
-            mod,
-            shift,
-            'S',
-        ],
-    },
-    {
-        label: t('searchResults.enterSearchTerm'),
-        keys: [
-            mod,
-            'F',
-        ],
-    },
-    {
-        label: t('zoom.zoomIn'),
-        keys: [
-            mod,
-            '=',
-        ],
-    },
-    {
-        label: t('zoom.zoomOut'),
-        keys: [
-            mod,
-            '\u2212',
-        ],
-    },
-    {
-        label: t('settings.actualSize'),
-        keys: [
-            mod,
-            '0',
-        ],
-    },
-    {
-        label: t('zoom.fitWidth'),
-        keys: [
-            mod,
-            '1',
-        ],
-    },
-    {
-        label: t('zoom.fitHeight'),
-        keys: [
-            mod,
-            '2',
-        ],
-    },
-]);
+const shortcutItems = computed(() => {
+    const browserItems = [
+        {
+            label: t('toolbar.save'),
+            keys: [
+                mod,
+                'S',
+            ],
+        },
+        {
+            label: t('searchResults.enterSearchTerm'),
+            keys: [
+                mod,
+                'F',
+            ],
+        },
+        {
+            label: t('zoom.zoomIn'),
+            keys: [
+                mod,
+                '=',
+            ],
+        },
+        {
+            label: t('zoom.zoomOut'),
+            keys: [
+                mod,
+                '\u2212',
+            ],
+        },
+        {
+            label: t('settings.actualSize'),
+            keys: [
+                mod,
+                '0',
+            ],
+        },
+    ];
+
+    if (!isDesktopRuntime) {
+        return browserItems;
+    }
+
+    return [
+        {
+            label: t('toolbar.openPdf'),
+            keys: [
+                mod,
+                'O',
+            ],
+        },
+        ...browserItems,
+        {
+            label: t('toolbar.saveAs'),
+            keys: [
+                mod,
+                shift,
+                'S',
+            ],
+        },
+        {
+            label: t('zoom.fitWidth'),
+            keys: [
+                mod,
+                '1',
+            ],
+        },
+        {
+            label: t('zoom.fitHeight'),
+            keys: [
+                mod,
+                '2',
+            ],
+        },
+    ];
+});
 
 function applyTheme(theme: TAppTheme) {
     colorMode.preference = theme;

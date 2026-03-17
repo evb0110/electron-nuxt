@@ -427,6 +427,11 @@ export default {
             'saveDescription': 'Use browser storage and save-as flows without depending on Electron APIs.',
         },
     },
+    'webWorkspace': {
+        'eyebrow': 'Browser Editor',
+        'title': 'Shared workspace, browser-native entry.',
+        'home': 'Home',
+    },
     'contextMenu': {
         'openPopUpNote': 'Open Pop-up Note',
         'copyTextToClipboard': 'Copy Text to Clipboard',
@@ -561,6 +566,7 @@ export default {
     'settings': {
         'title': 'Settings',
         'dialogDescription': 'Configure the viewer, annotation defaults, shortcuts, and updates.',
+        'browserDialogDescription': 'Configure the browser viewer, annotation defaults, and the shortcuts available in the web app.',
         'general': 'General',
         'generalDescription': 'Set your identity and interface preferences.',
         'author': 'Author Name',
@@ -592,6 +598,7 @@ export default {
         'annotationColorLabel': 'Set default annotation color to {color}',
         'shortcuts': 'Keyboard Shortcuts',
         'shortcutsDescription': 'A quick reference for the most useful viewer shortcuts.',
+        'browserShortcutsDescription': 'Only shortcuts currently handled inside the browser workspace are listed here.',
         'actualSize': 'Actual Size',
         'updates': 'Updates',
         'checkForUpdates': 'Check for Updates',

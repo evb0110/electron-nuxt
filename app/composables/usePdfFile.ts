@@ -3,6 +3,7 @@ import {
     getElectronAPI,
     hasElectronAPI,
 } from '@app/utils/platform';
+import { getDocumentRefBaseName } from '@app/utils/document-ref';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type {
     IPdfConformanceProfile,
@@ -25,23 +26,6 @@ interface IOpenBatchProgressState {
 }
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
-
-function getDocumentRefBaseName(documentRef: TDocumentRef | null) {
-    if (!documentRef) {
-        return null;
-    }
-
-    const segment = documentRef.split(/[\\/]/).pop() ?? null;
-    if (!segment) {
-        return null;
-    }
-
-    try {
-        return decodeURIComponent(segment);
-    } catch {
-        return segment;
-    }
-}
 
 function isDjvuDocumentRef(documentRef: TDocumentRef | null) {
     const baseName = getDocumentRefBaseName(documentRef)?.toLowerCase();
