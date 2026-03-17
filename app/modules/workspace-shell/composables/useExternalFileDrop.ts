@@ -1,4 +1,4 @@
-import { useDropZone } from '@vueuse/core';
+import { useEventListener } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
 
@@ -88,7 +88,7 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
         if (disposed) {
             return false;
         }
-        if (event.defaultPrevented || isSidebarDropArea(event)) {
+        if (isSidebarDropArea(event)) {
             return false;
         }
         return hasExternalFilePayload(event.dataTransfer);
@@ -109,32 +109,29 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
             });
     }
 
-    const dropTarget = typeof document !== 'undefined' ? document : null;
-
-    useDropZone(dropTarget, {
-        dataTypes: ['Files'],
-        preventDefaultForUnhandled: true,
-        onOver: (_files, event) => {
+    const stopDragOver = typeof window !== 'undefined'
+        ? useEventListener(window, 'dragover', (event) => {
             if (!shouldHandleDropEvent(event)) {
                 return;
             }
 
             event.preventDefault();
-            event.stopPropagation();
             if (event.dataTransfer) {
                 event.dataTransfer.dropEffect = 'copy';
             }
-        },
-        onDrop: (_files, event) => {
+        }, { capture: true })
+        : null;
+
+    const stopDrop = typeof window !== 'undefined'
+        ? useEventListener(window, 'drop', (event) => {
             if (!shouldHandleDropEvent(event)) {
                 return;
             }
 
             event.preventDefault();
-            event.stopPropagation();
             enqueueDroppedPaths(getDroppedDocumentPaths(event.dataTransfer));
-        },
-    });
+        }, { capture: true })
+        : null;
 
     function cleanup() {
         if (disposed) {
@@ -143,6 +140,8 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
         disposed = true;
         lifecycleToken += 1;
         queue = Promise.resolve();
+        stopDragOver?.();
+        stopDrop?.();
     }
 
     return { cleanup };
