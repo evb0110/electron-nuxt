@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { TPdfSource } from '@app/types/pdf';
+import type { TDocumentRef } from '@contracts/platform-api';
 import {
     getElectronAPI,
     hasElectronAPI,
@@ -18,8 +19,8 @@ function isPathPdfSource(value: TPdfSource | null): value is Extract<TPdfSource,
 interface IPageStatusBarDeps {
     pdfSrc: Ref<TPdfSource | null>;
     pdfData: Ref<Uint8Array | null>;
-    originalPath: Ref<string | null>;
-    workingCopyPath: Ref<string | null>;
+    originalPath: Ref<TDocumentRef | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     effectiveZoom: Ref<number>;
     canSave: Ref<boolean>;
     isAnySaving: Ref<boolean>;

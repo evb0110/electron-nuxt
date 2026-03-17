@@ -11,6 +11,7 @@ import {
     type PDFImage,
 } from 'pdf-lib';
 import type { Ref } from 'vue';
+import type { TDocumentRef } from '@contracts/platform-api';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
@@ -164,7 +165,7 @@ function appendAnnotationRefToPage(
 
 export interface IPdfSerializationDeps {
     pdfData: Ref<Uint8Array | null>;
-    workingCopyPath: Ref<string | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     totalPages: Ref<number>;
     pageLabelsDirty: Ref<boolean>;

@@ -1,9 +1,12 @@
-import type { IElectronAPI } from '@contracts/electron-api';
+import type {
+    IPlatformApi,
+    TDocumentRef,
+} from '@contracts/platform-api';
 
 declare global {
     interface Window {
-        electronAPI?: IElectronAPI;
-        __openFileDirect?: (path: string) => Promise<void>;
+        electronAPI?: IPlatformApi;
+        __openFileDirect?: (path: TDocumentRef) => Promise<void>;
         __handleSave?: () => Promise<void>;
         __appReady?: boolean;
         __logLevel?: unknown;

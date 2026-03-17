@@ -1,4 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
 import { createDocxFromText } from '@app/utils/docx';
 import {
@@ -20,7 +21,7 @@ export const useDocxExport = () => {
     const docxExportError = ref<string | null>(null);
 
     async function exportDocx(params: {
-        workingCopyPath: string | null;
+        workingCopyPath: TDocumentRef | null;
         pdfDocument: PDFDocumentProxy | null;
         selectedLanguages?: string[];
     }): Promise<boolean> {

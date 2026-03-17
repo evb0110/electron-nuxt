@@ -101,12 +101,13 @@
 
 <script setup lang="ts">
 
+import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 const { t } = useTypedI18n();
 
-const props = defineProps<{djvuPath: string | null;}>();
+const props = defineProps<{djvuPath: TDocumentRef | null;}>();
 
 const emit = defineEmits<{convert: [subsample: number, preserveBookmarks: boolean];}>();
 

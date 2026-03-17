@@ -1,7 +1,7 @@
-import type { IShellCapability } from '@contracts/electron-api';
+import type { IShellCapability } from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
-export const browserShellCapability: IShellCapability = {openExternal(url) {
+export const browserShellCapability: IShellCapability = { openExternal(url: string) {
     if (typeof window === 'undefined') {
         return Promise.resolve();
     }
@@ -12,4 +12,4 @@ export const browserShellCapability: IShellCapability = {openExternal(url) {
     }
 
     return Promise.resolve();
-}};
+} };

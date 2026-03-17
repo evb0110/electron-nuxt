@@ -1,7 +1,7 @@
 import type {
     IMenuEventUnsubscribe,
     IWindowTabsCapability,
-} from '@contracts/electron-api';
+} from '@contracts/platform-api';
 import type {
     IWindowTabIncomingTransfer,
     IWindowTabTargetWindow,

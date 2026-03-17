@@ -1,5 +1,5 @@
 import type * as PdfJsLibNamespace from 'pdfjs-dist';
-import type { IMenuEventUnsubscribe } from '@contracts/electron-api';
+import type { IMenuEventUnsubscribe } from '@contracts/platform-api';
 
 const SUPPORTED_IMAGE_EXTENSIONS = [
     '.apng',

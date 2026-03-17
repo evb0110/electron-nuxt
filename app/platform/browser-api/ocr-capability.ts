@@ -1,4 +1,4 @@
-import type { IOcrCapability } from '@contracts/electron-api';
+import type { IOcrCapability } from '@contracts/platform-api';
 import { noopUnsubscribe } from '@app/platform/browser-api/common';
 
 export const browserOcrCapability: IOcrCapability = {

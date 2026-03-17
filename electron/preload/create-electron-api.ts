@@ -141,7 +141,7 @@ async function invokeWithStartupTrace<T>(label: string, invoke: () => Promise<T>
 export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: typeof webUtils): IElectronAPI {
     const invokeCore = createTypedIpcInvoker<ICoreInvokeMap>(ipcRenderer);
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
-    const baseDocuments = createDocumentsPreloadClient(ipcRenderer) as Omit<IElectronAPI['documents'], 'getPathForFile'>;
+    const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
 
     const api = {
         documents: {

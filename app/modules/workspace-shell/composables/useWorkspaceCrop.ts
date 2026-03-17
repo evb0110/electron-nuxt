@@ -3,13 +3,14 @@ import type {
     ICropMargins,
     IPageGeometry,
 } from '@app/types/crop';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { screenRectToMargins } from '@app/utils/pdf-crop-coordinates';
 import { getElectronAPI } from '@app/utils/platform';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
 
 interface IUseWorkspaceCropOptions {
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
-    workingCopyPath: Ref<string | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
 }
 
 export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {

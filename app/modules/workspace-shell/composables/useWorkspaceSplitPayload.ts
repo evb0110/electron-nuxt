@@ -1,5 +1,8 @@
 import type { Ref } from 'vue';
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platform-api';
 import type { TSplitPayload } from '@contracts/window-tabs';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/platform';
@@ -9,18 +12,18 @@ import type { TPdfSource } from '@app/types/pdf';
 interface IUseWorkspaceSplitPayloadOptions {
     pdfSrc: Ref<TPdfSource | null>;
     isDjvuMode: Ref<boolean>;
-    djvuSourcePath: Ref<string | null>;
+    djvuSourcePath: Ref<TDocumentRef | null>;
     currentPage: Ref<number>;
     totalPages: Ref<number>;
     fileName: Ref<string | null>;
-    originalPath: Ref<string | null>;
-    workingCopyPath: Ref<string | null>;
+    originalPath: Ref<TDocumentRef | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     hasPendingTabChanges: Ref<boolean>;
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
     pdfData: Ref<Uint8Array | null>;
     openFileWithDjvuCleanup: (result: TOpenFileResult) => Promise<void>;
     waitForPdfReload: (page: number) => Promise<void>;
-    loadPdfFromPath: (path: string, options?: { markDirty?: boolean }) => Promise<void>;
+    loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
 }
 
 function normalizeSplitPayloadPage(page: number | undefined) {

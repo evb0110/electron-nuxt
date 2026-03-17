@@ -1,5 +1,8 @@
 import type { Ref } from 'vue';
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platform-api';
 import { ZOOM } from '@app/constants/pdf-layout';
 import type {
     TFitMode,
@@ -18,8 +21,8 @@ interface ICreateWorkspaceExposeDeps {
     handleUndo: () => void;
     handleRedo: () => void;
     handleOpenFileFromUi: () => Promise<void>;
-    handleOpenFileDirectWithPersist: (path: string) => Promise<void>;
-    handleOpenFileDirectBatchWithPersist: (paths: string[]) => Promise<void>;
+    handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<void>;
+    handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<void>;
     handleOpenFileWithResult: (result: TOpenFileResult) => Promise<void>;
     handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<void>;
     handleExportDocx: () => Promise<void>;

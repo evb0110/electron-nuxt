@@ -1,11 +1,12 @@
 import type { Ref } from 'vue';
 import type { ICropMargins } from '@app/types/crop';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { usePageOperations } from '@app/composables/pdf/usePageOperations';
 
 interface IPdfViewerForPageOps {invalidatePages: (pages: number[]) => void;}
 
 interface IPageOpsHandlersDeps {
-    workingCopyPath: Ref<string | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     totalPages: Ref<number>;
     selectedThumbnailPages: Ref<number[]>;
     setSelectedThumbnailPages: (pages: number[]) => void;
@@ -18,7 +19,7 @@ interface IPageOpsHandlersDeps {
     closePageContextMenu: () => void;
     onExportPages: (pages: number[]) => void;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
-    clearOcrCache: (path: string) => void;
+    clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
 }
 
@@ -51,7 +52,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     } = usePageOperations({
         workingCopyPath,
         reloadWorkingCopyIntoHistory,
-        clearOcrCache: (path: string) => clearOcrCache(path),
+        clearOcrCache,
         resetSearchCache,
     });
 
@@ -105,7 +106,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
 
     function handlePageFileDrop(payload: {
         afterPage: number;
-        filePaths: string[];
+        filePaths: TDocumentRef[];
     }) {
         void pageOpsInsertFile(totalPages.value, payload.afterPage, payload.filePaths);
     }

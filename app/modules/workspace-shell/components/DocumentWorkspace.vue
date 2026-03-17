@@ -416,7 +416,7 @@ import { useDocumentWorkspaceToolbar } from '@app/modules/workspace-shell/compos
 import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type { TOpenFileResult } from '@contracts/platform-api';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';

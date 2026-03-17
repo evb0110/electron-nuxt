@@ -1,12 +1,13 @@
 import type { Ref } from 'vue';
 import type { ICropMargins } from '@app/types/crop';
+import type { TDocumentRef } from '@contracts/platform-api';
 import type { TTranslationKey } from '@i18n-app';
 import { getElectronAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 type TPageOpsRotation = 90 | 180 | 270;
 type TPageOpsResult = { success: boolean };
-type TPageOperationRunner<TResult extends TPageOpsResult> = (path: string) => Promise<TResult>;
+type TPageOperationRunner<TResult extends TPageOpsResult> = (path: TDocumentRef) => Promise<TResult>;
 type TPageOperationSuccess<TResult extends TPageOpsResult> = (result: TResult) => boolean;
 type TPageOperationErrorKey = Extract<
     TTranslationKey,
@@ -21,9 +22,9 @@ type TPageOperationErrorKey = Extract<
 >;
 
 export const usePageOperations = (deps: {
-    workingCopyPath: Ref<string | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
-    clearOcrCache: (path: string) => void;
+    clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
 }) => {
     const { t } = useTypedI18n();
@@ -146,7 +147,7 @@ export const usePageOperations = (deps: {
         });
     }
 
-    async function insertFile(totalPages: number, afterPage: number, sourcePaths: string[]) {
+    async function insertFile(totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) {
         return runOperation({
             operationName: 'insertFile',
             errorKey: 'errors.pageOps.insertFile',

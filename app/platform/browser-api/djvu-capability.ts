@@ -1,4 +1,4 @@
-import type { IDjvuCapability } from '@contracts/electron-api';
+import type { IDjvuCapability } from '@contracts/platform-api';
 import { noopUnsubscribe } from '@app/platform/browser-api/common';
 
 export const browserDjvuCapability: IDjvuCapability = {

@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
 import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/types';
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platform-api';
 import type { ICloseFileFromUiOptions } from '@app/types/workspace-expose';
 import type { TPdfSource } from '@app/types/pdf';
 import type { IRecentFile } from '@contracts/shared';
@@ -28,8 +31,8 @@ interface IPageFileOperationsDeps {
     handleSave: () => Promise<void>;
     pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFile: (preSelected?: TOpenFileResult) => Promise<void>;
-    openFileDirect: (path: string) => Promise<void>;
-    openFileDirectBatch: (paths: string[]) => Promise<void>;
+    openFileDirect: (path: TDocumentRef) => Promise<void>;
+    openFileDirectBatch: (paths: TDocumentRef[]) => Promise<void>;
     closeFile: () => Promise<void>;
     closeAllDropdowns: () => void;
     emitOpenInNewTab: (result: TOpenFileResult) => void;
@@ -185,7 +188,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         closeAllDropdowns();
     }
 
-    async function handleOpenFileDirectWithPersist(path: string) {
+    async function handleOpenFileDirectWithPersist(path: TDocumentRef) {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'handleOpenFileDirectWithPersist called', {
             path,
             hadDocumentBeforeOpen: Boolean(pdfSrc.value),

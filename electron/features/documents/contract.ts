@@ -60,4 +60,6 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     openPdfDirectBatchProgress: 'dialog:openPdfDirectBatch:progress',
 } as const;
 
+export type TDocumentsEventChannels = typeof DOCUMENTS_EVENT_CHANNELS;
+
 export type { TOpenFileResult } from '@contracts/electron-api';

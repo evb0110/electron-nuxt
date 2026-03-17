@@ -1,5 +1,6 @@
 import type { PageViewport } from 'pdfjs-dist';
 import { safeDestr } from 'destr';
+import type { TDocumentRef } from '@contracts/platform-api';
 import type { IPdfRawDims } from '@app/types/pdf';
 import { getElectronAPI } from '@app/utils/platform';
 import type { IOcrWord } from '@contracts/shared';
@@ -148,7 +149,7 @@ export const useOcrTextContent = () => {
     /**
      * Loads and caches the OCR manifest for a working copy path.
      */
-    async function loadManifest(workingCopyPath: string): Promise<IOcrManifest | null> {
+    async function loadManifest(workingCopyPath: TDocumentRef): Promise<IOcrManifest | null> {
         const cacheKey = workingCopyPath;
         if (manifestCache.has(cacheKey)) {
             return manifestCache.get(cacheKey) ?? null;
@@ -197,7 +198,7 @@ export const useOcrTextContent = () => {
      * Loads and caches per-page OCR data.
      */
     async function loadPageData(
-        workingCopyPath: string,
+        workingCopyPath: TDocumentRef,
         pageNumber: number,
         manifest: IOcrManifest,
     ): Promise<IOcrPageData | null> {
@@ -336,7 +337,7 @@ export const useOcrTextContent = () => {
      * @returns TextContent object or null if no OCR data available
      */
     async function getOcrTextContent(
-        workingCopyPath: string,
+        workingCopyPath: TDocumentRef,
         pageNumber: number,
         viewport: PageViewport,
     ): Promise<ITextContent | null> {
@@ -384,7 +385,7 @@ export const useOcrTextContent = () => {
      * @param workingCopyPath - Path to the PDF working copy
      * @returns True if OCR manifest exists and is version 2+
      */
-    async function hasOcrData(workingCopyPath: string): Promise<boolean> {
+    async function hasOcrData(workingCopyPath: TDocumentRef): Promise<boolean> {
         const manifest = await loadManifest(workingCopyPath);
         return manifest !== null && manifest.version >= 2;
     }
@@ -397,7 +398,7 @@ export const useOcrTextContent = () => {
      * @returns True if the page is in the OCR manifest
      */
     async function hasPageOcrData(
-        workingCopyPath: string,
+        workingCopyPath: TDocumentRef,
         pageNumber: number,
     ): Promise<boolean> {
         const manifest = await loadManifest(workingCopyPath);
@@ -412,7 +413,7 @@ export const useOcrTextContent = () => {
      *
      * @param workingCopyPath - Optional path to clear; clears all if omitted
      */
-    function clearCache(workingCopyPath?: string): void {
+    function clearCache(workingCopyPath?: TDocumentRef): void {
         if (workingCopyPath) {
             manifestCache.delete(workingCopyPath);
             // Clear page cache entries for this path

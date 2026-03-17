@@ -63,7 +63,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type { TOpenFileResult } from '@contracts/platform-api';
 import type { IRecentFile } from '@contracts/shared';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TSplitPayload } from '@contracts/window-tabs';

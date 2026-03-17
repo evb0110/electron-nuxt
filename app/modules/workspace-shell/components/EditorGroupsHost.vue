@@ -26,7 +26,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type { TOpenFileResult } from '@contracts/platform-api';
 import EditorGroupsGrid from '@app/modules/workspace-shell/components/EditorGroupsGrid.vue';
 import type {
     IEditorGroupState,

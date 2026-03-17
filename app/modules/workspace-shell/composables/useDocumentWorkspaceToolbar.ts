@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import type { ICropMargins } from '@app/types/crop';
 import type { TPdfViewMode } from '@contracts/shared';
@@ -20,7 +21,7 @@ interface IUseDocumentWorkspaceToolbarOptions {
     enableDragMode: () => void;
     handleRemoveCrop: (pages: number[]) => unknown;
     handleCropPages: (pages: number[], margins: ICropMargins) => unknown;
-    workingCopyPath: Ref<string | null | undefined>;
+    workingCopyPath: Ref<TDocumentRef | null | undefined>;
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;
     isExportingDocx: Ref<boolean>;

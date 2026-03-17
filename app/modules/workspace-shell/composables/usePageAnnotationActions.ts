@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
 import type {
@@ -76,7 +77,7 @@ interface IPageAnnotationActionsDeps {
     sidebarTab: Ref<TPdfSidebarTab>;
     dragMode: Ref<boolean>;
     currentPage: Ref<number>;
-    workingCopyPath: Ref<string | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     closeAnnotationContextMenu: () => void;
     showAnnotationContextMenu: (payload: {
         comment: IAnnotationCommentSummary | null;

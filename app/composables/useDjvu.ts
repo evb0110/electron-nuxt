@@ -1,4 +1,4 @@
-
+import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
 import { BrowserLogger } from '@app/utils/browser-logger';
@@ -49,7 +49,7 @@ export const useDjvu = () => {
     let unsubViewingReady: (() => void) | null = null;
     let unsubViewingError: (() => void) | null = null;
     let swapHandler: ((event: {
-        pdfPath: string;
+        pdfPath: TDocumentRef;
         isPartial: boolean 
     }) => void) | null = null;
 
@@ -209,11 +209,11 @@ export const useDjvu = () => {
     });
 
     async function openDjvuFile(
-        djvuPath: string,
-        loadPdfFromPath: (path: string) => Promise<void>,
+        djvuPath: TDocumentRef,
+        loadPdfFromPath: (path: TDocumentRef) => Promise<void>,
         getCurrentPage?: () => number,
         setPage?: (page: number) => void,
-        setOriginalPath?: (path: string | null) => void,
+        setOriginalPath?: (path: TDocumentRef | null) => void,
     ) {
         const api = getElectronAPI();
         const djvuFileName = djvuPath.split(/[\\/]/).pop() ?? t('djvu.fileFallback');
@@ -298,7 +298,7 @@ export const useDjvu = () => {
     async function convertToPdf(
         subsample: number,
         preserveBookmarks: boolean,
-        loadPdfFromPath: (path: string) => Promise<void>,
+        loadPdfFromPath: (path: TDocumentRef) => Promise<void>,
     ) {
         if (!djvuSourcePath.value) {
             return;

@@ -15,6 +15,7 @@ import type {
     IPdfSaveResult,
     TPdfSaveMode,
 } from '@app/types/pdf';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import { rewriteBookmarks } from '@app/composables/pdf/usePdfBookmarkSerialization';
 import { useFileOperations } from '@app/composables/useFileOperations';
@@ -37,7 +38,7 @@ interface IPageSaveOrchestrationDeps {
     requestDocxExport: (selectedLanguages?: string[]) => Promise<boolean>;
     openOcrPopup: () => void;
     isExportingDocx: Ref<boolean>;
-    workingCopyPath: Ref<string | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     totalPages: Ref<number>;
     pageLabelsDirty: Ref<boolean>;
@@ -61,7 +62,7 @@ interface IPageSaveOrchestrationDeps {
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
     consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
     loadRecentFiles: () => void;
-    clearOcrCache: (path: string) => void;
+    clearOcrCache: (path: TDocumentRef) => void;
     loadPdfFromData: (data: Uint8Array, opts?: {
         pushHistory?: boolean;
         persistWorkingCopy?: boolean;

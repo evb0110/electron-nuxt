@@ -13,7 +13,7 @@ import { useWorkspaceInteractionControls } from '@app/modules/workspace-shell/co
 import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/workspace-file-lifecycle-controller';
 import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-shell/composables/workspace-sidebar-search-sync-controller';
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type { TOpenFileResult } from '@contracts/platform-api';
 import type { TTabUpdate } from '@app/types/tabs';
 import { getElectronAPI } from '@app/utils/platform';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspace-view-state';

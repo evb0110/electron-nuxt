@@ -1,5 +1,6 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { safeDestr } from 'destr';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -9,7 +10,7 @@ interface IOcrPageTextEntry {text?: string;}
 
 interface ILegacyOcrIndex {pages?: IOcrPageTextEntry[];}
 
-export async function loadOcrText(workingCopyPath: string): Promise<string | null> {
+export async function loadOcrText(workingCopyPath: TDocumentRef): Promise<string | null> {
     try {
         const api = getElectronAPI();
         const manifestPath = `${workingCopyPath}.ocr/manifest.json`;

@@ -1,4 +1,7 @@
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platform-api';
 import type { TSplitPayload } from '@contracts/window-tabs';
 import type {
     TFitMode,
@@ -43,8 +46,8 @@ export interface IWorkspaceFilePort {
     handleUndo: () => void;
     handleRedo: () => void;
     handleOpenFileFromUi: () => Promise<void>;
-    handleOpenFileDirectWithPersist: (path: string) => Promise<void>;
-    handleOpenFileDirectBatchWithPersist: (paths: string[]) => Promise<void>;
+    handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<void>;
+    handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<void>;
     handleOpenFileWithResult: (result: TOpenFileResult) => Promise<void>;
     handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<void>;
 }

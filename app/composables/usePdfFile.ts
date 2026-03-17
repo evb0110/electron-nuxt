@@ -10,7 +10,10 @@ import type {
     TPdfSaveMode,
     TPdfSource,
 } from '@app/types/pdf';
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface IOpenBatchProgressState {
@@ -23,12 +26,12 @@ interface IOpenBatchProgressState {
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
-function getPathBaseName(path: string | null) {
-    if (!path) {
+function getDocumentRefBaseName(documentRef: TDocumentRef | null) {
+    if (!documentRef) {
         return null;
     }
 
-    const segment = path.split(/[\\/]/).pop() ?? null;
+    const segment = documentRef.split(/[\\/]/).pop() ?? null;
     if (!segment) {
         return null;
     }
@@ -45,8 +48,8 @@ export const usePdfFile = () => {
 
     const pdfSrc = ref<TPdfSource | null>(null);
     const pdfData = shallowRef<Uint8Array | null>(null);
-    const workingCopyPath = ref<string | null>(null);
-    const originalPath = ref<string | null>(null);
+    const workingCopyPath = ref<TDocumentRef | null>(null);
+    const originalPath = ref<TDocumentRef | null>(null);
     const error = ref<string | null>(null);
     const isDirty = ref(false);
     const pdfConformanceProfile = ref<IPdfConformanceProfile | null>(null);
@@ -62,12 +65,12 @@ export const usePdfFile = () => {
 
     const fileName = computed(
         () =>
-            getPathBaseName(workingCopyPath.value) ??
-      getPathBaseName(originalPath.value),
+            getDocumentRefBaseName(workingCopyPath.value) ??
+      getDocumentRefBaseName(originalPath.value),
     );
     const isElectron = computed(() => hasElectronAPI());
 
-    const pendingDjvu = ref<string | null>(null);
+    const pendingDjvu = ref<TDocumentRef | null>(null);
     const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
     let latestLoadRequestId = 0;
 
@@ -100,7 +103,7 @@ export const usePdfFile = () => {
         }
     }
 
-    async function openFileDirect(path: string) {
+    async function openFileDirect(path: TDocumentRef) {
         error.value = null;
         pendingDjvu.value = null;
         openBatchProgress.value = null;
@@ -180,7 +183,7 @@ export const usePdfFile = () => {
         }
     }
 
-    async function openFileDirectBatch(paths: string[]) {
+    async function openFileDirectBatch(paths: TDocumentRef[]) {
         error.value = null;
         pendingDjvu.value = null;
         openBatchProgress.value = null;
@@ -305,7 +308,7 @@ export const usePdfFile = () => {
         return true;
     }
 
-    async function readPdfConformanceProfile(path: string) {
+    async function readPdfConformanceProfile(path: TDocumentRef) {
         try {
             return await getElectronAPI().documents.analyzePdfConformance(path);
         } catch (conformanceError) {
@@ -317,7 +320,7 @@ export const usePdfFile = () => {
         }
     }
 
-    async function refreshPdfConformanceProfile(path: string | null) {
+    async function refreshPdfConformanceProfile(path: TDocumentRef | null) {
         if (!path) {
             pdfConformanceProfile.value = null;
             return null;
@@ -328,7 +331,7 @@ export const usePdfFile = () => {
         return profile;
     }
 
-    async function readPdfStateFromPath(path: string) {
+    async function readPdfStateFromPath(path: TDocumentRef) {
         const api = getElectronAPI();
         const { size } = await api.documents.statFile(path);
 
@@ -407,7 +410,7 @@ export const usePdfFile = () => {
         return mode === 'rewrite' || mode === 'save_as_rewrite';
     }
 
-    async function loadPdfFromPath(path: string, opts?: { markDirty?: boolean }) {
+    async function loadPdfFromPath(path: TDocumentRef, opts?: { markDirty?: boolean }) {
         const requestId = ++latestLoadRequestId;
         const api = getElectronAPI();
 

@@ -5,7 +5,10 @@ import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { useWorkspaceFileSwitch } from '@app/modules/workspace-shell/composables/useWorkspaceFileSwitch';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/types';
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platform-api';
 import type { TPdfSource } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -184,8 +187,8 @@ interface IWorkspaceFileOperationControllerDeps {
     handleSave: () => Promise<void>;
     pickFileToOpenWithDjvuCleanup: () => Promise<TOpenFileResult | null>;
     openFileWithDjvuCleanup: (preSelected?: TOpenFileResult) => Promise<void>;
-    openFileDirectWithDjvuCleanup: (path: string) => Promise<void>;
-    openFileDirectBatchWithDjvuCleanup: (paths: string[]) => Promise<void>;
+    openFileDirectWithDjvuCleanup: (path: TDocumentRef) => Promise<void>;
+    openFileDirectBatchWithDjvuCleanup: (paths: TDocumentRef[]) => Promise<void>;
     closeFileWithDjvuCleanup: () => Promise<void>;
     closeAllDropdowns: () => void;
     emitOpenInNewTab: (result: TOpenFileResult) => void;

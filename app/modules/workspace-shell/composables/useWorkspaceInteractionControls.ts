@@ -8,7 +8,10 @@ import { useWorkspaceCrop } from '@app/modules/workspace-shell/composables/useWo
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
 import { useWorkspaceViewerDefaults } from '@app/modules/workspace-shell/composables/useWorkspaceViewerDefaults';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
-import type { TOpenFileResult } from '@contracts/electron-api';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platform-api';
 import type { ISettingsData } from '@contracts/shared';
 import type {
     IAnnotationSettings,
@@ -51,18 +54,18 @@ interface IWorkspaceInteractionControlsOptions {
         isOpen: boolean,
     ) => void;
     clearDocxExportError: () => void;
-    workingCopyPath: Ref<string | null>;
+    workingCopyPath: Ref<TDocumentRef | null>;
     isDjvuMode: Ref<boolean>;
-    djvuSourcePath: Ref<string | null>;
+    djvuSourcePath: Ref<TDocumentRef | null>;
     currentPage: Ref<number>;
     totalPages: Ref<number>;
     fileName: Ref<string | null>;
-    originalPath: Ref<string | null>;
+    originalPath: Ref<TDocumentRef | null>;
     hasPendingTabChanges: ComputedRef<boolean>;
     pdfData: Ref<Uint8Array | null>;
     openFileWithDjvuCleanup: (result: TOpenFileResult) => Promise<void>;
     waitForPdfReload: (page: number) => Promise<void>;
-    loadPdfFromPath: (path: string, options?: { markDirty?: boolean }) => Promise<void>;
+    loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
 }
 
 export function useWorkspaceInteractionControls(options: IWorkspaceInteractionControlsOptions) {

@@ -1,7 +1,8 @@
 import { useDropZone } from '@vueuse/core';
+import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
 
-interface IUseExternalFileDropOptions {openPathInAppropriateTab: (path: string) => Promise<void>;}
+interface IUseExternalFileDropOptions {openPathInAppropriateTab: (path: TDocumentRef) => Promise<void>;}
 
 function hasExternalFilePayload(dataTransfer: DataTransfer | null) {
     if (!dataTransfer) {
@@ -27,8 +28,8 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
     }
 
     const electronApi = getElectronAPI();
-    const paths: string[] = [];
-    const seen = new Set<string>();
+    const paths: TDocumentRef[] = [];
+    const seen = new Set<TDocumentRef>();
 
     for (let i = 0; i < dataTransfer.files.length; i++) {
         const file = dataTransfer.files[i];
@@ -70,7 +71,7 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
     let disposed = false;
 
     async function processDroppedPaths(
-        paths: string[],
+        paths: TDocumentRef[],
         tokenAtSchedule: number,
     ) {
         if (disposed || tokenAtSchedule !== lifecycleToken) {
@@ -95,7 +96,7 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
         return hasExternalFilePayload(event.dataTransfer);
     }
 
-    function enqueueDroppedPaths(paths: string[]) {
+    function enqueueDroppedPaths(paths: TDocumentRef[]) {
         if (paths.length === 0) {
             return;
         }

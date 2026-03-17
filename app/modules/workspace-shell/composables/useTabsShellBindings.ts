@@ -3,6 +3,7 @@ import { useEventListener } from '@vueuse/core';
 import type { TGroupDirection } from '@app/types/editor-groups';
 import type { TWindowTabsAction } from '@contracts/window-tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type { TDocumentRef } from '@contracts/platform-api';
 import {
     getElectronAPI,
     hasElectronAPI,
@@ -17,8 +18,8 @@ interface IUseTabsShellBindingsOptions {
     createTab: () => { id: string };
     activateTab: (tabId: string) => void;
     handleCloseTab: (tabId: string) => Promise<void>;
-    openPathInAppropriateTab: (path: string) => Promise<void>;
-    openPathsInAppropriateTab: (paths: string[]) => Promise<void>;
+    openPathInAppropriateTab: (path: TDocumentRef) => Promise<void>;
+    openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
     clearRecentFiles: () => Promise<void>;
     loadRecentFiles: () => Promise<void>;
     ensureAtLeastOneTab: () => void;
@@ -112,7 +113,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
         windowListenerCleanups.push(useEventListener(window, 'keydown', handleTabKeyboardShortcut, {capture: true}));
 
         if (typeof window !== 'undefined') {
-            (window as Window & { __openFileDirect?: (path: string) => Promise<void> }).__openFileDirect = openPathInAppropriateTab;
+            (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<void> }).__openFileDirect = openPathInAppropriateTab;
             (window as Window & { __handleSave?: () => Promise<void> }).__handleSave = debugHandleSave;
         }
 
@@ -144,7 +145,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
 
     onUnmounted(() => {
         if (typeof window !== 'undefined' && (window as Window & { __openFileDirect?: unknown }).__openFileDirect === openPathInAppropriateTab) {
-            delete (window as Window & { __openFileDirect?: (path: string) => Promise<void> }).__openFileDirect;
+            delete (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<void> }).__openFileDirect;
         }
         if (typeof window !== 'undefined' && (window as Window & { __handleSave?: unknown }).__handleSave === debugHandleSave) {
             // Remove debug hooks on unmount so old closures do not retain stale workspace state.

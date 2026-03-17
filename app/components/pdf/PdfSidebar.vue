@@ -144,6 +144,7 @@
 <script setup lang="ts">
 
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { TDocumentRef } from '@contracts/platform-api';
 import type { IPdfSearchRequestOptions } from '@contracts/search';
 import type {
     IPdfBookmarkEntry,
@@ -249,7 +250,7 @@ const emit = defineEmits<{
     (e: 'update:selectedThumbnailPages', pages: number[]): void;
     (e: 'page-file-drop', payload: {
         afterPage: number;
-        filePaths: string[];
+        filePaths: TDocumentRef[];
     }): void;
 }>();
 

@@ -3,7 +3,7 @@
  * Logs to console and can be easily grepped in browser devtools
  */
 import { STORAGE_KEYS } from '@app/constants/storage-keys';
-import type { IRendererLogEntry } from '@contracts/electron-api';
+import type { IRendererLogEntry } from '@contracts/platform-api';
 
 type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TLazyValue = unknown | (() => unknown);

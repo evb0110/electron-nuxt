@@ -1,4 +1,5 @@
 import type { TGroupDirection } from './editor-groups';
+import type { TDocumentRef } from './document';
 import type {
     IPdfSearchProgress,
     IPdfSearchRequestOptions,
@@ -58,7 +59,7 @@ interface IOcrResultFileAckResult {
 interface IOcrCompleteResult {
     requestId: string;
     success: boolean;
-    pdfPath?: string;
+    pdfPath?: TDocumentRef;
     requiresCleanupAck?: boolean;
     errors: string[];
 }
@@ -109,7 +110,7 @@ interface IPageOpsResult {
 interface IPageOpsExtractResult {
     success: boolean;
     canceled?: boolean;
-    destPath?: string;
+    destPath?: TDocumentRef;
 }
 
 interface IPageOpsInsertResult {
@@ -118,15 +119,15 @@ interface IPageOpsInsertResult {
 }
 
 interface IPageOpsAPI {
-    delete: (workingCopyPath: string, pages: number[], totalPages: number) => Promise<IPageOpsResult>;
-    extract: (workingCopyPath: string, pages: number[]) => Promise<IPageOpsExtractResult>;
-    reorder: (workingCopyPath: string, newOrder: number[]) => Promise<IPageOpsResult>;
-    insert: (workingCopyPath: string, totalPages: number, afterPage: number) => Promise<IPageOpsInsertResult>;
-    insertFile: (workingCopyPath: string, totalPages: number, afterPage: number, sourcePaths: string[]) => Promise<IPageOpsResult>;
-    rotate: (workingCopyPath: string, pages: number[], angle: TPageOpsRotationAngle) => Promise<IPageOpsResult>;
-    crop: (workingCopyPath: string, pages: number[], margins: ICropMargins) => Promise<IPageOpsResult>;
-    removeCrop: (workingCopyPath: string, pages: number[]) => Promise<IPageOpsResult>;
-    getPageGeometry: (workingCopyPath: string, pageNumber: number) => Promise<IPageGeometry>;
+    delete: (workingCopyPath: TDocumentRef, pages: number[], totalPages: number) => Promise<IPageOpsResult>;
+    extract: (workingCopyPath: TDocumentRef, pages: number[]) => Promise<IPageOpsExtractResult>;
+    reorder: (workingCopyPath: TDocumentRef, newOrder: number[]) => Promise<IPageOpsResult>;
+    insert: (workingCopyPath: TDocumentRef, totalPages: number, afterPage: number) => Promise<IPageOpsInsertResult>;
+    insertFile: (workingCopyPath: TDocumentRef, totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) => Promise<IPageOpsResult>;
+    rotate: (workingCopyPath: TDocumentRef, pages: number[], angle: TPageOpsRotationAngle) => Promise<IPageOpsResult>;
+    crop: (workingCopyPath: TDocumentRef, pages: number[], margins: ICropMargins) => Promise<IPageOpsResult>;
+    removeCrop: (workingCopyPath: TDocumentRef, pages: number[]) => Promise<IPageOpsResult>;
+    getPageGeometry: (workingCopyPath: TDocumentRef, pageNumber: number) => Promise<IPageGeometry>;
 }
 
 interface IDjvuProgress {
@@ -160,7 +161,7 @@ interface IDjvuConvertOptions {
 
 interface IDjvuOpenResult {
     success: boolean;
-    pdfPath?: string;
+    pdfPath?: TDocumentRef;
     pageCount?: number;
     jobId?: string;
     error?: string;
@@ -168,13 +169,13 @@ interface IDjvuOpenResult {
 
 interface IDjvuConvertResult {
     success: boolean;
-    pdfPath?: string;
+    pdfPath?: TDocumentRef;
     jobId?: string;
     error?: string;
 }
 
 interface IDjvuViewingReadyEvent {
-    pdfPath: string;
+    pdfPath: TDocumentRef;
     isPartial: boolean;
     jobId?: string;
 }
@@ -205,12 +206,12 @@ interface IWindowTabsApi {
 }
 
 interface IDjvuAPI {
-    openForViewing: (djvuPath: string) => Promise<IDjvuOpenResult>;
-    convertToPdf: (djvuPath: string, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuConvertResult>;
+    openForViewing: (djvuPath: TDocumentRef) => Promise<IDjvuOpenResult>;
+    convertToPdf: (djvuPath: TDocumentRef, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuConvertResult>;
     cancel: (jobId: string) => Promise<{ canceled: boolean }>;
-    getInfo: (djvuPath: string) => Promise<IDjvuInfo>;
-    estimateSizes: (djvuPath: string) => Promise<IDjvuSizeEstimate[]>;
-    cleanupTemp: (tempPdfPath: string) => Promise<void>;
+    getInfo: (djvuPath: TDocumentRef) => Promise<IDjvuInfo>;
+    estimateSizes: (djvuPath: TDocumentRef) => Promise<IDjvuSizeEstimate[]>;
+    cleanupTemp: (tempPdfPath: TDocumentRef) => Promise<void>;
     onProgress: (callback: (progress: IDjvuProgress) => void) => () => void;
     onViewingReady: (callback: (data: IDjvuViewingReadyEvent) => void) => () => void;
     onViewingError: (callback: (data: IDjvuViewingErrorEvent) => void) => () => void;
@@ -218,15 +219,15 @@ interface IDjvuAPI {
 
 interface IOpenPdfResult {
     kind: 'pdf';
-    workingPath: string;
-    originalPath: string;
+    workingPath: TDocumentRef;
+    originalPath: TDocumentRef;
     isGenerated?: boolean;
 }
 
 interface IOpenDjvuResult {
     kind: 'djvu';
     workingPath: '';
-    originalPath: string;
+    originalPath: TDocumentRef;
 }
 
 export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
@@ -251,15 +252,15 @@ export interface IPdfValidationResult {
 }
 
 export interface IImageExportCapability {
-    exportPdfToImages: (workingCopyPath: string, pageNumbers?: number[]) => Promise<{
+    exportPdfToImages: (workingCopyPath: TDocumentRef, pageNumbers?: number[]) => Promise<{
         success: boolean;
         canceled?: boolean;
-        outputPaths?: string[];
+        outputPaths?: TDocumentRef[];
     }>;
-    exportPdfToMultiPageTiff: (workingCopyPath: string, pageNumbers?: number[]) => Promise<{
+    exportPdfToMultiPageTiff: (workingCopyPath: TDocumentRef, pageNumbers?: number[]) => Promise<{
         success: boolean;
         canceled?: boolean;
-        outputPath?: string;
+        outputPath?: TDocumentRef;
     }>;
 }
 
@@ -291,8 +292,8 @@ export interface IDocumentsMenuCapability {
     onMenuRotateCw: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuRotateCcw: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuInsertPages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
-    onMenuOpenRecentFile: (callback: (path: string) => void) => IMenuEventUnsubscribe;
-    onMenuOpenExternalPaths: (callback: (paths: string[]) => void) => IMenuEventUnsubscribe;
+    onMenuOpenRecentFile: (callback: (path: TDocumentRef) => void) => IMenuEventUnsubscribe;
+    onMenuOpenExternalPaths: (callback: (paths: TDocumentRef[]) => void) => IMenuEventUnsubscribe;
     onMenuClearRecentFiles: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onOpenPdfDirectBatchProgress: (callback: (progress: IOpenPdfDirectBatchProgress) => void) => IMenuEventUnsubscribe;
 }
@@ -300,36 +301,36 @@ export interface IDocumentsMenuCapability {
 export interface IDocumentsFileCapability {
     openPdfDialog: () => Promise<TOpenFileResult | null>;
     openImageDialog: () => Promise<string | null>;
-    openPdfDirect: (path: string) => Promise<TOpenFileResult | null>;
-    openPdfDirectBatch: (paths: string[], requestId?: string) => Promise<TOpenFileResult | null>;
-    savePdfAs: (workingCopyPath: string) => Promise<string | null>;
+    openPdfDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
+    openPdfDirectBatch: (paths: TDocumentRef[], requestId?: string) => Promise<TOpenFileResult | null>;
+    savePdfAs: (workingCopyPath: TDocumentRef) => Promise<TDocumentRef | null>;
     savePdfDialog: (suggestedName: string) => Promise<string | null>;
-    saveDocxAs: (workingCopyPath: string) => Promise<string | null>;
-    readFile: (path: string) => Promise<Uint8Array>;
-    statFile: (path: string) => Promise<{ size: number }>;
-    readFileRange: (path: string, offset: number, length: number) => Promise<Uint8Array>;
-    readTextFile: (path: string) => Promise<string>;
-    fileExists: (path: string) => Promise<boolean>;
-    analyzePdfConformance: (path: string) => Promise<IPdfConformanceProfile>;
+    saveDocxAs: (workingCopyPath: TDocumentRef) => Promise<TDocumentRef | null>;
+    readFile: (path: TDocumentRef) => Promise<Uint8Array>;
+    statFile: (path: TDocumentRef) => Promise<{ size: number }>;
+    readFileRange: (path: TDocumentRef, offset: number, length: number) => Promise<Uint8Array>;
+    readTextFile: (path: TDocumentRef) => Promise<string>;
+    fileExists: (path: TDocumentRef) => Promise<boolean>;
+    analyzePdfConformance: (path: TDocumentRef) => Promise<IPdfConformanceProfile>;
     validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
-    writeFile: (path: string, data: Uint8Array) => Promise<boolean>;
-    writeDocxFile: (path: string, data: Uint8Array) => Promise<boolean>;
-    createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: string) => Promise<string>;
-    createWorkingCopyFromPath: (sourcePath: string, originalPath?: string) => Promise<string>;
-    saveFile: (path: string) => Promise<boolean>;
-    cleanupFile: (path: string) => Promise<void>;
-    cleanupOcrTemp: (path: string) => Promise<void>;
+    writeFile: (path: TDocumentRef, data: Uint8Array) => Promise<boolean>;
+    writeDocxFile: (path: TDocumentRef, data: Uint8Array) => Promise<boolean>;
+    createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
+    createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
+    saveFile: (path: TDocumentRef) => Promise<boolean>;
+    cleanupFile: (path: TDocumentRef) => Promise<void>;
+    cleanupOcrTemp: (path: TDocumentRef) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
-    showItemInFolder: (path: string) => Promise<boolean>;
+    showItemInFolder: (path: TDocumentRef) => Promise<boolean>;
 
     recentFiles: {
         get: () => Promise<IRecentFile[]>;
-        add: (path: string) => Promise<void>;
-        remove: (path: string) => Promise<void>;
+        add: (path: TDocumentRef) => Promise<void>;
+        remove: (path: TDocumentRef) => Promise<void>;
         clear: () => Promise<void>;
     };
 
-    getPathForFile: (file: File) => string;
+    getPathForFile: (file: File) => TDocumentRef;
 }
 
 export interface IDocumentsCapability extends
@@ -349,7 +350,7 @@ export interface IOcrCapability {
     }>;
     cancel: (requestId: string) => Promise<{ canceled: boolean }>;
     getLanguages: () => Promise<IOcrLanguage[]>;
-    acknowledgeResultFile: (requestId: string, pdfPath?: string) => Promise<IOcrResultFileAckResult>;
+    acknowledgeResultFile: (requestId: string, pdfPath?: TDocumentRef) => Promise<IOcrResultFileAckResult>;
     createSearchablePdf: (
         sourcePdfPath: string,
         pages: Array<{

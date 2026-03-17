@@ -1,4 +1,6 @@
 
+import type { TDocumentRef } from '@contracts/platform-api';
+
 type TDjvuDisabledFeature =
     | 'save'
     | 'saveAs'
@@ -26,15 +28,15 @@ const DJVU_DISABLED_FEATURES = new Set<TDjvuDisabledFeature>([
 
 export const useDjvuMode = () => {
     const isDjvuMode = ref(false);
-    const djvuSourcePath = ref<string | null>(null);
-    const djvuTempPdfPath = ref<string | null>(null);
+    const djvuSourcePath = ref<TDocumentRef | null>(null);
+    const djvuTempPdfPath = ref<TDocumentRef | null>(null);
     const djvuDisabledFeatures = computed(() => DJVU_DISABLED_FEATURES);
 
     function isDjvuFeatureDisabled(feature: TDjvuDisabledFeature) {
         return isDjvuMode.value && DJVU_DISABLED_FEATURES.has(feature);
     }
 
-    function enterDjvuMode(sourcePath: string, tempPdfPath: string) {
+    function enterDjvuMode(sourcePath: TDocumentRef, tempPdfPath: TDocumentRef) {
         isDjvuMode.value = true;
         djvuSourcePath.value = sourcePath;
         djvuTempPdfPath.value = tempPdfPath;

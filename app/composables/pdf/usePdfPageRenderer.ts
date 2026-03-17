@@ -9,6 +9,7 @@ import type {
     IPdfSearchMatch,
     IScrollSnapshot,
 } from '@app/types/pdf';
+import type { TDocumentRef } from '@contracts/platform-api';
 import type { IL10n } from 'pdfjs-dist/types/web/interfaces';
 import type {
     MaybeRefOrGetter,
@@ -81,7 +82,7 @@ interface IUsePdfPageRendererOptions {
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
 
-    workingCopyPath?: MaybeRefOrGetter<string | null>;
+    workingCopyPath?: MaybeRefOrGetter<TDocumentRef | null>;
     onRenderStall?: (payload: IPageRenderStallPayload) => void;
 }
 
