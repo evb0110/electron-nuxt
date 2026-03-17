@@ -50,15 +50,22 @@ describe('session-manager automation launch args', () => {
         expect(shouldDisableAutomationSandbox({ EVB_AUTOMATION_DISABLE_SANDBOX: 'true' }, 'darwin')).toBe(true);
     });
 
-    it('defaults automation sessions to hidden, unfocused windows', () => {
-        expect(resolveAutomationWindowEnv({})).toEqual({
+    it('defaults to hidden windows in non-interactive (CI) environments', () => {
+        expect(resolveAutomationWindowEnv({}, { isTTY: false })).toEqual({
             EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
         });
     });
 
+    it('defaults to visible, focused windows in interactive terminals', () => {
+        expect(resolveAutomationWindowEnv({}, { isTTY: true })).toEqual({
+            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '0',
+        });
+    });
+
     it('keeps hide-window aligned with the explicit no-focus override unless hide-window is set', () => {
-        expect(resolveAutomationWindowEnv({ EVB_AUTOMATION_NO_FOCUS: '0' })).toEqual({
+        expect(resolveAutomationWindowEnv({ EVB_AUTOMATION_NO_FOCUS: '0' }, { isTTY: false })).toEqual({
             EVB_AUTOMATION_NO_FOCUS: '0',
             EVB_AUTOMATION_HIDE_WINDOW: '0',
         });
@@ -66,7 +73,7 @@ describe('session-manager automation launch args', () => {
         expect(resolveAutomationWindowEnv({
             EVB_AUTOMATION_NO_FOCUS: '0',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
-        })).toEqual({
+        }, { isTTY: false })).toEqual({
             EVB_AUTOMATION_NO_FOCUS: '0',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
         });

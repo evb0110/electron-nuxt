@@ -144,9 +144,14 @@ export function buildElectronAutomationArgs(options: {
     return args;
 }
 
-export function resolveAutomationWindowEnv(env: NodeJS.ProcessEnv = process.env) {
-    const noFocus = env.EVB_AUTOMATION_NO_FOCUS ?? '1';
-    const hideWindow = env.EVB_AUTOMATION_HIDE_WINDOW ?? env.EVB_AUTOMATION_NO_FOCUS ?? '1';
+export function resolveAutomationWindowEnv(
+    env: NodeJS.ProcessEnv = process.env,
+    options?: { isTTY?: boolean },
+) {
+    const isTTY = options?.isTTY ?? (process.stdin.isTTY === true && process.stdout.isTTY === true);
+    const defaultFlag = isTTY ? '0' : '1';
+    const noFocus = env.EVB_AUTOMATION_NO_FOCUS ?? defaultFlag;
+    const hideWindow = env.EVB_AUTOMATION_HIDE_WINDOW ?? env.EVB_AUTOMATION_NO_FOCUS ?? defaultFlag;
 
     return {
         EVB_AUTOMATION_NO_FOCUS: noFocus,
