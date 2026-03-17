@@ -75,6 +75,7 @@
                             />
                         </button>
                         <button
+                            v-if="canUseOcr"
                             class="overflow-menu-item"
                             :disabled="!hasPdf || isDjvuMode"
                             @click="emit('open-ocr'); close()"
@@ -240,6 +241,7 @@ interface IProps {
     isHistoryBusy: boolean
     isExportingDocx: boolean
     canExportDocx: boolean
+    canUseOcr: boolean
     dragMode: boolean
     continuousScroll: boolean
     viewMode: TPdfViewMode
