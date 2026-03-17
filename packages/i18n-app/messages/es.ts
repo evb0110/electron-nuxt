@@ -625,6 +625,7 @@ export default {
         'djvu': {
             'open': 'La conversión de DjVu falló',
             'convert': 'La conversión falló',
+            'unsupportedBrowser': 'DjVu no está disponible en la versión web.',
         },
         'workspace': {
             'loadTitle': 'No se pudo cargar el espacio de trabajo del documento',

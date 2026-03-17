@@ -43,6 +43,11 @@ function getDocumentRefBaseName(documentRef: TDocumentRef | null) {
     }
 }
 
+function isDjvuDocumentRef(documentRef: TDocumentRef | null) {
+    const baseName = getDocumentRefBaseName(documentRef)?.toLowerCase();
+    return baseName?.endsWith('.djvu') || baseName?.endsWith('.djv') || false;
+}
+
 export const usePdfFile = () => {
     const { t } = useTypedI18n();
 
@@ -89,6 +94,10 @@ export const usePdfFile = () => {
                 return;
             }
             if (result.kind === 'djvu') {
+                if (!isElectron.value) {
+                    error.value = t('errors.djvu.unsupportedBrowser');
+                    return;
+                }
                 pendingDjvu.value = result.originalPath;
                 return;
             }
@@ -109,6 +118,16 @@ export const usePdfFile = () => {
         openBatchProgress.value = null;
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect started', {path});
         try {
+            if (!isElectron.value && isDjvuDocumentRef(path)) {
+                error.value = t('errors.djvu.unsupportedBrowser');
+                BrowserLogger.warn(
+                    RECENT_OPEN_LOG_SECTION,
+                    'openFileDirect rejected unsupported browser DjVu path',
+                    { path },
+                );
+                return;
+            }
+
             const api = getElectronAPI();
             const result = await api.documents.openPdfDirect(path);
             if (!result) {
@@ -134,6 +153,15 @@ export const usePdfFile = () => {
             );
 
             if (result.kind === 'djvu') {
+                if (!isElectron.value) {
+                    error.value = t('errors.djvu.unsupportedBrowser');
+                    BrowserLogger.warn(
+                        RECENT_OPEN_LOG_SECTION,
+                        'openFileDirect returned unsupported browser DjVu result',
+                        { path },
+                    );
+                    return;
+                }
                 pendingDjvu.value = result.originalPath;
                 BrowserLogger.debug(
                     RECENT_OPEN_LOG_SECTION,
@@ -198,6 +226,11 @@ export const usePdfFile = () => {
                 return;
             }
 
+            if (!isElectron.value && normalizedPaths.some((path) => isDjvuDocumentRef(path))) {
+                error.value = t('errors.djvu.unsupportedBrowser');
+                return;
+            }
+
             const requestId = crypto.randomUUID();
             openBatchProgress.value = {
                 processed: 0,
@@ -243,6 +276,10 @@ export const usePdfFile = () => {
             }
             if (result.kind === 'djvu') {
                 openBatchProgress.value = null;
+                if (!isElectron.value) {
+                    error.value = t('errors.djvu.unsupportedBrowser');
+                    return;
+                }
                 pendingDjvu.value = result.originalPath;
                 return;
             }

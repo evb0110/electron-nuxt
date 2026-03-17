@@ -45,8 +45,6 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
         const lowerPath = path.toLowerCase();
         if (
             lowerPath.endsWith('.pdf')
-            || lowerPath.endsWith('.djvu')
-            || lowerPath.endsWith('.djv')
             || lowerPath.endsWith('.png')
             || lowerPath.endsWith('.jpg')
             || lowerPath.endsWith('.jpeg')
