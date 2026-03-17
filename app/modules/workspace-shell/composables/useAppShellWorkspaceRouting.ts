@@ -2,11 +2,16 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import { uniq } from 'es-toolkit/array';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
 import type { IEditorGroupState } from '@app/types/editor-groups';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
-import type { TOpenFileResult } from '@contracts/platform-api';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platform-api';
 import type { TWindowTabsAction } from '@contracts/window-tabs';
 
 interface IResolvedTabAction {
@@ -82,7 +87,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         await fallbackWorkspace.handleOpenFileFromUi();
     }
 
-    async function handleOpenInNewTab(pathOrResult: string | TOpenFileResult, groupId?: string) {
+    async function handleOpenInNewTab(pathOrResult: TDocumentRef | TOpenFileResult, groupId?: string) {
         const targetGroupId = groupId ?? activeGroupId.value ?? undefined;
         const tab = createTab({
             groupId: targetGroupId,
@@ -112,7 +117,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         await handleOpenInNewTab(result, activeGroupId.value ?? undefined);
     }
 
-    async function openPathInAppropriateTab(path: string) {
+    async function openPathInAppropriateTab(path: TDocumentRef) {
         const workspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
         if (workspace && !workspaceHasPdf(workspace)) {
             await workspace.handleOpenFileDirectWithPersist(path);
@@ -121,33 +126,24 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         await handleOpenInNewTab(path, activeGroupId.value ?? undefined);
     }
 
-    async function openPathsInAppropriateTab(paths: string[]) {
-        const normalizedPaths = paths
+    async function openPathsInAppropriateTab(paths: TDocumentRef[]) {
+        const normalizedPaths = uniq(paths
             .map(path => path.trim())
-            .filter(path => path.length > 0);
+            .filter(path => path.length > 0));
         if (normalizedPaths.length === 0) {
             return;
         }
 
-        if (normalizedPaths.length === 1) {
-            await openPathInAppropriateTab(normalizedPaths[0]!);
-            return;
-        }
-
-        let workspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
-        if (!workspace || workspaceHasPdf(workspace)) {
-            const tab = createTab({
-                groupId: activeGroupId.value,
-                activate: true,
-            });
-            workspace = await waitForWorkspace(tab.id);
-            if (!workspace) {
-                removeTabFromState(tab.id);
-                return;
+        for (const path of normalizedPaths) {
+            try {
+                await openPathInAppropriateTab(path);
+            } catch (error) {
+                BrowserLogger.warn('workspace-routing', 'Failed to open dropped/external path in its own tab', {
+                    path,
+                    error,
+                });
             }
         }
-
-        await workspace.handleOpenFileDirectBatchWithPersist(normalizedPaths);
     }
 
     async function handleWindowTabsAction(action: TWindowTabsAction) {

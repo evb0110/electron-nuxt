@@ -13,30 +13,39 @@ function cast<T>(obj: unknown): T {
     return obj as T;
 }
 
-interface ICapturedDropZoneOptions {
-    onDrop?: (files: File[] | null, event: DragEvent) => void;
-    onOver?: (files: File[] | null, event: DragEvent) => void;
+type TCapturedListener = (event: DragEvent) => void;
+
+interface ICapturedListeners {
+    dragover?: TCapturedListener;
+    drop?: TCapturedListener;
 }
 
-let capturedDropZoneOptions: ICapturedDropZoneOptions = {};
+let capturedListeners: ICapturedListeners = {};
 
-vi.mock('@vueuse/core', () => ({ useDropZone: vi.fn((_target: unknown, options?: ICapturedDropZoneOptions | ((files: File[] | null, event: DragEvent) => void)) => {
-    if (typeof options === 'function') {
-        capturedDropZoneOptions = { onDrop: options };
-    } else {
-        capturedDropZoneOptions = options ?? {};
+vi.mock('@vueuse/core', () => ({ useEventListener: vi.fn((_target: unknown, event: string, listener: TCapturedListener) => {
+    if (event === 'dragover' || event === 'drop') {
+        capturedListeners[event] = listener;
     }
 
-    return {
-        files: { value: null },
-        isOverDropZone: { value: false },
+    return () => {
+        if (event === 'dragover') {
+            capturedListeners.dragover = undefined;
+        }
+
+        if (event === 'drop') {
+            capturedListeners.drop = undefined;
+        }
     };
 }) }));
 
-function createDragEvent(paths: string[], types: string[] = ['Files']) {
+function createDragEvent(
+    paths: string[],
+    types: string[] = ['Files'],
+    options: { defaultPrevented?: boolean } = {},
+) {
     const files = paths.map((_path, index) => ({ name: `file-${index}` })) as File[];
     const event = {
-        defaultPrevented: false,
+        defaultPrevented: options.defaultPrevented ?? false,
         target: null,
         dataTransfer: {
             types,
@@ -57,7 +66,7 @@ async function flushDropQueue() {
 
 describe('useExternalFileDrop', () => {
     beforeEach(() => {
-        capturedDropZoneOptions = {};
+        capturedListeners = {};
     });
 
     afterEach(() => {
@@ -73,20 +82,20 @@ describe('useExternalFileDrop', () => {
                 if (file.name === 'file-0') {
                     return '/docs/a.pdf';
                 }
-                return '/docs/b.djvu';
+                return '/docs/b.png';
             }) } },
         });
 
         useExternalFileDrop({ openPathInAppropriateTab });
-        capturedDropZoneOptions.onDrop?.(null, createDragEvent([
+        capturedListeners.drop?.(createDragEvent([
             '/docs/a.pdf',
-            '/docs/b.djvu',
+            '/docs/b.png',
         ]));
 
         await flushDropQueue();
 
         expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(1, '/docs/a.pdf');
-        expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(2, '/docs/b.djvu');
+        expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(2, '/docs/b.png');
     });
 
     it('ignores unsupported extensions and non-file drags', async () => {
@@ -100,15 +109,37 @@ describe('useExternalFileDrop', () => {
         useExternalFileDrop({ openPathInAppropriateTab });
 
         const nonFileEvent = createDragEvent(['/docs/readme.txt'], ['text/plain']);
-        capturedDropZoneOptions.onOver?.(null, nonFileEvent);
-        capturedDropZoneOptions.onDrop?.(null, nonFileEvent);
+        capturedListeners.dragover?.(nonFileEvent);
+        capturedListeners.drop?.(nonFileEvent);
 
         const fileEvent = createDragEvent(['/docs/readme.txt']);
-        capturedDropZoneOptions.onDrop?.(null, fileEvent);
+        capturedListeners.drop?.(fileEvent);
         await Promise.resolve();
 
         expect(nonFileEvent.preventDefault).not.toHaveBeenCalled();
         expect(openPathInAppropriateTab).not.toHaveBeenCalled();
+    });
+
+    it('still handles valid file drops that were already prevented upstream', async () => {
+        const openPathInAppropriateTab = vi.fn(async (_path: string) => {});
+
+        vi.stubGlobal('window', {
+            ...globalThis,
+            electronAPI: { documents: { getPathForFile: vi.fn(() => '/docs/a.pdf') } },
+        });
+
+        useExternalFileDrop({ openPathInAppropriateTab });
+
+        const event = createDragEvent(
+            ['/docs/a.pdf'],
+            ['Files'],
+            { defaultPrevented: true },
+        );
+
+        capturedListeners.drop?.(event);
+        await flushDropQueue();
+
+        expect(openPathInAppropriateTab).toHaveBeenCalledWith('/docs/a.pdf');
     });
 
     it('stops processing queued paths after cleanup', async () => {
@@ -128,15 +159,15 @@ describe('useExternalFileDrop', () => {
                 if (file.name === 'file-0') {
                     return '/docs/a.pdf';
                 }
-                return '/docs/b.djvu';
+                return '/docs/b.png';
             }) } },
         });
 
         const { cleanup } = useExternalFileDrop({ openPathInAppropriateTab });
 
-        capturedDropZoneOptions.onDrop?.(null, createDragEvent([
+        capturedListeners.drop?.(createDragEvent([
             '/docs/a.pdf',
-            '/docs/b.djvu',
+            '/docs/b.png',
         ]));
 
         await flushDropQueue();
@@ -146,6 +177,6 @@ describe('useExternalFileDrop', () => {
         releaseFirstPathBarrier();
         await flushDropQueue();
 
-        expect(openPathInAppropriateTab).not.toHaveBeenCalledWith('/docs/b.djvu');
+        expect(openPathInAppropriateTab).not.toHaveBeenCalledWith('/docs/b.png');
     });
 });
