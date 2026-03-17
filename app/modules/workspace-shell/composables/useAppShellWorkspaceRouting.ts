@@ -102,6 +102,16 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         await workspace.handleOpenFileWithResult(pathOrResult);
     }
 
+    async function openResultInAppropriateTab(result: TOpenFileResult) {
+        const workspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
+        if (workspace && !workspaceHasPdf(workspace)) {
+            await workspace.handleOpenFileWithResult(result);
+            return;
+        }
+
+        await handleOpenInNewTab(result, activeGroupId.value ?? undefined);
+    }
+
     async function openPathInAppropriateTab(path: string) {
         const workspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
         if (workspace && !workspaceHasPdf(workspace)) {
@@ -175,6 +185,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         createTabInGroup,
         handleFallbackToolbarOpenFile,
         handleOpenInNewTab,
+        openResultInAppropriateTab,
         openPathInAppropriateTab,
         openPathsInAppropriateTab,
         handleWindowTabsAction,

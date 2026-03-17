@@ -515,6 +515,7 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
             ...process.env,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
             EVB_SERVER_PORT: String(getNuxtPort()),
+            EVB_SERVER_PATH: '/electron',
             ...resolveAutomationWindowEnv(process.env),
             EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
             EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),

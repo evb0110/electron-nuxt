@@ -2,6 +2,8 @@
 
 ## Commands
 
+- `pnpm dev:all`
+- `pnpm dev:electron`
 - `pnpm dev:web`
 - `pnpm build:web`
 - `pnpm generate:web`
@@ -10,6 +12,8 @@
 
 ## Intended Use
 
+- `dev:all` starts one Nuxt dev server plus Electron, with the browser app at `/` and the Electron shell at `/electron`.
+- `dev:electron` is an alias for `dev:all`.
 - `build:web` produces the standard Nuxt web build.
 - `generate:web` produces a prerendered static web artifact for static hosting.
 - `validate:web` runs lint, typecheck, `build:web`, and `generate:web` sequentially.

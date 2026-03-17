@@ -116,6 +116,7 @@ import { useEditorGroupsManager } from '@app/modules/workspace-shell/composables
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
+import { useWorkspaceLaunchIntent } from '@app/composables/useWorkspaceLaunchIntent';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 
@@ -316,6 +317,7 @@ const {
     createTabInGroup: createTabInGroupFromRouting,
     handleFallbackToolbarOpenFile,
     handleOpenInNewTab,
+    openResultInAppropriateTab,
     openPathInAppropriateTab,
     openPathsInAppropriateTab,
     handleWindowTabsAction,
@@ -378,6 +380,11 @@ const {
     loadRecentFiles,
     clearRecentFiles,
 } = useRecentFiles();
+const {
+    launchIntent,
+    consumeLaunchIntent,
+} = useWorkspaceLaunchIntent();
+const isApplyingLaunchIntent = ref(false);
 
 useTabsShellBindings({
     tabs,
@@ -412,6 +419,43 @@ useTabsShellBindings({
     copyActiveTab,
     handleWindowTabsAction,
 });
+
+watch(
+    () => ({
+        tabCount: tabs.value.length,
+        intent: launchIntent.value,
+    }),
+    async ({
+        tabCount,
+        intent,
+    }) => {
+        if (!intent || tabCount === 0 || isApplyingLaunchIntent.value) {
+            return;
+        }
+
+        const nextIntent = consumeLaunchIntent();
+        if (!nextIntent) {
+            return;
+        }
+
+        isApplyingLaunchIntent.value = true;
+        try {
+            await nextTick();
+            if (nextIntent.kind === 'open-result') {
+                await openResultInAppropriateTab(nextIntent.result);
+                return;
+            }
+
+            await openPathInAppropriateTab(nextIntent.path);
+        } finally {
+            isApplyingLaunchIntent.value = false;
+        }
+    },
+    {
+        flush: 'post',
+        immediate: true,
+    },
+);
 
 traceRendererStartup('index.vue setup wiring complete');
 useAppShellLifecycle({
