@@ -123,12 +123,13 @@
 <script setup lang="ts">
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspace-expose';
-import OcrPopup from '@app/components/ocr/OcrPopup.vue';
 import PdfPageDropdown from '@app/components/pdf/PdfPageDropdown.vue';
 import PdfToolbar from '@app/components/pdf/PdfToolbar.vue';
 import PdfZoomDropdown from '@app/components/pdf/PdfZoomDropdown.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import { hasElectronAPI } from '@app/utils/platform';
+
+const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 
 const props = defineProps<{
     snapshot: IWorkspaceToolbarSnapshot;
