@@ -8,7 +8,7 @@ import {
     formatTranslationLeaf,
     getNestedTranslationLeaf,
     normalizeTranslationParams,
-} from '@i18n-core';
+} from '~/i18n/core';
 
 export function useTypedI18n() {
     const composer = useI18n();

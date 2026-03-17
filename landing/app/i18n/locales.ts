@@ -16,7 +16,7 @@ import {
     type TLocaleSchemaFrom,
     type TTranslationKeyFromNode,
     type TTranslationParamsFromSchema,
-} from '@i18n-core';
+} from './core';
 
 export {
     DEFAULT_LOCALE,
