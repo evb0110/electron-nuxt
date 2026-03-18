@@ -1,7 +1,7 @@
 <template>
     <div ref="tabBarRef" class="tab-bar">
         <div class="tab-list" role="tablist">
-            <button
+            <div
                 v-for="(tab, index) in tabs"
                 :key="tab.id"
                 :data-tab-id="tab.id"
@@ -12,9 +12,11 @@
                     'is-dragging': isDragging && dragIndex === index,
                 }"
                 :aria-selected="tab.id === activeTabId"
+                :tabindex="tab.id === activeTabId ? 0 : -1"
                 :title="tab.originalPath ?? tab.fileName ?? t('tabs.newTab')"
                 @click="handleTabClick(tab.id)"
                 @auxclick.prevent="handleAuxClick($event, tab.id)"
+                @keydown="handleTabKeydown($event, tab.id)"
                 @pointerdown="onPointerDown($event, index)"
                 @contextmenu.prevent.stop="openTabContextMenu($event, tab.id)"
             >
@@ -25,6 +27,7 @@
                     :aria-label="t('tabs.unsavedChanges')"
                 />
                 <button
+                    type="button"
                     class="tab-close"
                     :class="{ 'is-visible': tab.id === activeTabId }"
                     :aria-label="t('tabs.closeTab')"
@@ -34,8 +37,9 @@
                 >
                     <Icon name="lucide:x" size="14" />
                 </button>
-            </button>
+            </div>
             <button
+                type="button"
                 class="tab-new"
                 :aria-label="t('tabs.newTab')"
                 @click="emit('new-tab')"
@@ -337,6 +341,15 @@ function handleTabClick(tabId: string) {
     }
     closeTabContextMenu();
     emit('activate', tabId);
+}
+
+function handleTabKeydown(event: KeyboardEvent, tabId: string) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+    }
+
+    event.preventDefault();
+    handleTabClick(tabId);
 }
 
 function handleAuxClick(event: MouseEvent, tabId: string) {
