@@ -30,6 +30,18 @@ describe('resolveWorkspaceWindowTitle', () => {
         expect(title).toBe('my-scan.djvu');
     });
 
+    it('decodes browser-encoded DjVu source names for the window title', () => {
+        const title = resolveWorkspaceWindowTitle({
+            isDjvuMode: true,
+            djvuSourcePath: 'browser://documents/source/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.djvu',
+            fileName: 'working-copy.pdf',
+            pendingOpenDisplayName: null,
+            fallbackTitle: 'EVB Viewer',
+        });
+
+        expect(title).toBe('Глава.djvu');
+    });
+
     it('falls back to app title when no file name is available', () => {
         const title = resolveWorkspaceWindowTitle({
             isDjvuMode: false,
@@ -57,6 +69,24 @@ describe('resolveWorkspaceTabUpdate', () => {
         expect(update).toEqual({
             fileName: 'book.djvu',
             originalPath: '/docs/source/book.djvu',
+            isDirty: true,
+            isDjvu: true,
+        });
+    });
+
+    it('decodes browser-encoded DjVu source names for the tab label', () => {
+        const update = resolveWorkspaceTabUpdate({
+            fileName: 'temp.pdf',
+            pendingOpenDisplayName: null,
+            originalPath: 'browser://documents/working/temp.pdf',
+            isDirty: true,
+            isDjvuMode: true,
+            djvuSourcePath: 'browser://documents/source/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.djvu',
+        });
+
+        expect(update).toEqual({
+            fileName: 'Глава.djvu',
+            originalPath: 'browser://documents/source/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.djvu',
             isDirty: true,
             isDjvu: true,
         });

@@ -496,8 +496,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
 
     const {
-        setupShortcuts,
-        cleanupShortcuts,
         isCapturingRegion,
         handleCaptureRegion,
         cropDialogOpen,
@@ -534,6 +532,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openAnnotations,
         handleAnnotationToolChange,
         handleSave,
+        handleToggleSidebar: () => {
+            showSidebar.value = !showSidebar.value;
+        },
         handleDropdownOpenChange,
         clearDocxExportError,
         workingCopyPath,
@@ -814,9 +815,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openRecentFile,
         captureSplitPayload,
         restoreSplitPayload,
-
-        setupShortcuts,
-        cleanupShortcuts,
 
         sidebarWidth,
         sidebarWrapperStyle,

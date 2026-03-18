@@ -1,4 +1,5 @@
 import type { TSplitPayload } from '@contracts/window-tabs';
+import type { Ref } from 'vue';
 
 interface IWorkspaceSplitCacheEntry {
     payload: TSplitPayload;
@@ -7,11 +8,23 @@ interface IWorkspaceSplitCacheEntry {
 
 const CACHE_TTL_MS = 2 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 256;
-const splitPayloadCache = new Map<string, IWorkspaceSplitCacheEntry>();
-const splitPayloadCacheRevision = ref(0);
 
-function bumpCacheRevision() {
-    splitPayloadCacheRevision.value += 1;
+function useSplitPayloadCache() {
+    return useState<Record<string, IWorkspaceSplitCacheEntry>>(
+        'workspace-split:cache',
+        () => ({}),
+    );
+}
+
+function useSplitPayloadCacheRevision() {
+    return useState<number>(
+        'workspace-split:cache-revision',
+        () => 0,
+    );
+}
+
+function bumpCacheRevision(cacheRevision: Ref<number>) {
+    cacheRevision.value += 1;
 }
 
 function isEntryExpired(entry: IWorkspaceSplitCacheEntry, now = Date.now()) {
@@ -41,82 +54,101 @@ function clonePayload(payload: TSplitPayload): TSplitPayload {
     };
 }
 
-function pruneCache(now = Date.now()) {
+function omitCacheEntry(
+    entries: Record<string, IWorkspaceSplitCacheEntry>,
+    tabId: string,
+) {
+    const {
+        [tabId]: _removed,
+        ...rest
+    } = entries;
+    return rest;
+}
+
+function pruneCache(
+    cache: Ref<Record<string, IWorkspaceSplitCacheEntry>>,
+    cacheRevision: Ref<number>,
+    now = Date.now(),
+) {
     let changed = false;
+    let nextEntries = { ...cache.value };
 
     for (const [
         tabId,
         entry,
-    ] of splitPayloadCache) {
+    ] of Object.entries(nextEntries)) {
         if (isEntryExpired(entry, now)) {
-            splitPayloadCache.delete(tabId);
+            nextEntries = omitCacheEntry(nextEntries, tabId);
             changed = true;
         }
     }
 
-    if (splitPayloadCache.size <= MAX_CACHE_ENTRIES) {
-        if (changed) {
-            bumpCacheRevision();
+    const entries = Object.entries(nextEntries);
+    if (entries.length > MAX_CACHE_ENTRIES) {
+        const overflowCount = entries.length - MAX_CACHE_ENTRIES;
+        const sorted = entries
+            .sort((left, right) => left[1].createdAt - right[1].createdAt);
+
+        for (let index = 0; index < overflowCount; index += 1) {
+            const item = sorted[index];
+            if (!item) {
+                break;
+            }
+            nextEntries = omitCacheEntry(nextEntries, item[0]);
+            changed = true;
         }
+    }
+
+    if (!changed) {
         return;
     }
 
-    const sorted = Array.from(splitPayloadCache.entries())
-        .sort((left, right) => left[1].createdAt - right[1].createdAt);
-    const overflowCount = splitPayloadCache.size - MAX_CACHE_ENTRIES;
-
-    for (let index = 0; index < overflowCount; index += 1) {
-        const item = sorted[index];
-        if (!item) {
-            break;
-        }
-        splitPayloadCache.delete(item[0]);
-        changed = true;
-    }
-
-    if (changed) {
-        bumpCacheRevision();
-    }
+    cache.value = nextEntries;
+    bumpCacheRevision(cacheRevision);
 }
 
 export function useWorkspaceSplitCache() {
+    const splitPayloadCache = useSplitPayloadCache();
+    const splitPayloadCacheRevision = useSplitPayloadCacheRevision();
+
     function set(tabId: string, payload: TSplitPayload | null | undefined) {
         if (!payload || payload.kind === 'empty') {
-            const hadEntry = splitPayloadCache.has(tabId);
-            splitPayloadCache.delete(tabId);
-            if (hadEntry) {
-                bumpCacheRevision();
+            if (!(tabId in splitPayloadCache.value)) {
+                return;
             }
+
+            splitPayloadCache.value = omitCacheEntry(splitPayloadCache.value, tabId);
+            bumpCacheRevision(splitPayloadCacheRevision);
             return;
         }
 
-        splitPayloadCache.set(tabId, {
-            payload: clonePayload(payload),
-            createdAt: Date.now(),
-        });
-        bumpCacheRevision();
-        pruneCache();
+        splitPayloadCache.value = {
+            ...splitPayloadCache.value,
+            [tabId]: {
+                payload: clonePayload(payload),
+                createdAt: Date.now(),
+            },
+        };
+        bumpCacheRevision(splitPayloadCacheRevision);
+        pruneCache(splitPayloadCache, splitPayloadCacheRevision);
     }
 
     function consume(tabId: string): TSplitPayload | null {
-        pruneCache();
+        pruneCache(splitPayloadCache, splitPayloadCacheRevision);
 
-        const entry = splitPayloadCache.get(tabId);
-        if (entry) {
-            splitPayloadCache.delete(tabId);
-            bumpCacheRevision();
-        }
-
+        const entry = splitPayloadCache.value[tabId];
         if (!entry) {
             return null;
         }
 
+        splitPayloadCache.value = omitCacheEntry(splitPayloadCache.value, tabId);
+        bumpCacheRevision(splitPayloadCacheRevision);
         return clonePayload(entry.payload);
     }
 
     function has(tabId: string) {
         void splitPayloadCacheRevision.value;
-        const entry = splitPayloadCache.get(tabId);
+        const entry = splitPayloadCache.value[tabId];
         if (!entry) {
             return false;
         }
@@ -125,17 +157,18 @@ export function useWorkspaceSplitCache() {
             return true;
         }
 
-        splitPayloadCache.delete(tabId);
-        bumpCacheRevision();
+        splitPayloadCache.value = omitCacheEntry(splitPayloadCache.value, tabId);
+        bumpCacheRevision(splitPayloadCacheRevision);
         return false;
     }
 
     function clear(tabId: string) {
-        const hadEntry = splitPayloadCache.has(tabId);
-        splitPayloadCache.delete(tabId);
-        if (hadEntry) {
-            bumpCacheRevision();
+        if (!(tabId in splitPayloadCache.value)) {
+            return;
         }
+
+        splitPayloadCache.value = omitCacheEntry(splitPayloadCache.value, tabId);
+        bumpCacheRevision(splitPayloadCacheRevision);
     }
 
     return {

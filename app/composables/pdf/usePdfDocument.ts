@@ -1,5 +1,4 @@
-
-import * as pdfjsLib from 'pdfjs-dist';
+import * as pdfjsLib from '@app/services/pdfjs/runtime-lib';
 import type {
     PDFDataRangeTransport,
     PDFDocumentProxy,

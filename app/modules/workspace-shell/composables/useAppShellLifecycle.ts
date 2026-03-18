@@ -7,7 +7,6 @@ import {
 import { traceRendererStartup } from '@app/utils/startup-trace';
 
 interface IUseAppShellLifecycleOptions {
-    chromeHostsReady: Ref<boolean>;
     dirtyTabCloseDialogOpen: Ref<boolean>;
     updatesDialogOpen: Ref<boolean>;
     observeToolbarHost: () => void;
@@ -23,7 +22,6 @@ interface IUseAppShellLifecycleOptions {
 
 export function useAppShellLifecycle(options: IUseAppShellLifecycleOptions) {
     const {
-        chromeHostsReady,
         dirtyTabCloseDialogOpen,
         updatesDialogOpen,
         observeToolbarHost,
@@ -44,9 +42,6 @@ export function useAppShellLifecycle(options: IUseAppShellLifecycleOptions) {
         traceRendererStartup('index.vue onMounted start');
 
         observeToolbarHost();
-
-        chromeHostsReady.value = true;
-        traceRendererStartup('index.vue chrome hosts marked ready');
         cleanupEmptyGroups();
         if (hasElectronAPI()) {
             void ensureUpdatesInitialized();

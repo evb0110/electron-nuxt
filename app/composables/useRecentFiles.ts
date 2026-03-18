@@ -1,80 +1,31 @@
 import type { IRecentFile } from '@contracts/shared';
 import { getElectronAPI } from '@app/utils/platform';
 import {
-    getOptionalNumber,
-    getOptionalString,
-    isRecord,
-} from '@app/services/pdfjs/runtime';
-
-// Shared state across all composable instances
-const recentFiles = ref<IRecentFile[]>([]);
-const isLoading = ref(false);
-const error = ref<string | null>(null);
+    parseRecentFilesPayload,
+    RECENT_FILES_COOKIE_KEY,
+} from '@app/utils/recent-files-persistence';
 
 // Deduplication: track in-flight load promise
 let loadPromise: Promise<void> | null = null;
 
-function toRecentFile(value: unknown): IRecentFile | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-
-    const originalPath = getOptionalString(value, 'originalPath');
-    const fileName = getOptionalString(value, 'fileName');
-    const timestamp = getOptionalNumber(value, 'timestamp');
-    if (!originalPath || !fileName || timestamp === null) {
-        return null;
-    }
-
-    const fileSize = getOptionalNumber(value, 'fileSize') ?? undefined;
-    return {
-        originalPath,
-        fileName,
-        timestamp,
-        fileSize,
-    };
-}
-
-function readRecentFilesHmrState(data: unknown) {
-    if (!isRecord(data)) {
-        return null;
-    }
-
-    const normalizedRecentFiles = Array.isArray(data.recentFiles)
-        ? data.recentFiles
-            .map(toRecentFile)
-            .filter((value): value is IRecentFile => value !== null)
-        : null;
-
-    return {
-        recentFiles: normalizedRecentFiles,
-        isLoading: getOptionalBooleanValue(data, 'isLoading'),
-        error: getOptionalNullableStringValue(data, 'error'),
-    };
-}
-
-function getOptionalBooleanValue(
-    value: Record<PropertyKey, unknown>,
-    key: PropertyKey,
-) {
-    const candidate = value[key];
-    return typeof candidate === 'boolean'
-        ? candidate
-        : null;
-}
-
-function getOptionalNullableStringValue(
-    value: Record<PropertyKey, unknown>,
-    key: PropertyKey,
-) {
-    const candidate = value[key];
-    return typeof candidate === 'string' || candidate === null
-        ? candidate
-        : null;
-}
-
 export const useRecentFiles = () => {
     const { t } = useTypedI18n();
+    const recentFilesCookie = useCookie<string | null>(RECENT_FILES_COOKIE_KEY, {
+        default: () => null,
+        watch: false,
+        decode: val => decodeURIComponent(val),
+    });
+    const hasRecentFilesCookie = recentFilesCookie.value !== null;
+    const recentFiles = useState<IRecentFile[]>(
+        'recent-files:list',
+        () => parseRecentFilesPayload(recentFilesCookie.value),
+    );
+    const isLoading = useState('recent-files:is-loading', () => false);
+    const error = useState<string | null>('recent-files:error', () => null);
+    const isResolved = useState(
+        'recent-files:is-resolved',
+        () => hasRecentFilesCookie,
+    );
 
     async function loadRecentFiles() {
         // Deduplicate: if already loading, return existing promise
@@ -90,6 +41,7 @@ export const useRecentFiles = () => {
             } catch (e) {
                 error.value = e instanceof Error ? e.message : t('errors.recent.load');
             } finally {
+                isResolved.value = true;
                 isLoading.value = false;
                 loadPromise = null;
             }
@@ -122,6 +74,7 @@ export const useRecentFiles = () => {
         try {
             await getElectronAPI().documents.recentFiles.clear();
             recentFiles.value = [];
+            isResolved.value = true;
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.recent.clear');
         }
@@ -130,6 +83,7 @@ export const useRecentFiles = () => {
     return {
         recentFiles,
         isLoading,
+        isResolved,
         error,
         loadRecentFiles,
         openRecentFile,
@@ -137,21 +91,3 @@ export const useRecentFiles = () => {
         clearRecentFiles,
     };
 };
-
-// HMR support: preserve and restore state across hot updates
-if (import.meta.hot) {
-    // Save current state before the module is replaced
-    import.meta.hot.dispose((data: Record<string, unknown>) => {
-        data.recentFiles = recentFiles.value;
-        data.isLoading = isLoading.value;
-        data.error = error.value;
-    });
-
-    // Restore state from previous module version
-    const previousState = readRecentFilesHmrState(import.meta.hot.data);
-    if (previousState?.recentFiles) {
-        recentFiles.value = previousState.recentFiles;
-        isLoading.value = previousState.isLoading ?? false;
-        error.value = previousState.error ?? null;
-    }
-}

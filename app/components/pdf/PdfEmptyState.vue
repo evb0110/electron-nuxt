@@ -24,7 +24,17 @@
             </div>
 
             <!-- No recent files: centered standalone prompt -->
-            <div v-if="recentFiles.length === 0" class="flex flex-col items-center gap-3">
+            <div v-if="!recentFilesResolved" class="flex flex-col items-center gap-3">
+                <UIcon
+                    name="i-lucide-loader-circle"
+                    class="open-file-icon animate-spin text-[var(--ui-text-dimmed)]"
+                />
+                <p class="empty-state-hint text-[var(--ui-text-muted)]">
+                    {{ t('common.loading') }}
+                </p>
+            </div>
+
+            <div v-else-if="recentFiles.length === 0" class="flex flex-col items-center gap-3">
                 <UTooltip :text="t('toolbar.openPdf')" :delay-duration="1200">
                     <button
                         class="open-file-action group"
@@ -135,6 +145,7 @@ interface IOpenBatchProgress {
 
 const props = defineProps<{
     recentFiles: IRecentFile[];
+    recentFilesResolved?: boolean;
     openBatchProgress?: IOpenBatchProgress | null;
 }>();
 

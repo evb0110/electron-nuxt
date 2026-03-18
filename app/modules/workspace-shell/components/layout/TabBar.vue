@@ -13,7 +13,7 @@
                 }"
                 :aria-selected="tab.id === activeTabId"
                 :tabindex="tab.id === activeTabId ? 0 : -1"
-                :title="tab.originalPath ?? tab.fileName ?? t('tabs.newTab')"
+                :title="resolveTabTitle(tab)"
                 @click="handleTabClick(tab.id)"
                 @auxclick.prevent="handleAuxClick($event, tab.id)"
                 @keydown="handleTabKeydown($event, tab.id)"
@@ -86,6 +86,7 @@ import type { ITab } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/modules/workspace-shell/composables/useTabDragReorder';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
 import type { TGroupDirection } from '@app/types/editor-groups';
+import { getDocumentRefDisplayLabel } from '@app/utils/document-ref';
 import type {
     ITabContextAvailability,
     TTabContextCommand,
@@ -148,6 +149,10 @@ const contextMenuStyle = computed(() => ({
     top: `${contextMenu.value.y}px`,
 }));
 const canCloseTabs = computed(() => props.contextAvailability?.canClose ?? true);
+
+function resolveTabTitle(tab: ITab) {
+    return getDocumentRefDisplayLabel(tab.originalPath) ?? tab.fileName ?? t('tabs.newTab');
+}
 
 function isDirectionEnabled(
     kind: 'split' | 'focus' | 'move' | 'copy',

@@ -132,6 +132,25 @@ describe('useDjvu', () => {
             expect(djvu.isLoadingPages.value).toBe(false);
         });
 
+        it('uses a decoded DjVu filename for the window title', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pdfPath: 'browser://documents/output/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.pdf',
+                pageCount: 1,
+                jobId: 'job-encoded',
+            });
+
+            const djvu = useDjvu();
+            const loadPdf = vi.fn(async () => {});
+
+            await djvu.openDjvuFile(
+                'browser://documents/source/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.djvu',
+                loadPdf,
+            );
+
+            expect(mockElectronAPI.documents.setWindowTitle).toHaveBeenLastCalledWith('Глава.djvu');
+        });
+
         it('throws when openForViewing fails', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: false,

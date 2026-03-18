@@ -11,9 +11,10 @@ export function hasDocumentMountHint(tab: Pick<ITab, 'fileName' | 'originalPath'
 }
 
 export function shouldAutoRequestWorkspace(signals: IWorkspaceHostSignals) {
-    // Mount the workspace for active tabs so global chrome (toolbar/status) remains stable,
-    // and always mount when there is document state (or split restore work) to recover.
-    return signals.hasQueuedSplitRestore || signals.hasDocumentHint || signals.isActive;
+    // Keep empty tabs on the lightweight placeholder so SSR and hydration paint
+    // the same shell. Real workspaces still mount eagerly when there is document
+    // state or split-restore work to recover.
+    return signals.hasQueuedSplitRestore || signals.hasDocumentHint;
 }
 
 export function resolveWorkspaceRequestedState(

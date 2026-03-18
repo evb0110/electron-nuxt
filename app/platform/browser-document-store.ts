@@ -3,9 +3,17 @@ import {
     safeGetLocalStorageItem,
     safeSetLocalStorageItem,
 } from '@app/utils/local-storage';
+import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browser-runtime-persistence';
+import { decodeDocumentRefSegment } from '@app/utils/document-ref';
+import {
+    parseRecentFilesPayload,
+    RECENT_FILES_COOKIE_KEY,
+    RECENT_FILES_COOKIE_MAX_AGE_SECONDS,
+    serializeRecentFilesCookiePayload,
+    serializeRecentFilesPayload,
+} from '@app/utils/recent-files-persistence';
 
 const BROWSER_REF_PREFIX = 'browser://documents/';
-const RECENT_FILES_STORAGE_KEY = 'evb-viewer:browser:recent-files';
 const DB_NAME = 'evb-viewer-browser-documents';
 const DB_VERSION = 1;
 const DOCUMENTS_STORE = 'documents';
@@ -62,7 +70,7 @@ function getDocumentFileName(ref: string) {
         ? ref.slice(BROWSER_REF_PREFIX.length)
         : ref;
 
-    return decodeURIComponent(trimmed.split('/').at(-1) ?? 'document');
+    return decodeDocumentRefSegment(trimmed.split('/').at(-1) ?? 'document');
 }
 
 function createBrowserDocumentRef(fileName: string) {
@@ -190,56 +198,29 @@ async function deleteRecord(ref: string) {
     await withObjectStore('readwrite', (store) => store.delete(ref));
 }
 
-function normalizeRecentFile(value: unknown): IRecentFile | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-
-    const originalPath =
-        typeof value.originalPath === 'string' ? value.originalPath : null;
-    const fileName = typeof value.fileName === 'string' ? value.fileName : null;
-    const timestamp =
-        typeof value.timestamp === 'number' ? value.timestamp : null;
-    const fileSize =
-        typeof value.fileSize === 'number' ? value.fileSize : undefined;
-
-    if (!originalPath || !fileName || timestamp === null) {
-        return null;
-    }
-
-    return {
-        originalPath,
-        fileName,
-        timestamp,
-        fileSize,
-    };
+function readRecentFilesFromStorage() {
+    const raw = safeGetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY);
+    return parseRecentFilesPayload(raw);
 }
 
-function readRecentFilesFromStorage() {
-    const raw = safeGetLocalStorageItem(RECENT_FILES_STORAGE_KEY);
-    if (!raw) {
-        return [];
+function writeRecentFilesToCookie(recentFiles: IRecentFile[]) {
+    if (typeof document === 'undefined') {
+        return;
     }
 
-    try {
-        const parsed: unknown = JSON.parse(raw);
-        if (!Array.isArray(parsed)) {
-            return [];
-        }
-
-        return parsed
-            .map(normalizeRecentFile)
-            .filter((entry): entry is IRecentFile => entry !== null);
-    } catch {
-        return [];
+    if (recentFiles.length === 0) {
+        document.cookie = `${RECENT_FILES_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax`;
+        return;
     }
+
+    const encodedValue = encodeURIComponent(serializeRecentFilesCookiePayload(recentFiles));
+    document.cookie = `${RECENT_FILES_COOKIE_KEY}=${encodedValue}; Path=/; Max-Age=${RECENT_FILES_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
 }
 
 function writeRecentFilesToStorage(recentFiles: IRecentFile[]) {
-    safeSetLocalStorageItem(
-        RECENT_FILES_STORAGE_KEY,
-        JSON.stringify(recentFiles),
-    );
+    const payload = serializeRecentFilesPayload(recentFiles);
+    safeSetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY, payload);
+    writeRecentFilesToCookie(recentFiles);
 }
 
 class BrowserDocumentStore {
@@ -478,7 +459,9 @@ class BrowserDocumentStore {
     }
 
     public getRecentFiles() {
-        return readRecentFilesFromStorage();
+        const recentFiles = readRecentFilesFromStorage();
+        writeRecentFilesToCookie(recentFiles);
+        return recentFiles;
     }
 
     public removeRecentFile(ref: string) {

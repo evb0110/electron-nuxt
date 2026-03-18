@@ -3,7 +3,7 @@ import {
     AnnotationEditorLayer,
     AnnotationEditorType,
     DrawLayer,
-} from 'pdfjs-dist';
+} from '@app/services/pdfjs/runtime-lib';
 import type {
     IL10n,
     IPDFLinkService,
@@ -13,6 +13,9 @@ import type {
     AnnotationEditorUIManager,
     PDFDocumentProxy,
 } from 'pdfjs-dist';
+import type { AnnotationLayer as TAnnotationLayer } from 'pdfjs-dist/types/src/display/annotation_layer';
+import type { AnnotationEditorLayer as TAnnotationEditorLayer } from 'pdfjs-dist/types/src/display/editor/annotation_editor_layer';
+import type { DrawLayer as TDrawLayer } from 'pdfjs-dist/types/src/display/draw_layer';
 import type {
     MaybeRefOrGetter,
     Ref,
@@ -115,8 +118,8 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 }) => {
     ensureAnnotationEditorLayerSafetyPatch();
 
-    const annotationEditorLayers = new Map<number, AnnotationEditorLayer>();
-    const drawLayers = new Map<number, DrawLayer>();
+    const annotationEditorLayers = new Map<number, TAnnotationEditorLayer>();
+    const drawLayers = new Map<number, TDrawLayer>();
     const annotationEditorLayerDisabledDocuments =
         new WeakSet<PDFDocumentProxy>();
     let annotationEditorLayerDisabledWithoutDocument = false;
@@ -282,7 +285,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         textLayerDiv: HTMLDivElement | null,
         viewport: ReturnType<PDFPageProxy['getViewport']>,
         pageNumber: number,
-        annotationLayerInstance: AnnotationLayer | null,
+        annotationLayerInstance: TAnnotationLayer | null,
     ) {
         syncEditorLayersWithCurrentDocument();
 

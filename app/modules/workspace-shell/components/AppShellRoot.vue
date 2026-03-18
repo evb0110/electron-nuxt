@@ -1,32 +1,30 @@
 <template>
     <div class="app-shell-root h-screen min-w-0 flex flex-col bg-[var(--app-window-bg)]">
-        <Transition name="install-hint">
-            <div v-if="showBrowserInstallHint" class="browser-install-hint">
-                <UIcon name="i-lucide-monitor-down" class="browser-install-icon" />
-                <UButton
-                    :to="browserInstallUrl"
-                    target="_blank"
-                    rel="noreferrer"
-                    color="neutral"
-                    variant="ghost"
-                    size="xs"
-                    trailing-icon="i-lucide-arrow-up-right"
-                    class="browser-install-link"
-                >
-                    {{ t('webApp.installDesktop') }}
-                </UButton>
-                <span class="browser-install-divider" />
-                <UButton
-                    color="neutral"
-                    variant="ghost"
-                    size="xs"
-                    icon="i-lucide-x"
-                    class="browser-install-dismiss"
-                    :aria-label="t('webApp.dismissInstallDesktop')"
-                    @click="dismissBrowserInstallHint"
-                />
-            </div>
-        </Transition>
+        <div v-show="showBrowserInstallHint" class="browser-install-hint">
+            <UIcon name="i-lucide-monitor-down" class="browser-install-icon" />
+            <UButton
+                :to="browserInstallUrl"
+                target="_blank"
+                rel="noreferrer"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                trailing-icon="i-lucide-arrow-up-right"
+                class="browser-install-link"
+            >
+                {{ t('webApp.installDesktop') }}
+            </UButton>
+            <span class="browser-install-divider" />
+            <UButton
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                icon="i-lucide-x"
+                class="browser-install-dismiss"
+                :aria-label="t('webApp.dismissInstallDesktop')"
+                @click="dismissBrowserInstallHint"
+            />
+        </div>
 
         <div class="editor-global-toolbar-shell">
             <FallbackWorkspaceToolbar
@@ -76,7 +74,6 @@
 
         <EditorGroupsHost
             :layout="layout"
-            :chrome-hosts-ready="chromeHostsReady"
             :groups="groups"
             :tabs="tabs"
             :active-group-id="activeGroupId"
@@ -123,6 +120,10 @@
 import SettingsDialog from '@app/components/SettingsDialog.vue';
 import { guardAsync } from '@app/utils/async-guard';
 import { formatBrowserPageTitle } from '@app/utils/browser-page-title';
+import {
+    BROWSER_INSTALL_HINT_COOKIE_KEY,
+    BROWSER_INSTALL_HINT_STORAGE_KEY,
+} from '@app/utils/browser-runtime-persistence';
 import { traceRendererStartup } from '@app/utils/startup-trace';
 import { syncBrowserWindowTitle } from '@app/platform/browser-window-tabs';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
@@ -177,13 +178,18 @@ const {
 
 const { t } = useTypedI18n();
 const showSettings = ref(false);
-const chromeHostsReady = ref(false);
 const isBrowserRuntime = !hasElectronAPI();
 const runtimeConfig = useRuntimeConfig();
-const browserInstallHintDismissed = ref(false);
+const browserInstallHintCookie = useCookie<string | null>(
+    BROWSER_INSTALL_HINT_COOKIE_KEY,
+    {
+        default: () => null,
+        watch: false,
+    },
+);
+const browserInstallHintDismissed = ref(browserInstallHintCookie.value === '1');
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
-const BROWSER_INSTALL_HINT_STORAGE_KEY = 'evb-viewer:web-install-hint-dismissed';
 const {
     checkForUpdates,
     closeDialog: closeUpdatesDialog,
@@ -429,7 +435,8 @@ const browserInstallUrl = computed(() => {
     return url || undefined;
 });
 const showBrowserInstallHint = computed(() => (
-    Boolean(browserInstallUrl.value)
+    isBrowserRuntime
+    && Boolean(browserInstallUrl.value)
     && !browserInstallHintDismissed.value
 ));
 
@@ -446,6 +453,7 @@ function dismissBrowserInstallHint() {
     }
 
     window.localStorage.setItem(BROWSER_INSTALL_HINT_STORAGE_KEY, '1');
+    browserInstallHintCookie.value = '1';
 }
 
 watch(browserPageTitle, (nextTitle) => {
@@ -468,12 +476,14 @@ onMounted(() => {
         return;
     }
 
-    browserInstallHintDismissed.value = window.localStorage.getItem(BROWSER_INSTALL_HINT_STORAGE_KEY) === '1';
-
-    if (!browserInstallHintDismissed.value) {
-        const timer = window.setTimeout(dismissBrowserInstallHint, BROWSER_INSTALL_HINT_AUTO_DISMISS_MS);
-        onScopeDispose(() => window.clearTimeout(timer));
+    if (browserInstallHintDismissed.value) {
+        browserInstallHintCookie.value = '1';
+        window.localStorage.setItem(BROWSER_INSTALL_HINT_STORAGE_KEY, '1');
+        return;
     }
+
+    const timer = window.setTimeout(dismissBrowserInstallHint, BROWSER_INSTALL_HINT_AUTO_DISMISS_MS);
+    onScopeDispose(() => window.clearTimeout(timer));
 });
 
 useTabsShellBindings({
@@ -512,7 +522,6 @@ useTabsShellBindings({
 
 traceRendererStartup('index.vue setup wiring complete');
 useAppShellLifecycle({
-    chromeHostsReady,
     dirtyTabCloseDialogOpen,
     updatesDialogOpen: computed(() => updatesDialog.value.open),
     observeToolbarHost,

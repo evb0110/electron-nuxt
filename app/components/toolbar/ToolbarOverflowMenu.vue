@@ -37,6 +37,14 @@
                     </button>
                     <button
                         class="overflow-menu-item"
+                        :disabled="!fullscreenSupported"
+                        @click="toggleFullscreen(); close()"
+                    >
+                        <UIcon :name="isFullscreen ? 'i-lucide-shrink' : 'i-lucide-expand'" class="overflow-menu-icon" />
+                        <span class="overflow-menu-label">{{ t('toolbar.fullscreen') }}</span>
+                    </button>
+                    <button
+                        class="overflow-menu-item"
                         @click="emit('open-settings'); close()"
                     >
                         <UIcon name="i-lucide-settings" class="overflow-menu-icon" />
@@ -272,6 +280,12 @@ const emit = defineEmits<{
     (e: 'crop'): void
     (e: 'open-settings'): void
 }>();
+
+const {
+    isFullscreen,
+    isSupported: fullscreenSupported,
+    toggleFullscreen,
+} = useFullscreen();
 
 const isOpen = computed({
     get: () => props.open,

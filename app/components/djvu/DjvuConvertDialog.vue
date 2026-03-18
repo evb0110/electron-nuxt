@@ -104,6 +104,7 @@
 import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { getDocumentRefBaseName } from '@app/utils/document-ref';
 
 const { t } = useTypedI18n();
 
@@ -140,7 +141,7 @@ const resolvedEstimates = computed(() => estimates.value.map((estimate) => ({
         estimate.description || resolveEstimateDescription(estimate.subsample),
 })));
 
-const fileName = computed(() => props.djvuPath?.split(/[\\/]/).pop() ?? '');
+const fileName = computed(() => getDocumentRefBaseName(props.djvuPath) ?? '');
 
 function formatBytes(bytes: number) {
     if (bytes < 1024) {

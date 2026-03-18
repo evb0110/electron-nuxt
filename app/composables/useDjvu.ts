@@ -2,6 +2,7 @@ import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { getDocumentRefBaseName } from '@app/utils/document-ref';
 
 interface IDjvuConversionState {
     isConverting: boolean;
@@ -216,7 +217,7 @@ export const useDjvu = () => {
         setOriginalPath?: (path: TDocumentRef | null) => void,
     ) {
         const api = getElectronAPI();
-        const djvuFileName = djvuPath.split(/[\\/]/).pop() ?? t('djvu.fileFallback');
+        const djvuFileName = getDocumentRefBaseName(djvuPath) ?? t('djvu.fileFallback');
 
         showBanner.value = true;
         clearViewingError();
@@ -306,7 +307,7 @@ export const useDjvu = () => {
 
         const api = getElectronAPI();
 
-        const suggestedName = (djvuSourcePath.value.split(/[\\/]/).pop() ?? t('djvu.documentFallback'))
+        const suggestedName = (getDocumentRefBaseName(djvuSourcePath.value) ?? t('djvu.documentFallback'))
             .replace(/\.djvu?$/i, '.pdf');
         const savePath = await api.documents.savePdfDialog(suggestedName);
         if (!savePath) {
@@ -362,7 +363,7 @@ export const useDjvu = () => {
             const openResult = await api.documents.openPdfDirect(result.pdfPath);
             if (openResult && openResult.kind === 'pdf') {
                 await loadPdfFromPath(openResult.workingPath);
-                await api.documents.setWindowTitle(result.pdfPath.split(/[\\/]/).pop() ?? t('djvu.pdfFallback'));
+                await api.documents.setWindowTitle(getDocumentRefBaseName(result.pdfPath) ?? t('djvu.pdfFallback'));
             }
         } finally {
             activeConvertJobId.value = null;

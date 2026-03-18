@@ -11,10 +11,16 @@ import type { TPdfSource } from '@app/types/pdf';
 
 const mocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),
+    useMagicKeys: vi.fn(),
+    whenever: vi.fn(),
     hasElectronAPI: vi.fn(),
 }));
 
-vi.mock('@vueuse/core', () => ({useEventListener: mocks.useEventListener}));
+vi.mock('@vueuse/core', () => ({
+    useEventListener: mocks.useEventListener,
+    useMagicKeys: mocks.useMagicKeys,
+    whenever: mocks.whenever,
+}));
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: mocks.hasElectronAPI}));
 
 function cast<T>(obj: unknown): T {
@@ -42,8 +48,11 @@ function createDeps() {
         handleZoomOut: vi.fn(),
         handleActualSize: vi.fn(),
         handleSave: vi.fn(),
+        handleToggleSidebar: vi.fn(),
     };
 }
+
+let capturedOnEventFired: ((e: unknown) => void) | undefined;
 
 describe('usePageShortcuts', () => {
     beforeEach(() => {
@@ -51,59 +60,39 @@ describe('usePageShortcuts', () => {
         vi.clearAllMocks();
         vi.stubGlobal('window', {} as Window);
         mocks.hasElectronAPI.mockReturnValue(true);
+
+        mocks.useMagicKeys.mockImplementation((opts?: { onEventFired?: (e: unknown) => void }) => {
+            capturedOnEventFired = opts?.onEventFired;
+            return new Proxy({}, { get: () => ref(false) });
+        });
     });
 
-    it('registers listeners once and cleans up idempotently', async () => {
-        const cleanupA = vi.fn();
-        const cleanupB = vi.fn();
-        mocks.useEventListener
-            .mockReturnValueOnce(cleanupA)
-            .mockReturnValueOnce(cleanupB);
-
+    it('registers pointerdown listener on window', async () => {
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
-        const shortcuts = usePageShortcuts(createDeps());
+        usePageShortcuts(createDeps());
 
-        shortcuts.setupShortcuts();
-        shortcuts.setupShortcuts();
-
-        expect(mocks.useEventListener).toHaveBeenCalledTimes(2);
-
-        shortcuts.cleanupShortcuts();
-        shortcuts.cleanupShortcuts();
-
-        expect(cleanupA).toHaveBeenCalledTimes(1);
-        expect(cleanupB).toHaveBeenCalledTimes(1);
+        expect(mocks.useEventListener).toHaveBeenCalledWith(
+            expect.anything(), 'pointerdown', expect.any(Function),
+        );
     });
 
-    it('skips setup when window is unavailable', async () => {
+    it('skips pointerdown listener when window is unavailable', async () => {
         vi.stubGlobal('window', undefined);
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
-        const shortcuts = usePageShortcuts(createDeps());
-
-        shortcuts.setupShortcuts();
+        usePageShortcuts(createDeps());
 
         expect(mocks.useEventListener).not.toHaveBeenCalled();
     });
 
-    it('handles browser zoom shortcuts when Electron API is unavailable', async () => {
-        const handlers = new Map<string, (event: unknown) => void>();
-        const cleanup = vi.fn();
-        mocks.useEventListener.mockImplementation((_target, event, handler) => {
-            handlers.set(String(event), handler as (event: unknown) => void);
-            return cleanup;
-        });
+    it('handles zoom shortcuts via onEventFired when not Electron', async () => {
         mocks.hasElectronAPI.mockReturnValue(false);
-
         const deps = createDeps();
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
-        const shortcuts = usePageShortcuts(deps);
-
-        shortcuts.setupShortcuts();
-        const keydown = handlers.get('keydown');
-        expect(keydown).toBeTypeOf('function');
+        usePageShortcuts(deps);
 
         const preventZoomIn = vi.fn();
-        keydown?.(cast<KeyboardEvent>({
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
             key: '=',
             code: 'Equal',
             metaKey: true,
@@ -116,7 +105,8 @@ describe('usePageShortcuts', () => {
         expect(deps.handleZoomIn).toHaveBeenCalledOnce();
 
         const preventZoomOut = vi.fn();
-        keydown?.(cast<KeyboardEvent>({
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
             key: '-',
             code: 'Minus',
             metaKey: true,
@@ -129,7 +119,8 @@ describe('usePageShortcuts', () => {
         expect(deps.handleZoomOut).toHaveBeenCalledOnce();
 
         const preventActualSize = vi.fn();
-        keydown?.(cast<KeyboardEvent>({
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
             key: '0',
             code: 'Digit0',
             metaKey: true,
@@ -140,8 +131,73 @@ describe('usePageShortcuts', () => {
         }));
         expect(preventActualSize).toHaveBeenCalledOnce();
         expect(deps.handleActualSize).toHaveBeenCalledOnce();
+    });
 
-        shortcuts.cleanupShortcuts();
-        expect(cleanup).toHaveBeenCalledTimes(2);
+    it('prevents default for Ctrl+B when active with PDF', async () => {
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 'b',
+            code: 'KeyB',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            target: null,
+            preventDefault,
+        }));
+        expect(preventDefault).toHaveBeenCalledOnce();
+    });
+
+    it('skips shortcuts when editing text', async () => {
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        // Simulate an input element target using a minimal HTMLElement-like object
+        const fakeInput = {
+            isContentEditable: false,
+            closest: (selector: string) => selector.includes('input') ? fakeInput : null,
+        };
+        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
+        vi.stubGlobal('HTMLElement', class HTMLElementStub {});
+        Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
+
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 'b',
+            code: 'KeyB',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            target: fakeInput,
+            preventDefault,
+        }));
+        expect(preventDefault).not.toHaveBeenCalled();
+    });
+
+    it('handles Escape to close context menus', async () => {
+        const deps = createDeps();
+        deps.annotationContextMenuVisible.value = true;
+        deps.pageContextMenuVisible.value = true;
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 'Escape',
+            code: 'Escape',
+            metaKey: false,
+            ctrlKey: false,
+            altKey: false,
+            target: null,
+            preventDefault: vi.fn(),
+        }));
+        expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
+        expect(deps.closePageContextMenu).toHaveBeenCalledOnce();
     });
 });

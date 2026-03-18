@@ -4,7 +4,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import {useEventListener} from '@vueuse/core';
-import { PixelsPerInch } from 'pdfjs-dist';
+import { PixelsPerInch } from '@app/services/pdfjs/runtime-lib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     IAnnotationCommentSummary,

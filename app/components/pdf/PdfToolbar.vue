@@ -12,6 +12,7 @@
                 icon="lucide:panel-left"
                 :active="showSidebar"
                 :tooltip="t('toolbar.toggleSidebar')"
+                :shortcut="shortcutLabels.toggleSidebar"
                 :disabled="!hasPdf"
                 @click="emit('toggle-sidebar')"
             />
@@ -208,6 +209,13 @@
                 :is-collapsed="isCollapsed"
             />
             <ToolbarButton
+                :icon="isFullscreen ? 'lucide:shrink' : 'lucide:expand'"
+                :tooltip="t('toolbar.fullscreen')"
+                :active="isFullscreen"
+                :disabled="!fullscreenSupported"
+                @click="toggleFullscreen()"
+            />
+            <ToolbarButton
                 icon="lucide:settings"
                 :tooltip="t('toolbar.settings')"
                 @click="emit('open-settings')"
@@ -218,6 +226,7 @@
 
 <script setup lang="ts">
 import ToolbarButton from '@app/components/ToolbarButton.vue';
+import { getShortcutLabels } from '@app/constants/shortcuts';
 
 defineProps<{
     hasPdf: boolean;
@@ -269,22 +278,13 @@ const {
     isCollapsed,
 } = useToolbarOverflow();
 
-const shortcutModifier = computed(() => (
-    typeof navigator !== 'undefined' && /mac/i.test(navigator.platform)
-        ? 'Cmd'
-        : 'Ctrl'
-));
+const {
+    isFullscreen,
+    isSupported: fullscreenSupported,
+    toggleFullscreen,
+} = useFullscreen();
 
-const shortcutLabels = computed(() => ({
-    openFile: `${shortcutModifier.value}+O`,
-    save: `${shortcutModifier.value}+S`,
-    saveAs: `${shortcutModifier.value}+Shift+S`,
-    exportDocx: `${shortcutModifier.value}+Shift+E`,
-    undo: `${shortcutModifier.value}+Z`,
-    redo: shortcutModifier.value === 'Cmd' ? 'Cmd+Shift+Z' : 'Ctrl+Y',
-    fitWidth: `${shortcutModifier.value}+1`,
-    fitHeight: `${shortcutModifier.value}+2`,
-}));
+const shortcutLabels = getShortcutLabels();
 </script>
 
 <style scoped>
