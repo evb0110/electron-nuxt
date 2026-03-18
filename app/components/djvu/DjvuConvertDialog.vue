@@ -30,7 +30,7 @@
                 <div class="convert-presets flex flex-col gap-2">
                     <label class="convert-presets-title">{{ t('djvu.convertDialog.quality') }}</label>
                     <div
-                        v-for="estimate in estimates"
+                        v-for="estimate in resolvedEstimates"
                         :key="estimate.subsample"
                         class="convert-preset"
                         :class="{ 'is-selected': selectedSubsample === estimate.subsample }"
@@ -133,6 +133,13 @@ const estimatesLoading = ref(false);
 const selectedSubsample = ref(1);
 const preserveBookmarks = ref(true);
 
+const resolvedEstimates = computed(() => estimates.value.map((estimate) => ({
+    ...estimate,
+    label: estimate.label || resolveEstimateLabel(estimate.subsample),
+    description:
+        estimate.description || resolveEstimateDescription(estimate.subsample),
+})));
+
 const fileName = computed(() => props.djvuPath?.split(/[\\/]/).pop() ?? '');
 
 function formatBytes(bytes: number) {
@@ -143,6 +150,28 @@ function formatBytes(bytes: number) {
         return `${(bytes / 1024).toFixed(1)} ${t('common.unitKilobyte')}`;
     }
     return `${(bytes / (1024 * 1024)).toFixed(1)} ${t('common.unitMegabyte')}`;
+}
+
+function resolveEstimateLabel(subsample: number) {
+    switch (subsample) {
+        case 1:
+            return t('djvu.convertDialog.fullQuality');
+        case 2:
+            return t('djvu.convertDialog.goodQuality');
+        default:
+            return t('djvu.convertDialog.compact');
+    }
+}
+
+function resolveEstimateDescription(subsample: number) {
+    switch (subsample) {
+        case 1:
+            return t('djvu.convertDialog.original');
+        case 2:
+            return t('djvu.convertDialog.halfResolution');
+        default:
+            return t('djvu.convertDialog.quarterResolution');
+    }
 }
 
 watch(open, async (isOpen) => {

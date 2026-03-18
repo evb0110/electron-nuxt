@@ -240,17 +240,6 @@ export const useDjvu = () => {
                 pageCount, 
             });
 
-            // Set originalPath to DjVu source so the status bar shows
-            // the real file location instead of the /var temp path
-            setOriginalPath?.(djvuPath);
-
-            enterDjvuMode(djvuPath, initialPdfPath);
-            await loadPdfFromPath(initialPdfPath);
-
-            // loadPdfFromPath overwrites the window title with the temp filename;
-            // restore it to the DjVu source filename
-            await api.documents.setWindowTitle(djvuFileName);
-
             if (pageCount > 1) {
                 isLoadingPages.value = true;
                 loadingProgress.value = {
@@ -266,7 +255,7 @@ export const useDjvu = () => {
                         });
                         try {
                             const savedPage = getCurrentPage?.() ?? 1;
-                            const oldPath = djvuTempPdfPath.value;
+                            const oldPath = djvuTempPdfPath.value ?? initialPdfPath;
 
                             enterDjvuMode(djvuPath, event.pdfPath);
                             await loadPdfFromPath(event.pdfPath);
@@ -289,6 +278,17 @@ export const useDjvu = () => {
                     });
                 };
             }
+
+            // Set originalPath to DjVu source so the status bar shows
+            // the real file location instead of the /var temp path
+            setOriginalPath?.(djvuPath);
+
+            enterDjvuMode(djvuPath, initialPdfPath);
+            await loadPdfFromPath(initialPdfPath);
+
+            // loadPdfFromPath overwrites the window title with the temp filename;
+            // restore it to the DjVu source filename
+            await api.documents.setWindowTitle(djvuFileName);
         } catch (e) {
             resetViewingProgressState();
             throw e;

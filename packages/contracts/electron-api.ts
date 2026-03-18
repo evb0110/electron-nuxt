@@ -130,7 +130,7 @@ interface IPageOpsAPI {
     getPageGeometry: (workingCopyPath: TDocumentRef, pageNumber: number) => Promise<IPageGeometry>;
 }
 
-interface IDjvuProgress {
+export interface IDjvuProgress {
     jobId: string;
     phase: 'converting' | 'bookmarks' | 'loading';
     current?: number;
@@ -138,7 +138,7 @@ interface IDjvuProgress {
     percent: number;
 }
 
-interface IDjvuInfo {
+export interface IDjvuInfo {
     pageCount: number;
     sourceDpi: number;
     hasBookmarks: boolean;
@@ -146,7 +146,7 @@ interface IDjvuInfo {
     metadata: Record<string, string>;
 }
 
-interface IDjvuSizeEstimate {
+export interface IDjvuSizeEstimate {
     subsample: number;
     label: string;
     description: string;
@@ -174,13 +174,13 @@ interface IDjvuConvertResult {
     error?: string;
 }
 
-interface IDjvuViewingReadyEvent {
+export interface IDjvuViewingReadyEvent {
     pdfPath: TDocumentRef;
     isPartial: boolean;
     jobId?: string;
 }
 
-interface IDjvuViewingErrorEvent {
+export interface IDjvuViewingErrorEvent {
     error: string;
     jobId?: string;
 }

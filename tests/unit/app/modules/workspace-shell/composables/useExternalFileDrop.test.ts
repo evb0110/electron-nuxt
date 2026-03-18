@@ -82,20 +82,20 @@ describe('useExternalFileDrop', () => {
                 if (file.name === 'file-0') {
                     return '/docs/a.pdf';
                 }
-                return '/docs/b.png';
+                return '/docs/b.djvu';
             }) } },
         });
 
         useExternalFileDrop({ openPathInAppropriateTab });
         capturedListeners.drop?.(createDragEvent([
             '/docs/a.pdf',
-            '/docs/b.png',
+            '/docs/b.djvu',
         ]));
 
         await flushDropQueue();
 
         expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(1, '/docs/a.pdf');
-        expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(2, '/docs/b.png');
+        expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(2, '/docs/b.djvu');
     });
 
     it('ignores unsupported extensions and non-file drags', async () => {

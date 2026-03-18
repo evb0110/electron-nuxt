@@ -178,6 +178,22 @@ describe('usePdfFile', () => {
             expect(file.pdfSrc.value).toBeInstanceOf(Blob);
             expect(mockDocuments.openPdfDialog).toHaveBeenCalledOnce();
         });
+
+        it('keeps browser DjVu opens in the shared pending flow', async () => {
+            mockHasElectronAPI.mockReturnValue(false);
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'djvu',
+                originalPath: 'browser://documents/source/browser-open.djvu',
+            });
+
+            const file = usePdfFile();
+            await file.openFile();
+
+            expect(file.pendingDjvu.value).toBe(
+                'browser://documents/source/browser-open.djvu',
+            );
+            expect(file.error.value).toBeNull();
+        });
     });
 
     describe('openFileDirect', () => {
@@ -191,6 +207,24 @@ describe('usePdfFile', () => {
             await file.openFileDirect('/path/doc.djvu');
 
             expect(file.pendingDjvu.value).toBe('/path/doc.djvu');
+        });
+
+        it('keeps browser DjVu direct opens in the shared pending flow', async () => {
+            mockHasElectronAPI.mockReturnValue(false);
+            mockDocuments.openPdfDirect.mockResolvedValue({
+                kind: 'djvu',
+                originalPath: 'browser://documents/source/browser-open.djvu',
+            });
+
+            const file = usePdfFile();
+            await file.openFileDirect(
+                'browser://documents/source/browser-open.djvu',
+            );
+
+            expect(file.pendingDjvu.value).toBe(
+                'browser://documents/source/browser-open.djvu',
+            );
+            expect(file.error.value).toBeNull();
         });
 
         it('sets error when result is null', async () => {
@@ -330,7 +364,7 @@ describe('usePdfFile', () => {
             expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/a.pdf');
         });
 
-        it('skips cleanupFile when Electron API is unavailable', async () => {
+        it('still cleans up the working copy when Electron API is unavailable', async () => {
             const pdfBytes = new Uint8Array([1]);
             mockDocuments.openPdfDialog.mockResolvedValue({
                 kind: 'pdf',
@@ -345,7 +379,7 @@ describe('usePdfFile', () => {
             await file.openFile();
             await file.closeFile();
 
-            expect(mockDocuments.cleanupFile).not.toHaveBeenCalled();
+            expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/a.pdf');
         });
     });
 

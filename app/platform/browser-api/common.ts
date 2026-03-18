@@ -19,9 +19,14 @@ const SUPPORTED_IMAGE_EXTENSIONS = [
 
 const OPEN_IMAGE_ACCEPT = 'image/*';
 const OPEN_PDF_ACCEPT = '.pdf,application/pdf';
-const OPEN_INPUT_ACCEPT = [
+const OPEN_DJVU_ACCEPT = '.djvu,.djv';
+const OPEN_PDF_IMAGE_ACCEPT = [
     OPEN_PDF_ACCEPT,
     ...SUPPORTED_IMAGE_EXTENSIONS,
+].join(',');
+const OPEN_INPUT_ACCEPT = [
+    OPEN_PDF_IMAGE_ACCEPT,
+    OPEN_DJVU_ACCEPT,
 ].join(',');
 
 const EXPORT_RENDER_SCALE = 2;
@@ -132,6 +137,20 @@ function buildOpenPdfPickerTypes(): IFilePickerAcceptType[] {
         description: 'Documents',
         accept: {
             'application/pdf': ['.pdf'],
+            'application/octet-stream': [
+                '.djvu',
+                '.djv',
+            ],
+            'image/*': [...SUPPORTED_IMAGE_EXTENSIONS],
+        },
+    }];
+}
+
+function buildOpenPdfImagePickerTypes(): IFilePickerAcceptType[] {
+    return [{
+        description: 'Documents',
+        accept: {
+            'application/pdf': ['.pdf'],
             'image/*': [...SUPPORTED_IMAGE_EXTENSIONS],
         },
     }];
@@ -161,6 +180,7 @@ function buildDocxSaveTypes(): IFilePickerAcceptType[] {
 
 export {
     EXPORT_RENDER_SCALE,
+    OPEN_PDF_IMAGE_ACCEPT,
     OPEN_IMAGE_ACCEPT,
     OPEN_INPUT_ACCEPT,
     SEARCH_EXCERPT_CONTEXT_CHARS,
@@ -169,6 +189,7 @@ export {
     buildDocxSaveTypes,
     buildImagePickerTypes,
     buildOpenPdfPickerTypes,
+    buildOpenPdfImagePickerTypes,
     buildPdfSaveTypes,
     createPdfjsDocumentInit,
     ensureDocxExtension,
