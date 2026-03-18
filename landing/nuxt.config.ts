@@ -27,7 +27,10 @@ export default defineNuxtConfig({
         githubOwner: process.env.NUXT_GITHUB_OWNER || 'evb0110',
         githubRepo: process.env.NUXT_GITHUB_REPO || 'evb-viewer',
         githubToken: process.env.NUXT_GITHUB_TOKEN || '',
-        public: {siteUrl: process.env.NUXT_PUBLIC_SITE_URL || process.env.NUXT_SITE_URL || 'https://evb-viewer.vercel.app'},
+        public: {
+            siteUrl: process.env.NUXT_PUBLIC_SITE_URL || process.env.NUXT_SITE_URL || 'https://evb-viewer.vercel.app',
+            webAppUrl: process.env.NUXT_PUBLIC_WEB_APP_URL || 'https://evb-viewer-web.vercel.app',
+        },
     },
 
     routeRules: {
@@ -54,6 +57,7 @@ export default defineNuxtConfig({
         'lucide:arrow-right',
         'lucide:download',
         'lucide:file-stack',
+        'lucide:globe',
         'lucide:folder-output',
         'lucide:layout-panel-left',
         'lucide:list',

@@ -1,7 +1,14 @@
 import { plural } from '@i18n-core';
 
 export default {
-    'app': {'title': 'EVB Viewer'},
+    'app': {
+        'title': 'EVB Viewer',
+        'webTitle': 'EVB Viewer Web',
+    },
+    'webApp': {
+        'installDesktop': 'Desktop-app installeren',
+        'dismissInstallDesktop': 'Hint voor installatie van de desktop-app sluiten',
+    },
     'toolbar': {
         'openPdf': 'Bestand openen',
         'save': 'Opslaan',

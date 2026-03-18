@@ -32,6 +32,8 @@ export default {
             downloadForArch: 'Скачать для {platform} ({arch})',
             openLatestRelease: 'Открыть последний релиз',
             browseInstallers: 'Все установщики',
+            useWebApp: 'Не хотите устанавливать? Используйте веб-приложение.',
+            openInBrowser: 'Открыть в браузере',
             detectionUnavailable: 'Автоматическое определение платформы недоступно. Выберите установщик ниже.',
             suggestedDevice: 'Рекомендовано для вашего устройства: {installerLabel}',
             published: 'Опубликовано {date}',

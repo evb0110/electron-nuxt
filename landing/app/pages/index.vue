@@ -37,6 +37,19 @@
             icon="i-lucide-list"
             @click="scrollToInstallers"
           />
+
+          <UButton
+            v-if="webAppUrl"
+            :label="t('home.hero.openInBrowser')"
+            :to="webAppUrl"
+            target="_blank"
+            rel="noreferrer"
+            color="neutral"
+            variant="link"
+            size="xl"
+            icon="i-lucide-globe"
+            class="hero-web-app-link"
+          />
         </div>
 
         <p class="hero-hint">
@@ -238,6 +251,7 @@ const runtimeConfig = useRuntimeConfig();
 
 const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
+const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
 const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
 const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, '/evb-viewer-preview.png'));
 const pageDescription = computed(() => t('home.seo.ogDescription'));

@@ -1,5 +1,33 @@
 <template>
-    <div class="h-screen min-w-0 flex flex-col bg-[var(--app-window-bg)]">
+    <div class="app-shell-root h-screen min-w-0 flex flex-col bg-[var(--app-window-bg)]">
+        <Transition name="install-hint">
+            <div v-if="showBrowserInstallHint" class="browser-install-hint">
+                <UIcon name="i-lucide-monitor-down" class="browser-install-icon" />
+                <UButton
+                    :to="browserInstallUrl"
+                    target="_blank"
+                    rel="noreferrer"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    trailing-icon="i-lucide-arrow-up-right"
+                    class="browser-install-link"
+                >
+                    {{ t('webApp.installDesktop') }}
+                </UButton>
+                <span class="browser-install-divider" />
+                <UButton
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    icon="i-lucide-x"
+                    class="browser-install-dismiss"
+                    :aria-label="t('webApp.dismissInstallDesktop')"
+                    @click="dismissBrowserInstallHint"
+                />
+            </div>
+        </Transition>
+
         <div class="editor-global-toolbar-shell">
             <FallbackWorkspaceToolbar
                 v-show="showFallbackToolbar"
@@ -94,7 +122,9 @@
 <script setup lang="ts">
 import SettingsDialog from '@app/components/SettingsDialog.vue';
 import { guardAsync } from '@app/utils/async-guard';
+import { formatBrowserPageTitle } from '@app/utils/browser-page-title';
 import { traceRendererStartup } from '@app/utils/startup-trace';
+import { syncBrowserWindowTitle } from '@app/platform/browser-window-tabs';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
 import EditorGroupsHost from '@app/modules/workspace-shell/components/EditorGroupsHost.vue';
@@ -118,6 +148,7 @@ import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import { hasElectronAPI } from '@app/utils/platform';
 
 traceRendererStartup('index.vue script setup start');
 
@@ -147,8 +178,12 @@ const {
 const { t } = useTypedI18n();
 const showSettings = ref(false);
 const chromeHostsReady = ref(false);
+const isBrowserRuntime = !hasElectronAPI();
+const runtimeConfig = useRuntimeConfig();
+const browserInstallHintDismissed = ref(false);
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
+const BROWSER_INSTALL_HINT_STORAGE_KEY = 'evb-viewer:web-install-hint-dismissed';
 const {
     checkForUpdates,
     closeDialog: closeUpdatesDialog,
@@ -174,6 +209,11 @@ const {
     waitForWorkspace,
     workspaceRefs,
 } = useWorkspaceRefRegistry({ activeTabId });
+const activeTab = computed(() => (
+    activeTabId.value
+        ? getTabById(activeTabId.value)
+        : null
+));
 const hasTeleportedToolbarContentState = shallowRef(false);
 const {
     isTabTransitionBusy,
@@ -378,6 +418,63 @@ const {
     loadRecentFiles,
     clearRecentFiles,
 } = useRecentFiles();
+const browserInstallUrl = computed(() => {
+    if (!isBrowserRuntime) {
+        return undefined;
+    }
+
+    const url = typeof runtimeConfig.public.landingUrl === 'string'
+        ? runtimeConfig.public.landingUrl.trim()
+        : '';
+    return url || undefined;
+});
+const showBrowserInstallHint = computed(() => (
+    Boolean(browserInstallUrl.value)
+    && !browserInstallHintDismissed.value
+));
+
+const browserPageTitle = computed(() => formatBrowserPageTitle({
+    appName: t('app.webTitle'),
+    fileName: activeTab.value?.fileName ?? null,
+}));
+
+function dismissBrowserInstallHint() {
+    browserInstallHintDismissed.value = true;
+
+    if (!import.meta.client || !isBrowserRuntime || typeof window === 'undefined') {
+        return;
+    }
+
+    window.localStorage.setItem(BROWSER_INSTALL_HINT_STORAGE_KEY, '1');
+}
+
+watch(browserPageTitle, (nextTitle) => {
+    if (!import.meta.client || !isBrowserRuntime || typeof document === 'undefined') {
+        return;
+    }
+
+    if (document.title === nextTitle) {
+        return;
+    }
+
+    document.title = nextTitle;
+    syncBrowserWindowTitle();
+}, { immediate: true });
+
+const BROWSER_INSTALL_HINT_AUTO_DISMISS_MS = 60_000;
+
+onMounted(() => {
+    if (!isBrowserRuntime || typeof window === 'undefined') {
+        return;
+    }
+
+    browserInstallHintDismissed.value = window.localStorage.getItem(BROWSER_INSTALL_HINT_STORAGE_KEY) === '1';
+
+    if (!browserInstallHintDismissed.value) {
+        const timer = window.setTimeout(dismissBrowserInstallHint, BROWSER_INSTALL_HINT_AUTO_DISMISS_MS);
+        onScopeDispose(() => window.clearTimeout(timer));
+    }
+});
 
 useTabsShellBindings({
     tabs,
@@ -431,11 +528,94 @@ useAppShellLifecycle({
 </script>
 
 <style scoped>
+.app-shell-root {
+    position: relative;
+}
+
+.browser-install-hint {
+    position: fixed;
+    top: 0.8rem;
+    right: 1rem;
+    z-index: 35;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: fit-content;
+    max-width: calc(100vw - 2rem);
+    padding: 0.25rem 0.25rem 0.25rem 0.5rem;
+    border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, var(--ui-border) 82%);
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--ui-bg) 90%, var(--ui-primary) 10%);
+    box-shadow:
+        0 1px 3px color-mix(in srgb, var(--ui-border) 14%, transparent),
+        0 8px 20px color-mix(in srgb, var(--ui-border) 12%, transparent);
+    backdrop-filter: blur(12px);
+}
+
+.browser-install-icon {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    color: var(--ui-primary);
+}
+
+.browser-install-link {
+    min-width: 0;
+    max-width: 100%;
+    color: var(--ui-text-muted);
+}
+
+.browser-install-link:hover {
+    color: var(--ui-text);
+}
+
+.browser-install-divider {
+    width: 1px;
+    height: 14px;
+    background: var(--ui-border);
+    flex: 0 0 auto;
+}
+
+.browser-install-dismiss {
+    flex: 0 0 auto;
+    color: var(--ui-text-dimmed);
+}
+
+.browser-install-dismiss:hover {
+    color: var(--ui-text);
+}
+
+.install-hint-enter-active {
+    transition: all 0.3s ease-out;
+}
+
+.install-hint-leave-active {
+    transition: all 0.2s ease-in;
+}
+
+.install-hint-enter-from {
+    opacity: 0;
+    transform: translateY(-6px);
+}
+
+.install-hint-leave-to {
+    opacity: 0;
+    transform: translateY(-4px);
+}
+
 .editor-global-toolbar-shell,
 .editor-global-toolbar-host,
 .editor-global-status-host {
     display: flex;
     flex-direction: column;
     min-height: 0;
+}
+
+@media (width <= 900px) {
+    .browser-install-hint {
+        top: auto;
+        right: 0.75rem;
+        bottom: 0.75rem;
+    }
 }
 </style>

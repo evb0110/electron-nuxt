@@ -119,6 +119,12 @@ export default defineNuxtConfig({
         '@release-selection': fileURLToPath(new URL('./packages/release-selection', import.meta.url)),
     },
 
+    runtimeConfig: {
+        public: {
+            landingUrl: process.env.NUXT_PUBLIC_LANDING_URL || 'https://evb-viewer.vercel.app',
+        },
+    },
+
     sourcemap: {
         server: false,
         client: false,
@@ -181,6 +187,7 @@ export default defineNuxtConfig({
             'lucide:message-square',
             'lucide:message-square-plus',
             'lucide:monitor',
+            'lucide:monitor-down',
             'lucide:moon',
             'lucide:move-horizontal',
             'lucide:move-vertical',

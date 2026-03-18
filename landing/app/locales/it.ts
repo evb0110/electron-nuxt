@@ -32,6 +32,8 @@ export default {
             downloadForArch: 'Scarica per {platform} ({arch})',
             openLatestRelease: 'Apri l\'ultima release',
             browseInstallers: 'Sfoglia tutti gli installer',
+            useWebApp: 'Preferisci non installare nulla? Usa l\'app web.',
+            openInBrowser: 'Apri nel browser',
             detectionUnavailable: 'Il rilevamento automatico della piattaforma non è disponibile. Scegli un installer qui sotto.',
             suggestedDevice: 'Consigliato per il tuo dispositivo: {installerLabel}',
             published: 'Pubblicato il {date}',
