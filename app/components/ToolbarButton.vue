@@ -64,7 +64,7 @@ const tooltipText = computed(() => shortcut.trim()
 }
 
 .toolbar-btn.is-toggle {
-    color: var(--app-toolbar-control-inactive-fg);
+    color: var(--ui-text);
 }
 
 .toolbar-btn.is-grouped {
