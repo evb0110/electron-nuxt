@@ -179,6 +179,28 @@ describe('usePdfFile', () => {
             expect(mockDocuments.openPdfDialog).toHaveBeenCalledOnce();
         });
 
+        it('decodes double-encoded browser PDF names for display', async () => {
+            const pdfBytes = new Uint8Array([
+                0x25,
+                0x50,
+                0x44,
+                0x46,
+            ]);
+            mockHasElectronAPI.mockReturnValue(false);
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: 'browser://documents/source/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.pdf',
+                workingPath: 'browser://documents/working/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.pdf',
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: pdfBytes.length });
+            mockDocuments.readFile.mockResolvedValue(pdfBytes.buffer);
+
+            const file = usePdfFile();
+            await file.openFile();
+
+            expect(file.fileName.value).toBe('Глава.pdf');
+        });
+
         it('keeps browser DjVu opens in the shared pending flow', async () => {
             mockHasElectronAPI.mockReturnValue(false);
             mockDocuments.openPdfDialog.mockResolvedValue({

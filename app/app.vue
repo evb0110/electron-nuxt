@@ -53,7 +53,10 @@ const {
     load: loadSettings,
     settings,
 } = useSettings();
-const { loadRecentFiles } = useRecentFiles();
+const {
+    loadRecentFiles,
+    isResolved: recentFilesResolved,
+} = useRecentFiles();
 const {
     t,
     setLocale,
@@ -83,7 +86,9 @@ async function preloadStartupContent() {
 
     const warmupTasks: Array<Promise<unknown>> = [import('@app/modules/workspace-shell/components/DocumentWorkspace.vue')];
 
-    warmupTasks.push(loadRecentFiles());
+    if (hasElectronAPI() || !recentFilesResolved.value) {
+        warmupTasks.push(loadRecentFiles());
+    }
 
     const results = await Promise.allSettled(warmupTasks);
     BrowserLogger.debug('loader', 'Startup content warmup settled', {

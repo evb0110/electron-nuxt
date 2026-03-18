@@ -1,5 +1,23 @@
 import type { TDocumentRef } from '@contracts/platform-api';
 
+function decodeUriComponentRepeatedly(value: string, maxPasses = 3) {
+    let decoded = value;
+
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+        try {
+            const nextDecoded = decodeURIComponent(decoded);
+            if (nextDecoded === decoded) {
+                break;
+            }
+            decoded = nextDecoded;
+        } catch {
+            break;
+        }
+    }
+
+    return decoded;
+}
+
 export function isBrowserDocumentRef(documentRef: TDocumentRef | null | undefined) {
     return typeof documentRef === 'string' && documentRef.startsWith('browser://');
 }
@@ -15,7 +33,7 @@ export function getDocumentRefBaseName(documentRef: TDocumentRef | null | undefi
     }
 
     try {
-        return decodeURIComponent(segment);
+        return decodeUriComponentRepeatedly(segment);
     } catch {
         return segment;
     }
@@ -31,4 +49,8 @@ export function getDocumentRefDisplayLabel(documentRef: TDocumentRef | null | un
     }
 
     return documentRef;
+}
+
+export function decodeDocumentRefSegment(segment: string) {
+    return decodeUriComponentRepeatedly(segment);
 }

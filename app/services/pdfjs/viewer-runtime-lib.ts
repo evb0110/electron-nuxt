@@ -1,0 +1,15 @@
+import { ensurePdfjsSsrGlobals } from '@app/services/pdfjs/ssr-polyfills';
+import pdfjsLib from '@app/services/pdfjs/runtime-lib';
+
+ensurePdfjsSsrGlobals();
+
+(globalThis as typeof globalThis & { pdfjsLib?: typeof pdfjsLib }).pdfjsLib = pdfjsLib;
+
+const pdfjsViewerLib = await import('pdfjs-dist/web/pdf_viewer.mjs');
+
+export default pdfjsViewerLib;
+
+export const {
+    EventBus,
+    GenericL10n,
+} = pdfjsViewerLib;

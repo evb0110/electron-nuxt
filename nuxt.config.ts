@@ -255,6 +255,8 @@ export default defineNuxtConfig({
             'lucide:file-plus',
             'lucide:rotate-cw',
             'lucide:rotate-ccw',
+            'lucide:expand',
+            'lucide:shrink',
         ]},
     },
 

@@ -49,6 +49,7 @@ interface IWorkspaceInteractionControlsOptions {
     openAnnotations: () => void;
     handleAnnotationToolChange: (tool: TAnnotationTool) => void;
     handleSave: () => Promise<void>;
+    handleToggleSidebar: () => void;
     handleDropdownOpenChange: (
         dropdown: 'zoom' | 'page' | 'ocr' | 'overflow',
         isOpen: boolean,
@@ -125,10 +126,7 @@ export function useWorkspaceInteractionControls(options: IWorkspaceInteractionCo
         pdfSrc,
     });
 
-    const {
-        setupShortcuts,
-        cleanupShortcuts,
-    } = usePageShortcuts({
+    usePageShortcuts({
         isActive,
         pdfSrc,
         showSettings,
@@ -156,6 +154,7 @@ export function useWorkspaceInteractionControls(options: IWorkspaceInteractionCo
         handleSave: () => {
             void handleSave();
         },
+        handleToggleSidebar: options.handleToggleSidebar,
     });
 
     const isCapturingRegion = computed(() => pdfViewerRef.value?.isCapturingRegion ?? false);
@@ -210,8 +209,6 @@ export function useWorkspaceInteractionControls(options: IWorkspaceInteractionCo
     });
 
     return {
-        setupShortcuts,
-        cleanupShortcuts,
         isCapturingRegion,
         handleCaptureRegion,
         cropDialogOpen,

@@ -123,6 +123,7 @@ import type {
     TPdfViewMode,
 } from '@contracts/shared';
 import { ZOOM } from '@app/constants/pdf-layout';
+import { getShortcutLabels } from '@app/constants/shortcuts';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 
 const { t } = useTypedI18n();
@@ -169,15 +170,7 @@ const effectiveCompactLevel = computed(() => {
 });
 
 const showStepButtons = computed(() => effectiveCompactLevel.value < 1);
-const shortcutModifier = computed(() => (
-    typeof navigator !== 'undefined' && /mac/i.test(navigator.platform)
-        ? 'Cmd'
-        : 'Ctrl'
-));
-const shortcutLabels = computed(() => ({
-    zoomIn: `${shortcutModifier.value}+=`,
-    zoomOut: `${shortcutModifier.value}+-`,
-}));
+const shortcutLabels = getShortcutLabels();
 
 function normalizeZoomLevel(value: number) {
     if (!Number.isFinite(value)) {

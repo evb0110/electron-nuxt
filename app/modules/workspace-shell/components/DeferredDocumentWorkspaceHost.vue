@@ -2,7 +2,7 @@
     <div class="workspace-host">
         <component
             :is="DocumentWorkspace"
-            v-if="workspaceRequested"
+            v-if="workspaceRequested && DocumentWorkspace"
             :key="workspaceRenderKey"
             ref="workspaceRef"
             :tab-id="tabId"
@@ -18,6 +18,7 @@
         <div v-else class="workspace-host__placeholder">
             <PdfEmptyState
                 :recent-files="recentFiles"
+                :recent-files-resolved="isResolved"
                 :open-batch-progress="null"
                 @open-file="handleOpenFileFromUi"
                 @open-recent="handleOpenRecentFromPlaceholder"
@@ -104,34 +105,36 @@ const workspaceChunkLoadError = ref<unknown>(null);
 const workspaceRenderNonce = ref(0);
 const chunkRetryTimers = new Set<ReturnType<typeof setTimeout>>();
 
-const DocumentWorkspace = defineAsyncComponent({
-    loader: loadDocumentWorkspace,
-    suspensible: false,
-    onError: (error, retry, fail, attempts) => {
-        BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'DocumentWorkspace async chunk load failed', {
-            tabId: props.tabId,
-            attempts,
-            error,
-        });
+const DocumentWorkspace = import.meta.client
+    ? defineAsyncComponent({
+        loader: loadDocumentWorkspace,
+        suspensible: false,
+        onError: (error, retry, fail, attempts) => {
+            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'DocumentWorkspace async chunk load failed', {
+                tabId: props.tabId,
+                attempts,
+                error,
+            });
 
-        if (shouldRetryAsyncChunkLoad({
-            attempts,
-            error,
-            isDev: import.meta.dev,
-        })) {
-            const retryDelayMs = attempts * 150;
-            const retryTimer = setTimeout(() => {
-                chunkRetryTimers.delete(retryTimer);
-                retry();
-            }, retryDelayMs);
-            chunkRetryTimers.add(retryTimer);
-            return;
-        }
+            if (shouldRetryAsyncChunkLoad({
+                attempts,
+                error,
+                isDev: import.meta.dev,
+            })) {
+                const retryDelayMs = attempts * 150;
+                const retryTimer = setTimeout(() => {
+                    chunkRetryTimers.delete(retryTimer);
+                    retry();
+                }, retryDelayMs);
+                chunkRetryTimers.add(retryTimer);
+                return;
+            }
 
-        workspaceChunkLoadError.value = error;
-        fail();
-    },
-});
+            workspaceChunkLoadError.value = error;
+            fail();
+        },
+    })
+    : null;
 
 const workspaceRequested = ref(false);
 const workspaceRef = ref<unknown>(null);
@@ -145,6 +148,7 @@ const WORKSPACE_MOUNT_RETRY_TIMEOUT_MS = 20_000;
 
 const {
     recentFiles,
+    isResolved,
     loadRecentFiles,
     removeRecentFile,
     clearRecentFiles,

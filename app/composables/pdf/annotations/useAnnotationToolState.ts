@@ -1,8 +1,8 @@
 import {
     AnnotationEditorParamsType,
     AnnotationEditorType,
-    type AnnotationEditorUIManager,
-} from 'pdfjs-dist';
+} from '@app/services/pdfjs/runtime-lib';
+import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     Ref,
     ShallowRef,

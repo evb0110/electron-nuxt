@@ -1,4 +1,4 @@
-import { PDFDateString } from 'pdfjs-dist';
+import { PDFDateString } from '@app/services/pdfjs/runtime-lib';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,

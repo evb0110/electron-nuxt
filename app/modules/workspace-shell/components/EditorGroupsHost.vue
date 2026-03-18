@@ -1,7 +1,7 @@
 <template>
     <div class="flex-1 min-h-0 min-w-0">
         <EditorGroupsGrid
-            v-if="layout && chromeHostsReady"
+            v-if="layout"
             :node="layout"
             :groups="groups"
             :tabs="tabs"
@@ -45,7 +45,6 @@ defineOptions({ name: 'EditorGroupsHost' });
 
 defineProps<{
     layout: TEditorLayoutNode | null;
-    chromeHostsReady: boolean;
     groups: IEditorGroupState[];
     tabs: ITab[];
     activeGroupId: string | null;

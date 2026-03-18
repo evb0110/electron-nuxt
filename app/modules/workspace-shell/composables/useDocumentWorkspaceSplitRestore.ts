@@ -32,8 +32,6 @@ interface IUseDocumentWorkspaceSplitRestoreOptions {
     zoom: Ref<number>;
     pdfViewerRef: Ref<{ getViewerContainer?: () => HTMLElement | null; } | null>;
     initFromStorage: () => void;
-    setupShortcuts: () => void;
-    cleanupShortcuts: () => void;
     cleanupSidebarResizeListeners: () => void;
     captureSplitPayload: () => Promise<TSplitPayload>;
     restoreSplitPayload: (payload: TSplitPayload) => Promise<void>;
@@ -152,7 +150,6 @@ export function useDocumentWorkspaceSplitRestore(options: IUseDocumentWorkspaceS
 
     onMounted(() => {
         options.initFromStorage();
-        options.setupShortcuts();
     });
 
     watch(
@@ -303,7 +300,6 @@ export function useDocumentWorkspaceSplitRestore(options: IUseDocumentWorkspaceS
     onUnmounted(() => {
         options.clearSidebarToggleCheckpointTimers();
         options.cleanupSidebarResizeListeners();
-        options.cleanupShortcuts();
     });
 
     return {

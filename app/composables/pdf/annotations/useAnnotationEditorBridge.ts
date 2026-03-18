@@ -2,11 +2,14 @@ import {
     AnnotationEditorParamsType,
     AnnotationEditorUIManager,
     PixelsPerInch,
-} from 'pdfjs-dist';
+} from '@app/services/pdfjs/runtime-lib';
 import {
     EventBus,
     GenericL10n,
-} from 'pdfjs-dist/web/pdf_viewer.mjs';
+} from '@app/services/pdfjs/viewer-runtime-lib';
+import type { AnnotationEditorUIManager as TAnnotationEditorUIManager } from 'pdfjs-dist';
+import type { EventBus as TEventBus } from 'pdfjs-dist/types/web/event_utils';
+import type { GenericL10n as TGenericL10n } from 'pdfjs-dist/types/web/genericl10n';
 import type {
     Ref,
     ShallowRef,
@@ -37,11 +40,11 @@ import {
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { runGuardedTask } from '@app/utils/async-guard';
 
-type TEditorParamType = Parameters<AnnotationEditorUIManager['updateParams']>[0];
-type TEditorParamValue = Parameters<AnnotationEditorUIManager['updateParams']>[1];
+type TEditorParamType = Parameters<TAnnotationEditorUIManager['updateParams']>[0];
+type TEditorParamValue = Parameters<TAnnotationEditorUIManager['updateParams']>[1];
 
 function toEditorParamValue(value: unknown): TEditorParamValue {
-    return value as TEditorParamValue;
+    return value;
 }
 
 const DEFAULT_PDFJS_HIGHLIGHT_COLORS =
@@ -54,8 +57,8 @@ interface IEditorBridgeDeps {
     currentPage: Ref<number>;
     effectiveScale: Ref<number>;
     annotationTool: Ref<TAnnotationTool>;
-    annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
-    annotationL10n: ShallowRef<GenericL10n | null>;
+    annotationUiManager: ShallowRef<TAnnotationEditorUIManager | null>;
+    annotationL10n: ShallowRef<TGenericL10n | null>;
     getIdentity: () => {
         getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
         hydrateSummaryFromMemory: (s: IAnnotationCommentSummary) => IAnnotationCommentSummary;
@@ -78,7 +81,7 @@ interface IEditorBridgeDeps {
     getMarkupSubtype: () => {
         TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
         shouldForceTextMarkup: (tool: TAnnotationTool) => boolean;
-        applyHighlightParamsForTool: (mgr: AnnotationEditorUIManager, s: IAnnotationSettings, t: TAnnotationTool) => void;
+        applyHighlightParamsForTool: (mgr: TAnnotationEditorUIManager, s: IAnnotationSettings, t: TAnnotationTool) => void;
         resolveEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number) => TMarkupSubtype | null;
         resolveEditorSubtypeFromPresentation: (e: IPdfjsEditor) => TMarkupSubtype | null;
         setEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number, s: TMarkupSubtype) => void;
@@ -88,7 +91,7 @@ interface IEditorBridgeDeps {
     };
     getFreeTextResize: () => {
         ensureFreeTextEditorCanResize: (editor: IPdfjsEditor) => void;
-        patchResizableFreeTextEditors: (mgr: AnnotationEditorUIManager) => void;
+        patchResizableFreeTextEditors: (mgr: TAnnotationEditorUIManager) => void;
     };
     emitAnnotationModified: () => void;
     emitAnnotationState: (state: IAnnotationEditorState) => void;
@@ -115,7 +118,7 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
         emitAnnotationOpenNote,
     } = deps;
 
-    const annotationEventBus = shallowRef<EventBus | null>(null);
+    const annotationEventBus = shallowRef<TEventBus | null>(null);
     const annotationState = ref<IAnnotationEditorState>({
         isEditing: false,
         isEmpty: true,
@@ -228,7 +231,7 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
 
         return {
             dialogElement,
-            setSidebarUiManager: (_uiManager: AnnotationEditorUIManager) => {},
+            setSidebarUiManager: (_uiManager: TAnnotationEditorUIManager) => {},
             destroyPopup: () => {},
             showSidebar: () => {},
             hideSidebar: () => {},
@@ -290,7 +293,7 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
     }
 
     function syncSelectedEditorParamToDefaults(
-        uiManager: AnnotationEditorUIManager,
+        uiManager: TAnnotationEditorUIManager,
         type: TEditorParamType,
         value: TEditorParamValue,
     ) {

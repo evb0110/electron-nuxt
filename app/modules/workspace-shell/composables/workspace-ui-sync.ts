@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { clamp } from 'es-toolkit/math';
+import { getDocumentRefBaseName } from '@app/utils/document-ref';
 
 interface IWorkspaceWindowTitleState {
     isDjvuMode: boolean;
@@ -54,7 +55,7 @@ function getBaseName(path: TDocumentRef | null) {
     if (!path) {
         return null;
     }
-    return path.split(/[\\/]/).pop() ?? null;
+    return getDocumentRefBaseName(path);
 }
 
 export function resolveWorkspaceWindowTitle(state: IWorkspaceWindowTitleState) {

@@ -1,4 +1,4 @@
-import { TextLayer } from 'pdfjs-dist';
+import { TextLayer } from '@app/services/pdfjs/runtime-lib';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { MaybeRefOrGetter } from 'vue';
 import type {
