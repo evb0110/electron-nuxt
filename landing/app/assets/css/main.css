@@ -237,6 +237,14 @@ a {
   color: color-mix(in srgb, var(--landing-muted) 92%, var(--color-blue-700) 8%);
 }
 
+.hero-web-app-link {
+  color: var(--landing-muted) !important;
+}
+
+.hero-web-app-link:hover {
+  color: var(--landing-ink) !important;
+}
+
 .release-meta {
   margin: 0.55rem 0 0;
   font-family: var(--font-mono);

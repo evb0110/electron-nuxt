@@ -32,6 +32,8 @@ export default {
             downloadForArch: 'Downloaden voor {platform} ({arch})',
             openLatestRelease: 'Laatste release openen',
             browseInstallers: 'Alle installatieprogramma\'s bekijken',
+            useWebApp: 'Liever niets installeren? Gebruik de web-app.',
+            openInBrowser: 'Openen in browser',
             detectionUnavailable: 'Automatische platformdetectie is niet beschikbaar. Kies hieronder een installatieprogramma.',
             suggestedDevice: 'Aanbevolen voor uw apparaat: {installerLabel}',
             published: 'Gepubliceerd op {date}',
