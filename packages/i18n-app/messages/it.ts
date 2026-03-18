@@ -9,6 +9,16 @@ export default {
         'installDesktop': 'Installa l’app desktop',
         'dismissInstallDesktop': 'Nascondi il suggerimento per installare l’app desktop',
     },
+    'seo': {
+        'title': 'EVB Viewer Web',
+        'description': 'Apri PDF, file DjVu e immagini comuni direttamente nel browser. Cerca, annota, riordina le pagine ed esporta documenti senza installare l’app desktop.',
+        'heading': 'Apri i documenti direttamente nel browser',
+        'lede': 'EVB Viewer Web mantiene l’attenzione sul documento e allo stesso tempo offre ai motori di ricerca e alle anteprime dei link una vera pagina indicizzabile.',
+        'featurePdf': 'Apri PDF, file DjVu e immagini comuni senza uscire dal browser.',
+        'featureAnnotate': 'Cerca, annota, riordina, ruota, ritaglia ed esporta documenti in un unico spazio di lavoro.',
+        'featureDesktop': 'Hai bisogno di OCR o di un’integrazione di sistema più profonda? Installa l’app desktop quando vuoi.',
+        'previewAlt': 'Anteprima dell’area di lavoro di EVB Viewer Web',
+    },
     'toolbar': {
         'openPdf': 'Apri file',
         'save': 'Salva',
@@ -34,6 +44,7 @@ export default {
         'captureCopied': 'Copiato',
         'crop': 'Ritaglia pagine',
         'cropHint': 'Trascina per selezionare l’area di ritaglio. Esc per annullare.',
+        'fullscreen': 'Schermo intero',
     },
     'tabs': {
         'newTab': 'Nuova scheda',

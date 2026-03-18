@@ -85,7 +85,7 @@ export default defineNuxtConfig({
         '~/assets/css/main.css',
     ],
 
-    ssr: false,
+    ssr: true,
 
     // Disable SPA loading template - causes jerky size changes due to scrollbar appearance
     spaLoadingTemplate: false,
@@ -122,7 +122,14 @@ export default defineNuxtConfig({
     runtimeConfig: {
         public: {
             landingUrl: process.env.NUXT_PUBLIC_LANDING_URL || 'https://evb-viewer.vercel.app',
+            siteUrl: process.env.NUXT_PUBLIC_SITE_URL || 'https://evb-viewer-web.vercel.app',
         },
+    },
+
+    routeRules: {
+        '/': { prerender: true },
+        '/robots.txt': { prerender: true },
+        '/sitemap.xml': { prerender: true },
     },
 
     sourcemap: {

@@ -1,7 +1,7 @@
 import type { IDocumentsCapability } from '@contracts/platform-api';
 import {
-    OPEN_INPUT_ACCEPT,
-    buildOpenPdfPickerTypes,
+    OPEN_PDF_IMAGE_ACCEPT,
+    buildOpenPdfImagePickerTypes,
 } from '@app/platform/browser-api/common';
 import {
     createBrowserDocumentsFileCapability,
@@ -27,9 +27,9 @@ export function createBrowserDocumentsCapability(
         ...browserDocumentsMenuCapability,
         pageOps: createBrowserPageOps({
             clearSearchCaches: options.clearSearchCaches,
-            openInputAccept: OPEN_INPUT_ACCEPT,
+            openInputAccept: OPEN_PDF_IMAGE_ACCEPT,
             pickFiles,
-            buildOpenPdfPickerTypes,
+            buildOpenPdfPickerTypes: buildOpenPdfImagePickerTypes,
             createCombinedPdfFromPaths,
             saveBytesToPickerOrDownload,
         }),

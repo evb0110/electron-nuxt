@@ -442,7 +442,7 @@ const canTeleportStatus = computed(() => (
 ));
 const hasDesktopRuntime = hasElectronAPI();
 const canUseOcr = hasDesktopRuntime;
-const canUseDjvu = hasDesktopRuntime;
+const canUseDjvu = true;
 
 const emit = defineEmits<{
     'update-tab': [updates: TTabUpdate];
@@ -657,8 +657,6 @@ const {
     openRecentFile,
     captureSplitPayload,
     restoreSplitPayload,
-    setupShortcuts,
-    cleanupShortcuts,
     sidebarWidth,
     sidebarWrapperStyle,
     isResizingSidebar,
@@ -788,8 +786,6 @@ const {
     zoom,
     pdfViewerRef,
     initFromStorage,
-    setupShortcuts,
-    cleanupShortcuts,
     cleanupSidebarResizeListeners,
     captureSplitPayload,
     restoreSplitPayload,

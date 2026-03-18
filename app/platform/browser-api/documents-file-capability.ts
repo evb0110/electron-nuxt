@@ -470,13 +470,23 @@ async function openDocumentPaths(paths: string[]) {
         return null;
     }
 
-    const firstFileName = getBrowserDocumentFileName(normalizedPaths[0]!);
-    if (
-        normalizedPaths.some((path) =>
-            isDjvuFileName(getBrowserDocumentFileName(path)),
-        )
-    ) {
-        return null;
+    const firstPath = normalizedPaths[0]!;
+    const firstFileName = getBrowserDocumentFileName(firstPath);
+    const djvuPaths = normalizedPaths.filter((path) =>
+        isDjvuFileName(getBrowserDocumentFileName(path)),
+    );
+
+    if (djvuPaths.length > 0) {
+        if (normalizedPaths.length !== 1 || djvuPaths.length !== 1) {
+            return null;
+        }
+
+        await browserDocumentStore.touchRecentFile(firstPath);
+        return {
+            kind: 'djvu',
+            workingPath: '',
+            originalPath: firstPath,
+        } satisfies TOpenFileResult;
     }
 
     if (normalizedPaths.length === 1 && isPdfFileName(firstFileName)) {
@@ -786,11 +796,6 @@ export function createBrowserDocumentsFileCapability(
                 const validatedFiles: IRecentFile[] = [];
 
                 for (const file of recentFiles) {
-                    if (isDjvuFileName(getBrowserDocumentFileName(file.originalPath))) {
-                        browserDocumentStore.removeRecentFile(file.originalPath);
-                        continue;
-                    }
-
                     if (await browserDocumentStore.exists(file.originalPath)) {
                         validatedFiles.push(file);
                         continue;
@@ -802,10 +807,6 @@ export function createBrowserDocumentsFileCapability(
                 return validatedFiles;
             },
             async add(path) {
-                if (isDjvuFileName(getBrowserDocumentFileName(path))) {
-                    return;
-                }
-
                 await browserDocumentStore.touchRecentFile(path);
             },
             remove(path) {
