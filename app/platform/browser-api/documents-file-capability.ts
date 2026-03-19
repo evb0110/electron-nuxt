@@ -33,6 +33,7 @@ import {
     toArrayBuffer,
 } from '@app/platform/browser-api/common';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/common';
+import { stripPdfEncryption } from '@app/utils/pdf-decrypt';
 
 interface IPickedBrowserFile {
     file: File;
@@ -454,6 +455,18 @@ export async function createCombinedPdfFromPaths(paths: string[]) {
     return new Uint8Array(await pdfDocument.save());
 }
 
+async function decryptBrowserWorkingCopy(workingPath: string): Promise<void> {
+    try {
+        const bytes = await browserDocumentStore.read(workingPath);
+        const decrypted = await stripPdfEncryption(bytes);
+        if (decrypted !== bytes) {
+            await browserDocumentStore.write(workingPath, new Uint8Array(decrypted));
+        }
+    } catch {
+        // Decryption failed — keep the original encrypted working copy
+    }
+}
+
 async function openDocumentPaths(paths: string[]) {
     const normalizedPaths = paths
         .filter((path) => typeof path === 'string')
@@ -487,6 +500,7 @@ async function openDocumentPaths(paths: string[]) {
         const sourcePath = normalizedPaths[0]!;
         const workingPath =
             await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
+        await decryptBrowserWorkingCopy(workingPath);
         await browserDocumentStore.touchRecentFile(sourcePath);
         return {
             kind: 'pdf',
@@ -740,10 +754,14 @@ export function createBrowserDocumentsFileCapability(
             return true;
         },
         async createWorkingCopyFromData(fileName, data, originalPath) {
+            const decryptedData = isPdfFileName(fileName)
+                ? new Uint8Array(await stripPdfEncryption(data))
+                : data;
+
             const sourceRef =
                 originalPath && isBrowserDocumentRef(originalPath)
                     ? originalPath
-                    : await browserDocumentStore.createStoredDocument(fileName, data, {
+                    : await browserDocumentStore.createStoredDocument(fileName, decryptedData, {
                         mimeType: 'application/pdf',
                         saveKind: 'pdf',
                         kind: 'source',
@@ -753,7 +771,7 @@ export function createBrowserDocumentsFileCapability(
                 await browserDocumentStore.touchRecentFile(sourceRef);
             }
 
-            return browserDocumentStore.createStoredDocument(fileName, data, {
+            return browserDocumentStore.createStoredDocument(fileName, decryptedData, {
                 mimeType: 'application/pdf',
                 saveKind: 'pdf',
                 kind: 'working',
@@ -761,7 +779,9 @@ export function createBrowserDocumentsFileCapability(
             });
         },
         async createWorkingCopyFromPath(sourcePath) {
-            return browserDocumentStore.cloneAsWorkingCopy(sourcePath);
+            const workingPath = await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
+            await decryptBrowserWorkingCopy(workingPath);
+            return workingPath;
         },
         async saveFile(path) {
             clearSearchCaches();

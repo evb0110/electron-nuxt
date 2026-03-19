@@ -1,4 +1,8 @@
-import { open, rename, unlink } from 'fs/promises';
+import {
+    open,
+    rename,
+    unlink,
+} from 'fs/promises';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
@@ -15,13 +19,17 @@ async function hasEncryptMarker(filePath: string): Promise<boolean> {
 
         const headBuf = Buffer.alloc(headSize);
         await handle.read(headBuf, 0, headSize, 0);
-        if (headBuf.toString('latin1').includes('/Encrypt')) return true;
+        if (headBuf.toString('latin1').includes('/Encrypt')) {
+            return true;
+        }
 
         if (stats.size > SCAN_CHUNK_SIZE) {
             const tailSize = Math.min(SCAN_CHUNK_SIZE, stats.size - headSize);
             const tailBuf = Buffer.alloc(tailSize);
             await handle.read(tailBuf, 0, tailSize, stats.size - tailSize);
-            if (tailBuf.toString('latin1').includes('/Encrypt')) return true;
+            if (tailBuf.toString('latin1').includes('/Encrypt')) {
+                return true;
+            }
         }
 
         return false;
@@ -40,7 +48,11 @@ export async function decryptPdfFileIfNeeded(filePath: string): Promise<boolean>
         const tempPath = `${filePath}.decrypted`;
 
         try {
-            await runNativeToolCommand(qpdf, ['--decrypt', filePath, tempPath], {
+            await runNativeToolCommand(qpdf, [
+                '--decrypt',
+                filePath,
+                tempPath,
+            ], {
                 timeoutMs: DECRYPT_TIMEOUT_MS,
                 commandLabel: 'qpdf(decrypt)',
             });
