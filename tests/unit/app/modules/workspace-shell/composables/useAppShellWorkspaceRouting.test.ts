@@ -32,7 +32,7 @@ function createTabStub(id: string): ITab {
     };
 }
 
-function createWorkspace(hasPdf = false): IWorkspaceRecord {
+function createWorkspace(hasPdf = false, isDjvuMode = false): IWorkspaceRecord {
     const state = ref(hasPdf);
     const openPath = vi.fn(async (_path: string) => {
         state.value = true;
@@ -48,6 +48,7 @@ function createWorkspace(hasPdf = false): IWorkspaceRecord {
             hasPdf: state,
             handleOpenFileDirectWithPersist: openPath,
             handleOpenFileWithResult: openResult,
+            getToolbarSnapshot: () => cast<IWorkspaceExpose['getToolbarSnapshot'] extends () => infer T ? T : never>({ isDjvuMode }),
         }),
     };
 }
@@ -140,6 +141,47 @@ describe('useAppShellWorkspaceRouting', () => {
 
         expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/first.pdf');
         expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/second.pdf');
+    });
+
+    it('treats a DjVu tab as occupied and opens dropped PDFs in a new tab', async () => {
+        const activeGroupId = ref('group-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(false, true);
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+
+        let createdCount = 1;
+        const createdWorkspaces = new Map<string, IWorkspaceRecord>();
+
+        const routing = useAppShellWorkspaceRouting({
+            activeGroupId,
+            activeTabId,
+            activeWorkspace: computed(() => workspaceRefs.value.get(activeTabId.value ?? '') ?? null),
+            workspaceRefs,
+            waitForWorkspace: vi.fn(async (tabId: string) => workspaceRefs.value.get(tabId) ?? null),
+            createTab: vi.fn(({ activate }: { activate?: boolean } = {}) => {
+                createdCount += 1;
+                const tabId = `tab-${createdCount}`;
+                const record = createWorkspace(false);
+                createdWorkspaces.set(tabId, record);
+                workspaceRefs.value.set(tabId, record.workspace);
+                if (activate !== false) {
+                    activeTabId.value = tabId;
+                }
+                return createTabStub(tabId);
+            }),
+            removeTabFromState: vi.fn(),
+            resolveTabForAction: vi.fn(() => null),
+            handleCloseTab: vi.fn(async () => {}),
+            moveTabToNewWindow: vi.fn(async () => {}),
+            moveTabToWindow: vi.fn(async () => {}),
+            mergeWindowInto: vi.fn(async () => {}),
+        });
+
+        await routing.openPathsInAppropriateTab(['/docs/replacement.pdf']);
+
+        expect(initialWorkspace.openPath).not.toHaveBeenCalled();
+        expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/replacement.pdf');
     });
 
     it('reuses a failed empty tab for the next path instead of stalling the drop batch', async () => {

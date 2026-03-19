@@ -27,6 +27,14 @@
                     </div>
                 </div>
 
+                <UAlert
+                    v-if="largeDocumentWarning"
+                    color="warning"
+                    variant="soft"
+                    :description="largeDocumentWarning"
+                    :ui="{ title: 'sr-only' }"
+                />
+
                 <div class="convert-presets flex flex-col gap-2">
                     <label class="convert-presets-title">{{ t('djvu.convertDialog.quality') }}</label>
                     <div
@@ -140,6 +148,21 @@ const resolvedEstimates = computed(() => estimates.value.map((estimate) => ({
     description:
         estimate.description || resolveEstimateDescription(estimate.subsample),
 })));
+const largeDocumentWarning = computed(() => {
+    if (!info.value) {
+        return null;
+    }
+
+    if (info.value.pageCount >= 700) {
+        return t('djvu.convertDialog.largeDocumentHigh');
+    }
+
+    if (info.value.pageCount >= 250) {
+        return t('djvu.convertDialog.largeDocumentMedium');
+    }
+
+    return null;
+});
 
 const fileName = computed(() => getDocumentRefBaseName(props.djvuPath) ?? '');
 
@@ -175,6 +198,18 @@ function resolveEstimateDescription(subsample: number) {
     }
 }
 
+function resolveDefaultSubsample(pageCount: number) {
+    if (pageCount >= 700) {
+        return 4;
+    }
+
+    if (pageCount >= 250) {
+        return 2;
+    }
+
+    return 1;
+}
+
 watch(open, async (isOpen) => {
     if (!isOpen || !props.djvuPath) {
         return;
@@ -190,6 +225,7 @@ watch(open, async (isOpen) => {
 
         const djvuInfo = await api.djvu.getInfo(props.djvuPath);
         info.value = djvuInfo;
+        selectedSubsample.value = resolveDefaultSubsample(djvuInfo.pageCount);
 
         estimatesLoading.value = true;
         const sizeEstimates = await api.djvu.estimateSizes(props.djvuPath);

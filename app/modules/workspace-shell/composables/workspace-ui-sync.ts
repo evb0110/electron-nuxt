@@ -34,11 +34,13 @@ interface IWorkspaceUiSyncDeps {
         getCurrentPage?: () => number,
         setPage?: (page: number) => void,
         setOriginalPath?: (path: TDocumentRef | null) => void,
+        closeFile?: () => Promise<void>,
     ) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef) => Promise<void>;
     currentPage: Ref<number>;
     pdfViewerRef: Ref<{ scrollToPage: (page: number) => void } | null>;
     originalPath: Ref<TDocumentRef | null>;
+    closeFile: () => Promise<void>;
     openBatchProgress: Ref<IOpenBatchProgressState | null>;
     isActive: Ref<boolean>;
     fileName: Ref<string | null>;
@@ -114,6 +116,7 @@ export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
                 (path) => {
                     deps.originalPath.value = path;
                 },
+                deps.closeFile,
             );
         } catch (error) {
             deps.onOpenDjvuError?.(error);

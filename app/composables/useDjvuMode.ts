@@ -36,7 +36,7 @@ export const useDjvuMode = () => {
         return isDjvuMode.value && DJVU_DISABLED_FEATURES.has(feature);
     }
 
-    function enterDjvuMode(sourcePath: TDocumentRef, tempPdfPath: TDocumentRef) {
+    function enterDjvuMode(sourcePath: TDocumentRef, tempPdfPath: TDocumentRef | null = null) {
         isDjvuMode.value = true;
         djvuSourcePath.value = sourcePath;
         djvuTempPdfPath.value = tempPdfPath;

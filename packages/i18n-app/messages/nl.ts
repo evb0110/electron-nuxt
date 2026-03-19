@@ -223,6 +223,7 @@ export default {
     'djvu': {
         'loadingPages': 'Pagina\'s laden... {current}/{total}',
         'bannerHint': 'DjVu-bestand – converteer naar PDF om bewerkingsfuncties in te schakelen',
+        'pageAlt': 'DjVu-pagina {page}',
         'convertToPdf': 'Converteren naar PDF...',
         'overlayConverting': 'DjVu converteren naar PDF...',
         'overlayBookmarks': 'Bladwijzers verwerken...',
@@ -237,6 +238,8 @@ export default {
             'sourceResolution': 'Bronresolutie',
             'quality': 'Kwaliteit',
             'estimating': 'Bestandsgrootte schatten...',
+            'largeDocumentMedium': 'Grote DjVu-bestanden kunnen veel geheugen gebruiken tijdens PDF-export in de browser. Goede kwaliteit wordt aanbevolen.',
+            'largeDocumentHigh': 'Zeer grote DjVu-bestanden kunnen de PDF-export in de browser overbelasten. Compact wordt aanbevolen, of gebruik de desktop-app voor conversie.',
             'preserveBookmarks': 'Bladwijzers behouden',
             'fullQuality': 'Volledige kwaliteit',
             'original': 'Origineel',

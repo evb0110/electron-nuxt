@@ -14,7 +14,6 @@ import type {
 } from '@contracts/platform-api';
 import {
     browserDocumentStore,
-    getBrowserDocumentFileName,
     isBrowserDocumentRef,
 } from '@app/platform/browser-document-store';
 import { embedBookmarksIntoPdf } from '@app/platform/browser-api/djvu-pdf-bookmarks';
@@ -22,7 +21,7 @@ import type {
     IDjvuContentsItem,
     IDjvuWorker,
 } from '@app/platform/browser-api/djvujs-loader';
-import { loadDjvuJs } from '@app/platform/browser-api/djvujs-loader';
+import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvu-worker';
 import {
     buildPdfSaveTypes,
     ensurePdfExtension,
@@ -74,18 +73,6 @@ function emitProgress(progress: IDjvuProgress) {
     });
 }
 
-function emitViewingReady(event: IDjvuViewingReadyEvent) {
-    viewingReadyListeners.forEach((listener) => {
-        listener(event);
-    });
-}
-
-function emitViewingError(event: IDjvuViewingErrorEvent) {
-    viewingErrorListeners.forEach((listener) => {
-        listener(event);
-    });
-}
-
 function createDjvuJob(jobId: string, worker: IDjvuWorker) {
     const abortController = new AbortController();
     activeJobs.set(jobId, {
@@ -118,22 +105,9 @@ function throwIfCanceled(signal?: AbortSignal) {
     }
 }
 
-function isDjvuCanceledError(error: unknown) {
-    return error instanceof DjvuCanceledError;
-}
-
 function toArrayBuffer(bytes: Uint8Array) {
     const normalizedBytes = Uint8Array.from(bytes);
     return normalizedBytes.buffer;
-}
-
-async function createDjvuWorkerFromPath(djvuPath: TDocumentRef) {
-    const djvuGlobal = await loadDjvuJs();
-    const worker = new djvuGlobal.Worker();
-    const bytes = await browserDocumentStore.read(djvuPath);
-
-    await worker.createDocument(bytes.buffer.slice(0), {});
-    return worker;
 }
 
 async function withDjvuWorker<T>(
@@ -414,27 +388,6 @@ async function buildPdfWithOptionalBookmarks(options: {
     return pdfBytes;
 }
 
-function normalizeDjvuPdfFileName(djvuPath: TDocumentRef) {
-    return ensurePdfExtension(
-        getBrowserDocumentFileName(djvuPath).replace(/\.djvu?$/iu, ''),
-    );
-}
-
-async function createTempPdfRef(
-    djvuPath: TDocumentRef,
-    bytes: Uint8Array,
-) {
-    return browserDocumentStore.createStoredDocument(
-        normalizeDjvuPdfFileName(djvuPath),
-        bytes,
-        {
-            mimeType: 'application/pdf',
-            saveKind: 'pdf',
-            kind: 'output',
-        },
-    );
-}
-
 function pickSamplePageNumbers(pageCount: number, maxSamples: number) {
     if (pageCount <= 0) {
         return [];
@@ -554,107 +507,28 @@ async function estimateDjvuSizes(
 
 export const browserDjvuCapability: IDjvuCapability = {
     async openForViewing(djvuPath) {
-        const worker = await createDjvuWorkerFromPath(djvuPath);
-
-        try {
+        return withDjvuWorker(djvuPath, async (worker) => {
             const pageSizes = await worker.doc.getPagesSizes().run();
             const pageCount = pageSizes.length;
 
             if (pageCount <= 0) {
-                worker.terminate();
                 return {
                     success: false,
                     error: 'DjVu document has no pages',
                 };
             }
 
-            const partialPdfBytes = await buildPdfFromDjvuPages({
-                worker,
-                pageCount: 1,
-                subsample: 1,
-            });
-            const partialPdfPath = await createTempPdfRef(djvuPath, partialPdfBytes);
-
-            if (pageCount === 1) {
-                worker.terminate();
-                return {
-                    success: true,
-                    pdfPath: partialPdfPath,
-                    pageCount: 1,
-                };
-            }
-
-            const jobId = `djvu-view-${crypto.randomUUID()}`;
-            const abortController = createDjvuJob(jobId, worker);
-            emitProgress({
-                jobId,
-                phase: 'loading',
-                current: 0,
-                total: pageCount,
-                percent: 0,
-            });
-
-            window.setTimeout(() => {
-                void (async () => {
-                    try {
-                        const fullPdfBytes = await buildPdfWithOptionalBookmarks({
-                            worker,
-                            pageCount,
-                            subsample: 1,
-                            preserveBookmarks: true,
-                            signal: abortController.signal,
-                            onPageProcessed: (processed, total) => {
-                                emitProgress({
-                                    jobId,
-                                    phase: 'loading',
-                                    current: processed,
-                                    total,
-                                    percent: Math.round((processed / total) * 100),
-                                });
-                            },
-                        });
-
-                        const fullPdfPath = await createTempPdfRef(
-                            djvuPath,
-                            fullPdfBytes,
-                        );
-                        emitViewingReady({
-                            jobId,
-                            pdfPath: fullPdfPath,
-                            isPartial: false,
-                        });
-                    } catch (error) {
-                        if (!isDjvuCanceledError(error)) {
-                            emitViewingError({
-                                jobId,
-                                error:
-                                    error instanceof Error
-                                        ? error.message
-                                        : 'DjVu viewing failed',
-                            });
-                        }
-                    } finally {
-                        cleanupDjvuJob(jobId);
-                    }
-                })();
-            }, 0);
-
             return {
                 success: true,
-                pdfPath: partialPdfPath,
                 pageCount,
-                jobId,
             };
-        } catch (error) {
-            worker.terminate();
-            return {
-                success: false,
-                error:
-                    error instanceof Error
-                        ? error.message
-                        : 'DjVu viewing failed',
-            };
-        }
+        }).catch((error: unknown) => ({
+            success: false,
+            error:
+                error instanceof Error
+                    ? error.message
+                    : 'DjVu viewing failed',
+        }));
     },
     async convertToPdf(djvuPath, outputPath, options) {
         if (!isBrowserDocumentRef(outputPath)) {

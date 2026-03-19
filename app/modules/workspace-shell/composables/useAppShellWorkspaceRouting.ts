@@ -61,6 +61,15 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         });
     }
 
+    function workspaceHasOpenDocument(workspace: IWorkspaceExpose) {
+        if (workspaceHasPdf(workspace)) {
+            return true;
+        }
+
+        const snapshot = workspace.getToolbarSnapshot();
+        return snapshot.isDjvuMode;
+    }
+
     async function resolveWorkspaceForTab(tabId: string | null) {
         if (!tabId) {
             return null;
@@ -109,7 +118,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
 
     async function openResultInAppropriateTab(result: TOpenFileResult) {
         const workspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
-        if (workspace && !workspaceHasPdf(workspace)) {
+        if (workspace && !workspaceHasOpenDocument(workspace)) {
             await workspace.handleOpenFileWithResult(result);
             return;
         }
@@ -119,7 +128,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
 
     async function openPathInAppropriateTab(path: TDocumentRef) {
         const workspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
-        if (workspace && !workspaceHasPdf(workspace)) {
+        if (workspace && !workspaceHasOpenDocument(workspace)) {
             await workspace.handleOpenFileDirectWithPersist(path);
             return;
         }

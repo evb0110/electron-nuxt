@@ -13,7 +13,7 @@
                 :active="showSidebar"
                 :tooltip="t('toolbar.toggleSidebar')"
                 :shortcut="shortcutLabels.toggleSidebar"
-                :disabled="!hasPdf"
+                :disabled="!hasPdf || canToggleSidebar === false"
                 @click="emit('toggle-sidebar')"
             />
 
@@ -230,6 +230,7 @@ import { getShortcutLabels } from '@app/constants/shortcuts';
 
 defineProps<{
     hasPdf: boolean;
+    canToggleSidebar?: boolean;
     canSave: boolean;
     canUndo: boolean;
     canRedo: boolean;

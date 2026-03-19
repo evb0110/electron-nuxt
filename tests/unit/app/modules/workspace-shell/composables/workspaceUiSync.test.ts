@@ -118,6 +118,7 @@ interface IWorkspaceUiSyncTestDeps {
     currentPage: Ref<number>;
     pdfViewerRef: Ref<{ scrollToPage: (page: number) => void } | null>;
     originalPath: Ref<string | null>;
+    closeFile: TWorkspaceUiSyncDeps['closeFile'];
     openBatchProgress: Ref<{
         processed: number;
         total: number
@@ -141,6 +142,7 @@ function createWatcherDeps(overrides: Partial<IWorkspaceUiSyncTestDeps> = {}): I
         currentPage: ref(1),
         pdfViewerRef: ref(null),
         originalPath: ref<string | null>(null),
+        closeFile: vi.fn(async () => {}) as TWorkspaceUiSyncDeps['closeFile'],
         openBatchProgress: ref(null),
         isActive: ref(false),
         fileName: ref<string | null>(null),
@@ -172,6 +174,7 @@ describe('setupWorkspaceUiSyncWatchers', () => {
             expect.any(Function),
             expect.any(Function),
             expect.any(Function),
+            deps.closeFile,
         );
     });
 
