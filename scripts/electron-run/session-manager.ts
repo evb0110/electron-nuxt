@@ -159,6 +159,47 @@ export function resolveAutomationWindowEnv(
     };
 }
 
+export function shouldUseMacOSHiddenAppLauncher(
+    env: NodeJS.ProcessEnv,
+    platform = process.platform,
+) {
+    return platform === 'darwin'
+        && (env.EVB_AUTOMATION_HIDE_WINDOW === '1' || env.EVB_AUTOMATION_NO_FOCUS === '1');
+}
+
+export function buildMacOSHiddenAppLauncherArgs(options: {
+    appPath: string;
+    electronArgs: string[];
+    appEnv: NodeJS.ProcessEnv;
+}) {
+    const args = [
+        '-n',
+        '-g',
+        '-j',
+        '-W',
+        options.appPath,
+    ];
+
+    for (const [
+        key,
+        value, 
+    ] of Object.entries(options.appEnv)) {
+        if (typeof value !== 'string') {
+            continue;
+        }
+        args.push(
+            '--env',
+            `${key}=${value}`,
+        );
+    }
+
+    args.push(
+        '--args',
+        ...options.electronArgs,
+    );
+    return args;
+}
+
 async function killProcessTreeForPids(pids: number[], graceMs = 1200) {
     for (const pid of uniq(pids)) {
         await killProcessTree(pid, graceMs);
@@ -499,29 +540,57 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
     };
 
     const automationUserDataDir = electronUserDataPath();
-    const electronPath = join(projectRoot, 'node_modules/.bin/electron');
-    const electron = spawn(electronPath, buildElectronAutomationArgs({
+    const automationWindowEnv = resolveAutomationWindowEnv(process.env);
+    const electronRuntimeEnv = {
+        ...process.env,
+        EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
+        EVB_SERVER_PORT: String(getNuxtPort()),
+        EVB_SERVER_PATH: '/electron',
+        ...automationWindowEnv,
+        EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
+        EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),
+        ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
+        ELECTRON_ENABLE_STACK_DUMPING: process.env.ELECTRON_ENABLE_STACK_DUMPING ?? '1',
+    } satisfies NodeJS.ProcessEnv;
+
+    const electronArgs = buildElectronAutomationArgs({
         cdpPort,
         automationUserDataDir,
         mainJs,
-    }), {
+        env: electronRuntimeEnv,
+    });
+    const electronPath = join(projectRoot, 'node_modules/.bin/electron');
+    const electronAppPath = join(projectRoot, 'node_modules', 'electron', 'dist', 'Electron.app');
+    const launchViaHiddenMacApp = shouldUseMacOSHiddenAppLauncher(automationWindowEnv)
+        && existsSync(electronAppPath);
+    const launchCommand = launchViaHiddenMacApp
+        ? 'open'
+        : electronPath;
+    const launchArgs = launchViaHiddenMacApp
+        ? buildMacOSHiddenAppLauncherArgs({
+            appPath: electronAppPath,
+            electronArgs,
+            appEnv: {
+                EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: electronRuntimeEnv.EVB_ALLOW_MULTI_AUTOMATION_SESSIONS,
+                EVB_SERVER_PORT: electronRuntimeEnv.EVB_SERVER_PORT,
+                EVB_SERVER_PATH: electronRuntimeEnv.EVB_SERVER_PATH,
+                EVB_AUTOMATION_NO_FOCUS: electronRuntimeEnv.EVB_AUTOMATION_NO_FOCUS,
+                EVB_AUTOMATION_HIDE_WINDOW: electronRuntimeEnv.EVB_AUTOMATION_HIDE_WINDOW,
+                EVB_AUTOMATION_USER_DATA_DIR: electronRuntimeEnv.EVB_AUTOMATION_USER_DATA_DIR,
+                EVB_AUTOMATION_SESSION_NAME: electronRuntimeEnv.EVB_AUTOMATION_SESSION_NAME,
+                ELECTRON_ENABLE_LOGGING: electronRuntimeEnv.ELECTRON_ENABLE_LOGGING,
+                ELECTRON_ENABLE_STACK_DUMPING: electronRuntimeEnv.ELECTRON_ENABLE_STACK_DUMPING,
+            },
+        })
+        : electronArgs;
+    const electron = spawn(launchCommand, launchArgs, {
         cwd: projectRoot,
         stdio: [
             'ignore',
             'pipe',
             'pipe',
         ],
-        env: {
-            ...process.env,
-            EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
-            EVB_SERVER_PORT: String(getNuxtPort()),
-            EVB_SERVER_PATH: '/electron',
-            ...resolveAutomationWindowEnv(process.env),
-            EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
-            EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),
-            ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
-            ELECTRON_ENABLE_STACK_DUMPING: process.env.ELECTRON_ENABLE_STACK_DUMPING ?? '1',
-        },
+        env: electronRuntimeEnv,
     });
 
     let exitCode: number | null = null;
@@ -564,6 +633,7 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
         await delay(500);
     }
 
+    await killElectronProcessesByCdpPort(cdpPort);
     if (electron.pid && isProcessAlive(electron.pid)) {
         await killProcessTree(electron.pid, 800);
     } else {
