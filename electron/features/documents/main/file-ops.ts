@@ -19,7 +19,7 @@ import {
     resolveAllowedWritePath,
 } from '@electron/utils/path-validator';
 import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
-import { isAllowedDjvuViewingPath } from '@electron/features/djvu/main/viewing';
+import { isAllowedDjvuViewingPath } from '@electron/djvu/viewing';
 import { consumeAllowedDocxWritePath } from '@electron/ipc/docxExportPaths';
 import { MAX_CHUNK } from '@electron/config/constants';
 import { createLogger } from '@electron/utils/logger';
