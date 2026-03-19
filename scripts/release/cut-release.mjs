@@ -1,5 +1,6 @@
 import {
     assertCleanWorktree,
+    assertNodeMajor,
     assertTagAbsent,
     bumpVersion,
     getUpstream,
@@ -20,6 +21,7 @@ async function main() {
         );
     }
 
+    assertNodeMajor(24);
     assertCleanWorktree();
     requireNamedBranch();
     const upstream = getUpstream();

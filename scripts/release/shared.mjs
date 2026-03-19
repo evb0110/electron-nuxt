@@ -13,6 +13,20 @@ export const VALID_RELEASE_LEVELS = new Set([
     'major',
 ]);
 
+export function assertNodeMajor(expectedMajor, context = 'Release') {
+    const currentMajor = Number.parseInt(process.versions.node.split('.')[0] ?? '', 10);
+
+    if (currentMajor === expectedMajor) {
+        return;
+    }
+
+    throw new Error(
+        `${context} requires Node ${expectedMajor}.x (latest LTS). `
+        + `Current runtime is ${process.version}. `
+        + 'Switch to the version declared in .nvmrc before continuing.',
+    );
+}
+
 export function run(command, args, options = {}) {
     const output = execFileSync(command, args, {
         cwd: process.cwd(),

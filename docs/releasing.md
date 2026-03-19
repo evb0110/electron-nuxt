@@ -5,6 +5,7 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 ## Normal flow
 
 1. Run `pnpm run release:patch`, `pnpm run release:minor`, or `pnpm run release:major`.
+   The release script now fails before the version bump unless it is running under Node 24.x, which is the project's current LTS baseline.
 2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree: validation, tests, Electron smoke, current-platform packaging, updater metadata checks when applicable, packaged native-tool verification, packaged startup verification on macOS, and the cross-arch resource matrix.
 3. If that local release gate passes, the script commits the release version, pushes the commit, then pushes the matching `v*` tag.
 4. The tag push triggers the GitHub [`Release`](<repo-root>/.github/workflows/release.yml) workflow, which validates, smoke-tests, packages, and publishes the release in one run.
