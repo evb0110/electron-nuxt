@@ -25,12 +25,34 @@ async function waitForToolbarActionState(
     enabled: boolean,
     timeoutMs = 8_000,
 ) {
+    const iconHints = ariaLabel === 'Undo'
+        ? [
+            '.i-lucide-undo-2',
+            '.iconify.i-lucide-undo-2',
+        ]
+        : ariaLabel === 'Redo'
+            ? [
+                '.i-lucide-redo-2',
+                '.iconify.i-lucide-redo-2',
+            ]
+            : [];
+
     await page.waitForFunction((args: {
         ariaLabel: string;
         enabled: boolean;
+        iconHints: string[];
     }) => {
-        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(`button[aria-label="${args.ariaLabel}"]`));
+        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'));
         const visibleButton = buttons.find((button) => {
+            const ariaLabel = button.getAttribute('aria-label')?.trim() ?? '';
+            const matches = (
+                ariaLabel === args.ariaLabel
+                || ariaLabel.startsWith(`${args.ariaLabel} (`)
+                || args.iconHints.some(selector => Boolean(button.querySelector(selector)))
+            );
+            if (!matches) {
+                return false;
+            }
             const rect = button.getBoundingClientRect();
             const style = window.getComputedStyle(button);
             return (
@@ -49,6 +71,7 @@ async function waitForToolbarActionState(
     }, { timeout: timeoutMs }, {
         ariaLabel,
         enabled,
+        iconHints,
     });
 }
 
