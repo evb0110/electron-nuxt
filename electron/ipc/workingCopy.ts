@@ -24,6 +24,7 @@ import {
     extname,
 } from 'path';
 import { createLogger } from '@electron/utils/logger';
+import { decryptPdfFileIfNeeded } from '@electron/utils/pdf-decrypt';
 
 const logger = createLogger('working-copy');
 const ALLOWED_SAVE_EXTENSIONS = new Set([
@@ -206,6 +207,9 @@ export async function createWorkingCopy(originalPath: string): Promise<string> {
         const fileName = basename(originalPath);
         const workingPath = join(workDir, fileName);
         await copyFileCopyOnWrite(originalPath, workingPath);
+        if (workingPath.toLowerCase().endsWith('.pdf')) {
+            await decryptPdfFileIfNeeded(workingPath);
+        }
 
         workingCopyMap.set(workingPath, originalPath);
 
@@ -241,6 +245,7 @@ export async function createWorkingCopyFromPath(
         const workingPath = join(workDir, normalizedName);
 
         await copyFileCopyOnWrite(normalizedSourcePath, workingPath);
+        await decryptPdfFileIfNeeded(workingPath);
 
         workingCopyMap.set(workingPath, mappedOriginalPath);
 
@@ -272,6 +277,7 @@ export async function createWorkingCopyFromData(
         const workingPath = join(workDir, normalizedName);
 
         await writeFile(workingPath, data);
+        await decryptPdfFileIfNeeded(workingPath);
 
         if (normalizedOriginalPath) {
             workingCopyMap.set(workingPath, normalizedOriginalPath);
