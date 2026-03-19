@@ -13,10 +13,7 @@ export const {
     AnnotationEditorType,
     AnnotationEditorUIManager,
     DrawLayer,
-    GlobalWorkerOptions,
     PDFDateString,
     PixelsPerInch,
     TextLayer,
-    VerbosityLevel,
-    getDocument,
 } = pdfjsLib;
