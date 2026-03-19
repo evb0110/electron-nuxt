@@ -5,6 +5,21 @@ import {
     it,
     vi,
 } from 'vitest';
+import { ref } from 'vue';
+
+const stateStore = new Map<string, ReturnType<typeof ref>>();
+
+function installUseStateStub() {
+    vi.stubGlobal('useState', <T>(key: string, init: () => T) => {
+        const existing = stateStore.get(key);
+        if (existing) {
+            return existing;
+        }
+        const state = ref(init());
+        stateStore.set(key, state);
+        return state;
+    });
+}
 
 async function createSplitCache() {
     const { useWorkspaceSplitCache } = await import('@app/modules/workspace-shell/composables/useWorkspaceSplitCache');
@@ -16,6 +31,8 @@ describe('useWorkspaceSplitCache', () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
         vi.resetModules();
+        stateStore.clear();
+        installUseStateStub();
     });
 
     it('returns true for a fresh entry and consumes it once', async () => {

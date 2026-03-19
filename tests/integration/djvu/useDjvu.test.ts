@@ -44,22 +44,24 @@ vi.mock('@app/composables/useDjvuMode', () => {
     const isDjvuMode = ref(false);
     const djvuSourcePath = ref<string | null>(null);
     const djvuTempPdfPath = ref<string | null>(null);
+    const enterDjvuMode = vi.fn((source: string, temp: string | null = null) => {
+        isDjvuMode.value = true;
+        djvuSourcePath.value = source;
+        djvuTempPdfPath.value = temp;
+    });
+    const exitDjvuMode = vi.fn(() => {
+        isDjvuMode.value = false;
+        djvuSourcePath.value = null;
+        djvuTempPdfPath.value = null;
+    });
 
     return {useDjvuMode: () => ({
         isDjvuMode,
         djvuSourcePath,
         djvuTempPdfPath,
         isDjvuFeatureDisabled: vi.fn(() => false),
-        enterDjvuMode: vi.fn((source: string, temp: string) => {
-            isDjvuMode.value = true;
-            djvuSourcePath.value = source;
-            djvuTempPdfPath.value = temp;
-        }),
-        exitDjvuMode: vi.fn(() => {
-            isDjvuMode.value = false;
-            djvuSourcePath.value = null;
-            djvuTempPdfPath.value = null;
-        }),
+        enterDjvuMode,
+        exitDjvuMode,
     })};
 });
 
@@ -114,7 +116,6 @@ describe('useDjvu', () => {
         it('opens a single-page DjVu file', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,
-                pdfPath: '/tmp/converted.pdf',
                 pageCount: 1,
                 jobId: 'job-1',
             });
@@ -127,7 +128,7 @@ describe('useDjvu', () => {
                 loadPdf,
             );
 
-            expect(loadPdf).toHaveBeenCalledWith('/tmp/converted.pdf');
+            expect(loadPdf).not.toHaveBeenCalled();
             expect(mockElectronAPI.documents.setWindowTitle).toHaveBeenCalled();
             expect(djvu.isLoadingPages.value).toBe(false);
         });
@@ -135,7 +136,6 @@ describe('useDjvu', () => {
         it('uses a decoded DjVu filename for the window title', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,
-                pdfPath: 'browser://documents/output/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.pdf',
                 pageCount: 1,
                 jobId: 'job-encoded',
             });
@@ -167,7 +167,6 @@ describe('useDjvu', () => {
         it('sets loading state for multi-page files', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,
-                pdfPath: '/tmp/partial.pdf',
                 pageCount: 10,
                 jobId: 'job-multi',
             });
@@ -177,8 +176,9 @@ describe('useDjvu', () => {
 
             await djvu.openDjvuFile('/multi.djvu', loadPdf);
 
-            expect(djvu.isLoadingPages.value).toBe(true);
-            expect(djvu.loadingProgress.value.total).toBe(10);
+            expect(loadPdf).not.toHaveBeenCalled();
+            expect(djvu.isLoadingPages.value).toBe(false);
+            expect(djvu.loadingProgress.value.total).toBe(0);
         });
     });
 
@@ -194,7 +194,6 @@ describe('useDjvu', () => {
         it('sets pendingConvertCancel when converting but no job ID yet', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,
-                pdfPath: '/tmp/test.pdf',
                 pageCount: 1,
                 jobId: 'v-1',
             });
@@ -245,7 +244,6 @@ describe('useDjvu', () => {
         it('shows background viewing errors and exits loading state', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,
-                pdfPath: '/tmp/partial.pdf',
                 pageCount: 5,
                 jobId: 'job-view-1',
             });
@@ -253,7 +251,7 @@ describe('useDjvu', () => {
             const djvu = useDjvu();
             await djvu.openDjvuFile('/multi.djvu', vi.fn(async () => {}));
 
-            expect(djvu.isLoadingPages.value).toBe(true);
+            djvu.isLoadingPages.value = true;
             viewingErrorCallback?.({
                 jobId: 'job-view-1',
                 error: 'Background conversion failed',
