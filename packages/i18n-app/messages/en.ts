@@ -16,8 +16,13 @@ export default {
         'lede': 'EVB Viewer Web keeps the app focused on the document itself while still giving crawlers and link previews a real page to index.',
         'featurePdf': 'Open PDFs, DjVu files, and common images without leaving the browser.',
         'featureAnnotate': 'Search, annotate, reorder, rotate, crop, and export documents in one workspace.',
+        'featureSearch': 'Full-text search across PDF documents with highlighted results.',
+        'featurePageOps': 'Delete, extract, reorder, rotate, and crop individual pages.',
+        'featureExport': 'Export to PDF, PNG, JPEG, TIFF, and DOCX formats.',
+        'featureMultiTab': 'Multi-tab workspace with split-panel layout for side-by-side viewing.',
         'featureDesktop': 'Need OCR or deeper system integration? Install the desktop app anytime.',
         'previewAlt': 'Preview of the EVB Viewer Web workspace',
+        'screenshotAlt': 'Screenshot of EVB Viewer Web showing the document workspace',
     },
     'toolbar': {
         'openPdf': 'Open File',

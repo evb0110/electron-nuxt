@@ -1,25 +1,23 @@
-function normalizeSiteUrl(siteUrl: string) {
-    return siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`;
-}
+import { resolveSiteUrl } from '../utils/normalize-site-url';
 
 export default defineEventHandler((event) => {
-    const runtimeConfig = useRuntimeConfig(event);
-    const requestUrl = getRequestURL(event);
-    const configuredSiteUrl = typeof runtimeConfig.public.siteUrl === 'string'
-        ? runtimeConfig.public.siteUrl.trim()
-        : '';
-    const siteUrl = normalizeSiteUrl(
-        configuredSiteUrl || `${requestUrl.protocol}//${requestUrl.host}`,
-    );
-
+    const siteUrl = resolveSiteUrl(event);
+    const loc = new URL('/', siteUrl).toString();
+    const imageUrl = new URL('/evb-viewer-preview-cropped.png', siteUrl).toString();
     const updatedAt = new Date().toISOString();
+
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
-    <loc>${new URL('/', siteUrl).toString()}</loc>
+    <loc>${loc}</loc>
     <lastmod>${updatedAt}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
+    <image:image>
+      <image:loc>${imageUrl}</image:loc>
+      <image:title>EVB Viewer Web — browser document workspace</image:title>
+    </image:image>
   </url>
 </urlset>
 `;

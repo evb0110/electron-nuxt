@@ -35,6 +35,13 @@ function isLegacyElectronShimImport(entry: unknown) {
 export default defineNuxtConfig({
     app: {
         head: {
+            meta: [
+                { charset: 'utf-8' },
+                { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+                { name: 'theme-color', content: '#ffffff', media: '(prefers-color-scheme: light)' },
+                { name: 'theme-color', content: '#1a1a1a', media: '(prefers-color-scheme: dark)' },
+                { name: 'format-detection', content: 'telephone=no' },
+            ],
             link: [
                 {
                     rel: 'icon',
@@ -57,6 +64,11 @@ export default defineNuxtConfig({
                     rel: 'icon',
                     type: 'image/x-icon',
                     href: '/favicon.ico?v=5',
+                },
+                {
+                    rel: 'apple-touch-icon',
+                    sizes: '180x180',
+                    href: '/apple-touch-icon.png',
                 },
             ],
         },
@@ -130,6 +142,19 @@ export default defineNuxtConfig({
         '/': { prerender: true },
         '/robots.txt': { prerender: true },
         '/sitemap.xml': { prerender: true },
+        '/electron': {
+            headers: { 'X-Robots-Tag': 'noindex, nofollow' },
+        },
+        '/workspace': {
+            headers: { 'X-Robots-Tag': 'noindex, nofollow' },
+        },
+        '/**': {
+            headers: {
+                'X-Content-Type-Options': 'nosniff',
+                'Referrer-Policy': 'strict-origin-when-cross-origin',
+                'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+            },
+        },
     },
 
     sourcemap: {
