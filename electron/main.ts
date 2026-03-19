@@ -388,9 +388,17 @@ async function init() {
     logStartupPhase('Bootstrap init started');
     await app.whenReady();
     logStartupPhase('app.whenReady resolved');
+    if (config.automation.noFocus && process.platform === 'darwin') {
+        try {
+            app.dock?.hide();
+        } catch (error) {
+            logger.warn(`Failed to hide dock before window creation in automation mode: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        app.hide();
+    }
     // In packaged builds, macOS uses the app bundle's .icns icon.
     // Only override in development where the host Electron binary has the default icon.
-    if (process.platform === 'darwin' && !app.isPackaged) {
+    if (process.platform === 'darwin' && !app.isPackaged && !config.automation.noFocus) {
         try {
             const devDockIcon = createDevDockIcon();
             app.dock?.setIcon(devDockIcon ?? devDockIconPath);

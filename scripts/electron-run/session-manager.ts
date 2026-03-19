@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import {
+    execFileSync,
     execSync,
     spawn,
     type ChildProcess,
@@ -13,7 +14,10 @@ import {
     unlinkSync,
     writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import {
+    basename,
+    join,
+} from 'node:path';
 import puppeteer, {
     type Browser,
     type HTTPResponse,
@@ -167,37 +171,94 @@ export function shouldUseMacOSHiddenAppLauncher(
         && (env.EVB_AUTOMATION_HIDE_WINDOW === '1' || env.EVB_AUTOMATION_NO_FOCUS === '1');
 }
 
-export function buildMacOSHiddenAppLauncherArgs(options: {
-    appPath: string;
-    electronArgs: string[];
-    appEnv: NodeJS.ProcessEnv;
+export function buildMacOSHiddenAppBundlePaths(options: {
+    sourceAppPath: string;
+    destinationRoot: string;
 }) {
-    const args = [
-        '-n',
-        '-g',
-        '-j',
-        '-W',
-        options.appPath,
+    const appPath = join(options.destinationRoot, basename(options.sourceAppPath));
+    return {
+        appPath,
+        executablePath: join(
+            appPath,
+            'Contents',
+            'MacOS',
+            basename(options.sourceAppPath, '.app'),
+        ),
+        infoPlistPath: join(appPath, 'Contents', 'Info.plist'),
+    };
+}
+
+function setMacOSAutomationAgentMode(infoPlistPath: string) {
+    const replaceArgs = [
+        '-replace',
+        'LSUIElement',
+        '-bool',
+        'YES',
+        infoPlistPath,
+    ];
+    const insertArgs = [
+        '-insert',
+        'LSUIElement',
+        '-bool',
+        'YES',
+        infoPlistPath,
     ];
 
-    for (const [
-        key,
-        value, 
-    ] of Object.entries(options.appEnv)) {
-        if (typeof value !== 'string') {
-            continue;
-        }
-        args.push(
-            '--env',
-            `${key}=${value}`,
-        );
+    try {
+        execFileSync('/usr/bin/plutil', replaceArgs, { stdio: 'ignore' });
+    } catch {
+        execFileSync('/usr/bin/plutil', insertArgs, { stdio: 'ignore' });
     }
+}
 
-    args.push(
-        '--args',
-        ...options.electronArgs,
-    );
-    return args;
+function prepareMacOSHiddenAppBundle(options: {
+    sourceAppPath: string;
+    destinationRoot: string;
+}) {
+    const bundlePaths = buildMacOSHiddenAppBundlePaths(options);
+    rmSync(bundlePaths.appPath, {
+        recursive: true,
+        force: true,
+    });
+    mkdirSync(options.destinationRoot, { recursive: true });
+    execFileSync('/usr/bin/ditto', [
+        options.sourceAppPath,
+        bundlePaths.appPath,
+    ], { stdio: 'ignore' });
+    setMacOSAutomationAgentMode(bundlePaths.infoPlistPath);
+    return bundlePaths;
+}
+
+export function buildMacOSAutomationAppEntryPaths(destinationRoot: string) {
+    const appPath = join(destinationRoot, 'automation-app');
+    return {
+        appPath,
+        packageJsonPath: join(appPath, 'package.json'),
+        mainJsPath: join(appPath, 'main.js'),
+    };
+}
+
+function prepareMacOSAutomationAppEntry(options: {
+    destinationRoot: string;
+    mainJs: string;
+}) {
+    const entryPaths = buildMacOSAutomationAppEntryPaths(options.destinationRoot);
+    rmSync(entryPaths.appPath, {
+        recursive: true,
+        force: true,
+    });
+    mkdirSync(entryPaths.appPath, { recursive: true });
+    writeFileSync(entryPaths.packageJsonPath, JSON.stringify({
+        name: 'evb-automation-app',
+        main: 'main.js',
+    }, null, 2));
+    writeFileSync(entryPaths.mainJsPath, [
+        '(async () => {',
+        `  await import(${JSON.stringify(options.mainJs)});`,
+        '})();',
+        '',
+    ].join('\n'));
+    return entryPaths;
 }
 
 async function killProcessTreeForPids(pids: number[], graceMs = 1200) {
@@ -563,25 +624,26 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
     const electronAppPath = join(projectRoot, 'node_modules', 'electron', 'dist', 'Electron.app');
     const launchViaHiddenMacApp = shouldUseMacOSHiddenAppLauncher(automationWindowEnv)
         && existsSync(electronAppPath);
+    const hiddenAutomationBundlePaths = launchViaHiddenMacApp
+        ? prepareMacOSHiddenAppBundle({
+            sourceAppPath: electronAppPath,
+            destinationRoot: join(sessionDir(), 'automation-electron-app'),
+        })
+        : null;
+    const hiddenAutomationAppEntryPath = launchViaHiddenMacApp
+        ? prepareMacOSAutomationAppEntry({
+            destinationRoot: join(sessionDir(), 'automation-electron-app-entry'),
+            mainJs,
+        }).appPath
+        : mainJs;
     const launchCommand = launchViaHiddenMacApp
-        ? 'open'
+        ? hiddenAutomationBundlePaths!.executablePath
         : electronPath;
     const launchArgs = launchViaHiddenMacApp
-        ? buildMacOSHiddenAppLauncherArgs({
-            appPath: electronAppPath,
-            electronArgs,
-            appEnv: {
-                EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: electronRuntimeEnv.EVB_ALLOW_MULTI_AUTOMATION_SESSIONS,
-                EVB_SERVER_PORT: electronRuntimeEnv.EVB_SERVER_PORT,
-                EVB_SERVER_PATH: electronRuntimeEnv.EVB_SERVER_PATH,
-                EVB_AUTOMATION_NO_FOCUS: electronRuntimeEnv.EVB_AUTOMATION_NO_FOCUS,
-                EVB_AUTOMATION_HIDE_WINDOW: electronRuntimeEnv.EVB_AUTOMATION_HIDE_WINDOW,
-                EVB_AUTOMATION_USER_DATA_DIR: electronRuntimeEnv.EVB_AUTOMATION_USER_DATA_DIR,
-                EVB_AUTOMATION_SESSION_NAME: electronRuntimeEnv.EVB_AUTOMATION_SESSION_NAME,
-                ELECTRON_ENABLE_LOGGING: electronRuntimeEnv.ELECTRON_ENABLE_LOGGING,
-                ELECTRON_ENABLE_STACK_DUMPING: electronRuntimeEnv.ELECTRON_ENABLE_STACK_DUMPING,
-            },
-        })
+        ? [
+            ...electronArgs.slice(0, -1),
+            hiddenAutomationAppEntryPath,
+        ]
         : electronArgs;
     const electron = spawn(launchCommand, launchArgs, {
         cwd: projectRoot,
@@ -1083,6 +1145,7 @@ export async function startSession(forceClean = false) {
                         electronProcess.kill();
                     }
                 } catch {}
+                await killElectronProcessesByCdpPort(cdpPort);
                 electronProcess = null;
                 browser = null;
                 page = null;

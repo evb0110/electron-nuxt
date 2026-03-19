@@ -4,7 +4,8 @@ import {
     it,
 } from 'vitest';
 import {
-    buildMacOSHiddenAppLauncherArgs,
+    buildMacOSAutomationAppEntryPaths,
+    buildMacOSHiddenAppBundlePaths,
     buildElectronAutomationArgs,
     resolveAutomationWindowEnv,
     shouldUseMacOSHiddenAppLauncher,
@@ -93,34 +94,22 @@ describe('session-manager automation launch args', () => {
         }, 'linux')).toBe(false);
     });
 
-    it('builds hidden macOS launcher args with forwarded app environment', () => {
-        expect(buildMacOSHiddenAppLauncherArgs({
-            appPath: '/Applications/Electron.app',
-            electronArgs: [
-                '--remote-debugging-port=9222',
-                '--user-data-dir=/tmp/evb-user-data',
-                '--disable-http-cache',
-                '/tmp/main.js',
-            ],
-            appEnv: {
-                EVB_AUTOMATION_HIDE_WINDOW: '1',
-                EVB_SERVER_PORT: '3235',
-            },
-        })).toEqual([
-            '-n',
-            '-g',
-            '-j',
-            '-W',
-            '/Applications/Electron.app',
-            '--env',
-            'EVB_AUTOMATION_HIDE_WINDOW=1',
-            '--env',
-            'EVB_SERVER_PORT=3235',
-            '--args',
-            '--remote-debugging-port=9222',
-            '--user-data-dir=/tmp/evb-user-data',
-            '--disable-http-cache',
-            '/tmp/main.js',
-        ]);
+    it('builds hidden macOS app bundle paths inside a dedicated automation directory', () => {
+        expect(buildMacOSHiddenAppBundlePaths({
+            sourceAppPath: '/Applications/Electron.app',
+            destinationRoot: '/tmp/evb-automation-app',
+        })).toEqual({
+            appPath: '/tmp/evb-automation-app/Electron.app',
+            executablePath: '/tmp/evb-automation-app/Electron.app/Contents/MacOS/Electron',
+            infoPlistPath: '/tmp/evb-automation-app/Electron.app/Contents/Info.plist',
+        });
+    });
+
+    it('builds wrapper app entry paths for dockless macOS automation launches', () => {
+        expect(buildMacOSAutomationAppEntryPaths('/tmp/evb-automation-entry')).toEqual({
+            appPath: '/tmp/evb-automation-entry/automation-app',
+            packageJsonPath: '/tmp/evb-automation-entry/automation-app/package.json',
+            mainJsPath: '/tmp/evb-automation-entry/automation-app/main.js',
+        });
     });
 });
