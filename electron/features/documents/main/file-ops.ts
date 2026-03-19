@@ -5,6 +5,8 @@ import {
     stat,
     unlink,
     open as openFileHandle,
+    lstat,
+    realpath,
 } from 'fs/promises';
 import {
     extname,
@@ -17,6 +19,7 @@ import {
     resolveAllowedWritePath,
 } from '@electron/utils/path-validator';
 import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
+import { isAllowedDjvuViewingPath } from '@electron/features/djvu/main/viewing';
 import { consumeAllowedDocxWritePath } from '@electron/ipc/docxExportPaths';
 import { MAX_CHUNK } from '@electron/config/constants';
 import { createLogger } from '@electron/utils/logger';
@@ -49,6 +52,10 @@ const ALLOWED_BINARY_READ_EXTENSIONS = new Set([
     '.djvu',
     '.djv',
 ]);
+const ALLOWED_DIRECT_SOURCE_READ_EXTENSIONS = new Set([
+    '.djvu',
+    '.djv',
+]);
 
 function normalizeNonEmptyPath(filePath: unknown): string {
     if (typeof filePath !== 'string') {
@@ -62,7 +69,39 @@ function normalizeNonEmptyPath(filePath: unknown): string {
     return normalizedPath;
 }
 
-async function resolveReadablePath(normalizedPath: string): Promise<string | null> {
+async function resolveDirectSourceReadPath(
+    normalizedPath: string,
+    extension: string,
+): Promise<string | null> {
+    if (!ALLOWED_DIRECT_SOURCE_READ_EXTENSIONS.has(extension)) {
+        return null;
+    }
+
+    if (!isAllowedDjvuViewingPath(normalizedPath)) {
+        return null;
+    }
+
+    const absolutePath = resolve(normalizedPath);
+    if (!existsSync(absolutePath)) {
+        return null;
+    }
+
+    try {
+        const pathStat = await lstat(absolutePath);
+        if (pathStat.isSymbolicLink()) {
+            return null;
+        }
+
+        return await realpath(absolutePath);
+    } catch {
+        return null;
+    }
+}
+
+async function resolveReadablePath(
+    normalizedPath: string,
+    extension: string,
+): Promise<string | null> {
     const directResolvedPath = await resolveAllowedReadPath(normalizedPath);
     if (directResolvedPath) {
         return directResolvedPath;
@@ -72,10 +111,15 @@ async function resolveReadablePath(normalizedPath: string): Promise<string | nul
     // working copy path to preserve temp-sandboxed reads.
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath);
     if (!mappedWorkingCopyPath) {
-        return null;
+        return resolveDirectSourceReadPath(normalizedPath, extension);
     }
 
-    return resolveAllowedReadPath(mappedWorkingCopyPath);
+    const mappedResolvedPath = await resolveAllowedReadPath(mappedWorkingCopyPath);
+    if (mappedResolvedPath) {
+        return mappedResolvedPath;
+    }
+
+    return resolveDirectSourceReadPath(normalizedPath, extension);
 }
 
 function resolveReadablePathSync(normalizedPath: string): string | null {
@@ -103,7 +147,7 @@ export async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePa
         throw new Error('Invalid file type: only PDF and DjVu files are allowed');
     }
 
-    const resolvedPath = await resolveReadablePath(normalizedPath);
+    const resolvedPath = await resolveReadablePath(normalizedPath, extension);
     if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
@@ -126,7 +170,7 @@ export async function handleFileStat(
         throw new Error('Invalid file type: only PDF files are allowed');
     }
 
-    const resolvedPath = await resolveReadablePath(normalizedPath);
+    const resolvedPath = await resolveReadablePath(normalizedPath, extension);
     if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
@@ -151,7 +195,7 @@ export async function handleFileReadRange(
         throw new Error('Invalid file type: only PDF files are allowed');
     }
 
-    const resolvedPath = await resolveReadablePath(normalizedPath);
+    const resolvedPath = await resolveReadablePath(normalizedPath, extension);
     if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }
@@ -236,7 +280,7 @@ export async function handleFileReadText(
         throw new Error('Invalid file type: only .json, .txt, and .tsv files are allowed');
     }
 
-    const resolvedPath = await resolveReadablePath(normalizedPath);
+    const resolvedPath = await resolveReadablePath(normalizedPath, extension);
     if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }

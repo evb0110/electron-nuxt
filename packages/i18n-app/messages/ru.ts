@@ -229,6 +229,7 @@ export default {
     'djvu': {
         'loadingPages': 'Загрузка страниц... {current}/{total}',
         'bannerHint': 'Файл DjVu — конвертируйте в PDF для редактирования',
+        'pageAlt': 'Страница DjVu {page}',
         'convertToPdf': 'Конвертировать в PDF...',
         'overlayConverting': 'Конвертация DjVu в PDF...',
         'overlayBookmarks': 'Обработка закладок...',
@@ -243,6 +244,8 @@ export default {
             'sourceResolution': 'Разрешение источника',
             'quality': 'Качество',
             'estimating': 'Оценка размера файла...',
+            'largeDocumentMedium': 'Большие DjVu-файлы могут потреблять много памяти при экспорте PDF в браузере. Рекомендуется режим «Хорошее качество».',
+            'largeDocumentHigh': 'Очень большие DjVu-файлы могут перегрузить экспорт PDF в браузере. Рекомендуется режим «Компактный» или конвертация в настольном приложении.',
             'preserveBookmarks': 'Сохранить закладки',
             'fullQuality': 'Максимальное качество',
             'original': 'Оригинал',

@@ -14,7 +14,8 @@
                 :is-exporting-docx="isExportingDocx"
                 :is-fit-width-active="isFitWidthActive"
                 :is-fit-height-active="isFitHeightActive"
-                :show-sidebar="showSidebar"
+                :show-sidebar="toolbarShowSidebar"
+                :can-toggle-sidebar="canToggleSidebar"
                 :drag-mode="dragMode"
                 :continuous-scroll="continuousScroll"
                 :is-djvu-mode="isDjvuMode"
@@ -217,11 +218,12 @@
             </template>
 
             <WorkspaceViewerHost
-                :has-document="Boolean(pdfSrc)"
+                :has-document="Boolean(pdfSrc) || showNativeDjvuViewer"
                 :suppress-empty-state="suppressEmptyState"
             >
                 <template #document>
                     <PdfViewer
+                        v-if="pdfSrc"
                         ref="pdfViewerRef"
                         :src="pdfSrc!"
                         :zoom="zoom"
@@ -259,6 +261,22 @@
                         @annotation-note-placement-change="annotationPlacingPageNote = $event"
                         @shape-context-menu="handleShapeContextMenu"
                         @image-placement-finalize="handleFinalizePlacedImage"
+                    />
+                    <DjvuViewer
+                        v-else-if="showNativeDjvuViewer"
+                        ref="pdfViewerRef"
+                        :src="djvuSourcePath!"
+                        :zoom="zoom"
+                        :zoom-mode="zoomMode"
+                        :fit-mode="fitMode"
+                        :view-mode="viewMode"
+                        :continuous-scroll="continuousScroll"
+                        :drag-mode="dragMode"
+                        @update:effective-zoom="effectiveZoom = $event"
+                        @update:current-page="handleViewerCurrentPageUpdate"
+                        @update:total-pages="handleViewerTotalPagesUpdate"
+                        @update:document="pdfDocument = $event"
+                        @loading="isLoading = $event"
                     />
                 </template>
                 <template #empty>
@@ -424,6 +442,7 @@ const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup
 const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));
 const DjvuConversionOverlay = defineAsyncComponent(() => import('@app/components/djvu/DjvuConversionOverlay.vue'));
 const DjvuConvertDialog = defineAsyncComponent(() => import('@app/components/djvu/DjvuConvertDialog.vue'));
+const DjvuViewer = defineAsyncComponent(() => import('@app/components/djvu/DjvuViewer.vue'));
 
 const props = defineProps<{
     tabId: string;
@@ -669,19 +688,33 @@ const {
     hasPdf,
 } = w;
 
+const showNativeDjvuViewer = computed(() => (
+    isDjvuMode.value
+    && Boolean(djvuSourcePath.value)
+    && !pdfSrc.value
+));
 const toolbarHasPdf = computed(() => (
     hasPdf.value
+    || showNativeDjvuViewer.value
     || hasQueuedSplitRestore.value
     || isRestoringSplitPayload.value
     || isExternallyRestoring.value
     || props.pendingDocumentOpen === true
+));
+const toolbarShowSidebar = computed(() => (
+    showSidebar.value
+    && !showNativeDjvuViewer.value
+));
+const canToggleSidebar = computed(() => (
+    toolbarHasPdf.value
+    && !showNativeDjvuViewer.value
 ));
 function handleViewerTotalPagesUpdate(value: number) {
     // During split restore the PdfViewer emits totalPages=0 while it starts
     // loading the "new" source, overwriting the pre-seeded cache value.
     // Suppress the transient 0 whenever a document is already loaded — the
     // viewer will emit the real count once parsing finishes.
-    if (value === 0 && hasPdf.value) {
+    if (value === 0 && Boolean(pdfSrc.value)) {
         return;
     }
     totalPages.value = value;

@@ -223,6 +223,7 @@ export default {
     'djvu': {
         'loadingPages': 'Loading pages... {current}/{total}',
         'bannerHint': 'DjVu file - convert to PDF to enable editing features',
+        'pageAlt': 'DjVu page {page}',
         'convertToPdf': 'Convert to PDF...',
         'overlayConverting': 'Converting DjVu to PDF...',
         'overlayBookmarks': 'Processing bookmarks...',
@@ -237,6 +238,8 @@ export default {
             'sourceResolution': 'Source resolution',
             'quality': 'Quality',
             'estimating': 'Estimating file sizes...',
+            'largeDocumentMedium': 'Large DjVu files can use substantial memory during browser PDF export. Good Quality is recommended.',
+            'largeDocumentHigh': 'Very large DjVu files may overwhelm browser PDF export. Compact quality is recommended, or use the desktop app for conversion.',
             'preserveBookmarks': 'Preserve bookmarks',
             'fullQuality': 'Full Quality',
             'original': 'Original',

@@ -211,10 +211,11 @@ export const useDjvu = () => {
 
     async function openDjvuFile(
         djvuPath: TDocumentRef,
-        loadPdfFromPath: (path: TDocumentRef) => Promise<void>,
-        getCurrentPage?: () => number,
-        setPage?: (page: number) => void,
+        _loadPdfFromPath: (path: TDocumentRef) => Promise<void>,
+        _getCurrentPage?: () => number,
+        _setPage?: (page: number) => void,
         setOriginalPath?: (path: TDocumentRef | null) => void,
+        closeActivePdf?: () => Promise<void>,
     ) {
         const api = getElectronAPI();
         const djvuFileName = getDocumentRefBaseName(djvuPath) ?? t('djvu.fileFallback');
@@ -225,70 +226,17 @@ export const useDjvu = () => {
         pendingConvertCancel.value = false;
 
         try {
-            BrowserLogger.info('djvu', `Opening DjVu for viewing: ${djvuFileName}`);
             const result = await api.djvu.openForViewing(djvuPath);
-
-            if (!result.success || !result.pdfPath) {
+            if (!result.success) {
                 BrowserLogger.error('djvu', 'Open failed', result.error);
                 throw new Error(result.error ?? t('errors.djvu.open'));
             }
 
-            const initialPdfPath = result.pdfPath;
-            const pageCount = result.pageCount ?? 0;
-            activeViewingJobId.value = result.jobId ?? null;
-            BrowserLogger.info('djvu', 'Viewing ready', {
-                jobId: result.jobId,
-                pageCount, 
-            });
-
-            if (pageCount > 1) {
-                isLoadingPages.value = true;
-                loadingProgress.value = {
-                    current: 0,
-                    total: pageCount,
-                };
-
-                swapHandler = (event) => {
-                    (async () => {
-                        BrowserLogger.info('djvu', 'Full PDF swap received', {
-                            jobId: activeViewingJobId.value,
-                            isPartial: event.isPartial, 
-                        });
-                        try {
-                            const savedPage = getCurrentPage?.() ?? 1;
-                            const oldPath = djvuTempPdfPath.value ?? initialPdfPath;
-
-                            enterDjvuMode(djvuPath, event.pdfPath);
-                            await loadPdfFromPath(event.pdfPath);
-                            await api.documents.setWindowTitle(djvuFileName);
-
-                            if (savedPage > 1 && setPage) {
-                                setPage(savedPage);
-                            }
-
-                            if (oldPath && oldPath !== event.pdfPath) {
-                                api.djvu.cleanupTemp(oldPath).catch((cleanupError: unknown) => {
-                                    logSuppressedError('Failed to cleanup old DjVu temp PDF', cleanupError);
-                                });
-                            }
-                        } finally {
-                            resetViewingProgressState();
-                        }
-                    })().catch((swapError: unknown) => {
-                        logSuppressedError('Failed to swap DjVu full PDF', swapError);
-                    });
-                };
-            }
-
-            // Set originalPath to DjVu source so the status bar shows
-            // the real file location instead of the /var temp path
+            BrowserLogger.info('djvu', 'Native DjVu viewing ready', { pageCount: result.pageCount ?? 0 });
+            resetViewingProgressState();
+            await closeActivePdf?.();
             setOriginalPath?.(djvuPath);
-
-            enterDjvuMode(djvuPath, initialPdfPath);
-            await loadPdfFromPath(initialPdfPath);
-
-            // loadPdfFromPath overwrites the window title with the temp filename;
-            // restore it to the DjVu source filename
+            enterDjvuMode(djvuPath, null);
             await api.documents.setWindowTitle(djvuFileName);
         } catch (e) {
             resetViewingProgressState();
