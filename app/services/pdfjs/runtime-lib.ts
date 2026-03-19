@@ -14,7 +14,6 @@ export const {
     AnnotationEditorUIManager,
     DrawLayer,
     GlobalWorkerOptions,
-    PDFDataRangeTransport,
     PDFDateString,
     PixelsPerInch,
     TextLayer,

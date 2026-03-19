@@ -23,7 +23,6 @@ export type {
     IPageOpsCapability,
     IRendererLogEntry,
     ISearchCapability,
-    IShellCapability,
     ISettingsCapability,
     IUpdatesCapability,
     IWindowTabsCapability,

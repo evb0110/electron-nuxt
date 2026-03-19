@@ -34,14 +34,8 @@ import {
 } from '@app/platform/browser-api/common';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/common';
 
-export interface IPickedBrowserFile {
+interface IPickedBrowserFile {
     file: File;
-    handle?: FileSystemFileHandle | null;
-}
-
-export interface ISaveBytesResult {
-    canceled: boolean;
-    fileName: string;
     handle?: FileSystemFileHandle | null;
 }
 
@@ -269,7 +263,7 @@ async function pickSingleFile(options: {
     return files[0] ?? null;
 }
 
-export async function saveBlobToPickerOrDownload(
+async function saveBlobToPickerOrDownload(
     blob: Blob,
     suggestedName: string,
     pickerTypes: IFilePickerAcceptType[],

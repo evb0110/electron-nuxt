@@ -7,8 +7,6 @@ ensurePdfjsSsrGlobals();
 
 const pdfjsViewerLib = await import('pdfjs-dist/web/pdf_viewer.mjs');
 
-export default pdfjsViewerLib;
-
 export const {
     EventBus,
     GenericL10n,
