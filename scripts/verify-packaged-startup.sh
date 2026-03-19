@@ -73,8 +73,6 @@ mkdir -p "$log_dir"
 
 scratch_dir="$(mktemp -d "${TMPDIR:-/tmp}/evb-packaged-startup.XXXXXX")"
 app_copy="$scratch_dir/EVB Viewer.app"
-stdout_log="$scratch_dir/app-stdout.log"
-
 app_pid=""
 cleanup() {
   if [ -n "$app_pid" ] && kill -0 "$app_pid" >/dev/null 2>&1; then
@@ -87,13 +85,13 @@ trap cleanup EXIT
 
 cp -R "$app_path" "$app_copy"
 
-env \
-  EVB_ALLOW_MULTI_AUTOMATION_SESSIONS=1 \
-  EVB_AUTOMATION_HIDE_WINDOW=1 \
-  EVB_AUTOMATION_NO_FOCUS=1 \
-  EVB_SERVER_PORT="$port" \
-  EVB_STARTUP_TRACE=1 \
-  "$app_copy/Contents/MacOS/EVB Viewer" >"$stdout_log" 2>&1 &
+open -n -g -j -W \
+  "$app_copy" \
+  --env EVB_ALLOW_MULTI_AUTOMATION_SESSIONS=1 \
+  --env EVB_AUTOMATION_HIDE_WINDOW=1 \
+  --env EVB_AUTOMATION_NO_FOCUS=1 \
+  --env EVB_SERVER_PORT="$port" \
+  --env EVB_STARTUP_TRACE=1 &
 app_pid=$!
 
 main_log="$log_dir/main.log"
@@ -104,10 +102,6 @@ timeout_secs=50
 deadline=$((SECONDS + timeout_secs))
 ready=0
 while [ "$SECONDS" -lt "$deadline" ]; do
-  if [ -f "$stdout_log" ] && grep -q 'ERR_MODULE_NOT_FOUND' "$stdout_log"; then
-    break
-  fi
-
   window_ready=0
   if [ -f "$window_log" ] && grep -Eq 'BrowserWindow created and loadURL dispatched|Window runtime ready|Window shown|preload path:' "$window_log"; then
     window_ready=1
@@ -140,8 +134,6 @@ if [ "$ready" -ne 1 ]; then
   cat "$server_log" 2>/dev/null || true
   echo "--- window.log ---"
   cat "$window_log" 2>/dev/null || true
-  echo "--- app stdout/stderr ---"
-  cat "$stdout_log" 2>/dev/null || true
   exit 1
 fi
 

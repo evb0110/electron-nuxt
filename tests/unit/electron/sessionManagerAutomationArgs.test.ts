@@ -4,8 +4,10 @@ import {
     it,
 } from 'vitest';
 import {
+    buildMacOSHiddenAppLauncherArgs,
     buildElectronAutomationArgs,
     resolveAutomationWindowEnv,
+    shouldUseMacOSHiddenAppLauncher,
     shouldDisableAutomationSandbox,
 } from '../../../scripts/electron-run/session-manager';
 
@@ -77,5 +79,48 @@ describe('session-manager automation launch args', () => {
             EVB_AUTOMATION_NO_FOCUS: '0',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
         });
+    });
+
+    it('prefers the hidden app launcher for macOS automation sessions', () => {
+        expect(shouldUseMacOSHiddenAppLauncher({
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_NO_FOCUS: '1',
+        }, 'darwin')).toBe(true);
+
+        expect(shouldUseMacOSHiddenAppLauncher({
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_NO_FOCUS: '1',
+        }, 'linux')).toBe(false);
+    });
+
+    it('builds hidden macOS launcher args with forwarded app environment', () => {
+        expect(buildMacOSHiddenAppLauncherArgs({
+            appPath: '/Applications/Electron.app',
+            electronArgs: [
+                '--remote-debugging-port=9222',
+                '--user-data-dir=/tmp/evb-user-data',
+                '--disable-http-cache',
+                '/tmp/main.js',
+            ],
+            appEnv: {
+                EVB_AUTOMATION_HIDE_WINDOW: '1',
+                EVB_SERVER_PORT: '3235',
+            },
+        })).toEqual([
+            '-n',
+            '-g',
+            '-j',
+            '-W',
+            '/Applications/Electron.app',
+            '--env',
+            'EVB_AUTOMATION_HIDE_WINDOW=1',
+            '--env',
+            'EVB_SERVER_PORT=3235',
+            '--args',
+            '--remote-debugging-port=9222',
+            '--user-data-dir=/tmp/evb-user-data',
+            '--disable-http-cache',
+            '/tmp/main.js',
+        ]);
     });
 });
