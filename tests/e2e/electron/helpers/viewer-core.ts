@@ -5,6 +5,25 @@ import {
     waitForActiveWorkspaceHost,
 } from './viewer-dom';
 
+const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
+    'Toggle Sidebar': [
+        '.i-lucide-panel-left',
+        '.iconify.i-lucide-panel-left',
+    ],
+    'Undo': [
+        '.i-lucide-undo-2',
+        '.iconify.i-lucide-undo-2',
+    ],
+    'Redo': [
+        '.i-lucide-redo-2',
+        '.iconify.i-lucide-redo-2',
+    ],
+};
+
+function getToolbarActionIconHints(label: string) {
+    return TOOLBAR_ACTION_ICON_HINTS[label] ?? [];
+}
+
 function isExecutionContextDestroyedError(error: unknown) {
     if (!(error instanceof Error)) {
         return false;
@@ -203,10 +222,21 @@ export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_T
 }
 
 export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
-    const point = await page.evaluate((label: string) => {
+    const point = await page.evaluate((args: {
+        label: string;
+        iconHints: string[];
+    }) => {
+        const matchesToolbarAction = (element: HTMLElement, label: string, iconHints: string[]) => {
+            const ariaLabel = element.getAttribute('aria-label')?.trim() ?? '';
+            if (ariaLabel === label || ariaLabel.startsWith(`${label} (`)) {
+                return true;
+            }
+            return iconHints.some(selector => Boolean(element.querySelector(selector)));
+        };
+
         const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button.toolbar-btn[aria-label]'));
         const target = buttons.find((button) => {
-            if (button.getAttribute('aria-label') !== label || button.disabled) {
+            if (!matchesToolbarAction(button, args.label, args.iconHints) || button.disabled) {
                 return false;
             }
             const rect = button.getBoundingClientRect();
@@ -229,7 +259,10 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
             x: Math.round(rect.left + rect.width / 2),
             y: Math.round(rect.top + rect.height / 2),
         };
-    }, ariaLabel);
+    }, {
+        label: ariaLabel,
+        iconHints: getToolbarActionIconHints(ariaLabel),
+    });
 
     if (!point) {
         const overflowPoint = await page.evaluate(() => {
@@ -271,11 +304,21 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
         await page.mouse.click(overflowPoint.x, overflowPoint.y);
         await page.waitForSelector('.overflow-menu', { timeout: 4_000 });
 
-        const overflowItemPoint = await page.evaluate((label: string) => {
+        const overflowItemPoint = await page.evaluate((args: {
+            label: string;
+            iconHints: string[];
+        }) => {
+            const matchesToolbarAction = (element: HTMLElement, label: string, iconHints: string[]) => {
+                const text = (element.querySelector('.overflow-menu-label')?.textContent ?? '').trim();
+                if (text === label) {
+                    return true;
+                }
+                return iconHints.some(selector => Boolean(element.querySelector(selector)));
+            };
+
             const items = Array.from(document.querySelectorAll<HTMLElement>('.overflow-menu .overflow-menu-item'));
             const target = items.find((item) => {
-                const labelNode = item.querySelector('.overflow-menu-label');
-                if ((labelNode?.textContent ?? '').trim() !== label) {
+                if (!matchesToolbarAction(item, args.label, args.iconHints)) {
                     return false;
                 }
                 const rect = item.getBoundingClientRect();
@@ -298,7 +341,10 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
                 x: Math.round(rect.left + rect.width / 2),
                 y: Math.round(rect.top + rect.height / 2),
             };
-        }, ariaLabel);
+        }, {
+            label: ariaLabel,
+            iconHints: getToolbarActionIconHints(ariaLabel),
+        });
 
         if (!overflowItemPoint) {
             throw new Error(`Toolbar action not found in overflow menu: ${ariaLabel}`);
