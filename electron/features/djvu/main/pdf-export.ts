@@ -146,7 +146,7 @@ async function acquireConversionSlot(jobId: string) {
     });
 }
 
-export async function runDjvuConversionJobWithSlot<T>(
+async function runDjvuConversionJobWithSlot<T>(
     jobId: string,
     run: () => Promise<T>,
 ): Promise<T> {
@@ -166,7 +166,7 @@ export async function runDjvuConversionJobWithSlot<T>(
     }
 }
 
-export function requestDjvuCancel(jobId: string): boolean {
+function requestDjvuCancel(jobId: string): boolean {
     const normalizedJobId = typeof jobId === 'string' ? jobId.trim() : '';
     if (!normalizedJobId) {
         return false;

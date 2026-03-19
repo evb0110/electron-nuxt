@@ -100,30 +100,7 @@ async function cleanupPartialOutput(outputPath: string) {
     }
 }
 
-export async function convertDjvuToPdf(
-    inputPath: string,
-    outputPath: string,
-    jobId: string,
-    options: IDjvuConvertOptions = {},
-): Promise<IDjvuConvertResult> {
-    const totalPages = options.pageCount ?? 0;
-    const shouldUseRangeParallelism = shouldUseParallelRangeConversion(options);
-
-    if (shouldUseRangeParallelism) {
-        logger.info(`[${jobId}] Using parallel DjVu conversion: pages=${totalPages}, workers=${getRangeWorkerCount(totalPages)}`);
-        return convertDjvuToPdfWithRanges(
-            inputPath,
-            outputPath,
-            jobId,
-            options,
-        );
-    }
-
-    logger.info(`[${jobId}] Using single-process DjVu conversion: pages=${totalPages}`);
-    return convertDjvuToPdfSingleProcess(inputPath, outputPath, jobId, options, totalPages);
-}
-
-async function convertDjvuToPdfWithRanges(
+async function _convertDjvuToPdfWithRanges(
     inputPath: string,
     outputPath: string,
     jobId: string,
@@ -232,7 +209,7 @@ async function convertDjvuToPdfWithRanges(
     }
 }
 
-async function convertDjvuToPdfSingleProcess(
+async function _convertDjvuToPdfSingleProcess(
     inputPath: string,
     outputPath: string,
     jobId: string,
@@ -749,7 +726,7 @@ async function runProcess(
     });
 }
 
-function shouldUseParallelRangeConversion(options: IDjvuConvertOptions) {
+function _shouldUseParallelRangeConversion(options: IDjvuConvertOptions) {
     const totalPages = options.pageCount ?? 0;
     if (options.pages) {
         return false;

@@ -19,7 +19,7 @@ export interface IDjvuContentsItem {
     children?: IDjvuContentsItem[];
 }
 
-export interface IDjvuPngObjectData {
+interface IDjvuPngObjectData {
     url: string;
     byteLength: number;
     width: number;
