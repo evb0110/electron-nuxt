@@ -30,50 +30,110 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
         description: () => t('seo.description'),
         applicationName: () => t('app.webTitle'),
         robots: () => robots.value,
+        author: 'EVB Viewer',
         ogTitle: () => t('seo.title'),
         ogDescription: () => t('seo.description'),
         ogType: 'website',
         ogSiteName: () => t('app.webTitle'),
         ogUrl: () => canonicalUrl.value,
         ogImage: () => previewImageUrl.value,
+        ogImageWidth: 2936,
+        ogImageHeight: 1935,
+        ogImageType: 'image/png',
         ogImageAlt: () => t('seo.previewAlt'),
         ogLocale: () => locale.value,
         twitterCard: 'summary_large_image',
         twitterTitle: () => t('seo.title'),
         twitterDescription: () => t('seo.description'),
         twitterImage: () => previewImageUrl.value,
+        twitterImageAlt: () => t('seo.previewAlt'),
     });
 
     useHead(() => ({
         htmlAttrs: { lang: locale.value },
+        titleTemplate: `%s — ${t('app.webTitle')}`,
         link: [{
             rel: 'canonical',
             href: canonicalUrl.value,
         }],
         script: options.noindex
             ? []
-            : [{
-                key: 'web-app-json-ld',
-                type: 'application/ld+json',
-                innerHTML: JSON.stringify({
-                    '@context': 'https://schema.org',
-                    '@type': 'SoftwareApplication',
-                    name: t('seo.title'),
-                    applicationCategory: 'BusinessApplication',
-                    operatingSystem: 'Web',
-                    description: t('seo.description'),
-                    url: canonicalUrl.value,
-                    image: previewImageUrl.value,
-                    offers: {
-                        '@type': 'Offer',
-                        price: '0',
-                        priceCurrency: 'USD',
-                    },
-                    featureList: [
-                        t('seo.featurePdf'),
-                        t('seo.featureAnnotate'),
-                    ],
-                }),
-            }],
+            : [
+                {
+                    key: 'ld-software-application',
+                    type: 'application/ld+json',
+                    innerHTML: JSON.stringify({
+                        '@context': 'https://schema.org',
+                        '@type': 'SoftwareApplication',
+                        'name': t('seo.title'),
+                        'applicationCategory': 'BusinessApplication',
+                        'applicationSubCategory': 'Document Viewer',
+                        'operatingSystem': 'Web',
+                        'description': t('seo.description'),
+                        'url': canonicalUrl.value,
+                        'image': previewImageUrl.value,
+                        'screenshot': {
+                            '@type': 'ImageObject',
+                            'url': previewImageUrl.value,
+                            'width': 2936,
+                            'height': 1935,
+                            'caption': t('seo.screenshotAlt'),
+                        },
+                        'offers': {
+                            '@type': 'Offer',
+                            'price': '0',
+                            'priceCurrency': 'USD',
+                        },
+                        'featureList': [
+                            t('seo.featurePdf'),
+                            t('seo.featureAnnotate'),
+                            t('seo.featureSearch'),
+                            t('seo.featurePageOps'),
+                            t('seo.featureExport'),
+                            t('seo.featureMultiTab'),
+                        ],
+                        'inLanguage': [
+                            'en',
+                            'ru',
+                            'fr',
+                            'de',
+                            'es',
+                            'it',
+                            'pt',
+                            'nl',
+                        ],
+                    }),
+                },
+                {
+                    key: 'ld-website',
+                    type: 'application/ld+json',
+                    innerHTML: JSON.stringify({
+                        '@context': 'https://schema.org',
+                        '@type': 'WebSite',
+                        'name': t('app.webTitle'),
+                        'url': canonicalUrl.value,
+                    }),
+                },
+                {
+                    key: 'ld-webpage',
+                    type: 'application/ld+json',
+                    innerHTML: JSON.stringify({
+                        '@context': 'https://schema.org',
+                        '@type': 'WebPage',
+                        'name': t('seo.title'),
+                        'description': t('seo.description'),
+                        'url': canonicalUrl.value,
+                        'isPartOf': {
+                            '@type': 'WebSite',
+                            'url': canonicalUrl.value,
+                        },
+                        'primaryImageOfPage': {
+                            '@type': 'ImageObject',
+                            'url': previewImageUrl.value,
+                        },
+                        'inLanguage': locale.value,
+                    }),
+                },
+            ],
     }));
 }

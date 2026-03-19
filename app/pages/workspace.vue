@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { hasElectronAPI } from '@app/utils/platform';
 
+useServerSeoMeta({ robots: 'noindex, nofollow' });
+
 if (import.meta.client && hasElectronAPI()) {
     await navigateTo('/electron', { replace: true });
 } else {

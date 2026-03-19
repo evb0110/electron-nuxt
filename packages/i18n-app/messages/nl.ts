@@ -16,8 +16,13 @@ export default {
         'lede': 'EVB Viewer Web houdt de focus op het document en geeft zoekmachines en linkvoorbeelden toch een echte indexeerbare pagina.',
         'featurePdf': 'Open pdfs, DjVu-bestanden en gewone afbeeldingen zonder de browser te verlaten.',
         'featureAnnotate': 'Zoek, annoteer, herschik, roteer, snijd bij en exporteer documenten in een enkele werkruimte.',
+        'featureSearch': 'Volledige tekstzoekopdracht in PDF-documenten met gemarkeerde resultaten.',
+        'featurePageOps': 'Individuele pagina\'s verwijderen, extraheren, herschikken, roteren en bijsnijden.',
+        'featureExport': 'Exporteer naar PDF-, PNG-, JPEG-, TIFF- en DOCX-indelingen.',
+        'featureMultiTab': 'Werkruimte met meerdere tabbladen en gesplitste panelen voor weergave naast elkaar.',
         'featureDesktop': 'OCR of diepere systeemintegratie nodig? Installeer de desktop-app wanneer u wilt.',
         'previewAlt': 'Voorbeeld van de EVB Viewer Web-werkruimte',
+        'screenshotAlt': 'Schermafbeelding van EVB Viewer Web met de documentwerkruimte',
     },
     'toolbar': {
         'openPdf': 'Bestand openen',

@@ -1,23 +1,40 @@
-function normalizeSiteUrl(siteUrl: string) {
-    return siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`;
-}
+import { resolveSiteUrl } from '../utils/normalize-site-url';
+
+const AI_CRAWLERS = [
+    'GPTBot',
+    'ChatGPT-User',
+    'Google-Extended',
+    'CCBot',
+    'anthropic-ai',
+    'Claude-Web',
+    'Bytespider',
+    'Diffbot',
+    'FacebookBot',
+    'PerplexityBot',
+    'Applebot-Extended',
+    'YouBot',
+    'Amazonbot',
+    'cohere-ai',
+];
 
 export default defineEventHandler((event) => {
-    const runtimeConfig = useRuntimeConfig(event);
-    const requestUrl = getRequestURL(event);
-    const configuredSiteUrl = typeof runtimeConfig.public.siteUrl === 'string'
-        ? runtimeConfig.public.siteUrl.trim()
-        : '';
-    const siteUrl = normalizeSiteUrl(
-        configuredSiteUrl || `${requestUrl.protocol}//${requestUrl.host}`,
-    );
+    const siteUrl = resolveSiteUrl(event);
 
     setHeader(event, 'content-type', 'text/plain; charset=utf-8');
 
-    return [
+    const lines = [
         'User-agent: *',
         'Allow: /',
-        `Sitemap: ${new URL('/sitemap.xml', siteUrl).toString()}`,
+        'Disallow: /electron',
+        'Disallow: /workspace',
         '',
-    ].join('\n');
+    ];
+
+    for (const bot of AI_CRAWLERS) {
+        lines.push(`User-agent: ${bot}`, 'Disallow: /', '');
+    }
+
+    lines.push(`Sitemap: ${new URL('/sitemap.xml', siteUrl).toString()}`, '');
+
+    return lines.join('\n');
 });
