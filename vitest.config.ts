@@ -17,6 +17,7 @@ export default defineConfig({
         '@i18n-core': resolve(__dirname, 'packages/i18n-core'),
         '@i18n-app': resolve(__dirname, 'packages/i18n-app'),
         '@release-selection': resolve(__dirname, 'packages/release-selection'),
+        electron: resolve(__dirname, 'tests/mocks/electron.ts'),
     }},
     test: {
         include: [
