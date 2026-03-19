@@ -73,6 +73,7 @@ mkdir -p "$log_dir"
 
 scratch_dir="$(mktemp -d "${TMPDIR:-/tmp}/evb-packaged-startup.XXXXXX")"
 app_copy="$scratch_dir/EVB Viewer.app"
+app_exec="$app_copy/Contents/MacOS/EVB Viewer"
 app_pid=""
 cleanup() {
   if [ -n "$app_pid" ] && kill -0 "$app_pid" >/dev/null 2>&1; then
@@ -83,15 +84,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cp -R "$app_path" "$app_copy"
-
-open -n -g -j -W \
-  "$app_copy" \
-  --env EVB_ALLOW_MULTI_AUTOMATION_SESSIONS=1 \
-  --env EVB_AUTOMATION_HIDE_WINDOW=1 \
-  --env EVB_AUTOMATION_NO_FOCUS=1 \
-  --env EVB_SERVER_PORT="$port" \
-  --env EVB_STARTUP_TRACE=1 &
+/usr/bin/ditto "$app_path" "$app_copy"
+/usr/bin/plutil -replace LSUIElement -bool YES "$app_copy/Contents/Info.plist" 2>/dev/null \
+  || /usr/bin/plutil -insert LSUIElement -bool YES "$app_copy/Contents/Info.plist"
+EVB_ALLOW_MULTI_AUTOMATION_SESSIONS=1 \
+EVB_AUTOMATION_HIDE_WINDOW=1 \
+EVB_AUTOMATION_NO_FOCUS=1 \
+EVB_SERVER_PORT="$port" \
+EVB_STARTUP_TRACE=1 \
+"$app_exec" &
 app_pid=$!
 
 main_log="$log_dir/main.log"
