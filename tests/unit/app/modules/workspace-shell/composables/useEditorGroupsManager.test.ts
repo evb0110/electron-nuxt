@@ -5,7 +5,22 @@ import {
     it,
     vi,
 } from 'vitest';
+import { ref } from 'vue';
 import type { TEditorLayoutNode } from '@app/types/editor-groups';
+
+const stateStore = new Map<string, ReturnType<typeof ref>>();
+
+function installUseStateStub() {
+    vi.stubGlobal('useState', <T>(key: string, init: () => T) => {
+        const existing = stateStore.get(key);
+        if (existing) {
+            return existing;
+        }
+        const state = ref(init());
+        stateStore.set(key, state);
+        return state;
+    });
+}
 
 function collectLeafGroupIds(node: TEditorLayoutNode | null, target: Set<string>) {
     if (!node) {
@@ -22,6 +37,8 @@ function collectLeafGroupIds(node: TEditorLayoutNode | null, target: Set<string>
 describe('useEditorGroupsManager', () => {
     beforeEach(() => {
         vi.resetModules();
+        stateStore.clear();
+        installUseStateStub();
     });
 
     it('repairs duplicate tab assignment and invalid active tab references', async () => {
