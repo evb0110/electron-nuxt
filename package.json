@@ -77,6 +77,7 @@
     "release:major": "HUSKY=0 node scripts/release/cut-release.mjs major",
     "check:resources:matrix": "bash scripts/check-native-tools-source-matrix.sh",
     "check:resources:matrix:all": "bash scripts/check-native-tools-source-matrix.sh --all",
+    "check:electron:install": "node scripts/check-electron-install.mjs",
     "check:locales": "pnpm exec tsx scripts/check-locales.ts",
     "check:icons:bundle": "pnpm exec tsx scripts/check-icon-bundle.ts",
     "check:packaged:startup:mac:arm64": "bash scripts/verify-packaged-startup.sh mac arm64",

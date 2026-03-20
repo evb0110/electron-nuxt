@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
+
       - name: Bundle native tools (macOS Intel)
         timeout-minutes: 30
         run: |

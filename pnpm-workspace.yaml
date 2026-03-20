@@ -1,0 +1,18 @@
+packages:
+  - '.'
+
+# Release automation and Electron smoke need the real Electron binary on every
+# fresh install. Keep this allowlist minimal.
+onlyBuiltDependencies:
+  - electron
+
+# These packages are intentionally safe to leave blocked in CI and fresh local
+# installs. strictDepBuilds turns any new blocked build script into an install
+# failure instead of a warning that can slip into a tagged release.
+ignoredBuiltDependencies:
+  - '@parcel/watcher'
+  - esbuild
+  - unrs-resolver
+  - vue-demi
+
+strictDepBuilds: true
