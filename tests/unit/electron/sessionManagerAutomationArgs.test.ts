@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    buildElectronExecutablePath,
     buildMacOSAutomationAppEntryPaths,
     buildMacOSHiddenAppBundlePaths,
     buildElectronAutomationArgs,
@@ -111,5 +112,22 @@ describe('session-manager automation launch args', () => {
             packageJsonPath: '/tmp/evb-automation-entry/automation-app/package.json',
             mainJsPath: '/tmp/evb-automation-entry/automation-app/main.js',
         });
+    });
+
+    it('prefers real Electron executables instead of the npm shim on supported platforms', () => {
+        expect(buildElectronExecutablePath({
+            platform: 'linux',
+            rootDir: '/repo',
+        })).toBe('/repo/node_modules/electron/dist/electron');
+
+        expect(buildElectronExecutablePath({
+            platform: 'win32',
+            rootDir: 'C:/repo',
+        })).toBe('C:/repo/node_modules/electron/dist/electron.exe');
+
+        expect(buildElectronExecutablePath({
+            platform: 'darwin',
+            rootDir: '/repo',
+        })).toBe('/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
     });
 });

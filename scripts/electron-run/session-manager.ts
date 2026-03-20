@@ -188,6 +188,25 @@ export function buildMacOSHiddenAppBundlePaths(options: {
     };
 }
 
+export function buildElectronExecutablePath(options?: {
+    platform?: NodeJS.Platform;
+    rootDir?: string;
+}) {
+    const platform = options?.platform ?? process.platform;
+    const rootDir = options?.rootDir ?? projectRoot;
+    const distDir = join(rootDir, 'node_modules', 'electron', 'dist');
+
+    if (platform === 'darwin') {
+        return join(distDir, 'Electron.app', 'Contents', 'MacOS', 'Electron');
+    }
+
+    if (platform === 'win32') {
+        return join(distDir, 'electron.exe');
+    }
+
+    return join(distDir, 'electron');
+}
+
 function setMacOSAutomationAgentMode(infoPlistPath: string) {
     const replaceArgs = [
         '-replace',
@@ -620,10 +639,16 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
         mainJs,
         env: electronRuntimeEnv,
     });
-    const electronPath = join(projectRoot, 'node_modules/.bin/electron');
+    const electronPath = buildElectronExecutablePath();
     const electronAppPath = join(projectRoot, 'node_modules', 'electron', 'dist', 'Electron.app');
     const launchViaHiddenMacApp = shouldUseMacOSHiddenAppLauncher(automationWindowEnv)
         && existsSync(electronAppPath);
+    if (!launchViaHiddenMacApp && !existsSync(electronPath)) {
+        throw new Error(
+            `Electron executable not found at ${electronPath}. `
+            + 'Ensure pnpm install completed Electron binary download successfully.',
+        );
+    }
     const hiddenAutomationBundlePaths = launchViaHiddenMacApp
         ? prepareMacOSHiddenAppBundle({
             sourceAppPath: electronAppPath,
