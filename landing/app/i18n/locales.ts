@@ -13,6 +13,7 @@ import {
     LOCALE_CODES,
     LOCALE_DEFINITIONS,
     type TLocale,
+    type TMessageParams,
     type TLocaleSchemaFrom,
     type TTranslationKeyFromNode,
     type TTranslationParamsFromSchema,
@@ -45,5 +46,5 @@ export type TTranslationParams<TKey extends TTranslationKey> = TTranslationParam
 
 export type TTranslateFn = (
     key: TTranslationKey,
-    params?: Record<string, string | number | undefined> | number,
+    params?: TMessageParams | number,
 ) => string;

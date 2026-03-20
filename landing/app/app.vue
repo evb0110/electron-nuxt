@@ -101,6 +101,24 @@ useHead(() => ({
             rel: 'canonical',
             href: canonicalUrl.value,
         },
+        {
+            rel: 'preload',
+            href: '/fonts/space-grotesk-latin.woff2',
+            as: 'font',
+            type: 'font/woff2',
+        },
+        {
+            rel: 'preload',
+            href: '/fonts/space-grotesk-latin-ext.woff2',
+            as: 'font',
+            type: 'font/woff2',
+        },
+        {
+            rel: 'preload',
+            href: '/fonts/ibm-plex-mono-400-latin.woff2',
+            as: 'font',
+            type: 'font/woff2',
+        },
     ],
     script: [{
         key: 'website-schema',

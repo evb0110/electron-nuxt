@@ -342,8 +342,7 @@ const selectedPlatform = computed<TReleasePlatform>(() => {
 });
 
 const installersForSelectedPlatform = computed(() => {
-    const platformAssets = installers.value.filter(asset => asset.platform === selectedPlatform.value);
-    return selectPreferredInstallers(platformAssets).sort(compareInstallersForSelect);
+    return selectPreferredInstallers(installers.value, selectedPlatform.value).sort(compareInstallersForSelect);
 });
 
 const selectedAssetId = computed(() => {
