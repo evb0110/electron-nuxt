@@ -417,7 +417,6 @@ export default {
         'openAnother': 'Een ander bestand openen...',
         'openPdf': 'Een bestand openen',
         'openBrowser': 'Open een PDF, DjVu of afbeelding',
-        'browserHint': 'PDF\'s, DjVu-bestanden en gangbare afbeeldingsbestanden worden in de browser ondersteund.',
         'preparingBatch': 'Document voorbereiden...',
         'preparingBatchProgress': 'Verwerkte bronbestanden: {processed}/{total}',
         'preparingBatchEta': 'Geschatte resterende tijd: {eta}',
