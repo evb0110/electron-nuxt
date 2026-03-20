@@ -197,6 +197,30 @@ export function listChangedFiles() {
     return Array.from(files);
 }
 
+export function assertChangedFilesMatch(expectedFiles, context = 'Release') {
+    const expected = new Set(expectedFiles);
+    const changedFiles = listChangedFiles();
+    const unexpected = changedFiles.filter(file => !expected.has(file));
+    const missing = expectedFiles.filter(file => !changedFiles.includes(file));
+
+    if (unexpected.length === 0 && missing.length === 0) {
+        return;
+    }
+
+    const details = [
+        unexpected.length > 0
+            ? `unexpected changes: ${unexpected.join(', ')}`
+            : '',
+        missing.length > 0
+            ? `missing changes: ${missing.join(', ')}`
+            : '',
+    ].filter(Boolean).join('; ');
+
+    throw new Error(
+        `${context} verification must leave only the expected release file set changed (${expectedFiles.join(', ')}); ${details}`,
+    );
+}
+
 export function stageFiles(files) {
     if (files.length === 0) {
         throw new Error('Version bump did not produce any file changes');

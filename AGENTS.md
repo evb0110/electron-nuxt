@@ -44,6 +44,14 @@ If unrelated changes are already present in the worktree, leave them alone:
 1. Run quality gates once the task is complete: `pnpm lint && pnpm typecheck` — do NOT run these after every small change, it slows you down massively
 2. Fix any lint or type errors before committing
 
+## Release Changes
+
+If you touch release scripts, packaging, Electron automation startup, or workflow launch paths:
+
+- Keep `pnpm run release:verify` host-only and deterministic; do not add steps that mutate tracked files as a side effect
+- Add host-independent unit coverage for cross-platform decisions, because local release verification only packages the current host platform
+- Prefer comments near the release code when a check is intentionally narrower than the GitHub release matrix
+
 ## Cross-Arch Checks
 
 If your change touches Electron runtime, native binaries/tools, OCR/DjVu paths, workers, or packaging, run architecture checks before finishing:

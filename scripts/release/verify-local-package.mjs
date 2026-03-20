@@ -143,6 +143,9 @@ function validateUpdaterMetadata(target) {
 }
 
 function main() {
+    // Local packaging verification is intentionally limited to the current host
+    // platform. Cross-platform behavior still needs CI plus host-independent
+    // tests for any branching logic in launcher or packaging code.
     const target = getLocalReleaseTarget();
     const distDir = resolve(process.cwd(), 'dist');
 
