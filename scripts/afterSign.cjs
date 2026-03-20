@@ -39,6 +39,31 @@ function walkFiles(rootDir) {
     return files;
 }
 
+function walkDirectories(rootDir) {
+    if (!fs.existsSync(rootDir)) {
+        return [];
+    }
+
+    const pending = [rootDir];
+    const directories = [];
+
+    while (pending.length > 0) {
+        const currentDir = pending.pop();
+        if (!currentDir) {
+            continue;
+        }
+
+        directories.push(currentDir);
+        for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+            if (entry.isDirectory()) {
+                pending.push(path.join(currentDir, entry.name));
+            }
+        }
+    }
+
+    return directories;
+}
+
 function isMacNativeCodeFile(filePath) {
     if (filePath.endsWith('.dylib')) {
         return true;
@@ -118,6 +143,33 @@ function signTarget(targetPath, identity, options = {}) {
     execFileSync('codesign', args, { stdio: 'inherit' });
 }
 
+function resignEmbeddedAppCode(appPath, identity) {
+    const frameworksDir = path.join(appPath, 'Contents', 'Frameworks');
+    if (!fs.existsSync(frameworksDir)) {
+        return;
+    }
+
+    const nestedBundles = walkDirectories(frameworksDir)
+        .filter((directoryPath) => directoryPath.endsWith('.framework') || directoryPath.endsWith('.app'))
+        .sort((leftPath, rightPath) => rightPath.length - leftPath.length);
+
+    for (const bundlePath of nestedBundles) {
+        signTarget(bundlePath, identity, {
+            preserveMetadata: 'entitlements,requirements,flags,runtime',
+            runtime: identity !== '-',
+        });
+    }
+
+    const looseCodeFiles = walkFiles(frameworksDir)
+        .filter((filePath) => !filePath.includes('.framework/') && !filePath.includes('.app/'))
+        .filter(isMacNativeCodeFile)
+        .sort((leftPath, rightPath) => leftPath.length - rightPath.length);
+
+    for (const filePath of looseCodeFiles) {
+        signTarget(filePath, identity);
+    }
+}
+
 function resignBundledNativeToolPayloads(appPath, identity) {
     const resourcesDir = path.join(appPath, 'Contents', 'Resources');
     const toolRoots = [
@@ -178,6 +230,10 @@ exports.default = async function afterSign(context) {
     // Re-sign them inside-out so macOS library validation sees the same Team ID
     // across the signed app and the mapped non-platform dylibs.
     resignBundledNativeToolPayloads(appPath, identity);
+    // Some macOS runners still leave nested Electron framework bundles unsigned
+    // by the time the afterSign hook runs. Re-sign them explicitly before the
+    // app root so the final bundle seal does not fail on Intel packaging jobs.
+    resignEmbeddedAppCode(appPath, identity);
     signTarget(appPath, identity, {
         preserveMetadata: 'entitlements,requirements,flags,runtime',
         runtime: identity !== '-',
