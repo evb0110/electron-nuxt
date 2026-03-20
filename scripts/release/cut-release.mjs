@@ -1,10 +1,10 @@
 import {
     assertCleanWorktree,
+    assertChangedFilesMatch,
     assertNodeMajor,
     assertTagAbsent,
     bumpVersion,
     getUpstream,
-    listChangedFiles,
     readVersion,
     requireNamedBranch,
     run,
@@ -43,25 +43,25 @@ async function main() {
         'release:verify',
     ], {stdio: 'inherit'});
 
-    stageFiles(listChangedFiles());
+    // Release verification should not generate any tracked diffs besides the
+    // intentional version bump. If it does, fail here instead of silently
+    // folding those changes into the release commit.
+    assertChangedFilesMatch([ 'package.json' ]);
+    stageFiles([ 'package.json' ]);
     run('git', [
         'commit',
         '-m',
         `release: ${version}`,
     ], {stdio: 'inherit'});
     run('git', [
-        'push',
-        upstream.remote,
-        `HEAD:${upstream.branch}`,
-    ], {stdio: 'inherit'});
-
-    run('git', [
         'tag',
         tag,
     ], {stdio: 'inherit'});
     run('git', [
         'push',
+        '--atomic',
         upstream.remote,
+        `HEAD:${upstream.branch}`,
         `refs/tags/${tag}`,
     ], {stdio: 'inherit'});
 
