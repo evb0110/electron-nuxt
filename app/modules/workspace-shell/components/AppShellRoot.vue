@@ -119,11 +119,11 @@
 <script setup lang="ts">
 import SettingsDialog from '@app/components/SettingsDialog.vue';
 import { guardAsync } from '@app/utils/async-guard';
-import { formatBrowserPageTitle } from '@app/utils/browser-page-title';
 import {
     BROWSER_INSTALL_HINT_COOKIE_KEY,
     BROWSER_INSTALL_HINT_STORAGE_KEY,
 } from '@app/utils/browser-runtime-persistence';
+import { resolveAppWindowTitle } from '@app/utils/app-window-title';
 import { traceRendererStartup } from '@app/utils/startup-trace';
 import { syncBrowserWindowTitle } from '@app/platform/browser-window-tabs';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
@@ -149,7 +149,10 @@ import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
-import { hasElectronAPI } from '@app/utils/platform';
+import {
+    getPlatformAPI,
+    hasElectronAPI,
+} from '@app/utils/platform';
 
 traceRendererStartup('index.vue script setup start');
 
@@ -440,9 +443,11 @@ const showBrowserInstallHint = computed(() => (
     && !browserInstallHintDismissed.value
 ));
 
-const browserPageTitle = computed(() => formatBrowserPageTitle({
-    appName: t('app.webTitle'),
+const windowTitle = computed(() => resolveAppWindowTitle({
+    appTitle: t('app.title'),
+    webTitle: t('app.webTitle'),
     fileName: activeTab.value?.fileName ?? null,
+    isBrowserRuntime,
 }));
 
 function dismissBrowserInstallHint() {
@@ -456,17 +461,25 @@ function dismissBrowserInstallHint() {
     browserInstallHintCookie.value = '1';
 }
 
-watch(browserPageTitle, (nextTitle) => {
-    if (!import.meta.client || !isBrowserRuntime || typeof document === 'undefined') {
+watch(windowTitle, (nextTitle) => {
+    if (!import.meta.client) {
         return;
     }
 
-    if (document.title === nextTitle) {
+    if (isBrowserRuntime) {
+        if (typeof document === 'undefined' || document.title === nextTitle) {
+            return;
+        }
+
+        document.title = nextTitle;
+        syncBrowserWindowTitle();
         return;
     }
 
-    document.title = nextTitle;
-    syncBrowserWindowTitle();
+    guardAsync(getPlatformAPI().documents.setWindowTitle(nextTitle), {
+        scope: 'window-title',
+        message: 'Failed to sync window title',
+    });
 }, { immediate: true });
 
 const BROWSER_INSTALL_HINT_AUTO_DISMISS_MS = 60_000;

@@ -212,6 +212,11 @@ const lastToolbarSnapshot = ref<IWorkspaceToolbarSnapshot>(createEmptyToolbarSna
 function readWorkspaceToolbarSnapshot() {
     const workspace = mountedWorkspace.value;
     if (!workspace) {
+        if (workspaceRequested.value || isDocumentOpenInFlight.value || hasQueuedSplitRestore.value) {
+            return lastToolbarSnapshot.value;
+        }
+
+        lastToolbarSnapshot.value = createEmptyToolbarSnapshot();
         return lastToolbarSnapshot.value;
     }
 

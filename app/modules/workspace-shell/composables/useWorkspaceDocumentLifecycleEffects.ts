@@ -45,6 +45,8 @@ interface IWorkspaceDocumentLifecycleEffectsOptions {
     emitOpenSettings: () => void;
     onOpenDjvuError: (error: unknown) => void;
     pdfSrc: Ref<TPdfSource | null>;
+    totalPages: Ref<number>;
+    pdfDocument: Ref<unknown | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     pdfError: Ref<unknown>;
     dragMode: Ref<boolean>;
@@ -90,6 +92,8 @@ export function useWorkspaceDocumentLifecycleEffects(options: IWorkspaceDocument
         emitOpenSettings,
         onOpenDjvuError,
         pdfSrc,
+        totalPages,
+        pdfDocument,
         workingCopyPath,
         pdfError,
         dragMode,
@@ -137,6 +141,9 @@ export function useWorkspaceDocumentLifecycleEffects(options: IWorkspaceDocument
 
     useDocumentTransitions({
         pdfSrc,
+        currentPage,
+        totalPages,
+        pdfDocument,
         workingCopyPath,
         pdfError,
         dragMode,

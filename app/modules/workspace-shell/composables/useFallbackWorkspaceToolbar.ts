@@ -90,8 +90,13 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
             return;
         }
 
-        const normalizedCurrentPage = Math.max(1, Math.floor(snapshot.currentPage));
-        const normalizedTotalPages = Math.max(normalizedCurrentPage, Math.floor(snapshot.totalPages));
+        const normalizedHasPdf = snapshot.hasPdf;
+        const normalizedCurrentPage = normalizedHasPdf
+            ? Math.max(1, Math.floor(snapshot.currentPage))
+            : 1;
+        const normalizedTotalPages = normalizedHasPdf
+            ? Math.max(normalizedCurrentPage, Math.floor(snapshot.totalPages))
+            : 0;
 
         fallbackCanSave.value = snapshot.canSave;
         fallbackCanUndo.value = snapshot.canUndo;
@@ -154,10 +159,6 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
         const tab = options.getTabById(tabId);
         if (!tab) {
             return false;
-        }
-
-        if (fallbackTotalPages.value > 0) {
-            return true;
         }
 
         return hasDocumentMountHint(tab);
