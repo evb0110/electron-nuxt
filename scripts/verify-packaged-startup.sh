@@ -73,22 +73,16 @@ log_dir="${TMPDIR:-/tmp}/electron-logs"
 rm -rf "$log_dir"
 mkdir -p "$log_dir"
 
-scratch_dir="$(mktemp -d "${TMPDIR:-/tmp}/evb-packaged-startup.XXXXXX")"
-app_copy="$scratch_dir/EVB Viewer.app"
-app_exec="$app_copy/Contents/MacOS/EVB Viewer"
+app_exec="$app_path/Contents/MacOS/EVB Viewer"
 app_pid=""
 cleanup() {
   if [ -n "$app_pid" ] && kill -0 "$app_pid" >/dev/null 2>&1; then
     kill "$app_pid" >/dev/null 2>&1 || true
     sleep 1
   fi
-  rm -rf "$scratch_dir"
 }
 trap cleanup EXIT
 
-/usr/bin/ditto "$app_path" "$app_copy"
-/usr/bin/plutil -replace LSUIElement -bool YES "$app_copy/Contents/Info.plist" 2>/dev/null \
-  || /usr/bin/plutil -insert LSUIElement -bool YES "$app_copy/Contents/Info.plist"
 EVB_ALLOW_MULTI_AUTOMATION_SESSIONS=1 \
 EVB_AUTOMATION_HIDE_WINDOW=1 \
 EVB_AUTOMATION_NO_FOCUS=1 \

@@ -10,6 +10,10 @@ import {
 } from 'node:path';
 import { run } from './shared.mjs';
 
+function hasDeveloperIdSigningCredentials() {
+    return Boolean(process.env.CSC_LINK && process.env.CSC_KEY_PASSWORD);
+}
+
 function getLocalReleaseTarget() {
     let platform;
     switch (process.platform) {
@@ -177,12 +181,17 @@ function main() {
         target.arch,
     ], {stdio: 'inherit'});
 
-    if (target.platform === 'mac') {
+    if (target.platform === 'mac' && hasDeveloperIdSigningCredentials()) {
         run('bash', [
             'scripts/verify-packaged-startup.sh',
             target.platform,
             target.arch,
         ], {stdio: 'inherit'});
+    } else if (target.platform === 'mac') {
+        process.stdout.write(
+            'Skipping packaged startup verification for ad-hoc local mac build; '
+            + 'LaunchServices/Developer ID semantics are only reproducible when signing credentials are present.\n',
+        );
     }
 
     process.stdout.write(

@@ -40,6 +40,9 @@ mac:
   target:
     - dmg
     - zip
+  # Native tools in extraResources keep upstream signatures; afterSign must
+  # re-sign them with the app identity so macOS library validation accepts
+  # bundled dylibs loaded by those executables.
   extraResources:
     - from: resources/tesseract/darwin-${arch}
       to: tesseract/darwin-${arch}

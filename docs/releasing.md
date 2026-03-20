@@ -17,6 +17,8 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 - Fresh installs now follow the checked-in build-script policy in [`pnpm-workspace.yaml`](<repo-root>/pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
 - `pnpm run release:verify` is intentionally host-only for packaging. If you change cross-platform launcher or packaging decisions, add unit coverage for that branching logic instead of assuming a macOS-local release cut exercises Linux and Windows paths.
 - `pnpm run release:verify:package:local` packages the current platform exactly as the release workflow would, then validates produced artifacts and updater metadata, verifies packaged native tools, and verifies packaged startup on macOS.
+- The macOS packaged-startup step is meaningful only when local packaging uses real Developer ID credentials. Ad-hoc local signing still verifies bundled native-tool execution, but it does not faithfully reproduce LaunchServices/runtime-library-validation behavior for a shipped `.app`.
+- On macOS, packaged native-tool verification must execute the bundled tools from inside the signed app resources, not just inspect file presence or `otool` output. That is how we catch Team-ID/library-validation regressions in bundled DjVuLibre, Poppler, qpdf, and Tesseract payloads before tag push.
 - Cross-platform runner differences, hosted-runner quirks, and secret-only signing/notarization failures can still require GitHub Actions, but ordinary release regressions should now fail before tag push.
 
 ## Critical-path rule
