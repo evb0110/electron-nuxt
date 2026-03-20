@@ -149,6 +149,14 @@ function resignEmbeddedAppCode(appPath, identity) {
         return;
     }
 
+    const nestedCodeFiles = walkFiles(frameworksDir)
+        .filter(isMacNativeCodeFile)
+        .sort((leftPath, rightPath) => rightPath.length - leftPath.length);
+
+    for (const filePath of nestedCodeFiles) {
+        signTarget(filePath, identity);
+    }
+
     const nestedBundles = walkDirectories(frameworksDir)
         .filter((directoryPath) => directoryPath.endsWith('.framework') || directoryPath.endsWith('.app'))
         .sort((leftPath, rightPath) => rightPath.length - leftPath.length);
@@ -158,15 +166,6 @@ function resignEmbeddedAppCode(appPath, identity) {
             preserveMetadata: 'entitlements,requirements,flags,runtime',
             runtime: identity !== '-',
         });
-    }
-
-    const looseCodeFiles = walkFiles(frameworksDir)
-        .filter((filePath) => !filePath.includes('.framework/') && !filePath.includes('.app/'))
-        .filter(isMacNativeCodeFile)
-        .sort((leftPath, rightPath) => leftPath.length - rightPath.length);
-
-    for (const filePath of looseCodeFiles) {
-        signTarget(filePath, identity);
     }
 }
 
