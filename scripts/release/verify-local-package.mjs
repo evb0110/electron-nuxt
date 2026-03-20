@@ -15,14 +15,21 @@ function hasDeveloperIdSigningCredentials() {
     return Boolean(process.env.CSC_LINK && process.env.CSC_KEY_PASSWORD);
 }
 
+function hasWindowsSigningCredentials() {
+    return Boolean(process.env.WIN_CSC_LINK && process.env.WIN_CSC_KEY_PASSWORD);
+}
+
 function expectsUpdaterMetadata(target) {
     if (!target.expectsUpdaterMetadata) {
         return false;
     }
 
-    // Release CI prunes mac updater metadata when the bundle is ad-hoc signed.
-    // Keep local verification aligned so we catch feed-shape drift before tagging.
+    // Release CI prunes updater metadata for unsigned desktop targets. Keep
+    // local verification aligned so we catch feed-shape drift before tagging.
     if (target.platform === 'mac' && !hasDeveloperIdSigningCredentials()) {
+        return false;
+    }
+    if (target.platform === 'win' && !hasWindowsSigningCredentials()) {
         return false;
     }
 
