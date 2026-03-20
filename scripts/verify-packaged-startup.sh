@@ -31,6 +31,8 @@ if [ "$platform" != "$host_platform" ]; then
   exit 0
 fi
 
+# This verifier is intentionally mac-only today. Treat that as a current
+# coverage gap, not as proof that Linux/Windows packaged startup is verified.
 if [ "$platform" != "mac" ]; then
   echo "Error: Startup verification is currently implemented only for mac targets"
   exit 1

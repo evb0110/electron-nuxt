@@ -13,6 +13,7 @@ permissions:
 
 env:
   NODE_VERSION: 24
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -298,6 +299,8 @@ jobs:
       - name: Verify packaged startup
         if: runner.os == 'macOS'
         shell: bash
+        # Only macOS has packaged startup verification right now; Linux/Windows
+        # still rely on smoke coverage plus host-specific checks.
         run: bash scripts/verify-packaged-startup.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
 
       - name: Prune updater metadata on secondary targets
