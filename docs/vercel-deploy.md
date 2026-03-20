@@ -3,14 +3,14 @@
 ## Project
 
 - Vercel project name: `evb-viewer-web`
-- Runtime target: static web build only
+- Runtime target: SSR Nuxt web app
 
 ## Repo Configuration
 
 - Vercel reads [`vercel.json`](<repo-root>/vercel.json)
 - Install command: `pnpm install --frozen-lockfile`
-- Build command: `NITRO_PRESET=vercel-static pnpm generate:web`
-- Published output directory: `nuxt-output/static`
+- Build command: `pnpm build:web`
+- Framework preset: `nuxtjs` with Vercel's Nuxt/Nitro runtime
 
 ## Notes
 
@@ -28,6 +28,5 @@
 
 ## Local Verification
 
-- `pnpm generate:web`
-- `NITRO_PRESET=vercel-static pnpm generate:web`
+- `pnpm build:web`
 - `vercel build`

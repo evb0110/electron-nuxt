@@ -24,7 +24,7 @@
     "build": "nuxt build && pnpm run build:electron",
     "build:web": "nuxt build",
     "generate:web": "nuxi generate",
-    "validate:web": "pnpm run lint && pnpm run typecheck && pnpm run build:web && pnpm run generate:web",
+    "validate:web": "pnpm run lint && pnpm run typecheck && pnpm run build:web",
     "build:log": "mkdir -p .tmp && bash -c 'set -o pipefail; pnpm run build 2>&1 | tee .tmp/build.log'",
     "build:warnings:check": "node scripts/check-build-warnings.mjs .tmp/build.log",
     "build:strict": "pnpm run build:log && pnpm run build:warnings:check",

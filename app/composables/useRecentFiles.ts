@@ -10,6 +10,7 @@ let loadPromise: Promise<void> | null = null;
 
 export const useRecentFiles = () => {
     const { t } = useTypedI18n();
+    const isBrowserRuntime = !hasElectronAPI();
     const recentFilesCookie = useCookie<string | null>(RECENT_FILES_COOKIE_KEY, {
         default: () => null,
         watch: false,
@@ -24,8 +25,20 @@ export const useRecentFiles = () => {
     const error = useState<string | null>('recent-files:error', () => null);
     const isResolved = useState(
         'recent-files:is-resolved',
-        () => hasRecentFilesCookie,
+        () => (isBrowserRuntime || hasRecentFilesCookie),
     );
+
+    async function syncCookieFromRuntime() {
+        if (!isBrowserRuntime || hasRecentFilesCookie) {
+            return;
+        }
+
+        try {
+            await getElectronAPI().documents.recentFiles.get();
+        } catch (e) {
+            error.value = e instanceof Error ? e.message : t('errors.recent.load');
+        }
+    }
 
     async function loadRecentFiles() {
         // Deduplicate: if already loading, return existing promise
@@ -86,6 +99,7 @@ export const useRecentFiles = () => {
         isResolved,
         error,
         loadRecentFiles,
+        syncCookieFromRuntime,
         openRecentFile,
         removeRecentFile,
         clearRecentFiles,

@@ -1,30 +1,28 @@
 <template>
     <div class="app-shell-root h-screen min-w-0 flex flex-col bg-[var(--app-window-bg)]">
-        <div v-show="showBrowserInstallHint" class="browser-install-hint">
-            <UIcon name="i-lucide-monitor-down" class="browser-install-icon" />
-            <UButton
-                :to="browserInstallUrl"
-                target="_blank"
-                rel="noreferrer"
-                color="neutral"
-                variant="ghost"
-                size="xs"
-                trailing-icon="i-lucide-arrow-up-right"
-                class="browser-install-link"
-            >
-                {{ t('webApp.installDesktop') }}
-            </UButton>
-            <span class="browser-install-divider" />
-            <UButton
-                color="neutral"
-                variant="ghost"
-                size="xs"
-                icon="i-lucide-x"
-                class="browser-install-dismiss"
-                :aria-label="t('webApp.dismissInstallDesktop')"
-                @click="dismissBrowserInstallHint"
-            />
-        </div>
+        <ClientOnly>
+            <div v-if="showBrowserInstallHint" class="browser-install-hint">
+                <UIcon name="i-lucide-monitor-down" class="browser-install-icon" />
+                <a
+                    :href="browserInstallUrl"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="browser-install-link"
+                >
+                    {{ t('webApp.installDesktop') }}
+                    <UIcon name="i-lucide-arrow-up-right" class="browser-install-link-icon" />
+                </a>
+                <span class="browser-install-divider" />
+                <button
+                    type="button"
+                    class="browser-install-dismiss"
+                    :aria-label="t('webApp.dismissInstallDesktop')"
+                    @click="dismissBrowserInstallHint"
+                >
+                    <UIcon name="i-lucide-x" class="browser-install-dismiss-icon" />
+                </button>
+            </div>
+        </ClientOnly>
 
         <div class="editor-global-toolbar-shell">
             <FallbackWorkspaceToolbar
@@ -119,10 +117,7 @@
 <script setup lang="ts">
 import SettingsDialog from '@app/components/SettingsDialog.vue';
 import { guardAsync } from '@app/utils/async-guard';
-import {
-    BROWSER_INSTALL_HINT_COOKIE_KEY,
-    BROWSER_INSTALL_HINT_STORAGE_KEY,
-} from '@app/utils/browser-runtime-persistence';
+import { BROWSER_INSTALL_HINT_COOKIE_KEY } from '@app/utils/browser-runtime-persistence';
 import { resolveAppWindowTitle } from '@app/utils/app-window-title';
 import { traceRendererStartup } from '@app/utils/startup-trace';
 import { syncBrowserWindowTitle } from '@app/platform/browser-window-tabs';
@@ -190,7 +185,10 @@ const browserInstallHintCookie = useCookie<string | null>(
         watch: false,
     },
 );
-const browserInstallHintDismissed = ref(browserInstallHintCookie.value === '1');
+const browserInstallHintDismissed = useState(
+    'browser-install-hint:dismissed',
+    () => browserInstallHintCookie.value !== null,
+);
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const {
@@ -453,11 +451,10 @@ const windowTitle = computed(() => resolveAppWindowTitle({
 function dismissBrowserInstallHint() {
     browserInstallHintDismissed.value = true;
 
-    if (!import.meta.client || !isBrowserRuntime || typeof window === 'undefined') {
+    if (!import.meta.client || !isBrowserRuntime) {
         return;
     }
 
-    window.localStorage.setItem(BROWSER_INSTALL_HINT_STORAGE_KEY, '1');
     browserInstallHintCookie.value = '1';
 }
 
@@ -485,13 +482,7 @@ watch(windowTitle, (nextTitle) => {
 const BROWSER_INSTALL_HINT_AUTO_DISMISS_MS = 60_000;
 
 onMounted(() => {
-    if (!isBrowserRuntime || typeof window === 'undefined') {
-        return;
-    }
-
-    if (browserInstallHintDismissed.value) {
-        browserInstallHintCookie.value = '1';
-        window.localStorage.setItem(BROWSER_INSTALL_HINT_STORAGE_KEY, '1');
+    if (!isBrowserRuntime || browserInstallHintDismissed.value) {
         return;
     }
 
@@ -582,13 +573,28 @@ useAppShellLifecycle({
 }
 
 .browser-install-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
     min-width: 0;
     max-width: 100%;
+    padding: 0.125rem 0;
+    border: 0;
+    background: transparent;
     color: var(--ui-text-muted);
+    font: inherit;
+    text-decoration: none;
 }
 
 .browser-install-link:hover {
     color: var(--ui-text);
+}
+
+.browser-install-link-icon,
+.browser-install-dismiss-icon {
+    flex: 0 0 auto;
+    width: 0.875rem;
+    height: 0.875rem;
 }
 
 .browser-install-divider {
@@ -599,7 +605,13 @@ useAppShellLifecycle({
 }
 
 .browser-install-dismiss {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
     color: var(--ui-text-dimmed);
 }
 

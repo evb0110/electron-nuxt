@@ -46,6 +46,10 @@
 <script setup lang="ts">
 import AgentationWidget from '@app/components/AgentationWidget.vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import {
+    BROWSER_LOCALE_COOKIE_KEY,
+    BROWSER_THEME_COOKIE_KEY,
+} from '@app/utils/browser-settings-persistence';
 import { hasElectronAPI } from '@app/utils/platform';
 import { waitForVisualFrames } from '@app/utils/async-helpers';
 
@@ -55,9 +59,10 @@ const {
 } = useSettings();
 const {
     loadRecentFiles,
-    isResolved: recentFilesResolved,
+    syncCookieFromRuntime: syncRecentFilesCookieFromRuntime,
 } = useRecentFiles();
 const {
+    locale,
     t,
     setLocale,
 } = useTypedI18n();
@@ -68,6 +73,12 @@ const {
     reloadAfterFatalRuntimeError,
 } = useFatalRuntimeError();
 const colorMode = useColorMode();
+const localeHead = useLocaleHead({
+    identifierAttribute: 'id',
+    addSeoAttributes: true,
+} as never);
+const localeCookie = useCookie<string | null | undefined>(BROWSER_LOCALE_COOKIE_KEY, { watch: false });
+const themeCookie = useCookie<string | null | undefined>(BROWSER_THEME_COOKIE_KEY, { watch: false });
 const DEV_RELOAD_EVENT_KEY = 'evb-viewer:dev:last-vite-reload-event';
 const fatalRuntimeTitle = computed(() => fatalRuntimeError.value?.kind === 'startup'
     ? t('errors.runtime.startupTitle')
@@ -75,6 +86,29 @@ const fatalRuntimeTitle = computed(() => fatalRuntimeError.value?.kind === 'star
 const fatalRuntimeDescription = computed(() => fatalRuntimeError.value?.kind === 'startup'
     ? t('errors.runtime.startupDescription')
     : t('errors.runtime.description'));
+
+if (localeCookie.value !== settings.value.locale) {
+    localeCookie.value = settings.value.locale;
+}
+
+if (themeCookie.value !== settings.value.theme) {
+    themeCookie.value = settings.value.theme;
+}
+
+colorMode.preference = settings.value.theme;
+
+useHead(() => ({
+    htmlAttrs: {
+        ...localeHead.value.htmlAttrs,
+        dir: 'ltr',
+        class: [
+            localeHead.value.htmlAttrs?.class,
+            settings.value.theme,
+        ].filter(Boolean).join(' '),
+    },
+    meta: localeHead.value.meta,
+    link: localeHead.value.link,
+}));
 
 async function preloadStartupContent() {
     if (!import.meta.client) {
@@ -86,7 +120,7 @@ async function preloadStartupContent() {
 
     const warmupTasks: Array<Promise<unknown>> = [import('@app/modules/workspace-shell/components/DocumentWorkspace.vue')];
 
-    if (hasElectronAPI() || !recentFilesResolved.value) {
+    if (hasElectronAPI()) {
         warmupTasks.push(loadRecentFiles());
     }
 
@@ -145,16 +179,20 @@ onMounted(async () => {
     const mountTime = Date.now();
     try {
         clearFatalRuntimeError();
-        // Load persisted settings and apply locale + theme
-        await loadSettings();
-        if (settings.value.locale) {
-            await setLocale(settings.value.locale);
-        }
-        if (settings.value.theme) {
+        if (hasElectronAPI()) {
+            await loadSettings();
+            localeCookie.value = settings.value.locale;
+            themeCookie.value = settings.value.theme;
+            if (locale.value !== settings.value.locale) {
+                await setLocale(settings.value.locale);
+            }
             colorMode.preference = settings.value.theme;
         }
 
         await preloadStartupContent();
+        if (!hasElectronAPI()) {
+            void syncRecentFilesCookieFromRuntime();
+        }
         await nextTick();
         await waitForVisualFrames();
     } catch (error) {
