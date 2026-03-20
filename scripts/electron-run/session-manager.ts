@@ -196,6 +196,8 @@ export function buildElectronExecutablePath(options?: {
     const rootDir = options?.rootDir ?? projectRoot;
     const distDir = join(rootDir, 'node_modules', 'electron', 'dist');
 
+    // Automation must launch the real Electron binary here.
+    // The npm shim can fail in CI/package environments before Electron starts.
     if (platform === 'darwin') {
         return join(distDir, 'Electron.app', 'Contents', 'MacOS', 'Electron');
     }

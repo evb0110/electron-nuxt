@@ -27,6 +27,30 @@ export function assertNodeMajor(expectedMajor, context = 'Release') {
     );
 }
 
+export function shouldSkipGitHubReleaseWait(env = process.env) {
+    return env.EVB_RELEASE_SKIP_GITHUB_WAIT === '1';
+}
+
+export function assertGitHubCliReady(context = 'Release') {
+    if (shouldSkipGitHubReleaseWait()) {
+        return;
+    }
+
+    try {
+        run('gh', [
+            'auth',
+            'status',
+        ]);
+    } catch {
+        throw new Error(
+            `${context} requires an authenticated GitHub CLI session so the release command `
+            + 'can wait for the tag-triggered workflow. '
+            + 'Run `gh auth status` / `gh auth login`, or set EVB_RELEASE_SKIP_GITHUB_WAIT=1 '
+            + 'to opt out explicitly.',
+        );
+    }
+}
+
 export function run(command, args, options = {}) {
     const output = execFileSync(command, args, {
         cwd: process.cwd(),

@@ -1,6 +1,7 @@
 import {
     assertCleanWorktree,
     assertChangedFilesMatch,
+    assertGitHubCliReady,
     assertNodeMajor,
     assertTagAbsent,
     bumpVersion,
@@ -8,6 +9,7 @@ import {
     readVersion,
     requireNamedBranch,
     run,
+    shouldSkipGitHubReleaseWait,
     stageFiles,
     VALID_RELEASE_LEVELS,
     writeVersion,
@@ -22,52 +24,73 @@ async function main() {
     }
 
     assertNodeMajor(24);
+    assertGitHubCliReady();
     assertCleanWorktree();
     requireNamedBranch();
     const upstream = getUpstream();
     const currentVersion = readVersion();
     const nextVersion = bumpVersion(currentVersion, level);
     const tag = `v${nextVersion}`;
+    let committed = false;
 
     assertTagAbsent(tag, upstream.remote);
 
     writeVersion(nextVersion);
 
-    const version = readVersion();
-    if (version !== nextVersion) {
-        throw new Error(`Expected bumped version to be ${nextVersion}, received ${version}`);
+    try {
+        const version = readVersion();
+        if (version !== nextVersion) {
+            throw new Error(`Expected bumped version to be ${nextVersion}, received ${version}`);
+        }
+
+        run('pnpm', [
+            'run',
+            'release:verify',
+        ], {stdio: 'inherit'});
+
+        // Release verification should not generate any tracked diffs besides the
+        // intentional version bump. If it does, fail here instead of silently
+        // folding those changes into the release commit.
+        assertChangedFilesMatch([ 'package.json' ]);
+        stageFiles([ 'package.json' ]);
+        run('git', [
+            'commit',
+            '-m',
+            `release: ${version}`,
+        ], {stdio: 'inherit'});
+        committed = true;
+        run('git', [
+            'tag',
+            tag,
+        ], {stdio: 'inherit'});
+        run('git', [
+            'push',
+            '--atomic',
+            upstream.remote,
+            `HEAD:${upstream.branch}`,
+            `refs/tags/${tag}`,
+        ], {stdio: 'inherit'});
+
+        if (shouldSkipGitHubReleaseWait()) {
+            process.stdout.write(
+                `Release ${tag} queued. GitHub will validate, build, and publish it from the tag-triggered Release workflow.\n`,
+            );
+            return;
+        }
+
+        run('node', [
+            'scripts/release/wait-for-github-release.mjs',
+            tag,
+        ], {stdio: 'inherit'});
+    } catch (error) {
+        if (!committed) {
+            writeVersion(currentVersion);
+            process.stderr.write(
+                `Restored package.json version to ${currentVersion} after release failure.\n`,
+            );
+        }
+        throw error;
     }
-
-    run('pnpm', [
-        'run',
-        'release:verify',
-    ], {stdio: 'inherit'});
-
-    // Release verification should not generate any tracked diffs besides the
-    // intentional version bump. If it does, fail here instead of silently
-    // folding those changes into the release commit.
-    assertChangedFilesMatch([ 'package.json' ]);
-    stageFiles([ 'package.json' ]);
-    run('git', [
-        'commit',
-        '-m',
-        `release: ${version}`,
-    ], {stdio: 'inherit'});
-    run('git', [
-        'tag',
-        tag,
-    ], {stdio: 'inherit'});
-    run('git', [
-        'push',
-        '--atomic',
-        upstream.remote,
-        `HEAD:${upstream.branch}`,
-        `refs/tags/${tag}`,
-    ], {stdio: 'inherit'});
-
-    process.stdout.write(
-        `Release ${tag} queued. GitHub will validate, build, and publish it from the tag-triggered Release workflow.\n`,
-    );
 }
 
 main().catch((error) => {

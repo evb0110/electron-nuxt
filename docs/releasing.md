@@ -29,6 +29,11 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 - If you need to retry from scratch, use the workflow's manual dispatch and provide the existing tag.
 - If local `release:verify` changes any tracked file besides `package.json`, treat that as a release-script regression and fix it before retrying. The cutter now refuses to auto-stage those extra changes.
 
+## Release command behavior
+
+- The release command now waits for the tag-triggered GitHub `Release` workflow by default and exits non-zero if that workflow fails, so you do not need to check Actions manually after every cut.
+- This wait uses `gh auth status` / `gh run ...` under the hood. If you intentionally want fire-and-forget behavior, set `EVB_RELEASE_SKIP_GITHUB_WAIT=1`.
+
 ## Why this is less brittle
 
 - Validation, packaging, and publication now happen inside one workflow run.
