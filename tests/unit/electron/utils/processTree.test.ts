@@ -5,9 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { terminateProcessTree } from '@electron/utils/process-tree';
-
-vi.mock('es-toolkit/promise', () => ({delay: async () => {}}));
+import {
+    processTreeRuntime,
+    terminateProcessTree,
+} from '@electron/utils/process-tree';
 
 const describePosix = process.platform === 'win32' ? describe.skip : describe;
 // terminateProcessTree intentionally refuses to signal the current process.
@@ -25,7 +26,7 @@ describePosix('terminateProcessTree (posix)', () => {
             pid: number;
             signal: NodeJS.Signals | 0 | undefined;
         }> = [];
-        const killSpy = vi.spyOn(process, 'kill').mockImplementation(((pid: number, signal?: NodeJS.Signals | 0) => {
+        const killSpy = vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((pid: number, signal?: NodeJS.Signals | 0) => {
             killCalls.push({
                 pid,
                 signal,
@@ -35,7 +36,7 @@ describePosix('terminateProcessTree (posix)', () => {
                 return true;
             }
             return true;
-        }) as typeof process.kill);
+        }) as typeof processTreeRuntime.kill);
 
         await terminateProcessTree(pid, {
             graceMs: 0,
@@ -54,7 +55,7 @@ describePosix('terminateProcessTree (posix)', () => {
             pid: number;
             signal: NodeJS.Signals | 0 | undefined;
         }> = [];
-        vi.spyOn(process, 'kill').mockImplementation(((pid: number, signal?: NodeJS.Signals | 0) => {
+        vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((pid: number, signal?: NodeJS.Signals | 0) => {
             killCalls.push({
                 pid,
                 signal,
@@ -71,10 +72,10 @@ describePosix('terminateProcessTree (posix)', () => {
                 return true;
             }
             return true;
-        }) as typeof process.kill);
+        }) as typeof processTreeRuntime.kill);
 
         await terminateProcessTree(pid, {
-            graceMs: 10,
+            graceMs: 1_000,
             preferProcessGroup: false,
         });
 
