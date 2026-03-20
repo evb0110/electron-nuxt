@@ -36,7 +36,10 @@ function getLocalReleaseTargets() {
 
     const targetArchs = (
         platform === 'mac' && process.arch === 'arm64'
-            ? ['arm64', 'x64']
+            ? [
+                'arm64',
+                'x64',
+            ]
             : [process.arch]
     );
 
