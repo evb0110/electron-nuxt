@@ -71,6 +71,301 @@ export default defineNuxtConfig({
                     href: '/apple-touch-icon.png',
                 },
             ],
+            style: [{
+                key: 'app-shell-critical',
+                children: `
+html, body, #__nuxt { min-height: 100%; }
+:root {
+    --ui-primary: var(--ui-color-primary-700);
+    --ui-bg: #ffffff;
+    --ui-bg-elevated: var(--ui-color-neutral-50);
+    --ui-bg-muted: var(--ui-color-neutral-100);
+    --ui-text: var(--ui-color-neutral-900);
+    --ui-text-dimmed: var(--ui-color-neutral-500);
+    --ui-border: var(--ui-color-neutral-200);
+    --ui-bg-inverted: var(--ui-color-neutral-950);
+    --app-window-bg: var(--ui-bg);
+    --app-chrome: color-mix(in oklab, var(--ui-bg) 35%, var(--ui-border) 65%);
+    --app-chrome-hover: color-mix(in oklab, var(--ui-bg) 55%, var(--ui-border) 45%);
+    --app-toolbar-control-hover-bg: var(--app-chrome-hover);
+    --app-toolbar-control-active-bg: color-mix(in oklab, var(--ui-bg) 84%, var(--ui-text) 16%);
+    --app-toolbar-control-active-hover-bg: color-mix(in oklab, var(--ui-bg) 80%, var(--ui-text) 20%);
+    --app-toolbar-control-disabled-fg: color-mix(in oklab, var(--ui-text-dimmed) 88%, var(--ui-border) 12%);
+    --app-toolbar-control-disabled-opacity: 0.4;
+    --app-editor-group-grid-bg: var(--app-window-bg);
+    --app-editor-sash-size: 6px;
+    --app-editor-sash-bg: color-mix(in oklab, var(--ui-border) 68%, transparent);
+    --app-chrome-depth: 0 1px 2px color-mix(in oklab, var(--ui-border) 28%, transparent 72%);
+    --shadow-popup: 0 6px 18px rgb(0 0 0 / 0.12), 0 2px 6px rgb(0 0 0 / 0.06);
+}
+.dark {
+    --ui-primary: var(--ui-color-primary-400);
+    --ui-bg: var(--ui-color-neutral-900);
+    --ui-bg-elevated: var(--ui-color-neutral-800);
+    --ui-bg-muted: var(--ui-color-neutral-800);
+    --ui-text: var(--ui-color-neutral-50);
+    --ui-text-dimmed: var(--ui-color-neutral-400);
+    --ui-border: var(--ui-color-neutral-700);
+    --ui-bg-inverted: var(--ui-color-neutral-50);
+    --app-window-bg: var(--ui-bg);
+    --app-chrome: color-mix(in oklab, var(--ui-bg) 35%, var(--ui-border) 65%);
+    --app-chrome-hover: color-mix(in oklab, var(--ui-bg) 60%, var(--ui-border) 40%);
+    --app-toolbar-control-hover-bg: var(--app-chrome-hover);
+    --app-toolbar-control-active-bg: color-mix(in oklab, var(--ui-bg) 78%, var(--ui-text) 22%);
+    --app-toolbar-control-active-hover-bg: color-mix(in oklab, var(--ui-bg) 74%, var(--ui-text) 26%);
+    --app-toolbar-control-disabled-fg: color-mix(in oklab, var(--ui-text-dimmed) 86%, var(--ui-border) 14%);
+    --app-toolbar-control-disabled-opacity: 0.38;
+    --app-editor-group-grid-bg: var(--app-window-bg);
+    --app-editor-sash-bg: color-mix(in oklab, var(--ui-border) 80%, transparent);
+    --app-chrome-depth: 0 1px 3px color-mix(in oklab, black 22%, transparent 78%);
+    --shadow-popup: 0 10px 24px rgb(0 0 0 / 0.3), 0 3px 8px rgb(0 0 0 / 0.2);
+}
+html { background: var(--app-window-bg); color: var(--ui-text); }
+body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
+*, *::before, *::after { box-sizing: border-box; }
+.app-shell-root {
+    min-height: 100vh;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--app-window-bg);
+}
+.app-shell-root > .flex-1,
+.editor-group-pane,
+.editor-group-content,
+.editor-split,
+.editor-split-pane,
+.workspace-host,
+.workspace-host__placeholder {
+    min-width: 0;
+    min-height: 0;
+}
+.app-shell-root > .flex-1,
+.editor-group-content,
+.editor-split-pane {
+    flex: 1 1 auto;
+}
+.browser-install-hint {
+    position: fixed;
+    top: 0.75rem;
+    right: 1rem;
+    z-index: 35;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.35rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--ui-bg) 92%, transparent);
+    box-shadow: var(--shadow-popup);
+}
+.browser-install-link,
+.browser-install-dismiss {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.75rem;
+    padding: 0.25rem 0.5rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ui-text);
+    font: inherit;
+    text-decoration: none;
+}
+.browser-install-divider {
+    width: 1px;
+    height: 1rem;
+    background: var(--ui-border);
+}
+.editor-global-toolbar-shell,
+.editor-global-toolbar-host {
+    flex: 0 0 auto;
+    min-height: 3.25rem;
+}
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-height: 3.25rem;
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--ui-border);
+    background: var(--app-chrome);
+    box-shadow: var(--app-chrome-depth);
+    white-space: nowrap;
+    overflow: hidden;
+    --toolbar-control-height: 2.25rem;
+}
+.toolbar-section,
+.toolbar-inline-group,
+.toolbar-button-group,
+.toolbar-group-item,
+.tab-list {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+.toolbar-section { gap: 0.25rem; }
+.toolbar-center {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-width: 0;
+}
+.toolbar-right {
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+.toolbar-separator {
+    width: 1px;
+    height: 1.5rem;
+    flex: 0 0 auto;
+    background: var(--ui-border);
+}
+.toolbar-btn,
+.tab-close,
+.tab-new {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--toolbar-control-height, 2.25rem);
+    height: var(--toolbar-control-height, 2.25rem);
+    padding: 0.25rem;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: var(--ui-text);
+    font: inherit;
+}
+.tab-bar {
+    display: flex;
+    align-items: stretch;
+    min-height: 2.5rem;
+    border-bottom: 1px solid var(--ui-border);
+    background: var(--app-chrome);
+    overflow: hidden;
+}
+.tab-list {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.tab {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    max-width: 18rem;
+    padding: 0 0.5rem 0 0.75rem;
+    border-right: 1px solid var(--ui-border);
+}
+.tab-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.editor-group-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--app-window-bg);
+}
+.editor-group-content {
+    display: flex;
+    overflow: hidden;
+}
+.editor-group-content > * {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+}
+.editor-split {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--app-editor-group-grid-bg);
+}
+.editor-split.is-horizontal { flex-direction: row; }
+.editor-split.is-vertical { flex-direction: column; }
+.editor-sash {
+    flex-shrink: 0;
+    background: var(--app-editor-sash-bg);
+}
+.editor-sash.is-vertical-line { width: var(--app-editor-sash-size); }
+.editor-sash.is-horizontal-line { height: var(--app-editor-sash-size); }
+.empty-state {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+    overflow: auto;
+}
+.empty-state-content,
+.recent-files {
+    width: min(100%, 40rem);
+}
+.recent-files {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.recent-files-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+.recent-files-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.recent-file-item,
+.open-file-row {
+    display: grid;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.75rem;
+    background: var(--ui-bg);
+}
+.recent-file-item { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.open-file-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    background: transparent;
+    text-align: left;
+}
+.recent-file-name,
+.recent-file-path,
+.recent-file-time,
+.open-file-row-label,
+.empty-state-hint,
+.empty-state-subhint {
+    display: block;
+    min-width: 0;
+}
+.recent-file-name,
+.recent-file-path,
+.open-file-row-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.recent-file-path,
+.recent-file-time,
+.empty-state-hint,
+.empty-state-subhint {
+    color: var(--ui-text-dimmed);
+}
+                `,
+            } as any],
         },
     },
 
@@ -106,7 +401,11 @@ export default defineNuxtConfig({
 
     devServer: {port: 3235},
 
-    colorMode: {preference: 'light'},
+    colorMode: {
+        preference: 'light',
+        storage: 'cookie',
+        disableTransition: true,
+    },
 
     hooks: {
         // Nuxt UI's scanner can leak a non-exported `options` symbol from useResizable into #imports.
@@ -139,7 +438,6 @@ export default defineNuxtConfig({
     },
 
     routeRules: {
-        '/': { prerender: true },
         '/robots.txt': { prerender: true },
         '/sitemap.xml': { prerender: true },
         '/electron': {
@@ -166,10 +464,15 @@ export default defineNuxtConfig({
         restructureDir: 'app',
         locales: LOCALE_DEFINITIONS,
         defaultLocale: DEFAULT_LOCALE,
+        baseUrl: process.env.NUXT_PUBLIC_SITE_URL || 'https://evb-viewer-web.vercel.app',
         lazy: true,
         langDir: 'i18n/runtime-locales/',
         strategy: 'no_prefix',
-        detectBrowserLanguage: false,
+        detectBrowserLanguage: {
+            useCookie: true,
+            cookieKey: 'i18n_redirected',
+            redirectOn: 'root',
+        },
     },
 
     icon: {

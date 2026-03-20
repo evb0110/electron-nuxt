@@ -13,10 +13,17 @@
         </div>
 
         <div class="zoom-controls-item zoom-controls-item--display">
-            <UPopover v-model:open="isOpen" mode="click" :disabled="disabled">
+            <button
+                v-if="disabled"
+                class="zoom-controls-display"
+                disabled
+            >
+                <span class="zoom-controls-display-value">{{ zoomDisplay }}</span>
+            </button>
+
+            <UPopover v-else v-model:open="isOpen" mode="click">
                 <button
                     class="zoom-controls-display"
-                    :disabled="disabled"
                 >
                     <span class="zoom-controls-display-value">{{ zoomDisplay }}</span>
                 </button>

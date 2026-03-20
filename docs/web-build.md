@@ -14,10 +14,9 @@
 
 - `dev:all` starts one Nuxt dev server plus Electron, with the browser app at `/` and the Electron shell at `/electron`.
 - `dev:electron` is an alias for `dev:all`.
-- `build:web` produces the standard Nuxt web build.
-- `generate:web` produces a prerendered static web artifact for static hosting.
-- `validate:web` runs lint, typecheck, `build:web`, and `generate:web` sequentially.
-- Static output is written to `nuxt-output/public`.
+- `build:web` produces the SSR Nuxt web build used for deployment.
+- `generate:web` is available only for static-export experiments and does not preserve cookie-driven SSR behavior on `/`.
+- `validate:web` runs lint, typecheck, and `build:web`.
 
 ## Current Scope
 
@@ -28,5 +27,5 @@
 - PDF-and-images-first browser runtime
 - Browser-backed open/save/recent-files/search/page-ops flows
 - OCR unavailable in browser runtime
-- DjVu unavailable in browser runtime
+- DjVu viewing and explicit PDF conversion available in browser runtime
 - Desktop app updates unavailable in browser runtime
