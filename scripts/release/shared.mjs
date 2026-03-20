@@ -51,6 +51,60 @@ export function assertGitHubCliReady(context = 'Release') {
     }
 }
 
+export function readGitHubRepoNameWithOwner(context = 'Release') {
+    try {
+        return run('gh', [
+            'repo',
+            'view',
+            '--json',
+            'nameWithOwner',
+            '--jq',
+            '.nameWithOwner',
+        ]);
+    } catch {
+        throw new Error(
+            `${context} requires GitHub CLI repository access so release preflight can `
+            + 'validate release-critical repository secrets.',
+        );
+    }
+}
+
+export function assertGitHubSecretsPresent(secretNames, context = 'Release') {
+    const repo = readGitHubRepoNameWithOwner(context);
+
+    let output = '';
+    try {
+        output = run('gh', [
+            'secret',
+            'list',
+            '-R',
+            repo,
+        ]);
+    } catch {
+        throw new Error(
+            `${context} could not list repository secrets for ${repo}. `
+            + 'Ensure the current GitHub CLI session can read repository secret names.',
+        );
+    }
+
+    const available = new Set(
+        output
+            .split('\n')
+            .map(line => line.trim().split(/\s+/)[0] ?? '')
+            .filter(Boolean),
+    );
+    const missing = secretNames.filter(secretName => !available.has(secretName));
+    if (missing.length === 0) {
+        return;
+    }
+
+    throw new Error(
+        `${context} is missing required GitHub repository secrets for macOS release signing: `
+        + `${missing.join(', ')}. `
+        + 'Refusing to tag a release that would publish an ad-hoc mac app.',
+    );
+}
+
 export function run(command, args, options = {}) {
     const output = execFileSync(command, args, {
         cwd: process.cwd(),
