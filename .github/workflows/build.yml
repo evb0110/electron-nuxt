@@ -308,10 +308,16 @@ jobs:
         # still rely on smoke coverage plus host-specific checks.
         run: bash scripts/verify-packaged-startup.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
 
-      - name: Prune updater metadata on secondary targets
-        if: runner.os == 'Linux' || (runner.os == 'Windows' && matrix.arch != 'x64')
+      - name: Prune updater metadata on unsupported updater targets
+        if: |
+          runner.os == 'Linux'
+          || (runner.os == 'Windows' && matrix.arch != 'x64')
+          || (runner.os == 'macOS' && env.MAC_EXPECT_DEVELOPER_ID != 'true')
         shell: bash
         run: |
+          # Unsigned mac builds still launch when installed fresh, but publishing
+          # latest-mac.yml + blockmaps lets signed installs reconstruct an update
+          # from mixed-signature blocks. Keep ad-hoc mac artifacts manual-only.
           rm -f dist/latest*.yml
           rm -f dist/*.blockmap
 
