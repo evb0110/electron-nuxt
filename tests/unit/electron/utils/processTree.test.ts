@@ -10,6 +10,9 @@ import { terminateProcessTree } from '@electron/utils/process-tree';
 vi.mock('es-toolkit/promise', () => ({delay: async () => {}}));
 
 const describePosix = process.platform === 'win32' ? describe.skip : describe;
+// terminateProcessTree intentionally refuses to signal the current process.
+// Avoid fixed PIDs that can collide with the Vitest worker on CI runners.
+const makeTestPid = (pid: number) => (pid === process.pid ? pid + 1 : pid);
 
 describePosix('terminateProcessTree (posix)', () => {
     afterEach(() => {
@@ -17,6 +20,7 @@ describePosix('terminateProcessTree (posix)', () => {
     });
 
     it('sends SIGTERM and SIGKILL to process group when process stays alive', async () => {
+        const pid = makeTestPid(1234);
         const killCalls: Array<{
             pid: number;
             signal: NodeJS.Signals | 0 | undefined;
@@ -33,17 +37,18 @@ describePosix('terminateProcessTree (posix)', () => {
             return true;
         }) as typeof process.kill);
 
-        await terminateProcessTree(1234, {
+        await terminateProcessTree(pid, {
             graceMs: 0,
             preferProcessGroup: true,
         });
 
         expect(killSpy).toHaveBeenCalled();
-        expect(killCalls.some(call => call.pid === -1234 && call.signal === 'SIGTERM')).toBe(true);
-        expect(killCalls.some(call => call.pid === -1234 && call.signal === 'SIGKILL')).toBe(true);
+        expect(killCalls.some(call => call.pid === -pid && call.signal === 'SIGTERM')).toBe(true);
+        expect(killCalls.some(call => call.pid === -pid && call.signal === 'SIGKILL')).toBe(true);
     });
 
     it('does not send SIGKILL when process exits after SIGTERM', async () => {
+        const pid = makeTestPid(4242);
         let alive = true;
         const killCalls: Array<{
             pid: number;
@@ -68,12 +73,12 @@ describePosix('terminateProcessTree (posix)', () => {
             return true;
         }) as typeof process.kill);
 
-        await terminateProcessTree(4242, {
+        await terminateProcessTree(pid, {
             graceMs: 10,
             preferProcessGroup: false,
         });
 
-        expect(killCalls.some(call => call.pid === 4242 && call.signal === 'SIGTERM')).toBe(true);
+        expect(killCalls.some(call => call.pid === pid && call.signal === 'SIGTERM')).toBe(true);
         expect(killCalls.some(call => call.signal === 'SIGKILL')).toBe(false);
     });
 });
