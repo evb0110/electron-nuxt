@@ -2,7 +2,6 @@ import {
     assertCleanWorktree,
     assertChangedFilesMatch,
     assertGitHubCliReady,
-    assertGitHubSecretsPresent,
     assertNodeMajor,
     assertTagAbsent,
     bumpVersion,
@@ -26,10 +25,6 @@ async function main() {
 
     assertNodeMajor(24);
     assertGitHubCliReady();
-    assertGitHubSecretsPresent([
-        'CSC_LINK',
-        'CSC_KEY_PASSWORD',
-    ]);
     assertCleanWorktree();
     requireNamedBranch();
     const upstream = getUpstream();

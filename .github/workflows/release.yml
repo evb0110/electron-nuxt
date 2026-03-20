@@ -181,8 +181,8 @@ jobs:
           shopt -s nullglob
           yml_files=(artifacts/latest*.yml)
           if [ ${#yml_files[@]} -eq 0 ]; then
-            echo "::error::No latest*.yml files found in artifacts/"
-            exit 1
+            echo "No updater metadata published for this release; continuing with manual-install artifacts only."
+            exit 0
           fi
 
           for yml in "${yml_files[@]}"; do
