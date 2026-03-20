@@ -12,6 +12,11 @@ function main() {
         'validate',
     ], {stdio: 'inherit'});
 
+    run('pnpm', [
+        'run',
+        'check:electron:install',
+    ], {stdio: 'inherit'});
+
     run('pnpm', [ 'test' ], { stdio: 'inherit' });
 
     // validate already ran build:strict, which includes build:electron. Reusing

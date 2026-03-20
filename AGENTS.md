@@ -51,6 +51,7 @@ If you touch release scripts, packaging, Electron automation startup, or workflo
 - Keep `pnpm run release:verify` host-only and deterministic; do not add steps that mutate tracked files as a side effect
 - Add host-independent unit coverage for cross-platform decisions, because local release verification only packages the current host platform
 - Prefer comments near the release code when a check is intentionally narrower than the GitHub release matrix
+- If a dependency install script becomes release-critical, record that explicitly in the root `pnpm-workspace.yaml` so fresh CI installs fail fast instead of warning and continuing
 
 ## Cross-Arch Checks
 

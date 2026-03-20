@@ -82,6 +82,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
+
       - name: Validate
         run: pnpm run validate
 
@@ -112,6 +115,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
 
       - name: Bundle native tools (Linux E2E)
         timeout-minutes: 20

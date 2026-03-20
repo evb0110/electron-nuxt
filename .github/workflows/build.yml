@@ -75,7 +75,12 @@ jobs:
           key: win-native-tools-${{ matrix.arch }}-${{ hashFiles('scripts/bundle-tools-windows.sh') }}
 
       - name: Install dependencies
+        # Fresh installs must leave Electron fully usable for later packaging.
+        # The checked-in pnpm-workspace policy should make any drift fail here.
         run: pnpm install --frozen-lockfile
+
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
 
       # macOS: install Homebrew tools and run all macOS bundle scripts
       - name: Bundle native tools (macOS)
