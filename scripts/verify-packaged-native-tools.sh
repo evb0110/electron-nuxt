@@ -100,6 +100,60 @@ find_tool_files() {
   done
 }
 
+run_macos_packaged_tool_smoke() {
+  local tool_path="$1"
+  shift
+  local allowed_codes="${1:-0}"
+  shift
+  local output_file
+  output_file="$(mktemp)"
+
+  if [ ! -f "$tool_path" ]; then
+    echo "Error: Missing packaged tool for smoke test ($tool_path)"
+    exit 1
+  fi
+
+  local resource_base="$resource_root"
+  local dyld_paths=()
+  for candidate in \
+    "$resource_base/tesseract/$platform_arch/lib" \
+    "$resource_base/poppler/$platform_arch/lib" \
+    "$resource_base/qpdf/$platform_arch/lib" \
+    "$resource_base/djvulibre/$platform_arch/lib"
+  do
+    if [ -d "$candidate" ]; then
+      dyld_paths+=("$candidate")
+    fi
+  done
+
+  local joined_dyld_path=""
+  if [ "${#dyld_paths[@]}" -gt 0 ]; then
+    joined_dyld_path="$(IFS=:; printf '%s' "${dyld_paths[*]}")"
+  fi
+
+  echo "Smoke testing packaged tool: $tool_path $*"
+  if ! env \
+    DYLD_LIBRARY_PATH="$joined_dyld_path" \
+    LD_LIBRARY_PATH="$joined_dyld_path" \
+    "$tool_path" "$@" >"$output_file" 2>&1
+  then
+    local exit_code=$?
+    case ",$allowed_codes," in
+      *",$exit_code,"*)
+        :
+        ;;
+      *)
+        cat "$output_file"
+        rm -f "$output_file"
+        echo "Error: Packaged tool smoke test failed ($tool_path) with exit code $exit_code"
+        exit "$exit_code"
+        ;;
+    esac
+  fi
+
+  rm -f "$output_file"
+}
+
 if [ "$platform" = "mac" ]; then
   unresolved=0
   while IFS= read -r file; do
@@ -120,6 +174,13 @@ if [ "$platform" = "mac" ]; then
   if [ "$unresolved" -ne 0 ]; then
     exit 1
   fi
+
+  run_macos_packaged_tool_smoke "$resource_root/djvulibre/$platform_arch/bin/djvused" "0,10" --help
+  run_macos_packaged_tool_smoke "$resource_root/djvulibre/$platform_arch/bin/ddjvu" "0,10" --help
+  run_macos_packaged_tool_smoke "$resource_root/qpdf/$platform_arch/bin/qpdf" "0" --version
+  run_macos_packaged_tool_smoke "$resource_root/poppler/$platform_arch/bin/pdftoppm" "0" -v
+  run_macos_packaged_tool_smoke "$resource_root/poppler/$platform_arch/bin/pdftotext" "0" -v
+  run_macos_packaged_tool_smoke "$resource_root/tesseract/$platform_arch/bin/tesseract" "0" --version
 fi
 
 if [ "$platform" = "linux" ]; then

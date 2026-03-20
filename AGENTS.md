@@ -53,6 +53,8 @@ If you touch release scripts, packaging, Electron automation startup, or workflo
 - Prefer comments near the release code when a check is intentionally narrower than the GitHub release matrix
 - Keep local release verification on the same CI-mode env shape (`CI=1`, automation-hide/no-focus flags) as the GitHub release jobs whenever test behavior depends on runner semantics
 - If a dependency install script becomes release-critical, record that explicitly in the root `pnpm-workspace.yaml` so fresh CI installs fail fast instead of warning and continuing
+- On macOS, verify packaged native-tool execution from inside the signed app bundle when release-critical tools depend on bundled dylibs. Presence checks and `otool` output alone will miss Team-ID/library-validation failures.
+- Treat ad-hoc local mac packaging as insufficient evidence for LaunchServices startup behavior. Use it to catch bundled-tool/linker regressions, but only trust packaged app startup checks when real signing credentials are present.
 
 ## Cross-Arch Checks
 
