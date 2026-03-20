@@ -162,10 +162,13 @@ function resignEmbeddedAppCode(appPath, identity) {
         .sort((leftPath, rightPath) => rightPath.length - leftPath.length);
 
     for (const bundlePath of nestedBundles) {
-        signTarget(bundlePath, identity, {
-            preserveMetadata: 'entitlements,requirements,flags,runtime',
-            runtime: identity !== '-',
-        });
+        const options = identity === '-'
+            ? {}
+            : {
+                preserveMetadata: 'entitlements,requirements,flags,runtime',
+                runtime: true,
+            };
+        signTarget(bundlePath, identity, options);
     }
 }
 
@@ -233,10 +236,17 @@ exports.default = async function afterSign(context) {
     // by the time the afterSign hook runs. Re-sign them explicitly before the
     // app root so the final bundle seal does not fail on Intel packaging jobs.
     resignEmbeddedAppCode(appPath, identity);
-    signTarget(appPath, identity, {
-        preserveMetadata: 'entitlements,requirements,flags,runtime',
-        runtime: identity !== '-',
-    });
+    const appSignOptions = identity === '-'
+        ? {}
+        : {
+            preserveMetadata: 'entitlements,requirements,flags,runtime',
+            runtime: true,
+        };
+    // Ad-hoc re-signing must not preserve hardened-runtime metadata from the
+    // original Electron bundle. On newer macOS releases that leaves an
+    // apparently valid bundle that still crashes at launch while dyld loads
+    // Electron Framework with library-validation/Team-ID errors.
+    signTarget(appPath, identity, appSignOptions);
     execFileSync('codesign', [
         '--verify',
         '--deep',

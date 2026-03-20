@@ -6,6 +6,7 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 
 1. Run `pnpm run release:patch`, `pnpm run release:minor`, or `pnpm run release:major`.
    The release script now fails before the version bump unless it is running under Node 24.x, which is the project's current LTS baseline.
+   It also fails before tagging if the repository is missing the `CSC_LINK` / `CSC_KEY_PASSWORD` secrets required to ship a real macOS-signed release.
 2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree: validation, tests, Electron smoke, current-platform packaging, updater metadata checks when applicable, packaged native-tool verification, packaged startup verification on macOS, and the cross-arch resource matrix.
 3. If that local release gate passes, the script verifies that only `package.json` changed, commits the release version, creates the matching `v*` tag, and pushes the branch update and tag atomically.
 4. The tag push triggers the GitHub [`Release`](<repo-root>/.github/workflows/release.yml) workflow, which validates, smoke-tests, packages, and publishes the release in one run.
@@ -18,8 +19,10 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 - `pnpm run release:verify` is intentionally host-only for packaging. If you change cross-platform launcher or packaging decisions, add unit coverage for that branching logic instead of assuming a macOS-local release cut exercises Linux and Windows paths.
 - `pnpm run release:verify:package:local` packages the current platform exactly as the release workflow would, then validates produced artifacts and updater metadata, verifies packaged native tools, and verifies packaged startup on macOS.
 - The macOS packaged-startup step is meaningful only when local packaging uses real Developer ID credentials. Ad-hoc local signing still verifies bundled native-tool execution, but it does not faithfully reproduce LaunchServices/runtime-library-validation behavior for a shipped `.app`.
+- `codesign --verify` is not enough for macOS release safety. The GitHub mac packaging lanes must also pass `spctl --assess --type execute`, otherwise a bundle can look internally valid while still being rejected or crashing at launch on end-user machines.
 - On macOS, packaged native-tool verification must execute the bundled tools from inside the signed app resources, not just inspect file presence or `otool` output. That is how we catch Team-ID/library-validation regressions in bundled DjVuLibre, Poppler, qpdf, and Tesseract payloads before tag push.
 - Cross-platform runner differences, hosted-runner quirks, and secret-only signing/notarization failures can still require GitHub Actions, but ordinary release regressions should now fail before tag push.
+- macOS release publishing is no longer allowed to fall back to ad-hoc signing in GitHub Actions. If Developer ID secrets are missing, the release fails instead of publishing broken mac artifacts or updater metadata.
 
 ## Critical-path rule
 
