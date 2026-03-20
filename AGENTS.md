@@ -55,6 +55,7 @@ If you touch release scripts, packaging, Electron automation startup, or workflo
 - If a dependency install script becomes release-critical, record that explicitly in the root `pnpm-workspace.yaml` so fresh CI installs fail fast instead of warning and continuing
 - On macOS, verify packaged native-tool execution from inside the signed app bundle when release-critical tools depend on bundled dylibs. Presence checks and `otool` output alone will miss Team-ID/library-validation failures.
 - Treat ad-hoc local mac packaging as insufficient evidence for LaunchServices startup behavior. Use it to catch bundled-tool/linker regressions, but only trust packaged app startup checks when real signing credentials are present.
+- Never publish `latest-mac*.yml` or `.blockmap` files for ad-hoc mac builds. Differential updater metadata can mix old signed framework blocks with a new ad-hoc app bundle and create launch-time Team-ID mismatches.
 
 ## Cross-Arch Checks
 

@@ -3,6 +3,7 @@ import {
     readFileSync,
     readdirSync,
     rmSync,
+    unlinkSync,
 } from 'node:fs';
 import {
     join,
@@ -12,6 +13,20 @@ import { run } from './shared.mjs';
 
 function hasDeveloperIdSigningCredentials() {
     return Boolean(process.env.CSC_LINK && process.env.CSC_KEY_PASSWORD);
+}
+
+function expectsUpdaterMetadata(target) {
+    if (!target.expectsUpdaterMetadata) {
+        return false;
+    }
+
+    // Release CI prunes mac updater metadata when the bundle is ad-hoc signed.
+    // Keep local verification aligned so we catch feed-shape drift before tagging.
+    if (target.platform === 'mac' && !hasDeveloperIdSigningCredentials()) {
+        return false;
+    }
+
+    return true;
 }
 
 function getLocalReleaseTargets() {
@@ -127,14 +142,23 @@ function readUpdaterArtifactPath(yamlPath) {
 }
 
 function validateUpdaterMetadata(target) {
-    if (!target.expectsUpdaterMetadata) {
-        return;
-    }
-
+    const shouldExist = expectsUpdaterMetadata(target);
     const distDir = resolve(process.cwd(), 'dist');
     const ymlFiles = readdirSync(distDir)
         .filter(name => /^latest.*\.yml$/.test(name))
         .map(name => join(distDir, name));
+    const blockmaps = readdirSync(distDir)
+        .filter(name => name.endsWith('.blockmap'));
+
+    if (!shouldExist) {
+        if (ymlFiles.length > 0 || blockmaps.length > 0) {
+            throw new Error(
+                `Unexpected updater metadata for ${target.platform}-${target.arch}; `
+                + 'this target should ship without latest*.yml/blockmap files.',
+            );
+        }
+        return;
+    }
 
     if (ymlFiles.length === 0) {
         throw new Error('No latest*.yml files found in dist/');
@@ -192,6 +216,19 @@ function verifyLocalPackageArtifacts(target) {
     }
 }
 
+function pruneUpdaterMetadataForLocalParity(target) {
+    if (expectsUpdaterMetadata(target)) {
+        return;
+    }
+
+    const distDir = resolve(process.cwd(), 'dist');
+    for (const entry of readdirSync(distDir)) {
+        if (/^latest.*\.yml$/.test(entry) || entry.endsWith('.blockmap')) {
+            unlinkSync(join(distDir, entry));
+        }
+    }
+}
+
 function main() {
     const targets = getLocalReleaseTargets();
     const distDir = resolve(process.cwd(), 'dist');
@@ -216,6 +253,7 @@ function main() {
             stdio: 'inherit',
         });
 
+        pruneUpdaterMetadataForLocalParity(target);
         assertReleaseArtifactsExist(target);
         validateUpdaterMetadata(target);
         verifyLocalPackageArtifacts(target);
