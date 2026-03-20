@@ -36,7 +36,6 @@
         "electron/djvu/conversion.ts",
         "electron/djvu/convert.ts",
         "electron/djvu/ipc.ts",
-        "electron/djvu/viewing.ts",
         "electron/image/export.ts",
         "electron/ipc/dialogs.ts",
         "electron/ipc/fileOps.ts",
@@ -80,6 +79,7 @@
         "vue-bundle-renderer"
     ],
     "ignoreBinaries": [
-        "codesign"
+        "codesign",
+        "spctl"
     ]
 }
