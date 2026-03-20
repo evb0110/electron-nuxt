@@ -8,13 +8,28 @@ interface ITerminateProcessTreeOptions {
 
 const DEFAULT_GRACE_MS = 2_500;
 
+interface IProcessTreeRuntime {
+    delay: typeof delay;
+    kill: typeof process.kill;
+    now: () => number;
+    spawn: typeof spawn;
+}
+
+// Keep runtime hooks narrow so tests can avoid mocking global process state.
+export const processTreeRuntime: IProcessTreeRuntime = {
+    delay,
+    kill: process.kill.bind(process),
+    now: () => Date.now(),
+    spawn,
+};
+
 function isPidAlive(pid: number) {
     if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
         return false;
     }
 
     try {
-        process.kill(pid, 0);
+        processTreeRuntime.kill(pid, 0);
         return true;
     } catch {
         return false;
@@ -22,12 +37,12 @@ function isPidAlive(pid: number) {
 }
 
 async function waitForExit(pid: number, timeoutMs: number) {
-    const deadline = Date.now() + Math.max(0, timeoutMs);
-    while (Date.now() < deadline) {
+    const deadline = processTreeRuntime.now() + Math.max(0, timeoutMs);
+    while (processTreeRuntime.now() < deadline) {
         if (!isPidAlive(pid)) {
             return true;
         }
-        await delay(100);
+        await processTreeRuntime.delay(100);
     }
 
     return !isPidAlive(pid);
@@ -40,7 +55,7 @@ function sendPosixSignal(
 ) {
     try {
         if (preferProcessGroup) {
-            process.kill(-pid, signal);
+            processTreeRuntime.kill(-pid, signal);
             return;
         }
     } catch {
@@ -48,7 +63,7 @@ function sendPosixSignal(
     }
 
     try {
-        process.kill(pid, signal);
+        processTreeRuntime.kill(pid, signal);
     } catch {
         // Process may have already exited.
     }
@@ -65,7 +80,7 @@ async function runTaskkill(pid: number, force: boolean) {
             args.push('/F');
         }
 
-        const child = spawn('taskkill', args, {
+        const child = processTreeRuntime.spawn('taskkill', args, {
             shell: false,
             windowsHide: true,
             stdio: 'ignore',
