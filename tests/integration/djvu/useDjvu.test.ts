@@ -129,11 +129,11 @@ describe('useDjvu', () => {
             );
 
             expect(loadPdf).not.toHaveBeenCalled();
-            expect(mockElectronAPI.documents.setWindowTitle).toHaveBeenCalled();
+            expect(mockElectronAPI.documents.setWindowTitle).not.toHaveBeenCalled();
             expect(djvu.isLoadingPages.value).toBe(false);
         });
 
-        it('uses a decoded DjVu filename for the window title', async () => {
+        it('leaves window title sync to the workspace shell', async () => {
             mockElectronAPI.djvu.openForViewing.mockResolvedValue({
                 success: true,
                 pageCount: 1,
@@ -148,7 +148,7 @@ describe('useDjvu', () => {
                 loadPdf,
             );
 
-            expect(mockElectronAPI.documents.setWindowTitle).toHaveBeenLastCalledWith('Глава.djvu');
+            expect(mockElectronAPI.documents.setWindowTitle).not.toHaveBeenCalled();
         });
 
         it('throws when openForViewing fails', async () => {

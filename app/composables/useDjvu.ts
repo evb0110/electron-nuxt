@@ -218,8 +218,6 @@ export const useDjvu = () => {
         closeActivePdf?: () => Promise<void>,
     ) {
         const api = getElectronAPI();
-        const djvuFileName = getDocumentRefBaseName(djvuPath) ?? t('djvu.fileFallback');
-
         showBanner.value = true;
         clearViewingError();
         activeConvertJobId.value = null;
@@ -237,7 +235,6 @@ export const useDjvu = () => {
             await closeActivePdf?.();
             setOriginalPath?.(djvuPath);
             enterDjvuMode(djvuPath, null);
-            await api.documents.setWindowTitle(djvuFileName);
         } catch (e) {
             resetViewingProgressState();
             throw e;
@@ -311,7 +308,6 @@ export const useDjvu = () => {
             const openResult = await api.documents.openPdfDirect(result.pdfPath);
             if (openResult && openResult.kind === 'pdf') {
                 await loadPdfFromPath(openResult.workingPath);
-                await api.documents.setWindowTitle(getDocumentRefBaseName(result.pdfPath) ?? t('djvu.pdfFallback'));
             }
         } finally {
             activeConvertJobId.value = null;

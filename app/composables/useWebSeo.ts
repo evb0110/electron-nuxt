@@ -1,3 +1,5 @@
+import { formatWebTitleTemplate } from '@app/utils/app-window-title';
+
 interface IUseWebSeoOptions { noindex?: boolean; }
 
 function normalizeSiteUrl(siteUrl: string) {
@@ -51,7 +53,7 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
 
     useHead(() => ({
         htmlAttrs: { lang: locale.value },
-        titleTemplate: `%s — ${t('app.webTitle')}`,
+        titleTemplate: (title) => formatWebTitleTemplate(title, t('app.webTitle')),
         link: [{
             rel: 'canonical',
             href: canonicalUrl.value,

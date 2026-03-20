@@ -14,6 +14,9 @@ interface IDocumentTransitionDeps {
     pdfSrc: Ref<TPdfSource | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     pdfError: Ref<unknown>;
+    currentPage: Ref<number>;
+    totalPages: Ref<number>;
+    pdfDocument: Ref<unknown | null>;
     dragMode: Ref<boolean>;
     showSidebar: Ref<boolean>;
     sidebarTab: Ref<TPdfSidebarTab>;
@@ -46,6 +49,9 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         pdfSrc,
         workingCopyPath,
         pdfError,
+        currentPage,
+        totalPages,
+        pdfDocument,
         dragMode,
         showSidebar,
         sidebarTab,
@@ -113,6 +119,9 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             closePageContextMenu();
         }
         if (!newSrc) {
+            currentPage.value = 1;
+            totalPages.value = 0;
+            pdfDocument.value = null;
             resetSearchCache();
             closeSearch();
             annotationTool.value = 'none';

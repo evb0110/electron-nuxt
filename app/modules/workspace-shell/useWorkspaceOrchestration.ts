@@ -557,6 +557,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openDjvuFile,
         loadPdfFromPath,
         currentPage,
+        totalPages,
+        pdfDocument,
         pdfViewerRef,
         originalPath,
         closeFile,
