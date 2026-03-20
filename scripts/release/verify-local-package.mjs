@@ -14,7 +14,7 @@ function hasDeveloperIdSigningCredentials() {
     return Boolean(process.env.CSC_LINK && process.env.CSC_KEY_PASSWORD);
 }
 
-function getLocalReleaseTarget() {
+function getLocalReleaseTargets() {
     let platform;
     switch (process.platform) {
         case 'darwin':
@@ -34,17 +34,21 @@ function getLocalReleaseTarget() {
         throw new Error(`Unsupported local release arch "${process.arch}"`);
     }
 
-    const arch = process.arch;
-    const expectsUpdaterMetadata = (
-        (platform === 'mac' && arch === 'arm64')
-        || (platform === 'win' && arch === 'x64')
+    const targetArchs = (
+        platform === 'mac' && process.arch === 'arm64'
+            ? ['arm64', 'x64']
+            : [process.arch]
     );
 
-    return {
+    return targetArchs.map((arch) => ({
         arch,
-        expectsUpdaterMetadata,
+        expectsUpdaterMetadata: (
+            (platform === 'mac' && arch === 'arm64')
+            || (platform === 'win' && arch === 'x64')
+        ),
+        isPrimaryHostTarget: arch === process.arch,
         platform,
-    };
+    }));
 }
 
 function getPackagingArgs(target) {
@@ -146,34 +150,24 @@ function validateUpdaterMetadata(target) {
     }
 }
 
-function main() {
-    // Local packaging verification is intentionally limited to the current host
-    // platform. Cross-platform behavior still needs CI plus host-independent
-    // tests for any branching logic in launcher or packaging code.
-    const target = getLocalReleaseTarget();
-    const distDir = resolve(process.cwd(), 'dist');
-
-    rmSync(distDir, {
-        force: true,
-        recursive: true,
-    });
-
-    const env = { ...process.env };
-    if (target.platform === 'linux') {
-        env.USE_SYSTEM_FPM = 'true';
+function verifyLocalPackageArtifacts(target) {
+    if (target.platform === 'mac' && target.arch !== process.arch) {
+        const appDir = resolve(
+            process.cwd(),
+            target.arch === 'x64' ? 'dist/mac/EVB Viewer.app' : `dist/mac-${target.arch}/EVB Viewer.app`,
+        );
+        run('codesign', [
+            '--verify',
+            '--deep',
+            '--strict',
+            '--verbose=2',
+            appDir,
+        ], { stdio: 'inherit' });
+        process.stdout.write(
+            `Cross-arch local verification passed for ${target.platform}-${target.arch} packaging/signature path.\n`,
+        );
+        return;
     }
-
-    process.stdout.write(
-        `Packaging local release artifacts for ${target.platform}-${target.arch}...\n`,
-    );
-
-    run('pnpm', getPackagingArgs(target), {
-        env,
-        stdio: 'inherit',
-    });
-
-    assertReleaseArtifactsExist(target);
-    validateUpdaterMetadata(target);
 
     run('bash', [
         'scripts/verify-packaged-native-tools.sh',
@@ -193,10 +187,40 @@ function main() {
             + 'LaunchServices/Developer ID semantics are only reproducible when signing credentials are present.\n',
         );
     }
+}
 
-    process.stdout.write(
-        `Local release packaging verification passed for ${target.platform}-${target.arch}.\n`,
-    );
+function main() {
+    const targets = getLocalReleaseTargets();
+    const distDir = resolve(process.cwd(), 'dist');
+
+    for (const target of targets) {
+        rmSync(distDir, {
+            force: true,
+            recursive: true,
+        });
+
+        const env = { ...process.env };
+        if (target.platform === 'linux') {
+            env.USE_SYSTEM_FPM = 'true';
+        }
+
+        process.stdout.write(
+            `Packaging local release artifacts for ${target.platform}-${target.arch}...\n`,
+        );
+
+        run('pnpm', getPackagingArgs(target), {
+            env,
+            stdio: 'inherit',
+        });
+
+        assertReleaseArtifactsExist(target);
+        validateUpdaterMetadata(target);
+        verifyLocalPackageArtifacts(target);
+
+        process.stdout.write(
+            `Local release packaging verification passed for ${target.platform}-${target.arch}.\n`,
+        );
+    }
 }
 
 main();
