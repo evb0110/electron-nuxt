@@ -423,7 +423,6 @@ export default {
         'openAnother': 'Ouvrir un autre fichier...',
         'openPdf': 'Ouvrir un fichier',
         'openBrowser': 'Ouvrir un PDF, un DjVu ou une image',
-        'browserHint': 'Les PDF, les fichiers DjVu et les formats d’image courants sont pris en charge dans le navigateur.',
         'preparingBatch': 'Préparation du document...',
         'preparingBatchProgress': 'Fichiers source traités : {processed}/{total}',
         'preparingBatchEta': 'Temps restant estimé : {eta}',

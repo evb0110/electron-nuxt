@@ -429,7 +429,6 @@ export default {
         'openAnother': 'Открыть другой файл...',
         'openPdf': 'Откройте файл',
         'openBrowser': 'Откройте PDF, DjVu или изображение',
-        'browserHint': 'В браузере поддерживаются PDF, файлы DjVu и распространённые графические форматы.',
         'preparingBatch': 'Подготавливаем документ...',
         'preparingBatchProgress': 'Обработано исходных файлов: {processed}/{total}',
         'preparingBatchEta': 'Осталось примерно: {eta}',
