@@ -155,7 +155,7 @@ function resolveTabTitle(tab: ITab) {
 }
 
 function isDirectionEnabled(
-    kind: 'split' | 'focus' | 'move' | 'copy',
+    kind: 'split' | 'splitEmpty' | 'focus' | 'move' | 'copy',
     direction: TGroupDirection,
 ) {
     return props.contextAvailability?.[kind][direction] ?? true;
@@ -178,11 +178,15 @@ function isCommandEnabled(command: TTabContextCommand) {
         return true;
     }
 
+    if (command.kind === 'split-empty') {
+        return isDirectionEnabled('splitEmpty', command.direction);
+    }
+
     return isDirectionEnabled(command.kind, command.direction);
 }
 
 function buildDirectionalActions(
-    kind: 'split' | 'focus' | 'move' | 'copy',
+    kind: 'split' | 'split-empty' | 'focus' | 'move' | 'copy',
     labels: Record<TGroupDirection, string>,
 ) {
     return DIRECTION_ORDER.flatMap((direction) => {
@@ -250,6 +254,13 @@ const splitActions = computed(() => buildDirectionalActions('split', {
     down: t('menu.splitEditorDown'),
 }));
 
+const splitEmptyActions = computed(() => buildDirectionalActions('split-empty', {
+    right: t('menu.newPaneRight'),
+    left: t('menu.newPaneLeft'),
+    up: t('menu.newPaneUp'),
+    down: t('menu.newPaneDown'),
+}));
+
 const focusActions = computed(() => buildDirectionalActions('focus', {
     right: t('menu.focusGroupRight'),
     left: t('menu.focusGroupLeft'),
@@ -291,6 +302,13 @@ const menuSections = computed<IContextMenuSection[]>(() => {
             key: 'split',
             title: t('menu.splitEditor'),
             actions: splitActions.value,
+        });
+    }
+    if (splitEmptyActions.value.length > 0) {
+        sections.push({
+            key: 'split-empty',
+            title: t('menu.newPane'),
+            actions: splitEmptyActions.value,
         });
     }
     if (focusActions.value.length > 0) {

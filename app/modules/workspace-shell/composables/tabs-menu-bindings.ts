@@ -20,6 +20,7 @@ interface ITabsMenuBindingDeps {
     openSettings: () => void;
     checkForUpdates: () => Promise<void> | void;
     splitEditor: (direction: TGroupDirection) => Promise<void> | void;
+    splitEditorEmpty: (direction: TGroupDirection) => Promise<void> | void;
     focusGroup: (direction: TGroupDirection) => void;
     moveActiveTab: (direction: TGroupDirection) => Promise<void> | void;
     copyActiveTab: (direction: TGroupDirection) => Promise<void> | void;
