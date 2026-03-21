@@ -2,8 +2,15 @@ const DJVU_SCRIPT_PATH = '/vendor/djvujs/djvu.js';
 
 interface IDjvuWorkerTask<T> { run(): Promise<T>; }
 
+export interface IDjvuImageData {
+    width: number;
+    height: number;
+    buffer: ArrayBuffer;
+}
+
 interface IDjvuPageTask {
     createPngObjectUrl(): IDjvuWorkerTask<IDjvuPngObjectData>;
+    getImageData(rotate?: boolean): IDjvuWorkerTask<IDjvuImageData>;
     getText(): IDjvuWorkerTask<string>;
 }
 

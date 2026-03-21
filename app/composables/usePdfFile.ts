@@ -289,7 +289,7 @@ export const usePdfFile = () => {
         }
     }
 
-    const MAX_IN_MEMORY_PDF_BYTES = 256 * 1024 * 1024;
+    const MAX_IN_MEMORY_PDF_BYTES = 64 * 1024 * 1024;
 
     function getHistoryBytes(snapshots: Uint8Array[]) {
         return snapshots.reduce(

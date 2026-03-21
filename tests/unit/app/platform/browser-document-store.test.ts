@@ -32,12 +32,15 @@ class FakeIdbRequest<T> {
 }
 
 class FakeObjectStore {
-    public constructor(private readonly records: Map<string, unknown>) {}
+    public constructor(
+        private readonly records: Map<string, unknown>,
+        private readonly keyPath: string,
+    ) {}
 
-    public put(record: { ref: string }) {
+    public put(record: Record<string, unknown>) {
         const request = new FakeIdbRequest<unknown>();
         queueMicrotask(() => {
-            this.records.set(record.ref, record);
+            this.records.set(String(record[this.keyPath]), record);
             request.result = record;
             request.onsuccess?.(new Event('success'));
         });
@@ -62,6 +65,24 @@ class FakeObjectStore {
         });
         return cast<IDBRequest<unknown>>(request);
     }
+
+    public getAll() {
+        const request = new FakeIdbRequest<unknown[]>();
+        queueMicrotask(() => {
+            request.result = Array.from(this.records.values());
+            request.onsuccess?.(new Event('success'));
+        });
+        return cast<IDBRequest<unknown[]>>(request);
+    }
+
+    public getAllKeys() {
+        const request = new FakeIdbRequest<IDBValidKey[]>();
+        queueMicrotask(() => {
+            request.result = Array.from(this.records.keys());
+            request.onsuccess?.(new Event('success'));
+        });
+        return cast<IDBRequest<IDBValidKey[]>>(request);
+    }
 }
 
 class FakeTransaction {
@@ -80,18 +101,36 @@ class FakeTransaction {
 }
 
 class FakeDatabase {
-    private readonly records = new Map<string, unknown>();
-    private readonly stores = new Set<string>();
+    private readonly storesByName = new Map<string, {
+        records: Map<string, unknown>;
+        keyPath: string;
+    }>();
+    private readonly storeNames = new Set<string>();
 
-    public readonly objectStoreNames = { contains: (name: string) => this.stores.has(name) };
+    public readonly objectStoreNames = { contains: (name: string) => this.storeNames.has(name) };
 
-    public createObjectStore(name: string) {
-        this.stores.add(name);
-        return cast<IDBObjectStore>(new FakeObjectStore(this.records));
+    public createObjectStore(name: string, options?: { keyPath?: string }) {
+        this.storeNames.add(name);
+        const store = {
+            records: new Map<string, unknown>(),
+            keyPath: options?.keyPath ?? 'ref',
+        };
+        this.storesByName.set(name, store);
+        return cast<IDBObjectStore>(new FakeObjectStore(store.records, store.keyPath));
     }
 
-    public transaction(_name: string, _mode: IDBTransactionMode) {
-        return cast<IDBTransaction>(new FakeTransaction(new FakeObjectStore(this.records)));
+    public transaction(name: string, _mode: IDBTransactionMode) {
+        const store = this.storesByName.get(name) ?? {
+            records: new Map<string, unknown>(),
+            keyPath: 'ref',
+        };
+        this.storesByName.set(name, store);
+        return cast<IDBTransaction>(new FakeTransaction(new FakeObjectStore(store.records, store.keyPath)));
+    }
+
+    public getStoreRecords(name: string) {
+        const store = this.storesByName.get(name);
+        return store?.records ?? new Map<string, unknown>();
     }
 
     public close() {}
@@ -118,12 +157,19 @@ class FakeIndexedDbFactory {
         });
         return cast<IDBOpenDBRequest>(request);
     }
+
+    public getDatabase(name: string) {
+        return this.databases.get(name) ?? null;
+    }
 }
 
 describe('BrowserDocumentStore', () => {
+    let indexedDbFactory: FakeIndexedDbFactory;
+
     beforeEach(() => {
         vi.unstubAllGlobals();
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        indexedDbFactory = new FakeIndexedDbFactory();
+        vi.stubGlobal('indexedDB', indexedDbFactory);
         vi.stubGlobal('window', {localStorage: new MemoryStorage()});
         vi.stubGlobal('document', {cookie: ''});
     });
@@ -150,6 +196,7 @@ describe('BrowserDocumentStore', () => {
         );
 
         await store.assignSaveTarget(ref, 'saved-report.pdf', 'pdf', handle);
+        await store.touchRecentFile(ref);
 
         const rehydratedStore = new BrowserDocumentStore();
         await expect(rehydratedStore.getSaveTarget(ref)).resolves.toEqual({
@@ -187,5 +234,302 @@ describe('BrowserDocumentStore', () => {
             originalPath: ref,
             fileName: 'saved-report.pdf',
         })]);
+    });
+
+    it('rehydrates persisted bytes after unloading in-memory data', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'report.pdf',
+            new Uint8Array([
+                4,
+                5,
+                6,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+
+        store.unload(ref);
+
+        await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
+            4,
+            5,
+            6,
+        ]));
+    });
+
+    it('rehydrates persisted bytes after write with unloadAfterPersist', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'report.pdf',
+            new Uint8Array([
+                1,
+                1,
+                1,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+
+        await store.write(ref, new Uint8Array([
+            7,
+            8,
+            9,
+        ]), { unloadAfterPersist: true });
+
+        await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
+            7,
+            8,
+            9,
+        ]));
+    });
+
+    it('sweeps stale working copies and detached records on the next session', async () => {
+        const store = new BrowserDocumentStore();
+        const recentSourceRef = await store.createStoredDocument(
+            'recent.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        await store.touchRecentFile(recentSourceRef);
+        const staleWorkingRef = await store.cloneAsWorkingCopy(recentSourceRef);
+        const orphanSourceRef = await store.createStoredDocument(
+            'orphan.pdf',
+            new Uint8Array([2]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                retention: 'transient',
+                saveKind: 'pdf',
+            },
+        );
+        const orphanOutputRef = await store.createStoredDocument(
+            'orphan-output.pdf',
+            new Uint8Array([3]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+                saveKind: 'pdf',
+            },
+        );
+
+        const rehydratedStore = new BrowserDocumentStore();
+
+        await expect(rehydratedStore.exists(recentSourceRef)).resolves.toBe(true);
+        await expect(rehydratedStore.exists(staleWorkingRef)).resolves.toBe(false);
+        await expect(rehydratedStore.exists(orphanSourceRef)).resolves.toBe(false);
+        await expect(rehydratedStore.exists(orphanOutputRef)).resolves.toBe(false);
+    });
+
+    it('removes a detached generated source after its working copy is cleaned up', async () => {
+        const store = new BrowserDocumentStore();
+        const generatedSourceRef = await store.createStoredDocument(
+            'generated.pdf',
+            new Uint8Array([
+                4,
+                5,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                retention: 'transient',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await store.cloneAsWorkingCopy(generatedSourceRef);
+
+        await store.remove(workingRef);
+        await expect(store.cleanupDetachedDocument(generatedSourceRef)).resolves.toBe(true);
+        await expect(store.exists(generatedSourceRef)).resolves.toBe(false);
+    });
+
+    it('keeps a source while a working copy still depends on it', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.createStoredDocument(
+            'source.pdf',
+            new Uint8Array([9]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                retention: 'transient',
+                saveKind: 'pdf',
+            },
+        );
+        await store.cloneAsWorkingCopy(sourceRef);
+
+        await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(false);
+        await expect(store.exists(sourceRef)).resolves.toBe(true);
+    });
+
+    it('serves range reads through source-proxy working copies', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.createStoredDocument(
+            'large.pdf',
+            new Uint8Array([
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+
+        await expect(store.readRange(workingRef, 2, 3)).resolves.toEqual(new Uint8Array([
+            3,
+            4,
+            5,
+        ]));
+        await expect(store.stat(workingRef)).resolves.toEqual({ size: 6 });
+    });
+
+    it('persists chunked documents and supports range reads without inline bytes', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'chunked.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+                saveKind: 'pdf',
+            },
+        );
+
+        await store.prepareChunkedDocument(ref, { chunkSize: 4 });
+        await store.writeChunk(ref, 0, new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+        await store.writeChunk(ref, 1, new Uint8Array([
+            5,
+            6,
+            7,
+        ]));
+        await store.finalizeChunkedDocument(ref, {
+            fileSize: 7,
+            chunkCount: 2,
+            chunkSize: 4,
+        });
+
+        await expect(store.readRange(ref, 3, 3)).resolves.toEqual(new Uint8Array([
+            4,
+            5,
+            6,
+        ]));
+        await expect(store.read(ref)).resolves.toEqual(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+        ]));
+    });
+
+    it('reads handle-backed documents lazily', async () => {
+        const bytes = new Uint8Array([
+            9,
+            8,
+            7,
+            6,
+            5,
+        ]);
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'lazy.pdf',
+            getFile: vi.fn(async () => new File([bytes], 'lazy.pdf', { type: 'application/pdf' })),
+        });
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'lazy.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                saveKind: 'pdf',
+                saveHandle: handle,
+                storageMode: 'handle',
+            },
+        );
+
+        await store.replaceWithHandleBackedDocument(ref, {
+            fileSize: bytes.byteLength,
+            saveHandle: handle,
+            saveName: 'lazy.pdf',
+        });
+
+        await expect(store.readRange(ref, 1, 3)).resolves.toEqual(new Uint8Array([
+            8,
+            7,
+            6,
+        ]));
+        await expect(store.stat(ref)).resolves.toEqual({ size: 5 });
+    });
+
+    it('stores large file-only sources as chunked records', async () => {
+        const bytes = new Uint8Array((16 * 1024 * 1024) + 1);
+        bytes[0] = 4;
+        bytes[bytes.byteLength - 1] = 9;
+        const file = new File([bytes], 'large.pdf', { type: 'application/pdf' });
+        const store = new BrowserDocumentStore();
+        const ref = await store.registerFile(file, {
+            kind: 'source',
+            saveKind: 'pdf',
+        });
+
+        const entry = await store.requireEntry(ref);
+
+        expect(entry.storageMode).toBe('chunked');
+        expect(entry.data.byteLength).toBe(0);
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([4]));
+        await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([9]));
+    });
+
+    it('clears partial chunk records when chunked output is aborted', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'partial.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+                saveKind: 'pdf',
+            },
+        );
+
+        await store.prepareChunkedDocument(ref, { chunkSize: 4 });
+        await store.writeChunk(ref, 0, new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+        await store.clearChunkedDocument(ref);
+
+        const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
+        expect(database?.getStoreRecords('document-chunks').size ?? 0).toBe(0);
+        await expect(store.read(ref)).resolves.toEqual(new Uint8Array());
     });
 });

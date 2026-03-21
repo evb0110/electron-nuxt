@@ -91,6 +91,13 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                     status: result.success ? 'success' : 'canceled',
                 });
             }
+            if (result.outputPaths) {
+                await Promise.allSettled(
+                    result.outputPaths.map(async (path) => {
+                        await api.documents.cleanupFile(path);
+                    }),
+                );
+            }
         } catch (error) {
             BrowserLogger.error('workspace', 'export images failed', error);
         } finally {
@@ -115,6 +122,9 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                     selectedPageCount: pageNumbers?.length ?? totalPages.value,
                     status: result.success ? 'success' : 'canceled',
                 });
+            }
+            if (result.outputPath) {
+                await api.documents.cleanupFile(result.outputPath).catch(() => {});
             }
         } catch (error) {
             BrowserLogger.error('workspace', 'export multi-page tiff failed', error);

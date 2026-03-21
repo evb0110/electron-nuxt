@@ -42,6 +42,7 @@ export const useDjvu = () => {
     const showBanner = ref(true);
     const showConvertDialog = ref(false);
     const viewingError = ref<string | null>(null);
+    const openingPath = ref<TDocumentRef | null>(null);
     const activeViewingJobId = ref<string | null>(null);
     const activeConvertJobId = ref<string | null>(null);
     const pendingConvertCancel = ref(false);
@@ -220,6 +221,7 @@ export const useDjvu = () => {
         const api = getElectronAPI();
         showBanner.value = true;
         clearViewingError();
+        openingPath.value = djvuPath;
         activeConvertJobId.value = null;
         pendingConvertCancel.value = false;
 
@@ -238,6 +240,10 @@ export const useDjvu = () => {
         } catch (e) {
             resetViewingProgressState();
             throw e;
+        } finally {
+            if (openingPath.value === djvuPath) {
+                openingPath.value = null;
+            }
         }
     }
 
@@ -266,6 +272,7 @@ export const useDjvu = () => {
         };
         activeConvertJobId.value = null;
         pendingConvertCancel.value = false;
+        let shouldCleanupSavePath = true;
 
         BrowserLogger.info('djvu', 'Starting conversion to PDF', {
             subsample,
@@ -288,6 +295,7 @@ export const useDjvu = () => {
                 throw new Error(result.error ?? t('errors.djvu.convert'));
             }
             activeConvertJobId.value = result.jobId ?? null;
+            shouldCleanupSavePath = false;
             BrowserLogger.info('djvu', 'Conversion completed', {
                 jobId: result.jobId,
                 pdfPath: result.pdfPath, 
@@ -317,6 +325,11 @@ export const useDjvu = () => {
                 phase: null,
                 percent: 0,
             };
+            if (shouldCleanupSavePath) {
+                await api.documents.cleanupFile(savePath).catch((cleanupError: unknown) => {
+                    logSuppressedError('Failed to cleanup DjVu browser output ref', cleanupError);
+                });
+            }
         }
     }
 
@@ -402,6 +415,7 @@ export const useDjvu = () => {
         showBanner,
         showConvertDialog,
         viewingError,
+        openingPath,
         isDjvuFeatureDisabled,
         openDjvuFile,
         convertToPdf,

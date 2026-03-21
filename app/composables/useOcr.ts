@@ -470,10 +470,14 @@ export const useOcr = () => {
                 return false;
             }
 
-            const hasRtl = settings.value.selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
-            const docxBytes = createDocxFromText(text, hasRtl);
-            await api.documents.writeDocxFile(outPath, docxBytes);
-            return true;
+            try {
+                const hasRtl = settings.value.selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
+                const docxBytes = createDocxFromText(text, hasRtl);
+                await api.documents.writeDocxFile(outPath, docxBytes);
+                return true;
+            } finally {
+                await api.documents.cleanupFile(outPath).catch(() => {});
+            }
         } catch (e) {
             error.value = localizeOcrError(e, 'errors.ocr.exportDocx');
             return false;

@@ -219,7 +219,7 @@
 
             <WorkspaceViewerHost
                 :has-document="Boolean(pdfSrc) || showNativeDjvuViewer"
-                :suppress-empty-state="suppressEmptyState"
+                :suppress-empty-state="suppressEmptyState || isDjvuOpening"
             >
                 <template #document>
                     <PdfViewer
@@ -503,6 +503,7 @@ const {
     djvuLoadingProgress,
     djvuShowBanner,
     djvuError,
+    djvuOpeningPath,
     showConvertDialog,
     openConvertDialog,
     djvuDismissBanner,
@@ -700,9 +701,14 @@ const showNativeDjvuViewer = computed(() => (
     && Boolean(djvuSourcePath.value)
     && !pdfSrc.value
 ));
+const isDjvuOpening = computed(() => (
+    Boolean(djvuOpeningPath.value)
+    && !showNativeDjvuViewer.value
+));
 const toolbarHasPdf = computed(() => (
     hasPdf.value
     || showNativeDjvuViewer.value
+    || isDjvuOpening.value
     || hasQueuedSplitRestore.value
     || isRestoringSplitPayload.value
     || isExternallyRestoring.value

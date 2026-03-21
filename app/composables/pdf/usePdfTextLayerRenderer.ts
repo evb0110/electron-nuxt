@@ -38,7 +38,12 @@ interface IPageHighlightSignatureState {
     signatureByPage: Map<number, string>;
     pendingRoot: HTMLElement | null;
     rafId: number;
+    continuationRafId: number;
+    refreshVersion: number;
 }
+
+const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
+const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
 
 export const usePdfTextLayerRenderer = (deps: {
     searchPageMatches: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
@@ -66,12 +71,18 @@ export const usePdfTextLayerRenderer = (deps: {
         signatureByPage: new Map<number, string>(),
         pendingRoot: null,
         rafId: 0,
+        continuationRafId: 0,
+        refreshVersion: 0,
     };
 
     tryOnScopeDispose(() => {
         if (pageHighlightState.rafId !== 0 && typeof window !== 'undefined') {
             window.cancelAnimationFrame(pageHighlightState.rafId);
             pageHighlightState.rafId = 0;
+        }
+        if (pageHighlightState.continuationRafId !== 0 && typeof window !== 'undefined') {
+            window.cancelAnimationFrame(pageHighlightState.continuationRafId);
+            pageHighlightState.continuationRafId = 0;
         }
         pageHighlightState.pendingRoot = null;
         pageHighlightState.signatureByPage.clear();
@@ -161,111 +172,168 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function scheduleSearchHighlightRefresh(containerRoot: HTMLElement) {
-        const flushSearchHighlightRefresh = (root: HTMLElement | null) => {
+        const scheduleContinuation = (callback: () => void) => {
+            if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+                callback();
+                return;
+            }
+
+            pageHighlightState.continuationRafId = window.requestAnimationFrame(() => {
+                pageHighlightState.continuationRafId = 0;
+                callback();
+            });
+        };
+
+        const flushSearchHighlightRefresh = (
+            root: HTMLElement | null,
+            refreshVersion: number,
+        ) => {
             if (!root || ('isConnected' in root && root.isConnected === false)) {
                 return;
             }
 
-            const pageContainers = root.querySelectorAll<HTMLElement>('.page_container');
-            measureDevPerf('pdf:highlight-refresh-batch', () => {
-                const searchMatchesValue = toValue(deps.searchPageMatches);
-                const currentMatchValue = toValue(deps.currentSearchMatch);
+            const pageContainers = Array.from(root.querySelectorAll<HTMLElement>('.page_container'));
+            const searchMatchesValue = toValue(deps.searchPageMatches);
+            const currentMatchValue = toValue(deps.currentSearchMatch);
+            let nextIndex = 0;
 
-                if (!searchMatchesValue || searchMatchesValue.size === 0) {
-                    pageContainers.forEach((container) => {
-                        const mountedPageNumber = Number.parseInt(container.dataset.page ?? '', 10);
-                        if (!Number.isFinite(mountedPageNumber) || mountedPageNumber < 1) {
-                            return;
-                        }
-
-                        const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
-                        if (!textLayerDiv) {
-                            return;
-                        }
-
-                        clearHighlights(textLayerDiv);
-                        clearWordBoxes(container);
-                        pageHighlightState.signatureByPage.set(mountedPageNumber, 'empty');
-                    });
+            const processSlice = () => {
+                if (refreshVersion !== pageHighlightState.refreshVersion) {
+                    const pendingRoot = pageHighlightState.pendingRoot;
+                    pageHighlightState.pendingRoot = null;
+                    if (pendingRoot) {
+                        flushSearchHighlightRefresh(pendingRoot, pageHighlightState.refreshVersion);
+                    }
                     return;
                 }
 
-                pageContainers.forEach((container) => {
-                    const mountedPageNumber = Number.parseInt(container.dataset.page ?? '', 10);
-                    if (!Number.isFinite(mountedPageNumber) || mountedPageNumber < 1) {
-                        return;
-                    }
+                const sliceStartedAt = typeof performance !== 'undefined'
+                    ? performance.now()
+                    : Date.now();
 
-                    const pageIndex = mountedPageNumber - 1;
-                    const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
-                    const pageMatchData = searchMatchesValue.get(pageIndex) ?? null;
-                    const signature = buildPageHighlightSignature(pageMatchData, currentMatchValue);
-                    const previousSignature = pageHighlightState.signatureByPage.get(mountedPageNumber);
-                    if (previousSignature === signature) {
-                        return;
-                    }
+                measureDevPerf('pdf:highlight-refresh-slice', () => {
+                    let processedPages = 0;
 
-                    if (!textLayerDiv) {
-                        pageHighlightState.signatureByPage.set(mountedPageNumber, signature);
-                        return;
-                    }
+                    while (nextIndex < pageContainers.length) {
+                        const container = pageContainers[nextIndex]!;
+                        nextIndex += 1;
+                        processedPages += 1;
 
-                    const canvas = container.querySelector<HTMLCanvasElement>('canvas') ?? null;
-                    try {
-                        highlightPage(
-                            textLayerDiv,
-                            pageMatchData,
-                            currentMatchValue,
-                        );
-                        clearWordBoxes(container);
+                        const mountedPageNumber = Number.parseInt(container.dataset.page ?? '', 10);
+                        if (!Number.isFinite(mountedPageNumber) || mountedPageNumber < 1) {
+                            continue;
+                        }
 
-                        if (pageMatchData && pageMatchData.matches.length > 0) {
-                            const firstMatch = pageMatchData.matches.at(0);
-                            const firstMatchWords = firstMatch?.words ?? [];
-                            if (firstMatch && firstMatchWords.length > 0) {
-                                const allWords = collectWordsFromPageMatches(pageMatchData);
+                        const pageIndex = mountedPageNumber - 1;
+                        const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
+                        const pageMatchData = searchMatchesValue?.get(pageIndex) ?? null;
+                        const signature = buildPageHighlightSignature(pageMatchData, currentMatchValue);
+                        const previousSignature = pageHighlightState.signatureByPage.get(mountedPageNumber);
+                        if (previousSignature === signature) {
+                            continue;
+                        }
 
-                                const currentMatchWords = new Set<string>();
-                                if (currentMatchValue && currentMatchValue.pageIndex === pageIndex && currentMatchValue.words) {
-                                    currentMatchValue.words.forEach((word) => {
-                                        currentMatchWords.add(word.text);
-                                    });
-                                }
+                        if (!textLayerDiv) {
+                            pageHighlightState.signatureByPage.set(mountedPageNumber, signature);
+                            continue;
+                        }
 
-                                renderPageWordBoxes(
-                                    container,
-                                    allWords,
-                                    firstMatch.pageWidth,
-                                    firstMatch.pageHeight,
-                                    currentMatchWords.size > 0 ? currentMatchWords : undefined,
+                        const canvas = container.querySelector<HTMLCanvasElement>('canvas') ?? null;
+                        try {
+                            if (pageMatchData && pageMatchData.matches.length > 0) {
+                                highlightPage(
+                                    textLayerDiv,
+                                    pageMatchData,
+                                    currentMatchValue,
                                 );
+                            } else {
+                                clearHighlights(textLayerDiv);
                             }
+
+                            clearWordBoxes(container);
+
+                            if (pageMatchData && pageMatchData.matches.length > 0) {
+                                const firstMatch = pageMatchData.matches.at(0);
+                                const firstMatchWords = firstMatch?.words ?? [];
+                                if (firstMatch && firstMatchWords.length > 0) {
+                                    const allWords = collectWordsFromPageMatches(pageMatchData);
+
+                                    const currentMatchWords = new Set<string>();
+                                    if (currentMatchValue && currentMatchValue.pageIndex === pageIndex && currentMatchValue.words) {
+                                        currentMatchValue.words.forEach((word) => {
+                                            currentMatchWords.add(word.text);
+                                        });
+                                    }
+
+                                    renderPageWordBoxes(
+                                        container,
+                                        allWords,
+                                        firstMatch.pageWidth,
+                                        firstMatch.pageHeight,
+                                        currentMatchWords.size > 0 ? currentMatchWords : undefined,
+                                    );
+                                }
+                            }
+
+                            if (canvas) {
+                                maybeLogHighlightDebug(pageIndex + 1, pageMatchData, canvas, textLayerDiv);
+                            }
+                        } catch (error) {
+                            BrowserLogger.warn('pdf-text-layer', 'Failed to refresh search highlights', {
+                                pageNumber: mountedPageNumber,
+                                error,
+                            });
                         }
 
-                        if (canvas) {
-                            maybeLogHighlightDebug(pageIndex + 1, pageMatchData, canvas, textLayerDiv);
+                        pageHighlightState.signatureByPage.set(mountedPageNumber, signature);
+
+                        const elapsed = (typeof performance !== 'undefined'
+                            ? performance.now()
+                            : Date.now()) - sliceStartedAt;
+                        if (
+                            processedPages >= HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE
+                            || elapsed >= HIGHLIGHT_REFRESH_BUDGET_MS
+                        ) {
+                            break;
                         }
-                    } catch (error) {
-                        BrowserLogger.warn('pdf-text-layer', 'Failed to refresh search highlights', {
-                            pageNumber: mountedPageNumber,
-                            error,
-                        });
                     }
-
-                    pageHighlightState.signatureByPage.set(mountedPageNumber, signature);
+                }, {
+                    thresholdMs: 8,
+                    details: {
+                        mountedPages: pageContainers.length,
+                        remainingPages: Math.max(0, pageContainers.length - nextIndex),
+                    },
                 });
-            }, {
-                thresholdMs: 8,
-                details: { mountedPages: pageContainers.length },
-            });
+
+                if (nextIndex < pageContainers.length) {
+                    scheduleContinuation(processSlice);
+                    return;
+                }
+
+                if (pageHighlightState.pendingRoot && pageHighlightState.pendingRoot !== root) {
+                    const pendingRoot = pageHighlightState.pendingRoot;
+                    pageHighlightState.pendingRoot = null;
+                    flushSearchHighlightRefresh(pendingRoot, pageHighlightState.refreshVersion);
+                }
+            };
+
+            processSlice();
         };
 
-        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-            flushSearchHighlightRefresh(containerRoot);
+        pageHighlightState.pendingRoot = containerRoot;
+        pageHighlightState.refreshVersion += 1;
+
+        if (pageHighlightState.continuationRafId !== 0) {
             return;
         }
 
-        pageHighlightState.pendingRoot = containerRoot;
+        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+            const root = pageHighlightState.pendingRoot;
+            pageHighlightState.pendingRoot = null;
+            flushSearchHighlightRefresh(root, pageHighlightState.refreshVersion);
+            return;
+        }
+
         if (pageHighlightState.rafId !== 0) {
             return;
         }
@@ -275,7 +343,7 @@ export const usePdfTextLayerRenderer = (deps: {
 
             const root = pageHighlightState.pendingRoot;
             pageHighlightState.pendingRoot = null;
-            flushSearchHighlightRefresh(root);
+            flushSearchHighlightRefresh(root, pageHighlightState.refreshVersion);
         });
     }
 
@@ -446,15 +514,19 @@ export const usePdfTextLayerRenderer = (deps: {
     ) {
         const pageIndex = pageNumber - 1;
         const searchMatches = toValue(deps.searchPageMatches);
+        const currentMatch = toValue(deps.currentSearchMatch) ?? null;
         if (!searchMatches || searchMatches.size === 0) {
+            clearWordBoxes(container);
+            pageHighlightState.signatureByPage.set(pageNumber, buildPageHighlightSignature(null, currentMatch));
             return;
         }
 
         const pageMatchData = searchMatches.get(pageIndex) ?? null;
+        const signature = buildPageHighlightSignature(pageMatchData, currentMatch);
         const highlightResult = highlightPage(
             textLayerDiv,
             pageMatchData,
-            toValue(deps.currentSearchMatch) ?? null,
+            currentMatch,
         );
         if (canvas) {
             maybeLogHighlightDebug(pageNumber, pageMatchData, canvas, textLayerDiv, debugInfo);
@@ -472,7 +544,6 @@ export const usePdfTextLayerRenderer = (deps: {
             if (firstMatch && firstMatchWords.length > 0) {
                 const allWords = collectWordsFromPageMatches(pageMatchData);
 
-                const currentMatch = toValue(deps.currentSearchMatch);
                 const currentMatchWords = new Set<string>();
                 if (currentMatch && currentMatch.pageIndex === pageIndex && currentMatch.words) {
                     currentMatch.words.forEach((word) => {
@@ -493,6 +564,8 @@ export const usePdfTextLayerRenderer = (deps: {
         } else {
             clearWordBoxes(container);
         }
+
+        pageHighlightState.signatureByPage.set(pageNumber, signature);
     }
 
     function applyAllSearchHighlights(containerRoot: HTMLElement) {

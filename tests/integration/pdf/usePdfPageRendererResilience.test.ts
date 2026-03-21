@@ -222,6 +222,54 @@ function createRenderResult() {
 }
 
 describe('usePdfPageRenderer resilience', () => {
+    it('releases page resources after a page finishes rendering', async () => {
+        const { pageContainer } = createPageContainer();
+        const containerRoot = createContainerRoot(pageContainer);
+        const cleanup = vi.fn();
+        const pdfPage = {
+            cleanup,
+            render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() })),
+        };
+
+        const documentState = {
+            pdfDocument: shallowRef({} as object),
+            numPages: ref(1),
+            basePageWidth: ref(100),
+            basePageHeight: ref(100),
+            isLoading: ref(false),
+            getPage: vi.fn(async () => pdfPage),
+            evictPage: vi.fn(),
+            cleanupPageCache: vi.fn(),
+        };
+
+        canvasRendererMock.renderCanvas.mockResolvedValue(createRenderResult());
+        textLayerRendererMock.renderTextLayer.mockResolvedValue(undefined);
+        annotationLayerRendererMock.renderAnnotationLayer.mockResolvedValue(null);
+
+        const renderer = usePdfPageRenderer({
+            container: ref(containerRoot),
+            document: documentState as never,
+            currentPage: ref(1),
+            effectiveScale: ref(1),
+            bufferPages: ref(0),
+            showAnnotations: ref(true),
+            annotationUiManager: ref(null),
+            annotationL10n: ref(null),
+            searchPageMatches: ref(new Map()),
+            currentSearchMatch: ref(null),
+            workingCopyPath: ref(null),
+        });
+
+        await renderer.renderVisiblePages({
+            start: 1,
+            end: 1,
+        });
+
+        expect(renderer.isPageRendered(1)).toBe(true);
+        expect(cleanup).toHaveBeenCalledTimes(1);
+        expect(documentState.evictPage).not.toHaveBeenCalled();
+    });
+
     it('re-renders visible pages in place when preserving existing pages', async () => {
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);

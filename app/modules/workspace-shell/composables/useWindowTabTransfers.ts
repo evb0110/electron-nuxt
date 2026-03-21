@@ -15,6 +15,7 @@ import {
     shouldCloseSourceWindowAfterTransfer,
 } from '@app/modules/workspace-shell/composables/window-tab-transfer-orchestration';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
+import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspace-split-payload-cleanup';
 
 interface IGroupLike {
     id: string;
@@ -138,6 +139,7 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
         }
 
         options.workspaceRestoreTracker.start(tabId);
+        let restored = false;
         try {
             const workspace = await options.waitForWorkspace(tabId);
             if (!workspace) {
@@ -154,6 +156,7 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
                 return false;
             }
 
+            restored = true;
             return true;
         } catch (error) {
             BrowserLogger.error('tabs', 'Failed to restore split payload', {
@@ -163,6 +166,13 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
             });
             return false;
         } finally {
+            if (!restored) {
+                await cleanupSplitPayloadSnapshot(payload, {
+                    logSection: 'tabs',
+                    context: 'restore-workspace-payload',
+                    metadata: { tabId },
+                });
+            }
             options.workspaceRestoreTracker.finish(tabId);
         }
     }
@@ -231,6 +241,14 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
                 tabId,
                 target,
                 error: transferResult.error,
+            });
+            await cleanupSplitPayloadSnapshot(payload, {
+                logSection: 'tabs',
+                context: 'transfer-tab-to-target',
+                metadata: {
+                    tabId,
+                    target,
+                },
             });
             return 'failed';
         }

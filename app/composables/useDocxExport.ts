@@ -46,21 +46,26 @@ export const useDocxExport = () => {
                 return false;
             }
 
-            const outPath = await getElectronAPI().documents.saveDocxAs(workingPath);
+            const api = getElectronAPI();
+            const outPath = await api.documents.saveDocxAs(workingPath);
             if (!outPath) {
                 return false;
             }
 
-            const hasRtl = selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
-            const docxBytes = createDocxFromText(text, hasRtl);
-            await getElectronAPI().documents.writeDocxFile(outPath, docxBytes);
-            analytics.track('export_completed', {
-                format: 'docx',
-                hasRtl,
-                selectedLanguageCount: selectedLanguages.length,
-                status: 'success',
-            });
-            return true;
+            try {
+                const hasRtl = selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
+                const docxBytes = createDocxFromText(text, hasRtl);
+                await api.documents.writeDocxFile(outPath, docxBytes);
+                analytics.track('export_completed', {
+                    format: 'docx',
+                    hasRtl,
+                    selectedLanguageCount: selectedLanguages.length,
+                    status: 'success',
+                });
+                return true;
+            } finally {
+                await api.documents.cleanupFile(outPath).catch(() => {});
+            }
         } catch (error) {
             docxExportError.value = localizeOcrError(error, 'errors.ocr.exportDocx');
             return false;

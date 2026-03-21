@@ -43,6 +43,21 @@ interface IPickedBrowserFile {
 interface ICreateBrowserDocumentsFileCapabilityOptions {clearSearchCaches: () => void;}
 
 const pdfBinaryDecoder = new TextDecoder('latin1');
+const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
+const BROWSER_EAGER_DECRYPT_BYTES = 64 * 1024 * 1024;
+const BROWSER_FULL_CONFORMANCE_ANALYSIS_BYTES = 64 * 1024 * 1024;
+
+function toOwnedArrayBuffer(bytes: Uint8Array) {
+    if (
+        bytes.buffer instanceof ArrayBuffer
+        && bytes.byteOffset === 0
+        && bytes.byteLength === bytes.buffer.byteLength
+    ) {
+        return bytes.buffer;
+    }
+
+    return toArrayBuffer(bytes);
+}
 
 function createDefaultPdfConformanceProfile(): IPdfConformanceProfile {
     return {
@@ -61,6 +76,10 @@ function decodePdfBinary(bytes: Uint8Array) {
     return pdfBinaryDecoder.decode(bytes);
 }
 
+function containsPdfEncryptMarker(bytes: Uint8Array) {
+    return decodePdfBinary(bytes).includes('/Encrypt');
+}
+
 function detectBrowserPdfaLevel(bytes: Uint8Array) {
     const text = decodePdfBinary(bytes);
     const partMatch = text.match(/<pdfaid:part>\s*([^<\s]+)\s*<\/pdfaid:part>/iu);
@@ -75,6 +94,32 @@ function detectBrowserPdfaLevel(bytes: Uint8Array) {
 
 function detectBrowserSignatureMarkers(bytes: Uint8Array) {
     return /\/(?:ByteRange|FT\s*\/Sig|Type\s*\/Sig)\b/u.test(decodePdfBinary(bytes));
+}
+
+async function readPdfMarkerRegions(path: string) {
+    const { size } = await browserDocumentStore.stat(path);
+    const head = await browserDocumentStore.readRange(
+        path,
+        0,
+        Math.min(PDF_ENCRYPT_SCAN_REGION_BYTES, size),
+    );
+    const tailStart = Math.max(head.byteLength, size - PDF_ENCRYPT_SCAN_REGION_BYTES);
+    const tail = tailStart < size
+        ? await browserDocumentStore.readRange(path, tailStart, size - tailStart)
+        : new Uint8Array();
+
+    return {
+        size,
+        head,
+        tail,
+    };
+}
+
+function mergePdfMarkerRegions(head: Uint8Array, tail: Uint8Array) {
+    const merged = new Uint8Array(head.byteLength + tail.byteLength);
+    merged.set(head, 0);
+    merged.set(tail, head.byteLength);
+    return merged;
 }
 
 function buildBrowserSaveRestrictions(profile: Omit<IPdfConformanceProfile, 'saveRestrictions'>) {
@@ -104,6 +149,33 @@ function buildBrowserSaveRestrictions(profile: Omit<IPdfConformanceProfile, 'sav
 
 async function analyzeBrowserPdfConformance(path: string): Promise<IPdfConformanceProfile> {
     const fallback = createDefaultPdfConformanceProfile();
+    const {
+        size,
+        head,
+        tail,
+    } = await readPdfMarkerRegions(path);
+
+    if (size > BROWSER_FULL_CONFORMANCE_ANALYSIS_BYTES) {
+        const markers = mergePdfMarkerRegions(head, tail);
+        const isEncrypted = containsPdfEncryptMarker(markers);
+        const pdfaLevel = detectBrowserPdfaLevel(markers);
+        const isSigned = detectBrowserSignatureMarkers(markers);
+        const baseProfile = {
+            isSigned,
+            isEncrypted,
+            isTagged: false,
+            pdfaLevel,
+            hasAcroForm: false,
+            hasXfa: false,
+            canIncrementalSave: !isEncrypted,
+        };
+
+        return {
+            ...baseProfile,
+            saveRestrictions: buildBrowserSaveRestrictions(baseProfile),
+        };
+    }
+
     const bytes = await browserDocumentStore.read(path);
 
     try {
@@ -324,6 +396,43 @@ async function saveBlobToPickerOrDownload(
     };
 }
 
+async function pickSaveTarget(options: {
+    suggestedName: string;
+    pickerTypes: IFilePickerAcceptType[];
+}) {
+    const pickerWindow = getWindowWithPickers();
+    if (!pickerWindow?.showSaveFilePicker) {
+        return {
+            canceled: false,
+            fileName: options.suggestedName,
+            handle: null,
+        };
+    }
+
+    try {
+        const handle = await pickerWindow.showSaveFilePicker({
+            suggestedName: options.suggestedName,
+            types: options.pickerTypes,
+        });
+
+        return {
+            canceled: false,
+            fileName: handle.name || options.suggestedName,
+            handle,
+        };
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+            return {
+                canceled: true,
+                fileName: options.suggestedName,
+                handle: null,
+            };
+        }
+
+        throw error;
+    }
+}
+
 export async function saveBytesToPickerOrDownload(
     bytes: Uint8Array,
     options: {
@@ -333,18 +442,18 @@ export async function saveBytesToPickerOrDownload(
     },
 ) {
     return saveBlobToPickerOrDownload(
-        new Blob([toArrayBuffer(bytes)], { type: options.mimeType }),
+        new Blob([toOwnedArrayBuffer(bytes)], { type: options.mimeType }),
         options.suggestedName,
         options.pickerTypes,
     );
 }
 
-export async function writeBytesToHandle(
+async function writeBytesToHandle(
     handle: FileSystemFileHandle,
     data: Uint8Array,
 ) {
     const writable = await handle.createWritable();
-    await writable.write(toArrayBuffer(data));
+    await writable.write(toOwnedArrayBuffer(data));
     await writable.close();
 }
 
@@ -360,7 +469,7 @@ async function normalizeImageBytesToPng(fileName: string, bytes: Uint8Array) {
         );
     }
 
-    const blob = new Blob([toArrayBuffer(bytes)]);
+    const blob = new Blob([toOwnedArrayBuffer(bytes)]);
     const objectUrl = URL.createObjectURL(blob);
 
     try {
@@ -457,6 +566,31 @@ export async function createCombinedPdfFromPaths(paths: string[]) {
 
 async function decryptBrowserWorkingCopy(workingPath: string): Promise<void> {
     try {
+        const { size } = await browserDocumentStore.stat(workingPath);
+        if (size > BROWSER_EAGER_DECRYPT_BYTES) {
+            const head = await browserDocumentStore.readRange(
+                workingPath,
+                0,
+                Math.min(PDF_ENCRYPT_SCAN_REGION_BYTES, size),
+            );
+            if (!containsPdfEncryptMarker(head)) {
+                const tailStart = Math.max(
+                    head.byteLength,
+                    size - PDF_ENCRYPT_SCAN_REGION_BYTES,
+                );
+                const tail = tailStart < size
+                    ? await browserDocumentStore.readRange(
+                        workingPath,
+                        tailStart,
+                        size - tailStart,
+                    )
+                    : new Uint8Array();
+                if (!containsPdfEncryptMarker(tail)) {
+                    return;
+                }
+            }
+        }
+
         const bytes = await browserDocumentStore.read(workingPath);
         const decrypted = await stripPdfEncryption(bytes);
         if (decrypted !== bytes) {
@@ -465,6 +599,27 @@ async function decryptBrowserWorkingCopy(workingPath: string): Promise<void> {
     } catch {
         // Decryption failed — keep the original encrypted working copy
     }
+}
+
+async function createBrowserWorkingCopyFromBytes(options: {
+    fileName: string;
+    data: Uint8Array;
+    mimeType?: string;
+    sourceRef?: TDocumentRef;
+}) {
+    const workingPath = await browserDocumentStore.createStoredDocument(
+        options.fileName,
+        options.data,
+        {
+            mimeType: options.mimeType ?? 'application/pdf',
+            saveKind: 'pdf',
+            kind: 'working',
+            sourceRef: options.sourceRef,
+        },
+    );
+
+    await decryptBrowserWorkingCopy(workingPath);
+    return workingPath;
 }
 
 async function openDocumentPaths(paths: string[]) {
@@ -502,6 +657,7 @@ async function openDocumentPaths(paths: string[]) {
             await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
         await decryptBrowserWorkingCopy(workingPath);
         await browserDocumentStore.touchRecentFile(sourcePath);
+        browserDocumentStore.unload(sourcePath);
         return {
             kind: 'pdf',
             workingPath,
@@ -521,10 +677,12 @@ async function openDocumentPaths(paths: string[]) {
             mimeType: 'application/pdf',
             saveKind: 'pdf',
             kind: 'source',
+            retention: 'transient',
         },
     );
     const workingPath =
         await browserDocumentStore.cloneAsWorkingCopy(originalPath);
+    browserDocumentStore.unload(originalPath);
 
     for (const path of normalizedPaths.filter((path) => {
         const name = getBrowserDocumentFileName(path);
@@ -614,6 +772,7 @@ export function createBrowserDocumentsFileCapability(
 
             return browserDocumentStore.registerFile(picked.file, {
                 kind: 'source',
+                retention: 'transient',
                 saveKind: 'generic',
                 saveHandle: picked.handle ?? null,
             });
@@ -632,6 +791,8 @@ export function createBrowserDocumentsFileCapability(
             const bytes = await browserDocumentStore.read(workingCopyPath);
             const saveTarget =
                 await browserDocumentStore.getSaveTarget(workingCopyPath);
+            const previousSourceRef =
+                await browserDocumentStore.getSourceRef(workingCopyPath);
             const suggestedName = ensurePdfExtension(saveTarget.saveName);
             const saveResult = await saveBytesToPickerOrDownload(bytes, {
                 suggestedName,
@@ -659,14 +820,15 @@ export function createBrowserDocumentsFileCapability(
                 ensurePdfExtension(saveResult.fileName),
                 saveResult.handle,
             );
+            await browserDocumentStore.cleanupDetachedDocument(previousSourceRef);
             await browserDocumentStore.touchRecentFile(sourceRef);
+            browserDocumentStore.unload(sourceRef);
             return sourceRef;
         },
         async savePdfDialog(suggestedName) {
             const nextName = ensurePdfExtension(suggestedName);
-            const saveResult = await saveBytesToPickerOrDownload(new Uint8Array(), {
+            const saveResult = await pickSaveTarget({
                 suggestedName: nextName,
-                mimeType: 'application/pdf',
                 pickerTypes: buildPdfSaveTypes(),
             });
             if (saveResult.canceled) {
@@ -680,6 +842,7 @@ export function createBrowserDocumentsFileCapability(
                     mimeType: 'application/pdf',
                     saveKind: 'pdf',
                     kind: 'output',
+                    retention: 'transient',
                     saveHandle: saveResult.handle,
                 },
             );
@@ -688,11 +851,10 @@ export function createBrowserDocumentsFileCapability(
             const fallbackName = ensureDocxExtension(
                 getBrowserDocumentFileName(workingCopyPath).replace(/\.pdf$/iu, ''),
             );
-            const saveResult = await saveBlobToPickerOrDownload(
-                new Blob([], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
-                fallbackName,
-                buildDocxSaveTypes(),
-            );
+            const saveResult = await pickSaveTarget({
+                suggestedName: fallbackName,
+                pickerTypes: buildDocxSaveTypes(),
+            });
             if (saveResult.canceled) {
                 return null;
             }
@@ -705,6 +867,7 @@ export function createBrowserDocumentsFileCapability(
                         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                     saveKind: 'docx',
                     kind: 'output',
+                    retention: 'transient',
                     saveHandle: saveResult.handle,
                 },
             );
@@ -712,12 +875,11 @@ export function createBrowserDocumentsFileCapability(
         async readFile(path) {
             return browserDocumentStore.read(path);
         },
-        async statFile(path) {
+        statFile(path) {
             return browserDocumentStore.stat(path);
         },
-        async readFileRange(path, offset, length) {
-            const bytes = await browserDocumentStore.read(path);
-            return bytes.slice(offset, offset + length);
+        readFileRange(path, offset, length) {
+            return browserDocumentStore.readRange(path, offset, length);
         },
         async readTextFile(path) {
             return browserDocumentStore.readText(path);
@@ -758,29 +920,50 @@ export function createBrowserDocumentsFileCapability(
                 ? new Uint8Array(await stripPdfEncryption(data))
                 : data;
 
+            return createBrowserWorkingCopyFromBytes({
+                fileName,
+                data: decryptedData,
+                mimeType: 'application/pdf',
+                sourceRef:
+                    originalPath && isBrowserDocumentRef(originalPath)
+                        ? originalPath
+                        : undefined,
+            });
+        },
+        async createWorkingCopyFromPath(sourcePath, originalPath) {
+            const sourceEntry = await browserDocumentStore.requireEntry(sourcePath);
             const sourceRef =
                 originalPath && isBrowserDocumentRef(originalPath)
                     ? originalPath
-                    : await browserDocumentStore.createStoredDocument(fileName, decryptedData, {
-                        mimeType: 'application/pdf',
-                        saveKind: 'pdf',
-                        kind: 'source',
-                    });
-
-            if (!originalPath || !isBrowserDocumentRef(originalPath)) {
-                await browserDocumentStore.touchRecentFile(sourceRef);
+                    : (
+                        sourceEntry.kind === 'working'
+                            ? sourceEntry.sourceRef
+                            : sourceEntry.ref
+                    );
+            if (sourceEntry.kind !== 'working') {
+                const workingPath = await browserDocumentStore.cloneAsWorkingCopy(
+                    sourceEntry.ref,
+                    sourceEntry.fileName,
+                );
+                await decryptBrowserWorkingCopy(workingPath);
+                browserDocumentStore.unload(sourcePath);
+                return workingPath;
             }
 
-            return browserDocumentStore.createStoredDocument(fileName, decryptedData, {
-                mimeType: 'application/pdf',
-                saveKind: 'pdf',
-                kind: 'working',
-                sourceRef,
+            const sourceBytes = await browserDocumentStore.read(sourcePath);
+            const workingPath = await createBrowserWorkingCopyFromBytes({
+                fileName: sourceEntry.fileName,
+                data: sourceBytes,
+                mimeType: sourceEntry.mimeType,
+                sourceRef:
+                    sourceRef && isBrowserDocumentRef(sourceRef)
+                        ? sourceRef
+                        : undefined,
             });
-        },
-        async createWorkingCopyFromPath(sourcePath) {
-            const workingPath = await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
-            await decryptBrowserWorkingCopy(workingPath);
+
+            if (sourceEntry.kind !== 'working') {
+                browserDocumentStore.unload(sourcePath);
+            }
             return workingPath;
         },
         async saveFile(path) {
@@ -788,10 +971,19 @@ export function createBrowserDocumentsFileCapability(
             return saveWorkingBytesToSource(path);
         },
         async cleanupFile(path) {
-            const sourceRef = await browserDocumentStore.getSourceRef(path);
+            const entry = await browserDocumentStore.ensureEntry(path);
+            if (!entry) {
+                return;
+            }
+
+            const sourceRef = entry.sourceRef ?? path;
             if (sourceRef !== path) {
                 await browserDocumentStore.remove(path);
+                await browserDocumentStore.cleanupDetachedDocument(sourceRef);
+                return;
             }
+
+            await browserDocumentStore.cleanupDetachedDocument(path);
         },
         async cleanupOcrTemp(_path) {},
         setWindowTitle(title) {
@@ -810,7 +1002,8 @@ export function createBrowserDocumentsFileCapability(
                 const validatedFiles: IRecentFile[] = [];
 
                 for (const file of recentFiles) {
-                    if (await browserDocumentStore.exists(file.originalPath)) {
+                    const entry = await browserDocumentStore.ensureEntry(file.originalPath);
+                    if (entry && entry.retention !== 'transient') {
                         validatedFiles.push(file);
                         continue;
                     }

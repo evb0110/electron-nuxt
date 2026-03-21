@@ -225,25 +225,48 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
             const renderedPages = await renderPdfPages(pdfBytes, pageNumbers);
             const outputRefs: string[] = [];
 
-            for (const page of renderedPages) {
-                const outputRef = await browserDocumentStore.createStoredDocument(
-                    page.fileName,
-                    page.pngBytes,
-                    {
+            try {
+                for (const page of renderedPages) {
+                    const saveResult = await saveBytesToPickerOrDownload(page.pngBytes, {
+                        suggestedName: page.fileName,
                         mimeType: 'image/png',
-                        saveKind: 'generic',
-                        kind: 'output',
-                    },
+                        pickerTypes: [{
+                            description: 'PNG Images',
+                            accept: { 'image/png': ['.png'] },
+                        }],
+                    });
+                    if (saveResult.canceled) {
+                        await Promise.allSettled(
+                            outputRefs.map(async (outputRef) => {
+                                await browserDocumentStore.cleanupDetachedDocument(outputRef);
+                            }),
+                        );
+                        return {
+                            success: false,
+                            canceled: true,
+                        };
+                    }
+
+                    const outputRef = await browserDocumentStore.createStoredDocument(
+                        saveResult.fileName,
+                        page.pngBytes,
+                        {
+                            mimeType: 'image/png',
+                            saveKind: 'generic',
+                            kind: 'output',
+                            retention: 'transient',
+                            saveHandle: saveResult.handle,
+                        },
+                    );
+                    outputRefs.push(outputRef);
+                }
+            } catch (error) {
+                await Promise.allSettled(
+                    outputRefs.map(async (outputRef) => {
+                        await browserDocumentStore.cleanupDetachedDocument(outputRef);
+                    }),
                 );
-                outputRefs.push(outputRef);
-                await saveBytesToPickerOrDownload(page.pngBytes, {
-                    suggestedName: page.fileName,
-                    mimeType: 'image/png',
-                    pickerTypes: [{
-                        description: 'PNG Images',
-                        accept: { 'image/png': ['.png'] },
-                    }],
-                });
+                throw error;
             }
 
             return {
@@ -291,6 +314,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     mimeType: 'image/tiff',
                     saveKind: 'generic',
                     kind: 'output',
+                    retention: 'transient',
                 },
             );
             return {

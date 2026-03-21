@@ -218,14 +218,18 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return null;
         }
 
-        const bytes = await getElectronAPI().documents.readFile(imagePath);
-        const fileBytes = Uint8Array.from(bytes);
-        const mimeType = mimeTypeFromPath(imagePath);
-        const fileName = imagePath.split(/[\\/]/).pop() ?? `image.${extensionForMimeType(mimeType)}`;
-        return new File([fileBytes], fileName, {
-            type: mimeType,
-            lastModified: Date.now(),
-        });
+        try {
+            const bytes = await getElectronAPI().documents.readFile(imagePath);
+            const fileBytes = Uint8Array.from(bytes);
+            const mimeType = mimeTypeFromPath(imagePath);
+            const fileName = imagePath.split(/[\\/]/).pop() ?? `image.${extensionForMimeType(mimeType)}`;
+            return new File([fileBytes], fileName, {
+                type: mimeType,
+                lastModified: Date.now(),
+            });
+        } finally {
+            await getElectronAPI().documents.cleanupFile(imagePath).catch(() => {});
+        }
     }
 
     async function readImageFileFromClipboard() {

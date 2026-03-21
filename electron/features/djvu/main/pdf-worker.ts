@@ -3,7 +3,7 @@ import {
     workerData,
 } from 'worker_threads';
 import { buildOptimizedPdf } from '@electron/djvu/pdf-builder';
-import { embedBookmarksIntoPdf } from '@electron/djvu/pdf-bookmarks';
+import { embedBookmarksIntoPdfFile } from '@electron/djvu/pdf-bookmarks';
 import type {
     TDjvuPdfWorkerMessage,
     TDjvuPdfWorkerTask,
@@ -15,10 +15,6 @@ function getTask(): TDjvuPdfWorkerTask {
         throw new Error('Invalid DjVu PDF worker payload');
     }
     return task;
-}
-
-function toUint8Array(data: Uint8Array | ArrayBuffer): Uint8Array {
-    return data instanceof Uint8Array ? data : new Uint8Array(data);
 }
 
 function toTransferableBuffer(data: Uint8Array): ArrayBuffer {
@@ -50,8 +46,8 @@ async function runTask(task: TDjvuPdfWorkerTask) {
             const pdfBytes = await buildOptimizedPdf([task.imagePath], task.dpi);
             return pdfBytes.length;
         }
-        case 'embedBookmarks':
-            return embedBookmarksIntoPdf(toUint8Array(task.pdfData), task.bookmarks);
+        case 'embedBookmarksInFile':
+            return embedBookmarksIntoPdfFile(task.inputPdfPath, task.outputPdfPath, task.bookmarks);
         default:
             throw new Error(`Unsupported DjVu PDF worker task: ${(task as { type: string }).type}`);
     }

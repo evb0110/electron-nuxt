@@ -1,16 +1,11 @@
-import {
-    BrowserWindow,
-    app,
-} from 'electron';
+import { BrowserWindow } from 'electron';
 import { randomUUID } from 'node:crypto';
 import type { IpcMainInvokeEvent } from 'electron';
 import type { Worker } from 'worker_threads';
 import {
-    mkdir,
     rename,
     rm,
-    unlink,
-    writeFile,
+    stat,
 } from 'fs/promises';
 import {
     dirname,
@@ -19,23 +14,20 @@ import {
 import type { IPdfBookmarkEntry } from '@contracts/pdf';
 import {
     cancelConversion,
-    convertAllPagesToImages,
+    convertDjvuToPdfFile,
 } from '@electron/features/djvu/main/ddjvu-conversion';
-import { buildOptimizedPdf } from '@electron/djvu/pdf-builder';
 import {
     getDjvuOutline,
     getDjvuPageCount,
-    getDjvuResolution,
 } from '@electron/djvu/metadata';
 import { parseDjvuOutline } from '@electron/djvu/bookmarks';
 import { createLogger } from '@electron/utils/logger';
 import { measureElectronPerfAsync } from '@electron/utils/dev-perf';
 import { safeSendToWindow } from '@electron/djvu/ipc-shared';
-import { embedBookmarksIntoPdf } from '@electron/djvu/pdf-bookmarks';
+import { embedBookmarksIntoPdfFile } from '@electron/djvu/pdf-bookmarks';
 import { consumeAllowedDjvuWritePath } from '@electron/djvu/export-paths';
 import {
     createDjvuPdfBookmarkTask,
-    createDjvuPdfBuildTask,
     DjvuPdfWorkerStartupError,
 } from '@electron/features/djvu/main/pdf-worker-client';
 
@@ -70,6 +62,13 @@ const DJVU_MAX_QUEUED_CONVERSIONS = (() => {
         return 8;
     }
     return Math.min(parsed, 128);
+})();
+const DJVU_BOOKMARK_FALLBACK_MAX_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_DJVU_BOOKMARK_FALLBACK_MAX_MB ?? '64', 10);
+    if (!Number.isFinite(parsed) || parsed < 8) {
+        return 64 * 1024 * 1024;
+    }
+    return parsed * 1024 * 1024;
 })();
 
 function resolveSubsample(rawSubsample: number | undefined) {
@@ -191,20 +190,6 @@ function requestDjvuCancel(jobId: string): boolean {
     return removedQueuedJob || canceledProcess || Boolean(activePdfWorker) || activeJobIds.has(normalizedJobId);
 }
 
-async function writePdfAtomically(outputPath: string, data: Uint8Array) {
-    const tempPath = join(dirname(outputPath), `.${randomUUID()}.tmp.pdf`);
-    try {
-        await writeFile(tempPath, data);
-        await rename(tempPath, outputPath);
-    } finally {
-        try {
-            await unlink(tempPath);
-        } catch {
-            // Ignore if temp file does not exist or was already moved.
-        }
-    }
-}
-
 function setActivePdfWorker(jobId: string, worker: Worker) {
     activePdfWorkerByJobId.set(jobId, worker);
 }
@@ -215,63 +200,23 @@ function clearActivePdfWorker(jobId: string, worker: Worker) {
     }
 }
 
-async function buildPdfData(
-    jobId: string,
-    imagePaths: string[],
-    effectiveDpi: number,
-    onPageProcessed: (page: number, total: number) => void,
-): Promise<Uint8Array> {
-    return measureElectronPerfAsync('djvu:build-pdf', async () => {
-        try {
-            const task = createDjvuPdfBuildTask(
-                imagePaths,
-                effectiveDpi,
-                message => onPageProcessed(message.page, message.total),
-            );
-            setActivePdfWorker(jobId, task.worker);
-            try {
-                return await task.promise;
-            } catch (error) {
-                if (canceledJobIds.has(jobId)) {
-                    throw new Error('DjVu conversion canceled');
-                }
-                throw error;
-            } finally {
-                clearActivePdfWorker(jobId, task.worker);
-            }
-        } catch (error) {
-            if (!(error instanceof DjvuPdfWorkerStartupError)) {
-                throw error;
-            }
-
-            logger.warn(`[${jobId}] DjVu PDF worker unavailable, falling back to in-process PDF build: ${error.message}`);
-            return buildOptimizedPdf(imagePaths, effectiveDpi, onPageProcessed);
-        }
-    }, {
-        thresholdMs: 25,
-        details: {
-            jobId,
-            pageCount: imagePaths.length,
-            effectiveDpi,
-        },
-    });
-}
-
 async function embedPdfBookmarks(
     jobId: string,
-    pdfData: Uint8Array,
+    inputPdfPath: string,
+    outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
-): Promise<Uint8Array> {
+): Promise<void> {
     if (bookmarks.length === 0) {
-        return pdfData;
+        return;
     }
 
     return measureElectronPerfAsync('djvu:embed-bookmarks', async () => {
         try {
-            const task = createDjvuPdfBookmarkTask(pdfData, bookmarks);
+            const task = createDjvuPdfBookmarkTask(inputPdfPath, outputPdfPath, bookmarks);
             setActivePdfWorker(jobId, task.worker);
             try {
-                return await task.promise;
+                await task.promise;
+                return;
             } catch (error) {
                 if (canceledJobIds.has(jobId)) {
                     throw new Error('DjVu conversion canceled');
@@ -285,8 +230,16 @@ async function embedPdfBookmarks(
                 throw error;
             }
 
+            const inputStats = await stat(inputPdfPath).catch(() => null);
+            if (!inputStats || inputStats.size > DJVU_BOOKMARK_FALLBACK_MAX_BYTES) {
+                const maxMb = Math.floor(DJVU_BOOKMARK_FALLBACK_MAX_BYTES / (1024 * 1024));
+                throw new Error(
+                    `DjVu bookmark embedding requires the PDF worker for files larger than ${maxMb}MB`,
+                );
+            }
+
             logger.warn(`[${jobId}] DjVu PDF worker unavailable, falling back to in-process bookmark embedding: ${error.message}`);
-            return embedBookmarksIntoPdf(pdfData, bookmarks);
+            await embedBookmarksIntoPdfFile(inputPdfPath, outputPdfPath, bookmarks);
         }
     }, {
         thresholdMs: 25,
@@ -329,7 +282,8 @@ export async function handleDjvuConvertToPdf(
     }
     const conversionId = randomUUID();
     const jobId = `djvu-convert-${conversionId}`;
-    const imageDir = join(app.getPath('temp'), `djvu-images-${conversionId}`);
+    const tempPdfPath = join(dirname(normalizedOutputPath), `.${conversionId}.convert.pdf`);
+    const tempBookmarkedPdfPath = join(dirname(normalizedOutputPath), `.${conversionId}.bookmarks.pdf`);
     logger.info(`[${jobId}] Converting DjVu to PDF: ${djvuPath} -> ${normalizedOutputPath}`);
     canceledJobIds.delete(jobId);
     activeJobIds.add(jobId);
@@ -337,22 +291,10 @@ export async function handleDjvuConvertToPdf(
 
     try {
         return await runDjvuConversionJobWithSlot(jobId, async () => {
-            const [
-                pageCount,
-                sourceDpi,
-            ] = await Promise.all([
-                getDjvuPageCount(djvuPath),
-                getDjvuResolution(djvuPath),
-            ]);
+            const [pageCount] = await Promise.all([getDjvuPageCount(djvuPath)]);
 
             const subsample = resolveSubsample(options.subsample);
-            const effectiveDpi = Math.round(sourceDpi / subsample);
-            if (!Number.isFinite(effectiveDpi) || effectiveDpi <= 0) {
-                throw new Error('Invalid effective DPI for DjVu conversion');
-            }
             throwIfCanceled(jobId);
-
-            await mkdir(imageDir, { recursive: true });
 
             safeSendToWindow(window, 'djvu:progress', {
                 jobId,
@@ -364,39 +306,25 @@ export async function handleDjvuConvertToPdf(
                 ? getDjvuOutline(djvuPath).then(sexp => parseDjvuOutline(sexp)).catch(() => [] as IPdfBookmarkEntry[])
                 : Promise.resolve([] as IPdfBookmarkEntry[]);
 
-            const imageResult = await convertAllPagesToImages(djvuPath, imageDir, pageCount, jobId, {
+            const convertResult = await convertDjvuToPdfFile(djvuPath, tempPdfPath, jobId, {
                 subsample: subsample > 1 ? subsample : undefined,
-                format: 'ppm',
-                onPageConverted: (completed, total) => {
+                pageCount,
+                onProgress: (percent) => {
                     safeSendToWindow(window, 'djvu:progress', {
                         jobId,
                         phase: 'converting' as const,
-                        percent: Math.round((completed / total) * 70),
+                        percent,
                     });
                 },
             });
 
-            if (!imageResult.success) {
+            if (!convertResult.success) {
                 return {
                     success: false,
                     jobId,
-                    error: imageResult.error,
+                    error: convertResult.error,
                 };
             }
-            throwIfCanceled(jobId);
-
-            const imagePaths = Array.from(
-                { length: pageCount },
-                (_, index) => join(imageDir, `page-${index + 1}.ppm`),
-            );
-
-            let pdfData: Uint8Array = await buildPdfData(jobId, imagePaths, effectiveDpi, (page, total) => {
-                safeSendToWindow(window, 'djvu:progress', {
-                    jobId,
-                    phase: 'converting' as const,
-                    percent: 70 + Math.round((page / total) * 20),
-                });
-            });
             throwIfCanceled(jobId);
 
             const bookmarks = await outlinePromise;
@@ -407,11 +335,14 @@ export async function handleDjvuConvertToPdf(
                     phase: 'bookmarks' as const,
                     percent: 92,
                 });
-                pdfData = await embedPdfBookmarks(jobId, pdfData, bookmarks);
+                await embedPdfBookmarks(jobId, tempPdfPath, tempBookmarkedPdfPath, bookmarks);
             }
 
             throwIfCanceled(jobId);
-            await writePdfAtomically(normalizedOutputPath, pdfData);
+            await rename(
+                bookmarks.length > 0 ? tempBookmarkedPdfPath : tempPdfPath,
+                normalizedOutputPath,
+            );
 
             safeSendToWindow(window, 'djvu:progress', {
                 jobId,
@@ -439,10 +370,8 @@ export async function handleDjvuConvertToPdf(
         activeJobOwnerById.delete(jobId);
         activePdfWorkerByJobId.delete(jobId);
         try {
-            await rm(imageDir, {
-                recursive: true,
-                force: true,
-            });
+            await rm(tempPdfPath, { force: true });
+            await rm(tempBookmarkedPdfPath, { force: true });
         } catch {
             // Ignore cleanup errors
         }

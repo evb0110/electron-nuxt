@@ -25,6 +25,66 @@ interface IViewportVisibilityCacheEntry {
     result: IViewportVisibilityResult;
 }
 
+function getLayoutPageTop(
+    metrics: TPageLayoutMetrics,
+    index: number,
+) {
+    return Math.max(0, (metrics.pageTops[index] ?? 0) - metrics.paddingTop);
+}
+
+function getLayoutPageBottom(
+    metrics: TPageLayoutMetrics,
+    index: number,
+) {
+    const pageTop = getLayoutPageTop(metrics, index);
+    const pageHeight = metrics.pageHeights[index] ?? 0;
+    return pageTop + pageHeight;
+}
+
+function findFirstVisibleLayoutPageIndex(
+    metrics: TPageLayoutMetrics,
+    viewportTop: number,
+    totalPages: number,
+) {
+    let low = 0;
+    let high = totalPages - 1;
+    let result = -1;
+
+    while (low <= high) {
+        const mid = low + Math.floor((high - low) / 2);
+        if (getLayoutPageBottom(metrics, mid) > viewportTop) {
+            result = mid;
+            high = mid - 1;
+        } else {
+            low = mid + 1;
+        }
+    }
+
+    return result;
+}
+
+function findLastVisibleLayoutPageIndex(
+    metrics: TPageLayoutMetrics,
+    viewportBottom: number,
+    totalPages: number,
+) {
+    let low = 0;
+    let high = totalPages - 1;
+    let result = -1;
+
+    while (low <= high) {
+        const mid = low + Math.floor((high - low) / 2);
+        if (getLayoutPageTop(metrics, mid) < viewportBottom) {
+            result = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    return result;
+}
+
 export const usePdfScroll = () => {
     const currentPage = ref(1);
     const visibleRange = ref({
@@ -50,28 +110,43 @@ export const usePdfScroll = () => {
 
         const viewportTop = Math.max(0, container.scrollTop - metrics.paddingTop);
         const viewportBottom = viewportTop + container.clientHeight;
-        let start: number | null = null;
-        let end: number | null = null;
+        const layoutPageCount = Math.min(
+            totalPages,
+            metrics.pageTops.length,
+            metrics.pageHeights.length,
+        );
+        if (layoutPageCount <= 0) {
+            return null;
+        }
+
+        const firstVisibleIndex = findFirstVisibleLayoutPageIndex(
+            metrics,
+            viewportTop,
+            layoutPageCount,
+        );
+        if (firstVisibleIndex === -1) {
+            return null;
+        }
+
+        const lastVisibleIndex = findLastVisibleLayoutPageIndex(
+            metrics,
+            viewportBottom,
+            layoutPageCount,
+        );
+        if (lastVisibleIndex === -1 || lastVisibleIndex < firstVisibleIndex) {
+            return null;
+        }
+
         let mostVisiblePage: number | null = null;
         let maxVisibleArea = 0;
 
-        for (let index = 0; index < metrics.pageTops.length; index += 1) {
-            const pageTop = Math.max(0, metrics.pageTops[index]! - metrics.paddingTop);
+        for (let index = firstVisibleIndex; index <= lastVisibleIndex; index += 1) {
+            const pageTop = getLayoutPageTop(metrics, index);
             const pageHeight = metrics.pageHeights[index] ?? 0;
             const pageBottom = pageTop + pageHeight;
             const visibleTop = Math.max(pageTop, viewportTop);
             const visibleBottom = Math.min(pageBottom, viewportBottom);
             const visibleArea = Math.max(0, visibleBottom - visibleTop);
-
-            if (pageBottom > viewportTop && start === null) {
-                start = index + 1;
-            }
-
-            if (pageTop < viewportBottom) {
-                end = index + 1;
-            } else {
-                break;
-            }
 
             if (visibleArea > maxVisibleArea) {
                 maxVisibleArea = visibleArea;
@@ -79,14 +154,10 @@ export const usePdfScroll = () => {
             }
         }
 
-        if (start === null || end === null) {
-            return null;
-        }
-
         return {
             range: {
-                start: clamp(start, 1, totalPages),
-                end: clamp(Math.max(start, end), 1, totalPages),
+                start: clamp(firstVisibleIndex + 1, 1, totalPages),
+                end: clamp(lastVisibleIndex + 1, 1, totalPages),
             },
             mostVisiblePage:
                 maxVisibleArea > 0 && mostVisiblePage !== null
