@@ -67,4 +67,16 @@ describe('useDocumentTransitions', () => {
         expect(deps.totalPages.value).toBe(0);
         expect(deps.pdfDocument.value).toBeNull();
     });
+
+    it('refreshes recent files when the open document changes without unloading first', async () => {
+        const deps = createDeps();
+
+        useDocumentTransitions(deps);
+
+        deps.workingCopyPath.value = '/tmp/next.pdf';
+        deps.pdfSrc.value = {} as TPdfSource;
+        await nextTick();
+
+        expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
+    });
 });
