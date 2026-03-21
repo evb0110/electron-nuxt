@@ -99,7 +99,7 @@ export async function runOcr(
     const {
         binary,
         tessdata,
-    } = getOcrPaths();
+    } = await getOcrPaths();
 
     const args = [
         'stdin',

@@ -3,8 +3,8 @@ import type {
     IPdfSearchMatch,
 } from '@app/types/pdf';
 import {
-    buildTextLayerIndex,
     buildRunMatchOverlaps,
+    getCachedTextLayerIndex,
     highlightTextInSpan,
     clearDomHighlights,
     scrollToHighlight,
@@ -57,7 +57,7 @@ export const usePdfSearchHighlight = () => {
         const {
             text: layerText,
             runs,
-        } = buildTextLayerIndex(textLayerDiv);
+        } = getCachedTextLayerIndex(textLayerDiv);
 
         const matchesWithCurrent = pageMatches.matches
             .map((match, index) => ({

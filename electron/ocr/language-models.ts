@@ -1,15 +1,13 @@
 import { homedir } from 'os';
 import { randomUUID } from 'node:crypto';
 import {
-    copyFileSync,
     createWriteStream,
     existsSync,
-    mkdirSync,
-    readdirSync,
 } from 'fs';
 import {
     copyFile,
     mkdir,
+    readdir,
     rename,
     rm,
     stat,
@@ -25,6 +23,7 @@ import { pipeline } from 'stream/promises';
 import { fileURLToPath } from 'url';
 import { createLogger } from '@electron/utils/logger';
 import { forEachConcurrent } from '@electron/utils/concurrency';
+import { measureElectronPerfAsync } from '@electron/utils/dev-perf';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/available-languages';
 
 const log = createLogger('ocr-language-models');
@@ -81,6 +80,8 @@ const OCR_MAX_UNIQUE_MODEL_CODES = (() => {
     }
     return Math.min(parsed, AVAILABLE_OCR_LANGUAGE_CODES.size);
 })();
+
+let runtimeTessdataSeedPromise: Promise<void> | null = null;
 
 function getElectronUserDataPath(): string {
     const appName = 'EVB Viewer';
@@ -382,45 +383,13 @@ function getModelPath(baseDir: string, languageCode: string) {
     return join(baseDir, `${languageCode}.traineddata`);
 }
 
-function seedBundledModelsSync(runtimeDir: string) {
-    if (!isPackaged) {
-        return;
-    }
-
-    const bundledDir = getBundledTessdataDir();
-    if (!existsSync(bundledDir)) {
-        return;
-    }
-
-    mkdirSync(runtimeDir, { recursive: true });
-
-    const bundledFiles = readdirSync(bundledDir)
-        .filter(fileName => fileName.endsWith('.traineddata'));
-
-    for (const fileName of bundledFiles) {
-        const sourcePath = join(bundledDir, fileName);
-        const destinationPath = join(runtimeDir, fileName);
-        if (existsSync(destinationPath)) {
-            continue;
-        }
-        copyFileSync(sourcePath, destinationPath);
-    }
-}
-
-export function ensureRuntimeTessdataSeededSync() {
-    const runtimeDir = getRuntimeTessdataDir();
-    seedBundledModelsSync(runtimeDir);
-}
-
 async function seedBundledModels(
     runtimeDir: string,
-    options: IEnsureTessdataLanguagesOptions = {},
 ) {
     if (!isPackaged) {
         return;
     }
 
-    throwIfAborted(options.signal);
     const bundledDir = getBundledTessdataDir();
     if (!existsSync(bundledDir)) {
         return;
@@ -428,17 +397,49 @@ async function seedBundledModels(
 
     await mkdir(runtimeDir, { recursive: true });
 
-    const bundledFiles = readdirSync(bundledDir)
+    const bundledFiles = (await readdir(bundledDir))
         .filter(fileName => fileName.endsWith('.traineddata'));
 
     for (const fileName of bundledFiles) {
-        throwIfAborted(options.signal);
         const sourcePath = join(bundledDir, fileName);
         const destinationPath = join(runtimeDir, fileName);
         if (existsSync(destinationPath)) {
             continue;
         }
         await copyFile(sourcePath, destinationPath);
+    }
+}
+
+export async function ensureRuntimeTessdataSeeded(
+    options: IEnsureTessdataLanguagesOptions = {},
+) {
+    if (!isPackaged) {
+        return;
+    }
+
+    const runtimeDir = getRuntimeTessdataDir();
+    if (runtimeTessdataSeedPromise) {
+        throwIfAborted(options.signal);
+        await waitForPromiseOrAbort(runtimeTessdataSeedPromise, options.signal);
+        return;
+    }
+
+    if (options.signal?.aborted) {
+        throw abortErrorFromSignal(options.signal);
+    }
+
+    const seedPromise = measureElectronPerfAsync('ocr:seed-runtime-tessdata', () => seedBundledModels(runtimeDir), {
+        thresholdMs: 25,
+        details: { runtimeDir },
+    });
+    runtimeTessdataSeedPromise = seedPromise;
+    try {
+        await waitForPromiseOrAbort(seedPromise, options.signal);
+    } catch (error) {
+        if (runtimeTessdataSeedPromise === seedPromise) {
+            runtimeTessdataSeedPromise = null;
+        }
+        throw error;
     }
 }
 
@@ -637,7 +638,7 @@ export async function ensureTessdataLanguages(
     }
 
     const runtimeDir = getRuntimeTessdataDir();
-    await seedBundledModels(runtimeDir, options);
+    await ensureRuntimeTessdataSeeded(options);
     // Bound parallel model downloads so OCR requests cannot flood network/disk resources.
     await forEachConcurrent(requiredCodes, OCR_MODEL_DOWNLOAD_CONCURRENCY, async (languageCode) => {
         await ensureLanguageModel(languageCode, runtimeDir, options);

@@ -1,8 +1,14 @@
 import { clamp } from 'es-toolkit/math';
+import { measureDevPerf } from '@app/utils/dev-perf';
 
 export interface IVisiblePageRange {
     start: number;
     end: number;
+}
+
+export interface IViewportVisibilityResult {
+    range: IVisiblePageRange | null;
+    mostVisiblePage: number | null;
 }
 
 export interface IPageScrollBounds {
@@ -95,6 +101,37 @@ function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics 
     };
 }
 
+export function getViewportVisibilityFromDom(
+    container: HTMLElement,
+    totalPages: number,
+): IViewportVisibilityResult {
+    return measureDevPerf('pdf:scroll-visibility', () => {
+        if (totalPages <= 0) {
+            return {
+                range: null,
+                mostVisiblePage: null,
+            };
+        }
+
+        const visible = collectVisiblePageMetrics(container);
+        return {
+            range: visible.range
+                ? {
+                    start: clamp(visible.range.start, 1, totalPages),
+                    end: clamp(visible.range.end, 1, totalPages),
+                }
+                : null,
+            mostVisiblePage:
+                visible.maxVisibleArea > 0 && visible.mostVisiblePage !== null
+                    ? clamp(visible.mostVisiblePage, 1, totalPages)
+                    : null,
+        };
+    }, {
+        thresholdMs: 8,
+        details: { totalPages },
+    });
+}
+
 export function getPageContainerByNumber(
     container: HTMLElement,
     pageNumber: number,
@@ -113,35 +150,14 @@ export function getVisiblePageRangeFromDom(
     container: HTMLElement,
     totalPages: number,
 ): IVisiblePageRange | null {
-    if (totalPages <= 0) {
-        return null;
-    }
-
-    const visible = collectVisiblePageMetrics(container).range;
-    if (!visible) {
-        return null;
-    }
-
-    return {
-        start: clamp(visible.start, 1, totalPages),
-        end: clamp(visible.end, 1, totalPages),
-    };
+    return getViewportVisibilityFromDom(container, totalPages).range;
 }
 
 export function getMostVisiblePageFromDom(
     container: HTMLElement,
     totalPages: number,
 ) {
-    if (totalPages <= 0) {
-        return null;
-    }
-
-    const metrics = collectVisiblePageMetrics(container);
-    if (metrics.maxVisibleArea <= 0 || metrics.mostVisiblePage === null) {
-        return null;
-    }
-
-    return clamp(metrics.mostVisiblePage, 1, totalPages);
+    return getViewportVisibilityFromDom(container, totalPages).mostVisiblePage;
 }
 
 export function getVisiblePageDebugSnapshot(

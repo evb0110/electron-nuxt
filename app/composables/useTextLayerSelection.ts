@@ -13,6 +13,8 @@ const mouseDownHandlers = new WeakMap<HTMLElement, () => void>();
 let selectionAbortController: AbortController | null = null;
 let prevRange: Range | null = null;
 let isPointerDown = false;
+let activeSelectionLayer: HTMLElement | null = null;
+let previousSelectionLayer: HTMLElement | null = null;
 
 function reset(entry: ITextLayerEntry) {
     const {
@@ -23,6 +25,83 @@ function reset(entry: ITextLayerEntry) {
     endOfContent.style.width = '';
     endOfContent.style.height = '';
     textLayer.classList.remove('selecting');
+}
+
+function resolveTextLayerFromNode(node: Node | null) {
+    if (!node) {
+        return null;
+    }
+
+    const element = node.nodeType === Node.ELEMENT_NODE
+        ? node as Element
+        : node.parentElement;
+    return element?.closest('.text-layer') as HTMLElement | null;
+}
+
+function clearTrackedSelectionLayers() {
+    const layersToReset = new Set<HTMLElement>();
+    if (activeSelectionLayer) {
+        layersToReset.add(activeSelectionLayer);
+    }
+    if (previousSelectionLayer) {
+        layersToReset.add(previousSelectionLayer);
+    }
+
+    layersToReset.forEach((layer) => {
+        const entry = textLayers.get(layer);
+        if (entry) {
+            reset(entry);
+        }
+    });
+
+    activeSelectionLayer = null;
+    previousSelectionLayer = null;
+}
+
+function updateSelectionSentinel(
+    textLayerDiv: HTMLElement,
+    entry: ITextLayerEntry,
+    range: Range,
+) {
+    const { endOfContent } = entry;
+    endOfContent.style.width = textLayerDiv.style.width || '100%';
+    endOfContent.style.height = textLayerDiv.style.height || '100%';
+    endOfContent.style.userSelect = 'text';
+
+    const modifyStart = prevRange && (
+        range.compareBoundaryPoints(Range.END_TO_END, prevRange) === 0 ||
+        range.compareBoundaryPoints(Range.START_TO_END, prevRange) === 0
+    );
+
+    let anchor: Node | null = modifyStart ? range.startContainer : range.endContainer;
+
+    if (anchor?.nodeType === Node.TEXT_NODE) {
+        anchor = anchor.parentNode;
+    }
+
+    if (!modifyStart && range.endOffset === 0 && anchor) {
+        while (anchor && !anchor.previousSibling) {
+            anchor = anchor.parentNode;
+        }
+        if (anchor) {
+            anchor = anchor.previousSibling;
+            while (anchor && !(anchor as Element).childNodes?.length) {
+                anchor = anchor.previousSibling;
+            }
+        }
+    }
+
+    if (!anchor) {
+        return;
+    }
+
+    const anchorParent = (anchor as Element).parentElement;
+    if (anchorParent) {
+        anchorParent.insertBefore(
+            endOfContent,
+            modifyStart ? anchor : (anchor as Element).nextSibling,
+        );
+    }
 }
 
 function enableGlobalSelectionListener() {
@@ -45,7 +124,7 @@ function enableGlobalSelectionListener() {
         'pointerup',
         () => {
             isPointerDown = false;
-            textLayers.forEach(reset);
+            clearTrackedSelectionLayers();
         },
         { signal },
     );
@@ -54,7 +133,7 @@ function enableGlobalSelectionListener() {
         'blur',
         () => {
             isPointerDown = false;
-            textLayers.forEach(reset);
+            clearTrackedSelectionLayers();
         },
         { signal },
     );
@@ -63,7 +142,7 @@ function enableGlobalSelectionListener() {
         'keyup',
         () => {
             if (!isPointerDown) {
-                textLayers.forEach(reset);
+                clearTrackedSelectionLayers();
             }
         },
         { signal },
@@ -74,77 +153,50 @@ function enableGlobalSelectionListener() {
         () => {
             const selection = document.getSelection();
             if (!selection || selection.rangeCount === 0) {
-                textLayers.forEach(reset);
+                clearTrackedSelectionLayers();
                 prevRange = null;
                 return;
             }
 
-            const activeTextLayers = new Set<HTMLElement>();
-            for (let i = 0; i < selection.rangeCount; i++) {
-                const range = selection.getRangeAt(i);
-                for (const [textLayerDiv] of textLayers) {
-                    if (!activeTextLayers.has(textLayerDiv) && range.intersectsNode(textLayerDiv)) {
-                        activeTextLayers.add(textLayerDiv);
-                    }
-                }
+            const range = selection.getRangeAt(0);
+            const nextActiveLayer =
+                resolveTextLayerFromNode(range.commonAncestorContainer) ??
+                resolveTextLayerFromNode(selection.anchorNode) ??
+                resolveTextLayerFromNode(selection.focusNode) ??
+                activeSelectionLayer ??
+                previousSelectionLayer;
+
+            const layersToReset = new Set<HTMLElement>();
+            if (activeSelectionLayer && activeSelectionLayer !== nextActiveLayer) {
+                layersToReset.add(activeSelectionLayer);
+            }
+            if (
+                previousSelectionLayer &&
+                previousSelectionLayer !== nextActiveLayer &&
+                previousSelectionLayer !== activeSelectionLayer
+            ) {
+                layersToReset.add(previousSelectionLayer);
             }
 
-            for (const [
-                textLayerDiv,
-                entry,
-            ] of textLayers) {
-                if (activeTextLayers.has(textLayerDiv)) {
-                    textLayerDiv.classList.add('selecting');
-                } else {
+            layersToReset.forEach((layer) => {
+                const entry = textLayers.get(layer);
+                if (entry) {
                     reset(entry);
                 }
-            }
+            });
 
-            const range = selection.getRangeAt(0);
-            const modifyStart = prevRange && (
-                range.compareBoundaryPoints(Range.END_TO_END, prevRange) === 0 ||
-                range.compareBoundaryPoints(Range.START_TO_END, prevRange) === 0
-            );
+            previousSelectionLayer = activeSelectionLayer;
+            activeSelectionLayer = nextActiveLayer;
 
-            let anchor: Node | null = modifyStart ? range.startContainer : range.endContainer;
-
-            if (anchor?.nodeType === Node.TEXT_NODE) {
-                anchor = anchor.parentNode;
-            }
-
-            if (!modifyStart && range.endOffset === 0 && anchor) {
-                while (anchor && !anchor.previousSibling) {
-                    anchor = anchor.parentNode;
-                }
-                if (anchor) {
-                    anchor = anchor.previousSibling;
-                    while (anchor && !(anchor as Element).childNodes?.length) {
-                        anchor = anchor.previousSibling;
-                    }
-                }
-            }
-
-            if (!anchor) {
+            if (!nextActiveLayer) {
                 prevRange = range.cloneRange();
                 return;
             }
 
-            const parentTextLayer = (anchor as Element).parentElement?.closest('.text-layer') as HTMLElement | null;
-            const entry = parentTextLayer ? textLayers.get(parentTextLayer) : null;
-
+            const entry = textLayers.get(nextActiveLayer);
             if (entry) {
-                const { endOfContent } = entry;
-                endOfContent.style.width = parentTextLayer!.style.width || '100%';
-                endOfContent.style.height = parentTextLayer!.style.height || '100%';
-                endOfContent.style.userSelect = 'text';
-
-                const anchorParent = (anchor as Element).parentElement;
-                if (anchorParent) {
-                    anchorParent.insertBefore(
-                        endOfContent,
-                        modifyStart ? anchor : (anchor as Element).nextSibling,
-                    );
-                }
+                nextActiveLayer.classList.add('selecting');
+                updateSelectionSentinel(nextActiveLayer, entry, range);
             }
 
             prevRange = range.cloneRange();
@@ -161,6 +213,13 @@ function teardownTextLayer(textLayerDiv: HTMLElement) {
         entry.endOfContent.remove();
     }
 
+    if (activeSelectionLayer === textLayerDiv) {
+        activeSelectionLayer = null;
+    }
+    if (previousSelectionLayer === textLayerDiv) {
+        previousSelectionLayer = null;
+    }
+
     const mouseDownHandler = mouseDownHandlers.get(textLayerDiv);
     if (mouseDownHandler) {
         textLayerDiv.removeEventListener('mousedown', mouseDownHandler);
@@ -171,6 +230,8 @@ function teardownTextLayer(textLayerDiv: HTMLElement) {
         selectionAbortController.abort();
         selectionAbortController = null;
         prevRange = null;
+        activeSelectionLayer = null;
+        previousSelectionLayer = null;
     }
 }
 

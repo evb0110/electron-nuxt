@@ -58,28 +58,15 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
             markPageLabelsSaved: vi.fn(),
             markBookmarksSaved: vi.fn(),
             hasAnnotationChanges: vi.fn(() => false),
-            rewriteMarkupSubtypes: vi.fn(async (data: Uint8Array) => new Uint8Array([
+            serializePdfForSave: vi.fn(async (data: Uint8Array) => new Uint8Array([
                 ...data,
                 2,
-            ])),
-            serializeShapeAnnotations: vi.fn(async (data: Uint8Array) => new Uint8Array([
-                ...data,
                 3,
-            ])),
-            rewriteFreeTextNoteRects: vi.fn(async (data: Uint8Array) => new Uint8Array([
-                ...data,
                 6,
-            ])),
-            rewritePageLabels: vi.fn(async (data: Uint8Array) => new Uint8Array([
-                ...data,
                 4,
-            ])),
-            rewriteBookmarks: vi.fn(async (data: Uint8Array) => new Uint8Array([
-                ...data,
                 5,
             ])),
             persistAllAnnotationNotes: vi.fn(async (_force: boolean) => true),
-            rewriteEmbeddedNoteTexts: vi.fn(async (data: Uint8Array) => data),
             consumePendingEmbeddedTextUpdates: vi.fn(() => null),
             annotationNoteWindowsCount: ref(0),
             loadRecentFiles: vi.fn(),
@@ -103,11 +90,7 @@ describe('useFileOperations', () => {
         await handleSave();
 
         expect(deps.saveDocument).toHaveBeenCalledOnce();
-        expect(deps.rewriteMarkupSubtypes).toHaveBeenCalledOnce();
-        expect(deps.serializeShapeAnnotations).toHaveBeenCalledOnce();
-        expect(deps.rewriteFreeTextNoteRects).toHaveBeenCalledOnce();
-        expect(deps.rewritePageLabels).toHaveBeenCalledOnce();
-        expect(deps.rewriteBookmarks).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(saveFile).toHaveBeenCalledOnce();
         expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
@@ -152,11 +135,7 @@ describe('useFileOperations', () => {
         await handleSaveAs();
 
         expect(deps.saveDocument).toHaveBeenCalledOnce();
-        expect(deps.rewriteMarkupSubtypes).toHaveBeenCalledOnce();
-        expect(deps.serializeShapeAnnotations).toHaveBeenCalledOnce();
-        expect(deps.rewriteFreeTextNoteRects).toHaveBeenCalledOnce();
-        expect(deps.rewritePageLabels).toHaveBeenCalledOnce();
-        expect(deps.rewriteBookmarks).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(saveWorkingCopyAs).toHaveBeenCalledOnce();
         expect(Array.from(saveWorkingCopyAs.mock.calls[0]?.[0] ?? [])).toEqual([
             1,
