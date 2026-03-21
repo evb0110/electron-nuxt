@@ -7,18 +7,21 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+    app: {
+        isPackaged: false,
+        on: vi.fn(),
+    },
+    existsSync: vi.fn<(path: string) => boolean>(() => false),
     resolveAllowedReadPath: vi.fn(),
     findWorkingCopyPathByOriginalPath: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
-    app: {
-        isPackaged: false,
-        on: vi.fn(),
-    },
+    app: mocks.app,
     ipcMain: {handle: vi.fn()},
     webContents: {fromId: vi.fn(() => null)},
 }));
+vi.mock('fs', () => ({existsSync: mocks.existsSync}));
 
 vi.mock('@electron/utils/path-validator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 
@@ -26,6 +29,9 @@ vi.mock('@electron/ipc/workingCopy', () => ({findWorkingCopyPathByOriginalPath: 
 
 describe('resolveSearchablePdfPath', () => {
     beforeEach(() => {
+        mocks.app.isPackaged = false;
+        mocks.existsSync.mockReset();
+        mocks.existsSync.mockReturnValue(false);
         vi.clearAllMocks();
     });
 
@@ -61,5 +67,21 @@ describe('resolveSearchablePdfPath', () => {
         const resolved = await resolveSearchablePdfPath('/Users/test/Documents/original.pdf');
 
         expect(resolved).toBeNull();
+    });
+
+    it('resolves the bundled search worker beside main in development', async () => {
+        const { resolveSearchWorkerPath } = await import('@electron/search/ipc');
+
+        expect(resolveSearchWorkerPath('/tmp/evb/dist-electron')).toBe('/tmp/evb/dist-electron/search-worker.js');
+    });
+
+    it('prefers the unpacked bundled search worker path in packaged builds when present', async () => {
+        mocks.app.isPackaged = true;
+        mocks.existsSync.mockImplementation((path: string) => String(path).includes('app.asar.unpacked'));
+
+        const { resolveSearchWorkerPath } = await import('@electron/search/ipc');
+
+        expect(resolveSearchWorkerPath('/Applications/EVB Viewer.app/Contents/Resources/app.asar/dist-electron'))
+            .toBe('/Applications/EVB Viewer.app/Contents/Resources/app.asar.unpacked/dist-electron/search-worker.js');
     });
 });

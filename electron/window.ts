@@ -72,8 +72,8 @@ function formatErrorMessage(error: unknown) {
         : String(error);
 }
 const windowSecurity = createWindowSecurity({
+    getServerUrl: () => config.server.url,
     logger,
-    serverUrl: config.server.url,
 });
 const windowRuntime = createWindowRuntime({
     isDev: config.isDev,

@@ -23,6 +23,10 @@ import {
     SERVER_POLL_INTERVAL_MS,
     SERVER_READY_TIMEOUT_MS,
 } from '@electron/config/constants';
+import {
+    getRuntimeIdentityUrl,
+    isTrustedRuntimeIdentityPayload,
+} from '@contracts/runtime-identity';
 import { runCommand } from '@electron/utils/exec';
 import { createLogger } from '@electron/utils/logger';
 import { terminateProcessTree } from '@electron/utils/process-tree';
@@ -167,6 +171,23 @@ async function isServerRunning() {
             signal: AbortSignal.timeout(SERVER_HEALTH_FETCH_TIMEOUT_MS),
         });
         return response.ok;
+    } catch {
+        return false;
+    }
+}
+
+async function isTrustedRuntimeServer() {
+    try {
+        const response = await fetch(getRuntimeIdentityUrl(config.server.url), {
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(SERVER_HEALTH_FETCH_TIMEOUT_MS),
+        });
+        if (!response.ok) {
+            return false;
+        }
+
+        const payload = await response.json();
+        return isTrustedRuntimeIdentityPayload(payload);
     } catch {
         return false;
     }
@@ -332,7 +353,8 @@ export async function startServer() {
     await reclaimOwnedRuntimeServerOrphan();
     await configureRuntimeServerPort();
 
-    if (await isServerRunning()) {
+    const serverRunning = await isServerRunning();
+    if (serverRunning) {
         if (config.isDev) {
             const marker = readOwnershipMarker();
             if (marker && marker.entryPath === config.server.entryPath) {
@@ -343,8 +365,13 @@ export async function startServer() {
         }
     }
 
-    if (await isServerRunning()) {
+    if (serverRunning) {
         if (config.isDev) {
+            if (!await isTrustedRuntimeServer()) {
+                clearOwnershipMarker();
+                throw new Error(`Refusing to attach to untrusted runtime server at ${config.server.url}`);
+            }
+
             logger.info('Nuxt server already running, connecting...');
             usingExternalServer = true;
             serverReady = Promise.resolve();

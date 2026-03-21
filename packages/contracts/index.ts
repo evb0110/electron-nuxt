@@ -52,6 +52,13 @@ export {
     isLikelyAbsolutePath,
 } from './ipc-assertions';
 
+export {
+    ALLOWED_EXTERNAL_PROTOCOLS,
+    normalizeAllowedExternalUrl,
+    parseAllowedExternalUrl,
+    sanitizeAllowedExternalUrl,
+} from './external-url';
+
 export type {IPdfBookmarkEntry} from './pdf';
 
 export type {
@@ -78,6 +85,13 @@ export {
     normalizeTheme,
     sanitizeSettings,
 } from './settings';
+
+export {
+    EVB_RUNTIME_IDENTITY,
+    getRuntimeIdentityUrl,
+    isTrustedRuntimeIdentityPayload,
+} from './runtime-identity';
+export type { IRuntimeIdentityPayload } from './runtime-identity';
 
 export type {
     IRecentFile,
