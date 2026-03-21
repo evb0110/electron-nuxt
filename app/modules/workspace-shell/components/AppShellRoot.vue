@@ -699,11 +699,16 @@ useAppShellLifecycle({
 }
 
 .editor-global-toolbar-shell,
-.editor-global-toolbar-host,
-.editor-global-status-host {
+.editor-global-toolbar-host {
     display: flex;
     flex-direction: column;
     min-height: 0;
+}
+
+.editor-global-status-host {
+    display: flex;
+    flex-direction: column;
+    min-height: 1.9rem;
 }
 
 @media (width <= 900px) {
