@@ -32,6 +32,10 @@ function isLegacyElectronShimImport(entry: unknown) {
         );
 }
 
+const nitroOutputDir = process.env.VERCEL === '1' || process.env.NOW_BUILDER === '1'
+    ? '.vercel/output'
+    : 'nuxt-output';
+
 export default defineNuxtConfig({
     app: {
         head: {
@@ -642,7 +646,9 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
 
     nitro: {
         sourceMap: false,
-        output: { dir: 'nuxt-output' },
+        // Vercel's Nuxt builder only recognizes Build Output API artifacts from
+        // `.vercel/output`; local desktop flows still consume `nuxt-output`.
+        output: { dir: nitroOutputDir },
     },
 
     compatibilityDate: '2025-01-01',

@@ -133,9 +133,9 @@ jobs:
         env:
           MAC_EXPECT_DEVELOPER_ID: ${{ env.MAC_EXPECT_DEVELOPER_ID }}
         run: |
-          APP_PATH="$(find dist -maxdepth 3 -type d -name '*.app' | head -n 1)"
+          APP_PATH="$(find release -maxdepth 3 -type d -name '*.app' | head -n 1)"
           if [ -z "$APP_PATH" ]; then
-            echo "::error::No .app bundle found in dist/"
+            echo "::error::No .app bundle found in release/"
             exit 1
           fi
           SIGN_INFO="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1 || true)"
@@ -164,5 +164,5 @@ jobs:
         with:
           name: dist-mac-x64
           path: |
-            dist/*.zip
+            release/*.zip
           if-no-files-found: error

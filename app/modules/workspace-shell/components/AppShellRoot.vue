@@ -1,28 +1,26 @@
 <template>
     <div class="app-shell-root h-screen min-w-0 flex flex-col bg-[var(--app-window-bg)]">
-        <ClientOnly>
-            <div v-if="showBrowserInstallHint" class="browser-install-hint">
-                <UIcon name="i-lucide-monitor-down" class="browser-install-icon" />
-                <a
-                    :href="browserInstallUrl"
-                    target="_blank"
-                    rel="noreferrer"
-                    class="browser-install-link"
-                >
-                    {{ t('webApp.installDesktop') }}
-                    <UIcon name="i-lucide-arrow-up-right" class="browser-install-link-icon" />
-                </a>
-                <span class="browser-install-divider" />
-                <button
-                    type="button"
-                    class="browser-install-dismiss"
-                    :aria-label="t('webApp.dismissInstallDesktop')"
-                    @click="dismissBrowserInstallHint"
-                >
-                    <UIcon name="i-lucide-x" class="browser-install-dismiss-icon" />
-                </button>
-            </div>
-        </ClientOnly>
+        <div v-if="showBrowserInstallHint" class="browser-install-hint">
+            <UIcon name="i-lucide-monitor-down" class="browser-install-icon" />
+            <a
+                :href="browserInstallUrl"
+                target="_blank"
+                rel="noreferrer"
+                class="browser-install-link"
+            >
+                {{ t('webApp.installDesktop') }}
+                <UIcon name="i-lucide-arrow-up-right" class="browser-install-link-icon" />
+            </a>
+            <span class="browser-install-divider" />
+            <button
+                type="button"
+                class="browser-install-dismiss"
+                :aria-label="t('webApp.dismissInstallDesktop')"
+                @click="dismissBrowserInstallHint"
+            >
+                <UIcon name="i-lucide-x" class="browser-install-dismiss-icon" />
+            </button>
+        </div>
 
         <div class="editor-global-toolbar-shell">
             <FallbackWorkspaceToolbar
