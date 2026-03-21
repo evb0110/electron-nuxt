@@ -9,7 +9,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
-import {getElectronAPI} from '@app/utils/platform';
+import { getElectronAPI } from '@app/utils/platform';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 const SUPPORTED_IMAGE_MIME_TYPES = [
@@ -213,13 +213,14 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     async function pickImageFile() {
-        const imagePath = await getElectronAPI().documents.openImageDialog();
+        const documents = getElectronAPI().documents;
+        const imagePath = await documents.openImageDialog();
         if (!imagePath) {
             return null;
         }
 
         try {
-            const bytes = await getElectronAPI().documents.readFile(imagePath);
+            const bytes = await documents.readFile(imagePath);
             const fileBytes = Uint8Array.from(bytes);
             const mimeType = mimeTypeFromPath(imagePath);
             const fileName = imagePath.split(/[\\/]/).pop() ?? `image.${extensionForMimeType(mimeType)}`;
@@ -228,7 +229,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 lastModified: Date.now(),
             });
         } finally {
-            await getElectronAPI().documents.cleanupFile(imagePath).catch(() => {});
+            if (typeof documents.cleanupFile === 'function') {
+                await documents.cleanupFile(imagePath).catch(() => {});
+            }
         }
     }
 
