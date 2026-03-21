@@ -25,11 +25,13 @@ describe('release verification helpers', () => {
     });
 
     it('parses allowed packaged-tool exit codes without dropping non-zero codes', () => {
-        expect(parseAllowedToolExitCodes('0,10')).toEqual(new Set([
+        expect(parseAllowedToolExitCodes('0,1,10')).toEqual(new Set([
             0,
+            1,
             10,
         ]));
-        expect(isAllowedPackagedToolExitCode(10, '0,10')).toBe(true);
-        expect(isAllowedPackagedToolExitCode(1, '0,10')).toBe(false);
+        expect(isAllowedPackagedToolExitCode(10, '0,1,10')).toBe(true);
+        expect(isAllowedPackagedToolExitCode(1, '0,1,10')).toBe(true);
+        expect(isAllowedPackagedToolExitCode(2, '0,1,10')).toBe(false);
     });
 });
