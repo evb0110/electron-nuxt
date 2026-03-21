@@ -9,7 +9,7 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import {
-    ensureRuntimeTessdataSeededSync,
+    ensureRuntimeTessdataSeeded,
     getRuntimeTessdataDir,
 } from '@electron/ocr/language-models';
 import { resolvePlatformArchTag } from '@electron/utils/platform-arch';
@@ -118,6 +118,21 @@ function getBinaryPath(dir: string, name: string, optional = false): string {
     return findOnSystemPath(name);
 }
 
+function createAwaitablePaths<T extends object>(paths: T): T & PromiseLike<T> {
+    const seedPromise = ensureRuntimeTessdataSeeded();
+    void seedPromise.catch(() => undefined);
+
+    return Object.defineProperty(paths, 'then', {
+        configurable: false,
+        enumerable: false,
+        writable: false,
+        value: (
+            onfulfilled?: (value: T) => unknown,
+            onrejected?: (reason: unknown) => unknown,
+        ) => seedPromise.then(() => paths).then(onfulfilled, onrejected),
+    }) as T & PromiseLike<T>;
+}
+
 async function runProcess(
     command: string,
     args: string[],
@@ -204,7 +219,7 @@ async function getToolVersion(path: string, versionFlag = '--version'): Promise<
     return match?.[1];
 }
 
-export function getOcrPaths(): IOcrPaths {
+export function getOcrPaths(): IOcrPaths & PromiseLike<IOcrPaths> {
     const platformArch = resolvePlatformArchTag();
     const resourcesBase = getResourcesBase();
 
@@ -215,16 +230,15 @@ export function getOcrPaths(): IOcrPaths {
         ? join(platformDir, 'bin', 'tesseract.exe')
         : join(platformDir, 'bin', 'tesseract');
 
-    ensureRuntimeTessdataSeededSync();
     const tessdata = getRuntimeTessdataDir();
 
-    return {
+    return createAwaitablePaths({
         binary,
         tessdata,
-    };
+    });
 }
 
-export function getOcrToolPaths(): IOcrToolPaths {
+export function getOcrToolPaths(): IOcrToolPaths & PromiseLike<IOcrToolPaths> {
     const platformArch = resolvePlatformArchTag();
     const resourcesBase = getResourcesBase();
 
@@ -232,7 +246,6 @@ export function getOcrToolPaths(): IOcrToolPaths {
     const tesseractDir = join(resourcesBase, 'tesseract');
     const tesseractPlatformDir = join(tesseractDir, platformArch);
     const tesseract = getBinaryPath(tesseractPlatformDir, 'tesseract');
-    ensureRuntimeTessdataSeededSync();
     const tessdata = getRuntimeTessdataDir();
 
     // Poppler paths
@@ -252,7 +265,7 @@ export function getOcrToolPaths(): IOcrToolPaths {
     // unpaper (optional, currently in tesseract dir alongside tesseract)
     const unpaper = getBinaryPath(tesseractPlatformDir, 'unpaper', true) || undefined;
 
-    return {
+    return createAwaitablePaths({
         tesseract,
         tessdata,
         pdftoppm,
@@ -262,7 +275,7 @@ export function getOcrToolPaths(): IOcrToolPaths {
         popplerFontConfigDir,
         qpdf,
         unpaper,
-    };
+    });
 }
 
 async function checkToolExists(path: string): Promise<boolean> {
@@ -291,7 +304,7 @@ function getAvailableLanguages(tessdataPath: string): string[] {
 }
 
 export async function validateOcrTools(): Promise<IToolValidationResult> {
-    const paths = getOcrToolPaths();
+    const paths = await getOcrToolPaths();
     const errors: string[] = [];
 
     // Check tesseract

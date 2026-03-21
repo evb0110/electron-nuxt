@@ -168,6 +168,7 @@ export function useWorkspaceInteractionControls(options: IWorkspaceInteractionCo
 
     const {
         cropDialogOpen,
+        cropDialogLoading,
         cropDialogMargins,
         cropDialogMediaBox,
         cropDialogCurrentBox,
@@ -212,6 +213,7 @@ export function useWorkspaceInteractionControls(options: IWorkspaceInteractionCo
         isCapturingRegion,
         handleCaptureRegion,
         cropDialogOpen,
+        cropDialogLoading,
         cropDialogMargins,
         cropDialogMediaBox,
         cropDialogCurrentBox,

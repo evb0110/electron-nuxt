@@ -15,6 +15,7 @@ interface IUseWorkspaceCropOptions {
 
 export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
     const cropDialogOpen = ref(false);
+    const cropDialogLoading = ref(false);
     const cropDialogMargins = ref<ICropMargins>({
         top: 0,
         bottom: 0,
@@ -28,6 +29,7 @@ export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
         height: 792,
     });
     const cropDialogCurrentBox = ref<IPageGeometry['cropBox']>(null);
+    let cropRequestToken = 0;
 
     const isCropSelecting = computed(() => options.pdfViewerRef.value?.isCropSelecting ?? false);
 
@@ -46,6 +48,12 @@ export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
             return;
         }
 
+        cropRequestToken += 1;
+        const requestToken = cropRequestToken;
+        cropDialogCurrentBox.value = null;
+        cropDialogOpen.value = true;
+        cropDialogLoading.value = true;
+
         let geometry: IPageGeometry | null = null;
         const api = getElectronAPI();
         try {
@@ -54,10 +62,17 @@ export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
                 result.pageNumber,
             );
         } catch {
+            if (requestToken === cropRequestToken) {
+                cropDialogOpen.value = false;
+                cropDialogLoading.value = false;
+            }
             return;
         }
 
-        if (!geometry) {
+        if (!geometry || requestToken !== cropRequestToken || !cropDialogOpen.value) {
+            if (requestToken === cropRequestToken) {
+                cropDialogLoading.value = false;
+            }
             return;
         }
 
@@ -78,11 +93,21 @@ export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
         cropDialogMargins.value = margins;
         cropDialogMediaBox.value = geometry.mediaBox;
         cropDialogCurrentBox.value = geometry.cropBox;
-        cropDialogOpen.value = true;
+        cropDialogLoading.value = false;
     }
+
+    watch(cropDialogOpen, (isOpen) => {
+        if (isOpen) {
+            return;
+        }
+
+        cropRequestToken += 1;
+        cropDialogLoading.value = false;
+    });
 
     return {
         cropDialogOpen,
+        cropDialogLoading,
         cropDialogMargins,
         cropDialogMediaBox,
         cropDialogCurrentBox,

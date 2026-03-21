@@ -20,11 +20,7 @@ function createDeps() {
     const annotationReset = vi.fn();
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({annotationStorage: {resetModified: annotationReset}}));
 
-    const rewriteMarkupSubtypes = vi.fn(async (data: Uint8Array) => data);
-    const serializeShapeAnnotations = vi.fn(async (data: Uint8Array) => data);
-    const rewriteFreeTextNoteRects = vi.fn(async (data: Uint8Array) => data);
-    const rewritePageLabels = vi.fn(async (data: Uint8Array) => data);
-    const rewriteBookmarks = vi.fn(async (data: Uint8Array) => data);
+    const serializePdfForSave = vi.fn(async (data: Uint8Array) => data);
 
     const deps: Parameters<typeof useFileOperations>[0] = {
         isSaving: ref(false),
@@ -72,12 +68,7 @@ function createDeps() {
         markPageLabelsSaved: vi.fn(),
         markBookmarksSaved: vi.fn(),
         hasAnnotationChanges: vi.fn(() => false),
-        rewriteMarkupSubtypes,
-        serializeShapeAnnotations,
-        rewriteFreeTextNoteRects,
-        rewritePageLabels,
-        rewriteBookmarks,
-        rewriteEmbeddedNoteTexts: vi.fn(async (data: Uint8Array) => data),
+        serializePdfForSave,
         persistAllAnnotationNotes: vi.fn(async () => true),
         consumePendingEmbeddedTextUpdates: vi.fn(() => null),
         annotationNoteWindowsCount: ref(0),
@@ -106,10 +97,7 @@ describe('useFileOperations', () => {
         await handleSave();
 
         expect(deps.saveDocument).toHaveBeenCalledOnce();
-        expect(deps.rewriteMarkupSubtypes).toHaveBeenCalledOnce();
-        expect(deps.serializeShapeAnnotations).toHaveBeenCalledOnce();
-        expect(deps.rewritePageLabels).toHaveBeenCalledOnce();
-        expect(deps.rewriteBookmarks).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(deps.saveFile).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(annotationReset).toHaveBeenCalledOnce();

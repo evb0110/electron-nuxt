@@ -6,136 +6,145 @@
     >
         <template #body>
             <div class="flex flex-col gap-4">
-                <div class="flex gap-4">
-                    <div class="crop-preview-container">
-                        <div class="crop-preview-page" :style="previewPageStyle">
-                            <div
-                                v-if="previewCurrentStyle"
-                                class="crop-preview-current"
-                                :style="previewCurrentStyle"
-                            />
-                            <div class="crop-preview-area" :style="previewAreaStyle" />
+                <div
+                    v-if="loading"
+                    class="flex min-h-56 items-center justify-center rounded-lg border border-default bg-elevated/40 px-4 text-center text-sm text-muted"
+                >
+                    {{ t('common.loading') }}
+                </div>
+
+                <template v-else>
+                    <div class="flex gap-4">
+                        <div class="crop-preview-container">
+                            <div class="crop-preview-page" :style="previewPageStyle">
+                                <div
+                                    v-if="previewCurrentStyle"
+                                    class="crop-preview-current"
+                                    :style="previewCurrentStyle"
+                                />
+                                <div class="crop-preview-area" :style="previewAreaStyle" />
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col gap-2 flex-1">
+                            <p class="m-0 mb-0.5 text-xs text-muted">
+                                {{ t('crop.margins') }}
+                            </p>
+
+                            <div class="flex items-center gap-2">
+                                <span class="w-14 text-sm text-default">{{ t('crop.marginTop') }}</span>
+                                <UInput
+                                    :model-value="displayTop"
+                                    type="number"
+                                    :step="currentStep"
+                                    :min="0"
+                                    class="w-24"
+                                    @update:model-value="updateMargin('top', $event)"
+                                />
+                            </div>
+
+                            <div class="flex items-center gap-2">
+                                <span class="w-14 text-sm text-default">{{ t('crop.marginBottom') }}</span>
+                                <UInput
+                                    :model-value="displayBottom"
+                                    type="number"
+                                    :step="currentStep"
+                                    :min="0"
+                                    class="w-24"
+                                    @update:model-value="updateMargin('bottom', $event)"
+                                />
+                            </div>
+
+                            <div class="flex items-center gap-2">
+                                <span class="w-14 text-sm text-default">{{ t('crop.marginLeft') }}</span>
+                                <UInput
+                                    :model-value="displayLeft"
+                                    type="number"
+                                    :step="currentStep"
+                                    :min="0"
+                                    class="w-24"
+                                    @update:model-value="updateMargin('left', $event)"
+                                />
+                            </div>
+
+                            <div class="flex items-center gap-2">
+                                <span class="w-14 text-sm text-default">{{ t('crop.marginRight') }}</span>
+                                <UInput
+                                    :model-value="displayRight"
+                                    type="number"
+                                    :step="currentStep"
+                                    :min="0"
+                                    class="w-24"
+                                    @update:model-value="updateMargin('right', $event)"
+                                />
+                            </div>
                         </div>
                     </div>
 
-                    <div class="flex flex-col gap-2 flex-1">
+                    <div class="flex items-center gap-3">
+                        <p class="m-0 text-xs text-muted">
+                            {{ t('crop.units') }}
+                        </p>
+                        <label class="flex items-center gap-1 text-sm text-default">
+                            <input v-model="unit" type="radio" value="pt">
+                            <span>{{ t('crop.unitPoints') }}</span>
+                        </label>
+                        <label class="flex items-center gap-1 text-sm text-default">
+                            <input v-model="unit" type="radio" value="mm">
+                            <span>{{ t('crop.unitMillimeters') }}</span>
+                        </label>
+                        <label class="flex items-center gap-1 text-sm text-default">
+                            <input v-model="unit" type="radio" value="in">
+                            <span>{{ t('crop.unitInches') }}</span>
+                        </label>
+                    </div>
+
+                    <div class="flex flex-col gap-2">
                         <p class="m-0 mb-0.5 text-xs text-muted">
-                            {{ t('crop.margins') }}
+                            {{ t('crop.applyTo') }}
                         </p>
 
-                        <div class="flex items-center gap-2">
-                            <span class="w-14 text-sm text-default">{{ t('crop.marginTop') }}</span>
-                            <UInput
-                                :model-value="displayTop"
-                                type="number"
-                                :step="currentStep"
-                                :min="0"
-                                class="w-24"
-                                @update:model-value="updateMargin('top', $event)"
-                            />
-                        </div>
+                        <label class="flex items-center gap-2 text-sm text-default">
+                            <input v-model="scope" type="radio" value="all">
+                            <span>{{ t('crop.scopeAll', { count: totalPages }) }}</span>
+                        </label>
 
-                        <div class="flex items-center gap-2">
-                            <span class="w-14 text-sm text-default">{{ t('crop.marginBottom') }}</span>
-                            <UInput
-                                :model-value="displayBottom"
-                                type="number"
-                                :step="currentStep"
-                                :min="0"
-                                class="w-24"
-                                @update:model-value="updateMargin('bottom', $event)"
-                            />
-                        </div>
+                        <label class="flex items-center gap-2 text-sm text-default">
+                            <input v-model="scope" type="radio" value="current">
+                            <span>{{ t('crop.scopeCurrent', { page: currentPage }) }}</span>
+                        </label>
 
-                        <div class="flex items-center gap-2">
-                            <span class="w-14 text-sm text-default">{{ t('crop.marginLeft') }}</span>
-                            <UInput
-                                :model-value="displayLeft"
-                                type="number"
-                                :step="currentStep"
-                                :min="0"
-                                class="w-24"
-                                @update:model-value="updateMargin('left', $event)"
-                            />
-                        </div>
+                        <label class="flex items-center gap-2 text-sm text-default">
+                            <input v-model="scope" type="radio" value="even">
+                            <span>{{ t('crop.scopeEven') }}</span>
+                        </label>
 
-                        <div class="flex items-center gap-2">
-                            <span class="w-14 text-sm text-default">{{ t('crop.marginRight') }}</span>
-                            <UInput
-                                :model-value="displayRight"
-                                type="number"
-                                :step="currentStep"
-                                :min="0"
-                                class="w-24"
-                                @update:model-value="updateMargin('right', $event)"
-                            />
-                        </div>
+                        <label class="flex items-center gap-2 text-sm text-default">
+                            <input v-model="scope" type="radio" value="odd">
+                            <span>{{ t('crop.scopeOdd') }}</span>
+                        </label>
+
+                        <label class="flex items-center gap-2 text-sm text-default">
+                            <input v-model="scope" type="radio" value="range">
+                            <span>{{ t('crop.scopeRange') }}</span>
+                        </label>
+
+                        <UInput
+                            v-if="scope === 'range'"
+                            v-model="rangeInput"
+                            :placeholder="t('crop.rangePlaceholder')"
+                            class="mt-1"
+                        />
+
+                        <label
+                            v-if="normalizedSelectedPages.length > 0"
+                            class="flex items-center gap-2 text-sm text-default"
+                        >
+                            <input v-model="scope" type="radio" value="selected">
+                            <span>{{ t('crop.scopeSelected', { count: normalizedSelectedPages.length }) }}</span>
+                        </label>
                     </div>
-                </div>
-
-                <div class="flex items-center gap-3">
-                    <p class="m-0 text-xs text-muted">
-                        {{ t('crop.units') }}
-                    </p>
-                    <label class="flex items-center gap-1 text-sm text-default">
-                        <input v-model="unit" type="radio" value="pt">
-                        <span>{{ t('crop.unitPoints') }}</span>
-                    </label>
-                    <label class="flex items-center gap-1 text-sm text-default">
-                        <input v-model="unit" type="radio" value="mm">
-                        <span>{{ t('crop.unitMillimeters') }}</span>
-                    </label>
-                    <label class="flex items-center gap-1 text-sm text-default">
-                        <input v-model="unit" type="radio" value="in">
-                        <span>{{ t('crop.unitInches') }}</span>
-                    </label>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                    <p class="m-0 mb-0.5 text-xs text-muted">
-                        {{ t('crop.applyTo') }}
-                    </p>
-
-                    <label class="flex items-center gap-2 text-sm text-default">
-                        <input v-model="scope" type="radio" value="all">
-                        <span>{{ t('crop.scopeAll', { count: totalPages }) }}</span>
-                    </label>
-
-                    <label class="flex items-center gap-2 text-sm text-default">
-                        <input v-model="scope" type="radio" value="current">
-                        <span>{{ t('crop.scopeCurrent', { page: currentPage }) }}</span>
-                    </label>
-
-                    <label class="flex items-center gap-2 text-sm text-default">
-                        <input v-model="scope" type="radio" value="even">
-                        <span>{{ t('crop.scopeEven') }}</span>
-                    </label>
-
-                    <label class="flex items-center gap-2 text-sm text-default">
-                        <input v-model="scope" type="radio" value="odd">
-                        <span>{{ t('crop.scopeOdd') }}</span>
-                    </label>
-
-                    <label class="flex items-center gap-2 text-sm text-default">
-                        <input v-model="scope" type="radio" value="range">
-                        <span>{{ t('crop.scopeRange') }}</span>
-                    </label>
-
-                    <UInput
-                        v-if="scope === 'range'"
-                        v-model="rangeInput"
-                        :placeholder="t('crop.rangePlaceholder')"
-                        class="mt-1"
-                    />
-
-                    <label
-                        v-if="normalizedSelectedPages.length > 0"
-                        class="flex items-center gap-2 text-sm text-default"
-                    >
-                        <input v-model="scope" type="radio" value="selected">
-                        <span>{{ t('crop.scopeSelected', { count: normalizedSelectedPages.length }) }}</span>
-                    </label>
-                </div>
+                </template>
             </div>
         </template>
 
@@ -144,6 +153,7 @@
                 color="neutral"
                 variant="ghost"
                 :label="t('crop.removeCrop')"
+                :disabled="loading"
                 @click="handleRemoveCrop"
             />
             <div class="flex gap-2">
@@ -156,7 +166,7 @@
                 <UButton
                     color="primary"
                     :label="t('crop.apply')"
-                    :disabled="!isValid"
+                    :disabled="loading || !isValid"
                     @click="handleApply"
                 />
             </div>
@@ -186,6 +196,7 @@ import { parsePageRangeInput } from '@app/utils/pdf-page-labels';
 const open = defineModel<boolean>('open', { required: true });
 
 const props = defineProps<{
+    loading?: boolean;
     totalPages: number;
     currentPage: number;
     selectedPages: number[];

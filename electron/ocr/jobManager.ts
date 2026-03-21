@@ -58,6 +58,7 @@ const activeJobs = new Map<string, IOcrActiveJob>();
 const queuedJobs: IOcrQueuedJob[] = [];
 const queuedJobIds = new Set<string>();
 const preparingJobs = new Map<string, IOcrPreparingJob>();
+const startingJobs = new Map<string, IOcrQueuedJob>();
 const cancelledJobs = new Set<string>();
 const registeredSenderCleanupIds = new Set<number>();
 
@@ -124,6 +125,10 @@ function getBufferedBytes() {
         (total, job) => total + job.requestedBytes,
         0,
     );
+    const startingBytes = Array.from(startingJobs.values()).reduce(
+        (total, job) => total + job.requestedBytes,
+        0,
+    );
     const activeBytes = Array.from(activeJobs.values()).reduce(
         (total, job) => total + job.requestedBytes,
         0,
@@ -132,7 +137,7 @@ function getBufferedBytes() {
         (total, job) => total + job.requestedBytes,
         0,
     );
-    return preparingBytes + activeBytes + queuedBytes;
+    return preparingBytes + startingBytes + activeBytes + queuedBytes;
 }
 
 function evictStaleQueuedJobs(nowMs = Date.now()) {
@@ -207,7 +212,7 @@ async function estimateRequestBytes(
 
 function logQueueDepth(context: string) {
     log.debug(
-        `${context}: active=${activeJobs.size}/${OCR_WORKER_POOL_SIZE}, preparing=${preparingJobs.size}, queued=${queuedJobs.length}/${OCR_QUEUE_MAX_SIZE}, bufferedMB=${(getBufferedBytes() / (1024 * 1024)).toFixed(1)}`,
+        `${context}: active=${activeJobs.size}/${OCR_WORKER_POOL_SIZE}, starting=${startingJobs.size}, preparing=${preparingJobs.size}, queued=${queuedJobs.length}/${OCR_QUEUE_MAX_SIZE}, bufferedMB=${(getBufferedBytes() / (1024 * 1024)).toFixed(1)}`,
     );
 }
 
@@ -227,8 +232,8 @@ function abortPreparingJob(
     return true;
 }
 
-function createOcrWorker(): Worker {
-    const paths = getOcrToolPaths();
+async function createOcrWorker(): Promise<Worker> {
+    const paths = await getOcrToolPaths();
     const workerPath = getWorkerPath();
 
     if (!existsSync(workerPath)) {
@@ -330,6 +335,15 @@ function cancelJobsForSender(webContentsId: number, reason: string) {
         if (removedJob) {
             log.info(`[${removedJob.requestId}] Removed queued OCR job: ${reason}`);
         }
+    }
+
+    for (const startingJob of startingJobs.values()) {
+        if (!isScopedJobOwnedBySender(startingJob.scopedJobId, webContentsId)) {
+            continue;
+        }
+
+        cancelledJobs.add(startingJob.scopedJobId);
+        log.info(`[${startingJob.requestId}] Marked starting OCR job as cancelled: ${reason}`);
     }
 
     const activeForSender = Array.from(activeJobs.values())
@@ -439,17 +453,35 @@ function handleWorkerMessage(
     }
 }
 
-function startQueuedJob(job: IOcrQueuedJob) {
+async function startQueuedJob(job: IOcrQueuedJob) {
     queuedJobIds.delete(job.scopedJobId);
 
-    let worker: Worker;
+    let worker: Worker | null = null;
     try {
-        worker = createOcrWorker();
+        worker = await createOcrWorker();
+        if (cancelledJobs.has(job.scopedJobId)) {
+            cancelledJobs.delete(job.scopedJobId);
+            if (worker) {
+                await terminateWorkerSafely(job.scopedJobId, worker, 'job cancelled before worker start');
+            }
+            return;
+        }
     } catch (error) {
+        if (cancelledJobs.has(job.scopedJobId)) {
+            cancelledJobs.delete(job.scopedJobId);
+            return;
+        }
+
         const message = error instanceof Error ? error.message : String(error);
         sendJobFailure(job, `OCR worker unavailable: ${message}`);
         log.error(`Failed to start OCR worker for job ${job.requestId}: ${message}`);
+        return;
+    } finally {
+        startingJobs.delete(job.scopedJobId);
         dispatchQueuedJobs();
+    }
+
+    if (!worker) {
         return;
     }
 
@@ -462,6 +494,12 @@ function startQueuedJob(job: IOcrQueuedJob) {
         watchdogTimer: null,
     };
     activeJobs.set(job.scopedJobId, activeJob);
+    if (cancelledJobs.has(job.scopedJobId)) {
+        cancelledJobs.delete(job.scopedJobId);
+        await terminateWorkerSafely(job.scopedJobId, worker, 'job cancelled before activation');
+        finalizeActiveJob(job.scopedJobId);
+        return;
+    }
     const watchdog = setTimeout(() => {
         const pendingActiveJob = activeJobs.get(job.scopedJobId);
         if (!pendingActiveJob || pendingActiveJob.completed) {
@@ -554,12 +592,13 @@ function startQueuedJob(job: IOcrQueuedJob) {
 function dispatchQueuedJobs() {
     evictStaleQueuedJobs();
 
-    while (activeJobs.size < OCR_WORKER_POOL_SIZE && queuedJobs.length > 0) {
+    while (activeJobs.size + startingJobs.size < OCR_WORKER_POOL_SIZE && queuedJobs.length > 0) {
         const nextJob = queuedJobs.shift();
         if (!nextJob) {
             return;
         }
-        startQueuedJob(nextJob);
+        startingJobs.set(nextJob.scopedJobId, nextJob);
+        void startQueuedJob(nextJob);
     }
 }
 

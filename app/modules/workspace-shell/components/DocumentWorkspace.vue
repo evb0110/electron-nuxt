@@ -385,6 +385,7 @@
 
         <PdfCropDialog
             v-model:open="cropDialogOpen"
+            :loading="cropDialogLoading"
             :total-pages="totalPages"
             :current-page="currentPage"
             :selected-pages="selectedThumbnailPages"
@@ -607,6 +608,7 @@ const {
     handleCrop,
     isCropSelecting,
     cropDialogOpen,
+    cropDialogLoading,
     cropDialogMargins,
     cropDialogMediaBox,
     cropDialogCurrentBox,

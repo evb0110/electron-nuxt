@@ -1,7 +1,4 @@
-import {
-    spawn,
-    spawnSync,
-} from 'child_process';
+import {spawn} from 'child_process';
 import { existsSync } from 'fs';
 import {
     dirname,
@@ -28,6 +25,12 @@ interface IPreprocessingResult {
     error?: string;
 }
 
+interface IPreprocessingValidationResult {
+    valid: boolean;
+    available: string[];
+    missing: string[];
+}
+
 const PREPROCESS_KILL_GRACE_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_PREPROCESS_KILL_GRACE_MS ?? '2000', 10);
     if (!Number.isFinite(parsed) || parsed < 250) {
@@ -49,6 +52,9 @@ const PREPROCESS_MAX_STDERR_BYTES = (() => {
     }
     return parsed;
 })();
+const PREPROCESS_VERSION_PROBE_TIMEOUT_MS = 3_000;
+
+let preprocessingValidationPromise: Promise<IPreprocessingValidationResult> | null = null;
 
 function appendWithCap(current: string, chunk: Buffer, maxBytes: number) {
     if (maxBytes <= 0) {
@@ -120,20 +126,67 @@ function getPreprocessingBinaries(): IPreprocessingBinaries {
     };
 }
 
-function isBinaryRunnable(binaryPath: string): boolean {
+async function isBinaryRunnable(binaryPath: string): Promise<boolean> {
     if (!existsSync(binaryPath)) {
         return false;
     }
 
-    try {
-        const result = spawnSync(binaryPath, ['--version'], {
-            timeout: 3000,
+    return new Promise((resolve) => {
+        const proc = spawn(binaryPath, ['--version'], {
+            shell: false,
+            windowsHide: true,
             stdio: 'ignore',
         });
-        return result.status === 0 && !result.error;
-    } catch {
-        return false;
+
+        let settled = false;
+        const finalize = (value: boolean) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            clearTimeout(timeoutHandle);
+            resolve(value);
+        };
+
+        const timeoutHandle = setTimeout(() => {
+            try {
+                proc.kill('SIGKILL');
+            } catch {
+                // Ignore termination errors when probing the binary.
+            }
+            finalize(false);
+        }, PREPROCESS_VERSION_PROBE_TIMEOUT_MS);
+        timeoutHandle.unref?.();
+
+        proc.once('error', () => finalize(false));
+        proc.once('close', code => finalize(code === 0));
+    });
+}
+
+async function buildPreprocessingValidation(): Promise<IPreprocessingValidationResult> {
+    const bins = getPreprocessingBinaries();
+    const unpaperRunnable = bins.unpaper ? await isBinaryRunnable(bins.unpaper) : false;
+    const available: string[] = [];
+    const missing: string[] = [];
+
+    if (unpaperRunnable) {
+        available.push('unpaper');
+    } else {
+        missing.push('unpaper');
     }
+
+    if (bins.leptonica) {
+        available.push('leptonica');
+    } else {
+        missing.push('leptonica');
+    }
+
+    return {
+        // unpaper is required for preprocessing - leptonica is optional/diagnostic
+        valid: unpaperRunnable,
+        available,
+        missing,
+    };
 }
 
 /**
@@ -391,32 +444,13 @@ export async function preprocessPageForOcr(
  * Validate preprocessing setup
  * Check if required binaries are available
  */
-export function validatePreprocessingSetup(): {
-    valid: boolean;
-    available: string[];
-    missing: string[];
-} {
-    const bins = getPreprocessingBinaries();
-    const unpaperRunnable = bins.unpaper ? isBinaryRunnable(bins.unpaper) : false;
-    const available: string[] = [];
-    const missing: string[] = [];
-
-    if (unpaperRunnable) {
-        available.push('unpaper');
-    } else {
-        missing.push('unpaper');
+export async function validatePreprocessingSetup(): Promise<IPreprocessingValidationResult> {
+    if (!preprocessingValidationPromise) {
+        preprocessingValidationPromise = buildPreprocessingValidation().catch((error) => {
+            preprocessingValidationPromise = null;
+            throw error;
+        });
     }
 
-    if (bins.leptonica) {
-        available.push('leptonica');
-    } else {
-        missing.push('leptonica');
-    }
-
-    return {
-        // unpaper is required for preprocessing - leptonica is optional/diagnostic
-        valid: unpaperRunnable,
-        available,
-        missing,
-    };
+    return preprocessingValidationPromise;
 }

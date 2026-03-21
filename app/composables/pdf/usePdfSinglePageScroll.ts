@@ -488,13 +488,14 @@ export function usePdfSinglePageScroll(
             return;
         }
 
-        updateVisibleRange(viewerContainer.value, numPages.value);
+        const container = viewerContainer.value;
+        updateVisibleRange(container, numPages.value);
         void debouncedRenderOnScroll();
 
         const previous = currentPage.value;
-        const page = updateCurrentPage(viewerContainer.value, numPages.value);
+        const page = updateCurrentPage(container, numPages.value);
         if (page !== previous) {
-            const top = viewerContainer.value?.scrollTop ?? 0;
+            const top = container?.scrollTop ?? 0;
             logPdfNav(
                 `[PDF-NAV] handleScroll: currentPage ${previous} -> ${page}`
                 + ` scrollTop=${Math.round(top)}`,

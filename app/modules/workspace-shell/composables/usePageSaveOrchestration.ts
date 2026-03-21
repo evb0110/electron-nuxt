@@ -17,7 +17,6 @@ import type {
 } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
-import { rewriteBookmarks } from '@app/composables/pdf/usePdfBookmarkSerialization';
 import { useFileOperations } from '@app/composables/useFileOperations';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/platform';
@@ -109,10 +108,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     } = deps;
 
     const {
+        serializePdfForSave,
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
-        rewriteFreeTextNoteRects,
-        rewriteEmbeddedNoteTexts,
         embedPlacedImageToPage,
         updateEmbeddedAnnotationByRef: updateEmbeddedByRef,
         deleteEmbeddedAnnotationByRef: deleteEmbeddedByRef,
@@ -124,6 +122,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         totalPages,
         pageLabelsDirty,
         pageLabelRanges,
+        bookmarksDirty,
+        bookmarkItems,
+        untitledBookmarkLabel: t('bookmarks.untitled'),
         getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
         getAllShapes: () => pdfViewerRef.value?.getAllShapes() ?? [],
     });
@@ -149,17 +150,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         markPageLabelsSaved,
         markBookmarksSaved,
         hasAnnotationChanges,
-        rewriteMarkupSubtypes,
-        serializeShapeAnnotations,
-        rewriteFreeTextNoteRects,
-        rewritePageLabels,
-        rewriteBookmarks: (data) => rewriteBookmarks(data, {
-            bookmarksDirty,
-            bookmarkItems,
-            totalPages,
-            untitledLabel: t('bookmarks.untitled'),
-        }),
-        rewriteEmbeddedNoteTexts,
+        serializePdfForSave,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,
         annotationNoteWindowsCount,
@@ -224,6 +215,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     }
 
     return {
+        serializePdfForSave,
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
         embedPlacedImageToPage,

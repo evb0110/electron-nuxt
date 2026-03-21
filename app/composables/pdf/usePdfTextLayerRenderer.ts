@@ -1,6 +1,7 @@
 import { TextLayer } from '@app/services/pdfjs/runtime-lib';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { MaybeRefOrGetter } from 'vue';
+import { tryOnScopeDispose } from '@vueuse/core';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -15,7 +16,9 @@ import {
     isHighlightDebugEnabled as isHighlightDebugEnabledFromStorage,
     isHighlightDebugVerboseEnabled as isHighlightDebugVerboseEnabledFromStorage,
 } from '@app/composables/pdfSearchHighlightCss';
+import { clearTextLayerIndexCache } from '@app/composables/pdfSearchHighlightDom';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { measureDevPerf } from '@app/utils/dev-perf';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
 
 interface IHighlightDebugInfo {
@@ -29,6 +32,12 @@ interface IHighlightDebugInfo {
     canvasPixelHeight: number;
     renderScaleX: number;
     renderScaleY: number;
+}
+
+interface IPageHighlightSignatureState {
+    signatureByPage: Map<number, string>;
+    pendingRoot: HTMLElement | null;
+    rafId: number;
 }
 
 export const usePdfTextLayerRenderer = (deps: {
@@ -53,6 +62,20 @@ export const usePdfTextLayerRenderer = (deps: {
     const { getOcrTextContent } = useOcrTextContent();
 
     let lastHighlightDebugKey: string | null = null;
+    const pageHighlightState: IPageHighlightSignatureState = {
+        signatureByPage: new Map<number, string>(),
+        pendingRoot: null,
+        rafId: 0,
+    };
+
+    tryOnScopeDispose(() => {
+        if (pageHighlightState.rafId !== 0 && typeof window !== 'undefined') {
+            window.cancelAnimationFrame(pageHighlightState.rafId);
+            pageHighlightState.rafId = 0;
+        }
+        pageHighlightState.pendingRoot = null;
+        pageHighlightState.signatureByPage.clear();
+    });
 
     function buildWordKey(word: {
         text: string;
@@ -74,6 +97,186 @@ export const usePdfTextLayerRenderer = (deps: {
         });
 
         return Array.from(wordsByKey.values());
+    }
+
+    function buildPageHighlightSignature(
+        pageMatchData: IPdfPageMatches | null,
+        currentMatchValue: IPdfSearchMatch | null,
+    ) {
+        if (!pageMatchData || pageMatchData.matches.length === 0) {
+            return currentMatchValue && currentMatchValue.pageIndex === pageMatchData?.pageIndex
+                ? `empty|current=${currentMatchValue.matchIndex}:${currentMatchValue.pageMatchIndex ?? -1}`
+                : 'empty';
+        }
+
+        const parts: string[] = [
+            pageMatchData.searchQuery,
+            pageMatchData.searchOptions?.matchCase ? '1' : '0',
+            pageMatchData.searchOptions?.wholeWord ? '1' : '0',
+            pageMatchData.searchOptions?.useRegex ? '1' : '0',
+            `count=${pageMatchData.matches.length}`,
+        ];
+
+        for (const match of pageMatchData.matches) {
+            parts.push(
+                [
+                    match.matchIndex,
+                    match.start,
+                    match.end,
+                    match.pageWidth ?? '',
+                    match.pageHeight ?? '',
+                ].join(':'),
+            );
+
+            if (match.words && match.words.length > 0) {
+                parts.push(
+                    match.words
+                        .map(word => `${word.text}@${word.x},${word.y},${word.width},${word.height}`)
+                        .join(';'),
+                );
+            }
+        }
+
+        if (currentMatchValue && currentMatchValue.pageIndex === pageMatchData.pageIndex) {
+            parts.push(
+                [
+                    'current',
+                    currentMatchValue.matchIndex,
+                    currentMatchValue.pageMatchIndex ?? -1,
+                    currentMatchValue.startOffset,
+                    currentMatchValue.endOffset,
+                ].join(':'),
+            );
+
+            if (currentMatchValue.words && currentMatchValue.words.length > 0) {
+                parts.push(
+                    currentMatchValue.words
+                        .map(word => `${word.text}@${word.x},${word.y},${word.width},${word.height}`)
+                        .join(';'),
+                );
+            }
+        }
+
+        return parts.join('|');
+    }
+
+    function scheduleSearchHighlightRefresh(containerRoot: HTMLElement) {
+        const flushSearchHighlightRefresh = (root: HTMLElement | null) => {
+            if (!root || ('isConnected' in root && root.isConnected === false)) {
+                return;
+            }
+
+            const pageContainers = root.querySelectorAll<HTMLElement>('.page_container');
+            measureDevPerf('pdf:highlight-refresh-batch', () => {
+                const searchMatchesValue = toValue(deps.searchPageMatches);
+                const currentMatchValue = toValue(deps.currentSearchMatch);
+
+                if (!searchMatchesValue || searchMatchesValue.size === 0) {
+                    pageContainers.forEach((container) => {
+                        const mountedPageNumber = Number.parseInt(container.dataset.page ?? '', 10);
+                        if (!Number.isFinite(mountedPageNumber) || mountedPageNumber < 1) {
+                            return;
+                        }
+
+                        const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
+                        if (!textLayerDiv) {
+                            return;
+                        }
+
+                        clearHighlights(textLayerDiv);
+                        clearWordBoxes(container);
+                        pageHighlightState.signatureByPage.set(mountedPageNumber, 'empty');
+                    });
+                    return;
+                }
+
+                pageContainers.forEach((container) => {
+                    const mountedPageNumber = Number.parseInt(container.dataset.page ?? '', 10);
+                    if (!Number.isFinite(mountedPageNumber) || mountedPageNumber < 1) {
+                        return;
+                    }
+
+                    const pageIndex = mountedPageNumber - 1;
+                    const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
+                    const pageMatchData = searchMatchesValue.get(pageIndex) ?? null;
+                    const signature = buildPageHighlightSignature(pageMatchData, currentMatchValue);
+                    const previousSignature = pageHighlightState.signatureByPage.get(mountedPageNumber);
+                    if (previousSignature === signature) {
+                        return;
+                    }
+
+                    if (!textLayerDiv) {
+                        pageHighlightState.signatureByPage.set(mountedPageNumber, signature);
+                        return;
+                    }
+
+                    const canvas = container.querySelector<HTMLCanvasElement>('canvas') ?? null;
+                    try {
+                        highlightPage(
+                            textLayerDiv,
+                            pageMatchData,
+                            currentMatchValue,
+                        );
+                        clearWordBoxes(container);
+
+                        if (pageMatchData && pageMatchData.matches.length > 0) {
+                            const firstMatch = pageMatchData.matches.at(0);
+                            const firstMatchWords = firstMatch?.words ?? [];
+                            if (firstMatch && firstMatchWords.length > 0) {
+                                const allWords = collectWordsFromPageMatches(pageMatchData);
+
+                                const currentMatchWords = new Set<string>();
+                                if (currentMatchValue && currentMatchValue.pageIndex === pageIndex && currentMatchValue.words) {
+                                    currentMatchValue.words.forEach((word) => {
+                                        currentMatchWords.add(word.text);
+                                    });
+                                }
+
+                                renderPageWordBoxes(
+                                    container,
+                                    allWords,
+                                    firstMatch.pageWidth,
+                                    firstMatch.pageHeight,
+                                    currentMatchWords.size > 0 ? currentMatchWords : undefined,
+                                );
+                            }
+                        }
+
+                        if (canvas) {
+                            maybeLogHighlightDebug(pageIndex + 1, pageMatchData, canvas, textLayerDiv);
+                        }
+                    } catch (error) {
+                        BrowserLogger.warn('pdf-text-layer', 'Failed to refresh search highlights', {
+                            pageNumber: mountedPageNumber,
+                            error,
+                        });
+                    }
+
+                    pageHighlightState.signatureByPage.set(mountedPageNumber, signature);
+                });
+            }, {
+                thresholdMs: 8,
+                details: { mountedPages: pageContainers.length },
+            });
+        };
+
+        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+            flushSearchHighlightRefresh(containerRoot);
+            return;
+        }
+
+        pageHighlightState.pendingRoot = containerRoot;
+        if (pageHighlightState.rafId !== 0) {
+            return;
+        }
+
+        pageHighlightState.rafId = window.requestAnimationFrame(() => {
+            pageHighlightState.rafId = 0;
+
+            const root = pageHighlightState.pendingRoot;
+            pageHighlightState.pendingRoot = null;
+            flushSearchHighlightRefresh(root);
+        });
     }
 
     function isHighlightDebugEnabled() {
@@ -189,6 +392,7 @@ export const usePdfTextLayerRenderer = (deps: {
         userUnit: number,
         totalScaleFactor: number,
     ) {
+        clearTextLayerIndexCache(textLayerDiv);
         textLayerDiv.innerHTML = '';
         textLayerDiv.style.setProperty('--scale-factor', String(scale));
         textLayerDiv.style.setProperty('--user-unit', String(userUnit));
@@ -237,7 +441,7 @@ export const usePdfTextLayerRenderer = (deps: {
         container: HTMLElement,
         textLayerDiv: HTMLElement,
         pageNumber: number,
-        canvas: HTMLCanvasElement,
+        canvas: HTMLCanvasElement | null,
         debugInfo?: IHighlightDebugInfo,
     ) {
         const pageIndex = pageNumber - 1;
@@ -252,7 +456,9 @@ export const usePdfTextLayerRenderer = (deps: {
             pageMatchData,
             toValue(deps.currentSearchMatch) ?? null,
         );
-        maybeLogHighlightDebug(pageNumber, pageMatchData, canvas, textLayerDiv, debugInfo);
+        if (canvas) {
+            maybeLogHighlightDebug(pageNumber, pageMatchData, canvas, textLayerDiv, debugInfo);
+        }
 
         const isCssHighlightMode = getHighlightMode() === 'css';
         const hasInTextHighlights = isCssHighlightMode
@@ -290,59 +496,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function applyAllSearchHighlights(containerRoot: HTMLElement) {
-        const pageContainers = containerRoot.querySelectorAll<HTMLElement>('.page_container');
-        const searchMatchesValue = toValue(deps.searchPageMatches);
-        const currentMatchValue = toValue(deps.currentSearchMatch);
-
-        pageContainers.forEach((container) => {
-            const mountedPageNumber = Number.parseInt(container.dataset.page ?? '', 10);
-            if (!Number.isFinite(mountedPageNumber) || mountedPageNumber < 1) {
-                return;
-            }
-
-            const pageIndex = mountedPageNumber - 1;
-            const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
-
-            if (!textLayerDiv) {
-                return;
-            }
-
-            if (!searchMatchesValue || searchMatchesValue.size === 0) {
-                clearHighlights(textLayerDiv);
-                clearWordBoxes(container);
-                return;
-            }
-
-            const pageMatches = searchMatchesValue.get(pageIndex) ?? null;
-            highlightPage(textLayerDiv, pageMatches, currentMatchValue ?? null);
-
-            if (pageMatches && pageMatches.matches.length > 0) {
-                const firstMatch = pageMatches.matches.at(0);
-                const firstMatchWords = firstMatch?.words ?? [];
-                if (firstMatch && firstMatchWords.length > 0) {
-                    const allWords = collectWordsFromPageMatches(pageMatches);
-
-                    const currentMatchWords = new Set<string>();
-                    if (currentMatchValue && currentMatchValue.pageIndex === pageIndex && currentMatchValue.words) {
-                        currentMatchValue.words.forEach((word) => {
-                            currentMatchWords.add(word.text);
-                        });
-                    }
-
-                    renderPageWordBoxes(
-                        container,
-                        allWords,
-                        firstMatch.pageWidth,
-                        firstMatch.pageHeight,
-                        currentMatchWords.size > 0 ? currentMatchWords : undefined,
-                    );
-                } else {
-                    clearWordBoxes(container);
-                }
-            } else {
-                clearWordBoxes(container);
-            }
-        });
+        scheduleSearchHighlightRefresh(containerRoot);
     }
 
     function scrollToCurrentMatch(containerRoot: HTMLElement) {
@@ -480,6 +634,13 @@ export const usePdfTextLayerRenderer = (deps: {
     function cleanupTextLayerDom(textLayerDiv: HTMLElement) {
         clearHighlights(textLayerDiv);
         textLayerDiv.innerHTML = '';
+        clearTextLayerIndexCache(textLayerDiv);
+
+        const pageContainer = textLayerDiv.closest<HTMLElement>('.page_container');
+        const pageNumber = Number.parseInt(pageContainer?.dataset.page ?? '', 10);
+        if (Number.isFinite(pageNumber) && pageNumber > 0) {
+            pageHighlightState.signatureByPage.delete(pageNumber);
+        }
     }
 
     function clearOcrDebug(container: HTMLElement) {

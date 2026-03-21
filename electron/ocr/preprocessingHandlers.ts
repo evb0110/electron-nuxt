@@ -42,8 +42,8 @@ function normalizePreprocessImageData(imageData: unknown): Uint8Array<ArrayBuffe
     return bytes;
 }
 
-export function handlePreprocessingValidate() {
-    const validation = validatePreprocessingSetup();
+export async function handlePreprocessingValidate() {
+    const validation = await validatePreprocessingSetup();
     return {
         valid: validation.valid,
         available: validation.available,
@@ -87,7 +87,7 @@ export async function handlePreprocessPage(
             };
         }
 
-        const validation = validatePreprocessingSetup();
+        const validation = await validatePreprocessingSetup();
         if (!validation.valid) {
             return {
                 success: true,

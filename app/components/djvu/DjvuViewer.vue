@@ -94,6 +94,7 @@ import type { IDjvuPageSize } from '@app/platform/browser-api/djvujs-loader';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
 import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvu-worker';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { clamp } from 'es-toolkit/math';
 import {
     getSpreadStartForPage,
     getViewColumnCount,
@@ -140,6 +141,7 @@ const pageElements = new Map<number, HTMLElement>();
 const pageSizes = ref<IDjvuPageSize[]>([]);
 const pageStates = ref<IDjvuPageState[]>([]);
 const totalPages = computed(() => pageSizes.value.length);
+const scrollTop = ref(0);
 const currentPage = ref(1);
 const viewerError = ref<string | null>(null);
 const isLoading = ref(false);
@@ -156,13 +158,158 @@ const renderedPagesLayoutClass = computed(() => (
         ? 'flex-col items-center'
         : 'flex-row items-start justify-center'
 ));
+
+interface IContinuousScrollWindow {
+    start: number;
+    end: number;
+    mostVisiblePage: number | null;
+    pageNumbers: number[];
+}
+
+interface IContinuousScrollWindowCacheEntry {
+    scrollTop: number;
+    containerHeight: number;
+    totalPages: number;
+    pageSizes: IDjvuPageSize[];
+    usesFallback: boolean;
+    result: IContinuousScrollWindow;
+}
+
+let continuousScrollWindowCache: IContinuousScrollWindowCacheEntry | null = null;
+
+function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
+    if (!isContinuousScroll.value || totalPages.value <= 0) {
+        return null;
+    }
+
+    const containerHeightValue = Math.max(0, containerHeight.value || viewerContainer.value?.clientHeight || 0);
+    const usesFallback = containerHeightValue <= 0;
+    const cached = continuousScrollWindowCache;
+    if (
+        cached &&
+        cached.scrollTop === scrollTop.value &&
+        cached.containerHeight === containerHeightValue &&
+        cached.totalPages === totalPages.value &&
+        cached.usesFallback === usesFallback &&
+        cached.pageSizes === pageSizes.value
+    ) {
+        if (usesFallback && cached.result.mostVisiblePage !== currentPage.value) {
+            // Fall through when the anchor page matters.
+        } else {
+            return cached.result;
+        }
+    }
+
+    const viewportHeight = Math.max(0, containerHeight.value || viewerContainer.value?.clientHeight || 0);
+    const anchorPage = clamp(currentPage.value, 1, totalPages.value);
+    if (viewportHeight <= 0) {
+        const start = Math.max(1, anchorPage - 2);
+        const end = Math.min(totalPages.value, anchorPage + 2);
+        const result = {
+            start,
+            end,
+            mostVisiblePage: anchorPage,
+            pageNumbers: Array.from(
+                { length: end - start + 1 },
+                (_, index) => start + index,
+            ),
+        };
+        continuousScrollWindowCache = {
+            scrollTop: scrollTop.value,
+            containerHeight: containerHeightValue,
+            totalPages: totalPages.value,
+            pageSizes: pageSizes.value,
+            usesFallback,
+            result,
+        };
+        return result;
+    }
+
+    const viewportTop = Math.max(0, scrollTop.value);
+    const viewportBottom = viewportTop + viewportHeight;
+    const overscanTop = Math.max(0, viewportTop - viewportHeight);
+    const overscanBottom = viewportBottom + viewportHeight;
+
+    let pageTop = DJVU_BASE_MARGIN;
+    let visibleStart: number | null = null;
+    let visibleEnd: number | null = null;
+    let overscanStart: number | null = null;
+    let overscanEnd: number | null = null;
+    let mostVisiblePage: number | null = anchorPage;
+    let maxVisibleHeight = -1;
+
+    for (let pageNumber = 1; pageNumber <= totalPages.value; pageNumber += 1) {
+        const pageSize = pageSizes.value[pageNumber - 1];
+        const pageHeight = pageSize?.height ?? 0;
+        const pageBottom = pageTop + pageHeight;
+        const visibleHeight = Math.max(
+            0,
+            Math.min(pageBottom, viewportBottom) - Math.max(pageTop, viewportTop),
+        );
+        const overscanHeight = Math.max(
+            0,
+            Math.min(pageBottom, overscanBottom) - Math.max(pageTop, overscanTop),
+        );
+
+        if (overscanHeight > 0) {
+            if (overscanStart === null) {
+                overscanStart = pageNumber;
+            }
+            overscanEnd = pageNumber;
+        }
+
+        if (visibleHeight > 0) {
+            if (visibleStart === null) {
+                visibleStart = pageNumber;
+            }
+            visibleEnd = pageNumber;
+
+            if (visibleHeight > maxVisibleHeight) {
+                maxVisibleHeight = visibleHeight;
+                mostVisiblePage = pageNumber;
+            }
+        }
+
+        pageTop = pageBottom + (pageNumber < totalPages.value ? DJVU_BASE_MARGIN : 0);
+    }
+
+    const baseStart = visibleStart ?? overscanStart ?? anchorPage;
+    const baseEnd = visibleEnd ?? overscanEnd ?? anchorPage;
+    const minStart = Math.max(1, (visibleStart ?? anchorPage) - 2);
+    const minEnd = Math.min(totalPages.value, (visibleEnd ?? anchorPage) + 2);
+    const start = clamp(Math.min(baseStart, minStart), 1, totalPages.value);
+    const end = clamp(Math.max(baseEnd, minEnd), 1, totalPages.value);
+    const result = {
+        start,
+        end,
+        mostVisiblePage,
+        pageNumbers: Array.from(
+            { length: end - start + 1 },
+            (_, index) => start + index,
+        ),
+    };
+    continuousScrollWindowCache = {
+        scrollTop: scrollTop.value,
+        containerHeight: containerHeightValue,
+        totalPages: totalPages.value,
+        pageSizes: pageSizes.value,
+        usesFallback,
+        result,
+    };
+    return result;
+}
+
+function invalidateContinuousScrollWindowCache() {
+    continuousScrollWindowCache = null;
+}
+
 const renderedPageNumbers = computed(() => {
     if (totalPages.value <= 0) {
         return [] as number[];
     }
 
     if (isContinuousScroll.value) {
-        return Array.from({ length: totalPages.value }, (_, index) => index + 1);
+        return resolveContinuousScrollWindow()?.pageNumbers ?? [];
     }
 
     const spreadStart = getSpreadStartForPage(
@@ -253,6 +400,7 @@ let scrollRafId = 0;
 let loadGeneration = 0;
 let activeRenderPromise: Promise<void> | null = null;
 let queuedPageNumbers: number[] = [];
+let lastRenderedPageSet = new Set<number>();
 let wheelAccumulator = {
     delta: 0,
     direction: 0 as -1 | 0 | 1,
@@ -285,6 +433,7 @@ function measureContainer() {
 
     containerWidth.value = Math.max(0, element.clientWidth);
     containerHeight.value = Math.max(0, element.clientHeight);
+    invalidateContinuousScrollWindowCache();
 }
 
 function getPageShellStyle(pageNumber: number) {
@@ -341,6 +490,10 @@ function cleanupViewerState() {
     pageStates.value = [];
     pageSizes.value = [];
     pageElements.clear();
+    lastRenderedPageSet = new Set<number>();
+    queuedPageNumbers = [];
+    scrollTop.value = 0;
+    invalidateContinuousScrollWindowCache();
     currentPage.value = 1;
     viewerError.value = null;
     emit('update:document', null);
@@ -361,6 +514,8 @@ function stopWorker() {
     activeWorker = null;
     activeRenderPromise = null;
     queuedPageNumbers = [];
+    lastRenderedPageSet = new Set<number>();
+    invalidateContinuousScrollWindowCache();
 }
 
 async function ensurePageLoaded(pageNumber: number) {
@@ -404,14 +559,8 @@ function getPreferredRenderedPageNumbers() {
         return [] as number[];
     }
 
-    if (!isContinuousScroll.value) {
-        const preferredPages: number[] = [];
-        for (const pageNumber of renderedPageNumbers.value) {
-            if (!preferredPages.includes(pageNumber)) {
-                preferredPages.push(pageNumber);
-            }
-        }
-        return preferredPages;
+    if (isContinuousScroll.value) {
+        return renderedPageNumbers.value;
     }
 
     const preferredPages = [currentPage.value];
@@ -471,10 +620,11 @@ function syncLoadedPages() {
         return;
     }
 
-    const activePages = new Set(getPreferredRenderedPageNumbers());
-    queueDesiredPages(Array.from(activePages));
+    const desiredPageNumbers = getPreferredRenderedPageNumbers();
+    const activePages = new Set(desiredPageNumbers);
+    queueDesiredPages(desiredPageNumbers);
 
-    for (let pageNumber = 1; pageNumber <= totalPages.value; pageNumber += 1) {
+    for (const pageNumber of lastRenderedPageSet) {
         if (activePages.has(pageNumber)) {
             continue;
         }
@@ -485,6 +635,7 @@ function syncLoadedPages() {
         }
     }
 
+    lastRenderedPageSet = activePages;
     void processRenderQueue();
 }
 
@@ -494,34 +645,12 @@ function detectCurrentPageFromViewport() {
         return;
     }
 
-    const container = viewerContainer.value;
-    if (!container || totalPages.value <= 0) {
+    if (totalPages.value <= 0) {
         return;
     }
 
-    const viewportTop = container.scrollTop;
-    const viewportBottom = viewportTop + container.clientHeight;
-    let bestPage = currentPage.value;
-    let bestVisiblePixels = -1;
-
-    for (let pageNumber = 1; pageNumber <= totalPages.value; pageNumber += 1) {
-        const element = pageElements.get(pageNumber);
-        if (!element) {
-            continue;
-        }
-
-        const pageTop = element.offsetTop;
-        const pageBottom = pageTop + element.offsetHeight;
-        const visiblePixels = Math.max(
-            0,
-            Math.min(pageBottom, viewportBottom) - Math.max(pageTop, viewportTop),
-        );
-
-        if (visiblePixels > bestVisiblePixels) {
-            bestVisiblePixels = visiblePixels;
-            bestPage = pageNumber;
-        }
-    }
+    const window = resolveContinuousScrollWindow();
+    const bestPage = window?.mostVisiblePage ?? currentPage.value;
 
     if (bestPage !== currentPage.value) {
         currentPage.value = bestPage;
@@ -537,7 +666,6 @@ function scheduleViewportSync() {
     scrollRafId = window.requestAnimationFrame(() => {
         scrollRafId = 0;
         detectCurrentPageFromViewport();
-        syncLoadedPages();
     });
 }
 
@@ -546,6 +674,7 @@ function handleViewerScroll() {
         return;
     }
 
+    scrollTop.value = viewerContainer.value?.scrollTop ?? 0;
     scheduleViewportSync();
 }
 
@@ -771,6 +900,7 @@ watch(
                 status: 'idle',
                 token: 0,
             }));
+            invalidateContinuousScrollWindowCache();
             currentPage.value = 1;
             viewerError.value = null;
             emit('update:document', null);
@@ -781,8 +911,10 @@ watch(
             measureContainer();
             if (viewerContainer.value) {
                 viewerContainer.value.scrollTop = 0;
+                scrollTop.value = 0;
                 syncHorizontalScrollForZoomMode();
             }
+            lastRenderedPageSet = new Set<number>();
             syncLoadedPages();
         } catch (error) {
             viewerError.value = error instanceof Error ? error.message : t('errors.djvu.open');

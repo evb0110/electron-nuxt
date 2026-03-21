@@ -6,10 +6,15 @@ import {
     rm,
 } from 'fs/promises';
 import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvu-conversion';
+import {
+    createDjvuPdfEstimateTask,
+    DjvuPdfWorkerStartupError,
+} from '@electron/features/djvu/main/pdf-worker-client';
 import { getDjvuResolution } from '@electron/djvu/metadata';
 import { buildOptimizedPdf } from '@electron/djvu/pdf-builder';
 import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
+import { measureElectronPerfAsync } from '@electron/utils/dev-perf';
 
 interface IDjvuSizeEstimate {
     subsample: number;
@@ -42,6 +47,29 @@ type TDjvuEstimateCacheEntry = {
 };
 
 const estimateCache = new Map<string, TDjvuEstimateCacheEntry>();
+
+async function estimatePdfSizeBytes(
+    imagePath: string,
+    dpi: number,
+): Promise<number> {
+    return measureElectronPerfAsync('djvu:estimate-pdf-size', async () => {
+        try {
+            const task = createDjvuPdfEstimateTask(imagePath, dpi);
+            return await task.promise;
+        } catch (error) {
+            if (!(error instanceof DjvuPdfWorkerStartupError)) {
+                throw error;
+            }
+
+            logger.warn(`DjVu PDF worker unavailable, falling back to in-process estimate build: ${error.message}`);
+            const pdfBytes = await buildOptimizedPdf([imagePath], dpi);
+            return pdfBytes.length;
+        }
+    }, {
+        thresholdMs: 25,
+        details: { dpi },
+    });
+}
 
 function pruneEstimateCache(now = Date.now()) {
     for (const [
@@ -132,14 +160,12 @@ export async function estimateSizes(
                 );
 
                 if (result.success) {
-                    const pdfBytes = await buildOptimizedPdf([imagePath], effectiveDpi);
-
                     estimates.push({
                         subsample: preset.subsample,
                         label: preset.label,
                         description: preset.description,
                         resultingDpi: effectiveDpi,
-                        estimatedBytes: Math.round(pdfBytes.length * pageCount),
+                        estimatedBytes: Math.round((await estimatePdfSizeBytes(imagePath, effectiveDpi)) * pageCount),
                     });
                 } else {
                     estimates.push({

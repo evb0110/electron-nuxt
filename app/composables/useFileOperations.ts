@@ -31,12 +31,13 @@ export interface IFileOperationsDeps {
     markPageLabelsSaved: () => void;
     markBookmarksSaved: () => void;
     hasAnnotationChanges: () => boolean;
-    rewriteMarkupSubtypes: (data: Uint8Array) => Promise<Uint8Array>;
-    serializeShapeAnnotations: (data: Uint8Array) => Promise<Uint8Array>;
-    rewriteFreeTextNoteRects: (data: Uint8Array) => Promise<Uint8Array>;
-    rewritePageLabels: (data: Uint8Array) => Promise<Uint8Array>;
-    rewriteBookmarks: (data: Uint8Array) => Promise<Uint8Array>;
-    rewriteEmbeddedNoteTexts: (data: Uint8Array, pendingTexts: Map<string, string>) => Promise<Uint8Array>;
+    serializePdfForSave: (
+        data: Uint8Array,
+        options?: {
+            includeShapes?: boolean;
+            pendingTexts?: Map<string, string> | null;
+        },
+    ) => Promise<Uint8Array>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
     consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
     annotationNoteWindowsCount: Ref<number>;
@@ -63,12 +64,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         markPageLabelsSaved,
         markBookmarksSaved,
         hasAnnotationChanges,
-        rewriteMarkupSubtypes,
-        serializeShapeAnnotations,
-        rewriteFreeTextNoteRects,
-        rewritePageLabels,
-        rewriteBookmarks,
-        rewriteEmbeddedNoteTexts,
+        serializePdfForSave,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,
         annotationNoteWindowsCount,
@@ -87,18 +83,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             saveMode?: TPdfSaveMode;
         },
     ): Promise<IPdfSaveResult | null> {
-        let data = await rewriteMarkupSubtypes(rawData);
-
-        if (opts?.includeShapes ?? true) {
-            data = await serializeShapeAnnotations(data);
-        }
-
-        data = await rewriteFreeTextNoteRects(data);
-        if (pendingTexts) {
-            data = await rewriteEmbeddedNoteTexts(data, pendingTexts);
-        }
-        data = await rewritePageLabels(data);
-        data = await rewriteBookmarks(data);
+        const data = await serializePdfForSave(rawData, {
+            includeShapes: opts?.includeShapes,
+            pendingTexts,
+        });
 
         const validation = await validatePdfData(data, getValidationFileName());
         if (!validation.isValid) {
@@ -188,10 +176,11 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             }
         }
         const pendingTexts = consumePendingEmbeddedTextUpdates();
+        const hasPendingTexts = Boolean(pendingTexts && pendingTexts.size > 0);
         isSaving.value = true;
         try {
             if (workingCopyPath.value) {
-                const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || !!pendingTexts;
+                const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts;
                 if (shouldSerialize) {
                     const rawData = await saveDocumentWithRetry();
                     if (rawData) {
@@ -263,9 +252,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             }
         }
         const pendingTexts = consumePendingEmbeddedTextUpdates();
+        const hasPendingTexts = Boolean(pendingTexts && pendingTexts.size > 0);
         isSavingAs.value = true;
         try {
-            const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || !!pendingTexts;
+            const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts;
             if (shouldSerialize) {
                 const rawData = await saveDocumentWithRetry();
                 if (rawData) {

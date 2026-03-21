@@ -4,6 +4,7 @@ import {
 } from 'electron';
 import { randomUUID } from 'node:crypto';
 import type { IpcMainInvokeEvent } from 'electron';
+import type { Worker } from 'worker_threads';
 import {
     mkdir,
     rename,
@@ -28,14 +29,21 @@ import {
 } from '@electron/djvu/metadata';
 import { parseDjvuOutline } from '@electron/djvu/bookmarks';
 import { createLogger } from '@electron/utils/logger';
+import { measureElectronPerfAsync } from '@electron/utils/dev-perf';
 import { safeSendToWindow } from '@electron/djvu/ipc-shared';
 import { embedBookmarksIntoPdf } from '@electron/djvu/pdf-bookmarks';
 import { consumeAllowedDjvuWritePath } from '@electron/djvu/export-paths';
+import {
+    createDjvuPdfBookmarkTask,
+    createDjvuPdfBuildTask,
+    DjvuPdfWorkerStartupError,
+} from '@electron/features/djvu/main/pdf-worker-client';
 
 const logger = createLogger('djvu-pdf-export');
 const canceledJobIds = new Set<string>();
 const activeJobIds = new Set<string>();
 const activeJobOwnerById = new Map<string, number>();
+const activePdfWorkerByJobId = new Map<string, Worker>();
 const queuedConversionJobIds: string[] = [];
 const queuedConversionResolvers = new Map<string, {
     resolve: () => void;
@@ -175,7 +183,12 @@ function requestDjvuCancel(jobId: string): boolean {
     canceledJobIds.add(normalizedJobId);
     const removedQueuedJob = removeQueuedConversionJob(normalizedJobId);
     const canceledProcess = cancelConversion(normalizedJobId);
-    return removedQueuedJob || canceledProcess || activeJobIds.has(normalizedJobId);
+    const activePdfWorker = activePdfWorkerByJobId.get(normalizedJobId);
+    if (activePdfWorker) {
+        activePdfWorkerByJobId.delete(normalizedJobId);
+        void activePdfWorker.terminate().catch(() => {});
+    }
+    return removedQueuedJob || canceledProcess || Boolean(activePdfWorker) || activeJobIds.has(normalizedJobId);
 }
 
 async function writePdfAtomically(outputPath: string, data: Uint8Array) {
@@ -190,6 +203,98 @@ async function writePdfAtomically(outputPath: string, data: Uint8Array) {
             // Ignore if temp file does not exist or was already moved.
         }
     }
+}
+
+function setActivePdfWorker(jobId: string, worker: Worker) {
+    activePdfWorkerByJobId.set(jobId, worker);
+}
+
+function clearActivePdfWorker(jobId: string, worker: Worker) {
+    if (activePdfWorkerByJobId.get(jobId) === worker) {
+        activePdfWorkerByJobId.delete(jobId);
+    }
+}
+
+async function buildPdfData(
+    jobId: string,
+    imagePaths: string[],
+    effectiveDpi: number,
+    onPageProcessed: (page: number, total: number) => void,
+): Promise<Uint8Array> {
+    return measureElectronPerfAsync('djvu:build-pdf', async () => {
+        try {
+            const task = createDjvuPdfBuildTask(
+                imagePaths,
+                effectiveDpi,
+                message => onPageProcessed(message.page, message.total),
+            );
+            setActivePdfWorker(jobId, task.worker);
+            try {
+                return await task.promise;
+            } catch (error) {
+                if (canceledJobIds.has(jobId)) {
+                    throw new Error('DjVu conversion canceled');
+                }
+                throw error;
+            } finally {
+                clearActivePdfWorker(jobId, task.worker);
+            }
+        } catch (error) {
+            if (!(error instanceof DjvuPdfWorkerStartupError)) {
+                throw error;
+            }
+
+            logger.warn(`[${jobId}] DjVu PDF worker unavailable, falling back to in-process PDF build: ${error.message}`);
+            return buildOptimizedPdf(imagePaths, effectiveDpi, onPageProcessed);
+        }
+    }, {
+        thresholdMs: 25,
+        details: {
+            jobId,
+            pageCount: imagePaths.length,
+            effectiveDpi,
+        },
+    });
+}
+
+async function embedPdfBookmarks(
+    jobId: string,
+    pdfData: Uint8Array,
+    bookmarks: IPdfBookmarkEntry[],
+): Promise<Uint8Array> {
+    if (bookmarks.length === 0) {
+        return pdfData;
+    }
+
+    return measureElectronPerfAsync('djvu:embed-bookmarks', async () => {
+        try {
+            const task = createDjvuPdfBookmarkTask(pdfData, bookmarks);
+            setActivePdfWorker(jobId, task.worker);
+            try {
+                return await task.promise;
+            } catch (error) {
+                if (canceledJobIds.has(jobId)) {
+                    throw new Error('DjVu conversion canceled');
+                }
+                throw error;
+            } finally {
+                clearActivePdfWorker(jobId, task.worker);
+            }
+        } catch (error) {
+            if (!(error instanceof DjvuPdfWorkerStartupError)) {
+                throw error;
+            }
+
+            logger.warn(`[${jobId}] DjVu PDF worker unavailable, falling back to in-process bookmark embedding: ${error.message}`);
+            return embedBookmarksIntoPdf(pdfData, bookmarks);
+        }
+    }, {
+        thresholdMs: 25,
+        details: {
+            jobId,
+            bookmarkCount: bookmarks.length,
+        },
+    });
 }
 
 export async function handleDjvuConvertToPdf(
@@ -285,7 +390,7 @@ export async function handleDjvuConvertToPdf(
                 (_, index) => join(imageDir, `page-${index + 1}.ppm`),
             );
 
-            let pdfData: Uint8Array = await buildOptimizedPdf(imagePaths, effectiveDpi, (page, total) => {
+            let pdfData: Uint8Array = await buildPdfData(jobId, imagePaths, effectiveDpi, (page, total) => {
                 safeSendToWindow(window, 'djvu:progress', {
                     jobId,
                     phase: 'converting' as const,
@@ -302,7 +407,7 @@ export async function handleDjvuConvertToPdf(
                     phase: 'bookmarks' as const,
                     percent: 92,
                 });
-                pdfData = await embedBookmarksIntoPdf(pdfData, bookmarks);
+                pdfData = await embedPdfBookmarks(jobId, pdfData, bookmarks);
             }
 
             throwIfCanceled(jobId);
@@ -332,6 +437,7 @@ export async function handleDjvuConvertToPdf(
         canceledJobIds.delete(jobId);
         activeJobIds.delete(jobId);
         activeJobOwnerById.delete(jobId);
+        activePdfWorkerByJobId.delete(jobId);
         try {
             await rm(imageDir, {
                 recursive: true,

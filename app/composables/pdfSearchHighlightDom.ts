@@ -18,6 +18,13 @@ export interface IHighlightMatchRange {
     isCurrent: boolean;
 }
 
+export interface ITextLayerIndexCacheEntry {
+    text: string;
+    runs: TTextLayerRun[];
+}
+
+const textLayerIndexCache = new WeakMap<HTMLElement, ITextLayerIndexCacheEntry>();
+
 export function buildTextLayerIndex(textLayerDiv: HTMLElement): {
     text: string;
     runs: TTextLayerRun[];
@@ -75,6 +82,39 @@ export function buildTextLayerIndex(textLayerDiv: HTMLElement): {
         text: textParts.join(''),
         runs,
     };
+}
+
+function refreshTextLayerRunTextNodes(runs: TTextLayerRun[]) {
+    for (const run of runs) {
+        if (run.kind !== 'span') {
+            continue;
+        }
+
+        run.textNode = run.span.firstChild && run.span.firstChild.nodeType === Node.TEXT_NODE
+            ? run.span.firstChild as Text
+            : null;
+    }
+}
+
+export function getCachedTextLayerIndex(textLayerDiv: HTMLElement): ITextLayerIndexCacheEntry {
+    const cachedEntry = textLayerIndexCache.get(textLayerDiv);
+
+    if (cachedEntry) {
+        refreshTextLayerRunTextNodes(cachedEntry.runs);
+        return cachedEntry;
+    }
+
+    const builtIndex = buildTextLayerIndex(textLayerDiv);
+    const cacheEntry: ITextLayerIndexCacheEntry = {
+        text: builtIndex.text,
+        runs: builtIndex.runs,
+    };
+    textLayerIndexCache.set(textLayerDiv, cacheEntry);
+    return cacheEntry;
+}
+
+export function clearTextLayerIndexCache(textLayerDiv: HTMLElement) {
+    textLayerIndexCache.delete(textLayerDiv);
 }
 
 export function buildRunMatchOverlaps(
