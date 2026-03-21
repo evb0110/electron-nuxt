@@ -147,15 +147,17 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             };
         }
 
-        if (newSrc && !oldSrc) {
-            loadRecentFiles();
-        }
     });
 
     watch(workingCopyPath, (nextPath, previousPath) => {
         if (nextPath === previousPath) {
             return;
         }
+
+        if (nextPath) {
+            loadRecentFiles();
+        }
+
         annotationActiveCommentStableKey.value = null;
         closeAnnotationContextMenu();
         void closeAllAnnotationNotes({ saveIfDirty: false });
