@@ -215,7 +215,7 @@ export const useDjvu = () => {
         _getCurrentPage?: () => number,
         _setPage?: (page: number) => void,
         setOriginalPath?: (path: TDocumentRef | null) => void,
-        closeActivePdf?: () => Promise<void>,
+        closeActivePdf?: () => void | Promise<void>,
     ) {
         const api = getElectronAPI();
         showBanner.value = true;

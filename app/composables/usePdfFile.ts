@@ -17,6 +17,7 @@ import type {
     TOpenFileResult,
 } from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { waitForVisualFrames } from '@app/utils/async-helpers';
 import {
     bucketFileSize,
     getLowercaseExtension,
@@ -442,6 +443,14 @@ export const usePdfFile = () => {
         const requestId = ++latestLoadRequestId;
         const api = getElectronAPI();
 
+        // Yield one visual frame so upstream loading indicators (e.g. the
+        // workspace host spinner) can paint before the potentially heavy file
+        // read blocks the renderer thread during IPC deserialization.
+        await waitForVisualFrames();
+        if (requestId !== latestLoadRequestId) {
+            return;
+        }
+
         // Verify and read file BEFORE committing any reactive state.
         // This prevents an inconsistent UI where the tab shows metadata
         // (filename, dirty dot) but the content area shows the empty state
@@ -759,7 +768,7 @@ export const usePdfFile = () => {
         }
     }
 
-    async function closeFile() {
+    function closeFile() {
         latestLoadRequestId += 1;
         const pathToCleanup = workingCopyPath.value;
 
@@ -782,9 +791,7 @@ export const usePdfFile = () => {
         resetHistory(null);
         if (pathToCleanup) {
             const api = getElectronAPI();
-            try {
-                await api.documents.cleanupFile(pathToCleanup);
-            } catch (cleanupError) {
+            api.documents.cleanupFile(pathToCleanup).catch((cleanupError: unknown) => {
                 BrowserLogger.warn(
                     'pdf-file',
                     'Failed to cleanup closed working copy',
@@ -793,7 +800,7 @@ export const usePdfFile = () => {
                         error: cleanupError,
                     },
                 );
-            }
+            });
         }
     }
 

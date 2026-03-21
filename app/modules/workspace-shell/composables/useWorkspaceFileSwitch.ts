@@ -13,7 +13,7 @@ interface IWorkspaceFileSwitchDeps {
     openFile: (preSelected?: TOpenFileResult) => Promise<void>;
     openFileDirect: (path: TDocumentRef) => Promise<void>;
     openFileDirectBatch: (paths: TDocumentRef[]) => Promise<void>;
-    closeFile: () => Promise<void>;
+    closeFile: () => void;
 }
 
 export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
@@ -65,7 +65,7 @@ export const useWorkspaceFileSwitch = (deps: IWorkspaceFileSwitchDeps) => {
             await cleanupDjvuTemp();
             exitDjvuMode();
         }
-        await closeFile();
+        closeFile();
     }
 
     return {

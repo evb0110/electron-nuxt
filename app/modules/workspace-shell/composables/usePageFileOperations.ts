@@ -33,7 +33,7 @@ interface IPageFileOperationsDeps {
     openFile: (preSelected?: TOpenFileResult) => Promise<void>;
     openFileDirect: (path: TDocumentRef) => Promise<void>;
     openFileDirectBatch: (paths: TDocumentRef[]) => Promise<void>;
-    closeFile: () => Promise<void>;
+    closeFile: () => void | Promise<void>;
     closeAllDropdowns: () => void;
     emitOpenInNewTab: (result: TOpenFileResult) => void;
 }
