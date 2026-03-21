@@ -81,6 +81,7 @@ const VIRTUAL_OVERSCAN = 8;
 const THUMBNAIL_RENDER_CONCURRENCY = 2;
 const IMMEDIATE_RENDER_RADIUS = 2;
 const PREFETCH_RENDER_RADIUS = 4;
+const MAX_THUMBNAIL_OUTPUT_SCALE = 2;
 const AUTO_SYNC_COMFORT_PADDING_MIN_PX = 16;
 const AUTO_SYNC_COMFORT_PADDING_MAX_PX = 48;
 const AUTO_SYNC_INTERACTION_COOLDOWN_MS = 700;
@@ -320,6 +321,14 @@ function isCurrentThumbnailCanvasRendering(pageNum: number) {
 
 function roundMetric(value: number) {
     return Number(value.toFixed(2));
+}
+
+function resolveThumbnailOutputScale() {
+    if (typeof window === 'undefined' || window.devicePixelRatio <= 0) {
+        return 1;
+    }
+
+    return Math.min(MAX_THUMBNAIL_OUTPUT_SCALE, window.devicePixelRatio);
 }
 
 function resolveThumbnailItemHeightFromCanvasHeight(canvasHeight: number) {
@@ -720,6 +729,41 @@ function cancelAllRenders() {
     renderingPages.clear();
 }
 
+function pruneDetachedThumbnailState() {
+    const mountedPages = new Set(virtualPages.value);
+
+    for (const [
+        page,
+        canvas,
+    ] of renderedCanvases.entries()) {
+        if (!mountedPages.has(page) || getCanvas(page) !== canvas) {
+            renderedCanvases.delete(page);
+        }
+    }
+
+    for (const [
+        page,
+        canvas,
+    ] of renderingCanvases.entries()) {
+        if (mountedPages.has(page) && getCanvas(page) === canvas) {
+            continue;
+        }
+
+        const task = renderTasks.get(page);
+        if (task) {
+            try {
+                task.cancel();
+            } catch {
+                // Ignore cancellation errors
+            }
+            renderTasks.delete(page);
+        }
+
+        renderingPages.delete(page);
+        renderingCanvases.delete(page);
+    }
+}
+
 async function renderThumbnail(
     pdfDocument: PDFDocumentProxy,
     pageNum: number,
@@ -773,18 +817,26 @@ async function renderThumbnail(
         const viewport = page.getViewport({ scale: 1 });
         const scale = THUMBNAIL_WIDTH / viewport.width;
         const scaledViewport = page.getViewport({ scale });
+        const outputScale = resolveThumbnailOutputScale();
+        const pixelWidth = Math.max(1, Math.round(scaledViewport.width * outputScale));
+        const pixelHeight = Math.max(1, Math.round(scaledViewport.height * outputScale));
+        const scaleX = pixelWidth / scaledViewport.width;
+        const scaleY = pixelHeight / scaledViewport.height;
         updateThumbnailItemHeight(
             resolveThumbnailItemHeightFromCanvasHeight(scaledViewport.height),
             'render-viewport',
             {
                 page: pageNum,
+                outputScale: roundMetric(outputScale),
                 viewportWidth: roundMetric(scaledViewport.width),
                 viewportHeight: roundMetric(scaledViewport.height),
             },
         );
 
-        canvas.width = scaledViewport.width;
-        canvas.height = scaledViewport.height;
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+        canvas.style.width = `${scaledViewport.width}px`;
+        canvas.style.height = `${scaledViewport.height}px`;
 
         const context = canvas.getContext('2d');
         if (!context) {
@@ -795,6 +847,16 @@ async function renderThumbnail(
             canvasContext: context,
             viewport: scaledViewport,
             canvas,
+            transform: scaleX !== 1 || scaleY !== 1
+                ? [
+                    scaleX,
+                    0,
+                    0,
+                    scaleY,
+                    0,
+                    0,
+                ]
+                : undefined,
         });
         renderTasks.set(pageNum, task);
         await task.promise;
@@ -836,12 +898,21 @@ async function renderThumbnail(
 }
 
 function buildRenderQueue(totalPages: number) {
+    pruneDetachedThumbnailState();
+
+    const currentRenderedPages = new Set(
+        virtualPages.value.filter(page => isCurrentThumbnailCanvasRendered(page)),
+    );
+    const currentRenderingPages = new Set(
+        virtualPages.value.filter(page => isCurrentThumbnailCanvasRendering(page)),
+    );
+
     return buildThumbnailRenderQueue({
         totalPages,
         currentPage: props.currentPage,
         visiblePages: virtualPages.value,
-        renderedPages: new Set(renderedCanvases.keys()),
-        renderingPages,
+        renderedPages: currentRenderedPages,
+        renderingPages: currentRenderingPages,
         immediateRenderRadius: IMMEDIATE_RENDER_RADIUS,
         prefetchRenderRadius: PREFETCH_RENDER_RADIUS,
     }).filter((page) => (
@@ -1049,8 +1120,10 @@ watch(
 );
 
 watch(virtualPages, async () => {
+    pruneDetachedThumbnailState();
     await nextTick();
     void measureThumbnailHeight();
+    void scheduleVisibleThumbnailRender();
 });
 
 useResizeObserver(containerRef, () => {
