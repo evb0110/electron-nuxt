@@ -10,6 +10,7 @@
         "app/utils/**/*.ts",
         "app/constants/**/*.ts",
         "app/i18n/**/*.ts",
+        "server/**/*.ts",
         "electron/main.ts",
         "electron/preload.ts",
         "electron/image/pdf-combine-worker.ts",
@@ -20,6 +21,7 @@
     ],
     "project": [
         "app/**/*.{ts,vue}",
+        "server/**/*.ts",
         "electron/**/*.ts",
         "packages/**/*.ts",
         "scripts/**/*.{ts,mjs,cjs}"
@@ -65,7 +67,6 @@
         "devalue",
         "entities",
         "estree-walker",
-        "h3",
         "hookable",
         "iron-webcrypto",
         "node-mock-http",
@@ -79,7 +80,6 @@
         "vue-bundle-renderer"
     ],
     "ignoreBinaries": [
-        "codesign",
-        "spctl"
+        "codesign"
     ]
 }

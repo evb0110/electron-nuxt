@@ -3,7 +3,7 @@ interface IRafHost {
     cancelAnimationFrame(handle: number): void;
 }
 
-export interface IRafBurstScheduler {
+interface IRafBurstScheduler {
     request(frames?: number): void;
     cancel(): void;
 }
