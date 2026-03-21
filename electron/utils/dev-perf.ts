@@ -25,26 +25,6 @@ function logElectronPerf(label: string, startedAt: number, thresholdMs: number, 
     perfLogger.debug(`${label} ${Math.round(durationMs * 100) / 100}ms${details ? ` ${JSON.stringify(details)}` : ''}`);
 }
 
-export function measureElectronPerf<T>(
-    label: string,
-    run: () => T,
-    options: {
-        thresholdMs?: number;
-        details?: IElectronPerfDetails;
-    } = {},
-): T {
-    if (!isDevPerfEnabled()) {
-        return run();
-    }
-
-    const startedAt = performance.now();
-    try {
-        return run();
-    } finally {
-        logElectronPerf(label, startedAt, options.thresholdMs ?? 16, options.details);
-    }
-}
-
 export async function measureElectronPerfAsync<T>(
     label: string,
     run: () => Promise<T>,

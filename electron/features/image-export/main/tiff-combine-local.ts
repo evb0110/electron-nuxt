@@ -24,7 +24,7 @@ interface ITiffPageRgba {
     rgba: Uint8Array;
 }
 
-export interface ITiffPageDescriptor {
+interface ITiffPageDescriptor {
     path: string;
     width: number;
     height: number;

@@ -23,7 +23,7 @@ function isValidCropMargin(value: number) {
     return Number.isFinite(value) && value >= 0;
 }
 
-export function assertValidMargins(margins: ICropMargins) {
+function assertValidMargins(margins: ICropMargins) {
     if (
         !isValidCropMargin(margins.top)
         || !isValidCropMargin(margins.bottom)
