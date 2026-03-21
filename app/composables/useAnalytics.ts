@@ -286,9 +286,20 @@ function ensureAnalyticsLifecycle(enabledFlag: unknown) {
     });
 }
 
+function getAnalyticsEnabledFlag() {
+    const runtimeConfigResolver = (
+        globalThis as typeof globalThis & {useRuntimeConfig?: () => {public?: {analyticsEnabled?: unknown;};};}
+    ).useRuntimeConfig;
+
+    if (typeof runtimeConfigResolver !== 'function') {
+        return false;
+    }
+
+    return runtimeConfigResolver().public?.analyticsEnabled ?? false;
+}
+
 export function useAnalytics() {
-    const runtimeConfig = useRuntimeConfig();
-    const enabledFlag = runtimeConfig.public.analyticsEnabled;
+    const enabledFlag = getAnalyticsEnabledFlag();
 
     function mergeDocumentContext(nextContext: Partial<IAnalyticsDocumentContext>) {
         if (!isClientAnalyticsEnabled(enabledFlag)) {
