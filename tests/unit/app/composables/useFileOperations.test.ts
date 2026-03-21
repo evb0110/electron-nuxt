@@ -122,6 +122,7 @@ describe('useFileOperations', () => {
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
         expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
         expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
+        expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
     });
 
     it('serializes on save-as and refreshes recent files when path is returned', async () => {
