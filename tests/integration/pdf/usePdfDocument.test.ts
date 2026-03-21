@@ -309,7 +309,7 @@ describe('usePdfDocument range loading', () => {
         const loadPromise = documentState.loadPdf({
             kind: 'path',
             path: '/tmp/late-failure.pdf',
-            size: 1024 * 1024 * 3,
+            size: (1024 * 1024) + 512,
         });
 
         await vi.waitFor(() => {
