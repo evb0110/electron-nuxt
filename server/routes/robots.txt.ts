@@ -31,6 +31,8 @@ export default defineEventHandler((event) => {
         'Allow: /',
         'Disallow: /electron',
         'Disallow: /workspace',
+        'Disallow: /_nuxt/',
+        'Disallow: /api/',
         '',
     ];
 

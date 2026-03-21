@@ -183,7 +183,7 @@ const browserInstallHintCookie = useCookie<string | null>(
     BROWSER_INSTALL_HINT_COOKIE_KEY,
     {
         default: () => null,
-        watch: false,
+        maxAge: 365 * 24 * 60 * 60,
     },
 );
 const browserInstallHintDismissed = useState(
@@ -602,7 +602,7 @@ useAppShellLifecycle({
 
 .browser-install-hint {
     position: fixed;
-    top: 0.8rem;
+    bottom: 2.5rem;
     right: 1rem;
     z-index: 35;
     display: inline-flex;
@@ -618,6 +618,12 @@ useAppShellLifecycle({
         0 1px 3px color-mix(in srgb, var(--ui-border) 14%, transparent),
         0 8px 20px color-mix(in srgb, var(--ui-border) 12%, transparent);
     backdrop-filter: blur(12px);
+    opacity: 0.65;
+    transition: opacity 0.2s ease;
+}
+
+.browser-install-hint:hover {
+    opacity: 1;
 }
 
 .browser-install-icon {
@@ -684,12 +690,12 @@ useAppShellLifecycle({
 
 .install-hint-enter-from {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(6px);
 }
 
 .install-hint-leave-to {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(4px);
 }
 
 .editor-global-toolbar-shell,
@@ -702,7 +708,6 @@ useAppShellLifecycle({
 
 @media (width <= 900px) {
     .browser-install-hint {
-        top: auto;
         right: 0.75rem;
         bottom: 0.75rem;
     }

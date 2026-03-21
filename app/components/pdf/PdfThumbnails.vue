@@ -54,6 +54,7 @@ import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { formatPageIndicator } from '@app/utils/pdf-page-labels';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdf-layout';
+import { buildThumbnailRenderQueue } from '@app/components/pdf/pdfThumbnailRenderQueue';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
 import { usePageDragDrop } from '@app/composables/pdf/usePageDragDrop';
 import { runGuardedTask } from '@app/utils/async-guard';
@@ -77,9 +78,9 @@ const THUMBNAIL_ITEM_CONTENT_GAP = 4;
 const THUMBNAIL_NUMBER_LINE_HEIGHT = 16;
 const THUMBNAIL_CANVAS_BORDER_WIDTH = 2;
 const VIRTUAL_OVERSCAN = 8;
-const THUMBNAIL_RENDER_CONCURRENCY = 3;
+const THUMBNAIL_RENDER_CONCURRENCY = 2;
 const IMMEDIATE_RENDER_RADIUS = 2;
-const PREFETCH_RENDER_RADIUS = 8;
+const PREFETCH_RENDER_RADIUS = 4;
 const AUTO_SYNC_COMFORT_PADDING_MIN_PX = 16;
 const AUTO_SYNC_COMFORT_PADDING_MAX_PX = 48;
 const AUTO_SYNC_INTERACTION_COOLDOWN_MS = 700;
@@ -807,6 +808,9 @@ async function renderThumbnail(
         canvas.dataset.thumbnailRendered = 'true';
         renderedCanvases.set(pageNum, canvas);
         void measureThumbnailHeight();
+        if (renderedCanvases.size === 1) {
+            void scheduleVisibleThumbnailRender();
+        }
     } catch (error) {
         renderTasks.delete(pageNum);
         if (
@@ -832,52 +836,18 @@ async function renderThumbnail(
 }
 
 function buildRenderQueue(totalPages: number) {
-    const queue: number[] = [];
-    const seen = new Set<number>();
-
-    const push = (page: number) => {
-        if (
-            page < 1
-            || page > totalPages
-            || seen.has(page)
-            || isCurrentThumbnailCanvasRendered(page)
-            || isCurrentThumbnailCanvasRendering(page)
-        ) {
-            return;
-        }
-
-        seen.add(page);
-        queue.push(page);
-    };
-
-    const pushRange = (start: number, end: number) => {
-        for (let page = start; page <= end; page += 1) {
-            push(page);
-        }
-    };
-
-    push(props.currentPage);
-    pushRange(
-        Math.max(1, props.currentPage - IMMEDIATE_RENDER_RADIUS),
-        Math.min(totalPages, props.currentPage + IMMEDIATE_RENDER_RADIUS),
-    );
-
-    const visiblePagesNow = virtualPages.value;
-    if (visiblePagesNow.length > 0) {
-        const firstVisible = visiblePagesNow[0]!;
-        const lastVisible = visiblePagesNow[visiblePagesNow.length - 1]!;
-        pushRange(
-            Math.max(1, firstVisible - IMMEDIATE_RENDER_RADIUS),
-            Math.min(totalPages, lastVisible + IMMEDIATE_RENDER_RADIUS),
-        );
-    }
-
-    pushRange(
-        Math.max(1, props.currentPage - PREFETCH_RENDER_RADIUS),
-        Math.min(totalPages, props.currentPage + PREFETCH_RENDER_RADIUS),
-    );
-
-    return queue;
+    return buildThumbnailRenderQueue({
+        totalPages,
+        currentPage: props.currentPage,
+        visiblePages: virtualPages.value,
+        renderedPages: new Set(renderedCanvases.keys()),
+        renderingPages,
+        immediateRenderRadius: IMMEDIATE_RENDER_RADIUS,
+        prefetchRenderRadius: PREFETCH_RENDER_RADIUS,
+    }).filter((page) => (
+        !isCurrentThumbnailCanvasRendered(page)
+        && !isCurrentThumbnailCanvasRendering(page)
+    ));
 }
 
 async function renderThumbnailQueue(

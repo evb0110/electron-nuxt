@@ -69,6 +69,16 @@ useHead(() => ({
             name: 'viewport',
             content: 'width=device-width, initial-scale=1',
         },
+        {
+            name: 'theme-color',
+            content: '#ffffff',
+            media: '(prefers-color-scheme: light)',
+        },
+        {
+            name: 'theme-color',
+            content: '#1a1a1a',
+            media: '(prefers-color-scheme: dark)',
+        },
         ...ogLocaleAlternates.value.map(ogLocaleValue => ({
             property: 'og:locale:alternate',
             content: ogLocaleValue,
@@ -98,6 +108,11 @@ useHead(() => ({
             href: '/favicon.ico?v=5',
         },
         {
+            rel: 'apple-touch-icon',
+            sizes: '180x180',
+            href: '/apple-touch-icon.png',
+        },
+        {
             rel: 'canonical',
             href: canonicalUrl.value,
         },
@@ -106,18 +121,21 @@ useHead(() => ({
             href: '/fonts/space-grotesk-latin.woff2',
             as: 'font',
             type: 'font/woff2',
+            crossorigin: 'anonymous',
         },
         {
             rel: 'preload',
             href: '/fonts/space-grotesk-latin-ext.woff2',
             as: 'font',
             type: 'font/woff2',
+            crossorigin: 'anonymous',
         },
         {
             rel: 'preload',
             href: '/fonts/ibm-plex-mono-400-latin.woff2',
             as: 'font',
             type: 'font/woff2',
+            crossorigin: 'anonymous',
         },
     ],
     script: [{
