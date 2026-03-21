@@ -258,8 +258,26 @@ export const usePdfDocument = () => {
                 // Large PDFs: avoid reading the full file into renderer memory. Use range reads via IPC.
                 const api = getElectronAPI();
                 const length = src.size;
-                const initialLen = Math.min(1024 * 1024, length);
-                const initialData = await api.documents.readFileRange(src.path, 0, initialLen);
+                const CHUNK = 1024 * 1024;
+                const initialLen = Math.min(CHUNK, length);
+
+                // Read the head (PDF header/catalog) and tail (xref/trailer)
+                // in parallel so both are available before getDocument starts.
+                const tailStart = Math.max(initialLen, length - CHUNK);
+                const needsTail = tailStart > initialLen;
+                const [
+                    initialData,
+                    tailData,
+                ] = await Promise.all([
+                    api.documents.readFileRange(src.path, 0, initialLen),
+                    needsTail
+                        ? api.documents.readFileRange(src.path, tailStart, length - tailStart)
+                        : Promise.resolve(null),
+                ]);
+
+                if (version !== renderVersion) {
+                    return null;
+                }
 
                 const TransportCtor = (
                     pdfjsLib as typeof pdfjsLib & {PDFDataRangeTransport?: TPdfDataRangeTransportCtor;}
@@ -278,6 +296,12 @@ export const usePdfDocument = () => {
                     initialData,
                 );
                 const activeRangeTransport = rangeTransport;
+
+                // Pre-deliver the tail chunk so the worker finds the xref
+                // without waiting for a requestDataRange round-trip.
+                if (tailData) {
+                    activeRangeTransport.onDataRange(tailStart, tailData);
+                }
                 let rejectRangeReadFailure: ((error: Error) => void) | null = null;
                 const rangeReadFailure = new Promise<never>((_resolve, reject) => {
                     rejectRangeReadFailure = reject;
@@ -346,6 +370,7 @@ export const usePdfDocument = () => {
                     range: activeRangeTransport,
                     length,
                     rangeChunkSize: 1024 * 1024,
+                    disableAutoFetch: true,
                     verbosity: pdfjsLib.VerbosityLevel.ERRORS,
                     standardFontDataUrl: '/pdf/standard_fonts/',
                     cMapUrl: '/pdf/cmaps/',
