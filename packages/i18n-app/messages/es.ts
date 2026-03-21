@@ -550,6 +550,7 @@ export default {
         'savingChanges': 'Guardando cambios',
         'fileSizeUnknown': 'Tamaño: -',
         'fileSizeValue': 'Tamaño: {size}',
+        'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
         'showInFolder': 'Mostrar en la carpeta',
     },

@@ -550,6 +550,7 @@ export default {
         'savingChanges': 'Wijzigingen opslaan',
         'fileSizeUnknown': 'Grootte: -',
         'fileSizeValue': 'Grootte: {size}',
+        'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
         'showInFolder': 'Weergeven in map',
     },
