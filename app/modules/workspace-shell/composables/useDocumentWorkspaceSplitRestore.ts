@@ -107,8 +107,9 @@ export function useDocumentWorkspaceSplitRestore(options: IUseDocumentWorkspaceS
 
     async function cacheSplitPayloadForRemount() {
         if (!canCacheSplitPayloadForRemount.value) {
-            console.warn('[SPLIT-DEBUG] Skipping cache on unmount: guard-blocked', {
+            BrowserLogger.debug('split-cache', 'Skipping split payload cache on unmount', {
                 tabId: options.tabId,
+                reason: 'guard-blocked',
                 isTabTransitionBusy: options.isTabTransitionBusy.value,
                 isRestoringSplitPayload: options.isRestoringSplitPayload.value,
                 isExternallyRestoring: isExternallyRestoring.value,
@@ -118,28 +119,31 @@ export function useDocumentWorkspaceSplitRestore(options: IUseDocumentWorkspaceS
         }
 
         if (options.workspaceSplitCache.has(options.tabId)) {
-            console.warn('[SPLIT-DEBUG] Skipping cache on unmount: cache-already-populated', options.tabId);
+            BrowserLogger.debug('split-cache', 'Skipping split payload cache on unmount', {
+                tabId: options.tabId,
+                reason: 'cache-already-populated',
+            });
             return;
         }
 
         try {
             const payload = await options.captureSplitPayload();
-            console.warn('[SPLIT-DEBUG] Captured payload on unmount', {
-                tabId: options.tabId,
-                kind: payload.kind, 
-            });
             if (payload.kind === 'empty') {
+                BrowserLogger.debug('split-cache', 'Skipping split payload cache on unmount', {
+                    tabId: options.tabId,
+                    reason: 'captured-empty-payload',
+                });
                 return;
             }
             options.workspaceSplitCache.set(options.tabId, payload);
-            console.warn('[SPLIT-DEBUG] Cached split payload on unmount', {
+            BrowserLogger.debug('split-cache', 'Cached split payload on unmount', {
                 tabId: options.tabId,
-                payloadKind: payload.kind, 
+                payloadKind: payload.kind,
             });
         } catch (error) {
-            console.warn('[SPLIT-DEBUG] Failed to cache on unmount', {
+            BrowserLogger.warn('workspace', 'Failed to cache split payload on unmount', {
                 tabId: options.tabId,
-                error, 
+                error,
             });
         }
     }
