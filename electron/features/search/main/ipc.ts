@@ -321,8 +321,8 @@ function parseWorkerOutboundMessage(value: unknown): TSearchWorkerOutboundMessag
     }
 }
 
-function getWorkerPath(): string {
-    const defaultPath = join(__dirname, '../../../search/search-worker.js');
+export function resolveSearchWorkerPath(workerBaseDir = __dirname): string {
+    const defaultPath = join(workerBaseDir, 'search-worker.js');
     if (!app?.isPackaged) {
         return defaultPath;
     }
@@ -584,7 +584,7 @@ function handleWorkerMessage(
 }
 
 function createSenderSearchState(senderId: number): ISenderSearchState {
-    const workerPath = getWorkerPath();
+    const workerPath = resolveSearchWorkerPath();
     const worker = new Worker(workerPath);
     const state: ISenderSearchState = {
         senderId,

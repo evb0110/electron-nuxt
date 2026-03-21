@@ -133,24 +133,28 @@ run_macos_packaged_tool_smoke() {
   fi
 
   echo "Smoke testing packaged tool: $tool_path $*"
-  if ! env \
+  local exit_code=0
+  if env \
     DYLD_LIBRARY_PATH="$joined_dyld_path" \
     LD_LIBRARY_PATH="$joined_dyld_path" \
     "$tool_path" "$@" >"$output_file" 2>&1
   then
-    local exit_code=$?
-    case ",$allowed_codes," in
-      *",$exit_code,"*)
-        :
-        ;;
-      *)
-        cat "$output_file"
-        rm -f "$output_file"
-        echo "Error: Packaged tool smoke test failed ($tool_path) with exit code $exit_code"
-        exit "$exit_code"
-        ;;
-    esac
+    exit_code=0
+  else
+    exit_code=$?
   fi
+
+  case ",$allowed_codes," in
+    *",$exit_code,"*)
+      :
+      ;;
+    *)
+      cat "$output_file"
+      rm -f "$output_file"
+      echo "Error: Packaged tool smoke test failed ($tool_path) with exit code $exit_code"
+      exit "$exit_code"
+      ;;
+  esac
 
   rm -f "$output_file"
 }

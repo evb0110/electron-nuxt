@@ -39,6 +39,10 @@ const BUNDLE_CHECKS: IBundleCheck[] = [
         file: 'ocr-worker.js',
         requiredSymbols: ['detectSourceDpi'],
     },
+    {
+        file: 'search-worker.js',
+        requiredSymbols: ['SEARCH_INDEX_CACHE_MAX_ENTRIES'],
+    },
 ];
 
 let latestSourceMtimeMs = 0;

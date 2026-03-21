@@ -1,4 +1,5 @@
 import type { IPlatformApi } from '@contracts/platform-api';
+import { normalizeAllowedExternalUrl } from '@contracts/external-url';
 import { browserWindowTabsCapability } from '@app/platform/browser-window-tabs';
 import { browserDjvuCapability } from '@app/platform/browser-api/djvu-capability';
 import { createBrowserDocumentsCapability } from '@app/platform/browser-api/documents-capability';
@@ -19,9 +20,15 @@ const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
         return Promise.resolve();
     }
 
-    const openedWindow = window.open(url, '_blank', 'noopener,noreferrer');
+    const sanitizedUrl = normalizeAllowedExternalUrl(url);
+    if (!sanitizedUrl) {
+        BrowserLogger.warn('shell', 'Blocked external URL with unsupported protocol', { url });
+        return Promise.resolve();
+    }
+
+    const openedWindow = window.open(sanitizedUrl, '_blank', 'noopener,noreferrer');
     if (!openedWindow) {
-        BrowserLogger.warn('shell', 'Failed to open external URL', { url });
+        BrowserLogger.warn('shell', 'Failed to open external URL', { url: sanitizedUrl });
     }
 
     return Promise.resolve();

@@ -55,6 +55,14 @@ fi
 
 default_port=3235
 port="${EVB_SERVER_PORT:-$default_port}"
+server_path="${EVB_SERVER_PATH:-/electron}"
+case "$server_path" in
+  /*)
+    ;;
+  *)
+    server_path="/$server_path"
+    ;;
+esac
 if lsof -nP -iTCP:$port -sTCP:LISTEN >/dev/null 2>&1; then
   if [ -n "${EVB_SERVER_PORT:-}" ]; then
     echo "Error: Requested TCP port $port is already in use"
@@ -100,19 +108,19 @@ timeout_secs=50
 deadline=$((SECONDS + timeout_secs))
 ready=0
 while [ "$SECONDS" -lt "$deadline" ]; do
-  window_ready=0
-  if [ -f "$window_log" ] && grep -Eq 'BrowserWindow created and loadURL dispatched|Window runtime ready|Window shown|preload path:' "$window_log"; then
-    window_ready=1
+  renderer_ready=0
+  if [ -f "$main_log" ] && grep -q 'Main renderer signaled ready' "$main_log"; then
+    renderer_ready=1
   fi
 
   server_ready=0
   if [ -f "$server_log" ] && grep -q 'Server verified ready' "$server_log"; then
     server_ready=1
-  elif curl -fsS --max-time 2 "http://127.0.0.1:$port/" >/dev/null 2>&1; then
+  elif curl -fsS --max-time 2 "http://127.0.0.1:$port$server_path" >/dev/null 2>&1; then
     server_ready=1
   fi
 
-  if [ "$server_ready" -eq 1 ] && { [ "$window_ready" -eq 1 ] || kill -0 "$app_pid" >/dev/null 2>&1; }; then
+  if [ "$server_ready" -eq 1 ] && [ "$renderer_ready" -eq 1 ] && kill -0 "$app_pid" >/dev/null 2>&1; then
     ready=1
     break
   fi

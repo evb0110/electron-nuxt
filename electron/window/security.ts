@@ -1,17 +1,12 @@
 import type { BrowserWindow } from 'electron';
 import { shell } from 'electron';
-
-const ALLOWED_EXTERNAL_PROTOCOLS = new Set([
-    'http:',
-    'https:',
-    'mailto:',
-]);
+import { normalizeAllowedExternalUrl } from '@contracts/external-url';
 
 interface ILogger {warn(message: string): void;}
 
 interface ICreateWindowSecurityOptions {
+    getServerUrl: () => string;
     logger: ILogger;
-    serverUrl: string;
 }
 
 export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
@@ -25,7 +20,7 @@ export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
 
     function getTrustedServerOrigin() {
         try {
-            return new URL(options.serverUrl).origin;
+            return new URL(options.getServerUrl()).origin;
         } catch {
             return '';
         }
@@ -43,28 +38,22 @@ export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
         return parsed.origin === trustedOrigin;
     }
 
-    function isAllowedExternalUrl(value: string) {
-        const parsed = parseUrl(value);
-        if (!parsed) {
-            return false;
-        }
-        return ALLOWED_EXTERNAL_PROTOCOLS.has(parsed.protocol);
-    }
-
     function isRuntimeServerUrl(value: string) {
+        const serverUrl = options.getServerUrl();
         return (
-            value === options.serverUrl
-            || value === `${options.serverUrl}/`
-            || value.startsWith(`${options.serverUrl}/`)
+            value === serverUrl
+            || value === `${serverUrl}/`
+            || value.startsWith(`${serverUrl}/`)
         );
     }
 
     function openExternalSafely(url: string, source: 'window-open' | 'navigation') {
-        if (!isAllowedExternalUrl(url)) {
+        const sanitizedUrl = normalizeAllowedExternalUrl(url);
+        if (!sanitizedUrl) {
             options.logger.warn(`Blocked ${source} URL with unsupported protocol: ${url}`);
             return;
         }
-        void shell.openExternal(url).catch((error) => {
+        void shell.openExternal(sanitizedUrl).catch((error) => {
             options.logger.warn(`Failed to open external URL (${source}): ${error instanceof Error ? error.message : String(error)}`);
         });
     }

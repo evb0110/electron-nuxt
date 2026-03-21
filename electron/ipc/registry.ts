@@ -5,8 +5,8 @@ import {
     webContents,
 } from 'electron';
 import type { IIpcMainRegistrar } from '@contracts/ipc-main';
-import { assertNonEmptyString } from '@contracts/ipc-assertions';
 import type { ISettingsData } from '@contracts/shared';
+import { sanitizeAllowedExternalUrl } from '@contracts/external-url';
 import type {
     IWindowTabTransferAck,
     IWindowTabTransferRequest,
@@ -60,11 +60,6 @@ interface IRendererLogRateState {
 const logger = createLogger('ipc');
 const rendererLogger = createLogger('renderer-bridge', {broadcastToRenderers: false});
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
-const ALLOWED_EXTERNAL_PROTOCOLS = new Set([
-    'http:',
-    'https:',
-    'mailto:',
-]);
 const RENDERER_LOG_MAX_SECTION_CHARS = (() => {
     const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_MAX_SECTION_CHARS ?? '128', 10);
     if (!Number.isFinite(parsed) || parsed < 16) {
@@ -170,12 +165,7 @@ function isValidTransferAck(ack: unknown): ack is IWindowTabTransferAck {
 }
 
 function sanitizeExternalUrl(rawUrl: unknown) {
-    const normalizedUrl = assertNonEmptyString(rawUrl, 'url');
-    const parsed = new URL(normalizedUrl);
-    if (!ALLOWED_EXTERNAL_PROTOCOLS.has(parsed.protocol)) {
-        throw new Error(`Unsupported external URL protocol: ${parsed.protocol}`);
-    }
-    return parsed.toString();
+    return sanitizeAllowedExternalUrl(rawUrl);
 }
 
 function clampString(value: unknown, maxChars: number, fallback = '') {
