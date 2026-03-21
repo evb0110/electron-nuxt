@@ -2,7 +2,7 @@
     <div class="empty-state">
         <div class="empty-state-content flex flex-col items-center">
             <div
-                v-if="props.openBatchProgress"
+                v-if="openBatchProgress"
                 class="w-full mb-4 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-bg-elevated)] px-4 py-3"
                 role="status"
                 aria-live="polite"
@@ -13,11 +13,11 @@
                 </div>
                 <p class="mt-2 text-xs text-[var(--ui-text-muted)]">
                     {{ t('emptyState.preparingBatchProgress', {
-                        processed: displayProcessedCount(props.openBatchProgress.processed, props.openBatchProgress.total),
-                        total: props.openBatchProgress.total,
+                        processed: displayProcessedCount(openBatchProgress.processed, openBatchProgress.total),
+                        total: openBatchProgress.total,
                     }) }}
                 </p>
-                <UProgress :value="props.openBatchProgress.percent" class="mt-2" />
+                <UProgress :value="openBatchProgress.percent" class="mt-2" />
                 <p v-if="batchEtaText" class="mt-2 text-xs text-[var(--ui-text-dimmed)]">
                     {{ t('emptyState.preparingBatchEta', { eta: batchEtaText }) }}
                 </p>
@@ -137,7 +137,11 @@ interface IOpenBatchProgress {
     estimatedRemainingMs: number | null;
 }
 
-const props = defineProps<{
+const {
+    recentFiles,
+    recentFilesResolved = true,
+    openBatchProgress = null,
+} = defineProps<{
     recentFiles: IRecentFile[];
     recentFilesResolved?: boolean;
     openBatchProgress?: IOpenBatchProgress | null;
@@ -152,7 +156,7 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 
-const batchEtaText = computed(() => formatEtaDuration(props.openBatchProgress?.estimatedRemainingMs ?? null));
+const batchEtaText = computed(() => formatEtaDuration(openBatchProgress?.estimatedRemainingMs ?? null));
 const isBrowserRuntime = computed(() => !hasElectronAPI());
 
 function formatRelativeTimeLocalized(timestamp: number) {

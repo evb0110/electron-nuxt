@@ -282,6 +282,7 @@
                 <template #empty>
                     <PdfEmptyState
                         :recent-files="recentFiles"
+                        :recent-files-resolved="recentFilesResolved"
                         :open-batch-progress="openBatchProgress"
                         @open-file="handleOpenFileFromUi"
                         @open-recent="openRecentFile"
@@ -475,6 +476,7 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 const analytics = useAnalytics();
+const { isResolved: recentFilesResolved } = useRecentFiles();
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const isRestoringSplitPayload = ref(false);
