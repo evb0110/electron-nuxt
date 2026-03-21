@@ -19,7 +19,7 @@
         </div>
         <div class="status-bar-metrics">
             <span class="status-bar-item">{{ fileSizeLabel }}</span>
-            <span v-if="zoomLabel" class="status-bar-item">{{ zoomLabel }}</span>
+            <span class="status-bar-item">{{ zoomLabel }}</span>
             <UTooltip :text="saveDotTooltip" :delay-duration="800">
                 <button
                     type="button"
@@ -40,7 +40,7 @@
 defineProps<{
     filePath: string;
     fileSizeLabel: string;
-    zoomLabel?: string | null;
+    zoomLabel: string;
     canShowInFolder: boolean;
     showInFolderTooltip: string;
     showInFolderAriaLabel: string;

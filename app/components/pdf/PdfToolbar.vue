@@ -58,109 +58,112 @@
             </template>
         </div>
 
-        <template v-if="hasPdf">
+        <div class="toolbar-separator" />
+
+        <div class="toolbar-section toolbar-center">
+            <div class="toolbar-inline-group">
+                <slot
+                    name="page-dropdown"
+                    :collapse-tier="collapseTier"
+                    :has-overflow-items="hasOverflowItems"
+                    :is-collapsed="isCollapsed"
+                />
+            </div>
+
             <div class="toolbar-separator" />
 
-            <div class="toolbar-section toolbar-center">
-                <div class="toolbar-inline-group">
-                    <slot
-                        name="page-dropdown"
-                        :collapse-tier="collapseTier"
-                        :has-overflow-items="hasOverflowItems"
-                        :is-collapsed="isCollapsed"
-                    />
-                </div>
-
-                <div class="toolbar-separator" />
-
-                <div class="toolbar-inline-group">
-                    <slot
-                        name="zoom-dropdown"
-                        :collapse-tier="collapseTier"
-                        :has-overflow-items="hasOverflowItems"
-                        :is-collapsed="isCollapsed"
-                    />
-                </div>
-
-                <div class="toolbar-separator" />
-
-                <div v-if="!isCollapsed(2)" class="toolbar-button-group">
-                    <div class="toolbar-group-item">
-                        <ToolbarButton
-                            icon="lucide:move-horizontal"
-                            :active="isFitWidthActive"
-                            :tooltip="t('zoom.fitWidth')"
-                            :shortcut="shortcutLabels.fitWidth"
-                            grouped
-                            @click="emit('fit-width')"
-                        />
-                    </div>
-                    <div class="toolbar-group-item">
-                        <ToolbarButton
-                            icon="lucide:move-vertical"
-                            :active="isFitHeightActive"
-                            :tooltip="t('zoom.fitHeight')"
-                            :shortcut="shortcutLabels.fitHeight"
-                            grouped
-                            @click="emit('fit-height')"
-                        />
-                    </div>
-                    <div v-if="!isCollapsed(1)" class="toolbar-group-item">
-                        <ToolbarButton
-                            icon="lucide:scroll"
-                            :active="continuousScroll"
-                            :tooltip="t('zoom.continuousScroll')"
-                            grouped
-                            @click="emit('toggle-continuous-scroll')"
-                        />
-                    </div>
-                </div>
-
-                <div class="toolbar-separator" />
-
-                <ToolbarButton
-                    v-if="isCollapsed(2)"
-                    icon="lucide:message-square-plus"
-                    :active="isPlacingPageNote"
-                    :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
-                    :disabled="isDjvuMode"
-                    @click="emit('quick-note')"
+            <div class="toolbar-inline-group">
+                <slot
+                    name="zoom-dropdown"
+                    :collapse-tier="collapseTier"
+                    :has-overflow-items="hasOverflowItems"
+                    :is-collapsed="isCollapsed"
                 />
+            </div>
 
-                <div v-else class="toolbar-button-group">
-                    <div class="toolbar-group-item">
-                        <ToolbarButton
-                            icon="lucide:message-square-plus"
-                            :active="isPlacingPageNote"
-                            :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
-                            :disabled="isDjvuMode"
-                            grouped
-                            @click="emit('quick-note')"
-                        />
-                    </div>
-                    <div class="toolbar-group-item">
-                        <ToolbarButton
-                            icon="lucide:hand"
-                            :active="dragMode && !isPlacingPageNote"
-                            :tooltip="t('zoom.handTool')"
-                            grouped
-                            @click="emit('enable-drag')"
-                        />
-                    </div>
-                    <div class="toolbar-group-item">
-                        <ToolbarButton
-                            icon="lucide:text-cursor"
-                            :active="!dragMode && !isPlacingPageNote"
-                            :tooltip="t('zoom.textSelect')"
-                            grouped
-                            @click="emit('disable-drag')"
-                        />
-                    </div>
+            <div class="toolbar-separator" />
+
+            <div v-if="!isCollapsed(2)" class="toolbar-button-group">
+                <div class="toolbar-group-item">
+                    <ToolbarButton
+                        icon="lucide:move-horizontal"
+                        :active="isFitWidthActive"
+                        :tooltip="t('zoom.fitWidth')"
+                        :shortcut="shortcutLabels.fitWidth"
+                        :disabled="!hasPdf"
+                        grouped
+                        @click="emit('fit-width')"
+                    />
+                </div>
+                <div class="toolbar-group-item">
+                    <ToolbarButton
+                        icon="lucide:move-vertical"
+                        :active="isFitHeightActive"
+                        :tooltip="t('zoom.fitHeight')"
+                        :shortcut="shortcutLabels.fitHeight"
+                        :disabled="!hasPdf"
+                        grouped
+                        @click="emit('fit-height')"
+                    />
+                </div>
+                <div v-if="!isCollapsed(1)" class="toolbar-group-item">
+                    <ToolbarButton
+                        icon="lucide:scroll"
+                        :active="continuousScroll"
+                        :tooltip="t('zoom.continuousScroll')"
+                        :disabled="!hasPdf"
+                        grouped
+                        @click="emit('toggle-continuous-scroll')"
+                    />
                 </div>
             </div>
 
             <div class="toolbar-separator" />
-        </template>
+
+            <ToolbarButton
+                v-if="isCollapsed(2)"
+                icon="lucide:message-square-plus"
+                :active="isPlacingPageNote"
+                :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
+                :disabled="!hasPdf || isDjvuMode"
+                @click="emit('quick-note')"
+            />
+
+            <div v-else class="toolbar-button-group">
+                <div class="toolbar-group-item">
+                    <ToolbarButton
+                        icon="lucide:message-square-plus"
+                        :active="isPlacingPageNote"
+                        :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
+                        :disabled="!hasPdf || isDjvuMode"
+                        grouped
+                        @click="emit('quick-note')"
+                    />
+                </div>
+                <div class="toolbar-group-item">
+                    <ToolbarButton
+                        icon="lucide:hand"
+                        :active="dragMode && !isPlacingPageNote"
+                        :tooltip="t('zoom.handTool')"
+                        :disabled="!hasPdf"
+                        grouped
+                        @click="emit('enable-drag')"
+                    />
+                </div>
+                <div class="toolbar-group-item">
+                    <ToolbarButton
+                        icon="lucide:text-cursor"
+                        :active="!dragMode && !isPlacingPageNote"
+                        :tooltip="t('zoom.textSelect')"
+                        :disabled="!hasPdf"
+                        grouped
+                        @click="emit('disable-drag')"
+                    />
+                </div>
+            </div>
+        </div>
+
+        <div class="toolbar-separator" />
 
         <div class="toolbar-section toolbar-right">
             <ToolbarButton

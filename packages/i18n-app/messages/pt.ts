@@ -558,6 +558,7 @@ export default {
         'savingChanges': 'A guardar alterações',
         'fileSizeUnknown': 'Tamanho: -',
         'fileSizeValue': 'Tamanho: {size}',
+        'zoomUnknown': 'Zoom: -',
         'zoomValue': 'Zoom: {zoom}%',
         'showInFolder': 'Mostrar na pasta',
     },

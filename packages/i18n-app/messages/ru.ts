@@ -566,6 +566,7 @@ export default {
         'savingChanges': 'Сохранение изменений',
         'fileSizeUnknown': 'Размер: -',
         'fileSizeValue': 'Размер: {size}',
+        'zoomUnknown': 'Масштаб: -',
         'zoomValue': 'Масштаб: {zoom}%',
         'showInFolder': 'Показать в папке',
     },

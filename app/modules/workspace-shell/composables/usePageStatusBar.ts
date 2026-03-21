@@ -75,7 +75,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
     });
     const statusZoomLabel = computed(() => {
         if (!hasDocument.value) {
-            return null;
+            return t('status.zoomUnknown');
         }
         return t('status.zoomValue', { zoom: Math.round(effectiveZoom.value * 100) });
     });

@@ -219,7 +219,12 @@ function formatZoomValue(value: number) {
     return Math.round(value * 100).toString();
 }
 
-const zoomDisplay = computed(() => `${Math.round(normalizedEffectiveZoom.value * 100)}%`);
+const zoomDisplay = computed(() => {
+    if (disabled) {
+        return '-';
+    }
+    return `${Math.round(normalizedEffectiveZoom.value * 100)}%`;
+});
 
 const zoomPresets = ZOOM.PRESETS;
 
@@ -383,6 +388,7 @@ function applyCustomZoom() {
     white-space: nowrap;
     font-size: 0.875rem;
     line-height: 1;
+    font-family: var(--app-font-mono);
     font-variant-numeric: tabular-nums;
     color: var(--ui-text);
 }
