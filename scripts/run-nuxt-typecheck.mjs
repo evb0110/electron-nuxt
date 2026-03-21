@@ -1,0 +1,45 @@
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import {
+    dirname,
+    resolve,
+} from 'node:path';
+
+const require = createRequire(import.meta.url);
+
+const workspaceDir = process.argv[2] ? resolve(process.argv[2]) : process.cwd();
+const env = { ...process.env };
+
+// pnpm injects npm-specific config vars that newer npm versions warn about when
+// Nuxt shells out through npm internals during typecheck.
+for (const key of Object.keys(env)) {
+    if (!key.startsWith('npm_config_')) {
+        continue;
+    }
+
+    if (key === 'npm_config_user_agent') {
+        continue;
+    }
+
+    delete env[key];
+}
+
+const nuxtPackageJson = require.resolve('nuxt/package.json');
+const nuxtBin = resolve(dirname(nuxtPackageJson), 'bin/nuxt.mjs');
+const child = spawn(process.execPath, [
+    nuxtBin,
+    'typecheck',
+], {
+    cwd: workspaceDir,
+    env,
+    stdio: 'inherit',
+});
+
+child.on('exit', (code, signal) => {
+    if (signal) {
+        process.kill(process.pid, signal);
+        return;
+    }
+
+    process.exit(code ?? 1);
+});
