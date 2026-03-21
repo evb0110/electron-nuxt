@@ -181,7 +181,8 @@ if [ "$platform" = "mac" ]; then
   fi
 
   run_macos_packaged_tool_smoke "$resource_root/djvulibre/$platform_arch/bin/djvused" "0,10" --help
-  run_macos_packaged_tool_smoke "$resource_root/djvulibre/$platform_arch/bin/ddjvu" "0,10" --help
+  # ddjvu prints usage to stdout and exits 1 for --help on healthy builds.
+  run_macos_packaged_tool_smoke "$resource_root/djvulibre/$platform_arch/bin/ddjvu" "0,1,10" --help
   run_macos_packaged_tool_smoke "$resource_root/qpdf/$platform_arch/bin/qpdf" "0" --version
   run_macos_packaged_tool_smoke "$resource_root/poppler/$platform_arch/bin/pdftoppm" "0" -v
   run_macos_packaged_tool_smoke "$resource_root/poppler/$platform_arch/bin/pdftotext" "0" -v
