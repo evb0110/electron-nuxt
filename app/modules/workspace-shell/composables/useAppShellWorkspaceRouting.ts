@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
 import type { IEditorGroupState } from '@app/types/editor-groups';
 import type { ITab } from '@app/types/tabs';
@@ -30,6 +31,7 @@ interface IUseAppShellWorkspaceRoutingOptions {
         activate?: boolean;
         initial?: Partial<ITab>;
     }) => ITab;
+    getTabById: (tabId: string | null | undefined) => ITab | null;
     removeTabFromState: (tabId: string) => void;
     resolveTabForAction: (tabId: string | undefined) => IResolvedTabAction | null;
     handleCloseTab: (groupId: string, tabId: string) => Promise<void>;
@@ -46,6 +48,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         workspaceRefs,
         waitForWorkspace,
         createTab,
+        getTabById,
         removeTabFromState,
         resolveTabForAction,
         handleCloseTab,
@@ -143,12 +146,37 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
             return;
         }
 
-        for (const path of normalizedPaths) {
+        const initialActiveWorkspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
+        const initialActiveTab = getTabById(activeTabId.value);
+        let canReuseActiveTab = false;
+        if (initialActiveTab && initialActiveWorkspace) {
+            canReuseActiveTab = (
+                !hasDocumentMountHint(initialActiveTab)
+                && !workspaceHasOpenDocument(initialActiveWorkspace)
+            );
+        }
+
+        for (const [
+            index,
+            path,
+        ] of normalizedPaths.entries()) {
             try {
-                await openPathInAppropriateTab(path);
+                if (canReuseActiveTab) {
+                    await openPathInAppropriateTab(path);
+                    canReuseActiveTab = false;
+                    continue;
+                }
+
+                await handleOpenInNewTab(path, activeGroupId.value ?? undefined);
             } catch (error) {
+                const activeTab = getTabById(activeTabId.value);
+                canReuseActiveTab = false;
+                if (activeTab) {
+                    canReuseActiveTab = !hasDocumentMountHint(activeTab);
+                }
                 BrowserLogger.warn('workspace-routing', 'Failed to open dropped/external path in its own tab', {
                     path,
+                    pathIndex: index,
                     error,
                 });
             }

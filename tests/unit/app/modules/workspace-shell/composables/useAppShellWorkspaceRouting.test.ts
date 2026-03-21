@@ -1,6 +1,7 @@
 import {
     computed,
     ref,
+    type Ref,
 } from 'vue';
 import {
     describe,
@@ -53,6 +54,33 @@ function createWorkspace(hasPdf = false, isDjvuMode = false): IWorkspaceRecord {
     };
 }
 
+function createRoutingOptions(options: {
+    activeGroupId: Ref<string | null>;
+    activeTabId: Ref<string | null>;
+    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
+    createTab: (args?: { activate?: boolean }) => ITab;
+}) {
+    return {
+        activeGroupId: options.activeGroupId,
+        activeTabId: options.activeTabId,
+        activeWorkspace: computed(() => options.workspaceRefs.value.get(options.activeTabId.value ?? '') ?? null),
+        workspaceRefs: options.workspaceRefs,
+        waitForWorkspace: vi.fn(async (tabId: string) => options.workspaceRefs.value.get(tabId) ?? null),
+        createTab: vi.fn(({ activate }: { activate?: boolean } = {}) => options.createTab({ activate })),
+        getTabById: vi.fn((tabId: string | null | undefined) => (
+            tabId
+                ? createTabStub(tabId)
+                : null
+        )),
+        removeTabFromState: vi.fn(),
+        resolveTabForAction: vi.fn(() => null),
+        handleCloseTab: vi.fn(async () => {}),
+        moveTabToNewWindow: vi.fn(async () => {}),
+        moveTabToWindow: vi.fn(async () => {}),
+        mergeWindowInto: vi.fn(async () => {}),
+    };
+}
+
 describe('useAppShellWorkspaceRouting', () => {
     it('opens each external path in its own tab instead of batching them into one workspace', async () => {
         const activeGroupId = ref('group-1');
@@ -64,13 +92,11 @@ describe('useAppShellWorkspaceRouting', () => {
         let createdCount = 1;
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
-        const routing = useAppShellWorkspaceRouting({
+        const routing = useAppShellWorkspaceRouting(createRoutingOptions({
             activeGroupId,
             activeTabId,
-            activeWorkspace: computed(() => workspaceRefs.value.get(activeTabId.value ?? '') ?? null),
             workspaceRefs,
-            waitForWorkspace: vi.fn(async (tabId: string) => workspaceRefs.value.get(tabId) ?? null),
-            createTab: vi.fn(({ activate }: { activate?: boolean } = {}) => {
+            createTab: ({ activate }: { activate?: boolean } = {}) => {
                 createdCount += 1;
                 const tabId = `tab-${createdCount}`;
                 const record = createWorkspace(false);
@@ -80,14 +106,8 @@ describe('useAppShellWorkspaceRouting', () => {
                     activeTabId.value = tabId;
                 }
                 return createTabStub(tabId);
-            }),
-            removeTabFromState: vi.fn(),
-            resolveTabForAction: vi.fn(() => null),
-            handleCloseTab: vi.fn(async () => {}),
-            moveTabToNewWindow: vi.fn(async () => {}),
-            moveTabToWindow: vi.fn(async () => {}),
-            mergeWindowInto: vi.fn(async () => {}),
-        });
+            },
+        }));
 
         await routing.openPathsInAppropriateTab([
             '/docs/first.pdf',
@@ -109,13 +129,11 @@ describe('useAppShellWorkspaceRouting', () => {
         let createdCount = 1;
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
-        const routing = useAppShellWorkspaceRouting({
+        const routing = useAppShellWorkspaceRouting(createRoutingOptions({
             activeGroupId,
             activeTabId,
-            activeWorkspace: computed(() => workspaceRefs.value.get(activeTabId.value ?? '') ?? null),
             workspaceRefs,
-            waitForWorkspace: vi.fn(async (tabId: string) => workspaceRefs.value.get(tabId) ?? null),
-            createTab: vi.fn(({ activate }: { activate?: boolean } = {}) => {
+            createTab: ({ activate }: { activate?: boolean } = {}) => {
                 createdCount += 1;
                 const tabId = `tab-${createdCount}`;
                 const record = createWorkspace(false);
@@ -125,14 +143,8 @@ describe('useAppShellWorkspaceRouting', () => {
                     activeTabId.value = tabId;
                 }
                 return createTabStub(tabId);
-            }),
-            removeTabFromState: vi.fn(),
-            resolveTabForAction: vi.fn(() => null),
-            handleCloseTab: vi.fn(async () => {}),
-            moveTabToNewWindow: vi.fn(async () => {}),
-            moveTabToWindow: vi.fn(async () => {}),
-            mergeWindowInto: vi.fn(async () => {}),
-        });
+            },
+        }));
 
         await routing.openPathsInAppropriateTab([
             '/docs/first.pdf',
@@ -153,13 +165,11 @@ describe('useAppShellWorkspaceRouting', () => {
         let createdCount = 1;
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
-        const routing = useAppShellWorkspaceRouting({
+        const routing = useAppShellWorkspaceRouting(createRoutingOptions({
             activeGroupId,
             activeTabId,
-            activeWorkspace: computed(() => workspaceRefs.value.get(activeTabId.value ?? '') ?? null),
             workspaceRefs,
-            waitForWorkspace: vi.fn(async (tabId: string) => workspaceRefs.value.get(tabId) ?? null),
-            createTab: vi.fn(({ activate }: { activate?: boolean } = {}) => {
+            createTab: ({ activate }: { activate?: boolean } = {}) => {
                 createdCount += 1;
                 const tabId = `tab-${createdCount}`;
                 const record = createWorkspace(false);
@@ -169,14 +179,8 @@ describe('useAppShellWorkspaceRouting', () => {
                     activeTabId.value = tabId;
                 }
                 return createTabStub(tabId);
-            }),
-            removeTabFromState: vi.fn(),
-            resolveTabForAction: vi.fn(() => null),
-            handleCloseTab: vi.fn(async () => {}),
-            moveTabToNewWindow: vi.fn(async () => {}),
-            moveTabToWindow: vi.fn(async () => {}),
-            mergeWindowInto: vi.fn(async () => {}),
-        });
+            },
+        }));
 
         await routing.openPathsInAppropriateTab(['/docs/replacement.pdf']);
 
@@ -194,13 +198,11 @@ describe('useAppShellWorkspaceRouting', () => {
         let createdCount = 1;
         const createdWorkspaces = new Map<string, IWorkspaceRecord>();
 
-        const routing = useAppShellWorkspaceRouting({
+        const routing = useAppShellWorkspaceRouting(createRoutingOptions({
             activeGroupId,
             activeTabId,
-            activeWorkspace: computed(() => workspaceRefs.value.get(activeTabId.value ?? '') ?? null),
             workspaceRefs,
-            waitForWorkspace: vi.fn(async (tabId: string) => workspaceRefs.value.get(tabId) ?? null),
-            createTab: vi.fn(({ activate }: { activate?: boolean } = {}) => {
+            createTab: ({ activate }: { activate?: boolean } = {}) => {
                 createdCount += 1;
                 const tabId = `tab-${createdCount}`;
                 const record = createWorkspace(false);
@@ -213,14 +215,8 @@ describe('useAppShellWorkspaceRouting', () => {
                     activeTabId.value = tabId;
                 }
                 return createTabStub(tabId);
-            }),
-            removeTabFromState: vi.fn(),
-            resolveTabForAction: vi.fn(() => null),
-            handleCloseTab: vi.fn(async () => {}),
-            moveTabToNewWindow: vi.fn(async () => {}),
-            moveTabToWindow: vi.fn(async () => {}),
-            mergeWindowInto: vi.fn(async () => {}),
-        });
+            },
+        }));
 
         await routing.openPathsInAppropriateTab([
             '/docs/first.pdf',
@@ -230,5 +226,44 @@ describe('useAppShellWorkspaceRouting', () => {
         expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/first.pdf');
         expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenNthCalledWith(2, '/docs/second.pdf');
         expect(createdWorkspaces.has('tab-3')).toBe(false);
+    });
+
+    it('keeps later dropped paths out of the active tab even when its document state lags behind the first open', async () => {
+        const activeGroupId = ref('group-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(false);
+        initialWorkspace.openPath.mockImplementation(async (_path: string) => {});
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+
+        let createdCount = 1;
+        const createdWorkspaces = new Map<string, IWorkspaceRecord>();
+
+        const routing = useAppShellWorkspaceRouting(createRoutingOptions({
+            activeGroupId,
+            activeTabId,
+            workspaceRefs,
+            createTab: ({ activate }: { activate?: boolean } = {}) => {
+                createdCount += 1;
+                const tabId = `tab-${createdCount}`;
+                const record = createWorkspace(false);
+                createdWorkspaces.set(tabId, record);
+                workspaceRefs.value.set(tabId, record.workspace);
+                if (activate !== false) {
+                    activeTabId.value = tabId;
+                }
+                return createTabStub(tabId);
+            },
+        }));
+
+        await routing.openPathsInAppropriateTab([
+            '/docs/first.pdf',
+            '/docs/second.pdf',
+        ]);
+
+        expect(initialWorkspace.openPath).toHaveBeenCalledTimes(1);
+        expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/first.pdf');
+        expect(initialWorkspace.openPath).not.toHaveBeenCalledWith('/docs/second.pdf');
+        expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/second.pdf');
     });
 });

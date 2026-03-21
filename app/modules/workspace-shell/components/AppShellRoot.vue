@@ -382,6 +382,7 @@ const {
     workspaceRefs,
     waitForWorkspace,
     createTab,
+    getTabById,
     removeTabFromState,
     resolveTabForAction,
     handleCloseTab,
@@ -428,7 +429,7 @@ const {
     handleCloseTab,
 });
 
-const { cleanup: cleanupExternalFileDrop } = useExternalFileDrop({ openPathInAppropriateTab });
+const { cleanup: cleanupExternalFileDrop } = useExternalFileDrop({ openPathsInAppropriateTab });
 
 const {
     loadRecentFiles,
