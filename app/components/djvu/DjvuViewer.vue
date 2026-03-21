@@ -25,7 +25,7 @@
             @wheel="handleViewerWheel"
         >
             <div
-                class="mx-auto flex min-h-full w-fit items-start gap-4 p-4"
+                class="mx-auto flex min-h-full min-w-full w-fit gap-4 p-4"
                 :class="renderedPagesLayoutClass"
             >
                 <section
@@ -96,10 +96,10 @@ import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvu-worker'
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     getSpreadStartForPage,
+    getViewColumnCount,
     isStandaloneSpreadPage,
     stepBySpread,
 } from '@app/utils/pdf-view-mode';
-
 interface IProps {
     src: TDocumentRef | null;
     zoom?: number;
@@ -126,6 +126,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+const DJVU_BASE_MARGIN = 16;
 const WHEEL_LINE_DELTA_PX = 16;
 const WHEEL_IDLE_RESET_MS = 140;
 const WHEEL_DELTA_EPSILON = 0.01;
@@ -188,28 +189,6 @@ const renderedPageNumbers = computed(() => {
         nextPage,
     ];
 });
-const activeSpreadSize = computed(() => {
-    const pageNumbers = renderedPageNumbers.value;
-    if (pageNumbers.length === 0) {
-        return null;
-    }
-
-    const widths = pageNumbers
-        .map(pageNumber => pageSizes.value[pageNumber - 1]?.width ?? 0)
-        .filter(width => width > 0);
-    const heights = pageNumbers
-        .map(pageNumber => pageSizes.value[pageNumber - 1]?.height ?? 0)
-        .filter(height => height > 0);
-
-    if (widths.length === 0 || heights.length === 0) {
-        return null;
-    }
-
-    return {
-        width: widths.reduce((sum, width) => sum + width, 0),
-        height: Math.max(...heights),
-    };
-});
 const manualZoom = computed(() => {
     const candidate = props.zoom ?? 1;
     if (!Number.isFinite(candidate) || candidate <= 0) {
@@ -217,26 +196,55 @@ const manualZoom = computed(() => {
     }
     return candidate;
 });
-const effectiveZoom = computed(() => {
-    const currentPageSize = pageSizes.value[currentPage.value - 1] ?? pageSizes.value[0] ?? null;
-    const baseSize = !isContinuousScroll.value
-        ? activeSpreadSize.value
-        : currentPageSize;
-    if (!baseSize) {
-        return manualZoom.value;
+const currentSpreadWidth = computed(() => {
+    const pageNumbers = renderedPageNumbers.value;
+    if (pageNumbers.length === 0) {
+        return null;
     }
+    let total = 0;
+    for (const pageNumber of pageNumbers) {
+        const w = pageSizes.value[pageNumber - 1]?.width;
+        if (w && w > 0) {
+            total += w;
+        }
+    }
+    return total > 0 ? total : null;
+});
 
+function fitWidthAvailable() {
+    // Continuous scroll stacks pages vertically (single column).
+    // Page-flip may show multi-column spreads.
+    const columns = isContinuousScroll.value
+        ? 1
+        : getViewColumnCount(viewMode.value, totalPages.value);
+    return Math.max(1, containerWidth.value - DJVU_BASE_MARGIN * (columns + 1));
+}
+
+const effectiveZoom = computed(() => {
     if (zoomMode.value === 'custom') {
         return manualZoom.value;
     }
 
     if (zoomMode.value === 'fit-height') {
-        const nextHeight = Math.max(1, containerHeight.value - 32);
-        return Math.max(0.1, nextHeight / baseSize.height);
+        const currentPageSize = pageSizes.value[currentPage.value - 1] ?? pageSizes.value[0] ?? null;
+        const baseHeight = currentPageSize?.height;
+        if (!baseHeight || baseHeight <= 0) {
+            return manualZoom.value;
+        }
+        const availableHeight = Math.max(1, containerHeight.value - DJVU_BASE_MARGIN * 2);
+        return Math.max(0.1, availableHeight / baseHeight);
     }
 
-    const nextWidth = Math.max(1, containerWidth.value - 32);
-    return Math.max(0.1, nextWidth / baseSize.width);
+    // Fit-width: use current page/spread width for the displayed zoom %.
+    // In continuous scroll each page is scaled independently in getPageShellStyle;
+    // effectiveZoom reflects the current page for the toolbar display.
+    const baseWidth = isContinuousScroll.value
+        ? (pageSizes.value[currentPage.value - 1]?.width ?? null)
+        : currentSpreadWidth.value;
+    if (!baseWidth || baseWidth <= 0) {
+        return manualZoom.value;
+    }
+    return Math.max(0.1, fitWidthAvailable() / baseWidth);
 });
 
 let activeWorker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>> | null = null;
@@ -281,10 +289,15 @@ function measureContainer() {
 
 function getPageShellStyle(pageNumber: number) {
     const pageSize = pageSizes.value[pageNumber - 1];
-    const scale = effectiveZoom.value;
     if (!pageSize) {
         return {};
     }
+
+    // In continuous scroll + fit-width, each page fills the container
+    // width independently so outlier pages don't shrink everything.
+    const scale = (isContinuousScroll.value && zoomMode.value === 'fit-width' && pageSize.width > 0)
+        ? Math.max(0.1, fitWidthAvailable() / pageSize.width)
+        : effectiveZoom.value;
 
     return {
         width: `${Math.max(1, Math.round(pageSize.width * scale))}px`,
