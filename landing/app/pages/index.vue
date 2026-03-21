@@ -219,6 +219,7 @@ import { useTimeoutFn } from '@vueuse/core';
 import {
     buildAbsoluteUrl,
     normalizeSiteUrl,
+    SEO_IMAGE_PATH,
 } from '~~/shared/seo';
 import {
     compareInstallersForSelect,
@@ -254,7 +255,7 @@ const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
 const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
 const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
-const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, '/evb-viewer-og.png'));
+const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, SEO_IMAGE_PATH));
 const pageDescription = computed(() => t('home.seo.ogDescription'));
 
 const featureHighlights = computed(() => [
