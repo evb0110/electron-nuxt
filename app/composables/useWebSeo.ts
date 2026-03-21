@@ -2,6 +2,10 @@ import { formatWebTitleTemplate } from '@app/utils/app-window-title';
 
 interface IUseWebSeoOptions { noindex?: boolean; }
 
+const SEO_IMAGE_PATH = '/evb-viewer-seo.png';
+const SEO_IMAGE_WIDTH = 1466;
+const SEO_IMAGE_HEIGHT = 951;
+
 function normalizeSiteUrl(siteUrl: string) {
     return siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`;
 }
@@ -22,8 +26,8 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
         );
     });
     const canonicalUrl = computed(() => new URL('/', siteUrl.value).toString());
-    const ogImageUrl = computed(() => new URL('/evb-viewer-og.png', siteUrl.value).toString());
-    const screenshotImageUrl = computed(() => new URL('/evb-viewer-preview-cropped.png', siteUrl.value).toString());
+    const ogImageUrl = computed(() => new URL(SEO_IMAGE_PATH, siteUrl.value).toString());
+    const screenshotImageUrl = computed(() => new URL(SEO_IMAGE_PATH, siteUrl.value).toString());
     const robots = computed(() => options.noindex
         ? 'noindex, nofollow'
         : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
@@ -40,8 +44,8 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
         ogSiteName: () => t('app.webTitle'),
         ogUrl: () => canonicalUrl.value,
         ogImage: () => ogImageUrl.value,
-        ogImageWidth: 1200,
-        ogImageHeight: 630,
+        ogImageWidth: SEO_IMAGE_WIDTH,
+        ogImageHeight: SEO_IMAGE_HEIGHT,
         ogImageType: 'image/png',
         ogImageAlt: () => t('seo.previewAlt'),
         ogLocale: () => locale.value,
@@ -80,8 +84,8 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
                         'screenshot': {
                             '@type': 'ImageObject',
                             'url': screenshotImageUrl.value,
-                            'width': 2936,
-                            'height': 1935,
+                            'width': SEO_IMAGE_WIDTH,
+                            'height': SEO_IMAGE_HEIGHT,
                             'caption': t('seo.screenshotAlt'),
                         },
                         'offers': {

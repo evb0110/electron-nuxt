@@ -103,6 +103,7 @@
 import {
     buildAbsoluteUrl,
     normalizeSiteUrl,
+    SEO_IMAGE_PATH,
 } from '~~/shared/seo';
 
 const { t } = useTypedI18n();
@@ -111,7 +112,7 @@ const runtimeConfig = useRuntimeConfig();
 
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
 const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
-const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, '/evb-viewer-og.png'));
+const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, SEO_IMAGE_PATH));
 const pageDescription = computed(() => t('features.seo.ogDescription'));
 
 const featureCards = computed(() => [

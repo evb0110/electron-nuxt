@@ -16,6 +16,7 @@
 <script setup lang="ts">
 import {
     normalizeSiteUrl,
+    SEO_IMAGE_PATH,
 } from '~~/shared/seo';
 import SiteFooter from '~/components/SiteFooter.vue';
 import SiteHeader from '~/components/SiteHeader.vue';
@@ -25,7 +26,7 @@ const { locale } = useI18n();
 const runtimeConfig = useRuntimeConfig();
 
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
-const ogImage = computed(() => `${siteUrl.value}/evb-viewer-og.png`);
+const ogImage = computed(() => `${siteUrl.value}${SEO_IMAGE_PATH}`);
 
 const websiteSchema = computed(() => JSON.stringify({
     '@context': 'https://schema.org',

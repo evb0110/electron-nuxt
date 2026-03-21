@@ -5,11 +5,12 @@ import {
 import { resolveSiteUrl } from '../utils/normalize-site-url';
 
 const BUILD_TIMESTAMP = new Date().toISOString();
+const SEO_IMAGE_PATH = '/evb-viewer-seo.png';
 
 export default defineEventHandler((event) => {
     const siteUrl = resolveSiteUrl(event);
     const loc = new URL('/', siteUrl).toString();
-    const imageUrl = new URL('/evb-viewer-preview-cropped.png', siteUrl).toString();
+    const imageUrl = new URL(SEO_IMAGE_PATH, siteUrl).toString();
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
