@@ -140,7 +140,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         markPageLabelsSaved();
         markBookmarksSaved();
 
-        if (result.didSaveAs && result.outPath) {
+        if (result.outPath) {
             loadRecentFiles();
         }
 

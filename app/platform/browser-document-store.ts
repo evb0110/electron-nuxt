@@ -27,11 +27,14 @@ interface IBrowserPersistedDocumentRecord {
     data: Uint8Array;
     fileSize: number;
     updatedAt: number;
+    saveName?: string;
+    saveKind?: 'pdf' | 'docx' | 'generic';
+    saveHandle?: FileSystemFileHandle | null;
 }
 
 interface IBrowserDocumentEntry extends IBrowserPersistedDocumentRecord {
     pendingLoad: Promise<void> | null;
-    saveName: string | null;
+    saveName?: string;
     saveKind: 'pdf' | 'docx' | 'generic';
     saveHandle?: FileSystemFileHandle | null;
 }
@@ -110,6 +113,12 @@ function toPersistedDocumentRecord(
         typeof value.updatedAt === 'number' ? value.updatedAt : null;
     const sourceRef =
         typeof value.sourceRef === 'string' ? value.sourceRef : undefined;
+    const saveName =
+        typeof value.saveName === 'string' ? value.saveName : undefined;
+    const saveKind = value.saveKind;
+    const saveHandle = 'saveHandle' in value
+        ? (value.saveHandle as FileSystemFileHandle | null | undefined)
+        : undefined;
 
     if (
         !ref ||
@@ -118,7 +127,7 @@ function toPersistedDocumentRecord(
     (kind !== 'source' && kind !== 'working' && kind !== 'output') ||
     !data ||
     fileSize === null ||
-    updatedAt === null
+        updatedAt === null
     ) {
         return null;
     }
@@ -132,6 +141,11 @@ function toPersistedDocumentRecord(
         data,
         fileSize,
         updatedAt,
+        saveName,
+        saveKind: saveKind === 'pdf' || saveKind === 'docx' || saveKind === 'generic'
+            ? saveKind
+            : undefined,
+        saveHandle: saveHandle ?? undefined,
     };
 }
 
@@ -223,7 +237,7 @@ function writeRecentFilesToStorage(recentFiles: IRecentFile[]) {
     writeRecentFilesToCookie(recentFiles);
 }
 
-class BrowserDocumentStore {
+export class BrowserDocumentStore {
     private readonly entries = new Map<string, IBrowserDocumentEntry>();
 
     public getRefForFile(file: File) {
@@ -337,13 +351,15 @@ class BrowserDocumentStore {
             ...normalizedRecord,
             data: cloneBytes(normalizedRecord.data),
             pendingLoad: null,
-            saveName: normalizedRecord.fileName,
-            saveKind: /\.pdf$/i.test(normalizedRecord.fileName)
-                ? 'pdf'
-                : /\.docx$/i.test(normalizedRecord.fileName)
-                    ? 'docx'
-                    : 'generic',
-            saveHandle: null,
+            saveName: normalizedRecord.saveName ?? normalizedRecord.fileName,
+            saveKind: normalizedRecord.saveKind ?? (
+                /\.pdf$/i.test(normalizedRecord.fileName)
+                    ? 'pdf'
+                    : /\.docx$/i.test(normalizedRecord.fileName)
+                        ? 'docx'
+                        : 'generic'
+            ),
+            saveHandle: normalizedRecord.saveHandle ?? null,
         };
 
         this.entries.set(ref, entry);
@@ -450,7 +466,7 @@ class BrowserDocumentStore {
 
         recentFiles.unshift({
             originalPath: ref,
-            fileName: entry.fileName,
+            fileName: entry.saveName ?? entry.fileName,
             timestamp: Date.now(),
             fileSize: entry.fileSize,
         });
@@ -506,6 +522,9 @@ class BrowserDocumentStore {
             data: cloneBytes(entry.data),
             fileSize: entry.fileSize,
             updatedAt: entry.updatedAt,
+            saveName: entry.saveName,
+            saveKind: entry.saveKind,
+            saveHandle: entry.saveHandle ?? null,
         };
     }
 }
