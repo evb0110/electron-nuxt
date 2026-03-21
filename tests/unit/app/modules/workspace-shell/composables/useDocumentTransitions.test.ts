@@ -16,6 +16,8 @@ function createDeps() {
     return {
         pdfSrc: ref<TPdfSource | null>({} as TPdfSource),
         workingCopyPath: ref('/tmp/test.pdf'),
+        isDjvuMode: ref(false),
+        djvuSourcePath: ref<string | null>(null),
         pdfError: ref<unknown>(null),
         currentPage: ref(7),
         totalPages: ref(23),
@@ -75,6 +77,18 @@ describe('useDocumentTransitions', () => {
 
         deps.workingCopyPath.value = '/tmp/next.pdf';
         deps.pdfSrc.value = {} as TPdfSource;
+        await nextTick();
+
+        expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
+    });
+
+    it('refreshes recent files when DjVu mode opens a source document', async () => {
+        const deps = createDeps();
+
+        useDocumentTransitions(deps);
+
+        deps.isDjvuMode.value = true;
+        deps.djvuSourcePath.value = 'browser://documents/source/test.djvu';
         await nextTick();
 
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();

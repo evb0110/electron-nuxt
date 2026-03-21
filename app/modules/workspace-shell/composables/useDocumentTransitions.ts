@@ -13,6 +13,8 @@ type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 interface IDocumentTransitionDeps {
     pdfSrc: Ref<TPdfSource | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
+    isDjvuMode: Ref<boolean>;
+    djvuSourcePath: Ref<TDocumentRef | null>;
     pdfError: Ref<unknown>;
     currentPage: Ref<number>;
     totalPages: Ref<number>;
@@ -48,6 +50,8 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
     const {
         pdfSrc,
         workingCopyPath,
+        isDjvuMode,
+        djvuSourcePath,
         pdfError,
         currentPage,
         totalPages,
@@ -162,6 +166,34 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         closeAnnotationContextMenu();
         void closeAllAnnotationNotes({ saveIfDirty: false });
     });
+
+    watch(
+        () => [
+            isDjvuMode.value,
+            djvuSourcePath.value,
+        ] as const,
+        (
+            [
+                nextIsDjvuMode,
+                nextDjvuSourcePath,
+            ],
+            [
+                previousIsDjvuMode,
+                previousDjvuSourcePath,
+            ],
+        ) => {
+            if (
+                nextIsDjvuMode
+                && nextDjvuSourcePath
+                && (
+                    nextDjvuSourcePath !== previousDjvuSourcePath
+                    || nextIsDjvuMode !== previousIsDjvuMode
+                )
+            ) {
+                loadRecentFiles();
+            }
+        },
+    );
 
     watch(annotationComments, (comments) => {
         if (
