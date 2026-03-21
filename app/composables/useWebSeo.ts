@@ -22,7 +22,8 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
         );
     });
     const canonicalUrl = computed(() => new URL('/', siteUrl.value).toString());
-    const previewImageUrl = computed(() => new URL('/evb-viewer-preview-cropped.png', siteUrl.value).toString());
+    const ogImageUrl = computed(() => new URL('/evb-viewer-og.png', siteUrl.value).toString());
+    const screenshotImageUrl = computed(() => new URL('/evb-viewer-preview-cropped.png', siteUrl.value).toString());
     const robots = computed(() => options.noindex
         ? 'noindex, nofollow'
         : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
@@ -38,16 +39,16 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
         ogType: 'website',
         ogSiteName: () => t('app.webTitle'),
         ogUrl: () => canonicalUrl.value,
-        ogImage: () => previewImageUrl.value,
-        ogImageWidth: 2936,
-        ogImageHeight: 1935,
+        ogImage: () => ogImageUrl.value,
+        ogImageWidth: 1200,
+        ogImageHeight: 630,
         ogImageType: 'image/png',
         ogImageAlt: () => t('seo.previewAlt'),
         ogLocale: () => locale.value,
         twitterCard: 'summary_large_image',
         twitterTitle: () => t('seo.title'),
         twitterDescription: () => t('seo.description'),
-        twitterImage: () => previewImageUrl.value,
+        twitterImage: () => ogImageUrl.value,
         twitterImageAlt: () => t('seo.previewAlt'),
     });
 
@@ -75,10 +76,10 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
                         'operatingSystem': 'Web',
                         'description': t('seo.description'),
                         'url': canonicalUrl.value,
-                        'image': previewImageUrl.value,
+                        'image': ogImageUrl.value,
                         'screenshot': {
                             '@type': 'ImageObject',
-                            'url': previewImageUrl.value,
+                            'url': screenshotImageUrl.value,
                             'width': 2936,
                             'height': 1935,
                             'caption': t('seo.screenshotAlt'),
@@ -133,7 +134,7 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
                         'mainEntity': { '@id': `${canonicalUrl.value}#app` },
                         'primaryImageOfPage': {
                             '@type': 'ImageObject',
-                            'url': previewImageUrl.value,
+                            'url': ogImageUrl.value,
                         },
                         'inLanguage': locale.value,
                     }),

@@ -1,9 +1,3 @@
-export const LANDING_ROUTE_PATHS = [
-    '/',
-    '/features',
-    '/docs',
-] as const;
-
 const DEFAULT_SITE_URL = 'https://evb-viewer.vercel.app';
 
 export function normalizeSiteUrl(siteUrl?: string): string {

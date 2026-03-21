@@ -40,24 +40,25 @@ import LanguageSwitcher from '~/components/LanguageSwitcher.vue';
 
 const { t } = useTypedI18n();
 const route = useRoute();
+const localePath = useLocalePath();
 const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
 
 const navItems = computed(() => [
     {
         label: t('header.nav.home'),
-        to: '/',
+        to: localePath('/'),
     },
     {
         label: t('header.nav.features'),
-        to: '/features',
+        to: localePath('/features'),
     },
     {
         label: t('header.nav.docs'),
-        to: '/docs',
+        to: localePath('/docs'),
     },
 ]);
 
-function isActive(path: string) {
-    return route.path === path;
+function isActive(to: string) {
+    return route.path === to;
 }
 </script>

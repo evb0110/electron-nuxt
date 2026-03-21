@@ -16,6 +16,7 @@
     "@neondatabase/serverless": "^1.0.2",
     "@nuxt/ui": "^4.4.0",
     "@nuxtjs/i18n": "^10.2.3",
+    "@nuxtjs/sitemap": "^7.6.0",
     "drizzle-orm": "^0.45.1",
     "es-toolkit": "^1.44.0",
     "nuxt": "^4.3.1",
