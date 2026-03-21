@@ -22,7 +22,7 @@ export class DjvuPdfWorkerStartupError extends Error {
     }
 }
 
-export interface IDjvuPdfWorkerTaskHandle<T> {
+interface IDjvuPdfWorkerTaskHandle<T> {
     worker: Worker;
     promise: Promise<T>;
 }
