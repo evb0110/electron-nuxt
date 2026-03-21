@@ -299,6 +299,62 @@ describe('search IPC worker resource limits', () => {
         expect(mocks.workerRecords).toHaveLength(1);
     });
 
+    it('caps the default active worker budget at two concurrent senders', async () => {
+        mocks.autoCompleteSearch = false;
+
+        const { registerSearchHandlers } = await import('@electron/search/ipc');
+        registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+
+        const firstRequest = searchHandler(
+            createInvokeEvent(101),
+            {
+                pdfPath: '/tmp/one.pdf',
+                query: 'first',
+                requestId: 'req-a',
+            },
+        ) as Promise<{
+            results: unknown[];
+            truncated: boolean;
+        }>;
+
+        const secondRequest = searchHandler(
+            createInvokeEvent(102),
+            {
+                pdfPath: '/tmp/two.pdf',
+                query: 'second',
+                requestId: 'req-b',
+            },
+        ) as Promise<{
+            results: unknown[];
+            truncated: boolean;
+        }>;
+
+        await vi.waitFor(() => {
+            expect(mocks.workerRecords).toHaveLength(2);
+        });
+
+        await expect(searchHandler(
+            createInvokeEvent(103),
+            {
+                pdfPath: '/tmp/three.pdf',
+                query: 'third',
+                requestId: 'req-c',
+            },
+        )).rejects.toThrow('Search worker limit reached (2 active senders)');
+
+        emitWorkerComplete(0, 'req-a');
+        emitWorkerComplete(1, 'req-b');
+        await expect(firstRequest).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+        await expect(secondRequest).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+    });
+
     it('re-arms idle cleanup after explicit cancel so the worker can be reclaimed', async () => {
         vi.useFakeTimers();
         process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS = '10000';

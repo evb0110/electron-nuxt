@@ -265,6 +265,55 @@ describe('updates robustness', () => {
             version: '1.2.0',
         });
     });
+
+    it('throttles download progress broadcasts but still flushes the terminal update immediately', async () => {
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+        });
+
+        const updates = await loadUpdatesModule();
+        const statuses: Array<Record<string, unknown>> = [];
+
+        updates.initializeUpdates((status) => {
+            statuses.push({ ...status });
+        });
+
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        mocks.autoUpdater.emit('download-progress', { percent: 10 });
+        mocks.autoUpdater.emit('download-progress', { percent: 25 });
+        mocks.autoUpdater.emit('download-progress', { percent: 50 });
+        await flushPromises();
+
+        expect(statuses).toHaveLength(3);
+        expect(statuses.at(-1)).toMatchObject({
+            phase: 'downloading',
+            percent: 0,
+        });
+
+        await vi.advanceTimersByTimeAsync(249);
+        await flushPromises();
+        expect(statuses).toHaveLength(3);
+
+        await vi.advanceTimersByTimeAsync(1);
+        await flushPromises();
+        expect(statuses).toHaveLength(4);
+        expect(statuses.at(-1)).toMatchObject({
+            phase: 'downloading',
+            percent: 50,
+        });
+
+        mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+        await flushPromises();
+
+        expect(statuses.at(-1)).toMatchObject({
+            phase: 'downloaded',
+            percent: 100,
+            version: '1.1.0',
+        });
+    });
 });
 
 afterAll(() => {

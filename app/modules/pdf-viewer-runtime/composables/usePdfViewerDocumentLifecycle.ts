@@ -52,6 +52,10 @@ interface IUsePdfViewerDocumentLifecycleOptions {
         src: TPdfSource,
         options?: { preservePageStructure?: boolean },
     ) => Promise<{version: number;} | null>;
+    ensurePageMetricsInRange: (
+        startPage: number,
+        endPage: number,
+    ) => Promise<boolean>;
     getPage: (pageNumber: number) => Promise<PDFPageProxy>;
     renderVisiblePages: (range: IPageRange) => Promise<void>;
     getVisibleRange: () => IPageRange;
@@ -221,6 +225,10 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
         options.currentPage.value = Math.min(pageToRestore, options.numPages.value);
         options.emit('update:totalPages', options.numPages.value);
         options.emit('update:currentPage', options.currentPage.value);
+        await options.ensurePageMetricsInRange(
+            options.currentPage.value,
+            options.currentPage.value,
+        );
 
         if (!isSelectiveReload) {
             runGuardedTask(

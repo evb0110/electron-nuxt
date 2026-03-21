@@ -60,16 +60,16 @@ const SEARCH_REQUEST_TIMEOUT_MS = (() => {
     return parsed;
 })();
 const SEARCH_WORKER_MAX_ACTIVE = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_MAX_ACTIVE ?? '8', 10);
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_MAX_ACTIVE ?? '2', 10);
     if (!Number.isFinite(parsed)) {
-        return 8;
+        return 2;
     }
     return clamp(parsed, 1, 256);
 })();
 const SEARCH_WORKER_IDLE_TTL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS ?? `${60 * 1000}`, 10);
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS ?? `${30 * 1000}`, 10);
     if (!Number.isFinite(parsed) || parsed < 10_000) {
-        return 60 * 1000;
+        return 30 * 1000;
     }
     return parsed;
 })();

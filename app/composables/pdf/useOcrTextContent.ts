@@ -5,48 +5,18 @@ import type { IPdfRawDims } from '@app/types/pdf';
 import { getElectronAPI } from '@app/utils/platform';
 import type { IOcrWord } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import {
+    sharedOcrTextContentCache,
+    type IOcrManifest,
+    type IOcrPageData,
+} from '@app/composables/pdf/ocrTextContentCache';
 
 const RTL_OCR_LANGUAGES: ReadonlySet<string> = new Set([
     'heb',
     'syr',
 ] as const);
 type TOcrTextDirection = 'ltr' | 'rtl';
-type TOcrRotation = 0 | 90 | 180 | 270;
 const SERVER_ASCENT_RATIO_FALLBACK = 0.8;
-
-/**
- * OCR index v2 manifest schema
- */
-interface IOcrManifest {
-    version: number;
-    createdAt: number;
-    source: { pdfPath: string };
-    pageCount: number;
-    pageBox: 'crop';
-    ocr: {
-        engine: 'tesseract';
-        languages: string[];
-        renderDpi: number;
-    };
-    pages: Record<number, { path: string }>;
-}
-
-/**
- * OCR index v2 per-page data schema
- */
-interface IOcrPageData {
-    pageNumber: number;
-    rotation: TOcrRotation;
-    render: {
-        dpi: number;
-        imagePx: {
-            w: number;
-            h: number;
-        };
-    };
-    text: string;
-    words: IOcrWord[];
-}
 
 /**
  * PDF.js TextItem interface for TextLayer rendering
@@ -91,32 +61,7 @@ function parseJsonAs<T>(json: string) {
  * selectable/searchable text.
  */
 export const useOcrTextContent = () => {
-    const manifestCache = new Map<string, IOcrManifest | null>();
-    const pageCache = new Map<string, IOcrPageData>();
-    const MAX_MANIFEST_CACHE_ENTRIES = 32;
-    const MAX_PAGE_CACHE_ENTRIES = 800;
-
     let cachedAscentRatio: number | null = null;
-
-    function setLruCacheEntry<T>(
-        cache: Map<string, T>,
-        key: string,
-        value: T,
-        maxEntries: number,
-    ) {
-        if (cache.has(key)) {
-            cache.delete(key);
-        }
-        cache.set(key, value);
-
-        while (cache.size > maxEntries) {
-            const oldestKey = cache.keys().next().value;
-            if (typeof oldestKey !== 'string') {
-                break;
-            }
-            cache.delete(oldestKey);
-        }
-    }
 
     /**
      * Computes the font ascent ratio for baseline alignment.
@@ -150,9 +95,9 @@ export const useOcrTextContent = () => {
      * Loads and caches the OCR manifest for a working copy path.
      */
     async function loadManifest(workingCopyPath: TDocumentRef): Promise<IOcrManifest | null> {
-        const cacheKey = workingCopyPath;
-        if (manifestCache.has(cacheKey)) {
-            return manifestCache.get(cacheKey) ?? null;
+        const cachedManifest = sharedOcrTextContentCache.getManifest(workingCopyPath);
+        if (cachedManifest !== undefined) {
+            return cachedManifest;
         }
 
         const api = getElectronAPI();
@@ -161,12 +106,7 @@ export const useOcrTextContent = () => {
         try {
             const exists = await api.documents.fileExists(manifestPath);
             if (!exists) {
-                setLruCacheEntry(
-                    manifestCache,
-                    cacheKey,
-                    null,
-                    MAX_MANIFEST_CACHE_ENTRIES,
-                );
+                sharedOcrTextContentCache.setManifest(workingCopyPath, null);
                 return null;
             }
 
@@ -175,21 +115,11 @@ export const useOcrTextContent = () => {
             if (!manifest) {
                 throw new Error('Invalid OCR manifest payload');
             }
-            setLruCacheEntry(
-                manifestCache,
-                cacheKey,
-                manifest,
-                MAX_MANIFEST_CACHE_ENTRIES,
-            );
+            sharedOcrTextContentCache.setManifest(workingCopyPath, manifest);
             return manifest;
         } catch (err) {
             BrowserLogger.warn('ocr', 'Failed to load manifest', err);
-            setLruCacheEntry(
-                manifestCache,
-                cacheKey,
-                null,
-                MAX_MANIFEST_CACHE_ENTRIES,
-            );
+            sharedOcrTextContentCache.setManifest(workingCopyPath, null);
             return null;
         }
     }
@@ -202,9 +132,9 @@ export const useOcrTextContent = () => {
         pageNumber: number,
         manifest: IOcrManifest,
     ): Promise<IOcrPageData | null> {
-        const cacheKey = `${workingCopyPath}:${pageNumber}`;
-        if (pageCache.has(cacheKey)) {
-            return pageCache.get(cacheKey) ?? null;
+        const cachedPageData = sharedOcrTextContentCache.getPageData(workingCopyPath, pageNumber);
+        if (cachedPageData !== undefined) {
+            return cachedPageData;
         }
 
         const pageMapping = manifest.pages[pageNumber];
@@ -221,12 +151,7 @@ export const useOcrTextContent = () => {
             if (!pageData) {
                 throw new Error(`Invalid OCR page payload for page ${pageNumber}`);
             }
-            setLruCacheEntry(
-                pageCache,
-                cacheKey,
-                pageData,
-                MAX_PAGE_CACHE_ENTRIES,
-            );
+            sharedOcrTextContentCache.setPageData(workingCopyPath, pageNumber, pageData);
             return pageData;
         } catch (err) {
             BrowserLogger.warn('ocr', `Failed to load page ${pageNumber}`, err);
@@ -414,18 +339,7 @@ export const useOcrTextContent = () => {
      * @param workingCopyPath - Optional path to clear; clears all if omitted
      */
     function clearCache(workingCopyPath?: TDocumentRef): void {
-        if (workingCopyPath) {
-            manifestCache.delete(workingCopyPath);
-            // Clear page cache entries for this path
-            for (const key of pageCache.keys()) {
-                if (key.startsWith(`${workingCopyPath}:`)) {
-                    pageCache.delete(key);
-                }
-            }
-        } else {
-            manifestCache.clear();
-            pageCache.clear();
-        }
+        sharedOcrTextContentCache.clearCache(workingCopyPath);
     }
 
     return {

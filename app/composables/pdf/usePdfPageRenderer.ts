@@ -129,6 +129,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         evictPage,
         cleanupPageCache,
     } = options.document;
+    const ensurePageMetricsInRange = 'ensurePageMetricsInRange' in options.document
+        ? options.document.ensurePageMetricsInRange
+        : () => Promise.resolve(false);
     const pageMetrics = 'pageMetrics' in options.document
         ? options.document.pageMetrics
         : ref<IPdfPageMetric[]>([]);
@@ -447,6 +450,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
         const renderStart = Math.max(1, visibleRange.start - buffer);
         const renderEnd = Math.min(numPages.value, visibleRange.end + buffer);
+
+        const didHydrateMetrics = await ensurePageMetricsInRange(
+            renderStart,
+            renderEnd,
+        );
+        if (renderVersion !== version) {
+            return;
+        }
+        if (didHydrateMetrics) {
+            setupPagePlaceholders();
+        }
 
         const pagesToKeep = new Set(range(renderStart, renderEnd + 1));
 

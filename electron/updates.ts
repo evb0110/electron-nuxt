@@ -30,6 +30,7 @@ const METADATA_REQUEST_TIMEOUT_MS = 10_000;
 const MIN_POLL_INTERVAL_MS = 60_000;
 const MAX_JITTER_RATIO = 0.12;
 const CODESIGN_CHECK_TIMEOUT_MS = 5_000;
+const UPDATE_PROGRESS_BROADCAST_THROTTLE_MS = 250;
 
 const defaultStatus: IAppUpdateStatus = {
     phase: 'idle',
@@ -50,6 +51,8 @@ let pendingVersion: string | null = null;
 let codeSignatureCheckPromise: Promise<boolean> | null = null;
 let codeSignatureValid: boolean | null = null;
 let listenersRegistered = false;
+let progressBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+let lastProgressBroadcastAt = 0;
 const autoUpdaterListenerUnsubscribe: Array<() => void> = [];
 
 function getCurrentVersion() {
@@ -93,12 +96,60 @@ function compareVersions(left: string, right: string) {
     return 0;
 }
 
+function clearProgressBroadcastTimer() {
+    if (!progressBroadcastTimer) {
+        return;
+    }
+
+    clearTimeout(progressBroadcastTimer);
+    progressBroadcastTimer = null;
+}
+
+function broadcastStatusNow() {
+    emitStatus(status);
+}
+
+function broadcastProgressStatus() {
+    clearProgressBroadcastTimer();
+    lastProgressBroadcastAt = Date.now();
+    broadcastStatusNow();
+}
+
 function updateStatus(next: Partial<IAppUpdateStatus>) {
     status = {
         ...status,
         ...next,
     };
-    emitStatus(status);
+
+    if (status.phase !== 'downloading') {
+        clearProgressBroadcastTimer();
+        broadcastStatusNow();
+        return;
+    }
+
+    const now = Date.now();
+    const elapsed = now - lastProgressBroadcastAt;
+    const shouldBroadcastImmediately = lastProgressBroadcastAt === 0
+        || status.percent === 0
+        || status.percent === 100
+        || elapsed >= UPDATE_PROGRESS_BROADCAST_THROTTLE_MS;
+
+    if (shouldBroadcastImmediately) {
+        broadcastProgressStatus();
+        return;
+    }
+
+    if (!progressBroadcastTimer) {
+        const delay = Math.max(0, UPDATE_PROGRESS_BROADCAST_THROTTLE_MS - elapsed);
+        progressBroadcastTimer = setTimeout(() => {
+            progressBroadcastTimer = null;
+            if (status.phase !== 'downloading') {
+                return;
+            }
+            broadcastProgressStatus();
+        }, delay);
+        progressBroadcastTimer.unref?.();
+    }
 }
 
 function setIdleStatus(origin: TAppUpdateCheckOrigin, version: string | null = getCurrentVersion()) {
@@ -726,6 +777,8 @@ export async function shutdownUpdates() {
         clearTimeout(pollTimer);
         pollTimer = null;
     }
+    clearProgressBroadcastTimer();
+    lastProgressBroadcastAt = 0;
 
     if (currentCheckPromise) {
         try {
