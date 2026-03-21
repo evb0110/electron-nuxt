@@ -18,6 +18,7 @@ function isPathPdfSource(value: TPdfSource | null): value is Extract<TPdfSource,
 }
 
 interface IPageStatusBarDeps {
+    hasDocument: Ref<boolean>;
     pdfSrc: Ref<TPdfSource | null>;
     pdfData: Ref<Uint8Array | null>;
     originalPath: Ref<TDocumentRef | null>;
@@ -31,6 +32,7 @@ interface IPageStatusBarDeps {
 
 export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
     const {
+        hasDocument,
         pdfSrc,
         pdfData,
         originalPath,
@@ -71,7 +73,12 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
         return t('status.fileSizeValue', { size: formatBytes(statusFileSizeBytes.value) });
     });
-    const statusZoomLabel = computed(() => t('status.zoomValue', { zoom: Math.round(effectiveZoom.value * 100) }));
+    const statusZoomLabel = computed(() => {
+        if (!hasDocument.value) {
+            return null;
+        }
+        return t('status.zoomValue', { zoom: Math.round(effectiveZoom.value * 100) });
+    });
     const statusSaveDotState = computed<TSaveDotState>(() => {
         if (!pdfSrc.value) {
             return 'idle';

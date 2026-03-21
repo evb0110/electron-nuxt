@@ -11,6 +11,7 @@ import type {
 } from '@contracts/platform-api';
 
 interface IWorkspaceDocumentControlsOptions {
+    hasDocument: Ref<boolean>;
     pdfSrc: Ref<TPdfSource | null>;
     pdfData: Ref<Uint8Array | null>;
     originalPath: Ref<TDocumentRef | null>;
@@ -54,6 +55,7 @@ interface IWorkspaceDocumentControlsOptions {
 
 export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControlsOptions) {
     const {
+        hasDocument,
         pdfSrc,
         pdfData,
         originalPath,
@@ -93,6 +95,7 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
     } = options;
 
     const pageStatusBar = usePageStatusBar({
+        hasDocument,
         pdfSrc,
         pdfData,
         originalPath,

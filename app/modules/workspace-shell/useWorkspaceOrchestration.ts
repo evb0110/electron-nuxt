@@ -45,6 +45,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         djvuShowBanner,
         showConvertDialog,
         djvuError,
+        djvuOpeningPath,
         openDjvuFile,
         openConvertDialog,
         djvuDismissBanner,
@@ -357,6 +358,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         || pageLabelsDirty.value
         || bookmarksDirty.value
     ));
+    const hasOpenDocument = computed(() => (
+        hasPdf.value
+        || (isDjvuMode.value && Boolean(djvuSourcePath.value))
+    ));
 
     const {
         shapePropertiesPopover,
@@ -458,6 +463,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleCloseFileFromUi,
         openRecentFile,
     } = useWorkspaceDocumentControls({
+        hasDocument: hasOpenDocument,
         pdfData,
         pdfSrc,
         originalPath,
@@ -622,6 +628,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         djvuLoadingProgress,
         djvuShowBanner,
         djvuError,
+        djvuOpeningPath,
         showConvertDialog,
         openConvertDialog,
         djvuDismissBanner,
