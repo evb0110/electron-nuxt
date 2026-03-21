@@ -5,13 +5,13 @@ import {
     vi,
 } from 'vitest';
 
+import { annotationKindLabelFromSubtype } from '@app/composables/pdf/pdfAnnotationUtils';
 import {
-    annotationKindLabelFromSubtype,
     detectEditorSubtype,
     getCommentText,
     hasEditorCommentPayload,
-    type IPdfjsEditor,
-} from '@app/composables/pdf/pdfAnnotationUtils';
+} from '@app/composables/pdf/pdfAnnotationEditorUtils';
+import type { IPdfjsEditor } from '@app/types/pdfjs';
 
 vi.mock('pdfjs-dist', () => ({PDFDateString: {toDateObject: vi.fn(() => null)}}));
 

@@ -10,7 +10,7 @@ import {
 import type {
     IAnnotationCommentSummary,
     ILinkAnnotation,
-} from '@app/composables/pdf/annotations/types';
+} from '@app/types/annotations';
 
 interface IUseAnnotationStoreOptions {
     emitAnnotationComments?: (comments: IAnnotationCommentSummary[]) => void;

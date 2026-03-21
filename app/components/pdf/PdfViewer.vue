@@ -122,8 +122,8 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
-import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotations/types';
-import { isSelectionMarkupTool } from '@app/composables/pdf/annotations/types';
+import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
+import { isSelectionMarkupTool } from '@app/composables/pdf/annotations/annotationRules';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
 import { BrowserLogger } from '@app/utils/browser-logger';
 

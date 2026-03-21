@@ -3,13 +3,13 @@ import { tryOnScopeDispose } from '@vueuse/core';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
-    IPdfjsEditor,
-} from '@app/composables/pdf/annotations/types';
+} from '@app/types/annotations';
+import type { IPdfjsEditor } from '@app/types/pdfjs';
+import { isTextMarkupSubtype } from '@app/composables/pdf/pdfAnnotationUtils';
 import {
     normalizeMarkerRect,
     markerRectIoU,
-    isTextMarkupSubtype,
-} from '@app/composables/pdf/pdfAnnotationUtils';
+} from '@app/composables/pdf/annotationGeometry';
 
 interface ISummaryMemoryEntry {
     text: string;

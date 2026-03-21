@@ -5,11 +5,11 @@ import type {
     TAnnotationTool,
     TShapeType,
 } from '@app/types/annotations';
-import {
-    isShapeTool,
-    type IShapeContextProvide,
-    type TUseAnnotationShapesReturn,
+import type {
+    IShapeContextProvide,
+    TUseAnnotationShapesReturn,
 } from '@app/composables/pdf/useAnnotationShapes';
+import { isShapeTool } from '@app/composables/pdf/annotations/annotationRules';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
 
 interface IShapeContextMenuPayload {

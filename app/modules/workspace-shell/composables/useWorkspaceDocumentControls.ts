@@ -2,7 +2,7 @@ import type { Ref } from 'vue';
 import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
 import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
 import { useWorkspaceFileOperationController } from '@app/modules/workspace-shell/composables/workspace-file-lifecycle-controller';
-import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/types';
+import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
 import type { TPdfSource } from '@app/types/pdf';
 import type {

@@ -1,15 +1,12 @@
 import { run } from './shared.mjs';
+import {
+    getReleaseAutomationEnv,
+    getReleaseCiEnv,
+} from './policy.mjs';
 
 function main() {
-    const releaseCiEnv = {
-        ...process.env,
-        CI: 'true',
-    };
-    const releaseAutomationEnv = {
-        ...releaseCiEnv,
-        EVB_AUTOMATION_HIDE_WINDOW: '1',
-        EVB_AUTOMATION_NO_FOCUS: '1',
-    };
+    const releaseCiEnv = getReleaseCiEnv();
+    const releaseAutomationEnv = getReleaseAutomationEnv();
 
     // Run the local release gate under CI-mode test semantics so runner-only
     // behavior is more likely to fail before we ever push a release tag.

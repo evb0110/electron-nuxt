@@ -21,16 +21,20 @@ import type {
     IAnnotationSettings,
     TAnnotationTool,
     TMarkupSubtype,
+} from '@app/types/annotations';
+import type {
     IPdfjsEditor,
-} from '@app/composables/pdf/annotations/types';
-import type { IPdfjsEditorConstructorLike } from '@app/types/pdfjs';
+    IPdfjsEditorConstructorLike,
+} from '@app/types/pdfjs';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import {
     getCommentText,
-    toCssColor,
     detectEditorSubtype,
+} from '@app/composables/pdf/pdfAnnotationEditorUtils';
+import {
+    toCssColor,
     errorToLogText,
-} from '@app/composables/pdf/pdfAnnotationUtils';
+} from '@app/composables/pdf/annotationCssUtils';
 import {
     asPdfjsEditor,
     getEditorConstructor,

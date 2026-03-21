@@ -9,30 +9,32 @@ import type {
     IAnnotationCommentSummary,
     ILinkAnnotation,
     TMarkupSubtype,
-    IPdfjsEditor,
-} from '@app/composables/pdf/annotations/types';
-import { markerRectCenterDistance } from '@app/composables/pdf/annotations/types';
+} from '@app/types/annotations';
+import { markerRectCenterDistance } from '@app/composables/pdf/annotations/annotationRules';
 import type { PDFDocumentProxy } from '@app/types/pdf';
+import type { IPdfjsEditor } from '@app/types/pdfjs';
 import {
     getCommentText,
     hasEditorCommentPayload,
-    parsePdfDateTimestamp,
-    toCssColor,
     toMarkerRectFromEditor,
+    detectEditorSubtype,
+} from '@app/composables/pdf/pdfAnnotationEditorUtils';
+import {
+    parsePdfDateTimestamp,
     getAnnotationCommentText,
     getAnnotationAuthor,
     annotationKindLabelFromSubtype,
     isPopupSubtype,
     isLinkSubtype,
-    detectEditorSubtype,
     isTextMarkupSubtype,
-    normalizeMarkerRect,
 } from '@app/composables/pdf/pdfAnnotationUtils';
 import {
+    normalizeMarkerRect,
     normalizePageRotation,
     toMarkerRectFromEditorRect,
     toMarkerRectFromPdfRect,
 } from '@app/composables/pdf/annotationGeometry';
+import { toCssColor } from '@app/composables/pdf/annotationCssUtils';
 import {
     getOptionalFunction,
     getOptionalNumber,

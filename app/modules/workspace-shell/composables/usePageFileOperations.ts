@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/types';
+import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
 import type {
     TDocumentRef,
     TOpenFileResult,

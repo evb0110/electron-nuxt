@@ -6,6 +6,18 @@ export const ALLOWED_EXTERNAL_PROTOCOLS = new Set([
     'mailto:',
 ]);
 
+type TExternalUrlDecision =
+    | {
+        ok: true;
+        normalizedUrl: string;
+        url: URL;
+    }
+    | {
+        ok: false;
+        reason: 'empty' | 'invalid' | 'unsupported-protocol';
+        protocol?: string;
+    };
+
 function tryParseUrl(value: string) {
     try {
         return new URL(value);
@@ -14,34 +26,62 @@ function tryParseUrl(value: string) {
     }
 }
 
-export function parseAllowedExternalUrl(rawUrl: string) {
+export function inspectAllowedExternalUrl(rawUrl: string): TExternalUrlDecision {
     const normalized = rawUrl.trim();
     if (!normalized) {
-        return null;
+        return {
+            ok: false,
+            reason: 'empty',
+        };
     }
 
     const parsed = tryParseUrl(normalized);
-    if (!parsed || !ALLOWED_EXTERNAL_PROTOCOLS.has(parsed.protocol)) {
+    if (!parsed) {
+        return {
+            ok: false,
+            reason: 'invalid',
+        };
+    }
+    if (!ALLOWED_EXTERNAL_PROTOCOLS.has(parsed.protocol)) {
+        return {
+            ok: false,
+            protocol: parsed.protocol,
+            reason: 'unsupported-protocol',
+        };
+    }
+
+    return {
+        normalizedUrl: parsed.toString(),
+        ok: true,
+        url: parsed,
+    };
+}
+
+export function parseAllowedExternalUrl(rawUrl: string) {
+    const decision = inspectAllowedExternalUrl(rawUrl);
+    if (!decision.ok) {
         return null;
     }
 
-    return parsed;
+    return decision.url;
 }
 
 export function normalizeAllowedExternalUrl(rawUrl: string) {
-    return parseAllowedExternalUrl(rawUrl)?.toString() ?? null;
+    const decision = inspectAllowedExternalUrl(rawUrl);
+    return decision.ok
+        ? decision.normalizedUrl
+        : null;
 }
 
 export function sanitizeAllowedExternalUrl(rawUrl: unknown) {
     const normalized = assertNonEmptyString(rawUrl, 'url');
-    const allowedUrl = normalizeAllowedExternalUrl(normalized);
-    if (allowedUrl) {
-        return allowedUrl;
+    const decision = inspectAllowedExternalUrl(normalized);
+    if (decision.ok) {
+        return decision.normalizedUrl;
     }
 
-    const parsed = tryParseUrl(normalized);
-    if (parsed) {
-        throw new Error(`Unsupported external URL protocol: ${parsed.protocol}`);
+    if (decision.reason === 'unsupported-protocol') {
+        throw new Error(`Unsupported external URL protocol: ${decision.protocol}`);
     }
 
     throw new Error('Invalid external URL');

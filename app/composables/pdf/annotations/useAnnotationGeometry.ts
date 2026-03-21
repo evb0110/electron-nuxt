@@ -2,6 +2,8 @@ import { clamp } from 'es-toolkit/math';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
+} from '@app/types/annotations';
+import type {
     INormalizedRect,
     IViewportRect,
 } from '@app/composables/pdf/annotations/types';
@@ -10,19 +12,6 @@ import {
     markerRectIoU,
     mergeMarkerRects,
 } from '@app/composables/pdf/annotationGeometry';
-
-export {
-    normalizeMarkerRect, markerRectIoU, mergeMarkerRects, 
-} from '@app/composables/pdf/annotationGeometry';
-export {
-    toMarkerRectFromPdfRect,
-    rectIntersectionArea,
-    rectIoU,
-    rectCenterDistance,
-    rectsIntersect,
-    clamp01,
-} from '@app/composables/pdf/annotationGeometry';
-export { markerRectCenterDistance } from '@app/composables/pdf/annotations/types';
 
 interface IDetachedMarkerPlacement {
     leftPercent: number;
@@ -34,7 +23,7 @@ interface IDetachedCommentCluster {
     comments: IAnnotationCommentSummary[];
 }
 
-interface IDetachedMarkerOccupied {
+export interface IDetachedMarkerOccupied {
     x: number;
     y: number;
 }
@@ -362,5 +351,4 @@ export function resolveCommentIndicatorViewportPosition(
 export type {
     IDetachedMarkerPlacement,
     IDetachedCommentCluster,
-    IDetachedMarkerOccupied,
 };

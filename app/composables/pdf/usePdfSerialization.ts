@@ -20,8 +20,8 @@ import type {
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
 import type { IPdfPageLabelRange } from '@app/types/pdf';
 import { resolvePlacedImageEmbedMode } from '@app/composables/pdf/pdfPlacedImageEmbedding';
-import { markerRectIoU } from '@app/composables/pdf/pdfAnnotationUtils';
 import {
+    markerRectIoU,
     normalizePageRotation,
     toMarkerRectFromPdfRect,
     toPdfRectFromMarkerRect,
@@ -44,14 +44,6 @@ import {
 } from '@app/composables/pdf/pdfSerializationSubtypeHints';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/platform';
-
-export {
-    getPdfPopupDict, parsePdfJsAnnotationRef, resolveCommentPdfRefInDocument,
-} from '@app/composables/pdf/pdfSerializationRefs';
-export {
-    setAnnotationDictContents, updateAnnotationTextByRef, collectAnnotationRefsToDelete, removeAnnotationRefsFromPages,
-} from '@app/composables/pdf/pdfSerializationComments';
-export { serializeShapeAnnotationsToDoc } from '@app/composables/pdf/pdfSerializationShapes';
 
 const MARKUP_SUBTYPE_TO_PDF_NAME: Record<TMarkupSubtype, string> = {
     Highlight: 'Highlight',

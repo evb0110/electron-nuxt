@@ -1,6 +1,6 @@
 import type { BrowserWindow } from 'electron';
 import { shell } from 'electron';
-import { normalizeAllowedExternalUrl } from '@contracts/external-url';
+import { inspectAllowedExternalUrl } from '@contracts/external-url';
 
 interface ILogger {warn(message: string): void;}
 
@@ -48,12 +48,17 @@ export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
     }
 
     function openExternalSafely(url: string, source: 'window-open' | 'navigation') {
-        const sanitizedUrl = normalizeAllowedExternalUrl(url);
-        if (!sanitizedUrl) {
-            options.logger.warn(`Blocked ${source} URL with unsupported protocol: ${url}`);
+        const decision = inspectAllowedExternalUrl(url);
+        if (!decision.ok) {
+            if (decision.reason === 'unsupported-protocol') {
+                options.logger.warn(`Blocked ${source} URL with unsupported protocol: ${url}`);
+                return;
+            }
+
+            options.logger.warn(`Blocked ${source} URL with invalid value: ${url}`);
             return;
         }
-        void shell.openExternal(sanitizedUrl).catch((error) => {
+        void shell.openExternal(decision.normalizedUrl).catch((error) => {
             options.logger.warn(`Failed to open external URL (${source}): ${error instanceof Error ? error.message : String(error)}`);
         });
     }

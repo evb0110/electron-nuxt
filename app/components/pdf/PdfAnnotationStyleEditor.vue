@@ -78,7 +78,7 @@ import type {
 } from '@app/types/annotations';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdf-colors';
 import { ANNOTATION_PROPERTY_RANGES } from '@app/constants/annotation-defaults';
-import { isShapeTool } from '@app/composables/pdf/useAnnotationShapes';
+import { isShapeTool } from '@app/composables/pdf/annotations/annotationRules';
 
 type TDrawStyle = 'pen' | 'pencil' | 'marker';
 

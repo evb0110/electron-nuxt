@@ -1,8 +1,8 @@
 import { AnnotationEditorParamsType } from '@app/services/pdfjs/runtime-lib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationSettings } from '@app/types/annotations';
-import type { IPdfjsEditor } from '@app/composables/pdf/pdfAnnotationUtils';
-import { detectEditorSubtype } from '@app/composables/pdf/pdfAnnotationUtils';
+import type { IPdfjsEditor } from '@app/types/pdfjs';
+import { detectEditorSubtype } from '@app/composables/pdf/pdfAnnotationEditorUtils';
 import {
     getEditorsOnPage,
     setSelectedEditor,

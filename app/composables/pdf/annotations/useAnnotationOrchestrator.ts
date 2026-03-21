@@ -11,8 +11,8 @@ import type {
     IAnnotationSettings,
     ILinkAnnotation,
     TAnnotationTool,
-    IAnnotationContextMenuPayload,
-} from '@app/composables/pdf/annotations/types';
+} from '@app/types/annotations';
+import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import { groupBy } from 'es-toolkit/array';
 import { useAnnotationIdentity } from '@app/composables/pdf/annotations/useAnnotationIdentity';

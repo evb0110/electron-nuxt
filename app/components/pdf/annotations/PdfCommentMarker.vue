@@ -32,7 +32,7 @@
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
-} from '@app/composables/pdf/annotations/types';
+} from '@app/types/annotations';
 import { clamp } from 'es-toolkit/math';
 
 const DRAG_THRESHOLD = 5;

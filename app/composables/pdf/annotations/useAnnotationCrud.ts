@@ -12,25 +12,28 @@ import { uniq } from 'es-toolkit/array';
 import type {
     IAnnotationCommentSummary,
     TAnnotationTool,
-    IPdfjsEditor,
-    IAnnotationContextMenuPayload,
-} from '@app/composables/pdf/annotations/types';
+} from '@app/types/annotations';
 import {
     isNoteEligibleComment,
     markerRectCenterDistance,
-} from '@app/composables/pdf/annotations/types';
+} from '@app/composables/pdf/annotations/annotationRules';
+import type { IPdfjsEditor } from '@app/types/pdfjs';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import {
     getCommentText,
     hasEditorCommentPayload,
+    toMarkerRectFromEditor,
+} from '@app/composables/pdf/pdfAnnotationEditorUtils';
+import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
+import {
     normalizeMarkerRect,
     markerRectIoU,
-    toMarkerRectFromEditor,
+} from '@app/composables/pdf/annotationGeometry';
+import {
     escapeCssAttr,
     errorToLogText,
-} from '@app/composables/pdf/pdfAnnotationUtils';
+} from '@app/composables/pdf/annotationCssUtils';
 import {
-    getCommentCandidateIds,
     findEditorForComment as findEditorForCommentHelper,
     findEditorByAnnotationElementId as findEditorByAnnotationElementIdHelper,
     findEditorFromTarget as findEditorFromTargetHelper,
@@ -38,6 +41,7 @@ import {
     findAnnotationSummaryFromPoint as findAnnotationSummaryFromPointHelper,
 } from '@app/composables/pdf/annotationCommentCrudHelpers';
 import type { IEditorTargetMatch } from '@app/composables/pdf/annotationCommentCrudHelpers';
+import { getCommentCandidateIds } from '@app/composables/pdf/annotationCommentIdentity';
 import { runGuardedTask } from '@app/utils/async-guard';
 import {
     getEditorById,
@@ -49,12 +53,6 @@ import {
 } from '@app/services/pdfjs/annotationEditorAdapter';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { FOCUS_PULSE_MS } from '@app/constants/timeouts';
-
-export type { IEditorTargetMatch } from '@app/composables/pdf/annotationCommentCrudHelpers';
-export {
-    getCommentCandidateIds,
-    findPdfAnnotationSummaryFromTarget,
-} from '@app/composables/pdf/annotationCommentCrudHelpers';
 
 interface ICrudIdentity {
     resolveCommentFromCache: (comment: IAnnotationCommentSummary) => IAnnotationCommentSummary | null;
