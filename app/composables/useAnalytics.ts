@@ -287,15 +287,11 @@ function ensureAnalyticsLifecycle(enabledFlag: unknown) {
 }
 
 function getAnalyticsEnabledFlag() {
-    const runtimeConfigResolver = (
-        globalThis as typeof globalThis & {useRuntimeConfig?: () => {public?: {analyticsEnabled?: unknown;};};}
-    ).useRuntimeConfig;
-
-    if (typeof runtimeConfigResolver !== 'function') {
+    try {
+        return useRuntimeConfig().public?.analyticsEnabled ?? false;
+    } catch {
         return false;
     }
-
-    return runtimeConfigResolver().public?.analyticsEnabled ?? false;
 }
 
 export function useAnalytics() {
