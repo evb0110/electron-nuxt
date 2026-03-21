@@ -2,7 +2,7 @@ import { useEventListener } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
 
-interface IUseExternalFileDropOptions {openPathInAppropriateTab: (path: TDocumentRef) => Promise<void>;}
+interface IUseExternalFileDropOptions {openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;}
 
 function hasExternalFilePayload(dataTransfer: DataTransfer | null) {
     if (!dataTransfer) {
@@ -65,7 +65,7 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
 }
 
 export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
-    const { openPathInAppropriateTab } = options;
+    const { openPathsInAppropriateTab } = options;
     let queue: Promise<void> = Promise.resolve();
     let lifecycleToken = 0;
     let disposed = false;
@@ -78,12 +78,7 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
             return;
         }
 
-        for (const path of paths) {
-            if (disposed || tokenAtSchedule !== lifecycleToken) {
-                return;
-            }
-            await openPathInAppropriateTab(path);
-        }
+        await openPathsInAppropriateTab(paths);
     }
 
     function shouldHandleDropEvent(event: DragEvent) {

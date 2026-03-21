@@ -74,7 +74,7 @@ describe('useExternalFileDrop', () => {
     });
 
     it('opens supported dropped files', async () => {
-        const openPathInAppropriateTab = vi.fn(async (_path: string) => {});
+        const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
 
         vi.stubGlobal('window', {
             ...globalThis,
@@ -86,7 +86,7 @@ describe('useExternalFileDrop', () => {
             }) } },
         });
 
-        useExternalFileDrop({ openPathInAppropriateTab });
+        useExternalFileDrop({ openPathsInAppropriateTab });
         capturedListeners.drop?.(createDragEvent([
             '/docs/a.pdf',
             '/docs/b.djvu',
@@ -94,19 +94,21 @@ describe('useExternalFileDrop', () => {
 
         await flushDropQueue();
 
-        expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(1, '/docs/a.pdf');
-        expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(2, '/docs/b.djvu');
+        expect(openPathsInAppropriateTab).toHaveBeenCalledWith([
+            '/docs/a.pdf',
+            '/docs/b.djvu',
+        ]);
     });
 
     it('ignores unsupported extensions and non-file drags', async () => {
-        const openPathInAppropriateTab = vi.fn(async (_path: string) => {});
+        const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
 
         vi.stubGlobal('window', {
             ...globalThis,
             electronAPI: { documents: { getPathForFile: vi.fn(() => '/docs/readme.txt') } },
         });
 
-        useExternalFileDrop({ openPathInAppropriateTab });
+        useExternalFileDrop({ openPathsInAppropriateTab });
 
         const nonFileEvent = createDragEvent(['/docs/readme.txt'], ['text/plain']);
         capturedListeners.dragover?.(nonFileEvent);
@@ -117,18 +119,18 @@ describe('useExternalFileDrop', () => {
         await Promise.resolve();
 
         expect(nonFileEvent.preventDefault).not.toHaveBeenCalled();
-        expect(openPathInAppropriateTab).not.toHaveBeenCalled();
+        expect(openPathsInAppropriateTab).not.toHaveBeenCalled();
     });
 
     it('still handles valid file drops that were already prevented upstream', async () => {
-        const openPathInAppropriateTab = vi.fn(async (_path: string) => {});
+        const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
 
         vi.stubGlobal('window', {
             ...globalThis,
             electronAPI: { documents: { getPathForFile: vi.fn(() => '/docs/a.pdf') } },
         });
 
-        useExternalFileDrop({ openPathInAppropriateTab });
+        useExternalFileDrop({ openPathsInAppropriateTab });
 
         const event = createDragEvent(
             ['/docs/a.pdf'],
@@ -139,17 +141,17 @@ describe('useExternalFileDrop', () => {
         capturedListeners.drop?.(event);
         await flushDropQueue();
 
-        expect(openPathInAppropriateTab).toHaveBeenCalledWith('/docs/a.pdf');
+        expect(openPathsInAppropriateTab).toHaveBeenCalledWith(['/docs/a.pdf']);
     });
 
     it('stops processing queued paths after cleanup', async () => {
         let releaseFirstPathBarrier!: () => void;
-        const firstPathOpened = new Promise<void>((resolve) => {
+        const firstBatchOpened = new Promise<void>((resolve) => {
             releaseFirstPathBarrier = resolve;
         });
-        const openPathInAppropriateTab = vi.fn(async (path: string) => {
-            if (path.endsWith('a.pdf')) {
-                await firstPathOpened;
+        const openPathsInAppropriateTab = vi.fn(async (paths: string[]) => {
+            if (paths.includes('/docs/a.pdf')) {
+                await firstBatchOpened;
             }
         });
 
@@ -163,7 +165,7 @@ describe('useExternalFileDrop', () => {
             }) } },
         });
 
-        const { cleanup } = useExternalFileDrop({ openPathInAppropriateTab });
+        const { cleanup } = useExternalFileDrop({ openPathsInAppropriateTab });
 
         capturedListeners.drop?.(createDragEvent([
             '/docs/a.pdf',
@@ -171,12 +173,15 @@ describe('useExternalFileDrop', () => {
         ]));
 
         await flushDropQueue();
-        expect(openPathInAppropriateTab).toHaveBeenCalledWith('/docs/a.pdf');
+        expect(openPathsInAppropriateTab).toHaveBeenCalledWith([
+            '/docs/a.pdf',
+            '/docs/b.png',
+        ]);
 
         cleanup();
         releaseFirstPathBarrier();
         await flushDropQueue();
 
-        expect(openPathInAppropriateTab).not.toHaveBeenCalledWith('/docs/b.png');
+        expect(openPathsInAppropriateTab).toHaveBeenCalledTimes(1);
     });
 });
