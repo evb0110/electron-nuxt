@@ -22,28 +22,21 @@ type TCachedIndex = {
     mtimeMs: number;
     index: IPdfSearchIndex;
     accessedAt: number;
-    preparedPages: IPreparedSearchPage[] | null;
+    validatedTextBudget: boolean;
 };
-
-interface IPreparedSearchPage {
-    pageNumber: number;
-    sourcePageIndex: number;
-    text: string;
-    lowerText: string;
-}
 
 const PROGRESS_THROTTLE_MS = 60;
 const SEARCH_INDEX_CACHE_MAX_ENTRIES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_INDEX_CACHE_MAX_ENTRIES ?? '8', 10);
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_INDEX_CACHE_MAX_ENTRIES ?? '2', 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
-        return 8;
+        return 2;
     }
     return Math.min(parsed, 128);
 })();
 const SEARCH_INDEX_CACHE_TTL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_INDEX_CACHE_TTL_MS ?? `${10 * 60 * 1000}`, 10);
+    const parsed = Number.parseInt(process.env.EVB_SEARCH_INDEX_CACHE_TTL_MS ?? `${2 * 60 * 1000}`, 10);
     if (!Number.isFinite(parsed) || parsed < 30_000) {
-        return 10 * 60 * 1000;
+        return 2 * 60 * 1000;
     }
     return parsed;
 })();
@@ -191,6 +184,29 @@ function pruneIndexCache(now = Date.now()) {
             break;
         }
         indexCache.delete(entry[0]);
+    }
+}
+
+function validateIndexTextBudget(index: IPdfSearchIndex) {
+    let totalTextBytes = 0;
+
+    for (const page of index.pages) {
+        const pageText = page.text ?? '';
+        const pageTextBytes = Buffer.byteLength(pageText, 'utf8');
+        if (pageTextBytes > SEARCH_WORKER_MAX_PAGE_TEXT_BYTES) {
+            throw new Error(
+                `Search index page ${page.pageNumber} is too large (${Math.round(pageTextBytes / 1024)}KB > `
+                + `${Math.round(SEARCH_WORKER_MAX_PAGE_TEXT_BYTES / 1024)}KB limit)`,
+            );
+        }
+
+        totalTextBytes += pageTextBytes;
+        if (totalTextBytes > SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES) {
+            throw new Error(
+                `Search index resident text budget exceeded (${Math.round(totalTextBytes / (1024 * 1024))}MB > `
+                + `${Math.round(SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES / (1024 * 1024))}MB limit)`,
+            );
+        }
     }
 }
 
@@ -394,8 +410,10 @@ async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
         mtimeMs,
         index,
         accessedAt: now,
-        preparedPages: null,
+        validatedTextBudget: false,
     };
+    validateIndexTextBudget(entry.index);
+    entry.validatedTextBudget = true;
     indexCache.set(pdfPath, entry);
     pruneIndexCache(now);
     return entry;
@@ -419,8 +437,10 @@ async function cacheBuiltIndex(
         mtimeMs,
         index,
         accessedAt: now,
-        preparedPages: null,
+        validatedTextBudget: false,
     };
+    validateIndexTextBudget(entry.index);
+    entry.validatedTextBudget = true;
     indexCache.set(pdfPath, entry);
     pruneIndexCache(now);
     return entry;
@@ -493,45 +513,12 @@ async function ensureSearchIndex(
         }
     }
 
-    return entry;
-}
-
-function ensurePreparedSearchPages(entry: TCachedIndex): IPreparedSearchPage[] {
-    if (entry.preparedPages) {
-        return entry.preparedPages;
+    if (!entry.validatedTextBudget) {
+        validateIndexTextBudget(entry.index);
+        entry.validatedTextBudget = true;
     }
 
-    let totalResidentTextBytes = 0;
-    const preparedPages = entry.index.pages.map((page, sourcePageIndex) => {
-        const pageText = page.text ?? '';
-        const pageTextBytes = Buffer.byteLength(pageText, 'utf8');
-        if (pageTextBytes > SEARCH_WORKER_MAX_PAGE_TEXT_BYTES) {
-            throw new Error(
-                `Search index page ${page.pageNumber} is too large (${Math.round(pageTextBytes / 1024)}KB > `
-                + `${Math.round(SEARCH_WORKER_MAX_PAGE_TEXT_BYTES / 1024)}KB limit)`,
-            );
-        }
-
-        const lowerText = pageText ? pageText.toLowerCase() : '';
-        const lowerTextBytes = Buffer.byteLength(lowerText, 'utf8');
-        totalResidentTextBytes += pageTextBytes + lowerTextBytes;
-        if (totalResidentTextBytes > SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES) {
-            throw new Error(
-                `Search index resident text budget exceeded (${Math.round(totalResidentTextBytes / (1024 * 1024))}MB > `
-                + `${Math.round(SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES / (1024 * 1024))}MB limit)`,
-            );
-        }
-
-        return {
-            pageNumber: page.pageNumber,
-            sourcePageIndex,
-            text: pageText,
-            lowerText,
-        };
-    });
-
-    entry.preparedPages = preparedPages;
-    return preparedPages;
+    return entry;
 }
 
 async function processSearchRequest(request: ISearchWorkerRequest) {
@@ -580,7 +567,6 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
             signal,
         });
         throwIfCancelled(requestId, signal);
-        const preparedPages = ensurePreparedSearchPages(indexEntry);
 
         if (shouldWarmup) {
             throwIfCancelled(requestId, signal);
@@ -606,10 +592,10 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
         let processedCount = 0;
         let truncated = false;
 
-        for (let pageIdx = 0; pageIdx < preparedPages.length; pageIdx += 1) {
+        for (let pageIdx = 0; pageIdx < indexEntry.index.pages.length; pageIdx += 1) {
             throwIfCancelled(requestId, signal);
 
-            const page = preparedPages[pageIdx];
+            const page = indexEntry.index.pages[pageIdx];
             if (!page) {
                 continue;
             }

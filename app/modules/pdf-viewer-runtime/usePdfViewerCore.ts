@@ -233,6 +233,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         isLoading,
         getRenderVersion,
         loadPdf,
+        ensurePageMetricsInRange,
         getPage,
         cleanup: cleanupDocument,
     } = pdfDocumentResult;
@@ -365,6 +366,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         isLoading,
         getRenderVersion,
         loadPdf,
+        ensurePageMetricsInRange,
         getPage,
         renderVisiblePages: (range) => renderVisiblePages(range),
         getVisibleRange,

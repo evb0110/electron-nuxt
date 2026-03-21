@@ -43,10 +43,9 @@ vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
 }) }));
 
 const TEST_PDF_PATH = '/tmp/test-search.pdf';
-const TEST_INDEX_PATH = `${TEST_PDF_PATH}.index.json`;
 const PAGE_TEXT = 'XxUniquePageTextxX';
 
-describe('search worker warmup and prepared page caching', () => {
+describe('search worker warmup and cache behavior', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
@@ -54,10 +53,10 @@ describe('search worker warmup and prepared page caching', () => {
         mocks.messageHandlers.clear();
 
         mocks.stat.mockImplementation(async (path: string) => {
-            if (path === TEST_PDF_PATH) {
+            if (path.endsWith('.pdf')) {
                 return { mtimeMs: 10 };
             }
-            if (path === TEST_INDEX_PATH) {
+            if (path.endsWith('.index.json')) {
                 return { mtimeMs: 1 };
             }
             throw new Error(`Unexpected stat path: ${path}`);
@@ -106,7 +105,42 @@ describe('search worker warmup and prepared page caching', () => {
         });
     });
 
-    it('reuses pre-lowercased page text across repeated searches', async () => {
+    it('evicts the oldest cached index once the default cache budget is exceeded', async () => {
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        expect(handleMessage).toBeTypeOf('function');
+
+        const pdfPaths = [
+            '/tmp/search-a.pdf',
+            '/tmp/search-b.pdf',
+            '/tmp/search-c.pdf',
+            '/tmp/search-a.pdf',
+        ];
+
+        for (let index = 0; index < pdfPaths.length; index += 1) {
+            const pdfPath = pdfPaths[index];
+            handleMessage?.({
+                type: 'search',
+                payload: {
+                    requestId: `warm-${index}`,
+                    pdfPath,
+                    query: '',
+                    pageCount: 1,
+                    warmup: true,
+                },
+            });
+            await vi.waitFor(() => {
+                expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+                    type: 'complete',
+                    requestId: `warm-${index}`,
+                }));
+            });
+        }
+
+        expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(4);
+    });
+
+    it('does not materialize lowercase page copies across repeated searches', async () => {
         const originalToLowerCase = String.prototype.toLowerCase;
         let pageTextLowerCalls = 0;
         const toLowerSpy = vi
@@ -156,7 +190,7 @@ describe('search worker warmup and prepared page caching', () => {
             });
 
             expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(1);
-            expect(pageTextLowerCalls).toBe(1);
+            expect(pageTextLowerCalls).toBe(0);
         } finally {
             toLowerSpy.mockRestore();
         }

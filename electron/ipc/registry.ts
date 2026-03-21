@@ -2,7 +2,6 @@ import {
     BrowserWindow,
     ipcMain,
     shell,
-    webContents,
 } from 'electron';
 import type { IIpcMainRegistrar } from '@contracts/ipc-main';
 import type { ISettingsData } from '@contracts/shared';
@@ -81,13 +80,6 @@ const RENDERER_LOG_MAX_DATA_CHARS = (() => {
     }
     return Math.min(parsed, 64_000);
 })();
-const RENDERER_LOG_SERIALIZE_MAX_DEPTH = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_SERIALIZE_MAX_DEPTH ?? '4', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 4;
-    }
-    return Math.min(parsed, 8);
-})();
 const RENDERER_LOG_SERIALIZE_MAX_NODES = (() => {
     const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_SERIALIZE_MAX_NODES ?? '256', 10);
     if (!Number.isFinite(parsed) || parsed < 16) {
@@ -96,30 +88,30 @@ const RENDERER_LOG_SERIALIZE_MAX_NODES = (() => {
     return Math.min(parsed, 8_192);
 })();
 const RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS ?? '64', 10);
+    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS ?? '16', 10);
     if (!Number.isFinite(parsed) || parsed < 4) {
-        return 64;
+        return 16;
     }
     return Math.min(parsed, 1_024);
 })();
 const RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS ?? '64', 10);
+    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS ?? '16', 10);
     if (!Number.isFinite(parsed) || parsed < 4) {
-        return 64;
+        return 16;
     }
     return Math.min(parsed, 2_048);
 })();
 const RENDERER_LOG_RATE_LIMIT_PER_SECOND = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_RATE_LIMIT_PER_SECOND ?? '60', 10);
+    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_RATE_LIMIT_PER_SECOND ?? '20', 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
-        return 60;
+        return 20;
     }
     return Math.min(parsed, 5_000);
 })();
 const RENDERER_LOG_RATE_LIMIT_BURST = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_RATE_LIMIT_BURST ?? '120', 10);
+    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_RATE_LIMIT_BURST ?? '40', 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
-        return 120;
+        return 40;
     }
     return Math.min(parsed, 10_000);
 })();
@@ -131,6 +123,7 @@ const RENDERER_LOG_DROP_NOTICE_INTERVAL_MS = (() => {
     return parsed;
 })();
 const rendererLogRateStateBySender = new Map<number, IRendererLogRateState>();
+const rendererLogCleanupRegisteredBySender = new Set<number>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -219,8 +212,30 @@ function normalizeRendererLogData(
         return `[Function ${functionName || 'anonymous'}]`;
     }
 
-    if (depth >= RENDERER_LOG_SERIALIZE_MAX_DEPTH) {
-        return '[MaxDepth]';
+    if (depth >= 1) {
+        if (Array.isArray(value)) {
+            return `[Array(${value.length})]`;
+        }
+        if (value instanceof Date) {
+            return value.toISOString();
+        }
+        if (value instanceof RegExp) {
+            return String(value);
+        }
+        if (value instanceof Error) {
+            return {
+                name: value.name,
+                message: value.message,
+            };
+        }
+        if (ArrayBuffer.isView(value)) {
+            const typedArray = value;
+            return `[${typedArray.constructor.name}(${typedArray.byteLength})]`;
+        }
+        if (value instanceof ArrayBuffer) {
+            return `[ArrayBuffer(${value.byteLength})]`;
+        }
+        return '[Object]';
     }
 
     if (value instanceof Date) {
@@ -354,13 +369,19 @@ function consumeRendererLogRateToken(webContentsId: number) {
     return false;
 }
 
-function pruneRendererLogRateState() {
-    for (const senderId of rendererLogRateStateBySender.keys()) {
-        const contents = webContents.fromId(senderId);
-        if (!contents || contents.isDestroyed()) {
-            rendererLogRateStateBySender.delete(senderId);
-        }
+function registerRendererLogSenderCleanup(sender: Electron.WebContents) {
+    const senderId = sender.id;
+    if (rendererLogCleanupRegisteredBySender.has(senderId)) {
+        return;
     }
+
+    rendererLogCleanupRegisteredBySender.add(senderId);
+    const cleanup = () => {
+        rendererLogRateStateBySender.delete(senderId);
+        rendererLogCleanupRegisteredBySender.delete(senderId);
+    };
+    sender.once('destroyed', cleanup);
+    sender.once('render-process-gone', cleanup);
 }
 
 function isTrustedWebContentsSender(
@@ -409,13 +430,10 @@ function handleRendererLog(event: Electron.IpcMainEvent, payload: IRendererLogEn
     if (!isTrustedWebContentsSender(event.sender, event.senderFrame, 'renderer:log')) {
         return;
     }
+    registerRendererLogSenderCleanup(event.sender);
     if (!consumeRendererLogRateToken(webContentsId)) {
         return;
     }
-    if (rendererLogRateStateBySender.size > 512) {
-        pruneRendererLogRateState();
-    }
-
     const section = clampString(payload?.section, RENDERER_LOG_MAX_SECTION_CHARS, 'unknown');
     const message = clampString(payload?.message, RENDERER_LOG_MAX_MESSAGE_CHARS, '<empty>');
     const level = typeof payload?.level === 'string' ? payload.level : 'info';

@@ -119,27 +119,28 @@ describe('usePdfDocument range loading', () => {
     });
 
     it('uses the largest measured page as the fit baseline when page sizes differ', async () => {
+        const getPage = vi.fn(async (pageNumber: number) => {
+            const metrics = [
+                {
+                    width: 180,
+                    height: 240,
+                },
+                {
+                    width: 612,
+                    height: 792,
+                },
+                {
+                    width: 320,
+                    height: 640,
+                },
+            ];
+            const metric = metrics[pageNumber - 1]!;
+            return { getViewport: vi.fn(() => metric) };
+        });
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve({
                 numPages: 3,
-                getPage: vi.fn(async (pageNumber: number) => {
-                    const metrics = [
-                        {
-                            width: 180,
-                            height: 240,
-                        },
-                        {
-                            width: 612,
-                            height: 792,
-                        },
-                        {
-                            width: 320,
-                            height: 640,
-                        },
-                    ];
-                    const metric = metrics[pageNumber - 1]!;
-                    return { getViewport: vi.fn(() => metric) };
-                }),
+                getPage,
                 destroy: vi.fn(),
             }),
             destroy: vi.fn(),
@@ -159,6 +160,16 @@ describe('usePdfDocument range loading', () => {
         });
 
         expect(result).not.toBeNull();
+        expect(documentState.basePageWidth.value).toBe(180);
+        expect(documentState.basePageHeight.value).toBe(240);
+        expect(documentState.pageMetrics.value).toEqual([{
+            width: 180,
+            height: 240,
+        }]);
+        expect(getPage).toHaveBeenCalledTimes(1);
+
+        await expect(documentState.ensurePageMetricsInRange(2, 3)).resolves.toBe(true);
+
         expect(documentState.basePageWidth.value).toBe(612);
         expect(documentState.basePageHeight.value).toBe(792);
         expect(documentState.pageMetrics.value).toEqual([
@@ -175,6 +186,55 @@ describe('usePdfDocument range loading', () => {
                 height: 640,
             },
         ]);
+        expect(getPage).toHaveBeenCalledTimes(3);
+    });
+
+    it('hydrates only the requested metric range after the initial page', async () => {
+        const getPage = vi.fn(async (pageNumber: number) => ({ getViewport: vi.fn(() => ({
+            width: 200 + pageNumber,
+            height: 400 + pageNumber,
+        })) }));
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 5,
+                getPage,
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        } as ILoadingTask);
+        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = usePdfDocument();
+        await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/lazy-metrics.pdf',
+            size: 2048,
+        });
+
+        expect(getPage).toHaveBeenCalledTimes(1);
+        expect(documentState.pageMetrics.value[0]).toEqual({
+            width: 201,
+            height: 401,
+        });
+        expect(documentState.pageMetrics.value[3]).toBeUndefined();
+
+        await expect(documentState.ensurePageMetricsInRange(4, 5)).resolves.toBe(true);
+
+        expect(getPage).toHaveBeenCalledTimes(3);
+        expect(documentState.pageMetrics.value[3]).toEqual({
+            width: 204,
+            height: 404,
+        });
+        expect(documentState.pageMetrics.value[4]).toEqual({
+            width: 205,
+            height: 405,
+        });
+        expect(documentState.pageMetrics.value[1]).toBeUndefined();
     });
 
     it('returns null and clears loading when PDF.js range transport API is unavailable', async () => {

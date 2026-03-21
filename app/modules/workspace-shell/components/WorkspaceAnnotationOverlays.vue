@@ -137,6 +137,7 @@ import type { IAnnotationNotePosition } from '@app/composables/pdf/annotations/a
 import { NOTE_WINDOW } from '@app/constants/pdf-layout';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { clamp } from 'es-toolkit/math';
+import { createRafBurstScheduler } from '@app/modules/workspace-shell/components/overlayRafBurstScheduler';
 
 interface IAnnotationNoteWindowEntry {
     comment: IAnnotationCommentSummary;
@@ -225,9 +226,9 @@ const anchoredAnnotationNoteWindows = computed(() => {
     ));
 });
 const indicatorDomTick = ref(0);
-let refreshBurstFrameId: number | null = null;
-let refreshBurstFramesRemaining = 0;
 let viewportMutationObserver: MutationObserver | null = null;
+let viewportScrollCleanup: (() => void) | null = null;
+let viewportResizeCleanup: (() => void) | null = null;
 
 function logAnchor(message: string, payload: Record<string, unknown>) {
     BrowserLogger.debug('note-anchor', message, payload);
@@ -235,27 +236,6 @@ function logAnchor(message: string, payload: Record<string, unknown>) {
 
 function refreshIndicatorDom() {
     indicatorDomTick.value += 1;
-}
-
-function runRefreshBurstFrame() {
-    refreshBurstFrameId = null;
-    refreshIndicatorDom();
-    refreshBurstFramesRemaining = Math.max(0, refreshBurstFramesRemaining - 1);
-    if (refreshBurstFramesRemaining > 0 && typeof window !== 'undefined') {
-        refreshBurstFrameId = window.requestAnimationFrame(runRefreshBurstFrame);
-    }
-}
-
-function scheduleIndicatorRefreshBurst(frames = 6) {
-    if (typeof window === 'undefined') {
-        refreshIndicatorDom();
-        return;
-    }
-    refreshBurstFramesRemaining = Math.max(refreshBurstFramesRemaining, Math.max(1, Math.round(frames)));
-    if (refreshBurstFrameId !== null) {
-        return;
-    }
-    refreshBurstFrameId = window.requestAnimationFrame(runRefreshBurstFrame);
 }
 
 function parseStableKeysAttr(value: string | null | undefined) {
@@ -496,7 +476,6 @@ interface IConnectorLine {
 }
 
 const connectorLines = shallowRef<IConnectorLine[]>([]);
-let connectorRafId: number | null = null;
 
 function getMarkerCenter(
     stableKey: string,
@@ -566,32 +545,6 @@ function computeConnectorLines(): IConnectorLine[] {
     return lines;
 }
 
-function connectorRafLoop() {
-    connectorLines.value = computeConnectorLines();
-    if (openNoteAnchors.value.length > 0) {
-        connectorRafId = requestAnimationFrame(connectorRafLoop);
-    } else {
-        connectorRafId = null;
-    }
-}
-
-function startConnectorLoop() {
-    if (connectorRafId !== null) {
-        return;
-    }
-    if (openNoteAnchors.value.length > 0) {
-        connectorRafId = requestAnimationFrame(connectorRafLoop);
-    }
-}
-
-function stopConnectorLoop() {
-    if (connectorRafId !== null) {
-        cancelAnimationFrame(connectorRafId);
-        connectorRafId = null;
-    }
-    connectorLines.value = [];
-}
-
 function getNoteMarkerRect(note: IAnnotationNoteWindowEntry) {
     return normalizeMarkerRect(note.comment.markerRect);
 }
@@ -629,14 +582,35 @@ function reconnectViewportObservers() {
     viewportMutationObserver?.disconnect();
     viewportMutationObserver = null;
 
+    viewportScrollCleanup?.();
+    viewportScrollCleanup = null;
+    viewportResizeCleanup?.();
+    viewportResizeCleanup = null;
+
     const viewportRoot = props.annotationViewportRoot;
     if (!viewportRoot) {
         return;
     }
 
+    const scheduleViewportRefresh = () => {
+        scheduleOverlayRefreshBurst(4);
+    };
+
+    viewportRoot.addEventListener('scroll', scheduleViewportRefresh, {passive: true});
+    viewportScrollCleanup = () => {
+        viewportRoot.removeEventListener('scroll', scheduleViewportRefresh);
+    };
+
+    if (typeof window !== 'undefined') {
+        window.addEventListener('resize', scheduleViewportRefresh, {passive: true});
+        viewportResizeCleanup = () => {
+            window.removeEventListener('resize', scheduleViewportRefresh);
+        };
+    }
+
     if (typeof MutationObserver !== 'undefined') {
         viewportMutationObserver = new MutationObserver(() => {
-            scheduleIndicatorRefreshBurst(4);
+            scheduleOverlayRefreshBurst(4);
         });
         viewportMutationObserver.observe(viewportRoot, {
             childList: true,
@@ -677,69 +651,65 @@ function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
     emit('restore-note', note.comment.stableKey);
 }
 
+const overlayRefreshScheduler = createRafBurstScheduler(() => {
+    refreshIndicatorDom();
+    connectorLines.value = computeConnectorLines();
+});
+
+function scheduleOverlayRefreshBurst(frames = 6) {
+    overlayRefreshScheduler.request(frames);
+}
+
 onMounted(() => {
     reconnectViewportObservers();
-    scheduleIndicatorRefreshBurst(10);
+    scheduleOverlayRefreshBurst(10);
 });
 
 onBeforeUnmount(() => {
-    stopConnectorLoop();
-    if (typeof window !== 'undefined') {
-        if (refreshBurstFrameId !== null) {
-            window.cancelAnimationFrame(refreshBurstFrameId);
-            refreshBurstFrameId = null;
-        }
-    }
+    overlayRefreshScheduler.cancel();
+    connectorLines.value = [];
     viewportMutationObserver?.disconnect();
     viewportMutationObserver = null;
+    viewportScrollCleanup?.();
+    viewportScrollCleanup = null;
+    viewportResizeCleanup?.();
+    viewportResizeCleanup = null;
 });
 
 watch(
     () => props.annotationViewportRoot,
     () => {
         reconnectViewportObservers();
-        scheduleIndicatorRefreshBurst(12);
+        scheduleOverlayRefreshBurst(12);
     },
 );
 
 watch(
     () => props.annotationZoom,
     () => {
-        scheduleIndicatorRefreshBurst(12);
+        scheduleOverlayRefreshBurst(12);
     },
 );
 
 watch(
     () => anchoredAnnotationNoteWindows.value.map((note) => `${note.comment.stableKey}:${note.comment.pageNumber}`),
     () => {
-        scheduleIndicatorRefreshBurst(6);
+        scheduleOverlayRefreshBurst(6);
     },
 );
 
 watch(
     () => visibleAnnotationNoteWindows.value.map((note) => note.comment.stableKey),
     () => {
-        scheduleIndicatorRefreshBurst(6);
+        scheduleOverlayRefreshBurst(6);
     },
 );
 
 watch(
     () => props.annotationNotePositions,
     () => {
-        scheduleIndicatorRefreshBurst(3);
+        scheduleOverlayRefreshBurst(3);
     },
-);
-
-watch(
-    () => openNoteAnchors.value.length,
-    (count) => {
-        if (count > 0) {
-            startConnectorLoop();
-        } else {
-            stopConnectorLoop();
-        }
-    },
-    { immediate: true },
 );
 
 const emit = defineEmits<{

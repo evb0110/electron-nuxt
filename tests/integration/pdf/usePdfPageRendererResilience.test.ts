@@ -226,6 +226,7 @@ describe('usePdfPageRenderer resilience', () => {
         const { pageContainer } = createPageContainer();
         const containerRoot = createContainerRoot(pageContainer);
         const pageContainerClassList = pageContainer.classList;
+        const ensurePageMetricsInRange = vi.fn(async () => true);
 
         const documentState = {
             pdfDocument: shallowRef({} as object),
@@ -233,6 +234,7 @@ describe('usePdfPageRenderer resilience', () => {
             basePageWidth: ref(100),
             basePageHeight: ref(100),
             isLoading: ref(false),
+            ensurePageMetricsInRange,
             getPage: vi.fn(async () => ({render: vi.fn((_ctx: IRenderContext) => ({ promise: Promise.resolve() }))})),
             evictPage: vi.fn(),
             cleanupPageCache: vi.fn(),
@@ -262,6 +264,7 @@ describe('usePdfPageRenderer resilience', () => {
             start: 1,
             end: 1,
         });
+        expect(ensurePageMetricsInRange).toHaveBeenCalledWith(1, 1);
         expect(renderer.isPageRendered(1)).toBe(true);
 
         vi.clearAllMocks();
