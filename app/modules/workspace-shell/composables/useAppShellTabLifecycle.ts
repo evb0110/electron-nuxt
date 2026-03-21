@@ -370,7 +370,10 @@ export function useAppShellTabLifecycle(options: IUseAppShellTabLifecycleOptions
             }
 
             const workspace = workspaceRefs.value.get(tabId);
-            if (workspace && workspaceHasPdf(workspace)) {
+            // DjVu workspaces also need proper close handling (temp cleanup, exitDjvuMode)
+            const workspaceHasDocument = workspace
+                && (workspaceHasPdf(workspace) || workspace.getToolbarSnapshot().isDjvuMode);
+            if (workspaceHasDocument) {
                 workspaceRestoreTracker.start(tabId);
                 try {
                     await workspace.handleCloseFileFromUi({ persist: shouldPersistBeforeClose });
@@ -378,7 +381,7 @@ export function useAppShellTabLifecycle(options: IUseAppShellTabLifecycleOptions
                     workspaceRestoreTracker.finish(tabId);
                 }
 
-                if (!workspaceHasPdf(workspace)) {
+                if (!workspaceHasPdf(workspace) && !workspace.getToolbarSnapshot().isDjvuMode) {
                     const resolvedGroup = getGroupByTabId(tabId) ?? getGroupById(groupId);
                     if (resolvedGroup) {
                         closeTabInState(resolvedGroup.id, tabId);
