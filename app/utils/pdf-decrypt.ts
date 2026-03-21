@@ -233,14 +233,22 @@ async function decryptStringsInArray(
 function hasEncryptMarker(data: Uint8Array): boolean {
     const decoder = new TextDecoder('latin1');
     const marker = '/Encrypt';
-    const chunkSize = 65536;
 
-    for (let i = 0; i < data.length; i += chunkSize - marker.length) {
-        const end = Math.min(i + chunkSize, data.length);
-        if (decoder.decode(data.subarray(i, end)).includes(marker)) {
-            return true;
-        }
+    // The /Encrypt reference lives in the PDF trailer dictionary, found at
+    // the end of the file (standard PDFs) or near the start (linearized PDFs).
+    // Scanning only these regions avoids an O(n) full-file scan.
+    const REGION = 32768;
+
+    const headEnd = Math.min(REGION, data.length);
+    if (decoder.decode(data.subarray(0, headEnd)).includes(marker)) {
+        return true;
     }
+
+    const tailStart = Math.max(headEnd, data.length - REGION);
+    if (tailStart < data.length && decoder.decode(data.subarray(tailStart)).includes(marker)) {
+        return true;
+    }
+
     return false;
 }
 
@@ -256,7 +264,7 @@ export async function stripPdfEncryption(data: Uint8Array): Promise<Uint8Array> 
     try {
         doc = await PDFDocument.load(data, {
             ignoreEncryption: true,
-            updateMetadata: false, 
+            updateMetadata: false,
         });
     } catch {
         return data;

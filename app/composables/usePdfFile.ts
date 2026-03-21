@@ -446,8 +446,10 @@ export const usePdfFile = () => {
         // This prevents an inconsistent UI where the tab shows metadata
         // (filename, dirty dot) but the content area shows the empty state
         // because pdfSrc was never set due to a failed read.
+        // Only the file state is needed for rendering; conformance analysis
+        // (used only for save restrictions) is deferred so it does not block
+        // the initial display of the document.
         const nextState = await readPdfStateFromPath(path);
-        const nextConformanceProfile = await readPdfConformanceProfile(path);
 
         if (requestId !== latestLoadRequestId) {
             BrowserLogger.debug('pdf-file', 'Skipped stale PDF load result', {
@@ -466,7 +468,7 @@ export const usePdfFile = () => {
         workingCopyPath.value = path;
         pdfData.value = nextState.pdfData;
         pdfSrc.value = nextState.pdfSrc;
-        pdfConformanceProfile.value = nextConformanceProfile;
+        pdfConformanceProfile.value = null;
 
         if (nextState.pdfData) {
             resetHistory(nextState.pdfData);
@@ -492,6 +494,20 @@ export const usePdfFile = () => {
                 );
             }
         }
+
+        // Deferred: compute conformance profile in the background so the
+        // document renders without waiting for the expensive pdf-lib parse
+        // that only feeds save-restriction logic.
+        readPdfConformanceProfile(path).then((profile) => {
+            if (workingCopyPath.value === path) {
+                pdfConformanceProfile.value = profile;
+            }
+        }).catch((conformanceError: unknown) => {
+            BrowserLogger.warn('pdf-file', 'Deferred conformance analysis failed', {
+                path,
+                error: conformanceError,
+            });
+        });
     }
 
     async function reloadWorkingCopyIntoHistory(opts?: { markDirty?: boolean }) {
