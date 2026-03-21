@@ -11,6 +11,7 @@ import type {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { retry } from 'es-toolkit/function';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { useAnalytics } from '@app/composables/useAnalytics';
 
 export interface IFileOperationsDeps {
     isSaving: Ref<boolean>;
@@ -43,6 +44,7 @@ export interface IFileOperationsDeps {
 }
 
 export const useFileOperations = (deps: IFileOperationsDeps) => {
+    const analytics = useAnalytics();
     const {
         isSaving,
         isSavingAs,
@@ -199,7 +201,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                         });
                         if (saveResult) {
                             const persisted = await saveFile(saveResult.finalBytes, { saveMode: saveResult.saveMode });
-                            finalizeSuccessfulSave(persisted);
+                            if (finalizeSuccessfulSave(persisted)) {
+                                analytics.track('save_completed', {
+                                    didSaveAs: persisted.didSaveAs,
+                                    mode: 'save',
+                                    saveMode: persisted.saveMode,
+                                    serializedChanges: true,
+                                });
+                            }
                         }
                     }
                     return;
@@ -207,7 +216,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 const saveResult = await validateWorkingCopySnapshot('rewrite');
                 if (saveResult) {
                     const persisted = await saveWorkingCopy({ saveMode: saveResult.saveMode });
-                    finalizeSuccessfulSave(persisted, { resetAnnotationStorage: false });
+                    if (finalizeSuccessfulSave(persisted, { resetAnnotationStorage: false })) {
+                        analytics.track('save_completed', {
+                            didSaveAs: persisted.didSaveAs,
+                            mode: 'save',
+                            saveMode: persisted.saveMode,
+                            serializedChanges: false,
+                        });
+                    }
                 }
                 return;
             }
@@ -220,7 +236,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 });
                 if (saveResult) {
                     const persisted = await saveFile(saveResult.finalBytes, { saveMode: saveResult.saveMode });
-                    finalizeSuccessfulSave(persisted);
+                    if (finalizeSuccessfulSave(persisted)) {
+                        analytics.track('save_completed', {
+                            didSaveAs: persisted.didSaveAs,
+                            mode: 'save',
+                            saveMode: persisted.saveMode,
+                            serializedChanges: true,
+                        });
+                    }
                 }
             }
         } finally {
@@ -252,14 +275,28 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     });
                     if (saveResult) {
                         const persisted = await saveWorkingCopyAs(saveResult.finalBytes, { saveMode: saveResult.saveMode });
-                        finalizeSuccessfulSave(persisted);
+                        if (finalizeSuccessfulSave(persisted)) {
+                            analytics.track('save_completed', {
+                                didSaveAs: persisted.didSaveAs,
+                                mode: 'save_as',
+                                saveMode: persisted.saveMode,
+                                serializedChanges: true,
+                            });
+                        }
                     }
                 }
             } else {
                 const saveResult = await validateWorkingCopySnapshot('save_as_rewrite');
                 if (saveResult) {
                     const persisted = await saveWorkingCopyAs(undefined, { saveMode: saveResult.saveMode });
-                    finalizeSuccessfulSave(persisted, { resetAnnotationStorage: false });
+                    if (finalizeSuccessfulSave(persisted, { resetAnnotationStorage: false })) {
+                        analytics.track('save_completed', {
+                            didSaveAs: persisted.didSaveAs,
+                            mode: 'save_as',
+                            saveMode: persisted.saveMode,
+                            serializedChanges: false,
+                        });
+                    }
                 }
             }
         } finally {

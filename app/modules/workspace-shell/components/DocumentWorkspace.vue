@@ -421,6 +421,8 @@ import PdfToolbar from '@app/components/pdf/PdfToolbar.vue';
 import PdfViewer from '@app/components/pdf/PdfViewer.vue';
 import PdfZoomDropdown from '@app/components/pdf/PdfZoomDropdown.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
+import { useAnalytics } from '@app/composables/useAnalytics';
+import { bucketPageCount } from '@app/utils/analytics';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/composables/createWorkspaceExpose';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
 import WorkspaceShell from '@app/modules/workspace-shell/components/layout/WorkspaceShell.vue';
@@ -471,6 +473,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+const analytics = useAnalytics();
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const isRestoringSplitPayload = ref(false);
@@ -718,6 +721,12 @@ function handleViewerTotalPagesUpdate(value: number) {
         return;
     }
     totalPages.value = value;
+    if (value > 0) {
+        analytics.mergeDocumentContext({
+            pageCountBucket: bucketPageCount(value),
+            totalPages: value,
+        });
+    }
 }
 
 const {

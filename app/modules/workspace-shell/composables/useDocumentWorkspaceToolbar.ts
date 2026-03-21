@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { useAnalytics } from '@app/composables/useAnalytics';
 import type { ICropMargins } from '@app/types/crop';
 import type { TPdfViewMode } from '@contracts/shared';
 
@@ -39,6 +40,7 @@ interface IUseDocumentWorkspaceToolbarOptions {
 }
 
 export function useDocumentWorkspaceToolbar(options: IUseDocumentWorkspaceToolbarOptions) {
+    const analytics = useAnalytics();
     const sidebarToggleCheckpointTimers = new Set<ReturnType<typeof setTimeout>>();
 
     const canExportDocx = computed(() => (
@@ -96,6 +98,11 @@ export function useDocumentWorkspaceToolbar(options: IUseDocumentWorkspaceToolba
                 pageAfterToggleWrite: options.currentPage.value,
             });
         });
+        analytics.track('viewer_mode_changed', {
+            control: 'sidebar',
+            previousValue: beforeSidebar,
+            nextValue: !beforeSidebar,
+        });
 
         const checkpointSchedule = [
             0,
@@ -151,9 +158,17 @@ export function useDocumentWorkspaceToolbar(options: IUseDocumentWorkspaceToolba
             });
         },
         handleOverflowSetViewMode(mode: TPdfViewMode) {
+            const previousValue = options.viewMode.value;
             runToolbarAction(() => {
                 options.viewMode.value = mode;
             });
+            if (previousValue !== mode) {
+                analytics.track('viewer_mode_changed', {
+                    control: 'view_mode',
+                    previousValue,
+                    nextValue: mode,
+                });
+            }
         },
         handleToolbarCaptureRegion() {
             runToolbarAction(options.handleCaptureRegion);
@@ -165,23 +180,45 @@ export function useDocumentWorkspaceToolbar(options: IUseDocumentWorkspaceToolba
             runToolbarAction(() => {
                 options.handleAnnotationToolChange('none');
             });
+            analytics.track('viewer_mode_changed', {
+                control: 'drag_mode',
+                previousValue: true,
+                nextValue: false,
+            });
         },
         handleToolbarEnableDrag() {
             runToolbarAction(() => {
                 options.enableDragMode();
+            });
+            analytics.track('viewer_mode_changed', {
+                control: 'drag_mode',
+                previousValue: false,
+                nextValue: true,
             });
         },
         handleToolbarExportDocx() {
             runToolbarAction(options.handleExportDocx);
         },
         handleToolbarFitHeight() {
+            const previousValue = options.fitMode.value;
             runToolbarAction(() => {
                 options.handleFitMode('height');
             });
+            analytics.track('viewer_mode_changed', {
+                control: 'fit_mode',
+                previousValue: String(previousValue),
+                nextValue: 'height',
+            });
         },
         handleToolbarFitWidth() {
+            const previousValue = options.fitMode.value;
             runToolbarAction(() => {
                 options.handleFitMode('width');
+            });
+            analytics.track('viewer_mode_changed', {
+                control: 'fit_mode',
+                previousValue: String(previousValue),
+                nextValue: 'width',
             });
         },
         handleToolbarQuickNote() {
@@ -197,8 +234,14 @@ export function useDocumentWorkspaceToolbar(options: IUseDocumentWorkspaceToolba
             runToolbarAction(options.handleSaveAs);
         },
         handleToolbarToggleContinuousScroll() {
+            const previousValue = options.continuousScroll.value;
             runToolbarAction(() => {
                 options.continuousScroll.value = !options.continuousScroll.value;
+            });
+            analytics.track('viewer_mode_changed', {
+                control: 'continuous_scroll',
+                previousValue,
+                nextValue: !previousValue,
             });
         },
         handleToolbarToggleSidebar,
