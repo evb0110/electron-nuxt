@@ -15,7 +15,6 @@
 
 <script setup lang="ts">
 import {
-    buildAbsoluteUrl,
     normalizeSiteUrl,
 } from '~~/shared/seo';
 import SiteFooter from '~/components/SiteFooter.vue';
@@ -23,35 +22,10 @@ import SiteHeader from '~/components/SiteHeader.vue';
 
 const { t } = useTypedI18n();
 const { locale } = useI18n();
-const route = useRoute();
 const runtimeConfig = useRuntimeConfig();
 
-const OPEN_GRAPH_LOCALE_BY_LOCALE = {
-    en: 'en_US',
-    ru: 'ru_RU',
-    fr: 'fr_FR',
-    de: 'de_DE',
-    es: 'es_ES',
-    it: 'it_IT',
-    pt: 'pt_PT',
-    nl: 'nl_NL',
-} as const;
-
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
-const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
-const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, '/evb-viewer-preview.png'));
-const ogLocale = computed(
-    () => OPEN_GRAPH_LOCALE_BY_LOCALE[locale.value]
-        || OPEN_GRAPH_LOCALE_BY_LOCALE.en,
-);
-const ogLocaleAlternates = computed(
-    () => Object.entries(OPEN_GRAPH_LOCALE_BY_LOCALE)
-        .filter(([code]) => code !== locale.value)
-        .map(([
-            ,
-            ogLocaleValue,
-        ]) => ogLocaleValue),
-);
+const ogImage = computed(() => `${siteUrl.value}/evb-viewer-og.png`);
 
 const websiteSchema = computed(() => JSON.stringify({
     '@context': 'https://schema.org',
@@ -62,8 +36,14 @@ const websiteSchema = computed(() => JSON.stringify({
     inLanguage: locale.value,
 }));
 
+const localeHead = useLocaleHead({
+    seo: true,
+});
+
 useHead(() => ({
-    htmlAttrs: { lang: locale.value },
+    htmlAttrs: {
+        ...localeHead.value.htmlAttrs,
+    },
     meta: [
         {
             name: 'viewport',
@@ -79,10 +59,7 @@ useHead(() => ({
             content: '#1a1a1a',
             media: '(prefers-color-scheme: dark)',
         },
-        ...ogLocaleAlternates.value.map(ogLocaleValue => ({
-            property: 'og:locale:alternate',
-            content: ogLocaleValue,
-        })),
+        ...localeHead.value.meta ?? [],
     ],
     link: [
         {
@@ -113,10 +90,6 @@ useHead(() => ({
             href: '/apple-touch-icon.png',
         },
         {
-            rel: 'canonical',
-            href: canonicalUrl.value,
-        },
-        {
             rel: 'preload',
             href: '/fonts/space-grotesk-latin.woff2',
             as: 'font',
@@ -137,6 +110,7 @@ useHead(() => ({
             type: 'font/woff2',
             crossorigin: 'anonymous',
         },
+        ...localeHead.value.link ?? [],
     ],
     script: [{
         key: 'website-schema',
@@ -152,10 +126,8 @@ useSeoMeta({
     ogTitle: () => t('app.title'),
     ogDescription: () => t('app.description'),
     ogImage: () => ogImage.value,
-    ogUrl: () => canonicalUrl.value,
     ogSiteName: () => t('app.title'),
     ogType: 'website',
-    ogLocale: () => ogLocale.value,
     twitterTitle: () => t('app.title'),
     twitterDescription: () => t('app.description'),
     twitterImage: () => ogImage.value,

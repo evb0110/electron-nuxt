@@ -46,14 +46,12 @@ const LOCALE_FLAGS: Record<TLocale, string> = {
 
 const open = ref(false);
 
-const {
-    locale,
-    setLocale,
-} = useTypedI18n();
+const { locale } = useTypedI18n();
+const switchLocalePath = useSwitchLocalePath();
 
-async function switchTo(code: TLocale) {
+function switchTo(code: TLocale) {
     open.value = false;
-    await setLocale(code);
+    navigateTo(switchLocalePath(code));
 }
 </script>
 

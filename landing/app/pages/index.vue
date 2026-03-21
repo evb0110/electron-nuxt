@@ -197,14 +197,14 @@
       <div class="section-actions">
         <UButton
           :label="t('home.explore.featuresPage')"
-          to="/features"
+          :to="localePath('/features')"
           color="neutral"
           variant="outline"
           trailing-icon="i-lucide-arrow-right"
         />
         <UButton
           :label="t('home.explore.docsPage')"
-          to="/docs"
+          :to="localePath('/docs')"
           color="neutral"
           variant="outline"
           trailing-icon="i-lucide-arrow-right"
@@ -247,13 +247,14 @@ interface INavigatorUADataLike {
 const { t } = useTypedI18n();
 const { locale } = useI18n();
 const route = useRoute();
+const localePath = useLocalePath();
 const runtimeConfig = useRuntimeConfig();
 
 const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
 const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
 const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
-const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, '/evb-viewer-preview.png'));
+const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, '/evb-viewer-og.png'));
 const pageDescription = computed(() => t('home.seo.ogDescription'));
 
 const featureHighlights = computed(() => [

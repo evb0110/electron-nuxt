@@ -1,7 +1,8 @@
 import {fileURLToPath} from 'node:url';
- 
+
 import {
     DEFAULT_LOCALE,
+    LOCALE_CODES,
     LOCALE_DEFINITIONS,
 } from './app/i18n/core';
 
@@ -10,6 +11,7 @@ export default defineNuxtConfig({
     modules: [
         '@nuxt/ui',
         '@nuxtjs/i18n',
+        '@nuxtjs/sitemap',
     ],
 
     devtools: { enabled: true },
@@ -37,19 +39,37 @@ export default defineNuxtConfig({
         '/': { isr: 600 },
         '/features': { prerender: true },
         '/docs': { prerender: true },
+        ...Object.fromEntries(
+            LOCALE_CODES
+                .filter(code => code !== DEFAULT_LOCALE)
+                .flatMap(code => [
+                    [`/${code}`, { isr: 600 }],
+                    [`/${code}/features`, { prerender: true }],
+                    [`/${code}/docs`, { prerender: true }],
+                ]),
+        ),
         '/robots.txt': { prerender: true },
-        '/sitemap.xml': { prerender: true },
+    },
+
+    sitemap: {
+        autoI18n: true,
+        xslColumns: [
+            { label: 'URL', width: '65%' },
+            { label: 'Last Modified', select: 'sitemap:lastmod', width: '35%' },
+        ],
     },
 
     i18n: {
         restructureDir: 'app',
         locales: LOCALE_DEFINITIONS.map(locale => ({ ...locale })),
         defaultLocale: DEFAULT_LOCALE,
+        baseUrl: process.env.NUXT_PUBLIC_SITE_URL || process.env.NUXT_SITE_URL || 'https://evb-viewer.vercel.app',
         langDir: 'locales/',
-        strategy: 'no_prefix',
+        strategy: 'prefix_except_default',
         detectBrowserLanguage: {
             useCookie: true,
             cookieKey: 'i18n_locale',
+            redirectOn: 'root',
         },
     },
 

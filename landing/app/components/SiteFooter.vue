@@ -5,13 +5,13 @@
     <div class="footer-links">
       <UButton
         :label="t('footer.docs')"
-        to="/docs"
+        :to="localePath('/docs')"
         color="neutral"
         variant="ghost"
       />
       <UButton
         :label="t('footer.features')"
-        to="/features"
+        :to="localePath('/features')"
         color="neutral"
         variant="ghost"
       />
@@ -29,5 +29,6 @@
 
 <script setup lang="ts">
 const { t } = useTypedI18n();
+const localePath = useLocalePath();
 const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
 </script>
