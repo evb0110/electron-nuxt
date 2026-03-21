@@ -1,3 +1,7 @@
+import {
+    defineEventHandler,
+    setHeader,
+} from 'h3';
 import { EVB_RUNTIME_IDENTITY } from '@contracts/runtime-identity';
 
 export default defineEventHandler((event) => {

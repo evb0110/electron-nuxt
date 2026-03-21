@@ -1,3 +1,7 @@
+import {
+    defineEventHandler,
+    setHeader,
+} from 'h3';
 import { resolveSiteUrl } from '../utils/normalize-site-url';
 
 export default defineEventHandler((event) => {

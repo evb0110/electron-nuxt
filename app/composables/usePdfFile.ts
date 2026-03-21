@@ -3,6 +3,7 @@ import {
     getElectronAPI,
     hasElectronAPI,
 } from '@app/utils/platform';
+import { useAnalytics } from '@app/composables/useAnalytics';
 import { getDocumentRefBaseName } from '@app/utils/document-ref';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import type {
@@ -16,6 +17,10 @@ import type {
     TOpenFileResult,
 } from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import {
+    bucketFileSize,
+    getLowercaseExtension,
+} from '@app/utils/analytics';
 
 interface IOpenBatchProgressState {
     processed: number;
@@ -28,6 +33,7 @@ interface IOpenBatchProgressState {
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
 export const usePdfFile = () => {
+    const analytics = useAnalytics();
     const { t } = useTypedI18n();
 
     const pdfSrc = ref<TPdfSource | null>(null);
@@ -63,6 +69,38 @@ export const usePdfFile = () => {
         return api.documents.openPdfDialog();
     }
 
+    async function trackOpenedDocument(
+        result: TOpenFileResult,
+        openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
+    ) {
+        const fileName = getDocumentRefBaseName(result.originalPath);
+        let fileSizeBucket: string | null = null;
+
+        try {
+            const { size } = await getElectronAPI().documents.statFile(result.originalPath);
+            fileSizeBucket = bucketFileSize(size);
+        } catch {
+            fileSizeBucket = null;
+        }
+
+        analytics.setDocumentContext({
+            documentKind: result.kind,
+            fileExtension: getLowercaseExtension(fileName),
+            fileSizeBucket,
+            isGenerated: result.kind === 'pdf' ? Boolean(result.isGenerated) : false,
+            pageCountBucket: null,
+            totalPages: null,
+        });
+        analytics.track('document_opened', {
+            documentKind: result.kind,
+            fileExtension: getLowercaseExtension(fileName),
+            fileSizeBucket,
+            isGenerated: result.kind === 'pdf' ? Boolean(result.isGenerated) : false,
+            openMethod,
+            requiresSaveAsOnFirstSave: result.kind === 'pdf' ? Boolean(result.isGenerated) : false,
+        });
+    }
+
     async function openFile(preSelected?: TOpenFileResult) {
         error.value = null;
         pendingDjvu.value = null;
@@ -74,6 +112,7 @@ export const usePdfFile = () => {
             }
             if (result.kind === 'djvu') {
                 pendingDjvu.value = result.originalPath;
+                await trackOpenedDocument(result, preSelected ? 'preselected' : 'picker');
                 return;
             }
             await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
@@ -82,6 +121,7 @@ export const usePdfFile = () => {
             }
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
+            await trackOpenedDocument(result, preSelected ? 'preselected' : 'picker');
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
         }
@@ -119,6 +159,7 @@ export const usePdfFile = () => {
 
             if (result.kind === 'djvu') {
                 pendingDjvu.value = result.originalPath;
+                await trackOpenedDocument(result, 'direct');
                 BrowserLogger.debug(
                     RECENT_OPEN_LOG_SECTION,
                     'openFileDirect entered DjVu mode',
@@ -152,6 +193,7 @@ export const usePdfFile = () => {
             }
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
+            await trackOpenedDocument(result, 'direct');
             BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect completed', {
                 path,
                 workingPath: result.workingPath,
@@ -228,6 +270,7 @@ export const usePdfFile = () => {
             if (result.kind === 'djvu') {
                 openBatchProgress.value = null;
                 pendingDjvu.value = result.originalPath;
+                await trackOpenedDocument(result, 'batch');
                 return;
             }
             await loadPdfFromPath(result.workingPath, {markDirty: !!result.isGenerated});
@@ -238,6 +281,7 @@ export const usePdfFile = () => {
             originalPath.value = result.originalPath;
             requiresSaveAsOnFirstSave.value = !!result.isGenerated;
             openBatchProgress.value = null;
+            await trackOpenedDocument(result, 'batch');
         } catch (e) {
             openBatchProgress.value = null;
             error.value = e instanceof Error ? e.message : t('errors.file.open');
@@ -718,6 +762,7 @@ export const usePdfFile = () => {
         pendingDjvu.value = null;
         openBatchProgress.value = null;
         requiresSaveAsOnFirstSave.value = false;
+        analytics.clearDocumentContext();
         resetHistory(null);
         if (pathToCleanup) {
             const api = getElectronAPI();

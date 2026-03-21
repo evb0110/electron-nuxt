@@ -3,6 +3,7 @@ import type { TDocumentRef } from '@contracts/platform-api';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/platform';
+import { useAnalytics } from '@app/composables/useAnalytics';
 
 type TExportDialogMode = 'images' | 'multipage-tiff';
 
@@ -12,6 +13,7 @@ interface IWorkspaceExportDeps {
 }
 
 export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
+    const analytics = useAnalytics();
     const {
         workingCopyPath,
         totalPages,
@@ -78,7 +80,17 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         isExportInProgress.value = true;
         try {
             const api = getElectronAPI();
-            await api.documents.exportPdfToImages(workingCopyPath.value, pageNumbers);
+            const startedAt = Date.now();
+            const result = await api.documents.exportPdfToImages(workingCopyPath.value, pageNumbers);
+            if (result.success || result.canceled) {
+                analytics.track('export_completed', {
+                    durationMs: Math.max(0, Date.now() - startedAt),
+                    format: 'images',
+                    outputCount: result.outputPaths?.length ?? 0,
+                    selectedPageCount: pageNumbers?.length ?? totalPages.value,
+                    status: result.success ? 'success' : 'canceled',
+                });
+            }
         } catch (error) {
             BrowserLogger.error('workspace', 'export images failed', error);
         } finally {
@@ -94,7 +106,16 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         isExportInProgress.value = true;
         try {
             const api = getElectronAPI();
-            await api.documents.exportPdfToMultiPageTiff(workingCopyPath.value, pageNumbers);
+            const startedAt = Date.now();
+            const result = await api.documents.exportPdfToMultiPageTiff(workingCopyPath.value, pageNumbers);
+            if (result.success || result.canceled) {
+                analytics.track('export_completed', {
+                    durationMs: Math.max(0, Date.now() - startedAt),
+                    format: 'multipage_tiff',
+                    selectedPageCount: pageNumbers?.length ?? totalPages.value,
+                    status: result.success ? 'success' : 'canceled',
+                });
+            }
         } catch (error) {
             BrowserLogger.error('workspace', 'export multi-page tiff failed', error);
         } finally {

@@ -7,6 +7,7 @@ import {
     extractPdfText,
 } from '@app/composables/ocrProcessing';
 import { createOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
+import { useAnalytics } from '@app/composables/useAnalytics';
 
 const RTL_OCR_LANGUAGES = new Set([
     'heb',
@@ -14,6 +15,7 @@ const RTL_OCR_LANGUAGES = new Set([
 ]);
 
 export const useDocxExport = () => {
+    const analytics = useAnalytics();
     const { t } = useTypedI18n();
     const { localizeOcrError } = createOcrErrorLocalizer(t);
 
@@ -52,6 +54,12 @@ export const useDocxExport = () => {
             const hasRtl = selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
             const docxBytes = createDocxFromText(text, hasRtl);
             await getElectronAPI().documents.writeDocxFile(outPath, docxBytes);
+            analytics.track('export_completed', {
+                format: 'docx',
+                hasRtl,
+                selectedLanguageCount: selectedLanguages.length,
+                status: 'success',
+            });
             return true;
         } catch (error) {
             docxExportError.value = localizeOcrError(error, 'errors.ocr.exportDocx');

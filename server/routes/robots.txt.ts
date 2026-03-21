@@ -1,3 +1,7 @@
+import {
+    defineEventHandler,
+    setHeader,
+} from 'h3';
 import { resolveSiteUrl } from '../utils/normalize-site-url';
 
 const AI_CRAWLERS = [

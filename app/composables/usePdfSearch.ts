@@ -16,6 +16,11 @@ import {
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/platform';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
+import { useAnalytics } from '@app/composables/useAnalytics';
+import {
+    bucketPageCount,
+    bucketQueryLength,
+} from '@app/utils/analytics';
 
 export type {
     IPdfPageMatches,
@@ -24,6 +29,7 @@ export type {
 };
 
 export const usePdfSearch = () => {
+    const analytics = useAnalytics();
     const searchQuery = ref('');
     const searchOptions = ref<Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>>({
         matchCase: false,
@@ -69,6 +75,7 @@ export const usePdfSearch = () => {
         pdfPath: string;
         pageCount?: number;
         options: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>;
+        requestedAt: number;
     }) => {
         const resolver = scheduledResolve;
         scheduledResolve = null;
@@ -80,6 +87,7 @@ export const usePdfSearch = () => {
                 payload.pdfPath,
                 payload.pageCount,
                 payload.options,
+                payload.requestedAt,
             );
         } catch (error) {
             BrowserLogger.warn('pdf-search', 'Search failed', {
@@ -122,6 +130,7 @@ export const usePdfSearch = () => {
         pdfPath: string,
         pageCount?: number,
         options: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>> = searchOptions.value,
+        requestedAt = Date.now(),
     ) {
         if (!query.trim()) {
             return;
@@ -246,6 +255,16 @@ export const usePdfSearch = () => {
             results.value = mergedResults;
             pageMatches.value = matchesMap;
             isTruncated.value = response.truncated;
+            analytics.track('search_executed', {
+                durationMs: Math.max(0, Date.now() - requestedAt),
+                matchCase: options.matchCase,
+                pageCountBucket: bucketPageCount(pageCount),
+                queryLengthBucket: bucketQueryLength(query.length),
+                resultCount: mergedResults.length,
+                truncated: response.truncated,
+                useRegex: options.useRegex,
+                wholeWord: options.wholeWord,
+            });
 
             if (mergedResults.length === 0) {
                 currentResultIndex.value = -1;
@@ -314,6 +333,7 @@ export const usePdfSearch = () => {
                 pdfPath,
                 pageCount,
                 options: { ...searchOptions.value },
+                requestedAt: Date.now(),
             });
         });
     }

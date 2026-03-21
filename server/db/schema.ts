@@ -1,0 +1,39 @@
+import { sql } from 'drizzle-orm';
+import {
+    index,
+    jsonb,
+    pgTable,
+    serial,
+    text,
+    timestamp,
+    varchar,
+} from 'drizzle-orm/pg-core';
+
+export const viewerAnalyticsEvent = pgTable(
+    'viewer_analytics_event',
+    {
+        id: serial('id').primaryKey(),
+        eventName: varchar('event_name', { length: 80 }).notNull(),
+        path: varchar('path', { length: 255 }),
+        locale: varchar('locale', { length: 16 }),
+        screenCategory: varchar('screen_category', { length: 16 }),
+        sessionId: varchar('session_id', { length: 64 }),
+        referrer: text('referrer'),
+        country: varchar('country', { length: 2 }),
+        city: varchar('city', { length: 255 }),
+        region: varchar('region', { length: 32 }),
+        visitorHash: varchar('visitor_hash', { length: 64 }),
+        deploymentHost: varchar('deployment_host', { length: 255 }),
+        userAgent: text('user_agent'),
+        payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+        occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
+        createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    },
+    table => [
+        index('viewer_analytics_event_name_occurred_at_idx').on(table.eventName, table.occurredAt),
+        index('viewer_analytics_event_occurred_at_idx').on(table.occurredAt),
+        index('viewer_analytics_event_path_idx').on(table.path),
+        index('viewer_analytics_event_session_id_idx').on(table.sessionId),
+        index('viewer_analytics_event_visitor_hash_idx').on(table.visitorHash),
+    ],
+);

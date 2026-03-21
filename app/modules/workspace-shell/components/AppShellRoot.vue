@@ -7,6 +7,7 @@
                 target="_blank"
                 rel="noreferrer"
                 class="browser-install-link"
+                @click="handleBrowserInstallHintClick"
             >
                 {{ t('webApp.installDesktop') }}
                 <UIcon name="i-lucide-arrow-up-right" class="browser-install-link-icon" />
@@ -16,7 +17,7 @@
                 type="button"
                 class="browser-install-dismiss"
                 :aria-label="t('webApp.dismissInstallDesktop')"
-                @click="dismissBrowserInstallHint"
+                @click="dismissBrowserInstallHint('manual')"
             >
                 <UIcon name="i-lucide-x" class="browser-install-dismiss-icon" />
             </button>
@@ -136,6 +137,7 @@ import { useToolbarTeleportBridge } from '@app/modules/workspace-shell/composabl
 import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
 import { useWorkspaceRefRegistry } from '@app/modules/workspace-shell/composables/useWorkspaceRefRegistry';
 import { useAppUpdates } from '@app/composables/useAppUpdates';
+import { useAnalytics } from '@app/composables/useAnalytics';
 import { useEditorGroupsManager } from '@app/modules/workspace-shell/composables/useEditorGroupsManager';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
@@ -173,6 +175,7 @@ const {
 } = useEditorGroupsManager();
 
 const { t } = useTypedI18n();
+const analytics = useAnalytics();
 const showSettings = ref(false);
 const isBrowserRuntime = !hasElectronAPI();
 const runtimeConfig = useRuntimeConfig();
@@ -186,6 +189,14 @@ const browserInstallHintCookie = useCookie<string | null>(
 const browserInstallHintDismissed = useState(
     'browser-install-hint:dismissed',
     () => browserInstallHintCookie.value !== null,
+);
+const didTrackViewerSession = useState(
+    'analytics:viewer-session-started',
+    () => false,
+);
+const didTrackInstallHintShown = useState(
+    'analytics:install-hint-shown',
+    () => false,
 );
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
@@ -446,8 +457,36 @@ const windowTitle = computed(() => resolveAppWindowTitle({
     isBrowserRuntime,
 }));
 
-function dismissBrowserInstallHint() {
+function getBrowserInstallHost() {
+    if (!browserInstallUrl.value) {
+        return null;
+    }
+
+    try {
+        return new URL(browserInstallUrl.value).host;
+    } catch {
+        return null;
+    }
+}
+
+function trackBrowserInstallHint(action: 'shown' | 'clicked' | 'dismissed' | 'auto_dismissed') {
+    analytics.track('browser_install_hint_interacted', {
+        action,
+        destinationHost: getBrowserInstallHost(),
+    });
+}
+
+function handleBrowserInstallHintClick() {
+    trackBrowserInstallHint('clicked');
+}
+
+function dismissBrowserInstallHint(reason: 'manual' | 'auto' = 'manual') {
+    if (browserInstallHintDismissed.value) {
+        return;
+    }
+
     browserInstallHintDismissed.value = true;
+    trackBrowserInstallHint(reason === 'auto' ? 'auto_dismissed' : 'dismissed');
 
     if (!import.meta.client || !isBrowserRuntime) {
         return;
@@ -480,13 +519,30 @@ watch(windowTitle, (nextTitle) => {
 const BROWSER_INSTALL_HINT_AUTO_DISMISS_MS = 60_000;
 
 onMounted(() => {
+    if (isBrowserRuntime && !didTrackViewerSession.value) {
+        didTrackViewerSession.value = true;
+        analytics.track('viewer_session_started', {
+            installHintVisible: showBrowserInstallHint.value,
+            installHintDestinationHost: getBrowserInstallHost(),
+        }, { includeReferrer: true });
+    }
+
     if (!isBrowserRuntime || browserInstallHintDismissed.value) {
         return;
     }
 
-    const timer = window.setTimeout(dismissBrowserInstallHint, BROWSER_INSTALL_HINT_AUTO_DISMISS_MS);
+    const timer = window.setTimeout(() => dismissBrowserInstallHint('auto'), BROWSER_INSTALL_HINT_AUTO_DISMISS_MS);
     onScopeDispose(() => window.clearTimeout(timer));
 });
+
+watch(showBrowserInstallHint, (isVisible) => {
+    if (!isBrowserRuntime || !isVisible || didTrackInstallHintShown.value) {
+        return;
+    }
+
+    didTrackInstallHintShown.value = true;
+    trackBrowserInstallHint('shown');
+}, { immediate: true });
 
 useTabsShellBindings({
     tabs,
