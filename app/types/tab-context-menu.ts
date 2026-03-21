@@ -4,6 +4,7 @@ export type TDirectionalCommandAvailability = Record<TGroupDirection, boolean>;
 
 export interface ITabContextAvailability {
     split: TDirectionalCommandAvailability;
+    splitEmpty: TDirectionalCommandAvailability;
     focus: TDirectionalCommandAvailability;
     move: TDirectionalCommandAvailability;
     copy: TDirectionalCommandAvailability;
@@ -22,7 +23,11 @@ export type TTabContextCommand =
     }
     | {
         kind: 'split';
-        direction: TGroupDirection 
+        direction: TGroupDirection
+    }
+    | {
+        kind: 'split-empty';
+        direction: TGroupDirection
     }
     | {
         kind: 'focus';

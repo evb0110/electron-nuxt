@@ -148,6 +148,7 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
 
             result[group.id] = {
                 split: createDirectionalAvailability(hasActiveTab && !transitionsBusy),
+                splitEmpty: createDirectionalAvailability(!transitionsBusy),
                 focus,
                 move,
                 copy,
@@ -203,6 +204,36 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
             activateGroup(sourceGroup.id);
             activateTab(sourceGroup.id, sourceTabId);
             cleanupEmptyGroups();
+        });
+    }
+
+    async function splitEditorEmpty(direction: TGroupDirection) {
+        await enqueueTabTransition(async () => {
+            const sourceGroup = getGroupById(activeGroupId.value);
+            const sourceTabId = sourceGroup?.activeTabId ?? null;
+            if (!sourceGroup) {
+                return;
+            }
+
+            if (sourceTabId) {
+                const payload = await captureWorkspacePayload(sourceTabId);
+                if (payload) {
+                    workspaceSplitCache.set(sourceTabId, payload);
+                    scheduleSplitCacheCleanup(sourceTabId);
+                }
+            }
+
+            const newGroupId = splitGroup(sourceGroup.id, direction);
+            if (!newGroupId) {
+                return;
+            }
+
+            createTab({
+                groupId: newGroupId,
+                activate: true,
+            });
+
+            activateGroup(newGroupId);
         });
     }
 
@@ -344,6 +375,11 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
             return;
         }
 
+        if (command.kind === 'split-empty') {
+            await splitEditorEmpty(command.direction);
+            return;
+        }
+
         if (command.kind === 'focus') {
             focusEditorGroup(command.direction);
             return;
@@ -382,6 +418,7 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
     return {
         tabContextAvailabilityByGroup,
         splitEditor,
+        splitEditorEmpty,
         focusEditorGroup,
         moveActiveTab,
         copyActiveTab,
