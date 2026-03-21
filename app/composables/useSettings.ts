@@ -12,7 +12,10 @@ import {
     parseBrowserSettingsPayload,
     serializeBrowserSettingsPayload,
 } from '@app/utils/browser-settings-persistence';
-import { getElectronAPI } from '@app/utils/platform';
+import {
+    getElectronAPI,
+    hasElectronAPI,
+} from '@app/utils/platform';
 
 // Deduplication: track in-flight load promise
 let loadPromise: Promise<void> | null = null;

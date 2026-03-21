@@ -5,10 +5,39 @@ import {
     it,
     vi,
 } from 'vitest';
+import { ref } from 'vue';
 import type { ISettingsData } from '@contracts/shared';
 
 const mockGet = vi.fn<() => Promise<ISettingsData>>();
 const mockSave = vi.fn<(settings: ISettingsData) => Promise<void>>();
+const cookieStore = new Map<string, ReturnType<typeof ref>>();
+const stateStore = new Map<string, ReturnType<typeof ref>>();
+
+function installNuxtStateStubs() {
+    vi.stubGlobal('useCookie', <T>(key: string, options?: { default?: () => T; }) => {
+        const existing = cookieStore.get(key);
+        if (existing) {
+            return existing;
+        }
+
+        const cookie = ref(options?.default ? options.default() : null);
+        cookieStore.set(key, cookie);
+        return cookie;
+    });
+
+    vi.stubGlobal('useState', <T>(key: string, init: () => T) => {
+        const existing = stateStore.get(key);
+        if (existing) {
+            return existing;
+        }
+
+        const state = ref(init());
+        stateStore.set(key, state);
+        return state;
+    });
+
+    vi.stubGlobal('toRaw', <T>(value: T) => value);
+}
 
 function stubWindow() {
     vi.stubGlobal('window', {
@@ -24,7 +53,10 @@ describe('useSettings', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        cookieStore.clear();
+        stateStore.clear();
         stubWindow();
+        installNuxtStateStubs();
     });
 
     it('preserves supported locale values on save', async () => {
