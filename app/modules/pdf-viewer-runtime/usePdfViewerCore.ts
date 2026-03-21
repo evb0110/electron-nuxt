@@ -77,7 +77,10 @@ interface IUsePdfViewerCoreOptions {
     setupPagePlaceholders: () => void;
     renderVisiblePages: (
         range: IPageRange,
-        options?: { preserveRenderedPages?: boolean },
+        options?: {
+            preserveRenderedPages?: boolean;
+            bufferOverride?: number;
+        },
     ) => Promise<void>;
     reRenderAllVisiblePages: (
         getVisibleRange: () => IPageRange,
