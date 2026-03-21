@@ -151,18 +151,27 @@ export function createBrowserPageOps(
                 pickedFiles.map(async (picked) =>
                     browserDocumentStore.registerFile(picked.file, {
                         kind: 'source',
+                        retention: 'transient',
                         saveKind: 'generic',
                         saveHandle: picked.handle ?? null,
                     }),
                 ),
             );
 
-            return pageOps.insertFile(
-                workingCopyPath,
-                0,
-                afterPage,
-                sourcePaths,
-            );
+            try {
+                return await pageOps.insertFile(
+                    workingCopyPath,
+                    0,
+                    afterPage,
+                    sourcePaths,
+                );
+            } finally {
+                await Promise.allSettled(
+                    sourcePaths.map(async (sourcePath) => {
+                        await browserDocumentStore.cleanupDetachedDocument(sourcePath);
+                    }),
+                );
+            }
         },
         async insertFile(workingCopyPath, _totalPages, afterPage, sourcePaths) {
             const destinationPdf = await PDFDocument.load(

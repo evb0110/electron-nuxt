@@ -14,36 +14,24 @@ const mocks = vi.hoisted(() => {
         }
     }
 
-    const buildTaskState: {
-        mode: 'cancel-pending' | 'startup-error' | 'success';
-        workerTerminate: ReturnType<typeof vi.fn>;
-        rejectPendingBuild: ((error: Error) => void) | null;
-    } = {
-        mode: 'success',
-        workerTerminate: vi.fn(() => Promise.resolve(0)),
-        rejectPendingBuild: null,
-    };
-
     return {
         StartupError: MockDjvuPdfWorkerStartupError,
-        buildTaskState,
+        bookmarkTaskState: {
+            mode: 'success' as 'cancel-pending' | 'startup-error' | 'success',
+            workerTerminate: vi.fn(() => Promise.resolve(0)),
+            rejectPendingBookmark: null as ((error: Error) => void) | null,
+        },
         browserWindowFromWebContents: vi.fn(() => null),
-        appGetPath: vi.fn(() => '/tmp'),
         randomUUID: vi.fn(),
-        mkdir: vi.fn(),
-        writeFile: vi.fn(),
         rename: vi.fn(),
-        unlink: vi.fn(),
         rm: vi.fn(),
+        stat: vi.fn(),
         getDjvuPageCount: vi.fn(),
-        getDjvuResolution: vi.fn(),
         getDjvuOutline: vi.fn(),
         parseDjvuOutline: vi.fn(),
-        convertAllPagesToImages: vi.fn(),
+        convertDjvuToPdfFile: vi.fn(),
         cancelConversion: vi.fn(),
-        buildOptimizedPdf: vi.fn(),
-        embedBookmarksIntoPdf: vi.fn(),
-        createDjvuPdfBuildTask: vi.fn(),
+        embedBookmarksIntoPdfFile: vi.fn(),
         createDjvuPdfBookmarkTask: vi.fn(),
         consumeAllowedDjvuWritePath: vi.fn(),
         safeSendToWindow: vi.fn(),
@@ -53,35 +41,28 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('electron', () => ({
-    BrowserWindow: {fromWebContents: mocks.browserWindowFromWebContents},
-    app: {getPath: mocks.appGetPath},
-}));
+vi.mock('electron', () => ({ BrowserWindow: {fromWebContents: mocks.browserWindowFromWebContents} }));
 
 vi.mock('node:crypto', () => ({randomUUID: mocks.randomUUID}));
 
 vi.mock('fs/promises', () => ({
-    mkdir: mocks.mkdir,
     rename: mocks.rename,
     rm: mocks.rm,
-    unlink: mocks.unlink,
-    writeFile: mocks.writeFile,
+    stat: mocks.stat,
 }));
 
 vi.mock('@electron/features/djvu/main/ddjvu-conversion', () => ({
     cancelConversion: mocks.cancelConversion,
-    convertAllPagesToImages: mocks.convertAllPagesToImages,
+    convertDjvuToPdfFile: mocks.convertDjvuToPdfFile,
 }));
 
 vi.mock('@electron/djvu/metadata', () => ({
     getDjvuOutline: mocks.getDjvuOutline,
     getDjvuPageCount: mocks.getDjvuPageCount,
-    getDjvuResolution: mocks.getDjvuResolution,
 }));
 
 vi.mock('@electron/djvu/bookmarks', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
-vi.mock('@electron/djvu/pdf-builder', () => ({buildOptimizedPdf: mocks.buildOptimizedPdf}));
-vi.mock('@electron/djvu/pdf-bookmarks', () => ({embedBookmarksIntoPdf: mocks.embedBookmarksIntoPdf}));
+vi.mock('@electron/djvu/pdf-bookmarks', () => ({embedBookmarksIntoPdfFile: mocks.embedBookmarksIntoPdfFile}));
 vi.mock('@electron/djvu/export-paths', () => ({consumeAllowedDjvuWritePath: mocks.consumeAllowedDjvuWritePath}));
 vi.mock('@electron/djvu/ipc-shared', () => ({safeSendToWindow: mocks.safeSendToWindow}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
@@ -92,7 +73,6 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
 })}));
 
 vi.mock('@electron/features/djvu/main/pdf-worker-client', () => ({
-    createDjvuPdfBuildTask: mocks.createDjvuPdfBuildTask,
     createDjvuPdfBookmarkTask: mocks.createDjvuPdfBookmarkTask,
     DjvuPdfWorkerStartupError: mocks.StartupError,
 }));
@@ -105,94 +85,62 @@ const {
 describe('handleDjvuConvertToPdf', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.buildTaskState.mode = 'success';
-        mocks.buildTaskState.rejectPendingBuild = null;
-        mocks.buildTaskState.workerTerminate = vi.fn(() => {
-            mocks.buildTaskState.rejectPendingBuild?.(new Error('worker terminated'));
+        mocks.bookmarkTaskState.mode = 'success';
+        mocks.bookmarkTaskState.rejectPendingBookmark = null;
+        mocks.bookmarkTaskState.workerTerminate = vi.fn(() => {
+            mocks.bookmarkTaskState.rejectPendingBookmark?.(new Error('worker terminated'));
             return Promise.resolve(0);
         });
 
         mocks.randomUUID
             .mockReturnValueOnce('convert-123')
             .mockReturnValue('temp-456');
-        mocks.mkdir.mockResolvedValue(undefined);
-        mocks.writeFile.mockResolvedValue(undefined);
         mocks.rename.mockResolvedValue(undefined);
-        mocks.unlink.mockRejectedValue(new Error('missing temp file'));
         mocks.rm.mockResolvedValue(undefined);
+        mocks.stat.mockResolvedValue({size: 8 * 1024 * 1024});
         mocks.getDjvuPageCount.mockResolvedValue(2);
-        mocks.getDjvuResolution.mockResolvedValue(300);
         mocks.getDjvuOutline.mockResolvedValue('(bookmarks)');
         mocks.parseDjvuOutline.mockReturnValue([{
             title: 'Chapter 1',
             pageIndex: 0,
             items: [],
         }]);
-        mocks.convertAllPagesToImages.mockImplementation(async (
+        mocks.convertDjvuToPdfFile.mockImplementation(async (
             _djvuPath: string,
-            _imageDir: string,
-            totalPages: number,
+            _outputPath: string,
             _jobId: string,
-            options?: { onPageConverted?: (completed: number, total: number) => void },
+            options?: { onProgress?: (percent: number) => void },
         ) => {
-            options?.onPageConverted?.(totalPages, totalPages);
+            options?.onProgress?.(90);
             return {success: true};
         });
         mocks.cancelConversion.mockReturnValue(false);
-        mocks.buildOptimizedPdf.mockResolvedValue(new Uint8Array([
-            5,
-            5,
-        ]));
-        mocks.embedBookmarksIntoPdf.mockResolvedValue(new Uint8Array([
-            6,
-            6,
-        ]));
-        mocks.createDjvuPdfBuildTask.mockImplementation((_imagePaths: string[], _dpi: number, onProgress?: (progress: {
-            type: 'progress';
-            phase: 'buildPdf';
-            page: number;
-            total: number;
-        }) => void) => {
-            if (mocks.buildTaskState.mode === 'startup-error') {
-                throw new mocks.StartupError('worker missing');
+        mocks.embedBookmarksIntoPdfFile.mockResolvedValue(123);
+        mocks.createDjvuPdfBookmarkTask.mockImplementation(() => {
+            if (mocks.bookmarkTaskState.mode === 'startup-error') {
+                throw new mocks.StartupError('bookmark worker missing');
             }
 
-            if (mocks.buildTaskState.mode === 'cancel-pending') {
-                const promise = new Promise<Uint8Array>((_resolve, reject) => {
-                    mocks.buildTaskState.rejectPendingBuild = reject;
+            if (mocks.bookmarkTaskState.mode === 'cancel-pending') {
+                const promise = new Promise<void>((_resolve, reject) => {
+                    mocks.bookmarkTaskState.rejectPendingBookmark = reject;
                 });
                 return {
-                    worker: { terminate: mocks.buildTaskState.workerTerminate },
+                    worker: { terminate: mocks.bookmarkTaskState.workerTerminate },
                     promise,
                 };
             }
 
-            onProgress?.({
-                type: 'progress',
-                phase: 'buildPdf',
-                page: 2,
-                total: 2,
-            });
             return {
-                worker: { terminate: mocks.buildTaskState.workerTerminate },
-                promise: Promise.resolve(new Uint8Array([
-                    1,
-                    2,
-                ])),
+                worker: { terminate: vi.fn(() => Promise.resolve(0)) },
+                promise: Promise.resolve(),
             };
         });
-        mocks.createDjvuPdfBookmarkTask.mockImplementation((pdfData: Uint8Array) => ({
-            worker: { terminate: vi.fn(() => Promise.resolve(0)) },
-            promise: Promise.resolve(pdfData),
-        }));
         mocks.consumeAllowedDjvuWritePath.mockImplementation((outputPath: string) => outputPath);
     });
 
-    it('falls back to in-process PDF build and bookmark embedding when worker startup fails', async () => {
-        mocks.buildTaskState.mode = 'startup-error';
-        mocks.createDjvuPdfBookmarkTask.mockImplementation(() => {
-            throw new mocks.StartupError('bookmark worker missing');
-        });
+    it('falls back to in-process bookmark embedding only for small PDFs when worker startup fails', async () => {
+        mocks.bookmarkTaskState.mode = 'startup-error';
 
         const result = await handleDjvuConvertToPdf(
             {sender: {id: 7}} as never,
@@ -206,26 +154,45 @@ describe('handleDjvuConvertToPdf', () => {
             pdfPath: '/tmp/output.pdf',
             jobId: 'djvu-convert-convert-123',
         });
-        expect(mocks.createDjvuPdfBuildTask).toHaveBeenCalledTimes(1);
-        expect(mocks.buildOptimizedPdf).toHaveBeenCalledTimes(1);
+        expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledTimes(1);
         expect(mocks.createDjvuPdfBookmarkTask).toHaveBeenCalledTimes(1);
-        expect(mocks.embedBookmarksIntoPdf).toHaveBeenCalledTimes(1);
-        expect(mocks.loggerWarn).toHaveBeenCalledTimes(2);
+        expect(mocks.embedBookmarksIntoPdfFile).toHaveBeenCalledTimes(1);
+        expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
     });
 
-    it('terminates the active PDF worker when cancel is requested', async () => {
-        mocks.buildTaskState.mode = 'cancel-pending';
+    it('rejects large bookmark fallback when the worker is unavailable', async () => {
+        mocks.bookmarkTaskState.mode = 'startup-error';
+        mocks.stat.mockResolvedValue({size: 256 * 1024 * 1024});
+
+        const result = await handleDjvuConvertToPdf(
+            {sender: {id: 7}} as never,
+            '/tmp/input.djvu',
+            '/tmp/output.pdf',
+            {preserveBookmarks: true},
+        );
+
+        expect(result).toEqual({
+            success: false,
+            jobId: 'djvu-convert-convert-123',
+            error: 'DjVu bookmark embedding requires the PDF worker for files larger than 64MB',
+        });
+        expect(mocks.embedBookmarksIntoPdfFile).not.toHaveBeenCalled();
+    });
+
+    it('terminates the active bookmark worker when cancel is requested', async () => {
+        mocks.bookmarkTaskState.mode = 'cancel-pending';
 
         const convertPromise = handleDjvuConvertToPdf(
             {sender: {id: 7}} as never,
             '/tmp/input.djvu',
             '/tmp/output.pdf',
-            {preserveBookmarks: false},
+            {preserveBookmarks: true},
         );
 
-        for (let attempt = 0; attempt < 5 && mocks.createDjvuPdfBuildTask.mock.calls.length === 0; attempt += 1) {
+        for (let attempt = 0; attempt < 5 && mocks.createDjvuPdfBookmarkTask.mock.calls.length === 0; attempt += 1) {
             await Promise.resolve();
         }
+        await Promise.resolve();
         const cancelResult = handleDjvuCancel(
             {sender: {id: 7}} as never,
             'djvu-convert-convert-123',
@@ -233,7 +200,7 @@ describe('handleDjvuConvertToPdf', () => {
         const result = await convertPromise;
 
         expect(cancelResult).toEqual({canceled: true});
-        expect(mocks.buildTaskState.workerTerminate).toHaveBeenCalledTimes(1);
+        expect(mocks.bookmarkTaskState.workerTerminate).toHaveBeenCalledTimes(1);
         expect(result).toEqual({
             success: false,
             jobId: 'djvu-convert-convert-123',

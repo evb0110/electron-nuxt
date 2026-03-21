@@ -1,7 +1,3 @@
-import {
-    PDFDocument,
-    type PDFImage,
-} from 'pdf-lib';
 import type { IPdfBookmarkEntry } from '@contracts/pdf';
 import type {
     IDjvuCapability,
@@ -13,24 +9,22 @@ import type {
     TDocumentRef,
 } from '@contracts/platform-api';
 import {
+    BROWSER_DOCUMENT_CHUNK_SIZE,
     browserDocumentStore,
     isBrowserDocumentRef,
 } from '@app/platform/browser-document-store';
-import { embedBookmarksIntoPdf } from '@app/platform/browser-api/djvu-pdf-bookmarks';
 import type {
     IDjvuContentsItem,
+    IDjvuImageData,
     IDjvuWorker,
 } from '@app/platform/browser-api/djvujs-loader';
 import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvu-worker';
+import { noopUnsubscribe } from '@app/platform/browser-api/common';
 import {
-    buildPdfSaveTypes,
-    ensurePdfExtension,
-    noopUnsubscribe,
-} from '@app/platform/browser-api/common';
-import {
-    saveBytesToPickerOrDownload,
-    writeBytesToHandle,
-} from '@app/platform/browser-api/documents-file-capability';
+    type IStreamingPdfSink,
+    StreamingImagePdfWriter,
+} from '@app/platform/browser-api/streaming-image-pdf';
+import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 const DJVU_ESTIMATE_PRESETS = [
@@ -38,6 +32,7 @@ const DJVU_ESTIMATE_PRESETS = [
     2,
     4,
 ] as const;
+const DJVU_BROWSER_PDF_JPEG_QUALITY = 0.92;
 const DJVU_INFO_TEXT_SAMPLE_PAGES = 3;
 const DJVU_ESTIMATE_SAMPLE_PAGES = 3;
 
@@ -66,6 +61,7 @@ const viewingReadyListeners =
 const viewingErrorListeners =
     new Set<(event: IDjvuViewingErrorEvent) => void>();
 const activeJobs = new Map<string, IDjvuJobRecord>();
+type TDjvuCanvas = OffscreenCanvas | HTMLCanvasElement;
 
 function emitProgress(progress: IDjvuProgress) {
     progressListeners.forEach((listener) => {
@@ -105,11 +101,6 @@ function throwIfCanceled(signal?: AbortSignal) {
     }
 }
 
-function toArrayBuffer(bytes: Uint8Array) {
-    const normalizedBytes = Uint8Array.from(bytes);
-    return normalizedBytes.buffer;
-}
-
 async function withDjvuWorker<T>(
     djvuPath: TDocumentRef,
     run: (worker: IDjvuWorker) => Promise<T>,
@@ -120,15 +111,6 @@ async function withDjvuWorker<T>(
     } finally {
         worker.terminate();
     }
-}
-
-async function fetchObjectUrlBytes(url: string) {
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`Failed to read DjVu page image: ${response.status}`);
-    }
-
-    return new Uint8Array(await response.arrayBuffer());
 }
 
 function createCanvas(width: number, height: number) {
@@ -146,8 +128,73 @@ function createCanvas(width: number, height: number) {
     return canvas;
 }
 
+function getCanvas2dContext(
+    canvas: TDjvuCanvas,
+): OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null {
+    return canvas.getContext('2d');
+}
+
+function createImageDataFromTransfer(imageData: IDjvuImageData) {
+    return new ImageData(
+        new Uint8ClampedArray(imageData.buffer),
+        imageData.width,
+        imageData.height,
+    );
+}
+
+function toOwnedArrayBuffer(bytes: Uint8Array) {
+    if (
+        bytes.buffer instanceof ArrayBuffer
+        && bytes.byteOffset === 0
+        && bytes.byteLength === bytes.buffer.byteLength
+    ) {
+        return bytes.buffer;
+    }
+
+    return bytes.slice().buffer;
+}
+
+async function canvasToImageBytes(
+    canvas: TDjvuCanvas,
+    type: 'image/jpeg' | 'image/png',
+    quality?: number,
+) {
+    if (
+        typeof OffscreenCanvas !== 'undefined'
+        && canvas instanceof OffscreenCanvas
+    ) {
+        const blob = await canvas.convertToBlob({
+            type,
+            quality,
+        });
+        return new Uint8Array(await blob.arrayBuffer());
+    }
+
+    const htmlCanvas = canvas as HTMLCanvasElement;
+    const blob = await new Promise<Blob>((resolve, reject) => {
+        htmlCanvas.toBlob((nextBlob: Blob | null) => {
+            if (!nextBlob) {
+                reject(new Error(`Failed to encode canvas as ${type}`));
+                return;
+            }
+            resolve(nextBlob);
+        }, type, quality);
+    });
+
+    return new Uint8Array(await blob.arrayBuffer());
+}
+
+async function fetchObjectUrlBytes(url: string) {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Failed to read DjVu page image: ${response.status}`);
+    }
+
+    return new Uint8Array(await response.arrayBuffer());
+}
+
 async function loadBitmapFromBytes(bytes: Uint8Array) {
-    const blob = new Blob([toArrayBuffer(bytes)], { type: 'image/png' });
+    const blob = new Blob([toOwnedArrayBuffer(bytes)], { type: 'image/png' });
 
     if (typeof createImageBitmap === 'function') {
         return createImageBitmap(blob);
@@ -171,153 +218,148 @@ async function loadBitmapFromBytes(bytes: Uint8Array) {
     }
 }
 
-async function canvasToPngBytes(
-    canvas: OffscreenCanvas | HTMLCanvasElement,
-) {
-    if (
-        typeof OffscreenCanvas !== 'undefined'
-        && canvas instanceof OffscreenCanvas
-    ) {
-        const blob = await canvas.convertToBlob({ type: 'image/png' });
-        return new Uint8Array(await blob.arrayBuffer());
-    }
-
-    const htmlCanvas = canvas as HTMLCanvasElement;
-    const blob = await new Promise<Blob>((resolve, reject) => {
-        htmlCanvas.toBlob((nextBlob: Blob | null) => {
-            if (!nextBlob) {
-                reject(new Error('Failed to encode canvas as PNG'));
-                return;
-            }
-            resolve(nextBlob);
-        }, 'image/png');
-    });
-
-    return new Uint8Array(await blob.arrayBuffer());
+function releaseCanvas(canvas: TDjvuCanvas) {
+    canvas.width = 0;
+    canvas.height = 0;
 }
 
-async function resamplePngBytes(
-    bytes: Uint8Array,
-    width: number,
-    height: number,
-    subsample: number,
-): Promise<{
-    bytes: Uint8Array;
-    width: number;
-    height: number;
-}> {
-    if (subsample <= 1) {
-        return {
-            bytes,
-            width,
-            height,
-        };
-    }
-
-    const targetWidth = Math.max(1, Math.round(width / subsample));
-    const targetHeight = Math.max(1, Math.round(height / subsample));
-    const canvas = createCanvas(targetWidth, targetHeight);
-    const context = canvas.getContext('2d');
-    if (!context) {
-        throw new Error('Canvas 2D context is unavailable');
-    }
-
-    const bitmap = await loadBitmapFromBytes(bytes);
-    try {
-        context.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
-    } finally {
-        if ('close' in bitmap && typeof bitmap.close === 'function') {
-            bitmap.close();
-        }
-    }
-
-    return {
-        bytes: await canvasToPngBytes(canvas),
-        width: targetWidth,
-        height: targetHeight,
-    };
-}
-
-async function renderDjvuPage(
+async function renderDjvuPageFromImageData(
     worker: IDjvuWorker,
     pageNumber: number,
+    pageDpi: number,
+    subsample: number,
+    signal?: AbortSignal,
+): Promise<IRenderedDjvuPage> {
+    throwIfCanceled(signal);
+    const imageData = await worker.doc.getPage(pageNumber).getImageData().run();
+    const targetWidth = Math.max(1, Math.round(imageData.width / Math.max(1, subsample)));
+    const targetHeight = Math.max(1, Math.round(imageData.height / Math.max(1, subsample)));
+    const sourceCanvas = createCanvas(imageData.width, imageData.height);
+    const targetCanvas = targetWidth === imageData.width && targetHeight === imageData.height
+        ? sourceCanvas
+        : createCanvas(targetWidth, targetHeight);
+
+    try {
+        const sourceContext = getCanvas2dContext(sourceCanvas);
+        if (!sourceContext) {
+            throw new Error('Canvas 2D context is unavailable');
+        }
+
+        sourceContext.putImageData(createImageDataFromTransfer(imageData), 0, 0);
+
+        const targetContext = getCanvas2dContext(targetCanvas);
+        if (!targetContext) {
+            throw new Error('Canvas 2D context is unavailable');
+        }
+
+        if (targetCanvas !== sourceCanvas) {
+            targetContext.fillStyle = '#ffffff';
+            targetContext.fillRect(0, 0, targetWidth, targetHeight);
+            targetContext.drawImage(
+                sourceCanvas,
+                0,
+                0,
+                targetWidth,
+                targetHeight,
+            );
+        }
+
+        return {
+            bytes: await canvasToImageBytes(
+                targetCanvas,
+                'image/jpeg',
+                DJVU_BROWSER_PDF_JPEG_QUALITY,
+            ),
+            width: targetWidth,
+            height: targetHeight,
+            dpi: Math.max(1, Math.round(pageDpi / subsample)),
+        };
+    } finally {
+        releaseCanvas(targetCanvas);
+        if (targetCanvas !== sourceCanvas) {
+            releaseCanvas(sourceCanvas);
+        }
+    }
+}
+
+async function renderDjvuPageFromPngObject(
+    worker: IDjvuWorker,
+    pageNumber: number,
+    pageDpi: number,
     subsample: number,
     signal?: AbortSignal,
 ): Promise<IRenderedDjvuPage> {
     throwIfCanceled(signal);
     const pngObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+    const targetWidth = Math.max(1, Math.round(pngObject.width / Math.max(1, subsample)));
+    const targetHeight = Math.max(1, Math.round(pngObject.height / Math.max(1, subsample)));
+    const canvas = createCanvas(targetWidth, targetHeight);
 
     try {
-        const sourceBytes = await fetchObjectUrlBytes(pngObject.url);
-        const resampled = await resamplePngBytes(
-            sourceBytes,
-            pngObject.width,
-            pngObject.height,
-            subsample,
-        );
+        const context = getCanvas2dContext(canvas);
+        if (!context) {
+            throw new Error('Canvas 2D context is unavailable');
+        }
+
+        const bitmap = await loadBitmapFromBytes(await fetchObjectUrlBytes(pngObject.url));
+        try {
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, targetWidth, targetHeight);
+            context.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+        } finally {
+            if ('close' in bitmap && typeof bitmap.close === 'function') {
+                bitmap.close();
+            }
+        }
 
         return {
-            bytes: resampled.bytes,
-            width: resampled.width,
-            height: resampled.height,
-            dpi: Math.max(1, Math.round(pngObject.dpi / subsample)),
+            bytes: await canvasToImageBytes(
+                canvas,
+                'image/jpeg',
+                DJVU_BROWSER_PDF_JPEG_QUALITY,
+            ),
+            width: targetWidth,
+            height: targetHeight,
+            dpi: Math.max(1, Math.round(pageDpi / subsample)),
         };
     } finally {
         worker.revokeObjectURL(pngObject.url);
+        releaseCanvas(canvas);
     }
 }
 
-async function embedPngPage(
-    pdfDocument: PDFDocument,
-    pageData: IRenderedDjvuPage,
-) {
-    const image = await pdfDocument.embedPng(pageData.bytes);
-    addPdfImagePage(pdfDocument, image, pageData);
-}
-
-function addPdfImagePage(
-    pdfDocument: PDFDocument,
-    image: PDFImage,
-    pageData: IRenderedDjvuPage,
-) {
-    const pageWidth = (pageData.width / pageData.dpi) * 72;
-    const pageHeight = (pageData.height / pageData.dpi) * 72;
-    const page = pdfDocument.addPage([
-        pageWidth,
-        pageHeight,
-    ]);
-
-    page.drawImage(image, {
-        x: 0,
-        y: 0,
-        width: pageWidth,
-        height: pageHeight,
-    });
-}
-
-async function buildPdfFromDjvuPages(options: {
-    worker: IDjvuWorker;
-    pageCount: number;
-    subsample: number;
-    signal?: AbortSignal;
-    onPageProcessed?: (processed: number, total: number) => void;
-}) {
-    const pdfDocument = await PDFDocument.create();
-
-    for (let pageNumber = 1; pageNumber <= options.pageCount; pageNumber += 1) {
-        throwIfCanceled(options.signal);
-        const pageData = await renderDjvuPage(
-            options.worker,
+async function renderDjvuPage(
+    worker: IDjvuWorker,
+    pageNumber: number,
+    pageDpi: number,
+    subsample: number,
+    signal?: AbortSignal,
+): Promise<IRenderedDjvuPage> {
+    try {
+        return await renderDjvuPageFromImageData(
+            worker,
             pageNumber,
-            options.subsample,
-            options.signal,
+            pageDpi,
+            subsample,
+            signal,
         );
-        await embedPngPage(pdfDocument, pageData);
-        options.onPageProcessed?.(pageNumber, options.pageCount);
-    }
+    } catch (error) {
+        if (error instanceof DjvuCanceledError) {
+            throw error;
+        }
 
-    throwIfCanceled(options.signal);
-    return Uint8Array.from(await pdfDocument.save());
+        BrowserLogger.debug('djvu-browser', 'Falling back to PNG DjVu page rendering', {
+            pageNumber,
+            error,
+        });
+        return renderDjvuPageFromPngObject(
+            worker,
+            pageNumber,
+            pageDpi,
+            subsample,
+            signal,
+        );
+    }
 }
 
 async function mapDjvuContentsToPdfBookmarks(
@@ -356,36 +398,221 @@ async function mapDjvuContentsToPdfBookmarks(
     return bookmarks;
 }
 
+interface IFinalizablePdfSink extends IStreamingPdfSink {
+    finish(): Promise<TDocumentRef>;
+    abort(): Promise<void>;
+}
+
+class BrowserChunkedPdfSink implements IFinalizablePdfSink {
+    private readonly outputPath: TDocumentRef;
+    private readonly chunkSize: number;
+    private readonly saveName: string;
+    private readonly buffer: Uint8Array;
+    private chunkIndex = 0;
+    private bufferedBytes = 0;
+    private fileSize = 0;
+
+    public constructor(
+        outputPath: TDocumentRef,
+        saveName: string,
+        chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE,
+    ) {
+        this.outputPath = outputPath;
+        this.saveName = saveName;
+        this.chunkSize = chunkSize;
+        this.buffer = new Uint8Array(chunkSize);
+    }
+
+    public async init() {
+        await browserDocumentStore.prepareChunkedDocument(this.outputPath, { chunkSize: this.chunkSize });
+    }
+
+    public async write(bytes: Uint8Array) {
+        let readOffset = 0;
+        this.fileSize += bytes.byteLength;
+
+        while (readOffset < bytes.byteLength) {
+            const remaining = this.chunkSize - this.bufferedBytes;
+            const writeLength = Math.min(remaining, bytes.byteLength - readOffset);
+            this.buffer.set(
+                bytes.subarray(readOffset, readOffset + writeLength),
+                this.bufferedBytes,
+            );
+            this.bufferedBytes += writeLength;
+            readOffset += writeLength;
+
+            if (this.bufferedBytes === this.chunkSize) {
+                await browserDocumentStore.writeChunk(
+                    this.outputPath,
+                    this.chunkIndex,
+                    this.buffer,
+                );
+                this.chunkIndex += 1;
+                this.bufferedBytes = 0;
+            }
+        }
+    }
+
+    public async finish() {
+        if (this.bufferedBytes > 0) {
+            await browserDocumentStore.writeChunk(
+                this.outputPath,
+                this.chunkIndex,
+                this.buffer.slice(0, this.bufferedBytes),
+            );
+            this.chunkIndex += 1;
+            this.bufferedBytes = 0;
+        }
+
+        await browserDocumentStore.finalizeChunkedDocument(this.outputPath, {
+            fileSize: this.fileSize,
+            chunkCount: this.chunkIndex,
+            chunkSize: this.chunkSize,
+            saveName: this.saveName,
+        });
+        await browserDocumentStore.setRetention(this.outputPath, 'durable');
+        browserDocumentStore.unload(this.outputPath);
+        return this.outputPath;
+    }
+
+    public async abort() {
+        await browserDocumentStore.clearChunkedDocument(this.outputPath);
+    }
+}
+
+class BrowserHandlePdfSink implements IFinalizablePdfSink {
+    private readonly outputPath: TDocumentRef;
+    private readonly saveHandle: FileSystemFileHandle;
+    private readonly saveName: string;
+    private readonly writable: FileSystemWritableFileStream;
+    private fileSize = 0;
+
+    private constructor(
+        outputPath: TDocumentRef,
+        saveHandle: FileSystemFileHandle,
+        saveName: string,
+        writable: FileSystemWritableFileStream,
+    ) {
+        this.outputPath = outputPath;
+        this.saveHandle = saveHandle;
+        this.saveName = saveName;
+        this.writable = writable;
+    }
+
+    public static async create(
+        outputPath: TDocumentRef,
+        saveHandle: FileSystemFileHandle,
+        saveName: string,
+    ) {
+        const writable = await saveHandle.createWritable();
+        return new BrowserHandlePdfSink(
+            outputPath,
+            saveHandle,
+            saveName,
+            writable,
+        );
+    }
+
+    public async write(bytes: Uint8Array) {
+        this.fileSize += bytes.byteLength;
+        await this.writable.write(toOwnedArrayBuffer(bytes));
+    }
+
+    public async finish() {
+        await this.writable.close();
+        await browserDocumentStore.replaceWithHandleBackedDocument(this.outputPath, {
+            fileSize: this.fileSize,
+            saveHandle: this.saveHandle,
+            saveName: this.saveName,
+        });
+        await browserDocumentStore.setRetention(this.outputPath, 'durable');
+        browserDocumentStore.unload(this.outputPath);
+        return this.outputPath;
+    }
+
+    public async abort() {
+        if (typeof this.writable.abort === 'function') {
+            await this.writable.abort();
+        }
+    }
+}
+
+async function createPdfOutputSink(outputPath: TDocumentRef) {
+    const saveTarget = await browserDocumentStore.getSaveTarget(outputPath);
+    const saveName = saveTarget.saveName;
+
+    if (saveTarget.saveHandle) {
+        return BrowserHandlePdfSink.create(
+            outputPath,
+            saveTarget.saveHandle,
+            saveName,
+        );
+    }
+
+    const sink = new BrowserChunkedPdfSink(
+        outputPath,
+        saveName,
+    );
+    await sink.init();
+    return sink;
+}
+
 async function buildPdfWithOptionalBookmarks(options: {
     worker: IDjvuWorker;
-    pageCount: number;
+    pageSizes: Array<{ dpi: number; }>;
     subsample: number;
     preserveBookmarks: boolean;
+    outputPath: TDocumentRef;
     signal?: AbortSignal;
     onPageProcessed?: (processed: number, total: number) => void;
     onBookmarksStart?: () => void;
 }) {
-    let pdfBytes: Uint8Array<ArrayBufferLike> = await buildPdfFromDjvuPages({
-        worker: options.worker,
-        pageCount: options.pageCount,
-        subsample: options.subsample,
-        signal: options.signal,
-        onPageProcessed: options.onPageProcessed,
-    });
+    const sink = await createPdfOutputSink(options.outputPath);
 
-    if (options.preserveBookmarks) {
-        options.onBookmarksStart?.();
-        const contents = await options.worker.doc.getContents().run().catch(() => null);
-        const bookmarks = await mapDjvuContentsToPdfBookmarks(
-            options.worker,
-            contents,
-        );
+    try {
+        let bookmarks: IPdfBookmarkEntry[] = [];
+        if (options.preserveBookmarks) {
+            const contents = await options.worker.doc.getContents().run().catch(() => null);
+            bookmarks = await mapDjvuContentsToPdfBookmarks(
+                options.worker,
+                contents,
+            );
+        }
 
         throwIfCanceled(options.signal);
-        pdfBytes = await embedBookmarksIntoPdf(pdfBytes, bookmarks);
-    }
+        const writer = new StreamingImagePdfWriter({
+            sink,
+            pageCount: options.pageSizes.length,
+            bookmarks,
+        });
+        await writer.start();
 
-    return pdfBytes;
+        for (let pageNumber = 1; pageNumber <= options.pageSizes.length; pageNumber += 1) {
+            throwIfCanceled(options.signal);
+            const pageData = await renderDjvuPage(
+                options.worker,
+                pageNumber,
+                options.pageSizes[pageNumber - 1]?.dpi ?? 300,
+                options.subsample,
+                options.signal,
+            );
+            await writer.addPage(pageData);
+            options.onPageProcessed?.(pageNumber, options.pageSizes.length);
+            await yieldToBrowser();
+        }
+
+        throwIfCanceled(options.signal);
+        if (options.preserveBookmarks) {
+            options.onBookmarksStart?.();
+        }
+        await writer.finish();
+        return sink.finish();
+    } catch (error) {
+        await sink.abort().catch((abortError: unknown) => {
+            BrowserLogger.warn('djvu-browser', 'Failed to abort browser PDF sink', abortError);
+        });
+        throw error;
+    }
 }
 
 function pickSamplePageNumbers(pageCount: number, maxSamples: number) {
@@ -400,34 +627,6 @@ function pickSamplePageNumbers(pageCount: number, maxSamples: number) {
     ];
 
     return Array.from(new Set(candidates)).slice(0, maxSamples);
-}
-
-async function persistOutputPdf(
-    outputPath: TDocumentRef,
-    bytes: Uint8Array,
-) {
-    await browserDocumentStore.write(outputPath, bytes);
-
-    const saveTarget = await browserDocumentStore.getSaveTarget(outputPath);
-    if (saveTarget.saveHandle) {
-        await writeBytesToHandle(saveTarget.saveHandle, bytes);
-        return outputPath;
-    }
-
-    const saveResult = await saveBytesToPickerOrDownload(bytes, {
-        suggestedName: ensurePdfExtension(saveTarget.saveName),
-        mimeType: 'application/pdf',
-        pickerTypes: buildPdfSaveTypes(),
-    });
-
-    await browserDocumentStore.assignSaveTarget(
-        outputPath,
-        ensurePdfExtension(saveResult.fileName),
-        'pdf',
-        saveResult.handle,
-    );
-
-    return outputPath;
 }
 
 async function getDjvuInfo(djvuPath: TDocumentRef): Promise<IDjvuInfo> {
@@ -480,6 +679,7 @@ async function estimateDjvuSizes(
                         const renderedPage = await renderDjvuPage(
                             worker,
                             pageNumber,
+                            pageSizes[pageNumber - 1]?.dpi ?? sourceDpi,
                             subsample,
                         );
                         sampleBytes += renderedPage.bytes.byteLength;
@@ -555,11 +755,12 @@ export const browserDjvuCapability: IDjvuCapability = {
                 percent: 0,
             });
 
-            const pdfBytes = await buildPdfWithOptionalBookmarks({
+            const pdfPath = await buildPdfWithOptionalBookmarks({
                 worker,
-                pageCount,
+                pageSizes,
                 subsample: Math.max(1, Math.round(options.subsample ?? 1)),
                 preserveBookmarks: options.preserveBookmarks !== false,
+                outputPath,
                 signal: abortController.signal,
                 onPageProcessed: (processed, total) => {
                     emitProgress({
@@ -577,7 +778,6 @@ export const browserDjvuCapability: IDjvuCapability = {
                 },
             });
 
-            const pdfPath = await persistOutputPdf(outputPath, pdfBytes);
             emitProgress({
                 jobId,
                 phase: 'bookmarks',

@@ -40,7 +40,6 @@ interface IDjvuConvertResult {
 }
 
 const MAX_RANGE_WORKERS = 12;
-const MAX_IMAGE_WORKERS = 16;
 const MIN_PAGES_FOR_RANGE_PARALLELISM = 24;
 const PROGRESS_CAP = 90;
 const DJVU_PROCESS_TIMEOUT_MS = (() => {
@@ -276,6 +275,22 @@ async function _convertDjvuToPdfSingleProcess(
     }
 }
 
+export async function convertDjvuToPdfFile(
+    inputPath: string,
+    outputPath: string,
+    jobId: string,
+    options: IDjvuConvertOptions = {},
+): Promise<IDjvuConvertResult> {
+    const totalPages = options.pageCount ?? 0;
+    return _convertDjvuToPdfSingleProcess(
+        inputPath,
+        outputPath,
+        jobId,
+        options,
+        totalPages,
+    );
+}
+
 async function convertPageToPdf(
     inputPath: string,
     outputPath: string,
@@ -450,70 +465,6 @@ export async function convertDjvuPageToImage(
             error: `Output file not found: ${err instanceof Error ? err.message : String(err)}`,
         };
     }
-}
-
-interface IImageConvertOptions {
-    subsample?: number;
-    format?: TImageFormat;
-    onPageConverted?: (completedPages: number, totalPages: number) => void;
-}
-
-export async function convertAllPagesToImages(
-    inputPath: string,
-    outputDir: string,
-    pageCount: number,
-    jobId: string,
-    options: IImageConvertOptions = {},
-): Promise<{
-    success: boolean;
-    error?: string 
-}> {
-    const format = options.format ?? 'ppm';
-    let completedPages = 0;
-    let firstError: string | undefined;
-
-    const queue: number[] = [];
-    for (let i = 1; i <= pageCount; i++) queue.push(i);
-
-    async function worker() {
-        while (queue.length > 0 && !firstError) {
-            const page = queue.shift()!;
-            const imagePath = join(outputDir, `page-${page}.${format}`);
-            const pageJobId = `${jobId}-img-${page}`;
-
-            const result = await convertDjvuPageToImage(
-                inputPath,
-                imagePath,
-                page,
-                pageJobId,
-                {
-                    subsample: options.subsample,
-                    format, 
-                },
-            );
-
-            if (!result.success) {
-                firstError = result.error ?? `Failed to convert page ${page}`;
-                break;
-            }
-
-            completedPages++;
-            options.onPageConverted?.(completedPages, pageCount);
-        }
-    }
-
-    const workers = Array.from({ length: getImageWorkerCount(pageCount) }, () => worker());
-
-    await Promise.all(workers);
-
-    if (firstError) {
-        return {
-            success: false,
-            error: firstError, 
-        };
-    }
-
-    return { success: true };
 }
 
 export function cancelConversion(jobId: string): boolean {
@@ -747,11 +698,5 @@ function getLogicalCpuCount() {
 function getRangeWorkerCount(pageCount: number) {
     const cpuBound = Math.max(1, getLogicalCpuCount() - 1);
     const desired = Math.max(2, Math.min(MAX_RANGE_WORKERS, cpuBound));
-    return Math.min(pageCount, desired);
-}
-
-function getImageWorkerCount(pageCount: number) {
-    const cpuBound = Math.max(1, getLogicalCpuCount() - 1);
-    const desired = Math.max(2, Math.min(MAX_IMAGE_WORKERS, cpuBound));
     return Math.min(pageCount, desired);
 }

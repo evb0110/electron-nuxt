@@ -1,24 +1,22 @@
 import {
-    PDFDocument,
     PDFHexString,
     PDFName,
     PDFNumber,
 } from 'pdf-lib';
 import type {
+    PDFDocument,
     PDFDict,
     PDFRef,
 } from 'pdf-lib';
 import type { IPdfBookmarkEntry } from '@contracts/pdf';
 
-export async function embedBookmarksIntoPdf(
-    pdfData: Uint8Array,
+export function applyBookmarksToPdfDocument(
+    document: PDFDocument,
     bookmarks: IPdfBookmarkEntry[],
-): Promise<Uint8Array> {
+) {
     if (bookmarks.length === 0) {
-        return pdfData;
+        return;
     }
-
-    const document = await PDFDocument.load(pdfData, { updateMetadata: false });
 
     const outlinesName = PDFName.of('Outlines');
     const parentName = PDFName.of('Parent');
@@ -128,6 +126,4 @@ export async function embedBookmarksIntoPdf(
         outlinesDict.set(countName, PDFNumber.of(tree.visibleCount));
         document.catalog.set(outlinesName, outlinesRef);
     }
-
-    return Uint8Array.from(await document.save());
 }

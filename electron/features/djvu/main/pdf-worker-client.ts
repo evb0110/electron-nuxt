@@ -94,19 +94,6 @@ function parseWorkerMessage(message: unknown): TDjvuPdfWorkerMessage | null {
     }
 }
 
-function decodePdfBytes(data: unknown): Uint8Array | null {
-    if (data instanceof Uint8Array) {
-        return data;
-    }
-    if (data instanceof ArrayBuffer) {
-        return new Uint8Array(data);
-    }
-    if (ArrayBuffer.isView(data)) {
-        return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-    }
-    return null;
-}
-
 function createDjvuPdfWorkerTask<T>(
     task: TDjvuPdfWorkerTask,
     options: {
@@ -194,21 +181,6 @@ function createDjvuPdfWorkerTask<T>(
     };
 }
 
-export function createDjvuPdfBuildTask(
-    imagePaths: string[],
-    dpi: number,
-    onProgress?: (message: IDjvuPdfWorkerProgressMessage) => void,
-): IDjvuPdfWorkerTaskHandle<Uint8Array> {
-    return createDjvuPdfWorkerTask({
-        type: 'buildPdf',
-        imagePaths,
-        dpi,
-    }, {
-        onProgress,
-        decodeResult: decodePdfBytes,
-    });
-}
-
 export function createDjvuPdfEstimateTask(
     imagePath: string,
     dpi: number,
@@ -221,12 +193,14 @@ export function createDjvuPdfEstimateTask(
 }
 
 export function createDjvuPdfBookmarkTask(
-    pdfData: Uint8Array,
+    inputPdfPath: string,
+    outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
-): IDjvuPdfWorkerTaskHandle<Uint8Array> {
+): IDjvuPdfWorkerTaskHandle<void> {
     return createDjvuPdfWorkerTask({
-        type: 'embedBookmarks',
-        pdfData,
+        type: 'embedBookmarksInFile',
+        inputPdfPath,
+        outputPdfPath,
         bookmarks,
-    }, {decodeResult: decodePdfBytes});
+    }, { decodeResult: (data) => (typeof data === 'number' && Number.isFinite(data) ? undefined : null) });
 }

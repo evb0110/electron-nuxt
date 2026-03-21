@@ -264,6 +264,21 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         );
     }
 
+    function releasePageResources(
+        pageNumber: number,
+        pdfPage: PDFPageProxy,
+    ) {
+        try {
+            pdfPage.cleanup();
+        } catch (error) {
+            BrowserLogger.warn(
+                'pdf-renderer',
+                `Failed to release PDF page resources for page ${pageNumber}`,
+                error,
+            );
+        }
+    }
+
     function scheduleRenderForSinglePage(
         pageNumber: number,
         optionsOverride: {
@@ -765,6 +780,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         }
 
                         if (renderVersion === version) {
+                            // Once the canvas and DOM layers are in place, ask PDF.js to
+                            // release per-page render resources while keeping the visible
+                            // output mounted. This reduces retained image/operator memory
+                            // for raster-heavy documents such as DjVu conversions.
+                            releasePageResources(pageNumber, pdfPage);
                             renderedPages.add(pageNumber);
                             staleRenderedPages.delete(pageNumber);
                         }

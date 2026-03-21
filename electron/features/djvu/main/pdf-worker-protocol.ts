@@ -13,8 +13,9 @@ export interface IDjvuPdfEstimateTask {
 }
 
 export interface IDjvuPdfBookmarkTask {
-    type: 'embedBookmarks';
-    pdfData: Uint8Array | ArrayBuffer;
+    type: 'embedBookmarksInFile';
+    inputPdfPath: string;
+    outputPdfPath: string;
     bookmarks: IPdfBookmarkEntry[];
 }
 

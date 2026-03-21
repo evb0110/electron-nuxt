@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import type { TSplitPayload } from '@contracts/window-tabs';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspace-split-payload-cleanup';
 
 interface IWorkspaceSplitCacheLike {
     has(tabId: string): boolean;
@@ -99,6 +100,11 @@ export function useDocumentWorkspaceSplitRestore(options: IUseDocumentWorkspaceS
                 tabId: options.tabId,
                 payloadKind: payload.kind,
                 error,
+            });
+            await cleanupSplitPayloadSnapshot(payload, {
+                logSection: 'split-cache',
+                context: 'restore-cached-split-payload',
+                metadata: { tabId: options.tabId },
             });
         } finally {
             options.isRestoringSplitPayload.value = false;

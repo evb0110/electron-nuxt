@@ -186,6 +186,7 @@ export function highlightTextInSpan(
     }
 
     const highlightElements: HTMLElement[] = [];
+    const fragmentNode = document.createDocumentFragment();
     const fragments: Array<{
         text: string;
         isHighlight: boolean;
@@ -222,8 +223,6 @@ export function highlightTextInSpan(
         });
     }
 
-    span.textContent = '';
-
     for (const fragment of fragments) {
         if (fragment.isHighlight) {
             const mark = document.createElement('mark');
@@ -231,28 +230,46 @@ export function highlightTextInSpan(
                 ? `${highlightClass} ${highlightCurrentClass}`
                 : highlightClass;
             mark.textContent = fragment.text;
-            span.appendChild(mark);
+            fragmentNode.appendChild(mark);
             highlightElements.push(mark);
         } else {
-            span.appendChild(document.createTextNode(fragment.text));
+            fragmentNode.appendChild(document.createTextNode(fragment.text));
         }
     }
+
+    span.replaceChildren(fragmentNode);
 
     return highlightElements;
 }
 
 export function clearDomHighlights(container: HTMLElement, highlightClass: string) {
-    const highlights = container.querySelectorAll(`.${highlightClass}`);
-    highlights.forEach((el) => {
-        const parent = el.parentNode;
-        if (parent) {
-            while (el.firstChild) {
-                parent.insertBefore(el.firstChild, el);
-            }
-            parent.removeChild(el);
-            parent.normalize();
+    const highlights = container.getElementsByClassName(highlightClass);
+    if (highlights.length === 0) {
+        return;
+    }
+
+    const parentsToNormalize = new Set<Node>();
+
+    while (highlights.length > 0) {
+        const el = highlights[0];
+        if (!el) {
+            break;
         }
-    });
+
+        const parent = el.parentNode;
+        if (!parent) {
+            el.remove();
+            continue;
+        }
+
+        while (el.firstChild) {
+            parent.insertBefore(el.firstChild, el);
+        }
+        parent.removeChild(el);
+        parentsToNormalize.add(parent);
+    }
+
+    parentsToNormalize.forEach(parent => parent.normalize());
 }
 
 export function scrollToHighlight(

@@ -180,6 +180,32 @@ describe('useDjvu', () => {
             expect(djvu.isLoadingPages.value).toBe(false);
             expect(djvu.loadingProgress.value.total).toBe(0);
         });
+
+        it('tracks the opening path until DjVu mode is fully entered', async () => {
+            let resolveOpen: ((value: {
+                success: boolean;
+                pageCount: number;
+                jobId: string;
+            }) => void) | null = null;
+            mockElectronAPI.djvu.openForViewing.mockImplementation(() => new Promise((resolve) => {
+                resolveOpen = resolve;
+            }));
+
+            const djvu = useDjvu();
+            const openPromise = djvu.openDjvuFile('/pending.djvu', vi.fn(async () => {}));
+
+            expect(djvu.openingPath.value).toBe('/pending.djvu');
+
+            expect(resolveOpen).not.toBeNull();
+            resolveOpen!({
+                success: true,
+                pageCount: 3,
+                jobId: 'job-pending',
+            });
+            await openPromise;
+
+            expect(djvu.openingPath.value).toBeNull();
+        });
     });
 
     describe('cancelActiveJobs', () => {
