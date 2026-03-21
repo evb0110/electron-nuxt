@@ -6,16 +6,12 @@ import type {
 import type {
     IShapeAnnotation,
     TShapeType,
-    TAnnotationTool,
     IAnnotationSettings,
 } from '@app/types/annotations';
+import { isShapeTool } from '@app/composables/pdf/annotations/annotationRules';
 
 function generateShapeId() {
     return `shape-${crypto.randomUUID()}`;
-}
-
-export function isShapeTool(tool: TAnnotationTool): tool is TShapeType {
-    return tool === 'rectangle' || tool === 'circle' || tool === 'line' || tool === 'arrow';
 }
 
 export interface IShapeContextProvide {

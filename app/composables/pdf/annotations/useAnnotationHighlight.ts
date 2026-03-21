@@ -13,18 +13,20 @@ import type {
     IAnnotationCommentSummary,
     TAnnotationTool,
     TMarkupSubtype,
-    IPdfjsEditor,
-    IAnnotationContextMenuPayload,
-    IPagePointTarget,
-} from '@app/composables/pdf/annotations/types';
-import { markerRectCenterDistance } from '@app/composables/pdf/annotations/types';
+} from '@app/types/annotations';
+import type { IPagePointTarget } from '@app/composables/pdf/annotations/types';
+import type { IPdfjsEditor } from '@app/types/pdfjs';
+import { markerRectCenterDistance } from '@app/composables/pdf/annotations/annotationRules';
 import {
     getCommentText,
-    errorToLogText,
+    toMarkerRectFromEditor,
+} from '@app/composables/pdf/pdfAnnotationEditorUtils';
+import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
+import {
     clamp01,
     normalizeMarkerRect,
-    toMarkerRectFromEditor,
-} from '@app/composables/pdf/pdfAnnotationUtils';
+} from '@app/composables/pdf/annotationGeometry';
+import { errorToLogText } from '@app/composables/pdf/annotationCssUtils';
 import { SELECTION_CACHE_TTL_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { runGuardedTask } from '@app/utils/async-guard';

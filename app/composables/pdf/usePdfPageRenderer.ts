@@ -46,19 +46,6 @@ import { createPdfSearchMatchScroller } from '@app/composables/pdf/pdfSearchMatc
 import { logPdfNav } from '@app/utils/pdf-nav-log';
 import { getMostVisiblePageFromDom } from '@app/composables/pdf/pdfScrollVisibility';
 
-export {
-    isRenderingCancelledError,
-    captureScrollSnapshot,
-    restoreScrollFromSnapshot,
-    formatRenderError,
-} from '@app/composables/pdf/pdfPageRenderPipeline';
-export {
-    getPageContainer,
-    setupPagePlaceholderSizes,
-    computeVisibleRange,
-    type IPageRange,
-} from '@app/composables/pdf/pdfPageBufferManager';
-
 interface IUsePdfPageRendererOptions {
     container: Ref<HTMLElement | null>;
     document: ReturnType<typeof usePdfDocument>;

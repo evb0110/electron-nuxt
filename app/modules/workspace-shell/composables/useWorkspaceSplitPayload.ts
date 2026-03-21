@@ -44,15 +44,15 @@ function normalizeSplitPayloadTotalPages(total: number | undefined, fallbackPage
 
 export function useWorkspaceSplitPayload(options: IUseWorkspaceSplitPayloadOptions) {
     async function captureSplitPayload(): Promise<TSplitPayload> {
-        if (!options.pdfSrc.value) {
-            return { kind: 'empty' };
-        }
-
         if (options.isDjvuMode.value && options.djvuSourcePath.value) {
             return {
                 kind: 'djvu',
                 sourcePath: options.djvuSourcePath.value,
             };
+        }
+
+        if (!options.pdfSrc.value) {
+            return { kind: 'empty' };
         }
 
         const normalizedCurrentPage = normalizeSplitPayloadPage(options.currentPage.value) ?? 1;

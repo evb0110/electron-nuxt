@@ -8,8 +8,8 @@ import {
 } from 'pdf-lib';
 import { clamp } from 'es-toolkit/math';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { markerRectIoU } from '@app/composables/pdf/pdfAnnotationUtils';
 import {
+    markerRectIoU,
     normalizePageRotation,
     toMarkerRectFromPdfRect,
 } from '@app/composables/pdf/annotationGeometry';

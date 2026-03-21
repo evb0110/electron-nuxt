@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
-import { computeInitialImagePlacementDimensions } from '@app/composables/pdf/pdfImagePlacementSizing';
+import {
+    computeInitialImagePlacementDimensions,
+    type IImagePlacementDimensions,
+} from '@app/composables/pdf/pdfImagePlacementSizing';
 import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
@@ -21,11 +24,6 @@ export interface IImagePlacementTarget {
     pageY: number;
     pageWidthPx: number | null;
     pageHeightPx: number | null;
-}
-
-export interface IImagePlacementDimensions {
-    width: number;
-    height: number;
 }
 
 function resolveDevicePixelRatio() {

@@ -4,7 +4,7 @@ import { useDjvu } from '@app/composables/useDjvu';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { useWorkspaceFileSwitch } from '@app/modules/workspace-shell/composables/useWorkspaceFileSwitch';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
-import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/types';
+import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
 import type {
     TDocumentRef,
     TOpenFileResult,

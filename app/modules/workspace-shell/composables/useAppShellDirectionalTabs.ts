@@ -112,7 +112,7 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
         const timer = setTimeout(() => {
             splitCacheCleanupTimers.delete(tabId);
             const workspace = workspaceRefs.value.get(tabId);
-            if (workspace && workspaceHasPdf(workspace)) {
+            if (workspace && (workspaceHasPdf(workspace) || workspace.getToolbarSnapshot().isDjvuMode)) {
                 workspaceSplitCache.clear(tabId);
             }
         }, TAB_TRANSITION_CACHE_GRACE_MS);

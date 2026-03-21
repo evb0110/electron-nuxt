@@ -24,8 +24,8 @@
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
-    IMarkerViewModel,
-} from '@app/composables/pdf/annotations/types';
+} from '@app/types/annotations';
+import type { IMarkerViewModel } from '@app/composables/pdf/annotations/types';
 import PdfCommentMarker from '@app/components/pdf/annotations/PdfCommentMarker.vue';
 
 defineProps<{

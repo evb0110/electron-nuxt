@@ -102,9 +102,9 @@ find_tool_files() {
 }
 
 run_macos_packaged_tool_smoke() {
-  local tool_path="$1"
+  local tool_name="$1"
   shift
-  local allowed_codes="${1:-0}"
+  local tool_path="$1"
   shift
   local output_file
   output_file="$(mktemp)"
@@ -144,17 +144,11 @@ run_macos_packaged_tool_smoke() {
     exit_code=$?
   fi
 
-  case ",$allowed_codes," in
-    *",$exit_code,"*)
-      :
-      ;;
-    *)
-      cat "$output_file"
-      rm -f "$output_file"
-      echo "Error: Packaged tool smoke test failed ($tool_path) with exit code $exit_code"
-      exit "$exit_code"
-      ;;
-  esac
+  if ! node scripts/release/assert-packaged-tool-smoke.mjs "$tool_name" "$exit_code" "$output_file"; then
+    cat "$output_file"
+    rm -f "$output_file"
+    exit "$exit_code"
+  fi
 
   rm -f "$output_file"
 }
@@ -180,13 +174,13 @@ if [ "$platform" = "mac" ]; then
     exit 1
   fi
 
-  run_macos_packaged_tool_smoke "$resource_root/djvulibre/$platform_arch/bin/djvused" "0,10" --help
+  run_macos_packaged_tool_smoke "djvused" "$resource_root/djvulibre/$platform_arch/bin/djvused" --help
   # ddjvu prints usage to stdout and exits 1 for --help on healthy builds.
-  run_macos_packaged_tool_smoke "$resource_root/djvulibre/$platform_arch/bin/ddjvu" "0,1,10" --help
-  run_macos_packaged_tool_smoke "$resource_root/qpdf/$platform_arch/bin/qpdf" "0" --version
-  run_macos_packaged_tool_smoke "$resource_root/poppler/$platform_arch/bin/pdftoppm" "0" -v
-  run_macos_packaged_tool_smoke "$resource_root/poppler/$platform_arch/bin/pdftotext" "0" -v
-  run_macos_packaged_tool_smoke "$resource_root/tesseract/$platform_arch/bin/tesseract" "0" --version
+  run_macos_packaged_tool_smoke "ddjvu" "$resource_root/djvulibre/$platform_arch/bin/ddjvu" --help
+  run_macos_packaged_tool_smoke "qpdf" "$resource_root/qpdf/$platform_arch/bin/qpdf" --version
+  run_macos_packaged_tool_smoke "pdftoppm" "$resource_root/poppler/$platform_arch/bin/pdftoppm" -v
+  run_macos_packaged_tool_smoke "pdftotext" "$resource_root/poppler/$platform_arch/bin/pdftotext" -v
+  run_macos_packaged_tool_smoke "tesseract" "$resource_root/tesseract/$platform_arch/bin/tesseract" --version
 fi
 
 if [ "$platform" = "linux" ]; then

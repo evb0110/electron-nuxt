@@ -15,19 +15,21 @@ import type {
     IAnnotationSettings,
     TAnnotationTool,
     TMarkupSubtype,
-    IPdfjsEditor,
-} from '@app/composables/pdf/annotations/types';
+} from '@app/types/annotations';
 import {
     isSelectionMarkupTool,
     shouldForceTextMarkup,
     TOOL_TO_MARKUP_SUBTYPE,
-} from '@app/composables/pdf/annotations/types';
+} from '@app/composables/pdf/annotations/annotationRules';
+import type { IPdfjsEditor } from '@app/types/pdfjs';
 import {
-    colorWithOpacity,
     rectIoU,
     rectCenterDistance,
+} from '@app/composables/pdf/annotationGeometry';
+import {
+    colorWithOpacity,
     errorToLogText,
-} from '@app/composables/pdf/pdfAnnotationUtils';
+} from '@app/composables/pdf/annotationCssUtils';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 import { BrowserLogger } from '@app/utils/browser-logger';
 

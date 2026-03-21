@@ -3,15 +3,13 @@ import { useTimeoutFn } from '@vueuse/core';
 import { groupBy } from 'es-toolkit/array';
 import { debounce } from 'es-toolkit/function';
 import { clamp } from 'es-toolkit/math';
-import type {
-    IAnnotationCommentSummary,
-    IMarkerViewModel,
-} from '@app/composables/pdf/annotations/types';
+import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type { IMarkerViewModel } from '@app/composables/pdf/annotations/types';
 import {
-    normalizeMarkerRect,
     clusterDetachedComments,
     resolveDetachedMarkerPlacement,
 } from '@app/composables/pdf/annotations/useAnnotationGeometry';
+import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
 import type { IDetachedMarkerOccupied } from '@app/composables/pdf/annotations/useAnnotationGeometry';
 import { FOCUS_PULSE_MS } from '@app/constants/timeouts';
 

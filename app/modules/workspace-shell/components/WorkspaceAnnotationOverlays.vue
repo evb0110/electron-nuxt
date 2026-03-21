@@ -131,11 +131,9 @@ import type {
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
-import {
-    normalizeMarkerRect,
-    isTextMarkupSubtype,
-} from '@app/composables/pdf/pdfAnnotationUtils';
-import type { IAnnotationNotePosition } from '@app/composables/pdf/annotations/types';
+import { isTextMarkupSubtype } from '@app/composables/pdf/pdfAnnotationUtils';
+import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
+import type { IAnnotationNotePosition } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
 import { NOTE_WINDOW } from '@app/constants/pdf-layout';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { clamp } from 'es-toolkit/math';

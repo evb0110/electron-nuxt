@@ -20,7 +20,7 @@
 </template>
 
 <script setup lang="ts">
-import type { ILinkAnnotation } from '@app/composables/pdf/annotations/types';
+import type { ILinkAnnotation } from '@app/types/annotations';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/platform';
 

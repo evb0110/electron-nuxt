@@ -10,73 +10,15 @@ import {
     resolve,
 } from 'node:path';
 import { run } from './shared.mjs';
+import {
+    getReleaseCiEnv,
+    expectsUpdaterMetadata,
+    getLocalReleaseTargets,
+    getRequiredArtifactPatterns,
+    shouldVerifyPackagedStartup,
+} from './policy.mjs';
 
 const RELEASE_DIR = 'release';
-
-function hasDeveloperIdSigningCredentials() {
-    return Boolean(process.env.CSC_LINK && process.env.CSC_KEY_PASSWORD);
-}
-
-function hasWindowsSigningCredentials() {
-    return Boolean(process.env.WIN_CSC_LINK && process.env.WIN_CSC_KEY_PASSWORD);
-}
-
-function expectsUpdaterMetadata(target) {
-    if (!target.expectsUpdaterMetadata) {
-        return false;
-    }
-
-    // Release CI prunes updater metadata for unsigned desktop targets. Keep
-    // local verification aligned so we catch feed-shape drift before tagging.
-    if (target.platform === 'mac' && !hasDeveloperIdSigningCredentials()) {
-        return false;
-    }
-    if (target.platform === 'win' && !hasWindowsSigningCredentials()) {
-        return false;
-    }
-
-    return true;
-}
-
-function getLocalReleaseTargets() {
-    let platform;
-    switch (process.platform) {
-        case 'darwin':
-            platform = 'mac';
-            break;
-        case 'linux':
-            platform = 'linux';
-            break;
-        case 'win32':
-            platform = 'win';
-            break;
-        default:
-            throw new Error(`Unsupported local release platform "${process.platform}"`);
-    }
-
-    if (process.arch !== 'arm64' && process.arch !== 'x64') {
-        throw new Error(`Unsupported local release arch "${process.arch}"`);
-    }
-
-    const targetArchs = (
-        platform === 'mac' && process.arch === 'arm64'
-            ? [
-                'arm64',
-                'x64',
-            ]
-            : [process.arch]
-    );
-
-    return targetArchs.map((arch) => ({
-        arch,
-        expectsUpdaterMetadata: (
-            (platform === 'mac' && arch === 'arm64')
-            || (platform === 'win' && arch === 'x64')
-        ),
-        isPrimaryHostTarget: arch === process.arch,
-        platform,
-    }));
-}
 
 function getPackagingArgs(target) {
     if (target.platform === 'mac' && target.arch === 'x64') {
@@ -108,28 +50,7 @@ function assertReleaseArtifactsExist(target) {
     }
 
     const files = readdirSync(distDir);
-    const requiredPatterns = (() => {
-        switch (target.platform) {
-            case 'mac':
-                return target.arch === 'x64'
-                    ? [ /\.zip$/ ]
-                    : [
-                        /\.dmg$/,
-                        /\.zip$/,
-                    ];
-            case 'linux':
-                return [
-                    /\.AppImage$/,
-                    /\.deb$/,
-                ];
-            case 'win':
-                return [ /\.exe$/ ];
-            default:
-                return [];
-        }
-    })();
-
-    for (const pattern of requiredPatterns) {
+    for (const pattern of getRequiredArtifactPatterns(target)) {
         const matched = files.some(file => pattern.test(file));
         if (!matched) {
             throw new Error(`Missing packaged artifact matching ${pattern} in ${RELEASE_DIR}/`);
@@ -213,7 +134,7 @@ function verifyLocalPackageArtifacts(target) {
         target.arch,
     ], {stdio: 'inherit'});
 
-    if (target.platform === 'mac' && hasDeveloperIdSigningCredentials()) {
+    if (shouldVerifyPackagedStartup(target)) {
         run('bash', [
             'scripts/verify-packaged-startup.sh',
             target.platform,
@@ -250,7 +171,7 @@ function main() {
             recursive: true,
         });
 
-        const env = { ...process.env };
+        const env = getReleaseCiEnv(process.env);
         if (target.platform === 'linux') {
             env.USE_SYSTEM_FPM = 'true';
         }

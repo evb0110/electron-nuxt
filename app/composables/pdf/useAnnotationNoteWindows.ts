@@ -9,26 +9,13 @@ import {
     annotationCommentsMatch,
     selectPreferredAnnotationComment,
 } from '@app/composables/pdf/annotationNoteWindowHelpers';
+import type {
+    IAnnotationNotePosition,
+    IAnnotationNoteWindowState,
+} from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
+import { isNoteEligibleComment } from '@app/composables/pdf/annotations/annotationRules';
 import { runGuardedTask } from '@app/utils/async-guard';
 import { BrowserLogger } from '@app/utils/browser-logger';
-
-export interface IAnnotationNotePosition {
-    x: number;
-    y: number;
-    width?: number;
-    height?: number;
-}
-
-export interface IAnnotationNoteWindowState {
-    comment: IAnnotationCommentSummary;
-    text: string;
-    lastSavedText: string;
-    saving: boolean;
-    error: string | null;
-    order: number;
-    saveMode: 'auto' | 'embedded';
-    isMinimized: boolean;
-}
 
 export interface IAnnotationNoteWindowDeps {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
@@ -83,28 +70,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         return annotationNoteWindows.value[index] ?? null;
     }
 
-    function isNoteWindowSubtype(subtype: string | null | undefined) {
-        const normalized = (subtype ?? '').trim().toLowerCase();
-        return (
-            normalized === 'text'
-            || normalized === 'note-linked'
-            || normalized === 'freetext'
-            || normalized === 'typewriter'
-            || normalized === 'note-inline'
-        );
-    }
-
     function isCommentEligibleForNoteWindow(comment: IAnnotationCommentSummary | null | undefined) {
-        if (!comment) {
-            return false;
-        }
-        if (comment.hasNote === true) {
-            return true;
-        }
-        if (isNoteWindowSubtype(comment.subtype)) {
-            return true;
-        }
-        return comment.source === 'editor' && comment.text.trim().length > 0;
+        return isNoteEligibleComment(comment);
     }
 
     function commentsLikelyReferToSameNote(

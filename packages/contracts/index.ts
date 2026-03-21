@@ -54,6 +54,7 @@ export {
 
 export {
     ALLOWED_EXTERNAL_PROTOCOLS,
+    inspectAllowedExternalUrl,
     normalizeAllowedExternalUrl,
     parseAllowedExternalUrl,
     sanitizeAllowedExternalUrl,
