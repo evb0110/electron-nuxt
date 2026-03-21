@@ -44,6 +44,7 @@ function normalizeSplitPayloadTotalPages(total: number | undefined, fallbackPage
 
 export function useWorkspaceSplitPayload(options: IUseWorkspaceSplitPayloadOptions) {
     async function captureSplitPayload(): Promise<TSplitPayload> {
+        // DjVu check must precede pdfSrc guard: DjVu mode has pdfSrc=null
         if (options.isDjvuMode.value && options.djvuSourcePath.value) {
             return {
                 kind: 'djvu',
