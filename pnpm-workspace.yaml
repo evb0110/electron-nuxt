@@ -11,6 +11,9 @@ onlyBuiltDependencies:
 # failure instead of a warning that can slip into a tagged release.
 ignoredBuiltDependencies:
   - '@parcel/watcher'
+  # electron-builder pulls this in for Windows packaging only; web installs and
+  # general CI validation do not need its lifecycle scripts to run.
+  - electron-winstaller
   - esbuild
   - unrs-resolver
   - vue-demi

@@ -8,6 +8,7 @@ fi
 
 platform="$1"
 arch="$2"
+release_dir="release"
 
 case "$platform" in
   mac)
@@ -34,10 +35,10 @@ while IFS= read -r -d '' candidate; do
     resource_root="$candidate"
     break
   fi
-done < <(find dist -type d \( -name resources -o -name Resources \) -print0)
+done < <(find "$release_dir" -type d \( -name resources -o -name Resources \) -print0)
 
 if [ -z "$resource_root" ]; then
-  echo "Error: Could not locate packaged resources for $platform_arch in dist/"
+  echo "Error: Could not locate packaged resources for $platform_arch in $release_dir/"
   exit 1
 fi
 

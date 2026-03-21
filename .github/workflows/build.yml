@@ -186,9 +186,9 @@ jobs:
         env:
           MAC_EXPECT_DEVELOPER_ID: ${{ env.MAC_EXPECT_DEVELOPER_ID }}
         run: |
-          APP_PATH="$(find dist -maxdepth 3 -type d -name '*.app' | head -n 1)"
+          APP_PATH="$(find release -maxdepth 3 -type d -name '*.app' | head -n 1)"
           if [ -z "$APP_PATH" ]; then
-            echo "::error::No .app bundle found in dist/"
+            echo "::error::No .app bundle found in release/"
             exit 1
           fi
           SIGN_INFO="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1 || true)"
@@ -284,9 +284,9 @@ jobs:
         env:
           WIN_EXPECT_SIGNATURE: ${{ env.WIN_EXPECT_SIGNATURE }}
         run: |
-          $executables = Get-ChildItem -Path dist -Filter *.exe
+          $executables = Get-ChildItem -Path release -Filter *.exe
           if (-not $executables) {
-            Write-Error "No .exe artifact found in dist/"
+            Write-Error "No .exe artifact found in release/"
             exit 1
           }
 
@@ -326,19 +326,19 @@ jobs:
           # Unsigned Windows installers also stay publishable, but updater feeds
           # are reserved for signed x64 builds so release behavior stays
           # deterministic across platforms and install paths.
-          rm -f dist/latest*.yml
-          rm -f dist/*.blockmap
+          rm -f release/latest*.yml
+          rm -f release/*.blockmap
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
-            dist/*.dmg
-            dist/*.zip
-            dist/*.exe
-            dist/*.AppImage
-            dist/*.deb
-            dist/latest*.yml
-            dist/*.blockmap
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
+            release/latest*.yml
+            release/*.blockmap
           if-no-files-found: error

@@ -12,6 +12,11 @@ npmRebuild: false
 afterPack: ./scripts/afterPack.cjs
 afterSign: ./scripts/afterSign.cjs
 
+directories:
+  # Keep desktop release artifacts out of top-level dist/ so Vercel does not
+  # mistake Electron packages for web output.
+  output: release
+
 files:
   - dist-electron/
   - nuxt-output/

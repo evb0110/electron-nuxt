@@ -1,6 +1,7 @@
 # Electron build output
 dist/
 dist-electron/
+release/
 
 # Native resources (Electron-only)
 resources/
@@ -23,6 +24,7 @@ landing/
 .codex/
 .devkit/
 .playwright-mcp/
+.tmp/
 .github/
 docs/
 

@@ -5,7 +5,9 @@
 - `pnpm dev:all`
 - `pnpm dev:electron`
 - `pnpm dev:web`
+- `pnpm build`
 - `pnpm build:web`
+- `pnpm build:desktop`
 - `pnpm generate:web`
 - `pnpm preview:web`
 - `pnpm validate:web`
@@ -14,7 +16,10 @@
 
 - `dev:all` starts one Nuxt dev server plus Electron, with the browser app at `/` and the Electron shell at `/electron`.
 - `dev:electron` is an alias for `dev:all`.
-- `build:web` produces the SSR Nuxt web build used for deployment.
+- `build` produces the SSR Nuxt web build used for deployment and is the contract Vercel should use.
+- `build:web` is an alias for `build`.
+- `build:desktop` adds the Electron bundles on top of the SSR web build for local packaging and release flows.
+- Vercel builds emit Nitro output into `.vercel/output`; local desktop flows keep using `nuxt-output/`.
 - `generate:web` is available only for static-export experiments and does not preserve cookie-driven SSR behavior on `/`.
 - `validate:web` runs lint, typecheck, and `build:web`.
 

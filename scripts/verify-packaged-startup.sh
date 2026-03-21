@@ -8,6 +8,7 @@ fi
 
 platform="$1"
 arch="$2"
+release_dir="release"
 
 host_platform=""
 case "$(uname -s)" in
@@ -38,17 +39,17 @@ if [ "$platform" != "mac" ]; then
   exit 1
 fi
 
-app_path="dist/mac-$arch/EVB Viewer.app"
+app_path="$release_dir/mac-$arch/EVB Viewer.app"
 if [ ! -d "$app_path" ]; then
   app_path=""
   while IFS= read -r candidate; do
     app_path="$candidate"
     break
-  done < <(find dist -maxdepth 4 -type d -name 'EVB Viewer.app' | sort)
+  done < <(find "$release_dir" -maxdepth 4 -type d -name 'EVB Viewer.app' | sort)
 fi
 
 if [ -z "$app_path" ] || [ ! -d "$app_path" ]; then
-  echo "Error: Could not find packaged app bundle in dist/"
+  echo "Error: Could not find packaged app bundle in $release_dir/"
   exit 1
 fi
 

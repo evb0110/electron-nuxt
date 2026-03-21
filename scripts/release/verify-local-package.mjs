@@ -11,6 +11,8 @@ import {
 } from 'node:path';
 import { run } from './shared.mjs';
 
+const RELEASE_DIR = 'release';
+
 function hasDeveloperIdSigningCredentials() {
     return Boolean(process.env.CSC_LINK && process.env.CSC_KEY_PASSWORD);
 }
@@ -100,9 +102,9 @@ function getPackagingArgs(target) {
 }
 
 function assertReleaseArtifactsExist(target) {
-    const distDir = resolve(process.cwd(), 'dist');
+    const distDir = resolve(process.cwd(), RELEASE_DIR);
     if (!existsSync(distDir)) {
-        throw new Error('dist/ was not created by electron-builder');
+        throw new Error(`${RELEASE_DIR}/ was not created by electron-builder`);
     }
 
     const files = readdirSync(distDir);
@@ -130,7 +132,7 @@ function assertReleaseArtifactsExist(target) {
     for (const pattern of requiredPatterns) {
         const matched = files.some(file => pattern.test(file));
         if (!matched) {
-            throw new Error(`Missing packaged artifact matching ${pattern} in dist/`);
+            throw new Error(`Missing packaged artifact matching ${pattern} in ${RELEASE_DIR}/`);
         }
     }
 }
@@ -150,7 +152,7 @@ function readUpdaterArtifactPath(yamlPath) {
 
 function validateUpdaterMetadata(target) {
     const shouldExist = expectsUpdaterMetadata(target);
-    const distDir = resolve(process.cwd(), 'dist');
+    const distDir = resolve(process.cwd(), RELEASE_DIR);
     const ymlFiles = readdirSync(distDir)
         .filter(name => /^latest.*\.yml$/.test(name))
         .map(name => join(distDir, name));
@@ -168,7 +170,7 @@ function validateUpdaterMetadata(target) {
     }
 
     if (ymlFiles.length === 0) {
-        throw new Error('No latest*.yml files found in dist/');
+        throw new Error(`No latest*.yml files found in ${RELEASE_DIR}/`);
     }
 
     for (const ymlPath of ymlFiles) {
@@ -188,7 +190,9 @@ function verifyLocalPackageArtifacts(target) {
     if (target.platform === 'mac' && target.arch !== process.arch) {
         const appDir = resolve(
             process.cwd(),
-            target.arch === 'x64' ? 'dist/mac/EVB Viewer.app' : `dist/mac-${target.arch}/EVB Viewer.app`,
+            target.arch === 'x64'
+                ? `${RELEASE_DIR}/mac/EVB Viewer.app`
+                : `${RELEASE_DIR}/mac-${target.arch}/EVB Viewer.app`,
         );
         run('codesign', [
             '--verify',
@@ -228,7 +232,7 @@ function pruneUpdaterMetadataForLocalParity(target) {
         return;
     }
 
-    const distDir = resolve(process.cwd(), 'dist');
+    const distDir = resolve(process.cwd(), RELEASE_DIR);
     for (const entry of readdirSync(distDir)) {
         if (/^latest.*\.yml$/.test(entry) || entry.endsWith('.blockmap')) {
             unlinkSync(join(distDir, entry));
@@ -238,7 +242,7 @@ function pruneUpdaterMetadataForLocalParity(target) {
 
 function main() {
     const targets = getLocalReleaseTargets();
-    const distDir = resolve(process.cwd(), 'dist');
+    const distDir = resolve(process.cwd(), RELEASE_DIR);
 
     for (const target of targets) {
         rmSync(distDir, {
