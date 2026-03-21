@@ -3,7 +3,7 @@ node_modules/
 nuxt-output/
 dist-electron/
 dist/
-release/
+/release/
 .devkit/
 .idea/
 

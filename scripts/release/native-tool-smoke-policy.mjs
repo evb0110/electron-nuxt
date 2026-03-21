@@ -1,0 +1,74 @@
+const MAC_PACKAGED_TOOL_SMOKE_POLICY = {
+    ddjvu: {
+        allowedExitCodes: new Set([
+            0,
+            1,
+            10,
+        ]),
+        expectedOutputTokens: [
+            'ddjvu',
+            'djvu',
+        ],
+    },
+    djvused: {
+        allowedExitCodes: new Set([
+            0,
+            10,
+        ]),
+        expectedOutputTokens: [
+            'djvused',
+            'djvu',
+        ],
+    },
+    pdftoppm: {
+        allowedExitCodes: new Set([0]),
+        expectedOutputTokens: [
+            'pdftoppm',
+            'poppler',
+        ],
+    },
+    pdftotext: {
+        allowedExitCodes: new Set([0]),
+        expectedOutputTokens: [
+            'pdftotext',
+            'poppler',
+        ],
+    },
+    qpdf: {
+        allowedExitCodes: new Set([0]),
+        expectedOutputTokens: ['qpdf'],
+    },
+    tesseract: {
+        allowedExitCodes: new Set([0]),
+        expectedOutputTokens: ['tesseract'],
+    },
+};
+
+export function getMacPackagedToolSmokePolicy(toolName) {
+    const policy = MAC_PACKAGED_TOOL_SMOKE_POLICY[toolName];
+    if (!policy) {
+        throw new Error(`Unsupported packaged tool smoke policy "${toolName}"`);
+    }
+
+    return policy;
+}
+
+export function assertMacPackagedToolSmoke(toolName, exitCode, output) {
+    const policy = getMacPackagedToolSmokePolicy(toolName);
+    if (!policy.allowedExitCodes.has(exitCode)) {
+        throw new Error(
+            `Packaged tool smoke test failed (${toolName}) with exit code ${exitCode}`,
+        );
+    }
+
+    const normalizedOutput = output.trim().toLowerCase();
+    if (!normalizedOutput) {
+        throw new Error(`Packaged tool smoke test produced no output for ${toolName}`);
+    }
+
+    if (!policy.expectedOutputTokens.some(token => normalizedOutput.includes(token))) {
+        throw new Error(
+            `Packaged tool smoke test output for ${toolName} did not match any expected signature`,
+        );
+    }
+}
