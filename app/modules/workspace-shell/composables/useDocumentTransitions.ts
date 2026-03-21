@@ -123,9 +123,19 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             closePageContextMenu();
         }
         if (!newSrc) {
+            const previousDocument = pdfDocument.value as { destroy?: () => Promise<void> } | null;
             currentPage.value = 1;
             totalPages.value = 0;
             pdfDocument.value = null;
+            if (previousDocument?.destroy) {
+                previousDocument.destroy().catch((error) => {
+                    BrowserLogger.debug(
+                        'pdf-document',
+                        'PDF document destroy rejected during close',
+                        error,
+                    );
+                });
+            }
             resetSearchCache();
             closeSearch();
             annotationTool.value = 'none';

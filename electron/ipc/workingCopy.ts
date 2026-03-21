@@ -4,7 +4,6 @@ import {
     constants as fsConstants,
     existsSync,
     mkdirSync,
-    rmSync,
 } from 'fs';
 import {
     copyFile,
@@ -316,7 +315,7 @@ export async function handleFileSave(
     }
 }
 
-function cleanupWorkingCopyDirectory(workingPath: string) {
+async function cleanupWorkingCopyDirectory(workingPath: string) {
     const normalizedPath = typeof workingPath === 'string' ? workingPath.trim() : '';
     if (!normalizedPath) {
         return;
@@ -336,20 +335,17 @@ function cleanupWorkingCopyDirectory(workingPath: string) {
         const isWorkingCopyDir = workDirName.startsWith('pdf-work-');
 
         if (isWithinTemp && isWorkingCopyDir) {
-            if (existsSync(workDir)) {
-                rmSync(workDir, {
-                    recursive: true,
-                    force: true,
-                });
-            }
-
             const ocrDir = `${workDir}.ocr`;
-            if (existsSync(ocrDir)) {
-                rmSync(ocrDir, {
+            await Promise.all([
+                rm(workDir, {
                     recursive: true,
                     force: true,
-                });
-            }
+                }),
+                rm(ocrDir, {
+                    recursive: true,
+                    force: true,
+                }),
+            ]);
         }
     } catch (err) {
         logger.warn(`Failed to delete working directory: ${err instanceof Error ? err.message : String(err)}`);
@@ -363,12 +359,13 @@ export function cleanupWorkingCopy(workingPath: string) {
     }
 
     workingCopyMap.delete(normalizedPath);
-    cleanupWorkingCopyDirectory(normalizedPath);
+    void cleanupWorkingCopyDirectory(normalizedPath);
 }
 
-export function clearAllWorkingCopies() {
-    for (const workingPath of workingCopyMap.keys()) {
-        cleanupWorkingCopyDirectory(workingPath);
-    }
+export async function clearAllWorkingCopies() {
+    const paths = [...workingCopyMap.keys()];
     workingCopyMap.clear();
+    await Promise.allSettled(
+        paths.map(workingPath => cleanupWorkingCopyDirectory(workingPath)),
+    );
 }

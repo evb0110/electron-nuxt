@@ -20,7 +20,7 @@ interface IWorkspaceDocumentLifecycleEffectsOptions {
         getCurrentPage?: () => number,
         setPage?: (page: number) => void,
         setOriginalPath?: (path: TDocumentRef | null) => void,
-        closeFile?: () => Promise<void>,
+        closeFile?: () => void | Promise<void>,
     ) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef) => Promise<void>;
     currentPage: Ref<number>;
@@ -30,7 +30,7 @@ interface IWorkspaceDocumentLifecycleEffectsOptions {
         cancelCommentPlacement: () => void;
     } | null>;
     originalPath: Ref<TDocumentRef | null>;
-    closeFile: () => Promise<void>;
+    closeFile: () => void | Promise<void>;
     openBatchProgress: Ref<{
         processed: number;
         total: number;
