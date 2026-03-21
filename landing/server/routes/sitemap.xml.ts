@@ -4,41 +4,32 @@ import {
     normalizeSiteUrl,
 } from '~~/shared/seo';
 
-const CHANGE_FREQUENCY: Record<(typeof LANDING_ROUTE_PATHS)[number], string> = {
-    '/': 'daily',
-    '/features': 'weekly',
-    '/docs': 'weekly',
-};
-
-const PRIORITY: Record<(typeof LANDING_ROUTE_PATHS)[number], string> = {
-    '/': '1.0',
-    '/features': '0.8',
-    '/docs': '0.8',
-};
+const BUILD_TIMESTAMP = new Date().toISOString();
 
 export default defineEventHandler((event) => {
     const runtimeConfig = useRuntimeConfig(event);
     const siteUrl = normalizeSiteUrl(runtimeConfig.public.siteUrl);
-    const modifiedAt = new Date().toISOString();
+    const imageUrl = buildAbsoluteUrl(siteUrl, '/evb-viewer-preview.png');
 
     const urlEntries = LANDING_ROUTE_PATHS.map((path) => {
         const location = buildAbsoluteUrl(siteUrl, path);
-        const changeFreq = CHANGE_FREQUENCY[path];
-        const priority = PRIORITY[path];
+
+        const imageEntry = path === '/'
+            ? `\n    <image:image>\n      <image:loc>${imageUrl}</image:loc>\n      <image:title>EVB Viewer — cross-platform document viewer</image:title>\n    </image:image>`
+            : '';
 
         return [
             '  <url>',
             `    <loc>${location}</loc>`,
-            `    <lastmod>${modifiedAt}</lastmod>`,
-            `    <changefreq>${changeFreq}</changefreq>`,
-            `    <priority>${priority}</priority>`,
+            `    <lastmod>${BUILD_TIMESTAMP}</lastmod>${imageEntry}`,
             '  </url>',
         ].join('\n');
     }).join('\n');
 
     const xml = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"',
+        '        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">',
         urlEntries,
         '</urlset>',
     ].join('\n');

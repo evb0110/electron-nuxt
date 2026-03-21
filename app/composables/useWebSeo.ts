@@ -62,14 +62,16 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
             ? []
             : [
                 {
-                    key: 'ld-software-application',
+                    key: 'ld-web-application',
                     type: 'application/ld+json',
                     innerHTML: JSON.stringify({
                         '@context': 'https://schema.org',
-                        '@type': 'SoftwareApplication',
+                        '@type': 'WebApplication',
+                        '@id': `${canonicalUrl.value}#app`,
                         'name': t('seo.title'),
                         'applicationCategory': 'BusinessApplication',
                         'applicationSubCategory': 'Document Viewer',
+                        'browserRequirements': 'Requires a modern web browser',
                         'operatingSystem': 'Web',
                         'description': t('seo.description'),
                         'url': canonicalUrl.value,
@@ -112,6 +114,7 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
                     innerHTML: JSON.stringify({
                         '@context': 'https://schema.org',
                         '@type': 'WebSite',
+                        '@id': `${canonicalUrl.value}#website`,
                         'name': t('app.webTitle'),
                         'url': canonicalUrl.value,
                     }),
@@ -122,13 +125,12 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
                     innerHTML: JSON.stringify({
                         '@context': 'https://schema.org',
                         '@type': 'WebPage',
+                        '@id': `${canonicalUrl.value}#webpage`,
                         'name': t('seo.title'),
                         'description': t('seo.description'),
                         'url': canonicalUrl.value,
-                        'isPartOf': {
-                            '@type': 'WebSite',
-                            'url': canonicalUrl.value,
-                        },
+                        'isPartOf': { '@id': `${canonicalUrl.value}#website` },
+                        'mainEntity': { '@id': `${canonicalUrl.value}#app` },
                         'primaryImageOfPage': {
                             '@type': 'ImageObject',
                             'url': previewImageUrl.value,

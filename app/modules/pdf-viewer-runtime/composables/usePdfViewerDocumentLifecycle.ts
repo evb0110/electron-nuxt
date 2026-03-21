@@ -57,7 +57,13 @@ interface IUsePdfViewerDocumentLifecycleOptions {
         endPage: number,
     ) => Promise<boolean>;
     getPage: (pageNumber: number) => Promise<PDFPageProxy>;
-    renderVisiblePages: (range: IPageRange) => Promise<void>;
+    renderVisiblePages: (
+        range: IPageRange,
+        options?: {
+            preserveRenderedPages?: boolean;
+            bufferOverride?: number;
+        },
+    ) => Promise<void>;
     getVisibleRange: () => IPageRange;
     reRenderVisiblePagesAndSyncCurrentPage: () => Promise<void>;
     syncCurrentPageFromViewport: (options?: {
@@ -273,11 +279,23 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
 
         options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
         try {
-            await options.renderVisiblePages(options.visibleRange.value);
+            const initialRange = {
+                start: options.currentPage.value,
+                end: options.currentPage.value,
+            } satisfies IPageRange;
+
+            await options.renderVisiblePages(initialRange, { bufferOverride: 0 });
             await options.syncCurrentPageFromViewport({ source: 'load-from-source' });
         } catch (error) {
             logAsyncStageError('render visible pages after source load', error);
         }
+        runGuardedTask(
+            () => options.renderVisiblePages(options.getVisibleRange()),
+            {
+                scope: 'pdf-viewer',
+                message: 'Failed to warm buffered PDF pages after initial render',
+            },
+        );
         options.applySearchHighlights();
         options.commentSync.scheduleAnnotationCommentsSync(true);
         scheduleRecoverInitialRender();
