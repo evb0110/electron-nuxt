@@ -145,6 +145,8 @@ export function useWorkspaceDocumentLifecycleEffects(options: IWorkspaceDocument
         totalPages,
         pdfDocument,
         workingCopyPath,
+        isDjvuMode,
+        djvuSourcePath,
         pdfError,
         dragMode,
         showSidebar,
