@@ -112,6 +112,7 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
         const timer = setTimeout(() => {
             splitCacheCleanupTimers.delete(tabId);
             const workspace = workspaceRefs.value.get(tabId);
+            // DjVu mode has hasPdf=false; without this check the cache entry would never be cleared
             if (workspace && (workspaceHasPdf(workspace) || workspace.getToolbarSnapshot().isDjvuMode)) {
                 workspaceSplitCache.clear(tabId);
             }
