@@ -3,8 +3,8 @@ import { formatWebTitleTemplate } from '@app/utils/app-window-title';
 interface IUseWebSeoOptions { noindex?: boolean; }
 
 const SEO_IMAGE_PATH = '/evb-viewer-seo.png';
-const SEO_IMAGE_WIDTH = 1466;
-const SEO_IMAGE_HEIGHT = 951;
+const SEO_IMAGE_WIDTH = 2926;
+const SEO_IMAGE_HEIGHT = 1898;
 
 function normalizeSiteUrl(siteUrl: string) {
     return siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`;
