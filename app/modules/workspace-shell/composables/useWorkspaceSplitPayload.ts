@@ -5,6 +5,7 @@ import type {
 } from '@contracts/platform-api';
 import type { TSplitPayload } from '@contracts/window-tabs';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { readDocumentBytes } from '@app/utils/document-bytes';
 import { getElectronAPI } from '@app/utils/platform';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
 import type { TPdfSource } from '@app/types/pdf';
@@ -85,12 +86,12 @@ export function useWorkspaceSplitPayload(options: IUseWorkspaceSplitPayloadOptio
 
         let snapshot = await options.pdfViewerRef.value?.saveDocument?.() ?? null;
         if (!snapshot && options.pdfData.value) {
-            snapshot = options.pdfData.value.slice();
+            snapshot = options.pdfData.value;
         }
 
         if (!snapshot && options.workingCopyPath.value) {
             try {
-                snapshot = await api.documents.readFile(options.workingCopyPath.value);
+                snapshot = await readDocumentBytes(options.workingCopyPath.value);
             } catch (error) {
                 BrowserLogger.warn('workspace', 'Failed to read working copy for split payload', {
                     path: options.workingCopyPath.value,

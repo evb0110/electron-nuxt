@@ -75,10 +75,12 @@ describe('usePageLabelState', () => {
 
     it('marks dirty only when label ranges actually change', () => {
         const markDirty = vi.fn();
+        const onPageLabelsDirty = vi.fn();
         const state = usePageLabelState({
             pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
             totalPages: ref(5),
             markDirty,
+            onPageLabelsDirty,
         });
 
         const ranges: IPdfPageLabelRange[] = [{
@@ -91,9 +93,30 @@ describe('usePageLabelState', () => {
         state.handlePageLabelRangesUpdate(ranges);
         expect(state.pageLabelsDirty.value).toBe(true);
         expect(markDirty).toHaveBeenCalledTimes(1);
+        expect(onPageLabelsDirty).toHaveBeenCalledTimes(1);
 
         markDirty.mockClear();
+        onPageLabelsDirty.mockClear();
         state.handlePageLabelRangesUpdate(ranges);
         expect(markDirty).not.toHaveBeenCalled();
+        expect(onPageLabelsDirty).not.toHaveBeenCalled();
+    });
+
+    it('invokes sync and save callbacks when labels rebaseline', async () => {
+        const onPageLabelsSynchronized = vi.fn();
+        const onPageLabelsSaved = vi.fn();
+        const state = usePageLabelState({
+            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            totalPages: ref(1),
+            markDirty: vi.fn(),
+            onPageLabelsSynchronized,
+            onPageLabelsSaved,
+        });
+
+        await state.syncPageLabelsFromDocument(null);
+        state.markPageLabelsSaved();
+
+        expect(onPageLabelsSynchronized).toHaveBeenCalled();
+        expect(onPageLabelsSaved).toHaveBeenCalledOnce();
     });
 });

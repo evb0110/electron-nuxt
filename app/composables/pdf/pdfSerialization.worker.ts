@@ -44,6 +44,17 @@ type TSerializationWorkerResponse =
         error: string;
     };
 
+function toTransferableUint8Array(data: Uint8Array) {
+    if (
+        data.byteOffset === 0
+        && data.byteLength === data.buffer.byteLength
+    ) {
+        return data;
+    }
+
+    return data.slice();
+}
+
 async function handleRequest(
     request: TSerializationWorkerRequest,
 ) {
@@ -71,12 +82,16 @@ self.addEventListener('message', async (event: MessageEvent<TSerializationWorker
 
     try {
         const data = await handleRequest(request);
+        const transferableData = data ? toTransferableUint8Array(data) : null;
         const response: TSerializationWorkerResponse = {
             id: request.id,
             ok: true,
-            data,
+            data: transferableData,
         };
-        self.postMessage(response);
+        self.postMessage(
+            response,
+            transferableData ? [transferableData.buffer] : [],
+        );
     } catch (error) {
         const response: TSerializationWorkerResponse = {
             id: request.id,

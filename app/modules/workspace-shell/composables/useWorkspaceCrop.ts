@@ -5,6 +5,7 @@ import type {
 } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { screenRectToMargins } from '@app/utils/pdf-crop-coordinates';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/platform';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
 
@@ -29,6 +30,8 @@ export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
         height: 792,
     });
     const cropDialogCurrentBox = ref<IPageGeometry['cropBox']>(null);
+    const cropDialogPageNumber = ref(1);
+    const cropDialogRotation = ref(0);
     let cropRequestToken = 0;
 
     const isCropSelecting = computed(() => options.pdfViewerRef.value?.isCropSelecting ?? false);
@@ -51,7 +54,9 @@ export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
         cropRequestToken += 1;
         const requestToken = cropRequestToken;
         cropDialogCurrentBox.value = null;
-        cropDialogOpen.value = true;
+        cropDialogPageNumber.value = result.pageNumber;
+        cropDialogRotation.value = 0;
+        cropDialogOpen.value = false;
         cropDialogLoading.value = true;
 
         let geometry: IPageGeometry | null = null;
@@ -61,15 +66,19 @@ export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
                 options.workingCopyPath.value,
                 result.pageNumber,
             );
-        } catch {
+        } catch (error) {
+            BrowserLogger.warn('crop', 'Failed to initialize crop dialog geometry', {
+                pageNumber: result.pageNumber,
+                path: options.workingCopyPath.value,
+                error: error instanceof Error ? error.message : String(error),
+            });
             if (requestToken === cropRequestToken) {
-                cropDialogOpen.value = false;
                 cropDialogLoading.value = false;
             }
             return;
         }
 
-        if (!geometry || requestToken !== cropRequestToken || !cropDialogOpen.value) {
+        if (!geometry || requestToken !== cropRequestToken) {
             if (requestToken === cropRequestToken) {
                 cropDialogLoading.value = false;
             }
@@ -93,6 +102,12 @@ export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
         cropDialogMargins.value = margins;
         cropDialogMediaBox.value = geometry.mediaBox;
         cropDialogCurrentBox.value = geometry.cropBox;
+        cropDialogRotation.value = geometry.rotation;
+        await nextTick();
+        if (requestToken !== cropRequestToken) {
+            return;
+        }
+        cropDialogOpen.value = true;
         cropDialogLoading.value = false;
     }
 
@@ -111,6 +126,8 @@ export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
         cropDialogMargins,
         cropDialogMediaBox,
         cropDialogCurrentBox,
+        cropDialogPageNumber,
+        cropDialogRotation,
         isCropSelecting,
         handleCrop,
     };

@@ -18,6 +18,8 @@ import type { TTabUpdate } from '@app/types/tabs';
 import { getElectronAPI } from '@app/utils/platform';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspace-view-state';
 import { useDocxExport } from '@app/composables/useDocxExport';
+import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
+import { useWorkspaceUndoTimeline } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';
 
 interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
@@ -73,6 +75,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pendingDjvu,
         openBatchProgress,
         loadPdfFromPath,
+        ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         persistPdfDataSilently,
@@ -82,8 +85,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         saveWorkingCopy,
         saveWorkingCopyAs,
         markDirty,
-        canUndoFile,
-        canRedoFile,
+        fileHistoryMutationVersion,
+        fileHistorySessionVersion,
         undo,
         redo,
     } = useWorkspaceFileLifecycleController();
@@ -148,6 +151,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
 
+    let metadataHistory: ReturnType<typeof useWorkspaceMetadataHistory> | null = null;
+
     const {
         pageLabels,
         pageLabelRanges,
@@ -158,6 +163,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfDocument,
         totalPages,
         markDirty,
+        onPageLabelsSynchronized: () => metadataHistory?.resetToCurrentState(),
+        onPageLabelsDirty: () => metadataHistory?.recordCurrentState(),
+        onPageLabelsSaved: () => metadataHistory?.resetToCurrentState(),
     });
 
     const {
@@ -166,7 +174,31 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         bookmarkEditMode,
         markBookmarksSaved,
         handleBookmarksChange,
-    } = useBookmarkState({ markDirty });
+    } = useBookmarkState({
+        markDirty,
+        onBookmarksSynchronized: () => metadataHistory?.resetToCurrentState(),
+        onBookmarksDirty: () => metadataHistory?.recordCurrentState(),
+        onBookmarksSaved: () => metadataHistory?.resetToCurrentState(),
+    });
+    metadataHistory = useWorkspaceMetadataHistory({
+        bookmarkItems,
+        bookmarksDirty,
+        pageLabels,
+        pageLabelRanges,
+        pageLabelsDirty,
+    });
+    metadataHistory.resetToCurrentState();
+
+    const workspaceUndoTimeline = useWorkspaceUndoTimeline({
+        fileHistoryMutationVersion,
+        fileHistorySessionVersion,
+        metadataHistoryMutationVersion: metadataHistory.metadataHistoryMutationVersion,
+        metadataHistoryResetVersion: metadataHistory.metadataHistoryResetVersion,
+        undoFile: undo,
+        redoFile: redo,
+        undoMetadata: () => metadataHistory?.undoMetadata() ?? false,
+        redoMetadata: () => metadataHistory?.redoMetadata() ?? false,
+    });
 
     const {
         isExportInProgress,
@@ -325,8 +357,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationPlacingPageNote,
         annotationEditorState,
         hasOpenAnnotationNotes,
-        canUndoFile,
-        canRedoFile,
+        canUndoHistory: workspaceUndoTimeline.canUndoTimeline,
+        canRedoHistory: workspaceUndoTimeline.canRedoTimeline,
         pdfViewerRef,
     });
 
@@ -343,11 +375,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         canUndo,
         canRedo,
         isAnnotationUndoContext,
+        nextUndoSource: workspaceUndoTimeline.nextUndoSource,
+        nextRedoSource: workspaceUndoTimeline.nextRedoSource,
         workingCopyPath,
         resetSearchCache,
         clearOcrCache: (path: string) => clearOcrCache(path),
-        undo,
-        redo,
+        undoHistory: workspaceUndoTimeline.undoTimeline,
+        redoHistory: workspaceUndoTimeline.redoTimeline,
     });
 
 
@@ -481,6 +515,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pageContextMenu,
         closePageContextMenu,
         handleExportImages,
+        ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache: (path: string) => clearOcrCache(path),
         resetSearchCache,
@@ -510,6 +545,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         cropDialogMargins,
         cropDialogMediaBox,
         cropDialogCurrentBox,
+        cropDialogPageNumber,
+        cropDialogRotation,
         isCropSelecting,
         handleCrop,
         handleDropdownOpen,
@@ -751,6 +788,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         cropDialogMargins,
         cropDialogMediaBox,
         cropDialogCurrentBox,
+        cropDialogPageNumber,
+        cropDialogRotation,
         handleCropPages,
         handleRemoveCrop,
 

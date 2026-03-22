@@ -52,6 +52,79 @@ const pendingWorkerRequests = new Map<number, TPendingWorkerRequest>();
 let serializationWorker: Worker | null = null;
 let nextRequestId = 1;
 
+function toTransferableUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
+    if (
+        data.buffer instanceof ArrayBuffer
+        && data.byteOffset === 0
+        && data.byteLength === data.buffer.byteLength
+    ) {
+        return data as Uint8Array<ArrayBuffer>;
+    }
+
+    if (
+        data.byteOffset === 0
+        && data.byteLength === data.buffer.byteLength
+    ) {
+        return new Uint8Array(data);
+    }
+
+    return data.slice();
+}
+
+function buildWorkerRequestWithTransfers(
+    request: TSerializationWorkerRequest,
+) {
+    switch (request.type) {
+        case 'save': {
+            const payload = request.payload;
+            const transferableData = toTransferableUint8Array(payload.data);
+            return {
+                request: {
+                    ...request,
+                    payload: {
+                        ...payload,
+                        data: transferableData,
+                    },
+                } as TSerializationWorkerRequest<'save'>,
+                transfer: [transferableData.buffer] satisfies Transferable[],
+            };
+        }
+        case 'updateEmbeddedText': {
+            const payload = request.payload;
+            const transferableData = toTransferableUint8Array(payload.data);
+            return {
+                request: {
+                    ...request,
+                    payload: {
+                        ...payload,
+                        data: transferableData,
+                    },
+                } as TSerializationWorkerRequest<'updateEmbeddedText'>,
+                transfer: [transferableData.buffer] satisfies Transferable[],
+            };
+        }
+        case 'deleteEmbeddedAnnotation': {
+            const payload = request.payload;
+            const transferableData = toTransferableUint8Array(payload.data);
+            return {
+                request: {
+                    ...request,
+                    payload: {
+                        ...payload,
+                        data: transferableData,
+                    },
+                } as TSerializationWorkerRequest<'deleteEmbeddedAnnotation'>,
+                transfer: [transferableData.buffer] satisfies Transferable[],
+            };
+        }
+        default:
+            return {
+                request,
+                transfer: [] satisfies Transferable[],
+            };
+    }
+}
+
 function resetWorker(error?: Error) {
     const pending = Array.from(pendingWorkerRequests.values());
     pendingWorkerRequests.clear();
@@ -163,7 +236,8 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
         });
 
         try {
-            worker.postMessage(request);
+            const workerRequest = buildWorkerRequestWithTransfers(request);
+            worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
             pendingWorkerRequests.delete(request.id);
             reject(error instanceof Error ? error : new Error(String(error)));

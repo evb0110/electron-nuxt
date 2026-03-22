@@ -12,8 +12,6 @@ const mocks = vi.hoisted(() => ({
     existsSync: vi.fn<(path: string) => boolean>(),
     lstatSync: vi.fn<(path: string) => { isSymbolicLink: () => boolean; }>(),
     realpathSync: vi.fn<(path: string) => string>(),
-    lstat: vi.fn<(path: string) => Promise<{ isSymbolicLink: () => boolean; }>>(),
-    realpath: vi.fn<(path: string) => Promise<string>>(),
 }));
 
 function createStat(isSymlink: boolean) {
@@ -33,11 +31,6 @@ vi.mock('fs', () => ({
     realpathSync: (path: string) => mocks.realpathSync(path),
 }));
 
-vi.mock('fs/promises', () => ({
-    lstat: (path: string) => mocks.lstat(path),
-    realpath: (path: string) => mocks.realpath(path),
-}));
-
 const {
     isAllowedReadPath,
     isAllowedWritePath,
@@ -50,14 +43,10 @@ beforeEach(() => {
     mocks.existsSync.mockReset();
     mocks.lstatSync.mockReset();
     mocks.realpathSync.mockReset();
-    mocks.lstat.mockReset();
-    mocks.realpath.mockReset();
 
     mocks.existsSync.mockReturnValue(true);
     mocks.lstatSync.mockReturnValue(createStat(false));
     mocks.realpathSync.mockImplementation((path: string) => path);
-    mocks.lstat.mockResolvedValue(createStat(false));
-    mocks.realpath.mockImplementation(async (path: string) => path);
 });
 
 afterEach(() => {
@@ -108,16 +97,16 @@ describe('isAllowedReadPath', () => {
 
 describe('resolveAllowedReadPath', () => {
     it('rejects symlink targets', async () => {
-        mocks.lstat.mockResolvedValue(createStat(true));
+        mocks.lstatSync.mockReturnValue(createStat(true));
 
         await expect(resolveAllowedReadPath('/tmp/electron-test/symlink.pdf')).resolves.toBeNull();
-        expect(mocks.realpath).toHaveBeenCalledWith('/tmp/electron-test');
-        expect(mocks.realpath).not.toHaveBeenCalledWith('/tmp/electron-test/symlink.pdf');
+        expect(mocks.realpathSync).toHaveBeenCalledWith('/tmp/electron-test');
+        expect(mocks.realpathSync).not.toHaveBeenCalledWith('/tmp/electron-test/symlink.pdf');
     });
 
     it('allows temp paths when canonical temp dir differs', async () => {
         mocks.tempDir = '/var/folders/abc/T';
-        mocks.realpath.mockImplementation(async (path: string) => {
+        mocks.realpathSync.mockImplementation((path: string) => {
             if (path === '/var/folders/abc/T') {
                 return '/private/var/folders/abc/T';
             }
@@ -133,10 +122,10 @@ describe('resolveAllowedReadPath', () => {
 
 describe('resolveAllowedWritePath', () => {
     it('rejects symlink targets', async () => {
-        mocks.lstat.mockResolvedValue(createStat(true));
+        mocks.lstatSync.mockReturnValue(createStat(true));
 
         await expect(resolveAllowedWritePath('/tmp/electron-test/symlink-write.pdf')).resolves.toBeNull();
-        expect(mocks.realpath).toHaveBeenCalledWith('/tmp/electron-test');
-        expect(mocks.realpath).not.toHaveBeenCalledWith('/tmp/electron-test/symlink-write.pdf');
+        expect(mocks.realpathSync).toHaveBeenCalledWith('/tmp/electron-test');
+        expect(mocks.realpathSync).not.toHaveBeenCalledWith('/tmp/electron-test/symlink-write.pdf');
     });
 });

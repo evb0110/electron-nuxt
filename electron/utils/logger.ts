@@ -1,12 +1,14 @@
 import { isMainThread } from 'worker_threads';
 import { tmpdir } from 'os';
-import { mkdirSync } from 'fs';
+import {
+    mkdirSync,
+    statSync,
+} from 'fs';
 import {
     appendFile,
     readdir,
     rename,
     rm,
-    stat,
 } from 'fs/promises';
 import {
     dirname,
@@ -160,7 +162,7 @@ async function initializeState(logFile: string, state: IFileLogState) {
     }
 
     try {
-        const fileStat = await stat(logFile);
+        const fileStat = statSync(logFile);
         state.approximateBytes = fileStat.size;
     } catch {
         state.approximateBytes = 0;
@@ -228,7 +230,7 @@ async function pruneLogDirectory(force = false) {
         for (const entry of entries) {
             const filePath = join(LOG_DIR, entry);
             try {
-                const fileStat = await stat(filePath);
+                const fileStat = statSync(filePath);
                 if (!fileStat.isFile()) {
                     continue;
                 }

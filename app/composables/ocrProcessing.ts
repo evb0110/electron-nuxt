@@ -1,14 +1,26 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { safeDestr } from 'destr';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 
 interface IOcrManifestIndex {pages: Record<number, { path: string }>;}
 
 interface IOcrPageTextEntry {text?: string;}
 
 interface ILegacyOcrIndex {pages?: IOcrPageTextEntry[];}
+
+interface IPdfTextPageLike {
+    getTextContent: () => Promise<IPdfTextContentLike>;
+    cleanup?: (resetStats?: boolean) => unknown;
+}
+
+interface IPdfTextContentLike { items: unknown[]; }
+
+interface IPdfTextDocumentLike {
+    numPages: number;
+    getPage: (pageNumber: number) => Promise<IPdfTextPageLike>;
+}
 
 export async function loadOcrText(workingCopyPath: TDocumentRef): Promise<string | null> {
     try {
@@ -32,12 +44,17 @@ export async function loadOcrText(workingCopyPath: TDocumentRef): Promise<string
 
             const texts: string[] = [];
 
-            for (const entry of pageEntries) {
+            for (let index = 0; index < pageEntries.length; index += 1) {
+                const entry = pageEntries[index]!;
                 const pagePath = `${workingCopyPath}.ocr/${entry.path}`;
                 const pageJson = await api.documents.readTextFile(pagePath);
                 const pageData = safeDestr<IOcrPageTextEntry>(pageJson);
                 if (pageData?.text) {
                     texts.push(pageData.text.trim());
+                }
+
+                if (index > 0 && index % 8 === 0) {
+                    await yieldToBrowser();
                 }
             }
 
@@ -66,7 +83,7 @@ export async function loadOcrText(workingCopyPath: TDocumentRef): Promise<string
     }
 }
 
-export async function extractPdfText(pdfDocument: PDFDocumentProxy): Promise<string | null> {
+export async function extractPdfText(pdfDocument: IPdfTextDocumentLike): Promise<string | null> {
     try {
         const pageCount = pdfDocument.numPages ?? 0;
         if (pageCount === 0) {
@@ -78,12 +95,25 @@ export async function extractPdfText(pdfDocument: PDFDocumentProxy): Promise<str
             const page = await pdfDocument.getPage(pageNumber);
             const content = await page.getTextContent();
             const text = content.items
-                .map((item) => ('str' in item ? item.str : ''))
+                .map((item) => {
+                    const textItem = item as { str?: unknown };
+                    return typeof textItem.str === 'string' ? textItem.str : '';
+                })
                 .join(' ')
                 .replace(/\s+/g, ' ')
                 .trim();
             if (text) {
                 pages.push(text);
+            }
+
+            try {
+                await Promise.resolve(page.cleanup?.());
+            } catch {
+                // Page cleanup is a best-effort memory hint.
+            }
+
+            if (pageNumber % 2 === 0) {
+                await yieldToBrowser();
             }
         }
 

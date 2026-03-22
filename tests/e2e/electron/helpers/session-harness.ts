@@ -17,6 +17,7 @@ import {
     stopSingleSession,
     waitForSessionReady,
 } from '../../../../scripts/electron-run/session-manager';
+import { waitForFunctionInPage } from './page-runtime';
 
 const SESSION_READY_TIMEOUT_MS = 120_000;
 const RENDERER_READY_TIMEOUT_MS = 30_000;
@@ -30,7 +31,7 @@ export interface IElectronE2ESession {
 }
 
 async function waitForRendererReady(page: Page, timeoutMs = RENDERER_READY_TIMEOUT_MS) {
-    await page.waitForFunction(() => {
+    await waitForFunctionInPage(page, () => {
         const nuxtRoot = document.querySelector('#__nuxt');
         const hasNuxt = Boolean(nuxtRoot && nuxtRoot.children.length > 0);
         const hasOpenFile = typeof (window as Window & { __openFileDirect?: unknown }).__openFileDirect === 'function';

@@ -4,12 +4,12 @@ import {
     constants as fsConstants,
     existsSync,
     mkdirSync,
+    statSync,
 } from 'fs';
 import {
     copyFile,
     readdir,
     rm,
-    stat,
     writeFile,
 } from 'fs/promises';
 import {
@@ -147,9 +147,9 @@ export async function cleanupStaleWorkingCopyDirectories() {
             continue;
         }
 
-        let workDirStat: Awaited<ReturnType<typeof stat>> | null = null;
+        let workDirStat: ReturnType<typeof statSync> | null = null;
         try {
-            workDirStat = await stat(workDir);
+            workDirStat = statSync(workDir);
         } catch {
             continue;
         }

@@ -21,8 +21,8 @@ import {
     updateEmbeddedAnnotationTextOffThread,
 } from '@app/composables/pdf/pdfSerializationWorkerClient';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { readDocumentBytes } from '@app/utils/document-bytes';
 import { measureDevPerfAsync } from '@app/utils/dev-perf';
-import { getElectronAPI } from '@app/utils/platform';
 
 const PDF_SERIALIZATION_LOG_SECTION = 'pdf-serialization';
 
@@ -61,12 +61,32 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         getAllShapes,
     } = deps;
 
+    function toOwnedUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
+        if (
+            data.buffer instanceof ArrayBuffer
+            && data.byteOffset === 0
+            && data.byteLength === data.buffer.byteLength
+        ) {
+            return data as Uint8Array<ArrayBuffer>;
+        }
+
+        if (
+            data.byteOffset === 0
+            && data.byteLength === data.buffer.byteLength
+        ) {
+            return new Uint8Array(data);
+        }
+
+        return data.slice();
+    }
+
     async function getSourcePdfData() {
-        let sourceData = pdfData.value ? pdfData.value.slice() : null;
+        let sourceData = pdfData.value ? toOwnedUint8Array(pdfData.value) : null;
         if (!sourceData && workingCopyPath.value) {
             try {
-                const buffer = await getElectronAPI().documents.readFile(workingCopyPath.value);
-                sourceData = new Uint8Array(buffer);
+                sourceData = toOwnedUint8Array(
+                    await readDocumentBytes(workingCopyPath.value),
+                );
             } catch (error) {
                 BrowserLogger.debug(PDF_SERIALIZATION_LOG_SECTION, 'Failed to read working copy for serialization', {
                     path: workingCopyPath.value,
@@ -79,7 +99,10 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     }
 
     async function decodePlacedImageSource(payload: IPdfPlacedImageFinalizePayload) {
-        const imageBlob = new Blob([payload.bytes.slice().buffer], { type: payload.mimeType || 'image/png' });
+        const imageBlob = new Blob(
+            [toOwnedUint8Array(payload.bytes)],
+            { type: payload.mimeType || 'image/png' },
+        );
 
         if (typeof createImageBitmap === 'function') {
             return createImageBitmap(imageBlob);

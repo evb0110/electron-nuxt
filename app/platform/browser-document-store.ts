@@ -433,6 +433,10 @@ function shouldInlineFileBytes(fileSize: number) {
     return fileSize <= BROWSER_INLINE_FILE_THRESHOLD_BYTES;
 }
 
+function resolveByteBackedStorageMode(fileSize: number): TBrowserDocumentStorageMode {
+    return shouldInlineFileBytes(fileSize) ? 'inline' : 'chunked';
+}
+
 export class BrowserDocumentStore {
     private readonly entries = new Map<string, IBrowserDocumentEntry>();
     private maintenancePromise: Promise<void> | null = null;
@@ -476,6 +480,7 @@ export class BrowserDocumentStore {
 
     public async registerFile(file: File, options: IRegisterFileOptions = {}) {
         await this.ensureMaintenance();
+        const storageMode = resolveByteBackedStorageMode(file.size);
         const ref = createBrowserDocumentRef(file.name);
         const entry: IBrowserDocumentEntry = {
             ref,
@@ -491,21 +496,13 @@ export class BrowserDocumentStore {
             saveName: file.name,
             saveKind: options.saveKind ?? 'generic',
             saveHandle: options.saveHandle ?? null,
-            storageMode: options.saveHandle
-                ? 'handle'
-                : shouldInlineFileBytes(file.size)
-                    ? 'inline'
-                    : 'chunked',
+            storageMode,
             chunkCount: 0,
             chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
         };
 
         this.entries.set(ref, entry);
-        if (options.saveHandle) {
-            await persistRecord(this.toPersistedRecord(entry, entry.data, false));
-        } else {
-            await this.consumeFileIntoEntry(entry, file);
-        }
+        await this.consumeFileIntoEntry(entry, file);
         return ref;
     }
 
@@ -515,9 +512,17 @@ export class BrowserDocumentStore {
         options: ICreateStoredDocumentOptions,
     ): Promise<string> {
         await this.ensureMaintenance();
-        const storageMode = options.storageMode ?? 'inline';
+        const sourceBytes = toUint8Array(data);
+        const requestedStorageMode = options.storageMode ?? 'inline';
+        const storageMode = (
+            options.kind === 'source'
+            && requestedStorageMode === 'handle'
+            && sourceBytes.byteLength > 0
+        )
+            ? resolveByteBackedStorageMode(sourceBytes.byteLength)
+            : requestedStorageMode;
         const bytes = storageMode === 'inline'
-            ? cloneBytes(toUint8Array(data))
+            ? cloneBytes(sourceBytes)
             : new Uint8Array();
         const ref = createBrowserDocumentRef(fileName);
         const entry: IBrowserDocumentEntry = {
@@ -528,7 +533,9 @@ export class BrowserDocumentStore {
             retention: options.retention ?? defaultRetentionForKind(options.kind ?? 'source'),
             sourceRef: options.sourceRef,
             data: bytes,
-            fileSize: bytes.byteLength,
+            fileSize: storageMode === 'chunked'
+                ? sourceBytes.byteLength
+                : bytes.byteLength,
             updatedAt: Date.now(),
             pendingLoad: null,
             saveName: fileName,
@@ -541,6 +548,9 @@ export class BrowserDocumentStore {
 
         this.entries.set(ref, entry);
         await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+        if (storageMode === 'chunked' && sourceBytes.byteLength > 0) {
+            await this.consumeBytesIntoChunkedEntry(entry, sourceBytes);
+        }
         return ref;
     }
 
@@ -756,6 +766,29 @@ export class BrowserDocumentStore {
     public async getSourceRef(ref: string): Promise<string> {
         const entry = await this.requireEntry(ref);
         return entry.sourceRef ?? ref;
+    }
+
+    public async ensureByteBackedSource(ref: string): Promise<void> {
+        const entry = await this.requireEntry(ref);
+        if (entry.storageMode === 'source-proxy' && entry.sourceRef) {
+            await this.ensureByteBackedSource(entry.sourceRef);
+            return;
+        }
+
+        if (
+            entry.kind !== 'source'
+            || entry.storageMode !== 'handle'
+            || !entry.saveHandle
+        ) {
+            return;
+        }
+
+        const file = await entry.saveHandle.getFile();
+        entry.storageMode = resolveByteBackedStorageMode(file.size);
+        entry.chunkCount = 0;
+        entry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
+        entry.fileSize = file.size;
+        await this.consumeFileIntoEntry(entry, file);
     }
 
     public async getFileName(ref: string): Promise<string> {
@@ -1114,6 +1147,38 @@ export class BrowserDocumentStore {
 
         entry.pendingLoad = pendingLoad;
         await pendingLoad;
+    }
+
+    private async consumeBytesIntoChunkedEntry(
+        entry: IBrowserDocumentEntry,
+        bytes: Uint8Array,
+    ): Promise<void> {
+        entry.data = new Uint8Array();
+        entry.chunkCount = 0;
+        entry.chunkSize = Math.max(1, entry.chunkSize);
+        entry.fileSize = bytes.byteLength;
+        entry.updatedAt = Date.now();
+        await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+
+        let chunkIndex = 0;
+        for (
+            let offset = 0;
+            offset < bytes.byteLength;
+            offset += entry.chunkSize
+        ) {
+            const chunk = bytes.slice(offset, offset + entry.chunkSize);
+            await persistChunkRecord({
+                key: createChunkKey(entry.ref, chunkIndex),
+                ref: entry.ref,
+                index: chunkIndex,
+                data: cloneBytes(chunk),
+            });
+            chunkIndex += 1;
+        }
+
+        entry.chunkCount = chunkIndex;
+        entry.updatedAt = Date.now();
+        await persistRecord(this.toPersistedRecord(entry, entry.data, false));
     }
 
     private async readEntryBytes(entry: IBrowserDocumentEntry): Promise<Uint8Array> {

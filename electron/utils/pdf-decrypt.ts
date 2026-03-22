@@ -1,3 +1,4 @@
+import { statSync } from 'fs';
 import {
     open,
     rename,
@@ -12,9 +13,9 @@ const DECRYPT_TIMEOUT_MS = 30_000;
 const SCAN_CHUNK_SIZE = 8192;
 
 async function hasEncryptMarker(filePath: string): Promise<boolean> {
+    const stats = statSync(filePath);
     const handle = await open(filePath, 'r');
     try {
-        const stats = await handle.stat();
         const headSize = Math.min(SCAN_CHUNK_SIZE, stats.size);
 
         const headBuf = Buffer.alloc(headSize);

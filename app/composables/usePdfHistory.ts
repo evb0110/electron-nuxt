@@ -3,6 +3,7 @@ import type { TDocumentRef } from '@contracts/platform-api';
 import { until } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollSnapshot } from '@app/types/pdf';
+import type { TWorkspaceUndoSource } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';
 
 const PDF_RELOAD_TIMEOUT_MS = 8000;
 
@@ -24,11 +25,13 @@ export const usePdfHistory = (deps: {
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
     isAnnotationUndoContext: Ref<boolean>;
+    nextUndoSource: Ref<TWorkspaceUndoSource | null>;
+    nextRedoSource: Ref<TWorkspaceUndoSource | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     resetSearchCache: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
-    undo: () => Promise<boolean>;
-    redo: () => Promise<boolean>;
+    undoHistory: () => Promise<boolean>;
+    redoHistory: () => Promise<boolean>;
 }) => {
     const {
         pdfDocument,
@@ -39,11 +42,13 @@ export const usePdfHistory = (deps: {
         canUndo,
         canRedo,
         isAnnotationUndoContext,
+        nextUndoSource,
+        nextRedoSource,
         workingCopyPath,
         resetSearchCache,
         clearOcrCache,
-        undo,
-        redo,
+        undoHistory,
+        redoHistory,
     } = deps;
 
     /**
@@ -107,15 +112,21 @@ export const usePdfHistory = (deps: {
         }
         isHistoryBusy.value = true;
         try {
-            if (workingCopyPath.value) {
+            const undoSource = nextUndoSource.value;
+            if (!undoSource) {
+                return;
+            }
+            if (undoSource === 'file' && workingCopyPath.value) {
                 clearOcrCache(workingCopyPath.value);
             }
             const pageToRestore = currentPage.value;
-            const reloadWaiter = createPdfReloadWaiter(pageToRestore);
-            const didUndo = await undo();
-            if (didUndo) {
+            const reloadWaiter = undoSource === 'file'
+                ? createPdfReloadWaiter(pageToRestore)
+                : null;
+            const didUndo = await undoHistory();
+            if (didUndo && reloadWaiter) {
                 await reloadWaiter.promise;
-            } else {
+            } else if (reloadWaiter) {
                 reloadWaiter.cancel();
             }
         } finally {
@@ -136,15 +147,21 @@ export const usePdfHistory = (deps: {
         }
         isHistoryBusy.value = true;
         try {
-            if (workingCopyPath.value) {
+            const redoSource = nextRedoSource.value;
+            if (!redoSource) {
+                return;
+            }
+            if (redoSource === 'file' && workingCopyPath.value) {
                 clearOcrCache(workingCopyPath.value);
             }
             const pageToRestore = currentPage.value;
-            const reloadWaiter = createPdfReloadWaiter(pageToRestore);
-            const didRedo = await redo();
-            if (didRedo) {
+            const reloadWaiter = redoSource === 'file'
+                ? createPdfReloadWaiter(pageToRestore)
+                : null;
+            const didRedo = await redoHistory();
+            if (didRedo && reloadWaiter) {
                 await reloadWaiter.promise;
-            } else {
+            } else if (reloadWaiter) {
                 reloadWaiter.cancel();
             }
         } finally {

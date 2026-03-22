@@ -208,6 +208,21 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
     });
 
+    it('rejects large worker startup failures instead of falling back to the main thread', async () => {
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            size: 32 * 1024 * 1024,
+        });
+
+        await expect(createPdfFromInputPaths(['/tmp/input.pdf']))
+            .rejects
+            .toThrow('Image combine worker unavailable and local fallback is disabled for files larger than 8 inputs or 16MB');
+
+        expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
+        expect(mocks.create).not.toHaveBeenCalled();
+        expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps worker combine path for bmp/webp/gif inputs', async () => {
         mocks.workerState.mode = 'success';
 

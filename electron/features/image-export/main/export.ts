@@ -4,6 +4,7 @@ import {
     mkdir,
     mkdtemp,
     readdir,
+    stat,
     rename,
     rm,
     unlink,
@@ -48,6 +49,20 @@ const __dirname = dirnameFromPath(fileURLToPath(import.meta.url));
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 const TIFF_COMBINE_WORKER_FILENAME = 'image-export-tiff-worker.js';
+const TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_TIFF_COMBINE_FALLBACK_MAX_PAGES ?? '2', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 2;
+    }
+    return Math.min(parsed, 16);
+})();
+const TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_TIFF_COMBINE_FALLBACK_MAX_TOTAL_MB ?? '16', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 16 * 1024 * 1024;
+    }
+    return Math.min(parsed, 128) * 1024 * 1024;
+})();
 
 function resolveFormatExtension(format: TImageExportFormat): string {
     if (format === 'jpeg') {
@@ -324,80 +339,153 @@ function resolveTiffCombineWorkerPath() {
     return defaultPath;
 }
 
-async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: string) {
-    const workerPath = resolveTiffCombineWorkerPath();
-    if (!existsSync(workerPath)) {
-        await measureElectronPerfAsync('image-export:tiff-combine-local', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath), {
-            thresholdMs: 25,
-            details: {
-                pageCount: pagePaths.length,
-                outputPath,
-            },
-        });
-        return;
+class TiffCombineWorkerStartupError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'TiffCombineWorkerStartupError';
+    }
+}
+
+async function canUseLocalTiffCombineFallback(pagePaths: string[]) {
+    if (pagePaths.length > TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES) {
+        return false;
     }
 
-    await measureElectronPerfAsync('image-export:tiff-combine-worker', () => new Promise<void>((resolve, reject) => {
-        let settled = false;
-        let online = false;
-        const worker = new Worker(workerPath, {workerData: {
-            pagePaths,
-            outputPath,
-        }});
+    let totalBytes = 0;
+    for (const pagePath of pagePaths) {
+        const pageStat = await stat(pagePath);
+        if (!pageStat.isFile()) {
+            return false;
+        }
 
-        const finalize = (callback: () => void) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            worker.removeAllListeners();
-            void worker.terminate().catch(() => {});
-            callback();
-        };
+        totalBytes += pageStat.size;
+        if (totalBytes > TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES) {
+            return false;
+        }
+    }
 
-        worker.once('online', () => {
-            online = true;
-        });
+    return true;
+}
 
-        worker.once('message', (payload: TTiffCombineWorkerResult) => {
-            finalize(() => {
-                if (!payload || payload.type !== 'result') {
-                    reject(new Error('TIFF combine worker returned an invalid payload'));
-                    return;
-                }
-                if (!payload.ok) {
-                    reject(new Error(payload.error));
-                    return;
-                }
-                resolve();
-            });
-        });
+function getTiffCombineFallbackDisabledError() {
+    const maxMb = Math.floor(TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES / (1024 * 1024));
+    return new Error(
+        `TIFF combine worker unavailable and local fallback is disabled for exports larger than ${TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES} pages or ${maxMb}MB`,
+    );
+}
 
-        worker.once('error', (error) => {
-            finalize(() => {
-                if (!online) {
-                    combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath).then(resolve, reject);
-                    return;
-                }
-                reject(error);
-            });
-        });
-
-        worker.once('exit', (code) => {
-            if (settled || code === 0) {
-                return;
-            }
-            finalize(() => {
-                reject(new Error(`TIFF combine worker exited with code ${code}`));
-            });
-        });
-    }), {
+async function runLocalTiffCombine(pagePaths: string[], outputPath: string) {
+    await measureElectronPerfAsync('image-export:tiff-combine-local', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath), {
         thresholdMs: 25,
         details: {
             pageCount: pagePaths.length,
             outputPath,
         },
     });
+}
+
+async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: string) {
+    const workerPath = resolveTiffCombineWorkerPath();
+    if (!existsSync(workerPath)) {
+        if (!(await canUseLocalTiffCombineFallback(pagePaths))) {
+            logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback at ${workerPath}`);
+            throw getTiffCombineFallbackDisabledError();
+        }
+
+        logger.warn(`TIFF combine worker unavailable, falling back to local combine: missing worker at ${workerPath}`);
+        await runLocalTiffCombine(pagePaths, outputPath);
+        return;
+    }
+
+    try {
+        await measureElectronPerfAsync('image-export:tiff-combine-worker', () => new Promise<void>((resolve, reject) => {
+            let settled = false;
+            let online = false;
+            let worker: Worker;
+            try {
+                worker = new Worker(workerPath, {workerData: {
+                    pagePaths,
+                    outputPath,
+                }});
+            } catch (error) {
+                reject(new TiffCombineWorkerStartupError(
+                    `TIFF combine worker failed to start: ${error instanceof Error ? error.message : String(error)}`,
+                ));
+                return;
+            }
+
+            const finalize = (callback: () => void) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                worker.removeAllListeners();
+                void worker.terminate().catch(() => {});
+                callback();
+            };
+
+            worker.once('online', () => {
+                online = true;
+            });
+
+            worker.once('message', (payload: TTiffCombineWorkerResult) => {
+                finalize(() => {
+                    if (!payload || payload.type !== 'result') {
+                        reject(new Error('TIFF combine worker returned an invalid payload'));
+                        return;
+                    }
+                    if (!payload.ok) {
+                        reject(new Error(payload.error));
+                        return;
+                    }
+                    resolve();
+                });
+            });
+
+            worker.once('error', (error) => {
+                finalize(() => {
+                    if (!online) {
+                        reject(new TiffCombineWorkerStartupError(
+                            `TIFF combine worker failed before becoming ready: ${error instanceof Error ? error.message : String(error)}`,
+                        ));
+                        return;
+                    }
+                    reject(error);
+                });
+            });
+
+            worker.once('exit', (code) => {
+                if (settled || code === 0) {
+                    return;
+                }
+                finalize(() => {
+                    if (!online) {
+                        reject(new TiffCombineWorkerStartupError(`TIFF combine worker exited during startup with code ${code}`));
+                        return;
+                    }
+                    reject(new Error(`TIFF combine worker exited with code ${code}`));
+                });
+            });
+        }), {
+            thresholdMs: 25,
+            details: {
+                pageCount: pagePaths.length,
+                outputPath,
+            },
+        });
+    } catch (error) {
+        if (!(error instanceof TiffCombineWorkerStartupError)) {
+            throw error;
+        }
+
+        if (!(await canUseLocalTiffCombineFallback(pagePaths))) {
+            logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback: ${error.message}`);
+            throw getTiffCombineFallbackDisabledError();
+        }
+
+        logger.warn(`TIFF combine worker unavailable, falling back to local combine: ${error.message}`);
+        await runLocalTiffCombine(pagePaths, outputPath);
+    }
 }
 
 export async function exportPdfAsMultiPageTiff(

@@ -1,7 +1,7 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
-import { createDocxFromText } from '@app/utils/docx';
+import { createDocxFromTextAsync } from '@app/utils/docx';
 import {
     loadOcrText,
     extractPdfText,
@@ -54,7 +54,7 @@ export const useDocxExport = () => {
 
             try {
                 const hasRtl = selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
-                const docxBytes = createDocxFromText(text, hasRtl);
+                const docxBytes = await createDocxFromTextAsync(text, hasRtl);
                 await api.documents.writeDocxFile(outPath, docxBytes);
                 analytics.track('export_completed', {
                     format: 'docx',

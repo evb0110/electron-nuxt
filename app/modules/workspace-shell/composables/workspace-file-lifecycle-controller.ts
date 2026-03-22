@@ -31,6 +31,7 @@ export const useWorkspaceFileLifecycleController = () => {
         openFileDirect,
         openFileDirectBatch,
         loadPdfFromPath,
+        ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         persistPdfDataSilently,
@@ -42,6 +43,8 @@ export const useWorkspaceFileLifecycleController = () => {
         markDirty,
         canUndo: canUndoFile,
         canRedo: canRedoFile,
+        fileHistoryMutationVersion,
+        fileHistorySessionVersion,
         undo,
         redo,
     } = usePdfFile();
@@ -128,6 +131,7 @@ export const useWorkspaceFileLifecycleController = () => {
         openFileDirect,
         openFileDirectBatch,
         loadPdfFromPath,
+        ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         persistPdfDataSilently,
@@ -139,6 +143,8 @@ export const useWorkspaceFileLifecycleController = () => {
         markDirty,
         canUndoFile,
         canRedoFile,
+        fileHistoryMutationVersion,
+        fileHistorySessionVersion,
         undo,
         redo,
 

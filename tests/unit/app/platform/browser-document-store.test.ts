@@ -487,6 +487,108 @@ describe('BrowserDocumentStore', () => {
         await expect(store.stat(ref)).resolves.toEqual({ size: 5 });
     });
 
+    it('mirrors picked source bytes even when a save handle is present', async () => {
+        const bytes = new Uint8Array([
+            3,
+            1,
+            4,
+        ]);
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'picked.pdf',
+            getFile: vi.fn(async () => {
+                throw new DOMException('Not allowed', 'NotAllowedError');
+            }),
+        });
+        const file = new File([bytes], 'picked.pdf', { type: 'application/pdf' });
+        const store = new BrowserDocumentStore();
+        const ref = await store.registerFile(file, {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+
+        const entry = await store.requireEntry(ref);
+        expect(entry.storageMode).toBe('inline');
+
+        store.unload(ref);
+
+        await expect(store.read(ref)).resolves.toEqual(bytes);
+        expect(handle.getFile).not.toHaveBeenCalled();
+    });
+
+    it('keeps source bytes readable after save-handle-backed source creation', async () => {
+        const bytes = new Uint8Array([
+            6,
+            2,
+            5,
+        ]);
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'saved.pdf',
+            getFile: vi.fn(async () => {
+                throw new DOMException('Not allowed', 'NotAllowedError');
+            }),
+        });
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'saved.pdf',
+            bytes,
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: handle,
+                storageMode: 'handle',
+            },
+        );
+
+        const entry = await store.requireEntry(ref);
+        expect(entry.storageMode).toBe('inline');
+
+        store.unload(ref);
+
+        await expect(store.read(ref)).resolves.toEqual(bytes);
+        expect(handle.getFile).not.toHaveBeenCalled();
+    });
+
+    it('hydrates legacy handle-backed sources before reopening them', async () => {
+        const bytes = new Uint8Array([
+            8,
+            9,
+            7,
+        ]);
+        const getFile = vi.fn(async () => new File([bytes], 'legacy.pdf', { type: 'application/pdf' }));
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'legacy.pdf',
+            getFile,
+        });
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'legacy.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: handle,
+                storageMode: 'handle',
+            },
+        );
+
+        await store.ensureByteBackedSource(ref);
+        const entry = await store.requireEntry(ref);
+        expect(entry.storageMode).toBe('inline');
+
+        getFile.mockImplementation(async () => {
+            throw new DOMException('Not allowed', 'NotAllowedError');
+        });
+        store.unload(ref);
+
+        await expect(store.read(ref)).resolves.toEqual(bytes);
+    });
+
     it('stores large file-only sources as chunked records', async () => {
         const bytes = new Uint8Array((16 * 1024 * 1024) + 1);
         bytes[0] = 4;

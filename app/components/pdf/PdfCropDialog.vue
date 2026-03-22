@@ -153,7 +153,7 @@
                 color="neutral"
                 variant="ghost"
                 :label="t('crop.removeCrop')"
-                :disabled="loading"
+                :disabled="loading || resolvedPages.length === 0"
                 @click="handleRemoveCrop"
             />
             <div class="flex gap-2">
@@ -185,8 +185,9 @@ import type {
     TCropUnit,
 } from '@app/types/crop';
 import {
-    boxToNormalizedRect,
-    marginsToNormalizedRect,
+    boxToDisplayNormalizedRect,
+    marginsToDisplayNormalizedRect,
+    normalizeCropRotation,
     pointsToUnit,
     unitStep,
     unitToPoints,
@@ -203,6 +204,7 @@ const props = defineProps<{
     initialMargins: ICropMargins;
     mediaBox: IPdfBox;
     currentVisibleBox?: IPdfBox | null;
+    rotation?: number;
 }>();
 
 const emit = defineEmits<{
@@ -218,6 +220,7 @@ const margins = reactive<ICropMargins>({
     left: 0,
     right: 0,
 });
+const marginsDirty = ref(false);
 
 const unit = ref<TCropUnit>('pt');
 const scope = ref<TCropScope>('current');
@@ -246,11 +249,16 @@ function updateMargin(side: keyof ICropMargins, displayValue: string | number) {
     const numValue = typeof displayValue === 'string' ? parseFloat(displayValue) : displayValue;
     if (Number.isFinite(numValue) && numValue >= 0) {
         margins[side] = unitToPoints(numValue, unit.value);
+        marginsDirty.value = true;
     }
 }
 
 const previewAreaStyle = computed(() => {
-    const rect = marginsToNormalizedRect(margins, props.mediaBox);
+    const rect = marginsToDisplayNormalizedRect(
+        margins,
+        props.mediaBox,
+        props.rotation ?? 0,
+    );
     return {
         left: `${rect.x * 100}%`,
         top: `${rect.y * 100}%`,
@@ -264,7 +272,11 @@ const previewCurrentStyle = computed(() => {
         return null;
     }
 
-    const rect = boxToNormalizedRect(props.currentVisibleBox, props.mediaBox);
+    const rect = boxToDisplayNormalizedRect(
+        props.currentVisibleBox,
+        props.mediaBox,
+        props.rotation ?? 0,
+    );
     return {
         left: `${rect.x * 100}%`,
         top: `${rect.y * 100}%`,
@@ -274,8 +286,10 @@ const previewCurrentStyle = computed(() => {
 });
 
 const previewPageStyle = computed(() => {
-    const width = Math.max(props.mediaBox.width, 1);
-    const height = Math.max(props.mediaBox.height, 1);
+    const normalizedRotation = normalizeCropRotation(props.rotation ?? 0);
+    const isQuarterTurn = normalizedRotation === 90 || normalizedRotation === 270;
+    const width = Math.max(isQuarterTurn ? props.mediaBox.height : props.mediaBox.width, 1);
+    const height = Math.max(isQuarterTurn ? props.mediaBox.width : props.mediaBox.height, 1);
     return { aspectRatio: `${width} / ${height}` };
 });
 
@@ -309,6 +323,14 @@ const resolvedPages = computed((): number[] => {
     }
 });
 
+function syncMarginsFromProps() {
+    margins.top = props.initialMargins.top;
+    margins.bottom = props.initialMargins.bottom;
+    margins.left = props.initialMargins.left;
+    margins.right = props.initialMargins.right;
+    marginsDirty.value = false;
+}
+
 function handleApply() {
     if (!isValid.value) {
         return;
@@ -322,24 +344,38 @@ function handleApply() {
 }
 
 function handleRemoveCrop() {
-    const pages = resolvedPages.value.length > 0
-        ? resolvedPages.value
-        : Array.from({ length: props.totalPages }, (_, i) => i + 1);
+    const pages = resolvedPages.value;
+    if (pages.length === 0) {
+        return;
+    }
+
     emit('remove', { pages });
     open.value = false;
 }
 
 watch(open, (isOpen) => {
     if (!isOpen) {
+        marginsDirty.value = false;
         return;
     }
-    margins.top = props.initialMargins.top;
-    margins.bottom = props.initialMargins.bottom;
-    margins.left = props.initialMargins.left;
-    margins.right = props.initialMargins.right;
+    syncMarginsFromProps();
     scope.value = 'current';
     rangeInput.value = '';
 });
+
+watch(() => props.loading, (loading, previousLoading) => {
+    if (!open.value || loading || !previousLoading) {
+        return;
+    }
+    syncMarginsFromProps();
+});
+
+watch(() => props.initialMargins, () => {
+    if (!open.value || props.loading || marginsDirty.value) {
+        return;
+    }
+    syncMarginsFromProps();
+}, { deep: true });
 
 watch(normalizedSelectedPages, (pages) => {
     if (scope.value === 'selected' && pages.length === 0) {

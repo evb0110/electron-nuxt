@@ -76,6 +76,20 @@ const PDF_COMBINE_MAX_TOTAL_BYTES = (() => {
     }
     return parsed * 1024 * 1024;
 })();
+const PDF_COMBINE_LOCAL_FALLBACK_MAX_INPUT_FILES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_FALLBACK_MAX_INPUT_FILES ?? '8', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 8;
+    }
+    return Math.min(parsed, 64);
+})();
+const PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
+    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_FALLBACK_MAX_TOTAL_MB ?? '16', 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return 16 * 1024 * 1024;
+    }
+    return Math.min(parsed, 256) * 1024 * 1024;
+})();
 
 export const SUPPORTED_IMAGE_EXTENSIONS = SHARED_SUPPORTED_IMAGE_EXTENSIONS;
 
@@ -252,6 +266,33 @@ async function enforceInputResourceLimits(inputPaths: string[]) {
     }
 }
 
+function getPdfCombineFallbackDisabledError() {
+    const maxMb = Math.floor(PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES / (1024 * 1024));
+    return new Error(
+        `Image combine worker unavailable and local fallback is disabled for files larger than ${PDF_COMBINE_LOCAL_FALLBACK_MAX_INPUT_FILES} inputs or ${maxMb}MB`,
+    );
+}
+
+async function canUseLocalCombineFallback(inputPaths: string[]) {
+    if (inputPaths.length > PDF_COMBINE_LOCAL_FALLBACK_MAX_INPUT_FILES) {
+        return false;
+    }
+
+    let totalBytes = 0;
+    for (const inputPath of inputPaths) {
+        const fileStat = await stat(inputPath);
+        if (!fileStat.isFile()) {
+            return false;
+        }
+        totalBytes += fileStat.size;
+        if (totalBytes > PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 function createPdfFromInputPathsWorker(
     inputPaths: string[],
     options?: ICreatePdfFromInputPathsOptions,
@@ -414,6 +455,14 @@ export async function createPdfFromInputPaths(
             );
             throw workerError;
         }
+
+        if (!(await canUseLocalCombineFallback(normalizedPaths))) {
+            logger.warn(
+                `Image combine worker unavailable, refusing unsafe local fallback for ${normalizedPaths.length} input(s)`,
+            );
+            throw getPdfCombineFallbackDisabledError();
+        }
+
         logger.warn(
             `Image combine worker failed, falling back to in-process conversion: ${workerError instanceof Error ? workerError.message : String(workerError)}`,
         );

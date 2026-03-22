@@ -45,11 +45,13 @@ function deferred<T>() {
 
 function createHarness(path: string | null = '/tmp/work.pdf') {
     const workingCopyPath = ref<string | null>(path);
+    const ensureHistoryBaselineForExternalMutation = vi.fn(async () => true);
     const reloadWorkingCopyIntoHistory = vi.fn(async () => true);
     const clearOcrCache = vi.fn();
     const resetSearchCache = vi.fn();
     const pageOps = usePageOperations({
         workingCopyPath,
+        ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
@@ -57,6 +59,7 @@ function createHarness(path: string | null = '/tmp/work.pdf') {
 
     return {
         pageOps,
+        ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
@@ -71,6 +74,7 @@ describe('usePageOperations', () => {
     it('runs mutating operations through shared progress/reload flow', async () => {
         const {
             pageOps,
+            ensureHistoryBaselineForExternalMutation,
             reloadWorkingCopyIntoHistory,
             clearOcrCache,
             resetSearchCache,
@@ -91,6 +95,7 @@ describe('usePageOperations', () => {
             2,
             4,
         ], 90);
+        expect(ensureHistoryBaselineForExternalMutation).toHaveBeenCalledOnce();
         expect(clearOcrCache).toHaveBeenCalledWith('/tmp/work.pdf');
         expect(resetSearchCache).toHaveBeenCalledOnce();
         expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({ markDirty: true });
@@ -101,6 +106,7 @@ describe('usePageOperations', () => {
     it('does not reload document when extract operation is canceled', async () => {
         const {
             pageOps,
+            ensureHistoryBaselineForExternalMutation,
             reloadWorkingCopyIntoHistory,
             clearOcrCache,
             resetSearchCache,
@@ -112,6 +118,7 @@ describe('usePageOperations', () => {
 
         await expect(pageOps.extractPages([3])).resolves.toBe(false);
 
+        expect(ensureHistoryBaselineForExternalMutation).not.toHaveBeenCalled();
         expect(reloadWorkingCopyIntoHistory).not.toHaveBeenCalled();
         expect(clearOcrCache).not.toHaveBeenCalled();
         expect(resetSearchCache).not.toHaveBeenCalled();

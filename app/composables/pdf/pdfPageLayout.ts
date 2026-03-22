@@ -2,7 +2,6 @@ import type {
     IPdfPageMetric,
     TPdfViewMode,
 } from '@app/types/pdf';
-import { isStandaloneSpreadPage } from '@app/utils/pdf-view-mode';
 
 export interface IPdfPageLayoutMetrics {
     totalPages: number;
@@ -12,10 +11,44 @@ export interface IPdfPageLayoutMetrics {
     pageWidths: number[];
     pageHeights: number[];
     pageTops: number[];
+    pageRowIndices: number[];
+    rowStartPages: number[];
+    rowEndPages: number[];
+    rowHeights: number[];
+    contentHeight: number;
 }
 
 function isFinitePositive(value: number | null | undefined): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function getSpreadRowPages(
+    pageNumber: number,
+    viewMode: TPdfViewMode,
+    totalPages: number,
+) {
+    if (viewMode === 'single' || totalPages <= 1) {
+        return [pageNumber];
+    }
+
+    if (viewMode === 'facing-first-single' && pageNumber === 1) {
+        return [pageNumber];
+    }
+
+    if (
+        pageNumber === totalPages
+        && (
+            (viewMode === 'facing' && totalPages % 2 === 1)
+            || (viewMode === 'facing-first-single' && totalPages % 2 === 0)
+        )
+    ) {
+        return [pageNumber];
+    }
+
+    return [
+        pageNumber,
+        Math.min(pageNumber + 1, totalPages),
+    ];
 }
 
 export function normalizePageMetrics(options: {
@@ -83,21 +116,14 @@ export function resolveSpreadBaseWidth(
     let pageNumber = 1;
 
     while (pageNumber <= totalPages) {
-        if (isStandaloneSpreadPage(pageNumber, viewMode, totalPages)) {
-            const singleWidth = pageMetrics[pageNumber - 1]?.width;
-            if (isFinitePositive(singleWidth)) {
-                maxWidth = Math.max(maxWidth, singleWidth);
-            }
-            pageNumber += 1;
-            continue;
-        }
-
-        const leftWidth = pageMetrics[pageNumber - 1]?.width;
-        const rightWidth = pageMetrics[pageNumber]?.width;
-        const spreadWidth = (isFinitePositive(leftWidth) ? leftWidth : 0)
-            + (isFinitePositive(rightWidth) ? rightWidth : 0);
-        maxWidth = Math.max(maxWidth, spreadWidth);
-        pageNumber += 2;
+        const rowPages = getSpreadRowPages(pageNumber, viewMode, totalPages);
+        const rowWidth = rowPages.reduce((sum, rowPage) => {
+            const pageWidth = pageMetrics[rowPage - 1]?.width;
+            return sum + (isFinitePositive(pageWidth) ? pageWidth : 0);
+        }, 0);
+        maxWidth = Math.max(maxWidth, rowWidth);
+        pageNumber = rowPages[rowPages.length - 1] ?? pageNumber;
+        pageNumber += 1;
     }
 
     return maxWidth > 0 ? maxWidth : null;
@@ -106,6 +132,7 @@ export function resolveSpreadBaseWidth(
 export function buildPageLayoutMetrics(options: {
     pageMetrics: IPdfPageMetric[];
     totalPages: number;
+    viewMode: TPdfViewMode;
     scale: number;
     gap: number;
     paddingTop: number;
@@ -115,6 +142,7 @@ export function buildPageLayoutMetrics(options: {
 }): IPdfPageLayoutMetrics | null {
     const {
         totalPages,
+        viewMode,
         scale,
         gap,
         paddingTop,
@@ -144,16 +172,38 @@ export function buildPageLayoutMetrics(options: {
     const pageWidths = metrics.map(metric => metric.width * scale);
     const pageHeights = metrics.map(metric => metric.height * scale);
     const pageTops: number[] = [];
+    const pageRowIndices: number[] = Array.from({ length: totalPages }, () => 0);
+    const rowStartPages: number[] = [];
+    const rowEndPages: number[] = [];
+    const rowHeights: number[] = [];
 
     let offset = safePaddingTop;
-    for (const pageHeight of pageHeights) {
-        pageTops.push(offset);
-        offset += pageHeight + safeGap;
+    let rowIndex = 0;
+    for (let pageNumber = 1; pageNumber <= totalPages;) {
+        const rowStartPage = pageNumber;
+        const rowPages = getSpreadRowPages(pageNumber, viewMode, totalPages);
+        const rowHeight = Math.max(
+            ...rowPages.map((rowPage) => pageHeights[rowPage - 1] ?? 0),
+        );
+
+        rowStartPages.push(rowStartPage);
+        rowEndPages.push(rowPages[rowPages.length - 1] ?? rowStartPage);
+        rowHeights.push(rowHeight);
+
+        for (const rowPage of rowPages) {
+            pageTops[rowPage - 1] = offset;
+            pageRowIndices[rowPage - 1] = rowIndex;
+        }
+
+        pageNumber = rowPages[rowPages.length - 1] ?? rowStartPage;
+        pageNumber += 1;
+        offset += rowHeight;
+        if (pageNumber <= totalPages) {
+            offset += safeGap;
+        }
+        rowIndex += 1;
     }
 
-    if (pageHeights.length > 0) {
-        offset -= safeGap;
-    }
     offset += safePaddingBottom;
 
     return {
@@ -164,6 +214,11 @@ export function buildPageLayoutMetrics(options: {
         pageWidths,
         pageHeights,
         pageTops,
+        pageRowIndices,
+        rowStartPages,
+        rowEndPages,
+        rowHeights,
+        contentHeight: offset,
     };
 }
 
@@ -190,6 +245,26 @@ export function getLeadingSpacerHeight(
         + Math.max(0, clampedHiddenPages - 1) * layout.gap;
 }
 
+export function getLeadingSpacerHeightForPage(
+    layout: IPdfPageLayoutMetrics,
+    firstVisiblePage: number,
+) {
+    if (!Number.isFinite(firstVisiblePage) || firstVisiblePage < 1) {
+        return 0;
+    }
+
+    const pageIndex = Math.min(layout.totalPages, Math.floor(firstVisiblePage)) - 1;
+    const rowIndex = layout.pageRowIndices[pageIndex] ?? -1;
+    if (!Number.isFinite(rowIndex) || rowIndex <= 0) {
+        return 0;
+    }
+
+    return layout.rowHeights
+        .slice(0, rowIndex)
+        .reduce((sum, height) => sum + height, 0)
+        + Math.max(0, rowIndex - 1) * layout.gap;
+}
+
 export function getTrailingSpacerHeight(
     layout: IPdfPageLayoutMetrics,
     hiddenPages: number,
@@ -203,4 +278,49 @@ export function getTrailingSpacerHeight(
         .slice(layout.totalPages - clampedHiddenPages)
         .reduce((sum, height) => sum + height, 0)
         + Math.max(0, clampedHiddenPages - 1) * layout.gap;
+}
+
+export function getTrailingSpacerHeightForPage(
+    layout: IPdfPageLayoutMetrics,
+    lastVisiblePage: number,
+) {
+    if (!Number.isFinite(lastVisiblePage) || lastVisiblePage < 1) {
+        return 0;
+    }
+
+    const pageIndex = Math.min(layout.totalPages, Math.floor(lastVisiblePage)) - 1;
+    const rowIndex = layout.pageRowIndices[pageIndex] ?? -1;
+    if (!Number.isFinite(rowIndex) || rowIndex < 0) {
+        return 0;
+    }
+
+    const hiddenRows = Math.max(0, layout.rowHeights.length - rowIndex - 1);
+    return layout.rowHeights
+        .slice(rowIndex + 1)
+        .reduce((sum, height) => sum + height, 0)
+        + Math.max(0, hiddenRows - 1) * layout.gap;
+}
+
+export function getPageRowBounds(
+    layout: IPdfPageLayoutMetrics,
+    pageNumber: number,
+): {
+    start: number;
+    end: number;
+} | null {
+    if (!Number.isFinite(pageNumber) || pageNumber < 1) {
+        return null;
+    }
+
+    const pageIndex = Math.min(layout.totalPages, Math.floor(pageNumber)) - 1;
+    const rowIndex = layout.pageRowIndices[pageIndex] ?? -1;
+    if (!Number.isFinite(rowIndex) || rowIndex < 0) {
+        return null;
+    }
+
+    const fallbackPage = Math.max(1, pageIndex + 1);
+    return {
+        start: layout.rowStartPages[rowIndex] ?? fallbackPage,
+        end: layout.rowEndPages[rowIndex] ?? fallbackPage,
+    };
 }

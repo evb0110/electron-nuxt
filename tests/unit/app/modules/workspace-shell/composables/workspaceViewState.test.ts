@@ -24,8 +24,8 @@ function createState() {
             hasSelectedEditor: false,
         }),
         hasOpenAnnotationNotes: ref(false),
-        canUndoFile: ref(false),
-        canRedoFile: ref(false),
+        canUndoHistory: ref(false),
+        canRedoHistory: ref(false),
         pdfViewerRef: ref({
             scrollToPage: () => {},
             cancelCommentPlacement: () => {},

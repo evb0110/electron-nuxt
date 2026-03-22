@@ -815,7 +815,7 @@ watch(
 );
 
 watchEffect(() => {
-    if (viewMode.value === 'single' && pageLayout.value) {
+    if (pageLayout.value) {
         setPageLayoutMetrics(pageLayout.value);
         return;
     }
@@ -1004,6 +1004,12 @@ defineExpose({
     width: 1px;
     pointer-events: none;
     opacity: 0;
+}
+
+.pdfViewer.pdfViewer--mode-facing .pdf-viewer-virtual-spacer,
+.pdfViewer.pdfViewer--mode-facing-first-single .pdf-viewer-virtual-spacer {
+    grid-column: 1 / -1;
+    justify-self: stretch;
 }
 
 .pdfViewer .page_container--rendered .pdf-page-skeleton {

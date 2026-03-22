@@ -9,10 +9,9 @@ import {
     resolveDjvuFixturePath,
 } from './helpers/fixtures';
 import { startElectronE2ESession } from './helpers/session-harness';
-import { openDjvuForViewing } from './helpers/electron-api-helpers';
 import {
-    openPdfInApp,
-    waitForPdfLoaded,
+    openDjvuInApp,
+    waitForDjvuLoaded,
 } from './helpers/viewer-helpers';
 
 const djvuFixture = resolveDjvuFixturePath();
@@ -25,7 +24,7 @@ if (!djvuFixture.path) {
 const describeDjvu = djvuFixture.path ? describe : describe.skip;
 
 describeDjvu('Electron E2E - Phase 8 (DjVu Viewing)', () => {
-    it('opens DjVu for viewing and produces a viewable PDF', async () => {
+    it('opens DjVu for viewing in the native viewer', async () => {
         const djvuFixturePath = djvuFixture.path;
         if (!djvuFixturePath) {
             throw new Error(`DjVu fixture path not found: ${djvuFixture.reason}`);
@@ -34,27 +33,22 @@ describeDjvu('Electron E2E - Phase 8 (DjVu Viewing)', () => {
         const session = await startElectronE2ESession(`e2e-phase8-${Date.now()}`);
 
         try {
-            const openResult = await openDjvuForViewing(session.page, djvuFixturePath);
-            expect(openResult.success).toBe(true);
-            expect(openResult.error).toBeUndefined();
-            expect(openResult.pdfPath).toBeTruthy();
-            expect((openResult.pageCount ?? 0) > 0).toBe(true);
+            await openDjvuInApp(session.page, djvuFixturePath);
+            await waitForDjvuLoaded(session.page);
 
-            const convertedPdfPath = openResult.pdfPath;
-            if (!convertedPdfPath) {
-                throw new Error('DjVu openForViewing did not return a pdfPath');
-            }
-
-            await openPdfInApp(session.page, convertedPdfPath);
-            await waitForPdfLoaded(session.page);
-
-            const renderedPages = await session.page.evaluate(() => {
+            const renderedState = await session.page.evaluate(() => {
                 const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
                     ?? null;
-                return host?.querySelectorAll('.page_container').length ?? 0;
+                return {
+                    pageShellCount: host?.querySelectorAll('.djvu-page-shell').length ?? 0,
+                    imageCount: host?.querySelectorAll('.djvu-page-shell img').length ?? 0,
+                    pdfPageCount: host?.querySelectorAll('.page_container').length ?? 0,
+                };
             });
-            expect(renderedPages).toBeGreaterThan(0);
-            expect(getFixtureName(convertedPdfPath).endsWith('.pdf')).toBe(true);
+            expect(renderedState.pageShellCount).toBeGreaterThan(0);
+            expect(renderedState.imageCount).toBeGreaterThan(0);
+            expect(renderedState.pdfPageCount).toBe(0);
+            expect(getFixtureName(djvuFixturePath).match(/\.djvu?$/i)).toBeTruthy();
         } finally {
             await session.stop();
         }
