@@ -1,4 +1,8 @@
 import type { Page } from 'puppeteer-core';
+import {
+    evaluateInPage,
+    waitForFunctionInPage,
+} from './page-runtime';
 
 export const DEFAULT_TIMEOUT_MS = 30_000;
 const MIN_HOST_SIZE_PX = 100;
@@ -9,7 +13,7 @@ export interface IPoint {
 }
 
 export async function waitForActiveWorkspaceHost(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    await page.waitForFunction((minHostSizePx: number) => {
+    await waitForFunctionInPage(page, (minHostSizePx: number) => {
         const isVisibleHost = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);
@@ -36,7 +40,7 @@ export async function waitForActiveWorkspaceHost(page: Page, timeoutMs = DEFAULT
 export async function findVisiblePointInActiveHost(page: Page, selector: string, text?: string): Promise<IPoint | null> {
     await waitForActiveWorkspaceHost(page);
 
-    return page.evaluate(({
+    return evaluateInPage(page, ({
         minHostSizePx,
         targetSelector,
         targetText,
@@ -99,7 +103,7 @@ export async function findVisiblePointInActiveHost(page: Page, selector: string,
 export async function getRenderedPageCount(page: Page): Promise<number> {
     await waitForActiveWorkspaceHost(page);
 
-    return page.evaluate((minHostSizePx: number) => {
+    return evaluateInPage(page, (minHostSizePx: number) => {
         const isVisibleHost = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);

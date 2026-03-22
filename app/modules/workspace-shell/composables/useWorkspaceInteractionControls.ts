@@ -172,6 +172,8 @@ export function useWorkspaceInteractionControls(options: IWorkspaceInteractionCo
         cropDialogMargins,
         cropDialogMediaBox,
         cropDialogCurrentBox,
+        cropDialogPageNumber,
+        cropDialogRotation,
         isCropSelecting,
         handleCrop,
     } = useWorkspaceCrop({
@@ -217,6 +219,8 @@ export function useWorkspaceInteractionControls(options: IWorkspaceInteractionCo
         cropDialogMargins,
         cropDialogMediaBox,
         cropDialogCurrentBox,
+        cropDialogPageNumber,
+        cropDialogRotation,
         isCropSelecting,
         handleCrop,
         handleDropdownOpen,

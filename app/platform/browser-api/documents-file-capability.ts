@@ -27,12 +27,15 @@ import {
     ensureDocxExtension,
     ensurePdfExtension,
     getExtension,
+    createPdfjsDocumentInit,
+    getPdfjsLib,
     getWindowWithPickers,
     isDjvuFileName,
     isPdfFileName,
     toArrayBuffer,
 } from '@app/platform/browser-api/common';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/common';
+import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import { stripPdfEncryption } from '@app/utils/pdf-decrypt';
 
 interface IPickedBrowserFile {
@@ -46,6 +49,7 @@ const pdfBinaryDecoder = new TextDecoder('latin1');
 const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
 const BROWSER_EAGER_DECRYPT_BYTES = 64 * 1024 * 1024;
 const BROWSER_FULL_CONFORMANCE_ANALYSIS_BYTES = 64 * 1024 * 1024;
+const BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES = 64 * 1024 * 1024;
 
 function toOwnedArrayBuffer(bytes: Uint8Array) {
     if (
@@ -147,6 +151,31 @@ function buildBrowserSaveRestrictions(profile: Omit<IPdfConformanceProfile, 'sav
     return restrictions;
 }
 
+function buildBrowserLargeJobError(label: string, maxBytes: number) {
+    return new Error(
+        `${label} is unavailable in the browser for inputs larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`,
+    );
+}
+
+async function ensureBrowserCombinedPdfInputBudget(paths: string[]) {
+    let totalBytes = 0;
+
+    for (let index = 0; index < paths.length; index += 1) {
+        if (index > 0) {
+            await yieldToBrowser();
+        }
+
+        const { size } = await browserDocumentStore.stat(paths[index]!);
+        totalBytes += size;
+        if (totalBytes > BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES) {
+            throw buildBrowserLargeJobError(
+                'Combining documents',
+                BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES,
+            );
+        }
+    }
+}
+
 async function analyzeBrowserPdfConformance(path: string): Promise<IPdfConformanceProfile> {
     const fallback = createDefaultPdfConformanceProfile();
     const {
@@ -179,6 +208,7 @@ async function analyzeBrowserPdfConformance(path: string): Promise<IPdfConforman
     const bytes = await browserDocumentStore.read(path);
 
     try {
+        await yieldToBrowser();
         const doc = await PDFDocument.load(bytes, {
             ignoreEncryption: true,
             updateMetadata: false,
@@ -226,10 +256,13 @@ async function validateBrowserPdfData(data: Uint8Array): Promise<IPdfValidationR
     }
 
     try {
-        await PDFDocument.load(data, {
-            ignoreEncryption: true,
-            updateMetadata: false,
-        });
+        await yieldToBrowser();
+        const pdfjsLib = await getPdfjsLib();
+        const loadingTask = pdfjsLib.getDocument(
+            createPdfjsDocumentInit(pdfjsLib, data),
+        );
+        const pdfDocument = await loadingTask.promise;
+        await pdfDocument.destroy();
         return {
             isValid: true,
             tool: 'browser',
@@ -543,9 +576,15 @@ async function embedImagePage(
 }
 
 export async function createCombinedPdfFromPaths(paths: string[]) {
+    await ensureBrowserCombinedPdfInputBudget(paths);
     const pdfDocument = await PDFDocument.create();
 
-    for (const path of paths) {
+    for (let index = 0; index < paths.length; index += 1) {
+        if (index > 0) {
+            await yieldToBrowser();
+        }
+
+        const path = paths[index]!;
         const bytes = await browserDocumentStore.read(path);
         const fileName = getBrowserDocumentFileName(path);
         if (isPdfFileName(fileName)) {
@@ -561,6 +600,7 @@ export async function createCombinedPdfFromPaths(paths: string[]) {
         await embedImagePage(pdfDocument, fileName, bytes);
     }
 
+    await yieldToBrowser();
     return new Uint8Array(await pdfDocument.save());
 }
 
@@ -653,6 +693,7 @@ async function openDocumentPaths(paths: string[]) {
 
     if (normalizedPaths.length === 1 && isPdfFileName(firstFileName)) {
         const sourcePath = normalizedPaths[0]!;
+        await browserDocumentStore.ensureByteBackedSource(sourcePath);
         const workingPath =
             await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
         await decryptBrowserWorkingCopy(workingPath);

@@ -13,6 +13,7 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePdfHistory } from '@app/composables/usePdfHistory';
 import type { IScrollSnapshot } from '@app/types/pdf';
+import type { TWorkspaceUndoSource } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';
 
 function cast<T>(obj: unknown): T {
     return obj as T;
@@ -37,11 +38,13 @@ function createMockDeps(overrides: Partial<Parameters<typeof usePdfHistory>[0]> 
         canUndo: ref(true),
         canRedo: ref(true),
         isAnnotationUndoContext: ref(false),
+        nextUndoSource: ref<TWorkspaceUndoSource | null>('file'),
+        nextRedoSource: ref<TWorkspaceUndoSource | null>('file'),
         workingCopyPath: ref<string | null>('/tmp/test.pdf'),
         resetSearchCache: vi.fn(),
         clearOcrCache: vi.fn(),
-        undo: vi.fn(async () => true),
-        redo: vi.fn(async () => true),
+        undoHistory: vi.fn(async () => true),
+        redoHistory: vi.fn(async () => true),
         ...overrides,
     });
 }
@@ -80,7 +83,7 @@ describe('usePdfHistory', () => {
     });
 
     it('clears isHistoryBusy even when undo throws', async () => {
-        const deps = createMockDeps({undo: vi.fn(async () => { throw new Error('undo failed'); })});
+        const deps = createMockDeps({undoHistory: vi.fn(async () => { throw new Error('undo failed'); })});
         const { handleUndo } = usePdfHistory(deps);
 
         await expect(handleUndo()).rejects.toThrow('undo failed');
@@ -93,7 +96,7 @@ describe('usePdfHistory', () => {
 
         await handleUndo();
 
-        expect(deps.undo).not.toHaveBeenCalled();
+        expect(deps.undoHistory).not.toHaveBeenCalled();
         expect(deps.isHistoryBusy.value).toBe(false);
     });
 
@@ -103,7 +106,7 @@ describe('usePdfHistory', () => {
 
         await handleUndo();
 
-        expect(deps.undo).not.toHaveBeenCalled();
+        expect(deps.undoHistory).not.toHaveBeenCalled();
     });
 
     it('does nothing when canRedo is false', async () => {
@@ -112,7 +115,7 @@ describe('usePdfHistory', () => {
 
         await handleRedo();
 
-        expect(deps.redo).not.toHaveBeenCalled();
+        expect(deps.redoHistory).not.toHaveBeenCalled();
     });
 
     it('skips when already busy', async () => {
@@ -121,7 +124,7 @@ describe('usePdfHistory', () => {
 
         await handleUndo();
 
-        expect(deps.undo).not.toHaveBeenCalled();
+        expect(deps.undoHistory).not.toHaveBeenCalled();
     });
 
     it('delegates to undoAnnotation when in annotation context', async () => {
@@ -139,7 +142,7 @@ describe('usePdfHistory', () => {
         await handleUndo();
 
         expect(undoAnnotation).toHaveBeenCalledOnce();
-        expect(deps.undo).not.toHaveBeenCalled();
+        expect(deps.undoHistory).not.toHaveBeenCalled();
     });
 
     it('delegates to redoAnnotation when in annotation context', async () => {
@@ -157,7 +160,7 @@ describe('usePdfHistory', () => {
         await handleRedo();
 
         expect(redoAnnotation).toHaveBeenCalledOnce();
-        expect(deps.redo).not.toHaveBeenCalled();
+        expect(deps.redoHistory).not.toHaveBeenCalled();
     });
 
     it('clears OCR cache before undo', async () => {
@@ -169,6 +172,16 @@ describe('usePdfHistory', () => {
         await undoPromise;
 
         expect(deps.clearOcrCache).toHaveBeenCalledWith('/tmp/test.pdf');
+    });
+
+    it('does not clear OCR cache for metadata undo', async () => {
+        const deps = createMockDeps({ nextUndoSource: ref('metadata') });
+        const { handleUndo } = usePdfHistory(deps);
+
+        await handleUndo();
+
+        expect(deps.undoHistory).toHaveBeenCalledOnce();
+        expect(deps.clearOcrCache).not.toHaveBeenCalled();
     });
 
     it('resolves waitForPdfReload on timeout when document does not change', async () => {
@@ -273,7 +286,7 @@ describe('usePdfHistory', () => {
     });
 
     it('does not wait for reload when undo is a no-op', async () => {
-        const deps = createMockDeps({ undo: vi.fn(async () => false) });
+        const deps = createMockDeps({ undoHistory: vi.fn(async () => false) });
         const { handleUndo } = usePdfHistory(deps);
 
         await handleUndo();
@@ -282,7 +295,7 @@ describe('usePdfHistory', () => {
     });
 
     it('does not wait for reload when redo is a no-op', async () => {
-        const deps = createMockDeps({ redo: vi.fn(async () => false) });
+        const deps = createMockDeps({ redoHistory: vi.fn(async () => false) });
         const { handleRedo } = usePdfHistory(deps);
 
         await handleRedo();

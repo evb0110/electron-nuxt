@@ -1,11 +1,12 @@
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
     mkdtemp,
     readFile,
     rm,
     writeFile,
 } from 'fs/promises';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import type * as FsPromises from 'fs/promises';
 import * as utifModule from 'utif';
 import {
     afterEach,
@@ -33,7 +34,18 @@ interface IUtifModule {
     ): ArrayBuffer;
 }
 
-const mocks = vi.hoisted(() => ({runCommand: vi.fn()}));
+const mocks = vi.hoisted(() => ({
+    runCommand: vi.fn(),
+    stat: vi.fn(),
+}));
+
+vi.mock('fs/promises', async () => {
+    const actual = await vi.importActual<typeof FsPromises>('fs/promises');
+    return {
+        ...actual,
+        stat: mocks.stat,
+    };
+});
 
 vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => ({
     pdftoppm: '/mock/pdftoppm',
@@ -59,6 +71,11 @@ describe('exportPdfAsMultiPageTiff', () => {
     beforeEach(async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'image-export-test-'));
         mocks.runCommand.mockReset();
+        mocks.stat.mockReset();
+        mocks.stat.mockImplementation(async () => ({
+            isFile: () => true,
+            size: 1024,
+        }));
         mocks.runCommand.mockImplementation(async (command: string, args: string[]) => {
             if (command !== '/mock/pdftoppm') {
                 throw new Error(`Unexpected command: ${command}`);
@@ -140,5 +157,20 @@ describe('exportPdfAsMultiPageTiff', () => {
                 commandLabel: 'pdftoppm(export-tiff)',
             }),
         );
+    });
+
+    it('rejects large TIFF exports when worker startup fails and local fallback is unsafe', async () => {
+        mocks.stat.mockImplementation(async (path: string) => ({
+            isFile: () => true,
+            size: path.includes('-1.tif') || path.includes('-2.tif')
+                ? 32 * 1024 * 1024
+                : 1024,
+        }));
+
+        const outputPath = join(tempDir, 'large-export.tiff');
+
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath))
+            .rejects
+            .toThrow('TIFF combine worker unavailable and local fallback is disabled for exports larger than 2 pages or 16MB');
     });
 });

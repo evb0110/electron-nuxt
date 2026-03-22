@@ -8,7 +8,7 @@ import {
     ipcMain,
     webContents,
 } from 'electron';
-import { existsSync } from 'fs';
+import {existsSync} from 'fs';
 import { stat } from 'fs/promises';
 import {
     dirname,

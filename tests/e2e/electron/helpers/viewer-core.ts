@@ -1,6 +1,10 @@
 import type { Page } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
 import {
+    evaluateInPage,
+    waitForFunctionInPage,
+} from './page-runtime';
+import {
     DEFAULT_TIMEOUT_MS,
     waitForActiveWorkspaceHost,
 } from './viewer-dom';
@@ -67,7 +71,7 @@ async function waitForRendererBindings(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
 
     while (Date.now() - startedAt < timeoutMs) {
         try {
-            lastState = await page.evaluate(() => {
+            lastState = await evaluateInPage(page, () => {
                 const nuxtRoot = document.querySelector('#__nuxt');
                 return {
                     electronAPI: typeof (window as Window & { electronAPI?: unknown }).electronAPI,
@@ -103,7 +107,7 @@ export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
     await runWithExecutionContextRetry(page, async () => {
         await waitForActiveWorkspaceHost(page, timeoutMs);
 
-        await page.waitForFunction(() => {
+        await waitForFunctionInPage(page, () => {
             const isVisibleHost = (element: HTMLElement) => {
                 const rect = element.getBoundingClientRect();
                 const style = window.getComputedStyle(element);
@@ -138,7 +142,43 @@ export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
     });
 }
 
-export async function openPdfInApp(page: Page, pdfPath: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
+export async function waitForDjvuLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    await runWithExecutionContextRetry(page, async () => {
+        await waitForActiveWorkspaceHost(page, timeoutMs);
+
+        await waitForFunctionInPage(page, () => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+                .filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+            const host = (activeHost && visibleHosts.includes(activeHost))
+                ? activeHost
+                : (visibleHosts.length === 1 ? visibleHosts[0] : null);
+            if (!host) {
+                return false;
+            }
+
+            const pages = host.querySelectorAll('.djvu-page-shell');
+            if (pages.length === 0) {
+                return false;
+            }
+
+            return host.querySelectorAll('.djvu-page-shell img').length > 0;
+        }, {timeout: timeoutMs});
+    });
+}
+
+async function openPathInApp(
+    page: Page,
+    path: string,
+    waitForLoaded: (page: Page, timeoutMs: number) => Promise<void>,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
     const startedAt = Date.now();
     let lastError: Error | null = null;
 
@@ -149,14 +189,14 @@ export async function openPdfInApp(page: Page, pdfPath: string, timeoutMs = DEFA
             await waitForRendererBindings(page, Math.min(remainingMs, 8_000));
 
             const openResult = await runWithExecutionContextRetry(page, async () => {
-                return page.evaluate(async (path: string) => {
+                return evaluateInPage(page, async (path: string) => {
                     const openFileDirect = (window as Window & { __openFileDirect?: (value: string) => Promise<void> }).__openFileDirect;
                     if (typeof openFileDirect !== 'function') {
                         return false;
                     }
                     await openFileDirect(path);
                     return true;
-                }, pdfPath);
+                }, path);
             });
 
             if (!openResult) {
@@ -165,7 +205,7 @@ export async function openPdfInApp(page: Page, pdfPath: string, timeoutMs = DEFA
                 continue;
             }
 
-            await waitForPdfLoaded(page, remainingMs);
+            await waitForLoaded(page, remainingMs);
             return;
         } catch (error) {
             if (!isExecutionContextDestroyedError(error)) {
@@ -178,13 +218,21 @@ export async function openPdfInApp(page: Page, pdfPath: string, timeoutMs = DEFA
     }
 
     const detail = lastError ? ` Last error: ${lastError.message}` : '';
-    throw new Error(`Failed to open PDF in app within ${timeoutMs}ms.${detail}`);
+    throw new Error(`Failed to open document in app within ${timeoutMs}ms.${detail}`);
+}
+
+export async function openPdfInApp(page: Page, pdfPath: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    await openPathInApp(page, pdfPath, waitForPdfLoaded, timeoutMs);
+}
+
+export async function openDjvuInApp(page: Page, djvuPath: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    await openPathInApp(page, djvuPath, waitForDjvuLoaded, timeoutMs);
 }
 
 export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await waitForActiveWorkspaceHost(page, timeoutMs);
 
-    await page.waitForFunction(() => {
+    await waitForFunctionInPage(page, () => {
         const isVisibleHost = (element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);
@@ -632,10 +680,14 @@ export async function scrollViewerToPage(page: Page, pageNumber: number) {
         };
 
         const viewerHost = getVisibleViewerHost();
-        const exposed = (viewerHost as HTMLElement & { __vueParentComponent?: { exposed?: { scrollToPage?: (page: number) => void; }; }; }).__vueParentComponent?.exposed;
-        if (typeof exposed?.scrollToPage === 'function') {
-            exposed.scrollToPage(targetPageNumber);
-            return true;
+        let currentElement: HTMLElement | null = viewerHost;
+        while (currentElement) {
+            const exposed = (currentElement as HTMLElement & {__vueParentComponent?: { exposed?: { scrollToPage?: (page: number) => void; }; };}).__vueParentComponent?.exposed;
+            if (typeof exposed?.scrollToPage === 'function') {
+                exposed.scrollToPage(targetPageNumber);
+                return true;
+            }
+            currentElement = currentElement.parentElement;
         }
 
         const isVisibleHost = (element: HTMLElement) => {
@@ -664,7 +716,8 @@ export async function scrollViewerToPage(page: Page, pageNumber: number) {
     }, pageNumber);
 
     if (!scrolled) {
-        throw new Error(`Unable to scroll to page ${pageNumber}`);
+        await goToPageViaToolbar(page, pageNumber);
+        return;
     }
 
     await waitForToolbarCurrentPage(page, pageNumber);

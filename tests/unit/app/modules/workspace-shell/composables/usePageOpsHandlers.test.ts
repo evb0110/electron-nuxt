@@ -50,6 +50,7 @@ function createHarness() {
         }),
         closePageContextMenu: vi.fn(),
         onExportPages: vi.fn(),
+        ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
         reloadWorkingCopyIntoHistory: vi.fn(async () => true),
         clearOcrCache: vi.fn(),
         resetSearchCache: vi.fn(),

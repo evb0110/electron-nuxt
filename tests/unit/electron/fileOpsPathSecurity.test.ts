@@ -8,30 +8,35 @@ import {
 
 const mocks = vi.hoisted(() => ({
     existsSync: vi.fn<(path: string) => boolean>(),
+    lstatSync: vi.fn<(path: string) => { isSymbolicLink: () => boolean; }>(),
+    realpathSync: vi.fn<(path: string) => string>(),
+    statSync: vi.fn<(path: string) => { size: number }>(),
     readFile: vi.fn(),
     writeFile: vi.fn(),
     stat: vi.fn(),
-    lstat: vi.fn(),
-    realpath: vi.fn(),
     unlink: vi.fn(),
     open: vi.fn(),
     isAllowedReadPath: vi.fn<(path: string) => boolean>(),
     isAllowedWritePath: vi.fn<(path: string) => boolean>(),
     resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(),
     resolveAllowedWritePath: vi.fn<(path: string) => Promise<string | null>>(),
+    analyzePdfConformanceFile: vi.fn(),
     consumeAllowedDocxWritePath: vi.fn<(path: string) => boolean>(),
     findWorkingCopyPathByOriginalPath: vi.fn<(path: string) => string | null>(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
 }));
 
-vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
+vi.mock('fs', () => ({
+    existsSync: (path: string) => mocks.existsSync(path),
+    lstatSync: (path: string) => mocks.lstatSync(path),
+    realpathSync: (path: string) => mocks.realpathSync(path),
+    statSync: (path: string) => mocks.statSync(path),
+}));
 
 vi.mock('fs/promises', () => ({
     readFile: mocks.readFile,
     writeFile: mocks.writeFile,
     stat: mocks.stat,
-    lstat: mocks.lstat,
-    realpath: mocks.realpath,
     unlink: mocks.unlink,
     open: mocks.open,
 }));
@@ -43,9 +48,13 @@ vi.mock('@electron/utils/path-validator', () => ({
     resolveAllowedWritePath: mocks.resolveAllowedWritePath,
 }));
 
+vi.mock('@electron/features/documents/main/pdf-conformance', () => ({
+    analyzePdfConformanceFile: mocks.analyzePdfConformanceFile,
+    validatePdfData: vi.fn(),
+}));
 vi.mock('@electron/ipc/docxExportPaths', () => ({consumeAllowedDocxWritePath: mocks.consumeAllowedDocxWritePath}));
 vi.mock('@electron/ipc/workingCopy', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
-vi.mock('@electron/features/djvu/main/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
+vi.mock('@electron/djvu/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -55,6 +64,7 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
 })}));
 
 const {
+    handleAnalyzePdfConformance,
     handleFileRead,
     handleFileStat,
     handleFileWrite,
@@ -77,9 +87,20 @@ describe('fileOps path security', () => {
             2,
             3,
         ]));
+        mocks.analyzePdfConformanceFile.mockResolvedValue({
+            isSigned: false,
+            isEncrypted: false,
+            isTagged: false,
+            pdfaLevel: null,
+            hasAcroForm: false,
+            hasXfa: false,
+            canIncrementalSave: true,
+            saveRestrictions: [],
+        });
+        mocks.lstatSync.mockReturnValue({ isSymbolicLink: () => false });
+        mocks.realpathSync.mockImplementation((path: string) => path);
+        mocks.statSync.mockReturnValue({ size: 123 });
         mocks.stat.mockResolvedValue({ size: 123 });
-        mocks.lstat.mockResolvedValue({ isSymbolicLink: () => false });
-        mocks.realpath.mockResolvedValue('/Users/alice/Documents/file.djvu');
         mocks.writeFile.mockResolvedValue(undefined);
     });
 
@@ -136,14 +157,14 @@ describe('fileOps path security', () => {
         const result = await handleFileStat({} as never, '/Users/alice/Documents/file.pdf');
 
         expect(mocks.findWorkingCopyPathByOriginalPath).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf');
-        expect(mocks.stat).toHaveBeenCalledWith('/tmp/electron-test/mapped.pdf');
+        expect(mocks.statSync).toHaveBeenCalledWith('/tmp/electron-test/mapped.pdf');
         expect(result).toEqual({ size: 123 });
     });
 
     it('allows direct reads for DjVu files approved for native viewing', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(true);
-        mocks.realpath.mockResolvedValue('/Users/alice/Documents/file.djvu');
+        mocks.realpathSync.mockReturnValue('/Users/alice/Documents/file.djvu');
 
         const content = await handleFileRead({} as never, '/Users/alice/Documents/file.djvu');
 
@@ -167,5 +188,22 @@ describe('fileOps path security', () => {
         ).rejects.toThrow('Invalid file path: reads only allowed within temp directory');
 
         expect(mocks.isAllowedDjvuViewingPath).not.toHaveBeenCalled();
+    });
+
+    it('routes PDF conformance checks through the worker-backed helper', async () => {
+        const result = await handleAnalyzePdfConformance({} as never, '/tmp/electron-test/safe.pdf');
+
+        expect(mocks.analyzePdfConformanceFile).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf');
+        expect(mocks.readFile).not.toHaveBeenCalled();
+        expect(result).toEqual({
+            isSigned: false,
+            isEncrypted: false,
+            isTagged: false,
+            pdfaLevel: null,
+            hasAcroForm: false,
+            hasXfa: false,
+            canIncrementalSave: true,
+            saveRestrictions: [],
+        });
     });
 });

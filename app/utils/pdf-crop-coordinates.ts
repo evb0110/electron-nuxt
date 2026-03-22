@@ -48,7 +48,7 @@ function clamp01(value: number) {
     return Math.max(0, Math.min(1, value));
 }
 
-function normalizeRotation(rotation: number): 0 | 90 | 180 | 270 {
+export function normalizeCropRotation(rotation: number): 0 | 90 | 180 | 270 {
     const mod = ((rotation % 360) + 360) % 360;
     if (mod === 90 || mod === 180 || mod === 270) {
         return mod;
@@ -137,7 +137,7 @@ export function screenRectToMargins(
     const normRight = clamp01((selectionRight - pageContainerRect.left) / pageContainerRect.width);
     const normBottom = clamp01((selectionBottom - pageContainerRect.top) / pageContainerRect.height);
 
-    const rot = normalizeRotation(rotation);
+    const rot = normalizeCropRotation(rotation);
 
     const corner1 = screenToPdfCoord(normLeft, normTop, effectiveBox, rot);
     const corner2 = screenToPdfCoord(normRight, normBottom, effectiveBox, rot);
@@ -192,6 +192,76 @@ export function boxToNormalizedRect(
     };
 }
 
+function toDisplayNormalizedPoint(
+    x: number,
+    y: number,
+    mediaBox: IPdfBox,
+    rotation: 0 | 90 | 180 | 270,
+) {
+    const normX = clamp01((x - mediaBox.x) / Math.max(mediaBox.width, 1));
+    const normY = clamp01((y - mediaBox.y) / Math.max(mediaBox.height, 1));
+
+    switch (rotation) {
+        case 90:
+            return {
+                x: normY,
+                y: normX,
+            };
+        case 180:
+            return {
+                x: 1 - normX,
+                y: normY,
+            };
+        case 270:
+            return {
+                x: 1 - normY,
+                y: 1 - normX,
+            };
+        default:
+            return {
+                x: normX,
+                y: 1 - normY,
+            };
+    }
+}
+
+export function boxToDisplayNormalizedRect(
+    box: IPdfBox,
+    mediaBox: IPdfBox,
+    rotation: number,
+) {
+    const pageWidth = mediaBox.width;
+    const pageHeight = mediaBox.height;
+    if (pageWidth <= 0 || pageHeight <= 0) {
+        return {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        };
+    }
+
+    const rot = normalizeCropRotation(rotation);
+    const corners = [
+        toDisplayNormalizedPoint(box.x, box.y, mediaBox, rot),
+        toDisplayNormalizedPoint(box.x + box.width, box.y, mediaBox, rot),
+        toDisplayNormalizedPoint(box.x, box.y + box.height, mediaBox, rot),
+        toDisplayNormalizedPoint(box.x + box.width, box.y + box.height, mediaBox, rot),
+    ];
+
+    const left = Math.min(...corners.map(corner => corner.x));
+    const top = Math.min(...corners.map(corner => corner.y));
+    const right = Math.max(...corners.map(corner => corner.x));
+    const bottom = Math.max(...corners.map(corner => corner.y));
+
+    return {
+        x: clamp01(left),
+        y: clamp01(top),
+        width: Math.max(0, clamp01(right) - clamp01(left)),
+        height: Math.max(0, clamp01(bottom) - clamp01(top)),
+    };
+}
+
 export function marginsToNormalizedRect(
     margins: ICropMargins,
     mediaBox: IPdfBox,
@@ -207,4 +277,17 @@ export function marginsToNormalizedRect(
         width: Math.max(0, mediaBox.width - margins.left - margins.right),
         height: Math.max(0, mediaBox.height - margins.top - margins.bottom),
     }, mediaBox);
+}
+
+export function marginsToDisplayNormalizedRect(
+    margins: ICropMargins,
+    mediaBox: IPdfBox,
+    rotation: number,
+) {
+    return boxToDisplayNormalizedRect({
+        x: mediaBox.x + margins.left,
+        y: mediaBox.y + margins.bottom,
+        width: Math.max(0, mediaBox.width - margins.left - margins.right),
+        height: Math.max(0, mediaBox.height - margins.top - margins.bottom),
+    }, mediaBox, rotation);
 }

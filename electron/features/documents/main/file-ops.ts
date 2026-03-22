@@ -1,12 +1,14 @@
-import { existsSync } from 'fs';
+import {
+    existsSync,
+    lstatSync,
+    realpathSync,
+    statSync,
+} from 'fs';
 import {
     readFile,
     writeFile,
-    stat,
     unlink,
     open as openFileHandle,
-    lstat,
-    realpath,
 } from 'fs/promises';
 import {
     extname,
@@ -28,7 +30,7 @@ import type {
     IPdfValidationResult,
 } from '@contracts/electron-api';
 import {
-    analyzePdfConformanceData,
+    analyzePdfConformanceFile,
     validatePdfData as validatePdfBytes,
 } from '@electron/features/documents/main/pdf-conformance';
 
@@ -87,12 +89,11 @@ async function resolveDirectSourceReadPath(
     }
 
     try {
-        const pathStat = await lstat(absolutePath);
-        if (pathStat.isSymbolicLink()) {
+        if (lstatSync(absolutePath).isSymbolicLink()) {
             return null;
         }
 
-        return await realpath(absolutePath);
+        return realpathSync(absolutePath);
     } catch {
         return null;
     }
@@ -179,7 +180,7 @@ export async function handleFileStat(
         throw new Error(`File not found: ${normalizedPath}`);
     }
 
-    const s = await stat(resolvedPath);
+    const s = statSync(resolvedPath);
     return { size: s.size };
 }
 
@@ -315,11 +316,25 @@ export function handleFileExists(
 }
 
 export async function handleAnalyzePdfConformance(
-    event: Electron.IpcMainInvokeEvent,
+    _event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
 ): Promise<IPdfConformanceProfile> {
-    const data = await handleFileRead(event, filePath);
-    return analyzePdfConformanceData(data);
+    const normalizedPath = normalizeNonEmptyPath(filePath);
+    const extension = extname(normalizedPath).toLowerCase();
+    if (extension !== '.pdf') {
+        throw new Error('Invalid file type: only PDF files are allowed');
+    }
+
+    const resolvedPath = await resolveReadablePath(normalizedPath, extension);
+    if (!resolvedPath) {
+        throw new Error('Invalid file path: reads only allowed within temp directory');
+    }
+
+    if (!existsSync(resolvedPath)) {
+        throw new Error(`File not found: ${normalizedPath}`);
+    }
+
+    return analyzePdfConformanceFile(resolvedPath);
 }
 
 export async function handleValidatePdfData(

@@ -14,11 +14,17 @@ export const usePageLabelState = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
     totalPages: Ref<number>;
     markDirty: () => void;
+    onPageLabelsSynchronized?: () => void;
+    onPageLabelsDirty?: () => void;
+    onPageLabelsSaved?: () => void;
 }) => {
     const {
         pdfDocument,
         totalPages,
         markDirty,
+        onPageLabelsSynchronized,
+        onPageLabelsDirty,
+        onPageLabelsSaved,
     } = deps;
 
     const pageLabels = ref<string[] | null>(null);
@@ -30,6 +36,7 @@ export const usePageLabelState = (deps: {
             pageLabels.value = null;
             pageLabelRanges.value = [];
             pageLabelsDirty.value = false;
+            onPageLabelsSynchronized?.();
             return;
         }
 
@@ -52,10 +59,12 @@ export const usePageLabelState = (deps: {
             doc.numPages,
         );
         pageLabelsDirty.value = false;
+        onPageLabelsSynchronized?.();
     }
 
     function markPageLabelsSaved() {
         pageLabelsDirty.value = false;
+        onPageLabelsSaved?.();
     }
 
     function handlePageLabelRangesUpdate(ranges: IPdfPageLabelRange[]) {
@@ -76,6 +85,7 @@ export const usePageLabelState = (deps: {
         pageLabels.value = buildPageLabelsFromRanges(totalPages.value, normalized);
         pageLabelsDirty.value = true;
         markDirty();
+        onPageLabelsDirty?.();
     }
 
     function scheduleSyncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {

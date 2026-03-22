@@ -1,7 +1,17 @@
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 
-export const useBookmarkState = (deps: {markDirty: () => void;}) => {
-    const { markDirty } = deps;
+export const useBookmarkState = (deps: {
+    markDirty: () => void;
+    onBookmarksSynchronized?: () => void;
+    onBookmarksDirty?: () => void;
+    onBookmarksSaved?: () => void;
+}) => {
+    const {
+        markDirty,
+        onBookmarksSynchronized,
+        onBookmarksDirty,
+        onBookmarksSaved,
+    } = deps;
 
     const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
     const bookmarksDirty = ref(false);
@@ -9,6 +19,7 @@ export const useBookmarkState = (deps: {markDirty: () => void;}) => {
 
     function markBookmarksSaved() {
         bookmarksDirty.value = false;
+        onBookmarksSaved?.();
     }
 
     function handleBookmarksChange(payload: {
@@ -22,10 +33,12 @@ export const useBookmarkState = (deps: {markDirty: () => void;}) => {
                 markDirty();
             }
             bookmarksDirty.value = true;
+            onBookmarksDirty?.();
             return;
         }
 
         bookmarksDirty.value = false;
+        onBookmarksSynchronized?.();
     }
 
     return {

@@ -7,8 +7,9 @@ import type { IPdfPageMetric } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
 import {
     buildPageLayoutMetrics,
-    getLeadingSpacerHeight,
-    getTrailingSpacerHeight,
+    getLeadingSpacerHeightForPage,
+    getPageRowBounds,
+    getTrailingSpacerHeightForPage,
     normalizePageMetrics,
 } from '@app/composables/pdf/pdfPageLayout';
 
@@ -108,6 +109,7 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
         buildPageLayoutMetrics({
             pageMetrics: normalizedPageMetrics.value,
             totalPages: numPages.value,
+            viewMode: viewMode.value,
             scale: effectiveScale.value,
             gap: scaledMargin.value,
             paddingTop: scaledMargin.value,
@@ -131,7 +133,6 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
 
     const virtualizedContinuousMode = computed(() =>
         continuousScroll.value
-        && viewMode.value === 'single'
         && numPages.value > 0
         && pageHeightEstimate.value > 0,
     );
@@ -249,8 +250,7 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
             return {height: `${freeze.topSpacerHeight}px`};
         }
 
-        const hiddenBefore = Math.max(0, virtualWindowStart.value - 1);
-        const spacerHeight = getLeadingSpacerHeight(layout, hiddenBefore);
+        const spacerHeight = getLeadingSpacerHeightForPage(layout, virtualWindowStartPage.value);
         if (spacerHeight <= 0) {
             return null;
         }
@@ -274,8 +274,7 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
             return {height: `${freeze.bottomSpacerHeight}px`};
         }
 
-        const hiddenAfter = Math.max(0, numPages.value - virtualWindowEnd.value);
-        const spacerHeight = getTrailingSpacerHeight(layout, hiddenAfter);
+        const spacerHeight = getTrailingSpacerHeightForPage(layout, virtualWindowEndPage.value);
         if (spacerHeight <= 0) {
             return null;
         }
@@ -292,7 +291,40 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
             return range(1, numPages.value + 1);
         }
 
-        return range(virtualWindowStart.value, virtualWindowEnd.value + 1);
+        const layout = pageLayout.value;
+        if (!layout) {
+            return range(1, numPages.value + 1);
+        }
+
+        const startBounds = getPageRowBounds(layout, virtualWindowStart.value);
+        const endBounds = getPageRowBounds(layout, virtualWindowEnd.value);
+        const renderStartPage = startBounds?.start ?? virtualWindowStart.value;
+        const renderEndPage = endBounds?.end ?? virtualWindowEnd.value;
+
+        return range(renderStartPage, renderEndPage + 1);
+    });
+
+    const virtualWindowStartPage = computed(() => {
+        if (!virtualizedContinuousMode.value) {
+            return 1;
+        }
+        const layout = pageLayout.value;
+        if (!layout) {
+            return virtualWindowStart.value;
+        }
+        return getPageRowBounds(layout, virtualWindowStart.value)?.start ?? virtualWindowStart.value;
+    });
+
+    const virtualWindowEndPage = computed(() => {
+        if (!virtualizedContinuousMode.value) {
+            return numPages.value;
+        }
+
+        const layout = pageLayout.value;
+        if (!layout) {
+            return virtualWindowEnd.value;
+        }
+        return getPageRowBounds(layout, virtualWindowEnd.value)?.end ?? virtualWindowEnd.value;
     });
 
     return {
@@ -304,6 +336,8 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
         resizeTransitionWindow,
         virtualWindowStart,
         virtualWindowEnd,
+        virtualWindowStartPage,
+        virtualWindowEndPage,
         topVirtualSpacerStyle,
         bottomVirtualSpacerStyle,
         pagesToRender,

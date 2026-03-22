@@ -10,7 +10,9 @@ const mockDocuments = {
     openPdfDialog: vi.fn(),
     openPdfDirect: vi.fn(),
     readFile: vi.fn(),
+    readFileRange: vi.fn(),
     writeFile: vi.fn(),
+    createWorkingCopyFromPath: vi.fn(),
     saveFile: vi.fn(),
     savePdfAs: vi.fn(),
     statFile: vi.fn(),
@@ -63,6 +65,8 @@ describe('usePdfFile', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockHasElectronAPI.mockReturnValue(true);
+        mockDocuments.cleanupFile.mockResolvedValue(undefined);
+        mockDocuments.createWorkingCopyFromPath.mockReset();
     });
 
     describe('initial state', () => {
@@ -129,6 +133,46 @@ describe('usePdfFile', () => {
             expect(file.workingCopyPath.value).toBe('/tmp/work/report.pdf');
             expect(file.originalPath.value).toBe('/docs/report.pdf');
             expect(file.pdfData.value).toBeTruthy();
+            expect(file.pdfSrc.value).toBeInstanceOf(Blob);
+        });
+
+        it('reads large PDF files in chunks when loading from a path', async () => {
+            const firstChunk = new Uint8Array(4 * 1024 * 1024).fill(1);
+            const secondChunk = Uint8Array.from([
+                2,
+                3,
+                4,
+                5,
+            ]);
+            const expected = new Uint8Array(firstChunk.length + secondChunk.length);
+            expected.set(firstChunk, 0);
+            expected.set(secondChunk, firstChunk.length);
+
+            mockDocuments.statFile.mockResolvedValue({ size: expected.length });
+            mockDocuments.readFileRange
+                .mockResolvedValueOnce(firstChunk)
+                .mockResolvedValueOnce(secondChunk);
+            mockDocuments.analyzePdfConformance.mockResolvedValue({
+                isSigned: false,
+                isEncrypted: false,
+                isTagged: false,
+                pdfaLevel: null,
+                hasAcroForm: false,
+                hasXfa: false,
+                canIncrementalSave: true,
+                saveRestrictions: [] as string[],
+            });
+
+            const file = usePdfFile();
+            await file.loadPdfFromPath('/tmp/large.pdf');
+
+            expect(mockDocuments.readFile).not.toHaveBeenCalled();
+            expect(mockDocuments.readFileRange).toHaveBeenCalledTimes(2);
+            expect(file.pdfData.value).toBeTruthy();
+            expect(file.pdfData.value?.byteLength).toBe(expected.length);
+            expect(file.pdfData.value?.[0]).toBe(1);
+            expect(file.pdfData.value?.[firstChunk.length - 1]).toBe(1);
+            expect(Array.from(file.pdfData.value?.slice(firstChunk.length) ?? [])).toEqual(Array.from(secondChunk));
             expect(file.pdfSrc.value).toBeInstanceOf(Blob);
         });
 
@@ -497,6 +541,84 @@ describe('usePdfFile', () => {
 
             await expect(file.undo()).resolves.toBe(true);
             expect(file.pdfData.value).toEqual(bytes1);
+        });
+
+        it('can snapshot and undo large path-backed working copies', async () => {
+            const largeSize = 70 * 1024 * 1024;
+
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/undo-large.pdf',
+                workingPath: '/tmp/undo-large.pdf',
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: largeSize });
+            mockDocuments.createWorkingCopyFromPath
+                .mockResolvedValueOnce('/tmp/history-large-base.pdf')
+                .mockResolvedValueOnce('/tmp/history-large-crop.pdf')
+                .mockResolvedValueOnce('/tmp/history-large-restored.pdf');
+
+            const file = usePdfFile();
+            await file.openFile();
+
+            expect(file.pdfData.value).toBeNull();
+            expect(file.canUndo.value).toBe(false);
+
+            await expect(file.ensureHistoryBaselineForExternalMutation()).resolves.toBe(true);
+            await expect(file.reloadWorkingCopyIntoHistory({ markDirty: true })).resolves.toBe(true);
+
+            expect(file.canUndo.value).toBe(true);
+            expect(file.isDirty.value).toBe(true);
+            expect(mockDocuments.createWorkingCopyFromPath).toHaveBeenNthCalledWith(
+                1,
+                '/tmp/undo-large.pdf',
+                '/undo-large.pdf',
+            );
+            expect(mockDocuments.createWorkingCopyFromPath).toHaveBeenNthCalledWith(
+                2,
+                '/tmp/undo-large.pdf',
+                '/undo-large.pdf',
+            );
+
+            await expect(file.undo()).resolves.toBe(true);
+
+            expect(file.workingCopyPath.value).toBe('/tmp/history-large-restored.pdf');
+            expect(file.pdfData.value).toBeNull();
+            expect(file.pdfSrc.value).toEqual({
+                kind: 'path',
+                path: '/tmp/history-large-restored.pdf',
+                size: largeSize,
+            });
+            expect(mockDocuments.createWorkingCopyFromPath).toHaveBeenNthCalledWith(
+                3,
+                '/tmp/history-large-base.pdf',
+                '/undo-large.pdf',
+            );
+            expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/undo-large.pdf');
+        });
+
+        it('cleans path-backed history snapshots when closing a large document', async () => {
+            const largeSize = 70 * 1024 * 1024;
+
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/undo-large.pdf',
+                workingPath: '/tmp/undo-large.pdf',
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: largeSize });
+            mockDocuments.createWorkingCopyFromPath
+                .mockResolvedValueOnce('/tmp/history-large-base.pdf')
+                .mockResolvedValueOnce('/tmp/history-large-crop.pdf');
+
+            const file = usePdfFile();
+            await file.openFile();
+            await file.ensureHistoryBaselineForExternalMutation();
+            await file.reloadWorkingCopyIntoHistory({ markDirty: true });
+
+            file.closeFile();
+
+            expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/history-large-base.pdf');
+            expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/history-large-crop.pdf');
+            expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/undo-large.pdf');
         });
     });
 

@@ -32,6 +32,7 @@ interface IWorkspaceDocumentControlsOptions {
     }>;
     closePageContextMenu: () => void;
     handleExportImages: (pages: number[]) => Promise<void>;
+    ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
@@ -73,6 +74,7 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
         pageContextMenu,
         closePageContextMenu,
         handleExportImages,
+        ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
@@ -119,6 +121,7 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
         onExportPages: (pages: number[]) => {
             void handleExportImages(pages);
         },
+        ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,

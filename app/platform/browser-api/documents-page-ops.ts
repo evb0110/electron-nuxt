@@ -1,8 +1,4 @@
-import {
-    degrees,
-    PDFDocument,
-    PDFName,
-} from 'pdf-lib';
+import { PDFDocument } from 'pdf-lib';
 import type { IPageOpsCapability } from '@contracts/platform-api';
 import type { IPageGeometry } from '@contracts/shared';
 import {
@@ -14,6 +10,23 @@ import {
     ensurePdfExtension,
 } from '@app/platform/browser-api/common';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/common';
+import {
+    BrowserPageOpsWorkerUnavailableError,
+    canUseBrowserPageOpsWorker,
+    runBrowserPageOpsWorkerRequest,
+} from '@app/platform/browser-api/browser-page-ops-worker-client';
+import type {
+    IBrowserPageOpsWorkerRequestMap,
+    IBrowserPageOpsWorkerResultMap,
+    TBrowserPageOpsWorkerRequestType,
+} from '@app/platform/browser-api/browser-page-ops-worker.types';
+import {
+    cropPdfBytes,
+    getPageGeometryFromPdfBytes,
+    removeCropPdfBytes,
+    rotatePdfBytes,
+} from '@app/platform/browser-api/browser-page-ops-core';
+import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 
 interface IPickedBrowserFile {
     file: File;
@@ -46,11 +59,94 @@ interface ICreateBrowserPageOpsOptions {
     ) => Promise<ISaveBytesResult>;
 }
 
+const BROWSER_PAGE_OP_PDF_MAX_BYTES = 48 * 1024 * 1024;
+const BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES = 48 * 1024 * 1024;
+const BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES = 128 * 1024 * 1024;
+const BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES = 128 * 1024 * 1024;
+const BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES = 64 * 1024 * 1024;
+
+function buildBrowserPageOpLimitError(label: string, maxBytes: number) {
+    return new Error(
+        `${label} is unavailable in the browser for PDFs larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`,
+    );
+}
+
 export function createBrowserPageOps(
     options: ICreateBrowserPageOpsOptions,
 ): IPageOpsCapability['pageOps'] {
+    async function ensurePdfWithinBudget(
+        path: string,
+        label: string,
+        maxBytes = BROWSER_PAGE_OP_PDF_MAX_BYTES,
+    ) {
+        const { size } = await browserDocumentStore.stat(path);
+        if (size > maxBytes) {
+            throw buildBrowserPageOpLimitError(label, maxBytes);
+        }
+    }
+
+    async function ensureCombinedInputsWithinBudget(paths: string[], label: string) {
+        let totalBytes = 0;
+        for (let index = 0; index < paths.length; index += 1) {
+            if (index > 0) {
+                await yieldToBrowser();
+            }
+            const { size } = await browserDocumentStore.stat(paths[index]!);
+            totalBytes += size;
+            if (totalBytes > BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES) {
+                throw buildBrowserPageOpLimitError(label, BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES);
+            }
+        }
+    }
+
+    async function readWorkingCopyBytes(path: string) {
+        await yieldToBrowser();
+        return browserDocumentStore.read(path);
+    }
+
+    async function runWorkerBackedPdfOperation<K extends TBrowserPageOpsWorkerRequestType>(options: {
+        path: string;
+        label: string;
+        maxBytes: number;
+        type: K;
+        createPayload: (data: Uint8Array) => IBrowserPageOpsWorkerRequestMap[K];
+        runDirect: (data: Uint8Array) => Promise<IBrowserPageOpsWorkerResultMap[K]>;
+    }) {
+        await ensurePdfWithinBudget(
+            options.path,
+            options.label,
+            options.maxBytes,
+        );
+
+        const { size } = await browserDocumentStore.stat(options.path);
+        const data = await readWorkingCopyBytes(options.path);
+        if (canUseBrowserPageOpsWorker()) {
+            try {
+                return await runBrowserPageOpsWorkerRequest(
+                    options.type,
+                    options.createPayload(data),
+                );
+            } catch (error) {
+                if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
+                    throw error;
+                }
+            }
+        }
+
+        if (size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES) {
+            throw buildBrowserPageOpLimitError(
+                options.label,
+                BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
+            );
+        }
+
+        return options.runDirect(data);
+    }
+
     const pageOps: IPageOpsCapability['pageOps'] = {
         async delete(workingCopyPath, pages) {
+            await ensurePdfWithinBudget(workingCopyPath, 'Deleting pages');
+            await yieldToBrowser();
             const sourcePdf = await PDFDocument.load(
                 await browserDocumentStore.read(workingCopyPath),
             );
@@ -59,8 +155,10 @@ export function createBrowserPageOps(
             const keptIndexes = sourcePdf
                 .getPageIndices()
                 .filter((index) => !removeIndexes.has(index));
+            await yieldToBrowser();
             const keptPages = await nextPdf.copyPages(sourcePdf, keptIndexes);
             keptPages.forEach((page) => nextPdf.addPage(page));
+            await yieldToBrowser();
             await browserDocumentStore.write(
                 workingCopyPath,
                 new Uint8Array(await nextPdf.save()),
@@ -72,6 +170,8 @@ export function createBrowserPageOps(
             };
         },
         async extract(workingCopyPath, pages) {
+            await ensurePdfWithinBudget(workingCopyPath, 'Extracting pages');
+            await yieldToBrowser();
             const sourcePdf = await PDFDocument.load(
                 await browserDocumentStore.read(workingCopyPath),
             );
@@ -79,8 +179,10 @@ export function createBrowserPageOps(
             const selectedIndexes = pages
                 .map((page) => page - 1)
                 .filter((index) => index >= 0 && index < sourcePdf.getPageCount());
+            await yieldToBrowser();
             const copiedPages = await nextPdf.copyPages(sourcePdf, selectedIndexes);
             copiedPages.forEach((page) => nextPdf.addPage(page));
+            await yieldToBrowser();
             const outputBytes = new Uint8Array(await nextPdf.save());
             const sourceName = getBrowserDocumentFileName(workingCopyPath).replace(
                 /\.pdf$/iu,
@@ -115,15 +217,19 @@ export function createBrowserPageOps(
             };
         },
         async reorder(workingCopyPath, newOrder) {
+            await ensurePdfWithinBudget(workingCopyPath, 'Reordering pages');
+            await yieldToBrowser();
             const sourcePdf = await PDFDocument.load(
                 await browserDocumentStore.read(workingCopyPath),
             );
             const nextPdf = await PDFDocument.create();
+            await yieldToBrowser();
             const copiedPages = await nextPdf.copyPages(
                 sourcePdf,
                 newOrder.map((page) => page - 1),
             );
             copiedPages.forEach((page) => nextPdf.addPage(page));
+            await yieldToBrowser();
             await browserDocumentStore.write(
                 workingCopyPath,
                 new Uint8Array(await nextPdf.save()),
@@ -174,6 +280,9 @@ export function createBrowserPageOps(
             }
         },
         async insertFile(workingCopyPath, _totalPages, afterPage, sourcePaths) {
+            await ensurePdfWithinBudget(workingCopyPath, 'Inserting pages');
+            await ensureCombinedInputsWithinBudget(sourcePaths, 'Inserting pages');
+            await yieldToBrowser();
             const destinationPdf = await PDFDocument.load(
                 await browserDocumentStore.read(workingCopyPath),
             );
@@ -187,6 +296,7 @@ export function createBrowserPageOps(
             const afterIndexes = destinationPdf
                 .getPageIndices()
                 .filter((index) => index >= afterPage);
+            await yieldToBrowser();
             const beforePages = await nextPdf.copyPages(
                 destinationPdf,
                 beforeIndexes,
@@ -199,6 +309,7 @@ export function createBrowserPageOps(
             beforePages.forEach((page) => nextPdf.addPage(page));
             insertedPages.forEach((page) => nextPdf.addPage(page));
             afterPages.forEach((page) => nextPdf.addPage(page));
+            await yieldToBrowser();
             await browserDocumentStore.write(
                 workingCopyPath,
                 new Uint8Array(await nextPdf.save()),
@@ -210,136 +321,85 @@ export function createBrowserPageOps(
             };
         },
         async rotate(workingCopyPath, pages, angle) {
-            const pdfDocument = await PDFDocument.load(
-                await browserDocumentStore.read(workingCopyPath),
-            );
-            for (const pageNumber of pages) {
-                const page = pdfDocument.getPage(pageNumber - 1);
-                if (!page) {
-                    continue;
-                }
-
-                const currentRotation = page.getRotation().angle;
-                page.setRotation(
-                    degrees(((currentRotation + angle) % 360) as 0 | 90 | 180 | 270),
-                );
-            }
+            const result = await runWorkerBackedPdfOperation({
+                path: workingCopyPath,
+                label: 'Rotating pages',
+                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
+                type: 'rotate',
+                createPayload: (data) => ({
+                    data,
+                    pages,
+                    angle,
+                }),
+                runDirect: (data) => rotatePdfBytes(data, pages, angle),
+            });
             await browserDocumentStore.write(
                 workingCopyPath,
-                new Uint8Array(await pdfDocument.save()),
+                result.data,
             );
             options.clearSearchCaches();
             return {
                 success: true,
-                pageCount: pdfDocument.getPageCount(),
+                pageCount: result.pageCount,
             };
         },
         async crop(workingCopyPath, pages, margins) {
-            const pdfDocument = await PDFDocument.load(
-                await browserDocumentStore.read(workingCopyPath),
-            );
-            for (const pageNumber of pages) {
-                const page = pdfDocument.getPage(pageNumber - 1);
-                if (!page) {
-                    continue;
-                }
-
-                const mediaBox = page.getMediaBox();
-                const cropX = mediaBox.x + margins.left;
-                const cropY = mediaBox.y + margins.bottom;
-                const cropWidth = mediaBox.width - margins.left - margins.right;
-                const cropHeight = mediaBox.height - margins.top - margins.bottom;
-                if (cropWidth <= 0 || cropHeight <= 0) {
-                    continue;
-                }
-
-                page.setCropBox(cropX, cropY, cropWidth, cropHeight);
-            }
+            const result = await runWorkerBackedPdfOperation({
+                path: workingCopyPath,
+                label: 'Cropping pages',
+                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
+                type: 'crop',
+                createPayload: (data) => ({
+                    data,
+                    pages,
+                    margins,
+                }),
+                runDirect: (data) => cropPdfBytes(data, pages, margins),
+            });
             await browserDocumentStore.write(
                 workingCopyPath,
-                new Uint8Array(await pdfDocument.save()),
+                result.data,
             );
             options.clearSearchCaches();
             return {
                 success: true,
-                pageCount: pdfDocument.getPageCount(),
+                pageCount: result.pageCount,
             };
         },
         async removeCrop(workingCopyPath, pages) {
-            const pdfDocument = await PDFDocument.load(
-                await browserDocumentStore.read(workingCopyPath),
-            );
-            for (const pageNumber of pages) {
-                const page = pdfDocument.getPage(pageNumber - 1);
-                if (!page) {
-                    continue;
-                }
-
-                const mediaBox = page.getMediaBox();
-                const cropBox = page.getCropBox();
-                if (
-                    cropBox.x === mediaBox.x &&
-                    cropBox.y === mediaBox.y &&
-                    cropBox.width === mediaBox.width &&
-                    cropBox.height === mediaBox.height
-                ) {
-                    page.node.delete(PDFName.of('CropBox'));
-                    continue;
-                }
-
-                page.setCropBox(
-                    mediaBox.x,
-                    mediaBox.y,
-                    mediaBox.width,
-                    mediaBox.height,
-                );
-            }
+            const result = await runWorkerBackedPdfOperation({
+                path: workingCopyPath,
+                label: 'Removing crop',
+                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
+                type: 'removeCrop',
+                createPayload: (data) => ({
+                    data,
+                    pages,
+                }),
+                runDirect: (data) => removeCropPdfBytes(data, pages),
+            });
             await browserDocumentStore.write(
                 workingCopyPath,
-                new Uint8Array(await pdfDocument.save()),
+                result.data,
             );
             options.clearSearchCaches();
             return {
                 success: true,
-                pageCount: pdfDocument.getPageCount(),
+                pageCount: result.pageCount,
             };
         },
         async getPageGeometry(workingCopyPath, pageNumber): Promise<IPageGeometry> {
-            const pdfDocument = await PDFDocument.load(
-                await browserDocumentStore.read(workingCopyPath),
-            );
-            const page = pdfDocument.getPage(pageNumber - 1);
-            if (!page) {
-                throw new Error(`Page ${pageNumber} not found`);
-            }
-
-            const mediaBox = page.getMediaBox();
-            const resolvedCropBox = page.getCropBox();
-            const cropBox =
-                resolvedCropBox.x === mediaBox.x &&
-                resolvedCropBox.y === mediaBox.y &&
-                resolvedCropBox.width === mediaBox.width &&
-                resolvedCropBox.height === mediaBox.height
-                    ? null
-                    : resolvedCropBox;
-
-            return {
-                mediaBox: {
-                    x: mediaBox.x,
-                    y: mediaBox.y,
-                    width: mediaBox.width,
-                    height: mediaBox.height,
-                },
-                cropBox: cropBox
-                    ? {
-                        x: cropBox.x,
-                        y: cropBox.y,
-                        width: cropBox.width,
-                        height: cropBox.height,
-                    }
-                    : null,
-                rotation: page.getRotation().angle,
-            };
+            return runWorkerBackedPdfOperation({
+                path: workingCopyPath,
+                label: 'Inspecting page geometry',
+                maxBytes: BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES,
+                type: 'getPageGeometry',
+                createPayload: (data) => ({
+                    data,
+                    pageNumber,
+                }),
+                runDirect: (data) => getPageGeometryFromPdfBytes(data, pageNumber),
+            });
         },
     };
 

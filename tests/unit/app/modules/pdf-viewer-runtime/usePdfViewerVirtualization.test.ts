@@ -3,7 +3,15 @@ import {
     expect,
     it,
 } from 'vitest';
-import { expandVirtualWindowForAnchor } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
+import {
+    computed,
+    ref,
+} from 'vue';
+import type { TPdfViewMode } from '@contracts/shared';
+import {
+    expandVirtualWindowForAnchor,
+    usePdfViewerVirtualization,
+} from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
 
 describe('expandVirtualWindowForAnchor', () => {
     it('keeps the existing window when no anchor page is provided', () => {
@@ -43,5 +51,60 @@ describe('expandVirtualWindowForAnchor', () => {
             start: 1,
             end: 10,
         });
+    });
+});
+
+function createVirtualizationHarness(viewMode: TPdfViewMode) {
+    const numPages = ref(20);
+    const pageMetrics = ref(Array.from({ length: 20 }, () => ({
+        width: 300,
+        height: 100,
+    })));
+
+    return usePdfViewerVirtualization({
+        bufferPages: computed(() => 0),
+        continuousScroll: computed(() => true),
+        viewMode: computed(() => viewMode),
+        numPages,
+        basePageWidth: ref(300),
+        basePageHeight: ref(100),
+        pageMetrics,
+        effectiveScale: ref(1),
+        scaledMargin: ref(20),
+        visibleRange: ref({
+            start: 9,
+            end: 10,
+        }),
+        searchNavigationTargetPage: ref(null),
+        resizeTransitionAnchorPage: ref(null),
+        zoomVirtualizationFreeze: ref(null),
+    });
+}
+
+describe('usePdfViewerVirtualization', () => {
+    it('keeps virtualization enabled for facing spread modes and aligns render rows', () => {
+        const virtualization = createVirtualizationHarness('facing');
+
+        expect(virtualization.virtualizedContinuousMode.value).toBe(true);
+        expect(virtualization.virtualWindowStartPage.value).toBe(3);
+        expect(virtualization.virtualWindowEndPage.value).toBe(16);
+        expect(virtualization.pagesToRender.value).toEqual([
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+        ]);
+        expect(virtualization.topVirtualSpacerStyle.value).toEqual({ height: '100px' });
+        expect(virtualization.bottomVirtualSpacerStyle.value).toEqual({ height: '220px' });
     });
 });

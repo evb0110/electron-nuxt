@@ -11,10 +11,6 @@ import {
     lstatSync,
     realpathSync,
 } from 'fs';
-import {
-    lstat,
-    realpath,
-} from 'fs/promises';
 
 function normalizeCandidatePath(filePath: string) {
     if (!filePath || filePath.trim() === '') {
@@ -60,18 +56,7 @@ function safeRealpathSync(path: string): string {
 }
 
 async function getTempBaseDirs() {
-    const tempDir = resolve(app.getPath('temp'));
-    try {
-        const canonicalTempDir = await realpath(tempDir);
-        return canonicalTempDir === tempDir
-            ? [tempDir]
-            : [
-                tempDir,
-                canonicalTempDir,
-            ];
-    } catch {
-        return [tempDir];
-    }
+    return getTempBaseDirsSync();
 }
 
 function getTempBaseDirsSync() {
@@ -145,11 +130,10 @@ export async function resolveAllowedReadPath(filePath: string): Promise<string |
     }
 
     try {
-        const stat = await lstat(absolutePath);
-        if (stat.isSymbolicLink()) {
+        if (lstatSync(absolutePath).isSymbolicLink()) {
             return null;
         }
-        const resolvedPath = await realpath(absolutePath);
+        const resolvedPath = safeRealpathSync(absolutePath);
         if (!isPathInsideAnyBaseDir(tempBaseDirs, resolvedPath)) {
             return null;
         }
@@ -171,12 +155,11 @@ export async function resolveAllowedWritePath(filePath: string): Promise<string 
     }
 
     try {
-        const targetStat = await lstat(absolutePath);
-        if (targetStat.isSymbolicLink()) {
+        if (lstatSync(absolutePath).isSymbolicLink()) {
             return null;
         }
 
-        const resolvedTargetPath = await realpath(absolutePath);
+        const resolvedTargetPath = safeRealpathSync(absolutePath);
         if (!isPathInsideAnyBaseDir(tempBaseDirs, resolvedTargetPath)) {
             return null;
         }
@@ -186,7 +169,7 @@ export async function resolveAllowedWritePath(filePath: string): Promise<string 
 
     try {
         const parentDir = dirname(absolutePath);
-        const resolvedParentDir = await realpath(parentDir);
+        const resolvedParentDir = safeRealpathSync(parentDir);
         const isTempDirRoot = tempBaseDirs.includes(resolvedParentDir);
         if (!isPathInsideAnyBaseDir(tempBaseDirs, resolvedParentDir) && !isTempDirRoot) {
             return null;

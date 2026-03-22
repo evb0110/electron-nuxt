@@ -1,0 +1,154 @@
+import type { Ref } from 'vue';
+
+export type TWorkspaceUndoSource = 'file' | 'metadata';
+
+export const useWorkspaceUndoTimeline = (deps: {
+    fileHistoryMutationVersion: Ref<number>;
+    fileHistorySessionVersion: Ref<number>;
+    metadataHistoryMutationVersion: Ref<number>;
+    metadataHistoryResetVersion: Ref<number>;
+    undoFile: () => Promise<boolean>;
+    redoFile: () => Promise<boolean>;
+    undoMetadata: () => Promise<boolean> | boolean;
+    redoMetadata: () => Promise<boolean> | boolean;
+}) => {
+    const entries = shallowRef<TWorkspaceUndoSource[]>([]);
+    const entryIndex = ref(-1);
+
+    function recordEntry(source: TWorkspaceUndoSource) {
+        const nextEntries = entries.value.slice(0, entryIndex.value + 1);
+        nextEntries.push(source);
+        entries.value = nextEntries;
+        entryIndex.value = nextEntries.length - 1;
+    }
+
+    function pruneEntries(source: TWorkspaceUndoSource) {
+        if (entries.value.length === 0) {
+            return;
+        }
+
+        let removedAppliedEntries = 0;
+        const nextEntries = entries.value.filter((entry, index) => {
+            const shouldRemove = entry === source;
+            if (shouldRemove && index <= entryIndex.value) {
+                removedAppliedEntries += 1;
+            }
+            return !shouldRemove;
+        });
+
+        entries.value = nextEntries;
+        if (nextEntries.length === 0) {
+            entryIndex.value = -1;
+            return;
+        }
+
+        entryIndex.value = Math.min(
+            nextEntries.length - 1,
+            Math.max(-1, entryIndex.value - removedAppliedEntries),
+        );
+    }
+
+    function resetTimeline() {
+        entries.value = [];
+        entryIndex.value = -1;
+    }
+
+    watch(
+        deps.fileHistoryMutationVersion,
+        (nextVersion, previousVersion) => {
+            if (nextVersion === previousVersion) {
+                return;
+            }
+            recordEntry('file');
+        },
+        { flush: 'sync' },
+    );
+
+    watch(
+        deps.fileHistorySessionVersion,
+        (nextVersion, previousVersion) => {
+            if (nextVersion === previousVersion) {
+                return;
+            }
+            resetTimeline();
+        },
+        { flush: 'sync' },
+    );
+
+    watch(
+        deps.metadataHistoryMutationVersion,
+        (nextVersion, previousVersion) => {
+            if (nextVersion === previousVersion) {
+                return;
+            }
+            recordEntry('metadata');
+        },
+        { flush: 'sync' },
+    );
+
+    watch(
+        deps.metadataHistoryResetVersion,
+        (nextVersion, previousVersion) => {
+            if (nextVersion === previousVersion) {
+                return;
+            }
+            pruneEntries('metadata');
+        },
+        { flush: 'sync' },
+    );
+
+    const canUndoTimeline = computed(() => entryIndex.value >= 0);
+    const canRedoTimeline = computed(
+        () => entryIndex.value < entries.value.length - 1,
+    );
+    const nextUndoSource = computed<TWorkspaceUndoSource | null>(
+        () => entries.value[entryIndex.value] ?? null,
+    );
+    const nextRedoSource = computed<TWorkspaceUndoSource | null>(
+        () => entries.value[entryIndex.value + 1] ?? null,
+    );
+
+    async function undoTimeline() {
+        const source = nextUndoSource.value;
+        if (!source) {
+            return false;
+        }
+
+        const didUndo = source === 'file'
+            ? await deps.undoFile()
+            : await deps.undoMetadata();
+        if (!didUndo) {
+            return false;
+        }
+
+        entryIndex.value -= 1;
+        return true;
+    }
+
+    async function redoTimeline() {
+        const source = nextRedoSource.value;
+        if (!source) {
+            return false;
+        }
+
+        const didRedo = source === 'file'
+            ? await deps.redoFile()
+            : await deps.redoMetadata();
+        if (!didRedo) {
+            return false;
+        }
+
+        entryIndex.value += 1;
+        return true;
+    }
+
+    return {
+        canUndoTimeline,
+        canRedoTimeline,
+        nextUndoSource,
+        nextRedoSource,
+        resetTimeline,
+        undoTimeline,
+        redoTimeline,
+    };
+};

@@ -1,4 +1,5 @@
 import type { Page } from 'puppeteer-core';
+import { evaluateInPage } from './page-runtime';
 
 export interface IOcrJobOutcome {
     requestId: string;
@@ -12,7 +13,7 @@ export interface IOcrJobOutcome {
 }
 
 export async function createWorkingCopyFromPath(page: Page, sourcePath: string, originalPath?: string) {
-    return page.evaluate(async ({
+    return evaluateInPage(page, async ({
         source,
         original,
     }) => {
@@ -30,8 +31,27 @@ export async function createWorkingCopyFromPath(page: Page, sourcePath: string, 
     });
 }
 
+export async function getActiveWorkspaceWorkingCopyPath(page: Page) {
+    return evaluateInPage(page, () => {
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? document.querySelector<HTMLElement>('.workspace-host');
+        if (!host) {
+            throw new Error('Active workspace host not found');
+        }
+
+        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: {value?: {$?: {setupState?: {workingCopyPath?: {value?: string | null;};};};};};};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
+
+        const workingCopyPath = workspaceInstance?.$?.setupState?.workingCopyPath?.value;
+        if (typeof workingCopyPath !== 'string' || workingCopyPath.trim().length === 0) {
+            throw new Error('workingCopyPath is unavailable on the active workspace');
+        }
+
+        return workingCopyPath;
+    });
+}
+
 export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, requestId: string): Promise<IOcrJobOutcome> {
-    return page.evaluate(async ({
+    return evaluateInPage(page, async ({
         sourcePath,
         id,
     }) => {
@@ -138,7 +158,7 @@ export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, req
 }
 
 export async function acknowledgeOcrResult(page: Page, requestId: string, pdfPath: string) {
-    return page.evaluate(async ({
+    return evaluateInPage(page, async ({
         id,
         path,
     }) => {
@@ -161,8 +181,90 @@ export async function acknowledgeOcrResult(page: Page, requestId: string, pdfPat
     });
 }
 
+export async function applyOcrResultToActiveWorkspace(page: Page, pdfPath: string) {
+    return evaluateInPage(page, async (path: string) => {
+        const api = (window as Window & {electronAPI?: {documents?: {readFile?: (filePath: string) => Promise<ArrayBufferLike | Uint8Array>;};};}).electronAPI;
+
+        const readFile = api?.documents?.readFile;
+        if (typeof readFile !== 'function') {
+            throw new Error('electronAPI.documents.readFile is unavailable');
+        }
+
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? document.querySelector<HTMLElement>('.workspace-host');
+        if (!host) {
+            throw new Error('Active workspace host not found');
+        }
+
+        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: { value?: { $?: { setupState?: { handleOcrComplete?: (pdfData: Uint8Array) => Promise<void>; }; }; }; };};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
+        const handleOcrComplete = workspaceInstance?.$?.setupState?.handleOcrComplete;
+        if (typeof handleOcrComplete !== 'function') {
+            throw new Error('handleOcrComplete is unavailable on the active workspace');
+        }
+
+        const bytes = new Uint8Array(await readFile(path));
+        await handleOcrComplete(bytes);
+        return true;
+    }, pdfPath);
+}
+
+export async function consumeOcrResultIntoActiveWorkspace(page: Page, requestId: string, pdfPath: string) {
+    return evaluateInPage(page, async ({
+        id,
+        path,
+    }) => {
+        const api = (window as Window & {electronAPI?: {
+            documents?: {readFile?: (filePath: string) => Promise<ArrayBufferLike | Uint8Array>;};
+            ocr?: {acknowledgeResultFile?: (requestId: string, pdfPath?: string) => Promise<{
+                cleaned: boolean;
+                error?: string;
+            }>;};
+        };}).electronAPI;
+
+        const readFile = api?.documents?.readFile;
+        if (typeof readFile !== 'function') {
+            throw new Error('electronAPI.documents.readFile is unavailable');
+        }
+
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? document.querySelector<HTMLElement>('.workspace-host');
+        if (!host) {
+            throw new Error('Active workspace host not found');
+        }
+
+        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: { value?: { $?: { setupState?: { handleOcrComplete?: (pdfData: Uint8Array) => Promise<void>; }; }; }; };};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
+        const handleOcrComplete = workspaceInstance?.$?.setupState?.handleOcrComplete;
+        if (typeof handleOcrComplete !== 'function') {
+            throw new Error('handleOcrComplete is unavailable on the active workspace');
+        }
+
+        const bytes = new Uint8Array(await readFile(path));
+        const acknowledgeResultFile = api?.ocr?.acknowledgeResultFile;
+        let cleanupResult: {
+            cleaned: boolean;
+            error?: string;
+        } | null = null;
+
+        if (typeof acknowledgeResultFile === 'function') {
+            cleanupResult = await acknowledgeResultFile(id, path);
+            if (!cleanupResult.cleaned && cleanupResult.error) {
+                throw new Error(cleanupResult.error);
+            }
+        }
+
+        await handleOcrComplete(bytes);
+        return {
+            applied: true,
+            cleaned: cleanupResult?.cleaned ?? false,
+        };
+    }, {
+        id: requestId,
+        path: pdfPath,
+    });
+}
+
 export async function rotatePages(page: Page, workingCopyPath: string, pages: number[], angle: 90 | 180 | 270) {
-    return page.evaluate(async ({
+    return evaluateInPage(page, async ({
         workingPath,
         targetPages,
         targetAngle,
@@ -182,7 +284,7 @@ export async function rotatePages(page: Page, workingCopyPath: string, pages: nu
 }
 
 export async function reorderPages(page: Page, workingCopyPath: string, newOrder: number[]) {
-    return page.evaluate(async ({
+    return evaluateInPage(page, async ({
         workingPath,
         order,
     }) => {
@@ -203,7 +305,7 @@ export async function reorderPages(page: Page, workingCopyPath: string, newOrder
 }
 
 export async function deletePages(page: Page, workingCopyPath: string, pages: number[], totalPages: number) {
-    return page.evaluate(async ({
+    return evaluateInPage(page, async ({
         workingPath,
         targetPages,
         pageCount,
@@ -226,7 +328,7 @@ export async function deletePages(page: Page, workingCopyPath: string, pages: nu
 }
 
 export async function openDjvuForViewing(page: Page, djvuPath: string) {
-    return page.evaluate(async (sourcePath: string) => {
+    return evaluateInPage(page, async (sourcePath: string) => {
         const api = (window as Window & {electronAPI?: {djvu?: {openForViewing?: (path: string) => Promise<{
             success: boolean;
             pdfPath?: string;

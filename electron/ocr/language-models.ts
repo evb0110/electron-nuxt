@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
     createWriteStream,
     existsSync,
+    statSync,
 } from 'fs';
 import {
     copyFile,
@@ -10,7 +11,6 @@ import {
     readdir,
     rename,
     rm,
-    stat,
     writeFile,
 } from 'fs/promises';
 import {
@@ -523,7 +523,7 @@ async function downloadLanguageModel(
             }
             throwIfAborted(options.signal);
 
-            const downloadedSize = (await stat(tempPath)).size;
+            const downloadedSize = statSync(tempPath).size;
             if (downloadedSize < 1024) {
                 throw new Error('Downloaded model is unexpectedly small');
             }

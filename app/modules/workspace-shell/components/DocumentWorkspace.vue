@@ -388,11 +388,12 @@
             v-model:open="cropDialogOpen"
             :loading="cropDialogLoading"
             :total-pages="totalPages"
-            :current-page="currentPage"
+            :current-page="cropDialogPageNumber"
             :selected-pages="selectedThumbnailPages"
             :initial-margins="cropDialogMargins"
             :media-box="cropDialogMediaBox"
             :current-visible-box="cropDialogCurrentBox"
+            :rotation="cropDialogRotation"
             @apply="handleCropApply"
             @remove="handleCropRemove"
         />
@@ -615,6 +616,8 @@ const {
     cropDialogMargins,
     cropDialogMediaBox,
     cropDialogCurrentBox,
+    cropDialogPageNumber,
+    cropDialogRotation,
     handleCropPages,
     handleRemoveCrop,
     annotationNotePositions,

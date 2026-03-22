@@ -4,7 +4,9 @@ import {
     it,
 } from 'vitest';
 import {
+    boxToDisplayNormalizedRect,
     boxToNormalizedRect,
+    marginsToDisplayNormalizedRect,
     marginsToNormalizedRect,
     screenRectToMargins,
 } from '@app/utils/pdf-crop-coordinates';
@@ -80,6 +82,41 @@ describe('pdf crop coordinates', () => {
         });
     });
 
+    it('maps unrotated landscape selections into media-box margins', () => {
+        const margins = screenRectToMargins(
+            {
+                x: 50,
+                y: 20,
+                width: 120,
+                height: 50,
+            },
+            {
+                left: 0,
+                top: 0,
+                width: 200,
+                height: 100,
+            },
+            {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 200,
+            },
+            {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 200,
+            },
+            0,
+        );
+
+        expect(margins.left).toBeCloseTo(100, 6);
+        expect(margins.right).toBeCloseTo(60, 6);
+        expect(margins.top).toBeCloseTo(40, 6);
+        expect(margins.bottom).toBeCloseTo(60, 6);
+    });
+
     it('normalizes arbitrary crop boxes for preview rendering', () => {
         expect(boxToNormalizedRect(
             {
@@ -117,5 +154,68 @@ describe('pdf crop coordinates', () => {
             width: 0.5,
             height: 0.7,
         });
+    });
+
+    it('rotates preview rects into display orientation', () => {
+        const rotatedBoxRect = boxToDisplayNormalizedRect(
+            {
+                x: 50,
+                y: 10,
+                width: 100,
+                height: 70,
+            },
+            {
+                x: 0,
+                y: 0,
+                width: 200,
+                height: 100,
+            },
+            90,
+        );
+
+        expect(rotatedBoxRect.x).toBeCloseTo(0.1, 6);
+        expect(rotatedBoxRect.y).toBeCloseTo(0.25, 6);
+        expect(rotatedBoxRect.width).toBeCloseTo(0.7, 6);
+        expect(rotatedBoxRect.height).toBeCloseTo(0.5, 6);
+
+        const rotatedMarginRect = marginsToDisplayNormalizedRect({
+            top: 20,
+            bottom: 10,
+            left: 50,
+            right: 50,
+        }, {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+        }, 90);
+
+        expect(rotatedMarginRect.x).toBeCloseTo(0.1, 6);
+        expect(rotatedMarginRect.y).toBeCloseTo(0.25, 6);
+        expect(rotatedMarginRect.width).toBeCloseTo(0.7, 6);
+        expect(rotatedMarginRect.height).toBeCloseTo(0.5, 6);
+    });
+
+    it('normalizes 270-degree preview rects for landscape pages', () => {
+        const rotatedBoxRect = boxToDisplayNormalizedRect(
+            {
+                x: 40,
+                y: 30,
+                width: 120,
+                height: 90,
+            },
+            {
+                x: 0,
+                y: 0,
+                width: 200,
+                height: 120,
+            },
+            270,
+        );
+
+        expect(rotatedBoxRect.x).toBeCloseTo(0, 6);
+        expect(rotatedBoxRect.y).toBeCloseTo(0.2, 6);
+        expect(rotatedBoxRect.width).toBeCloseTo(0.75, 6);
+        expect(rotatedBoxRect.height).toBeCloseTo(0.6, 6);
     });
 });

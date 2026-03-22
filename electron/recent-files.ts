@@ -1,7 +1,7 @@
+import { statSync } from 'fs';
 import {
     readFile,
     rename,
-    stat,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -69,9 +69,9 @@ function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
     };
 }
 
-async function inspectPath(filePath: string): Promise<'exists' | 'missing' | 'unreadable'> {
+function inspectPath(filePath: string): 'exists' | 'missing' | 'unreadable' {
     try {
-        await stat(filePath);
+        statSync(filePath);
         return 'exists';
     } catch (error) {
         const code = (error as NodeJS.ErrnoException | undefined)?.code;
@@ -83,11 +83,11 @@ async function inspectPath(filePath: string): Promise<'exists' | 'missing' | 'un
     }
 }
 
-async function filterExistingFiles(files: IRecentFile[]): Promise<IFilteredRecentFiles> {
+function filterExistingFiles(files: IRecentFile[]): IFilteredRecentFiles {
     let removedMissingCount = 0;
     let unreadableCount = 0;
-    const checks = await Promise.all(files.map(async (file) => {
-        const status = await inspectPath(file.originalPath);
+    const checks = files.map((file) => {
+        const status = inspectPath(file.originalPath);
         if (status === 'missing') {
             removedMissingCount += 1;
             return null;
@@ -96,7 +96,7 @@ async function filterExistingFiles(files: IRecentFile[]): Promise<IFilteredRecen
             unreadableCount += 1;
         }
         return file;
-    }));
+    });
 
     return {
         files: checks.filter((file): file is IRecentFile => file !== null),
@@ -160,7 +160,7 @@ export async function addRecentFile(originalPath: string): Promise<void> {
         // Get file info with race-safe stat
         let fileSize: number;
         try {
-            const st = await stat(originalPath);
+            const st = statSync(originalPath);
             fileSize = st.size;
         } catch {
             // File doesn't exist or became unreadable
@@ -202,7 +202,7 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
     // Use cache if fresh
     if (Date.now() - cacheTimestamp < CACHE_TTL_MS) {
         // Still validate existence
-        const filtered = await filterExistingFiles(recentFilesCache);
+        const filtered = filterExistingFiles(recentFilesCache);
         if (STARTUP_TRACE_ENABLED) {
             logger.info(`[startup] recent-files:get cache hit (${filtered.files.length} file(s), removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount}, +${Date.now() - startedAt}ms)`);
         }
@@ -211,7 +211,7 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
 
     // Refresh cache from disk
     const data = await loadRecentFilesData();
-    const filtered = await filterExistingFiles(data.files);
+    const filtered = filterExistingFiles(data.files);
     const validFiles = filtered.files;
 
     // Update cache

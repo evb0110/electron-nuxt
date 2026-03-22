@@ -323,4 +323,40 @@ describe('createBrowserDocumentsFileCapability', () => {
         expect(workingEntry.sourceRef).toBe(sourceRef);
         expect(workingEntry.storageMode).toBe('source-proxy');
     });
+
+    it('hydrates legacy handle-backed browser sources during direct open', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const pdfBytes = await createPdfBytes();
+        const getFile = vi.fn(async () => new File([pdfBytes], 'legacy.pdf', { type: 'application/pdf' }));
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'legacy.pdf',
+            getFile,
+        });
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'legacy.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: handle,
+                storageMode: 'handle',
+            },
+        );
+
+        const result = await capability.openPdfDirect(sourceRef);
+        expect(result).not.toBeNull();
+        expect(result?.kind).toBe('pdf');
+
+        getFile.mockImplementation(async () => {
+            throw new DOMException('Not allowed', 'NotAllowedError');
+        });
+        browserDocumentStore.unload(sourceRef);
+
+        await expect(browserDocumentStore.read(sourceRef)).resolves.toEqual(pdfBytes);
+    });
 });

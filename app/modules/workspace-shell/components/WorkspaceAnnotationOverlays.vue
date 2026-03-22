@@ -202,13 +202,19 @@ const openNoteAnchors = computed(() => {
         && Boolean(getNoteMarkerRect(note)),
     );
 });
+const viewportDomSnapshot = computed<IViewportDomSnapshot | null>(() => {
+    void indicatorDomTick.value;
+    return collectViewportDomSnapshot(props.annotationViewportRoot);
+});
 const openAnchorHiddenKeys = computed<Set<string>>(() => {
     void indicatorDomTick.value;
-    const viewportRoot = props.annotationViewportRoot;
-    const inlineIdentity = collectInlineTriggerIdentity(viewportRoot);
+    const snapshot = viewportDomSnapshot.value;
     const hidden = new Set<string>();
+    if (!snapshot) {
+        return hidden;
+    }
     for (const note of openNoteAnchors.value) {
-        if (inlineIdentityMatchesNote(inlineIdentity, note)) {
+        if (inlineIdentityMatchesNote(snapshot.inlineIdentity, note)) {
             hidden.add(note.comment.stableKey);
         }
     }
@@ -216,13 +222,15 @@ const openAnchorHiddenKeys = computed<Set<string>>(() => {
 });
 const anchoredAnnotationNoteWindows = computed(() => {
     void indicatorDomTick.value;
-    const viewportRoot = props.annotationViewportRoot;
-    const inlineIdentity = collectInlineTriggerIdentity(viewportRoot);
+    const snapshot = viewportDomSnapshot.value;
+    if (!snapshot) {
+        return [];
+    }
     return props.sortedAnnotationNoteWindows.filter((note) => (
         note.isMinimized
         && isFloatingIndicatorEligible(note.comment)
         && Boolean(getNoteMarkerRect(note))
-        && !inlineIdentityMatchesNote(inlineIdentity, note)
+        && !inlineIdentityMatchesNote(snapshot.inlineIdentity, note)
     ));
 });
 const indicatorDomTick = ref(0);
@@ -257,6 +265,12 @@ interface IInlineTriggerIdentity {
         x: number;
         y: number;
     }>;
+}
+
+interface IViewportDomSnapshot {
+    inlineIdentity: IInlineTriggerIdentity;
+    pageContainers: Map<number, HTMLElement>;
+    markerButtonsByStableKey: Map<string, HTMLElement>;
 }
 
 function parseStableKeyIdentity(stableKey: string) {
@@ -316,25 +330,37 @@ function toPageNormalizedPoint(element: HTMLElement) {
     };
 }
 
-function collectInlineTriggerIdentity(viewportRoot: HTMLElement | null | undefined): IInlineTriggerIdentity {
+function collectViewportDomSnapshot(viewportRoot: HTMLElement | null | undefined): IViewportDomSnapshot | null {
+    if (!viewportRoot) {
+        return null;
+    }
+
+    const pageContainers = new Map<number, HTMLElement>();
+    viewportRoot.querySelectorAll<HTMLElement>('.page_container').forEach((pageContainer) => {
+        const pageNumberRaw = Number(pageContainer.dataset.page ?? '');
+        if (!Number.isFinite(pageNumberRaw) || pageNumberRaw <= 0) {
+            return;
+        }
+        pageContainers.set(pageNumberRaw, pageContainer);
+    });
+
+    const markerButtonsByStableKey = new Map<string, HTMLElement>();
     const identity: IInlineTriggerIdentity = {
         stableKeys: new Set<string>(),
         annotationIds: new Set<string>(),
         uids: new Set<string>(),
         markerPoints: [],
     };
-    if (!viewportRoot) {
-        return identity;
-    }
 
     const markers = viewportRoot.querySelectorAll<HTMLElement>(
-        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, [data-comment-stable-keys], [data-comment-stable-key], [data-stable-key]',
+        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, .annotationCommentButton, .popupTriggerArea, [data-comment-stable-keys], [data-comment-stable-key], [data-stable-key]',
     );
     markers.forEach((marker) => {
         const directStableKey = marker.dataset.commentStableKey?.trim()
             || marker.dataset.stableKey?.trim();
         if (directStableKey) {
             identity.stableKeys.add(directStableKey);
+            markerButtonsByStableKey.set(directStableKey, marker);
         }
         parseStableKeysAttr(marker.getAttribute('data-comment-stable-keys')).forEach((stableKey) => {
             identity.stableKeys.add(stableKey);
@@ -347,11 +373,7 @@ function collectInlineTriggerIdentity(viewportRoot: HTMLElement | null | undefin
         if (annotationId) {
             identity.annotationIds.add(annotationId);
         }
-    });
 
-    viewportRoot.querySelectorAll<HTMLElement>(
-        '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, .annotationCommentButton, .popupTriggerArea',
-    ).forEach((marker) => {
         const point = toPageNormalizedPoint(marker);
         if (point) {
             identity.markerPoints.push(point);
@@ -362,6 +384,7 @@ function collectInlineTriggerIdentity(viewportRoot: HTMLElement | null | undefin
             const stableKey = fromTarget.dataset.commentStableKey?.trim();
             if (stableKey) {
                 identity.stableKeys.add(stableKey);
+                markerButtonsByStableKey.set(stableKey, marker);
             }
             parseStableKeysAttr(fromTarget.getAttribute('data-comment-stable-keys')).forEach((nextStableKey) => {
                 identity.stableKeys.add(nextStableKey);
@@ -383,7 +406,11 @@ function collectInlineTriggerIdentity(viewportRoot: HTMLElement | null | undefin
         }
     });
 
-    return identity;
+    return {
+        inlineIdentity: identity,
+        pageContainers,
+        markerButtonsByStableKey,
+    };
 }
 
 function inlineIdentityMatchesNote(
@@ -439,14 +466,14 @@ function inlineIdentityMatchesNote(
 
 const minimizedIndicatorTargets = computed<Record<string, HTMLElement>>(() => {
     void indicatorDomTick.value;
-    const viewportRoot = props.annotationViewportRoot;
-    if (!viewportRoot) {
+    const snapshot = viewportDomSnapshot.value;
+    if (!snapshot) {
         return {};
     }
 
     const targets: Record<string, HTMLElement> = {};
     anchoredAnnotationNoteWindows.value.forEach((note) => {
-        const pageContainer = viewportRoot.querySelector<HTMLElement>(`.page_container[data-page="${note.comment.pageNumber}"]`);
+        const pageContainer = snapshot.pageContainers.get(note.comment.pageNumber);
         if (pageContainer) {
             targets[note.comment.stableKey] = pageContainer;
         }
@@ -456,13 +483,13 @@ const minimizedIndicatorTargets = computed<Record<string, HTMLElement>>(() => {
 
 const openNoteAnchorTargets = computed<Record<string, HTMLElement>>(() => {
     void indicatorDomTick.value;
-    const viewportRoot = props.annotationViewportRoot;
-    if (!viewportRoot) {
+    const snapshot = viewportDomSnapshot.value;
+    if (!snapshot) {
         return {};
     }
     const targets: Record<string, HTMLElement> = {};
     openNoteAnchors.value.forEach((note) => {
-        const pageContainer = viewportRoot.querySelector<HTMLElement>(`.page_container[data-page="${note.comment.pageNumber}"]`);
+        const pageContainer = snapshot.pageContainers.get(note.comment.pageNumber);
         if (pageContainer) {
             targets[note.comment.stableKey] = pageContainer;
         }
@@ -480,14 +507,17 @@ const connectorLines = shallowRef<IConnectorLine[]>([]);
 function getMarkerCenter(
     stableKey: string,
     note: IAnnotationNoteWindowEntry,
-    pageContainer: HTMLElement,
+    snapshot: IViewportDomSnapshot,
 ): {
     cx: number;
     cy: number;
 } | null {
-    const markerEl = pageContainer.querySelector<HTMLElement>(
-        `.pdf-comment-marker-button[data-stable-key="${CSS.escape(stableKey)}"]`,
-    );
+    const pageContainer = snapshot.pageContainers.get(note.comment.pageNumber) ?? null;
+    if (!pageContainer) {
+        return null;
+    }
+
+    const markerEl = snapshot.markerButtonsByStableKey.get(stableKey) ?? null;
     if (markerEl) {
         const r = markerEl.getBoundingClientRect();
         if (r.width > 0 && r.height > 0) {
@@ -513,7 +543,10 @@ function getMarkerCenter(
 }
 
 function computeConnectorLines(): IConnectorLine[] {
-    const targets = openNoteAnchorTargets.value;
+    const snapshot = viewportDomSnapshot.value;
+    if (!snapshot) {
+        return [];
+    }
     const lines: IConnectorLine[] = [];
     for (const note of openNoteAnchors.value) {
         const stableKey = note.comment.stableKey;
@@ -522,12 +555,7 @@ function computeConnectorLines(): IConnectorLine[] {
             continue;
         }
 
-        const pageContainer = targets[stableKey];
-        if (!pageContainer) {
-            continue;
-        }
-
-        const marker = getMarkerCenter(stableKey, note, pageContainer);
+        const marker = getMarkerCenter(stableKey, note, snapshot);
         if (!marker) {
             continue;
         }

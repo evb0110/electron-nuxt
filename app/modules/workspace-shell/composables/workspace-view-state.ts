@@ -22,8 +22,8 @@ interface IWorkspaceViewStateDeps {
     annotationPlacingPageNote: Ref<boolean>;
     annotationEditorState: Ref<IAnnotationEditorState>;
     hasOpenAnnotationNotes: Ref<boolean>;
-    canUndoFile: Ref<boolean>;
-    canRedoFile: Ref<boolean>;
+    canUndoHistory: Ref<boolean>;
+    canRedoHistory: Ref<boolean>;
     pdfViewerRef: Ref<{
         scrollToPage: (page: number) => void;
         cancelCommentPlacement: () => void;
@@ -56,12 +56,12 @@ export function useWorkspaceViewState(deps: IWorkspaceViewStateDeps) {
     const canUndo = computed(() => (
         isAnnotationUndoContext.value
             ? deps.annotationEditorState.value.hasSomethingToUndo
-            : deps.canUndoFile.value
+            : deps.canUndoHistory.value
     ));
     const canRedo = computed(() => (
         isAnnotationUndoContext.value
             ? deps.annotationEditorState.value.hasSomethingToRedo
-            : deps.canRedoFile.value
+            : deps.canRedoHistory.value
     ));
 
     function handleFitMode(mode: TFitMode) {

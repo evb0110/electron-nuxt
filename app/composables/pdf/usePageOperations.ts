@@ -24,6 +24,7 @@ type TPageOperationErrorKey = Extract<
 
 export const usePageOperations = (deps: {
     workingCopyPath: Ref<TDocumentRef | null>;
+    ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
@@ -32,6 +33,7 @@ export const usePageOperations = (deps: {
     const { t } = useTypedI18n();
     const {
         workingCopyPath,
+        ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
@@ -63,6 +65,13 @@ export const usePageOperations = (deps: {
         error.value = null;
 
         try {
+            if (options.shouldReload) {
+                const didPrimeHistory = await ensureHistoryBaselineForExternalMutation();
+                if (!didPrimeHistory) {
+                    return false;
+                }
+            }
+
             const result = await options.run(path);
             const isSuccessful = options.isSuccessful ?? ((apiResult) => apiResult.success);
             if (!isSuccessful(result)) {

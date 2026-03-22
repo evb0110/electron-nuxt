@@ -14,6 +14,7 @@
         "electron/main.ts",
         "electron/preload.ts",
         "electron/image/pdf-combine-worker.ts",
+        "electron/features/documents/main/pdf-conformance-worker.ts",
         "electron/features/djvu/main/pdf-worker.ts",
         "electron/features/image-export/main/tiff-combine-worker.ts",
         "electron/features/page-ops/main/crop-worker.ts",

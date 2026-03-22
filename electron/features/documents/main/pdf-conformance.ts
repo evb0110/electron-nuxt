@@ -1,90 +1,31 @@
 import { app } from 'electron';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'fs';
 import {
     unlink,
     writeFile,
 } from 'fs/promises';
 import {
     basename,
+    dirname,
     join,
 } from 'path';
+import { fileURLToPath } from 'url';
+import { Worker } from 'worker_threads';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/electron-api';
+import { getDefaultPdfConformanceProfile } from '@electron/features/documents/main/pdf-conformance-core';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
-import {
-    PDFDict,
-    PDFDocument,
-    PDFName,
-} from 'pdf-lib';
 
 const logger = createLogger('documents-pdf-conformance');
 const QPDF_VALIDATE_TIMEOUT_MS = 30_000;
-
-const PDFA_PART_PATTERN = /<pdfaid:part>\s*([^<\s]+)\s*<\/pdfaid:part>/iu;
-const PDFA_CONFORMANCE_PATTERN = /<pdfaid:conformance>\s*([^<\s]+)\s*<\/pdfaid:conformance>/iu;
-const SIGNATURE_PATTERN = /\/(?:ByteRange|FT\s*\/Sig|Type\s*\/Sig)\b/u;
-
-function getDefaultPdfConformanceProfile(): IPdfConformanceProfile {
-    return {
-        isSigned: false,
-        isEncrypted: false,
-        isTagged: false,
-        pdfaLevel: null,
-        hasAcroForm: false,
-        hasXfa: false,
-        canIncrementalSave: true,
-        saveRestrictions: [],
-    };
-}
-
-function decodePdfBytes(data: Uint8Array) {
-    return Buffer.from(data).toString('latin1');
-}
-
-function detectPdfaLevel(data: Uint8Array) {
-    const text = decodePdfBytes(data);
-    const partMatch = text.match(PDFA_PART_PATTERN);
-    if (!partMatch?.[1]) {
-        return null;
-    }
-
-    const conformanceMatch = text.match(PDFA_CONFORMANCE_PATTERN);
-    const conformance = conformanceMatch?.[1]?.trim().toUpperCase() ?? '';
-    return `PDF/A-${partMatch[1].trim()}${conformance}`;
-}
-
-function detectSignatureMarkers(data: Uint8Array) {
-    return SIGNATURE_PATTERN.test(decodePdfBytes(data));
-}
-
-function buildSaveRestrictions(profile: Omit<IPdfConformanceProfile, 'saveRestrictions'>) {
-    const restrictions: string[] = [];
-
-    if (profile.isSigned) {
-        restrictions.push('signed_original_requires_save_as');
-    }
-    if (profile.isEncrypted) {
-        restrictions.push('encrypted_document_requires_preservation');
-    }
-    if (profile.hasXfa) {
-        restrictions.push('xfa_forms_are_not_supported_for_rewrite');
-    }
-    if (profile.isTagged) {
-        restrictions.push('tagged_pdf_requires_structure_preservation');
-    }
-    if (profile.pdfaLevel) {
-        restrictions.push(`pdfa_preservation_required:${profile.pdfaLevel}`);
-    }
-    if (!profile.canIncrementalSave) {
-        restrictions.push('incremental_save_not_supported');
-    }
-
-    return restrictions;
-}
+const PDF_CONFORMANCE_WORKER_FILENAME = 'pdf-conformance-worker.js';
+const PDF_CONFORMANCE_WORKER_DRAIN_TIMEOUT_MS = 5_000;
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function sanitizeValidationFileName(fileName?: string) {
     const fallback = 'document.pdf';
@@ -101,46 +42,165 @@ function extractQpdfWarnings(text: string) {
         .filter(line => !/^checking /iu.test(line));
 }
 
-export async function analyzePdfConformanceData(
-    data: Uint8Array,
-): Promise<IPdfConformanceProfile> {
-    const fallback = getDefaultPdfConformanceProfile();
+class PdfConformanceWorkerStartupError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'PdfConformanceWorkerStartupError';
+    }
+}
 
-    try {
-        const doc = await PDFDocument.load(data, {
-            ignoreEncryption: true,
-            updateMetadata: false,
+function getPdfConformanceWorkerPath() {
+    const defaultPath = join(__dirname, PDF_CONFORMANCE_WORKER_FILENAME);
+    const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
+    if (unpackedPath !== defaultPath && existsSync(unpackedPath)) {
+        return unpackedPath;
+    }
+
+    return defaultPath;
+}
+
+function runPdfConformanceWorker(filePath: string) {
+    return new Promise<IPdfConformanceProfile>((resolve, reject) => {
+        let worker: Worker;
+        try {
+            worker = new Worker(getPdfConformanceWorkerPath(), { workerData: { filePath } });
+        } catch (error) {
+            reject(new PdfConformanceWorkerStartupError(
+                `PDF conformance worker failed to start: ${error instanceof Error ? error.message : String(error)}`,
+            ));
+            return;
+        }
+
+        let settled = false;
+        let workerOnline = false;
+        let timeoutHandle: NodeJS.Timeout | null = null;
+        let drainHandle: NodeJS.Timeout | null = null;
+
+        const cleanupWorker = () => {
+            worker.removeAllListeners('message');
+            worker.removeAllListeners('error');
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = null;
+            }
+        };
+
+        const clearDrainTimer = () => {
+            if (!drainHandle) {
+                return;
+            }
+
+            clearTimeout(drainHandle);
+            drainHandle = null;
+        };
+
+        const scheduleWorkerDrain = () => {
+            clearDrainTimer();
+            drainHandle = setTimeout(() => {
+                drainHandle = null;
+                void worker.terminate().catch(() => undefined);
+            }, PDF_CONFORMANCE_WORKER_DRAIN_TIMEOUT_MS);
+            drainHandle.unref?.();
+        };
+
+        const finalize = (callback: () => void) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            cleanupWorker();
+            callback();
+            scheduleWorkerDrain();
+        };
+
+        worker.once('online', () => {
+            workerOnline = true;
         });
-        const catalog = doc.catalog;
-        const acroForm = catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
-        const structTreeRoot = catalog.lookupMaybe(PDFName.of('StructTreeRoot'), PDFDict);
 
-        const profileBase = {
-            isSigned: detectSignatureMarkers(data),
-            isEncrypted: doc.isEncrypted,
-            isTagged: structTreeRoot instanceof PDFDict,
-            pdfaLevel: detectPdfaLevel(data),
-            hasAcroForm: acroForm instanceof PDFDict,
-            hasXfa: acroForm instanceof PDFDict && acroForm.has(PDFName.of('XFA')),
-            canIncrementalSave: !doc.isEncrypted && !(acroForm instanceof PDFDict && acroForm.has(PDFName.of('XFA'))),
-        };
+        worker.once('message', (message: unknown) => {
+            finalize(() => {
+                if (!message || typeof message !== 'object') {
+                    reject(new Error('PDF conformance worker returned an invalid payload'));
+                    return;
+                }
 
-        return {
-            ...profileBase,
-            saveRestrictions: buildSaveRestrictions(profileBase),
-        };
+                const payload = message as {
+                    type?: unknown;
+                    ok?: unknown;
+                    error?: unknown;
+                    data?: unknown;
+                };
+
+                if (payload.type !== 'result') {
+                    reject(new Error('PDF conformance worker returned an invalid payload'));
+                    return;
+                }
+                if (payload.ok !== true) {
+                    reject(new Error(typeof payload.error === 'string' ? payload.error : 'PDF conformance worker failed'));
+                    return;
+                }
+
+                resolve((payload.data as IPdfConformanceProfile) ?? {
+                    ...getDefaultPdfConformanceProfile(),
+                    saveRestrictions: [],
+                });
+            });
+        });
+
+        worker.once('error', (error) => {
+            finalize(() => {
+                if (!workerOnline) {
+                    reject(new PdfConformanceWorkerStartupError(
+                        `PDF conformance worker failed before becoming ready: ${error instanceof Error ? error.message : String(error)}`,
+                    ));
+                    return;
+                }
+
+                reject(error);
+            });
+        });
+
+        worker.once('exit', (code) => {
+            clearDrainTimer();
+            if (settled || code === 0) {
+                return;
+            }
+
+            finalize(() => {
+                if (!workerOnline) {
+                    reject(new PdfConformanceWorkerStartupError(
+                        `PDF conformance worker exited during startup with code ${code}`,
+                    ));
+                    return;
+                }
+
+                reject(new Error(`PDF conformance worker exited with code ${code}`));
+            });
+        });
+
+        timeoutHandle = setTimeout(() => {
+            finalize(() => {
+                reject(new Error('PDF conformance worker timed out'));
+            });
+        }, 60_000);
+        timeoutHandle.unref?.();
+    });
+}
+
+export async function analyzePdfConformanceFile(filePath: string): Promise<IPdfConformanceProfile> {
+    try {
+        return await runPdfConformanceWorker(filePath);
     } catch (error) {
-        logger.warn(`Failed to analyze PDF conformance: ${error instanceof Error ? error.message : String(error)}`);
-        return {
-            ...fallback,
-            isSigned: detectSignatureMarkers(data),
-            pdfaLevel: detectPdfaLevel(data),
-            saveRestrictions: buildSaveRestrictions({
-                ...fallback,
-                isSigned: detectSignatureMarkers(data),
-                pdfaLevel: detectPdfaLevel(data),
-            }),
-        };
+        if (error instanceof PdfConformanceWorkerStartupError) {
+            logger.warn(`PDF conformance worker unavailable for ${filePath}: ${error.message}`);
+        } else {
+            logger.warn(
+                `PDF conformance worker failed for ${filePath}: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+        }
+        throw error;
     }
 }
 

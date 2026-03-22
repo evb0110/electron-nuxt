@@ -22,6 +22,7 @@ import {
     bucketFileSize,
     getLowercaseExtension,
 } from '@app/utils/analytics';
+import { readDocumentBytes } from '@app/utils/document-bytes';
 
 interface IOpenBatchProgressState {
     processed: number;
@@ -30,6 +31,20 @@ interface IOpenBatchProgressState {
     elapsedMs: number;
     estimatedRemainingMs: number | null;
 }
+
+interface IByteHistoryEntry {
+    kind: 'bytes';
+    snapshot: Uint8Array;
+}
+
+interface IPathHistoryEntry {
+    kind: 'path';
+    path: TDocumentRef;
+    size: number;
+    originalPath: TDocumentRef | null;
+}
+
+type TPdfHistoryEntry = IByteHistoryEntry | IPathHistoryEntry;
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
@@ -45,9 +60,11 @@ export const usePdfFile = () => {
     const isDirty = ref(false);
     const pdfConformanceProfile = ref<IPdfConformanceProfile | null>(null);
     const lastSaveMode = ref<TPdfSaveMode>('rewrite');
-    const history = shallowRef<Uint8Array[]>([]);
+    const history = shallowRef<TPdfHistoryEntry[]>([]);
     const historyIndex = ref(0);
     const historyCleanIndex = ref(-1);
+    const fileHistoryMutationVersion = ref(0);
+    const fileHistorySessionVersion = ref(0);
     const requiresSaveAsOnFirstSave = ref(false);
     const MAX_HISTORY_ENTRIES = 20;
     const MAX_HISTORY_BYTES = 200 * 1024 * 1024;
@@ -64,6 +81,22 @@ export const usePdfFile = () => {
     const pendingDjvu = ref<TDocumentRef | null>(null);
     const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
     let latestLoadRequestId = 0;
+
+    function toPdfBlob(snapshot: Uint8Array) {
+        const ownedSnapshot = (
+            snapshot.buffer instanceof ArrayBuffer
+            && snapshot.byteOffset === 0
+            && snapshot.byteLength === snapshot.buffer.byteLength
+        )
+            ? snapshot as Uint8Array<ArrayBuffer>
+            : (
+                snapshot.byteOffset === 0
+                && snapshot.byteLength === snapshot.buffer.byteLength
+            )
+                ? new Uint8Array(snapshot)
+                : snapshot.slice();
+        return new Blob([ownedSnapshot], { type: 'application/pdf' });
+    }
 
     async function pickFileToOpen() {
         const api = getElectronAPI();
@@ -291,22 +324,69 @@ export const usePdfFile = () => {
 
     const MAX_IN_MEMORY_PDF_BYTES = 64 * 1024 * 1024;
 
-    function getHistoryBytes(snapshots: Uint8Array[]) {
-        return snapshots.reduce(
-            (total, snapshot) => total + snapshot.byteLength,
+    function createByteHistoryEntry(
+        snapshot: Uint8Array,
+        options?: { reuseSnapshot?: boolean },
+    ): IByteHistoryEntry {
+        return {
+            kind: 'bytes',
+            snapshot: options?.reuseSnapshot ? snapshot : snapshot.slice(),
+        };
+    }
+
+    function getHistoryBytes(entries: TPdfHistoryEntry[]) {
+        return entries.reduce(
+            (total, entry) => total + (entry.kind === 'bytes' ? entry.snapshot.byteLength : 0),
             0,
         );
     }
 
-    function resetHistory(snapshot: Uint8Array | null) {
+    function scheduleHistoryEntryCleanup(entries: TPdfHistoryEntry[]) {
+        const snapshotPaths = Array.from(
+            new Set(
+                entries.flatMap((entry) => entry.kind === 'path' ? [entry.path] : []),
+            ),
+        );
+
+        if (snapshotPaths.length === 0) {
+            return;
+        }
+
+        const api = getElectronAPI();
+        for (const snapshotPath of snapshotPaths) {
+            api.documents.cleanupFile(snapshotPath).catch((cleanupError: unknown) => {
+                BrowserLogger.warn(
+                    'pdf-file',
+                    'Failed to cleanup history snapshot',
+                    {
+                        path: snapshotPath,
+                        error: cleanupError,
+                    },
+                );
+            });
+        }
+    }
+
+    function replaceHistory(nextHistory: TPdfHistoryEntry[], nextIndex: number, nextCleanIndex: number) {
+        const removedEntries = history.value.filter(entry => !nextHistory.includes(entry));
+        history.value = nextHistory;
+        historyIndex.value = nextIndex;
+        historyCleanIndex.value = nextCleanIndex;
+        scheduleHistoryEntryCleanup(removedEntries);
+    }
+
+    function resetHistory(
+        snapshot: Uint8Array | null,
+        options?: { reuseSnapshot?: boolean },
+    ) {
         if (snapshot) {
-            history.value = [snapshot.slice()];
-            historyIndex.value = 0;
-            historyCleanIndex.value = 0;
+            replaceHistory(
+                [createByteHistoryEntry(snapshot, options)],
+                0,
+                0,
+            );
         } else {
-            history.value = [];
-            historyIndex.value = 0;
-            historyCleanIndex.value = -1;
+            replaceHistory([], 0, -1);
         }
     }
 
@@ -335,6 +415,91 @@ export const usePdfFile = () => {
         }
 
         return true;
+    }
+
+    async function cleanupPreviousWorkingCopy(path: TDocumentRef, nextPath: TDocumentRef) {
+        if (path === nextPath) {
+            return;
+        }
+
+        clearOcrCache(path);
+        try {
+            await getElectronAPI().documents.cleanupFile(path);
+        } catch (cleanupError) {
+            BrowserLogger.warn(
+                'pdf-file',
+                'Failed to cleanup previous working copy',
+                {
+                    path,
+                    error: cleanupError,
+                },
+            );
+        }
+    }
+
+    function deferPdfConformanceProfile(path: TDocumentRef) {
+        readPdfConformanceProfile(path).then((profile) => {
+            if (workingCopyPath.value === path) {
+                pdfConformanceProfile.value = profile;
+            }
+        }).catch((conformanceError: unknown) => {
+            BrowserLogger.warn('pdf-file', 'Deferred conformance analysis failed', {
+                path,
+                error: conformanceError,
+            });
+        });
+    }
+
+    async function applyLoadedPdfState(
+        path: TDocumentRef,
+        nextState: Awaited<ReturnType<typeof readPdfStateFromPath>>,
+        options?: {
+            markDirty?: boolean;
+            preserveHistory?: boolean;
+            previousPath?: TDocumentRef | null;
+        },
+    ) {
+        workingCopyPath.value = path;
+        pdfData.value = nextState.pdfData;
+        pdfSrc.value = nextState.pdfSrc;
+        pdfConformanceProfile.value = null;
+
+        if (!options?.preserveHistory) {
+            fileHistorySessionVersion.value += 1;
+            if (nextState.pdfData) {
+                resetHistory(nextState.pdfData, { reuseSnapshot: true });
+                syncDirtyFromHistory();
+            } else {
+                resetHistory(null);
+            }
+        }
+
+        if (typeof options?.markDirty === 'boolean') {
+            isDirty.value = options.markDirty;
+        }
+
+        if (options?.previousPath && options.previousPath !== path) {
+            await cleanupPreviousWorkingCopy(options.previousPath, path);
+        }
+
+        deferPdfConformanceProfile(path);
+    }
+
+    async function createPathHistoryEntry(
+        path: TDocumentRef,
+        size: number,
+    ): Promise<IPathHistoryEntry> {
+        const api = getElectronAPI();
+        const snapshotPath = await api.documents.createWorkingCopyFromPath(
+            path,
+            originalPath.value ?? undefined,
+        );
+        return {
+            kind: 'path',
+            path: snapshotPath,
+            size,
+            originalPath: originalPath.value,
+        };
     }
 
     async function readPdfConformanceProfile(path: TDocumentRef) {
@@ -375,24 +540,33 @@ export const usePdfFile = () => {
             };
         }
 
-        const buffer = await api.documents.readFile(path);
-        const data = new Uint8Array(buffer);
+        const data = await readDocumentBytes(path, {
+            knownSize: size,
+            maxBytes: MAX_IN_MEMORY_PDF_BYTES,
+        });
         return {
             pdfData: data,
-            pdfSrc: new Blob([data], { type: 'application/pdf' }) as TPdfSource,
+            pdfSrc: toPdfBlob(data) as TPdfSource,
         };
     }
 
     function markCurrentHistoryEntryClean(snapshot: Uint8Array | null) {
         if (!snapshot) {
-            resetHistory(null);
+            if (history.value.length === 0) {
+                resetHistory(null);
+            } else {
+                historyCleanIndex.value = historyIndex.value;
+                syncDirtyFromHistory();
+            }
             isDirty.value = false;
             return;
         }
 
-        const currentSnapshot = history.value[historyIndex.value] ?? null;
-        if (!areByteArraysEqual(currentSnapshot, snapshot)) {
-            pushHistorySnapshot(snapshot);
+        const currentEntry = history.value[historyIndex.value] ?? null;
+        if (currentEntry?.kind === 'bytes' && !areByteArraysEqual(currentEntry.snapshot, snapshot)) {
+            pushHistorySnapshot(snapshot, { reuseSnapshot: true });
+        } else if (!currentEntry) {
+            resetHistory(snapshot, { reuseSnapshot: true });
         }
 
         historyCleanIndex.value = historyIndex.value;
@@ -409,19 +583,13 @@ export const usePdfFile = () => {
         if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
             const snapshot = snapshotHint.slice();
             pdfData.value = snapshot;
-            pdfSrc.value = new Blob([snapshot], { type: 'application/pdf' }) as TPdfSource;
+            pdfSrc.value = toPdfBlob(snapshot) as TPdfSource;
             markCurrentHistoryEntryClean(snapshot);
         } else {
             const nextState = await readPdfStateFromPath(path);
             pdfData.value = nextState.pdfData;
             pdfSrc.value = nextState.pdfSrc;
-
-            if (nextState.pdfData) {
-                markCurrentHistoryEntryClean(nextState.pdfData);
-            } else {
-                resetHistory(null);
-                isDirty.value = false;
-            }
+            markCurrentHistoryEntryClean(nextState.pdfData);
         }
 
         await refreshPdfConformanceProfile(path);
@@ -441,8 +609,6 @@ export const usePdfFile = () => {
 
     async function loadPdfFromPath(path: TDocumentRef, opts?: { markDirty?: boolean }) {
         const requestId = ++latestLoadRequestId;
-        const api = getElectronAPI();
-
         // Yield one visual frame so upstream loading indicators (e.g. the
         // workspace host spinner) can paint before the potentially heavy file
         // read blocks the renderer thread during IPC deserialization.
@@ -471,52 +637,33 @@ export const usePdfFile = () => {
 
         // Keep the previous working copy until the new file is fully validated and loaded.
         // This avoids dropping recoverable state when opening the next file fails midway.
-        const prevPath = workingCopyPath.value;
-
-        // All async operations succeeded — commit state atomically
-        workingCopyPath.value = path;
-        pdfData.value = nextState.pdfData;
-        pdfSrc.value = nextState.pdfSrc;
-        pdfConformanceProfile.value = null;
-
-        if (nextState.pdfData) {
-            resetHistory(nextState.pdfData);
-            syncDirtyFromHistory();
-        } else {
-            resetHistory(null);
-        }
-
-        isDirty.value = !!opts?.markDirty;
-
-        if (prevPath && prevPath !== path) {
-            clearOcrCache(prevPath);
-            try {
-                await api.documents.cleanupFile(prevPath);
-            } catch (cleanupError) {
-                BrowserLogger.warn(
-                    'pdf-file',
-                    'Failed to cleanup previous working copy',
-                    {
-                        path: prevPath,
-                        error: cleanupError,
-                    },
-                );
-            }
-        }
-
-        // Deferred: compute conformance profile in the background so the
-        // document renders without waiting for the expensive pdf-lib parse
-        // that only feeds save-restriction logic.
-        readPdfConformanceProfile(path).then((profile) => {
-            if (workingCopyPath.value === path) {
-                pdfConformanceProfile.value = profile;
-            }
-        }).catch((conformanceError: unknown) => {
-            BrowserLogger.warn('pdf-file', 'Deferred conformance analysis failed', {
-                path,
-                error: conformanceError,
-            });
+        await applyLoadedPdfState(path, nextState, {
+            markDirty: !!opts?.markDirty,
+            previousPath: workingCopyPath.value,
         });
+    }
+
+    async function ensureHistoryBaselineForExternalMutation() {
+        if (history.value.length > 0) {
+            return true;
+        }
+
+        const path = workingCopyPath.value;
+        if (!path) {
+            return false;
+        }
+
+        const nextState = await readPdfStateFromPath(path);
+        if (nextState.pdfData) {
+            resetHistory(nextState.pdfData, { reuseSnapshot: true });
+            syncDirtyFromHistory();
+            return true;
+        }
+
+        const entry = await createPathHistoryEntry(path, nextState.pdfSrc.size);
+        replaceHistory([entry], 0, 0);
+        syncDirtyFromHistory();
+        return true;
     }
 
     async function reloadWorkingCopyIntoHistory(opts?: { markDirty?: boolean }) {
@@ -530,29 +677,34 @@ export const usePdfFile = () => {
         pdfSrc.value = nextState.pdfSrc;
 
         if (nextState.pdfData) {
-            pushHistorySnapshot(nextState.pdfData);
+            pushHistorySnapshot(nextState.pdfData, { reuseSnapshot: true });
         } else {
-            // Very large PDFs stay path-backed, so we cannot keep byte snapshots
-            // for undo/redo without blowing past the in-memory history budget.
-            resetHistory(null);
+            const snapshotEntry = await createPathHistoryEntry(path, nextState.pdfSrc.size);
+            pushHistoryEntry(snapshotEntry);
         }
 
         isDirty.value = !!opts?.markDirty;
         return true;
     }
 
-    function pushHistorySnapshot(snapshot: Uint8Array) {
+    function pushHistoryEntry(entry: TPdfHistoryEntry) {
         if (history.value.length === 0) {
-            resetHistory(snapshot);
+            replaceHistory([entry], 0, 0);
+            fileHistoryMutationVersion.value += 1;
             syncDirtyFromHistory();
             return;
         }
 
         const truncated = history.value.slice(0, historyIndex.value + 1);
-        truncated.push(snapshot.slice());
+        truncated.push(entry);
 
         let nextHistory = truncated;
+        let nextCleanIndex = historyCleanIndex.value;
         let removedFromStart = 0;
+
+        if (nextCleanIndex > historyIndex.value) {
+            nextCleanIndex = -1;
+        }
 
         while (nextHistory.length > MAX_HISTORY_ENTRIES) {
             nextHistory = nextHistory.slice(1);
@@ -561,27 +713,35 @@ export const usePdfFile = () => {
 
         let totalBytes = getHistoryBytes(nextHistory);
         while (nextHistory.length > 1 && totalBytes > MAX_HISTORY_BYTES) {
-            totalBytes -= nextHistory[0]?.byteLength ?? 0;
+            const firstEntry = nextHistory[0];
+            totalBytes -= firstEntry?.kind === 'bytes' ? firstEntry.snapshot.byteLength : 0;
             nextHistory = nextHistory.slice(1);
             removedFromStart += 1;
         }
 
-        if (historyCleanIndex.value >= 0) {
-            if (removedFromStart > historyCleanIndex.value) {
-                historyCleanIndex.value = -1;
+        if (nextCleanIndex >= 0) {
+            if (removedFromStart > nextCleanIndex) {
+                nextCleanIndex = -1;
             } else {
-                historyCleanIndex.value -= removedFromStart;
+                nextCleanIndex -= removedFromStart;
             }
         }
 
-        history.value = nextHistory;
-        historyIndex.value = history.value.length - 1;
+        replaceHistory(nextHistory, nextHistory.length - 1, nextCleanIndex);
+        fileHistoryMutationVersion.value += 1;
         syncDirtyFromHistory();
+    }
+
+    function pushHistorySnapshot(
+        snapshot: Uint8Array,
+        options?: { reuseSnapshot?: boolean },
+    ) {
+        pushHistoryEntry(createByteHistoryEntry(snapshot, options));
     }
 
     async function applySnapshot(snapshot: Uint8Array, persist = false) {
         pdfData.value = snapshot;
-        pdfSrc.value = new Blob([snapshot.slice().buffer], {type: 'application/pdf'});
+        pdfSrc.value = toPdfBlob(snapshot);
 
         if (persist && workingCopyPath.value) {
             const api = getElectronAPI();
@@ -600,7 +760,7 @@ export const usePdfFile = () => {
         await applySnapshot(snapshot, opts?.persistWorkingCopy ?? false);
 
         if (opts?.pushHistory !== false) {
-            pushHistorySnapshot(snapshot);
+            pushHistorySnapshot(snapshot, { reuseSnapshot: true });
         } else {
             isDirty.value = true;
         }
@@ -613,7 +773,7 @@ export const usePdfFile = () => {
     async function persistPdfDataSilently(data: Uint8Array) {
         const snapshot = data.slice();
         pdfData.value = snapshot;
-        pushHistorySnapshot(snapshot);
+        pushHistorySnapshot(snapshot, { reuseSnapshot: true });
 
         if (workingCopyPath.value) {
             const api = getElectronAPI();
@@ -629,8 +789,7 @@ export const usePdfFile = () => {
         }
 
         try {
-            const buffer = await getElectronAPI().documents.readFile(path);
-            return new Uint8Array(buffer);
+            return await readDocumentBytes(path);
         } catch (readError) {
             error.value = readError instanceof Error ? readError.message : t('errors.file.save');
             return null;
@@ -788,6 +947,7 @@ export const usePdfFile = () => {
         openBatchProgress.value = null;
         requiresSaveAsOnFirstSave.value = false;
         analytics.clearDocumentContext();
+        fileHistorySessionVersion.value += 1;
         resetHistory(null);
         if (pathToCleanup) {
             const api = getElectronAPI();
@@ -821,9 +981,20 @@ export const usePdfFile = () => {
             return false;
         }
         historyIndex.value -= 1;
-        const snapshot = history.value[historyIndex.value];
-        if (snapshot) {
-            await applySnapshot(snapshot, true);
+        const entry = history.value[historyIndex.value];
+        if (entry?.kind === 'bytes') {
+            await applySnapshot(entry.snapshot, true);
+        } else if (entry?.kind === 'path') {
+            const nextWorkingPath = await getElectronAPI().documents.createWorkingCopyFromPath(
+                entry.path,
+                originalPath.value ?? entry.originalPath ?? undefined,
+            );
+            const previousPath = workingCopyPath.value;
+            const nextState = await readPdfStateFromPath(nextWorkingPath);
+            await applyLoadedPdfState(nextWorkingPath, nextState, {
+                preserveHistory: true,
+                previousPath,
+            });
         }
         syncDirtyFromHistory();
         return true;
@@ -834,9 +1005,20 @@ export const usePdfFile = () => {
             return false;
         }
         historyIndex.value += 1;
-        const snapshot = history.value[historyIndex.value];
-        if (snapshot) {
-            await applySnapshot(snapshot, true);
+        const entry = history.value[historyIndex.value];
+        if (entry?.kind === 'bytes') {
+            await applySnapshot(entry.snapshot, true);
+        } else if (entry?.kind === 'path') {
+            const nextWorkingPath = await getElectronAPI().documents.createWorkingCopyFromPath(
+                entry.path,
+                originalPath.value ?? entry.originalPath ?? undefined,
+            );
+            const previousPath = workingCopyPath.value;
+            const nextState = await readPdfStateFromPath(nextWorkingPath);
+            await applyLoadedPdfState(nextWorkingPath, nextState, {
+                preserveHistory: true,
+                previousPath,
+            });
         }
         syncDirtyFromHistory();
         return true;
@@ -860,6 +1042,7 @@ export const usePdfFile = () => {
         openFileDirect,
         openFileDirectBatch,
         loadPdfFromPath,
+        ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
         persistPdfDataSilently,
@@ -871,6 +1054,8 @@ export const usePdfFile = () => {
         markDirty,
         canUndo,
         canRedo,
+        fileHistoryMutationVersion,
+        fileHistorySessionVersion,
         undo,
         redo,
     };

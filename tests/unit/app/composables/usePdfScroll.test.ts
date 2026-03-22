@@ -57,6 +57,7 @@ describe('usePdfScroll page layout fallback', () => {
                 },
             ],
             totalPages: 3,
+            viewMode: 'single',
             scale: 2,
             gap: 20,
             paddingTop: 20,
@@ -68,5 +69,49 @@ describe('usePdfScroll page layout fallback', () => {
         scroll.scrollToPage(container, 3, 3, 20);
 
         expect(getScrollTop()).toBe(740);
+    });
+
+    it('scrolls to spread rows using row-aware layout metrics', () => {
+        const {
+            container,
+            getScrollTop,
+        } = createContainerStub();
+        const scroll = usePdfScroll();
+        scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
+            pageMetrics: [
+                {
+                    width: 300,
+                    height: 100,
+                },
+                {
+                    width: 280,
+                    height: 140,
+                },
+                {
+                    width: 320,
+                    height: 120,
+                },
+                {
+                    width: 260,
+                    height: 160,
+                },
+                {
+                    width: 240,
+                    height: 110,
+                },
+            ],
+            totalPages: 5,
+            viewMode: 'facing',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+            fallbackWidth: 240,
+            fallbackHeight: 110,
+        }));
+
+        scroll.scrollToPage(container, 3, 5, 20);
+
+        expect(getScrollTop()).toBe(160);
     });
 });
