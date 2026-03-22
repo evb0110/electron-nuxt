@@ -1,225 +1,246 @@
 # EVB Viewer
 
-A cross-platform desktop viewer for **PDF** and **DjVu** documents with built-in OCR, annotations, and a multi-tab workspace.
+EVB Viewer is a document workspace for PDF and DjVu files with OCR, annotations, page operations, export tools, and a multi-tab/split-view shell.
 
-Built with Electron, Nuxt 4, and Vue 3.
+This repository contains three related apps:
+
+| Surface | Path | Purpose |
+| --- | --- | --- |
+| Desktop app | repository root | Electron app plus the shared Nuxt viewer/workspace |
+| Browser workspace | repository root | SSR Nuxt build served at `/` |
+| Landing/download site | `landing/` | Release picker, docs, and marketing pages |
 
 ![EVB Viewer](docs/screenshot.png)
 
-## Features
+## Highlights
 
-**Document Support**
-- PDF viewing and manipulation powered by PDF.js
-- DjVu viewing with automatic PDF conversion (via DjVulibre)
-- Image-to-PDF conversion (PNG, JPG, TIFF, BMP, WebP)
+- Open PDFs and DjVu files, or combine PDFs and image batches into a new PDF.
+- Run desktop OCR with bundled `tessdata_best` models and generate searchable PDFs.
+- Annotate with free text, ink, highlight/underline/strikeout, shapes, arrows, notes, and placed images.
+- Edit bookmarks/outlines, page labels, and page order from the sidebar.
+- Delete, extract, insert, rotate, crop, and export selected pages.
+- Export to PDF, DOCX, PNG, JPG, and multi-page TIFF.
+- Work across tabs, split editor groups, and multiple windows with tab transfer/merge.
+- Persist recent files, viewer defaults, theme, locale, and workspace state.
 
-**OCR**
-- Tesseract-based OCR with high-accuracy `tessdata_best` models
-- 10 languages: English, French, German, Russian, Greek (modern & ancient), Hebrew, Turkish, Kurdish (Kurmanji), Syriac
-- Parallel page processing with configurable concurrency
-- Generates searchable PDF output from scanned documents
+## Runtime Matrix
 
-**Annotations**
-- Markup: highlight, underline, strikethrough, squiggly
-- Shapes: rectangle, circle, line, arrow
-- Freehand drawing, text boxes, and stamps
-- Comment threads with a dedicated panel
-- Full annotation serialization back to PDF
+| Capability | Desktop (`/electron`) | Browser (`/`) |
+| --- | --- | --- |
+| PDF viewing/editing | Yes | Yes |
+| PDF + image combine | Yes | Yes |
+| DjVu viewing/conversion | Yes | Yes |
+| OCR + searchable PDF | Yes | No |
+| Auto-updates | Packaged macOS/Windows only | No |
+| Tabs, splits, recent files | Yes | Yes |
 
-**Page Operations**
-- Delete, extract, reorder, and rotate pages
-- Region capture (snip tool)
-- Batch operations on selected pages
-- Merge multiple PDFs
+## Supported Formats
 
-**Workspace**
-- Multi-tab interface with drag-to-reorder
-- Split-panel layout (side-by-side document viewing)
-- Cross-window tab transfer
-- Persistent workspace state across sessions
-- Thumbnail sidebar, outline/bookmark navigation
+### Open / Import
 
-**Export**
-- PDF (with annotations and searchable text)
-- Images: PNG, JPG, multi-page TIFF
-- DOCX (Word) with extracted text and annotations
+- PDF: `.pdf`
+- DjVu: `.djvu`, `.djv`
+- Image-to-PDF inputs: `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp`, `.webp`, `.gif`
+- Desktop image insertion also supports file and clipboard-based image workflows through the app menu
 
-**Other**
-- Full-text search with highlighted results
-- Dark and light themes
-- Undo/redo for annotations and document edits
-- 8 UI languages: English, Russian, French, German, Spanish, Italian, Portuguese, Dutch
-- Keyboard shortcuts throughout
+### Export
 
-## Platforms
+- PDF
+- DOCX
+- PNG
+- JPG
+- TIFF / multi-page TIFF
 
-| OS | Architectures | Installer |
-|----|---------------|-----------|
-| macOS | x64 (Intel), arm64 (Apple Silicon) | DMG, ZIP |
-| Windows | x64, arm64 | NSIS installer |
-| Linux | x64, arm64 | AppImage, DEB |
+### OCR Languages
 
-Native binaries (Tesseract, Poppler, QPDF, DjVulibre) are bundled per platform and architecture — no system dependencies required.
+Bundled OCR models currently include:
 
-## Development
+- English
+- French
+- German
+- Turkish
+- Greek
+- Ancient Greek
+- Kurdish (Kurmanji)
+- Russian
+- Hebrew
+- Syriac
 
-### Prerequisites
+### UI Locales
 
-- [Node.js](https://nodejs.org/) 20+
-- [pnpm](https://pnpm.io/) 9+
+- English
+- Russian
+- French
+- German
+- Spanish
+- Italian
+- Portuguese
+- Dutch
 
-### Setup
+## Desktop Packaging
+
+The Electron app is configured to package:
+
+- macOS: DMG and ZIP
+- Windows: NSIS installer
+- Linux: AppImage and DEB
+
+The GitHub release workflow builds:
+
+- macOS arm64, plus a supplemental Intel ZIP lane
+- Windows x64 and arm64
+- Linux x64 and arm64
+
+Desktop releases bundle native tools for OCR, image export, page operations, and DjVu handling. The packaging and verification scripts live under `scripts/`, and platform resources are assembled into `resources/`.
+
+## Repository Layout
+
+```text
+app/        Shared Nuxt viewer UI, PDF/DjVu components, workspace shell
+electron/   Electron main/preload code and native-tool-backed features
+server/     SSR routes for the root web build (sitemap, robots, analytics)
+landing/    Separate Nuxt landing/download/docs site
+packages/   Shared contracts, i18n core/messages, release-selection logic
+resources/  Bundled native binaries and OCR language data
+scripts/    Build, packaging, resource-bundling, and release helpers
+tests/      Unit, integration, and Electron E2E coverage
+docs/       Project-specific implementation and release notes
+```
+
+## Tech Stack
+
+- Electron 39
+- Nuxt 4 + Vue 3 + TypeScript 5
+- Nuxt UI 4 + Tailwind CSS 4
+- PDF.js 5 for rendering
+- `pdf-lib` for document rewriting and page operations
+- Tesseract + Poppler + qpdf + DjVuLibre + unpaper for desktop-native workflows
+- Vitest, Playwright, and Puppeteer-based Electron E2E coverage
+
+## Getting Started
+
+### Requirements
+
+- Node.js `24.x`
+- `pnpm` `10.x`
+
+### Root App Setup
 
 ```bash
 pnpm install
 ```
 
-### Commands
+### Root App Commands
 
 ```bash
-# Development — runs Nuxt dev server + Electron
+# Default desktop development flow (Nuxt dev server + Electron)
 pnpm dev
 
-# Build Nuxt + Electron for production
+# Web workspace only
+pnpm dev:web
+
+# Nuxt SSR web build
 pnpm build
 
-# Run production build locally
+# Nuxt build + Electron bundles
+pnpm build:desktop
+
+# Run the built desktop app locally
+# Best used after: pnpm build:desktop
 pnpm start
 
-# Package distributable
-pnpm dist            # All platforms
-pnpm dist:mac        # macOS only
-pnpm dist:win        # Windows only
-pnpm dist:linux      # Linux only
-
-# Quality checks
-pnpm run gate:commit # Fast staged-file checks used by pre-commit
-pnpm lint            # Full non-mutating lint
-pnpm typecheck       # TypeScript (app + Electron)
-pnpm test            # Vitest (unit + integration)
-pnpm test:e2e:electron        # Electron annotation E2E suite (phases 1-3)
-pnpm test:e2e:electron:watch  # Watch mode for Electron E2E suite
-pnpm validate        # lint + typecheck + build + knip + architecture
-pnpm run gate:pre-release     # Full pre-release verification
+# Package installers for the current host / selected target
+pnpm dist
+pnpm dist:mac
+pnpm dist:win
+pnpm dist:linux
 ```
 
-### Electron E2E (Annotations)
+### Landing Site Setup
 
-The annotation E2E suite lives in `tests/e2e/electron` and currently covers:
-
-- Phase 1: annotation lifecycle (create/edit/delete FreeText)
-- Phase 2: interactions/settings/links/multi-page scenarios
-- Phase 3: undo/redo + save/reload persistence
-
-Run the full suite:
+The landing site is a separate Nuxt app with its own lockfile:
 
 ```bash
-pnpm run test:e2e:electron
+cd landing
+pnpm install
+pnpm dev
 ```
 
-Run one phase:
+Its runtime release API uses:
+
+- `NUXT_GITHUB_OWNER`
+- `NUXT_GITHUB_REPO`
+- `NUXT_GITHUB_API_BASE`
+- `NUXT_GITHUB_TOKEN` (optional)
+
+## Testing And Verification
 
 ```bash
-pnpm vitest run --config vitest.electron-e2e.config.ts tests/e2e/electron/phase2.annotation-interactions.e2e.test.ts
+# Static checks
+pnpm lint
+pnpm typecheck
+
+# Unit + integration tests
+pnpm test
+
+# Electron E2E
+pnpm run test:e2e:electron:smoke
+pnpm run test:e2e:electron:full
+
+# Full contributor validation
+pnpm validate
+
+# Native-resource sanity check
+pnpm run check:resources:matrix
+
+# Host-side release verification
+pnpm run release:verify
 ```
 
-Automation sessions are configured to avoid disrupting desktop focus:
+The Electron E2E suite currently covers:
 
-- `EVB_AUTOMATION_NO_FOCUS=1` (default for `electron:run` session manager)
-- `EVB_AUTOMATION_HIDE_WINDOW=1` (default for `electron:run` session manager)
+- Annotation lifecycle and interactions
+- Annotation history and persistence
+- Marker drag persistence
+- OCR pipeline
+- Page operations
+- Recent files persistence
+- DjVu viewing
+- Sidebar resize/page stability
 
-For local visual debugging, temporarily opt in to a visible window:
+## OCR Tuning
 
-```bash
-EVB_AUTOMATION_HIDE_WINDOW=0 pnpm run test:e2e:electron
-```
-
-### Commit Hooks
-
-The repository keeps commit-time checks intentionally fast:
-
-- `.husky/pre-commit` runs `pnpm run gate:commit`
-- Release commands run `pnpm run release:verify` after the version bump and before committing or pushing
-
-### OCR Tuning
-
-The OCR pipeline spawns parallel Tesseract processes. Two environment variables control resource usage:
+The desktop OCR pipeline supports two common concurrency knobs:
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+| --- | --- | --- |
 | `OCR_CONCURRENCY` | `min(cpuCount, 8)` | Max pages processed in parallel |
 | `OCR_TESSERACT_THREADS` | `floor(cpuCount / OCR_CONCURRENCY)` | Thread limit per Tesseract process |
 
-## Architecture
+There are also advanced queue/worker controls under `EVB_OCR_*` for release and stress scenarios.
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                   ELECTRON MAIN PROCESS                      │
-│                                                              │
-│  Window management, IPC handlers, native tool orchestration  │
-│  (OCR, DjVu conversion, page ops, file I/O, search)         │
-└──────────────────────┬───────────────────────────────────────┘
-                       │ IPC (contextBridge)
-                       ▼
-┌──────────────────────────────────────────────────────────────┐
-│                   NUXT SPA (ssr: false)                      │
-│                                                              │
-│  Vue 3 Composition API · Nuxt UI · Tailwind CSS · PDF.js    │
-│  Served on localhost:3235 in dev, bundled Nitro server in    │
-│  production                                                  │
-└──────────────────────────────────────────────────────────────┘
-```
+## Architecture Notes
 
-### Architecture Guardrails
+The root app is a shared Nuxt codebase used by both the browser workspace and the Electron shell:
+
+- `/` is the browser workspace
+- `/electron` is the desktop-only shell route
+- `/workspace` is a compatibility redirect
+
+Architecture boundaries are enforced in CI and local validation:
 
 - `electron/**` must not import `app/**`
 - `landing/**` must not import `app/**`
 - `app/services/**` must not import `app/composables/**`
-- Cross-feature imports under `app/modules/*` and `electron/features/*` must go through public entrypoints (`index`/`public`)
-- Import cycles fail lint (`import/no-cycle`)
-- CI enforces boundaries through `scripts/architecture/dep-graph.mjs` and `scripts/architecture/boundary-check.mjs`
+- cross-feature boundaries are checked by `pnpm run check:architecture`
 
-### Project Layout
+## More Docs
 
-```
-app/                  Nuxt frontend
-  components/         Vue components (PDF viewer, toolbar, OCR, annotations)
-  composables/        Vue composition functions
-  locales/            i18n translation files (8 languages)
-  assets/css/         Design tokens and global styles
-  types/              TypeScript interfaces
-electron/             Electron main process
-  ocr/                Tesseract OCR pipeline and workers
-  djvu/               DjVu conversion and viewing
-  page-ops/           Page manipulation (QPDF)
-  ipc/                IPC handler modules
-resources/            Bundled native binaries per platform/arch
-  tesseract/          Tesseract binaries + tessdata_best models
-  poppler/            PDF rendering utilities
-  qpdf/               PDF page manipulation
-  djvulibre/          DjVu tools
-tests/
-  unit/               Vitest unit tests
-  integration/        Playwright integration tests
-  e2e/electron/       Vitest + Puppeteer Electron annotation E2E tests
-scripts/              Build, packaging, and verification scripts
-```
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| Shell | Electron 39 |
-| Frontend | Nuxt 4, Vue 3, TypeScript 5 |
-| UI | Nuxt UI 4, Tailwind CSS 4, Lucide icons |
-| PDF | PDF.js 5 (rendering), pdf-lib (manipulation) |
-| OCR | Tesseract (native binary), Poppler (image extraction) |
-| DjVu | DjVulibre (native binary) |
-| Pages | QPDF (native binary) |
-| Build | esbuild, electron-builder |
-| Test | Vitest, Playwright, Puppeteer (Electron E2E) |
-| Lint | ESLint, Stylelint, Knip |
+- [Web build notes](docs/web-build.md)
+- [Vercel deploy notes](docs/vercel-deploy.md)
+- [Release process](docs/releasing.md)
+- [Landing site README](landing/README.md)
 
 ## License
 
-[MIT](LICENSE) &copy; 2026 Eugene Barsky
+[MIT](LICENSE) Copyright (c) 2026 Eugene Barsky
