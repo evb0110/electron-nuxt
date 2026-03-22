@@ -388,6 +388,10 @@ a {
   gap: 0.4rem;
 }
 
+.header-download {
+  white-space: nowrap;
+}
+
 .hero-grid {
   display: grid;
   align-items: center;
@@ -451,12 +455,16 @@ a {
 
 .hero-preview {
   position: relative;
-  align-self: start;
-  justify-self: end;
-  width: min(100%, 40rem);
+  width: 100%;
   display: grid;
   gap: 0.85rem;
   margin: 0;
+}
+
+.hero-stack {
+  display: grid;
+  gap: 1rem;
+  align-self: start;
 }
 
 .preview-image {
@@ -468,6 +476,8 @@ a {
 .preview-frame {
   border-radius: 0.625rem;
   overflow: hidden;
+  border: 1px solid var(--landing-border);
+  background: var(--landing-surface);
   box-shadow:
     0 4px 12px color-mix(in srgb, var(--color-blue-700) 14%, transparent),
     0 16px 40px color-mix(in srgb, var(--color-blue-700) 12%, transparent),
@@ -481,6 +491,114 @@ a {
   line-height: 1.45;
   color: var(--landing-muted);
   text-align: center;
+}
+
+.hero-feature-strip {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 1.25rem;
+}
+
+.hero-feature-card {
+  border-radius: 1rem;
+  border: 1px solid var(--landing-border);
+  background: color-mix(in srgb, var(--landing-surface) 90%, white 10%);
+  box-shadow: var(--landing-shadow);
+}
+
+.hero-feature-card h2 {
+  margin: 0.9rem 0 0.3rem;
+  font-size: 0.98rem;
+}
+
+.hero-feature-card p {
+  margin: 0;
+  color: var(--landing-muted);
+  line-height: 1.55;
+}
+
+.hero-side-card {
+  border-radius: 1rem;
+  border: 1px solid var(--landing-border);
+  background: var(--landing-surface);
+  box-shadow: var(--landing-shadow);
+}
+
+.hero-side-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.hero-side-eyebrow,
+.release-sidebar-tag {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--landing-muted) 82%, var(--color-blue-600) 18%);
+}
+
+.hero-side-title {
+  margin: 0;
+  font-size: 1.3rem;
+  line-height: 1.2;
+}
+
+.hero-side-copy {
+  margin: 0;
+  color: var(--landing-muted);
+  line-height: 1.6;
+}
+
+.hero-side-actions,
+.release-sidebar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.hero-side-platforms,
+.release-sidebar-platform-list {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 1rem;
+}
+
+.hero-platform-row,
+.release-sidebar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--landing-border);
+  border-radius: 0.8rem;
+  background: var(--landing-surface-strong);
+}
+
+.hero-platform-name,
+.release-sidebar-os {
+  margin: 0;
+  font-weight: 600;
+}
+
+.hero-platform-meta,
+.release-sidebar-arch {
+  margin: 0.18rem 0 0;
+  color: var(--landing-muted);
+  font-size: 0.86rem;
+}
+
+.hero-platform-installers,
+.release-sidebar-type {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: color-mix(in srgb, var(--landing-muted) 90%, var(--color-blue-700) 10%);
+  text-align: right;
 }
 
 .content-section {
@@ -526,7 +644,8 @@ a {
 .installer-card,
 .stat-card,
 .feature-card,
-.doc-card {
+.doc-card,
+.release-sidebar {
   border-radius: 1rem;
   border: 1px solid var(--landing-border);
   background: var(--landing-surface);
@@ -535,6 +654,13 @@ a {
 
 .installer-card {
   padding: 1.75rem;
+}
+
+.installer-layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.4fr) minmax(18rem, 0.9fr);
+  align-items: start;
 }
 
 .installer-state {
@@ -891,6 +1017,17 @@ a {
   gap: 0.8rem;
 }
 
+.release-sidebar-head h3 {
+  margin: 0.3rem 0 0;
+  font-size: 1.18rem;
+}
+
+.release-sidebar-head p {
+  margin: 0.45rem 0 0;
+  color: var(--landing-muted);
+  line-height: 1.55;
+}
+
 .doc-card h3 {
   margin: 0;
   font-size: 1.08rem;
@@ -914,12 +1051,27 @@ a {
   border-top: 1px solid var(--landing-border);
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.8rem;
 }
 
 .site-footer p {
   margin: 0;
+}
+
+.footer-copy {
+  display: grid;
+  gap: 0.3rem;
+  max-width: 40rem;
+}
+
+.footer-title {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.footer-description,
+.footer-meta {
   font-size: 0.88rem;
   color: var(--landing-muted);
 }
@@ -959,9 +1111,8 @@ a {
     grid-template-columns: 1fr;
   }
 
-  .hero-preview {
-    justify-self: stretch;
-    width: 100%;
+  .hero-feature-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .workflow-grid {
@@ -974,6 +1125,10 @@ a {
   }
 
   .docs-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .installer-layout {
     grid-template-columns: 1fr;
   }
 
@@ -1016,6 +1171,7 @@ a {
     justify-content: center;
   }
 
+  .hero-feature-strip,
   .stats-grid,
   .features-grid,
   .docs-grid,

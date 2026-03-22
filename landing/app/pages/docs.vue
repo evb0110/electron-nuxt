@@ -1,6 +1,70 @@
 <template>
-  <div>
-    <div class="docs-layout section-reveal">
+  <main aria-labelledby="docs-title">
+    <section class="page-intro section-reveal">
+      <UBadge
+        :label="t('header.nav.docs')"
+        color="primary"
+        variant="subtle"
+      />
+      <h1
+        id="docs-title"
+        class="page-title"
+      >
+        {{ t('docs.seo.title') }}
+      </h1>
+      <p class="page-subtitle">
+        {{ t('docs.seo.ogDescription') }}
+      </p>
+
+      <div class="section-actions">
+        <UButton
+          :label="t('home.hero.openLatestRelease')"
+          :to="latestReleaseUrl"
+          target="_blank"
+          icon="i-lucide-download"
+          color="neutral"
+          variant="outline"
+        />
+        <UButton
+          :label="t('home.explore.featuresPage')"
+          :to="localePath('/features')"
+          color="neutral"
+          variant="outline"
+          trailing-icon="i-lucide-arrow-right"
+        />
+      </div>
+    </section>
+
+    <section class="content-section section-reveal section-delay-1">
+      <div class="section-head">
+        <h2>{{ t('home.explore.heading') }}</h2>
+        <p>{{ t('home.explore.description') }}</p>
+      </div>
+
+      <div class="docs-grid">
+        <UCard
+          v-for="entry in guideCards"
+          :key="entry.id"
+          class="doc-card"
+        >
+          <UIcon
+            :name="entry.icon"
+            class="doc-icon"
+          />
+          <h3>{{ entry.title }}</h3>
+          <p>{{ entry.description }}</p>
+          <UButton
+            :label="t('home.explore.docsPage')"
+            color="neutral"
+            variant="outline"
+            trailing-icon="i-lucide-arrow-right"
+            @click="scrollToBookmark(entry.id)"
+          />
+        </UCard>
+      </div>
+    </section>
+
+    <div class="docs-layout section-reveal section-delay-2">
       <aside class="docs-bookmark-column">
         <UCard class="docs-bookmark-card">
           <p class="bookmark-title">
@@ -29,10 +93,6 @@
       </aside>
 
       <main class="docs-main">
-        <h1 class="sr-only">
-          {{ t('docs.seo.title') }}
-        </h1>
-
         <section
           id="workspace-overview"
           class="docs-section"
@@ -415,7 +475,7 @@
         </section>
       </main>
     </div>
-  </div>
+  </main>
 </template>
 
 <script setup lang="ts">
@@ -427,9 +487,11 @@ import {
 
 const { t } = useTypedI18n();
 const route = useRoute();
+const localePath = useLocalePath();
 const runtimeConfig = useRuntimeConfig();
 
 const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
+const latestReleaseUrl = 'https://github.com/evb0110/evb-viewer/releases/latest';
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
 const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
 const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, SEO_IMAGE_PATH));
@@ -483,6 +545,33 @@ const bookmarks = computed(() => [
     {
         id: 'license',
         title: t('docs.bookmarks.license'),
+    },
+]);
+
+const guideCards = computed(() => [
+    {
+        id: 'workspace-overview',
+        icon: 'i-lucide-layout-panel-left',
+        title: t('docs.bookmarks.workspaceOverview'),
+        description: t('docs.workspace.intro'),
+    },
+    {
+        id: 'open-and-combine',
+        icon: 'i-lucide-file-stack',
+        title: t('docs.bookmarks.openAndCombine'),
+        description: t('docs.openCombine.li2'),
+    },
+    {
+        id: 'annotations-notes',
+        icon: 'i-lucide-pen-tool',
+        title: t('docs.bookmarks.annotationsNotes'),
+        description: t('docs.annotations.intro'),
+    },
+    {
+        id: 'ocr-export',
+        icon: 'i-lucide-folder-output',
+        title: t('docs.bookmarks.ocrExport'),
+        description: t('docs.ocrExport.intro'),
     },
 ]);
 

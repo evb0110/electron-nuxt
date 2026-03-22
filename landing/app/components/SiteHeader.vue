@@ -21,6 +21,16 @@
 
     <div class="header-actions">
       <UButton
+        :label="t('home.hero.openLatestRelease')"
+        :to="latestReleaseUrl"
+        target="_blank"
+        icon="i-lucide-download"
+        color="primary"
+        variant="soft"
+        class="header-download"
+      />
+
+      <UButton
         :to="repositoryUrl"
         target="_blank"
         icon="i-simple-icons-github"
@@ -42,6 +52,7 @@ const { t } = useTypedI18n();
 const route = useRoute();
 const localePath = useLocalePath();
 const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
+const latestReleaseUrl = 'https://github.com/evb0110/evb-viewer/releases/latest';
 
 const navItems = computed(() => [
     {
