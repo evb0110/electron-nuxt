@@ -35,6 +35,7 @@ import {
     toCssColor,
     errorToLogText,
 } from '@app/composables/pdf/annotationCssUtils';
+import { shouldIgnoreEditorEvent } from '@app/composables/pdf/annotations/annotationEditorEventGuards';
 import {
     asPdfjsEditor,
     getEditorConstructor,
@@ -154,41 +155,6 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
                 }
             });
         });
-    }
-
-    function shouldIgnoreEditorEvent(event: Event) {
-        const target = event.target;
-        if (!(target instanceof HTMLElement)) {
-            const selection = document.getSelection();
-            if (selection && !selection.isCollapsed) {
-                const anchorParent = selection.anchorNode?.parentElement ?? null;
-                const focusParent = selection.focusNode?.parentElement ?? null;
-                if (
-                    anchorParent?.closest('.text-layer, .textLayer')
-                    || focusParent?.closest('.text-layer, .textLayer')
-                ) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        if (target.closest('.text-layer, .textLayer')) {
-            return true;
-        }
-        if (target.isContentEditable) {
-            return true;
-        }
-        const tagName = target.tagName;
-        if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
-            return true;
-        }
-        if (target.closest('.pdf-annotation-comment-popup, #commentPopup, #commentManagerDialog')) {
-            return true;
-        }
-        if (target.closest('[contenteditable="true"], [contenteditable=""]')) {
-            return true;
-        }
-        return false;
     }
 
     function createSimpleCommentManager(_container: HTMLElement) {
