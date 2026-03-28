@@ -7,6 +7,10 @@ import {
 
 const require = createRequire(import.meta.url);
 
+// Keep vue-tsc pinned in the workspace so CI and local runs share the same
+// typecheck toolchain instead of npm fetching a newer transient version.
+require.resolve('vue-tsc/package.json');
+
 const workspaceDir = process.argv[2] ? resolve(process.argv[2]) : process.cwd();
 const env = { ...process.env };
 
