@@ -8,6 +8,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
+import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { useFileOperations } from '@app/composables/useFileOperations';
 
 function cast<T>(value: unknown): T {
@@ -183,5 +184,28 @@ describe('useFileOperations', () => {
 
         expect(deps.saveFile).not.toHaveBeenCalled();
         expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+    });
+
+    it('stops the saving state when PDF.js saveDocument stalls', async () => {
+        vi.useFakeTimers();
+        const stalledSave = new Promise<Uint8Array | null>(() => undefined);
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            saveDocument: vi.fn(() => stalledSave),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        try {
+            const savePromise = handleSave();
+            await vi.advanceTimersByTimeAsync(PDF_SAVE_TIMEOUT_MS);
+            await savePromise;
+
+            expect(deps.saveDocument).toHaveBeenCalledOnce();
+            expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+            expect(deps.saveFile).not.toHaveBeenCalled();
+            expect(deps.isSaving.value).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
