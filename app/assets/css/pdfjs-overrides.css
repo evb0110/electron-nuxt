@@ -255,6 +255,33 @@
     display: none !important;
 }
 
+/* Keep save feedback subtle: during save, PDF.js can leave the selected ink
+   editor focus chrome visible even though the stroke itself is already
+   clearly rendered. Hide that transient selection frame until save completes. */
+.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor),
+.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor),
+.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor),
+.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor) {
+    border: var(--unfocus-outline) !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor)::before,
+.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor)::before,
+.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor)::before,
+.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor)::before {
+    display: none !important;
+    border-color: transparent !important;
+}
+
+.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor) > .resizers,
+.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotationEditorLayer .inkEditor) > .resizers,
+.pdfViewer.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor) > .resizers,
+.pdf-viewer-container.pdfViewer--saving .selectedEditor:is(.annotation-editor-layer .inkEditor) > .resizers {
+    display: none !important;
+}
+
 /* Hide resizers when FreeText editor is in edit mode (text editing).
    During edit mode, PDF.js removes the "enabled" class from .overlay.
    Clicking resize handles while in edit mode causes NaN corruption
