@@ -33,6 +33,11 @@ interface ILogger {
     error(message: string): void;
 }
 
+interface IExternalOpenManagerSink {
+    queueOpenRequest(paths: string[]): void;
+    requestMainWindowForExternalOpen(): void;
+}
+
 interface IWindowLike {
     isMinimized(): boolean;
     restore(): void;
@@ -50,6 +55,55 @@ interface ICreateExternalOpenManagerOptions {
     dispatchOpenPaths: (paths: string[]) => void;
 }
 
+export function isSupportedExternalOpenPath(filePath: string) {
+    return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
+}
+
+export function createMacOpenFileRouter(options: { logger: ILogger; }) {
+    const pendingPaths: string[] = [];
+    let externalOpenManager: IExternalOpenManagerSink | null = null;
+
+    function handleOpenFile(filePath: string) {
+        const normalizedPath = filePath.trim();
+        if (!normalizedPath) {
+            options.logger.warn('Ignoring empty macOS open-file path');
+            return;
+        }
+
+        if (!isSupportedExternalOpenPath(normalizedPath)) {
+            options.logger.warn(`Ignoring unsupported macOS open-file path: ${normalizedPath}`);
+            return;
+        }
+
+        if (!externalOpenManager) {
+            pendingPaths.push(normalizedPath);
+            options.logger.debug(`Buffered macOS open-file path before external open manager init: ${normalizedPath}`);
+            return;
+        }
+
+        externalOpenManager.queueOpenRequest([normalizedPath]);
+        externalOpenManager.requestMainWindowForExternalOpen();
+    }
+
+    function attachExternalOpenManager(manager: IExternalOpenManagerSink) {
+        externalOpenManager = manager;
+
+        if (pendingPaths.length === 0) {
+            return;
+        }
+
+        const bufferedPaths = pendingPaths.splice(0, pendingPaths.length);
+        options.logger.info(`Flushing ${bufferedPaths.length} early macOS open-file path(s)`);
+        externalOpenManager.queueOpenRequest(bufferedPaths);
+        externalOpenManager.requestMainWindowForExternalOpen();
+    }
+
+    return {
+        attachExternalOpenManager,
+        handleOpenFile,
+    };
+}
+
 export function createExternalOpenManager(options: ICreateExternalOpenManagerOptions) {
     const pendingExternalOpenPaths: string[] = [];
     const pendingExternalOpenPathSet = new Set<string>();
@@ -60,7 +114,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     let hasHandledInitialExternalOpenDispatch = false;
 
     function isSupportedFile(filePath: string) {
-        return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
+        return isSupportedExternalOpenPath(filePath);
     }
 
     function normalizeCommandLineArg(arg: string): string | null {

@@ -10,7 +10,10 @@ import {
     join,
 } from 'path';
 import { fileURLToPath } from 'url';
-import { createExternalOpenManager } from '@electron/bootstrap/external-open';
+import {
+    createExternalOpenManager,
+    createMacOpenFileRouter,
+} from '@electron/bootstrap/external-open';
 import {
     createShutdownCoordinator,
     runShutdownSteps,
@@ -63,11 +66,19 @@ if (automationUserDataDir) {
 }
 
 const logger = createLogger('main');
+const macOpenFileRouter = createMacOpenFileRouter({ logger });
 // Keep fatal shutdown opt-in for unhandled rejections: many promise failures are
 // feature-local and should not crash the entire public app.
 const FATAL_UNHANDLED_REJECTION_ENABLED = process.env.EVB_MAIN_FATAL_UNHANDLED_REJECTION === '1';
 const startupTrace = createStartupTrace(logger);
 const logStartupPhase = startupTrace.log;
+
+// macOS can deliver open-file during very early cold-start launch, before the
+// rest of the external-open pipeline is initialized.
+app.on('open-file', (event, filePath) => {
+    event.preventDefault();
+    macOpenFileRouter.handleOpenFile(filePath);
+});
 
 function isIgnorableUnhandledRejection(reason: unknown) {
     if (!(reason instanceof Error)) {
@@ -283,6 +294,7 @@ const externalOpenManager = createExternalOpenManager({
         sendToWindow(window, 'menu:openExternalPaths', paths);
     },
 });
+macOpenFileRouter.attachExternalOpenManager(externalOpenManager);
 
 function maybePromptForDefaultViewer() {
     if (config.automation.noFocus) {
@@ -361,18 +373,6 @@ if (!allowMultipleAutomationSessions) {
 } else {
     logger.info('Automation harness mode: bypassing single-instance lock to allow multiple sessions');
 }
-
-// macOS: open-file fires when a file is double-clicked while the app is running or launching.
-// Must register before app.whenReady() because macOS sends it early during launch.
-app.on('open-file', (event, filePath) => {
-    event.preventDefault();
-    if (!externalOpenManager.isSupportedFile(filePath)) {
-        logger.warn(`Ignoring unsupported macOS open-file path: ${filePath}`);
-        return;
-    }
-    externalOpenManager.queueOpenRequest([filePath]);
-    externalOpenManager.requestMainWindowForExternalOpen();
-});
 
 // Windows/Linux: the OS passes the file path as a command-line argument
 if (process.platform !== 'darwin') {
