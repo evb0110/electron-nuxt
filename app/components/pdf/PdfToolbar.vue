@@ -1,6 +1,13 @@
 <template>
     <header ref="toolbarRef" class="toolbar">
         <div class="toolbar-section toolbar-left">
+            <slot
+                name="app-menu"
+                :collapse-tier="collapseTier"
+                :has-overflow-items="hasOverflowItems"
+                :is-collapsed="isCollapsed"
+            />
+            <div v-if="$slots['app-menu']" class="toolbar-separator" />
             <ToolbarButton
                 icon="lucide:folder-open"
                 :tooltip="t('toolbar.openPdf')"

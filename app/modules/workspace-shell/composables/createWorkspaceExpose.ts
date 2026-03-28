@@ -21,6 +21,7 @@ interface ICreateWorkspaceExposeDeps {
     handleUndo: () => void;
     handleRedo: () => void;
     handleOpenFileFromUi: () => Promise<void>;
+    handleCombineImages: () => Promise<void>;
     handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<void>;
     handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<void>;
     handleOpenFileWithResult: (result: TOpenFileResult) => Promise<void>;
@@ -171,6 +172,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleUndo: deps.handleUndo,
         handleRedo: deps.handleRedo,
         handleOpenFileFromUi: deps.handleOpenFileFromUi,
+        handleCombineImages: deps.handleCombineImages,
         handleOpenFileDirectWithPersist: deps.handleOpenFileDirectWithPersist,
         handleOpenFileDirectBatchWithPersist: deps.handleOpenFileDirectBatchWithPersist,
         handleOpenFileWithResult: deps.handleOpenFileWithResult,

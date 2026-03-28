@@ -335,6 +335,34 @@ export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
     }
 }
 
+export async function handleOpenCombineDialog(): Promise<IOpenFileResult | null> {
+    const result = await dialog.showOpenDialog({
+        title: te('dialogs.combineFiles'),
+        filters: [{
+            name: te('dialogs.documentsFilter'),
+            extensions: [
+                'pdf',
+                ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
+            ],
+        }],
+        properties: [
+            'openFile',
+            'multiSelections',
+        ],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+
+    try {
+        return await openInputPaths(result.filePaths);
+    } catch (err) {
+        logger.error(`Failed to combine files: ${err instanceof Error ? err.message : String(err)}`);
+        throw errorWithDetails(te('errors.file.open'), err);
+    }
+}
+
 export async function handleOpenImageDialog(): Promise<string | null> {
     const result = await dialog.showOpenDialog({
         title: te('dialogs.openImage'),

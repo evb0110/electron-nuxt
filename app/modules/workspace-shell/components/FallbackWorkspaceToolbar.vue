@@ -36,6 +36,39 @@
         @crop="emit('crop')"
         @quick-note="emit('quick-note')"
     >
+        <template #app-menu>
+            <ToolbarAppMenu
+                :open="appMenuOpen"
+                :has-pdf="hasPdf"
+                :can-save="snapshot.canSave"
+                :can-undo="snapshot.canUndo"
+                :can-redo="snapshot.canRedo"
+                :can-export-docx="snapshot.canExportDocx"
+                :is-any-saving="snapshot.isAnySaving"
+                :is-history-busy="snapshot.isHistoryBusy"
+                :is-exporting-docx="snapshot.isExportingDocx"
+                :is-djvu-mode="snapshot.isDjvuMode"
+                :can-use-djvu="canUseDjvu"
+                @update:open="emit('update:appMenuOpen', $event)"
+                @open-file="emit('open-file')"
+                @save="emit('save')"
+                @save-as="emit('save-as')"
+                @combine-images="emit('combine-images')"
+                @export-docx="emit('export-docx')"
+                @export-images="emit('export-images')"
+                @export-multi-page-tiff="emit('export-multi-page-tiff')"
+                @convert-to-pdf="emit('convert-to-pdf')"
+                @undo="emit('undo')"
+                @redo="emit('redo')"
+                @insert-image-from-file="emit('insert-image-from-file')"
+                @paste-image-from-clipboard="emit('paste-image-from-clipboard')"
+                @delete-pages="emit('delete-pages')"
+                @extract-pages="emit('extract-pages')"
+                @rotate-cw="emit('rotate-cw')"
+                @rotate-ccw="emit('rotate-ccw')"
+                @insert-pages="emit('insert-pages')"
+            />
+        </template>
         <template v-if="canUseOcr" #ocr="{ isCollapsed }">
             <OcrPopup
                 :pdf-document="null"
@@ -126,6 +159,7 @@ import type { IWorkspaceToolbarSnapshot } from '@app/types/workspace-expose';
 import PdfPageDropdown from '@app/components/pdf/PdfPageDropdown.vue';
 import PdfToolbar from '@app/components/pdf/PdfToolbar.vue';
 import PdfZoomDropdown from '@app/components/pdf/PdfZoomDropdown.vue';
+import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import { hasElectronAPI } from '@app/utils/platform';
 
@@ -138,15 +172,18 @@ const props = defineProps<{
     zoomDropdownOpen: boolean;
     pageDropdownOpen: boolean;
     overflowMenuOpen: boolean;
+    appMenuOpen: boolean;
 }>();
 
 const canUseOcr = hasElectronAPI();
+const canUseDjvu = true;
 
 const emit = defineEmits<{
     'update:ocrPopupOpen': [open: boolean];
     'update:zoomDropdownOpen': [open: boolean];
     'update:pageDropdownOpen': [open: boolean];
     'update:overflowMenuOpen': [open: boolean];
+    'update:appMenuOpen': [open: boolean];
     'update:zoom': [zoom: number];
     'update:effectiveZoom': [zoom: number];
     'update:zoomMode': [mode: IWorkspaceToolbarSnapshot['zoomMode']];
@@ -157,9 +194,20 @@ const emit = defineEmits<{
     'open-settings': [];
     'save': [];
     'save-as': [];
+    'combine-images': [];
     'export-docx': [];
+    'export-images': [];
+    'export-multi-page-tiff': [];
+    'convert-to-pdf': [];
     'undo': [];
     'redo': [];
+    'insert-image-from-file': [];
+    'paste-image-from-clipboard': [];
+    'delete-pages': [];
+    'extract-pages': [];
+    'rotate-cw': [];
+    'rotate-ccw': [];
+    'insert-pages': [];
     'toggle-sidebar': [];
     'fit-width': [];
     'fit-height': [];

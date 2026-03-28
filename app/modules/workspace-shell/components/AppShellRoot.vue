@@ -32,10 +32,12 @@
                 :zoom-dropdown-open="fallbackZoomDropdownOpen"
                 :page-dropdown-open="fallbackPageDropdownOpen"
                 :overflow-menu-open="fallbackOverflowMenuOpen"
+                :app-menu-open="fallbackAppMenuOpen"
                 @update:ocr-popup-open="fallbackOcrPopupOpen = $event"
                 @update:zoom-dropdown-open="fallbackZoomDropdownOpen = $event"
                 @update:page-dropdown-open="fallbackPageDropdownOpen = $event"
                 @update:overflow-menu-open="fallbackOverflowMenuOpen = $event"
+                @update:app-menu-open="fallbackAppMenuOpen = $event"
                 @update:zoom="fallbackZoom = $event"
                 @update:effective-zoom="fallbackEffectiveZoom = $event"
                 @update:zoom-mode="fallbackZoomMode = $event"
@@ -46,9 +48,20 @@
                 @open-settings="showSettings = true"
                 @save="runFallbackWorkspaceAction((workspace) => workspace.handleSave())"
                 @save-as="runFallbackWorkspaceAction((workspace) => workspace.handleSaveAs())"
+                @combine-images="runFallbackWorkspaceAction((workspace) => workspace.handleCombineImages())"
                 @export-docx="runFallbackWorkspaceAction((workspace) => workspace.handleExportDocx())"
+                @export-images="runFallbackWorkspaceAction((workspace) => workspace.handleExportImages())"
+                @export-multi-page-tiff="runFallbackWorkspaceAction((workspace) => workspace.handleExportMultiPageTiff())"
+                @convert-to-pdf="runFallbackWorkspaceAction((workspace) => workspace.handleConvertToPdf())"
                 @undo="runFallbackWorkspaceAction((workspace) => workspace.handleUndo())"
                 @redo="runFallbackWorkspaceAction((workspace) => workspace.handleRedo())"
+                @insert-image-from-file="runFallbackWorkspaceAction((workspace) => workspace.handleInsertImageFromFile())"
+                @paste-image-from-clipboard="runFallbackWorkspaceAction((workspace) => workspace.handlePasteImageFromClipboard())"
+                @delete-pages="runFallbackWorkspaceAction((workspace) => workspace.handleDeletePages())"
+                @extract-pages="runFallbackWorkspaceAction((workspace) => workspace.handleExtractPages())"
+                @rotate-cw="runFallbackWorkspaceAction((workspace) => workspace.handleRotateCw())"
+                @rotate-ccw="runFallbackWorkspaceAction((workspace) => workspace.handleRotateCcw())"
+                @insert-pages="runFallbackWorkspaceAction((workspace) => workspace.handleInsertPages())"
                 @toggle-sidebar="runFallbackWorkspaceAction((workspace) => workspace.handleToggleSidebar())"
                 @fit-width="runFallbackWorkspaceAction((workspace) => workspace.handleFitWidth())"
                 @fit-height="runFallbackWorkspaceAction((workspace) => workspace.handleFitHeight())"
@@ -291,6 +304,7 @@ function runFallbackWorkspaceAction(action: (workspace: IWorkspaceExpose) => Pro
 }
 
 const {
+    fallbackAppMenuOpen,
     fallbackCurrentPage,
     fallbackEffectiveZoom,
     fallbackFitMode,

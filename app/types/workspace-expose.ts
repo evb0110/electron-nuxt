@@ -46,6 +46,7 @@ export interface IWorkspaceFilePort {
     handleUndo: () => void;
     handleRedo: () => void;
     handleOpenFileFromUi: () => Promise<void>;
+    handleCombineImages: () => Promise<void>;
     handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<void>;
     handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<void>;
     handleOpenFileWithResult: (result: TOpenFileResult) => Promise<void>;

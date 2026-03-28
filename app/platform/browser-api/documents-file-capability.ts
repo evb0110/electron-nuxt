@@ -802,6 +802,29 @@ export function createBrowserDocumentsFileCapability(
 
             return openDocumentPaths([sourceRef]);
         },
+        async openCombineDialog() {
+            const pickedFiles = await pickFiles({
+                accept: OPEN_INPUT_ACCEPT,
+                multiple: true,
+                pickerTypes: buildOpenPdfPickerTypes(),
+            });
+            if (pickedFiles.length === 0) {
+                return null;
+            }
+
+            const refs: string[] = [];
+            for (const picked of pickedFiles) {
+                const ref = await browserDocumentStore.registerFile(picked.file, {
+                    kind: 'source',
+                    retention: 'transient',
+                    saveKind: 'generic',
+                    saveHandle: null,
+                });
+                refs.push(ref);
+            }
+
+            return openDocumentPaths(refs);
+        },
         async openImageDialog() {
             const picked = await pickSingleFile({
                 accept: OPEN_IMAGE_ACCEPT,

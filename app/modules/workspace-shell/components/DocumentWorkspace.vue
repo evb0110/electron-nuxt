@@ -39,6 +39,39 @@
                 @crop="handleToolbarCrop"
                 @quick-note="handleToolbarQuickNote"
             >
+                <template #app-menu>
+                    <ToolbarAppMenu
+                        :open="appMenuOpen"
+                        :has-pdf="toolbarHasPdf"
+                        :can-save="canSave"
+                        :can-undo="canUndo"
+                        :can-redo="canRedo"
+                        :can-export-docx="canExportDocx"
+                        :is-any-saving="isAnySaving"
+                        :is-history-busy="isHistoryBusy"
+                        :is-exporting-docx="isExportingDocx"
+                        :is-djvu-mode="isDjvuMode"
+                        :can-use-djvu="canUseDjvu"
+                        @update:open="handleDropdownOpen('appMenu', $event)"
+                        @open-file="handleOpenFileFromUi"
+                        @save="handleToolbarSave"
+                        @save-as="handleToolbarSaveAs"
+                        @combine-images="handleCombineImages"
+                        @export-docx="handleToolbarExportDocx"
+                        @export-images="handleExportImages()"
+                        @export-multi-page-tiff="handleExportMultiPageTiff()"
+                        @convert-to-pdf="openConvertDialog"
+                        @undo="handleToolbarUndo"
+                        @redo="handleToolbarRedo"
+                        @insert-image-from-file="handleInsertImageFromFile"
+                        @paste-image-from-clipboard="handlePasteImageFromClipboard"
+                        @delete-pages="handleDeletePages"
+                        @extract-pages="handleExtractPages"
+                        @rotate-cw="handleRotateCw"
+                        @rotate-ccw="handleRotateCcw"
+                        @insert-pages="handleInsertPages"
+                    />
+                </template>
                 <template v-if="canUseOcr" #ocr="{ isCollapsed }">
                     <OcrPopup
                         :pdf-document="pdfDocument"
@@ -423,6 +456,7 @@ import PdfStatusBar from '@app/components/pdf/PdfStatusBar.vue';
 import PdfToolbar from '@app/components/pdf/PdfToolbar.vue';
 import PdfViewer from '@app/components/pdf/PdfViewer.vue';
 import PdfZoomDropdown from '@app/components/pdf/PdfZoomDropdown.vue';
+import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { bucketPageCount } from '@app/utils/analytics';
@@ -519,6 +553,7 @@ const {
     pageDropdownOpen,
     ocrPopupOpen,
     overflowMenuOpen,
+    appMenuOpen,
     selectedThumbnailPages,
     thumbnailInvalidationRequest,
     handleSelectedThumbnailPagesUpdate,
@@ -680,6 +715,7 @@ const {
     handlePageContextMenuSelectAll,
     handlePageContextMenuInvertSelection,
     handleOpenFileFromUi,
+    handleCombineImages,
     handleOpenFileDirectWithPersist,
     handleOpenFileDirectBatchWithPersist,
     handleOpenFileWithResult,
@@ -715,7 +751,6 @@ const toolbarHasPdf = computed(() => (
     || hasQueuedSplitRestore.value
     || isRestoringSplitPayload.value
     || isExternallyRestoring.value
-    || props.pendingDocumentOpen === true
 ));
 const toolbarShowSidebar = computed(() => (
     showSidebar.value
@@ -797,6 +832,38 @@ const {
     isResizingSidebar,
 });
 
+function handleDeletePages() {
+    const pages = selectedThumbnailPages.value;
+    if (pages.length > 0) {
+        void pageOpsDelete(pages, totalPages.value);
+    }
+}
+
+function handleExtractPages() {
+    const pages = selectedThumbnailPages.value;
+    if (pages.length > 0) {
+        void pageOpsExtract(pages);
+    }
+}
+
+function handleRotateCw() {
+    const pages = selectedThumbnailPages.value;
+    if (pages.length > 0) {
+        void handlePageRotate(pages, 90);
+    }
+}
+
+function handleRotateCcw() {
+    const pages = selectedThumbnailPages.value;
+    if (pages.length > 0) {
+        void handlePageRotate(pages, 270);
+    }
+}
+
+function handleInsertPages() {
+    void pageOpsInsert(totalPages.value, totalPages.value);
+}
+
 function handleViewerCurrentPageUpdate(page: number) {
     const previousPage = currentPage.value;
     const viewer = pdfViewerRef.value?.getViewerContainer?.() ?? null;
@@ -859,6 +926,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
         void handleRedo();
     },
     handleOpenFileFromUi,
+    handleCombineImages,
     handleOpenFileDirectWithPersist,
     handleOpenFileDirectBatchWithPersist,
     handleOpenFileWithResult,
