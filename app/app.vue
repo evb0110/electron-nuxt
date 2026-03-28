@@ -140,7 +140,7 @@ function installViteReloadDiagnostics() {
         const rawPreviousEvent = window.sessionStorage.getItem(DEV_RELOAD_EVENT_KEY);
         if (rawPreviousEvent) {
             const previousEvent: unknown = JSON.parse(rawPreviousEvent);
-            BrowserLogger.warn('dev-reload', 'Previous Vite reload event (persisted)', previousEvent);
+            BrowserLogger.debug('dev-reload', 'Previous Vite reload event (persisted)', previousEvent);
             window.sessionStorage.removeItem(DEV_RELOAD_EVENT_KEY);
         }
     } catch {
@@ -160,7 +160,7 @@ function installViteReloadDiagnostics() {
             payload,
         };
 
-        BrowserLogger.warn('dev-reload', 'Vite announced full reload', event);
+        BrowserLogger.debug('dev-reload', 'Vite announced full reload', event);
         try {
             window.sessionStorage.setItem(DEV_RELOAD_EVENT_KEY, JSON.stringify(event));
         } catch {
