@@ -9,7 +9,8 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { retry } from 'es-toolkit/function';
+import { withTimeout } from 'es-toolkit/promise';
+import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { useAnalytics } from '@app/composables/useAnalytics';
 
@@ -73,6 +74,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
 
     function getValidationFileName() {
         return workingCopyPath.value?.split(/[\\/]/u).pop() ?? undefined;
+    }
+
+    function isTimeoutError(error: unknown) {
+        return error instanceof Error && error.name === 'TimeoutError';
     }
 
     async function buildSerializedSaveResult(
@@ -148,20 +153,43 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     async function saveDocumentWithRetry(maxAttempts = 4, retryDelayMs = 50) {
-        try {
-            return await retry(async () => {
-                const data = await saveDocument();
-                if (!data) {
-                    throw new Error('saveDocument returned no data');
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            try {
+                return await withTimeout(async () => {
+                    const data = await saveDocument();
+                    if (!data) {
+                        throw new Error('saveDocument returned no data');
+                    }
+                    return data;
+                }, PDF_SAVE_TIMEOUT_MS);
+            } catch (error) {
+                const timedOut = isTimeoutError(error);
+                BrowserLogger.warn(
+                    'workspace',
+                    timedOut
+                        ? 'Save aborted because PDF.js saveDocument timed out'
+                        : 'saveDocument attempt failed',
+                    {
+                        attempt,
+                        maxAttempts,
+                        timedOut,
+                        error,
+                    },
+                );
+
+                if (timedOut || attempt === maxAttempts) {
+                    return null;
                 }
-                return data;
-            }, {
-                retries: maxAttempts,
-                delay: retryDelayMs,
-            });
-        } catch {
-            return null;
+
+                if (retryDelayMs > 0) {
+                    await new Promise<void>((resolve) => {
+                        setTimeout(resolve, retryDelayMs);
+                    });
+                }
+            }
         }
+
+        return null;
     }
 
     async function handleSave() {
