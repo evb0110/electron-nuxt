@@ -43,7 +43,33 @@ describe('createBrowserDocumentsFileCapability validation', () => {
         });
 
         expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(1);
+        const firstCall = pdfjsModule.getDocument.mock.calls[0]?.[0] as { data: Uint8Array };
+        expect(firstCall.data).not.toBeUndefined();
         expect(loadSpy).not.toHaveBeenCalled();
         expect(destroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes cloned bytes to pdf.js validation so caller data stays owned', async () => {
+        const destroy = vi.fn(async () => {});
+        pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({destroy})});
+
+        const { createBrowserDocumentsFileCapability } = await import('@app/platform/browser-api/documents-file-capability');
+        const capability = createBrowserDocumentsFileCapability({ clearSearchCaches: () => {} });
+        const input = new Uint8Array([
+            7,
+            8,
+            9,
+        ]);
+
+        await capability.validatePdfData(input);
+
+        const firstCall = pdfjsModule.getDocument.mock.calls[0]?.[0] as { data: Uint8Array };
+        expect(firstCall.data).not.toBe(input);
+        expect(Array.from(firstCall.data)).toEqual(Array.from(input));
+        expect(Array.from(input)).toEqual([
+            7,
+            8,
+            9,
+        ]);
     });
 });

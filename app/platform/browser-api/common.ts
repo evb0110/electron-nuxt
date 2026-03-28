@@ -89,7 +89,7 @@ async function getPdfjsLib() {
 
 function createPdfjsDocumentInit(pdfjsLib: TPdfJsLib, data: Uint8Array) {
     return {
-        data,
+        data: toUint8Array(data),
         verbosity: pdfjsLib.VerbosityLevel.ERRORS,
     } as unknown as TPdfJsDocumentInit;
 }
