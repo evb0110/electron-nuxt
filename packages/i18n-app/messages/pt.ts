@@ -25,6 +25,7 @@ export default {
         'screenshotAlt': 'Captura de ecrã do EVB Viewer Web a mostrar a área de trabalho de documentos',
     },
     'toolbar': {
+        'appMenu': 'Menu',
         'openPdf': 'Abrir Ficheiro',
         'save': 'Guardar',
         'saveAs': 'Guardar Como…',
@@ -270,6 +271,7 @@ export default {
         'openRecent': 'Abrir Recente',
         'save': 'Guardar',
         'saveAs': 'Guardar Como...',
+        'combineFiles': 'Combinar Ficheiros em PDF...',
         'exportDocx': 'Exportar DOCX...',
         'exportImages': 'Exportar imagens...',
         'exportMultiPageTiff': 'Exportar TIFF multipágina...',
@@ -339,6 +341,7 @@ export default {
     'dialogs': {
         'openDocument': 'Abrir Documento',
         'openImage': 'Abrir imagem',
+        'combineFiles': 'Combinar ficheiros',
         'documentsFilter': 'Documentos',
         'imagesFilter': 'Imagens',
         'savePdfAs': 'Guardar PDF Como',

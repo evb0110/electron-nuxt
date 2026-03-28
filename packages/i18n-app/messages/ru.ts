@@ -50,6 +50,7 @@ export default {
         'crop': 'Обрезка страниц',
         'cropHint': 'Выделите область обрезки. Нажмите Esc для отмены.',
         'fullscreen': 'Полноэкранный режим',
+        'appMenu': 'Меню',
     },
     'tabs': {
         'newTab': 'Новая вкладка',
@@ -273,6 +274,7 @@ export default {
         'openRecent': 'Открыть недавние',
         'save': 'Сохранить',
         'saveAs': 'Сохранить как...',
+        'combineFiles': 'Объединить файлы в PDF...',
         'exportDocx': 'Экспорт DOCX...',
         'exportImages': 'Экспорт изображений...',
         'exportMultiPageTiff': 'Экспорт многостраничного TIFF...',
@@ -342,6 +344,7 @@ export default {
     'dialogs': {
         'openDocument': 'Открыть документ',
         'openImage': 'Открыть изображение',
+        'combineFiles': 'Объединить файлы',
         'documentsFilter': 'Документы',
         'imagesFilter': 'Изображения',
         'savePdfAs': 'Сохранить PDF как',

@@ -36,6 +36,8 @@ const nitroOutputDir = process.env.VERCEL === '1' || process.env.NOW_BUILDER ===
     ? '.vercel/output'
     : 'nuxt-output';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 export default defineNuxtConfig({
     app: {
         head: {
@@ -51,23 +53,23 @@ export default defineNuxtConfig({
                     rel: 'icon',
                     type: 'image/png',
                     sizes: '16x16',
-                    href: '/favicon-16x16.png?v=5',
+                    href: isDev ? '/favicon-dev-16x16.png' : '/favicon-16x16.png?v=5',
                 },
                 {
                     rel: 'icon',
                     type: 'image/png',
                     sizes: '32x32',
-                    href: '/favicon-32x32.png?v=5',
+                    href: isDev ? '/favicon-dev-32x32.png' : '/favicon-32x32.png?v=5',
                 },
                 {
                     rel: 'icon',
                     type: 'image/svg+xml',
-                    href: '/favicon.svg?v=5',
+                    href: isDev ? '/favicon-dev.svg' : '/favicon.svg?v=5',
                 },
                 {
                     rel: 'icon',
                     type: 'image/x-icon',
-                    href: '/favicon.ico?v=5',
+                    href: isDev ? '/favicon-dev.ico' : '/favicon.ico?v=5',
                 },
                 {
                     rel: 'apple-touch-icon',
@@ -514,6 +516,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
             'lucide:circle-x',
             'lucide:scan',
             'lucide:copy',
+            'lucide:copy-plus',
             'lucide:crop',
             'lucide:ellipsis',
             'lucide:external-link',
@@ -526,6 +529,9 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
             'lucide:hand',
             'lucide:hash',
             'lucide:highlighter',
+            'lucide:image',
+            'lucide:image-plus',
+            'lucide:images',
             'lucide:info',
             'lucide:layout-grid',
             'lucide:lightbulb',
@@ -578,6 +584,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
             'lucide:waves',
             'lucide:square',
             'lucide:circle',
+            'lucide:clipboard-paste',
             'lucide:minus',
             'lucide:arrow-up-right',
             'lucide:stamp',
@@ -596,6 +603,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
             'circle-flags:nl',
             'lucide:file-output',
             'lucide:file-plus',
+            'lucide:file-symlink',
             'lucide:rotate-cw',
             'lucide:rotate-ccw',
             'lucide:expand',

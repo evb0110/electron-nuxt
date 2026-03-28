@@ -53,7 +53,21 @@ export const SHORTCUTS = {
         modifiers: [
             'mod',
             'shift',
-        ], 
+        ],
+    },
+    insertImageFromFile: {
+        key: 'I',
+        modifiers: [
+            'mod',
+            'shift',
+        ],
+    },
+    pasteImageFromClipboard: {
+        key: 'V',
+        modifiers: [
+            'mod',
+            'shift',
+        ],
     },
     fitWidth: {
         key: '1',

@@ -51,7 +51,7 @@ interface IWorkspaceInteractionControlsOptions {
     handleSave: () => Promise<void>;
     handleToggleSidebar: () => void;
     handleDropdownOpenChange: (
-        dropdown: 'zoom' | 'page' | 'ocr' | 'overflow',
+        dropdown: 'zoom' | 'page' | 'ocr' | 'overflow' | 'appMenu',
         isOpen: boolean,
     ) => void;
     clearDocxExportError: () => void;
@@ -182,7 +182,7 @@ export function useWorkspaceInteractionControls(options: IWorkspaceInteractionCo
     });
 
     function handleDropdownOpen(
-        dropdown: 'zoom' | 'page' | 'ocr' | 'overflow',
+        dropdown: 'zoom' | 'page' | 'ocr' | 'overflow' | 'appMenu',
         isOpen: boolean,
     ) {
         handleDropdownOpenChange(dropdown, isOpen);

@@ -9,6 +9,7 @@ import type { TPdfSource } from '@app/types/pdf';
 import type { IRecentFile } from '@contracts/shared';
 import { waitUntilIdle } from '@app/utils/async-helpers';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { getElectronAPI } from '@app/utils/platform';
 
 const DJVU_PATH_REGEX = /\.djvu?$/i;
 const OPEN_SETTLE_DELAY_MS = 25;
@@ -188,6 +189,32 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         closeAllDropdowns();
     }
 
+    async function pickCombineFiles() {
+        const api = getElectronAPI();
+        return api.documents.openCombineDialog();
+    }
+
+    async function handleCombineImages() {
+        const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
+        if (!canProceed) {
+            return;
+        }
+
+        const result = await pickCombineFiles();
+        if (!result) {
+            return;
+        }
+
+        if (result.kind === 'pdf' && result.isGenerated && pdfSrc.value) {
+            emitOpenInNewTab(result);
+            closeAllDropdowns();
+            return;
+        }
+
+        await openFile(result);
+        closeAllDropdowns();
+    }
+
     async function handleOpenFileDirectWithPersist(path: TDocumentRef) {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'handleOpenFileDirectWithPersist called', {
             path,
@@ -272,6 +299,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     return {
         handleOpenFileFromUi,
+        handleCombineImages,
         handleOpenFileDirectWithPersist,
         handleOpenFileDirectBatchWithPersist,
         handleOpenFileWithResult,

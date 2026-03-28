@@ -25,6 +25,7 @@ export default {
         'screenshotAlt': 'Screenshot von EVB Viewer Web mit dem Dokumenten-Arbeitsbereich',
     },
     'toolbar': {
+        'appMenu': 'Menü',
         'openPdf': 'Datei öffnen',
         'save': 'Speichern',
         'saveAs': 'Speichern unter…',
@@ -267,6 +268,7 @@ export default {
         'openRecent': 'Zuletzt verwendet',
         'save': 'Speichern',
         'saveAs': 'Speichern unter...',
+        'combineFiles': 'Dateien zu PDF zusammenführen...',
         'exportDocx': 'DOCX exportieren...',
         'exportImages': 'Bilder exportieren...',
         'exportMultiPageTiff': 'Mehrseitiges TIFF exportieren...',
@@ -336,6 +338,7 @@ export default {
     'dialogs': {
         'openDocument': 'Dokument öffnen',
         'openImage': 'Bild öffnen',
+        'combineFiles': 'Dateien zusammenführen',
         'documentsFilter': 'Dokumente',
         'imagesFilter': 'Bilder',
         'savePdfAs': 'PDF speichern unter',

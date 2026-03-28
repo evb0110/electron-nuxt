@@ -511,16 +511,16 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         hasMountedWorkspace: hasMountedWorkspace.value,
     });
 
-    const preloadedWorkspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded('openRecentFromPlaceholder:preload');
-    if (!preloadedWorkspace) {
-        BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Failed to preload workspace for recent open', {
-            tabId: props.tabId,
-            path: file.originalPath,
-        });
-        return;
-    }
-
     await runWhileOpeningDocument(async () => {
+        const preloadedWorkspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded('openRecentFromPlaceholder:preload');
+        if (!preloadedWorkspace) {
+            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Failed to preload workspace for recent open', {
+                tabId: props.tabId,
+                path: file.originalPath,
+            });
+            return;
+        }
+
         await openPath(file.originalPath, 'openRecentFromPlaceholder');
     });
 }
@@ -534,8 +534,10 @@ async function handleClearRecentFromPlaceholder() {
 }
 
 async function handleOpenFileFromUi() {
-    await withWorkspace('handleOpenFileFromUi', async (workspace) => {
-        await workspace.handleOpenFileFromUi();
+    await runWhileOpeningDocument(async () => {
+        await withWorkspace('handleOpenFileFromUi', async (workspace) => {
+            await workspace.handleOpenFileFromUi();
+        });
     });
 }
 
@@ -580,6 +582,9 @@ const workspaceExpose: IWorkspaceExpose = {
         void withLoadedWorkspace('handleRedo', workspace => workspace.handleRedo());
     },
     handleOpenFileFromUi,
+    handleCombineImages: async () => {
+        await withLoadedWorkspace('handleCombineImages', workspace => workspace.handleCombineImages());
+    },
     handleOpenFileDirectWithPersist: async (path: string) => {
         await runWhileOpeningDocument(async () => {
             await openPath(path, 'handleOpenFileDirectWithPersist');

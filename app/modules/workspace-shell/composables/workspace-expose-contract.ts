@@ -14,6 +14,7 @@ const FILE_PORT_METHODS = [
     'handleUndo',
     'handleRedo',
     'handleOpenFileFromUi',
+    'handleCombineImages',
     'handleOpenFileDirectWithPersist',
     'handleOpenFileDirectBatchWithPersist',
     'handleOpenFileWithResult',

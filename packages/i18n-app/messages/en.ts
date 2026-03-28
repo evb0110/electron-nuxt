@@ -50,6 +50,7 @@ export default {
         'crop': 'Crop Pages',
         'cropHint': 'Drag to select crop area. Press Esc to cancel.',
         'fullscreen': 'Toggle Fullscreen',
+        'appMenu': 'Menu',
     },
     'tabs': {
         'newTab': 'New Tab',
@@ -267,6 +268,7 @@ export default {
         'openRecent': 'Open Recent',
         'save': 'Save',
         'saveAs': 'Save As...',
+        'combineFiles': 'Combine Files to PDF...',
         'exportDocx': 'Export DOCX...',
         'exportImages': 'Export Images...',
         'exportMultiPageTiff': 'Export Multi-page TIFF...',
@@ -336,6 +338,7 @@ export default {
     'dialogs': {
         'openDocument': 'Open Document',
         'openImage': 'Open Image',
+        'combineFiles': 'Combine Files',
         'documentsFilter': 'Documents',
         'imagesFilter': 'Images',
         'savePdfAs': 'Save PDF As',

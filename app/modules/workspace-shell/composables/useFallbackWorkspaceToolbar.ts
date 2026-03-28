@@ -53,6 +53,7 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
     const fallbackZoomDropdownOpen = ref(false);
     const fallbackPageDropdownOpen = ref(false);
     const fallbackOverflowMenuOpen = ref(false);
+    const fallbackAppMenuOpen = ref(false);
 
     function createDefaultToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         return {
@@ -226,6 +227,7 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
 
     return {
         applyFallbackToolbarSnapshot,
+        fallbackAppMenuOpen,
         fallbackCurrentPage,
         fallbackEffectiveZoom,
         fallbackFitMode,

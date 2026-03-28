@@ -16,6 +16,7 @@ export function useWorkspaceViewerShellState() {
     const pageDropdownOpen = ref(false);
     const ocrPopupOpen = ref(false);
     const overflowMenuOpen = ref(false);
+    const appMenuOpen = ref(false);
 
     const selectedThumbnailPages = ref<number[]>([]);
     const thumbnailInvalidationRequest = ref<{
@@ -50,6 +51,7 @@ export function useWorkspaceViewerShellState() {
         pageOpen: pageDropdownOpen,
         ocrOpen: ocrPopupOpen,
         overflowOpen: overflowMenuOpen,
+        appMenuOpen,
     });
 
     const zoom = ref(1);
@@ -74,6 +76,7 @@ export function useWorkspaceViewerShellState() {
         pageDropdownOpen,
         ocrPopupOpen,
         overflowMenuOpen,
+        appMenuOpen,
         closeAllDropdowns,
         closeOtherDropdowns,
         handleDropdownOpenChange,
