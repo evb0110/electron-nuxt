@@ -55,7 +55,7 @@ interface ICreateExternalOpenManagerOptions {
     dispatchOpenPaths: (paths: string[]) => void;
 }
 
-export function isSupportedExternalOpenPath(filePath: string) {
+function isSupportedExternalOpenPath(filePath: string) {
     return SUPPORTED_EXTENSIONS.has(extname(filePath).toLowerCase());
 }
 
