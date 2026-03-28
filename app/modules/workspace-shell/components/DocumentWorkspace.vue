@@ -259,6 +259,7 @@
                         v-if="pdfSrc"
                         ref="pdfViewerRef"
                         :src="pdfSrc!"
+                        :is-any-saving="isAnySaving"
                         :zoom="zoom"
                         :zoom-mode="zoomMode"
                         :fit-mode="fitMode"

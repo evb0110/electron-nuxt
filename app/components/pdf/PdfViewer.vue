@@ -132,6 +132,7 @@ import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 interface IProps {
     src: TPdfSource | null;
     bufferPages?: number;
+    isAnySaving?: boolean;
     zoom?: number;
     zoomMode?: TZoomMode;
     dragMode?: boolean;
@@ -155,6 +156,7 @@ const props = defineProps<IProps>();
 
 const src = computed(() => props.src);
 const bufferPages = computed(() => props.bufferPages ?? 2);
+const isAnySaving = computed(() => props.isAnySaving ?? false);
 const zoom = computed(() => props.zoom ?? 1);
 const dragMode = computed(() => props.dragMode ?? false);
 const fitMode = computed<TFitMode>(() => props.fitMode ?? 'width');
@@ -710,6 +712,7 @@ const { isViewerLoadingOverlayVisible } = usePdfViewerLoadingState({
 });
 
 const viewerClass = computed(() => ({
+    'pdfViewer--saving': isAnySaving.value,
     'is-dragging': isDragging.value,
     'drag-mode': isViewerPanDragModeActive.value,
     'is-placing-comment': highlightComposable.isPlacingComment.value,
