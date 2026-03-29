@@ -38,6 +38,7 @@ import {
 import { shouldIgnoreEditorEvent } from '@app/composables/pdf/annotations/annotationEditorEventGuards';
 import {
     asPdfjsEditor,
+    clearSelectedEditorState,
     getEditorConstructor,
     getEditorsOnPage,
     unselectAllEditors,
@@ -422,6 +423,11 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
 
         const originalAddToAnnotationStorage = uiManager.addToAnnotationStorage.bind(uiManager);
         uiManager.addToAnnotationStorage = (editor) => {
+            const normalizedEditorBeforeStorage = asPdfjsEditor(editor);
+            const shouldClearSelectionAfterCreate = (
+                detectEditorSubtype(normalizedEditorBeforeStorage) === 'Ink'
+                && normalizedEditorBeforeStorage?.annotationElementId == null
+            );
             const result = originalAddToAnnotationStorage(editor);
             const editorObject = editor as object | null;
             const normalizedEditor = asPdfjsEditor(editor);
@@ -454,6 +460,12 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
                     if (knownSubtype) {
                         markupSubtype.applyEditorMarkupSubtypePresentation(normalizedEditor, knownSubtype);
                     }
+                }
+                if (shouldClearSelectionAfterCreate) {
+                    // Newly committed ink strokes remain selected in PDF.js, so later
+                    // default style changes would rewrite the last stroke instead of
+                    // only affecting future drawings.
+                    clearSelectedEditorState(uiManager);
                 }
                 emitAnnotationModified();
                 commentSync.scheduleAnnotationCommentsSync();
