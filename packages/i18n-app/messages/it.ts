@@ -177,6 +177,7 @@ export default {
     },
     'annotationProperties': {
         'close': 'Chiudi',
+        'delete': 'Elimina',
         'color': 'Colore',
         'fill': 'Riempimento',
         'stroke': 'Tratto',

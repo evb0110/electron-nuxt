@@ -96,6 +96,7 @@ describe('pdfSerializationWorkerClient', () => {
             markupSubtypeOverrides: [],
             markupSubtypeHints: [],
             shapes: [],
+            deletedShapeAnnotationIds: [],
             freeTextComments: [],
             annotationComments: [],
             pendingEmbeddedTextUpdates: [],

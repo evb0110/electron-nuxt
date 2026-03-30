@@ -30,6 +30,7 @@ interface ICreateWorkspaceExposeDeps {
     handleExportImages: () => Promise<void>;
     handleExportMultiPageTiff: () => Promise<void>;
     hasPdf: Ref<boolean>;
+    isOpeningDocument: Ref<boolean>;
     canSave: Ref<boolean>;
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
@@ -110,6 +111,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         const totalPages = normalizeToolbarSnapshotTotalPages(deps.totalPages.value, currentPage);
         return {
             hasPdf: deps.hasPdf.value,
+            isOpeningDocument: deps.isOpeningDocument.value,
             canSave: deps.canSave.value,
             canUndo: deps.canUndo.value,
             canRedo: deps.canRedo.value,

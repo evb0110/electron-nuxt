@@ -11,6 +11,7 @@ import type {
 
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
+    isOpeningDocument: boolean;
     canSave: boolean;
     canUndo: boolean;
     canRedo: boolean;

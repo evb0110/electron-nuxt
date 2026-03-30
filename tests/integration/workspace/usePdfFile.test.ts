@@ -620,6 +620,37 @@ describe('usePdfFile', () => {
             expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/history-large-crop.pdf');
             expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/undo-large.pdf');
         });
+
+        it('updates the live PDF source blob when persisting silently', async () => {
+            const bytes1 = new Uint8Array([
+                1,
+                2,
+            ]);
+            const bytes2 = new Uint8Array([
+                3,
+                4,
+                5,
+            ]);
+
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/persist.pdf',
+                workingPath: '/tmp/persist.pdf',
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: bytes1.length });
+            mockDocuments.readFile.mockResolvedValue(bytes1.buffer);
+            mockDocuments.writeFile.mockResolvedValue(undefined);
+
+            const file = usePdfFile();
+            await file.openFile();
+
+            await file.persistPdfDataSilently(bytes2);
+
+            expect(file.pdfData.value).toEqual(bytes2);
+            expect(mockDocuments.writeFile).toHaveBeenCalledWith('/tmp/persist.pdf', expect.any(Uint8Array));
+            expect(file.pdfSrc.value).toBeInstanceOf(Blob);
+            expect(new Uint8Array(await (file.pdfSrc.value as Blob).arrayBuffer())).toEqual(bytes2);
+        });
     });
 
     describe('markDirty', () => {

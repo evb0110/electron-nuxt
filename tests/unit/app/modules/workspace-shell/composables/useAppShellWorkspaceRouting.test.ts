@@ -33,7 +33,7 @@ function createTabStub(id: string): ITab {
     };
 }
 
-function createWorkspace(hasPdf = false, isDjvuMode = false): IWorkspaceRecord {
+function createWorkspace(hasPdf = false, isDjvuMode = false, isOpeningDocument = false): IWorkspaceRecord {
     const state = ref(hasPdf);
     const openPath = vi.fn(async (_path: string) => {
         state.value = true;
@@ -49,7 +49,10 @@ function createWorkspace(hasPdf = false, isDjvuMode = false): IWorkspaceRecord {
             hasPdf: state,
             handleOpenFileDirectWithPersist: openPath,
             handleOpenFileWithResult: openResult,
-            getToolbarSnapshot: () => cast<IWorkspaceExpose['getToolbarSnapshot'] extends () => infer T ? T : never>({ isDjvuMode }),
+            getToolbarSnapshot: () => cast<IWorkspaceExpose['getToolbarSnapshot'] extends () => infer T ? T : never>({
+                isDjvuMode,
+                isOpeningDocument,
+            }),
         }),
     };
 }
@@ -160,6 +163,39 @@ describe('useAppShellWorkspaceRouting', () => {
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(false, true);
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+
+        let createdCount = 1;
+        const createdWorkspaces = new Map<string, IWorkspaceRecord>();
+
+        const routing = useAppShellWorkspaceRouting(createRoutingOptions({
+            activeGroupId,
+            activeTabId,
+            workspaceRefs,
+            createTab: ({ activate }: { activate?: boolean } = {}) => {
+                createdCount += 1;
+                const tabId = `tab-${createdCount}`;
+                const record = createWorkspace(false);
+                createdWorkspaces.set(tabId, record);
+                workspaceRefs.value.set(tabId, record.workspace);
+                if (activate !== false) {
+                    activeTabId.value = tabId;
+                }
+                return createTabStub(tabId);
+            },
+        }));
+
+        await routing.openPathsInAppropriateTab(['/docs/replacement.pdf']);
+
+        expect(initialWorkspace.openPath).not.toHaveBeenCalled();
+        expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/replacement.pdf');
+    });
+
+    it('treats an in-flight document open as occupied and opens later external paths in a new tab', async () => {
+        const activeGroupId = ref('group-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(false, false, true);
         workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
 
         let createdCount = 1;

@@ -1,0 +1,507 @@
+import {
+    PDFArray,
+    PDFDict,
+    PDFDocument,
+    PDFName,
+    PDFNumber,
+    PDFRef,
+} from 'pdf-lib';
+import type {
+    IShapeAnnotation,
+    IShapePoint,
+    TEmbeddedPdfShapeSubtype,
+    TLineEndStyle,
+    TShapeType,
+} from '@app/types/annotations';
+import {
+    normalizeMarkerRect,
+    normalizePageRotation,
+    toMarkerPointFromPdfPoint,
+    toMarkerRectFromPdfRect,
+} from '@app/composables/pdf/annotationGeometry';
+
+const IMPORTED_SHAPE_SUBTYPES = new Set<TEmbeddedPdfShapeSubtype>([
+    'Square',
+    'Circle',
+    'Line',
+    'PolyLine',
+    'Polygon',
+]);
+
+const RECT_NAME = PDFName.of('Rect');
+const BORDER_NAME = PDFName.of('Border');
+const BORDER_STYLE_NAME = PDFName.of('BS');
+const WIDTH_NAME = PDFName.of('W');
+const COLOR_NAME = PDFName.of('C');
+const INTERIOR_COLOR_NAME = PDFName.of('IC');
+const OPACITY_NAME = PDFName.of('CA');
+const LINE_POINTS_NAME = PDFName.of('L');
+const VERTICES_NAME = PDFName.of('Vertices');
+const LINE_ENDINGS_NAME = PDFName.of('LE');
+const CROP_BOX_NAME = PDFName.of('CropBox');
+const MEDIA_BOX_NAME = PDFName.of('MediaBox');
+
+type TPdfPage = ReturnType<PDFDocument['getPages']>[number];
+
+function normalizeImportedShapeSubtype(
+    subtype: string | null | undefined,
+): TEmbeddedPdfShapeSubtype | null {
+    switch ((subtype ?? '').trim()) {
+        case 'Square':
+        case 'Circle':
+        case 'Line':
+        case 'PolyLine':
+        case 'Polygon':
+            return subtype as TEmbeddedPdfShapeSubtype;
+        default:
+            return null;
+    }
+}
+
+function numberFromPdfArray(array: PDFArray, index: number) {
+    const value = array.get(index);
+    return value instanceof PDFNumber ? value.asNumber() : null;
+}
+
+function numbersFromPdfArray(array: PDFArray) {
+    const values: number[] = [];
+    for (let index = 0; index < array.size(); index += 1) {
+        const value = numberFromPdfArray(array, index);
+        if (value === null) {
+            return null;
+        }
+        values.push(value);
+    }
+    return values;
+}
+
+function readPdfRectFromDict(dict: PDFDict) {
+    const rect = dict.lookupMaybe(RECT_NAME, PDFArray);
+    if (!(rect instanceof PDFArray) || rect.size() < 4) {
+        return null;
+    }
+
+    const values = numbersFromPdfArray(rect);
+    if (!values || values.length < 4) {
+        return null;
+    }
+
+    return [
+        values[0]!,
+        values[1]!,
+        values[2]!,
+        values[3]!,
+    ] as [number, number, number, number];
+}
+
+function resolvePdfPageView(page: TPdfPage) {
+    const fallbackSize = page.getSize();
+    if (fallbackSize.width <= 0 || fallbackSize.height <= 0) {
+        return null;
+    }
+
+    const fallbackView: [number, number, number, number] = [
+        0,
+        0,
+        fallbackSize.width,
+        fallbackSize.height,
+    ];
+
+    const box = (
+        page.node.lookupMaybe(CROP_BOX_NAME, PDFArray)
+        ?? page.node.lookupMaybe(MEDIA_BOX_NAME, PDFArray)
+    );
+    if (!(box instanceof PDFArray) || box.size() < 4) {
+        return fallbackView;
+    }
+
+    const values = numbersFromPdfArray(box);
+    if (!values || values.length < 4) {
+        return fallbackView;
+    }
+
+    const minX = Math.min(values[0]!, values[2]!);
+    const minY = Math.min(values[1]!, values[3]!);
+    const maxX = Math.max(values[0]!, values[2]!);
+    const maxY = Math.max(values[1]!, values[3]!);
+    if ((maxX - minX) <= 0 || (maxY - minY) <= 0) {
+        return fallbackView;
+    }
+
+    return [
+        minX,
+        minY,
+        maxX,
+        maxY,
+    ] as [number, number, number, number];
+}
+
+function rgbComponentToHex(value: number) {
+    return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
+}
+
+function toHexColor(
+    color: number[] | null | undefined,
+    fallback: string,
+) {
+    if (!Array.isArray(color) || color.length < 3) {
+        return fallback;
+    }
+
+    const scale = color.every(component => component >= 0 && component <= 1) ? 255 : 1;
+    return `#${rgbComponentToHex((color[0] ?? 0) * scale)}${rgbComponentToHex((color[1] ?? 0) * scale)}${rgbComponentToHex((color[2] ?? 0) * scale)}`;
+}
+
+function readColor(dict: PDFDict, key: PDFName) {
+    const colorArray = dict.lookupMaybe(key, PDFArray);
+    if (!(colorArray instanceof PDFArray)) {
+        return null;
+    }
+    return numbersFromPdfArray(colorArray);
+}
+
+function readOpacity(dict: PDFDict) {
+    const opacity = dict.lookupMaybe(OPACITY_NAME, PDFNumber);
+    if (!(opacity instanceof PDFNumber)) {
+        return 1;
+    }
+    return Math.max(0, Math.min(1, opacity.asNumber()));
+}
+
+function readBorderWidth(dict: PDFDict) {
+    const border = dict.lookupMaybe(BORDER_NAME, PDFArray);
+    if (border instanceof PDFArray && border.size() >= 3) {
+        const width = numberFromPdfArray(border, 2);
+        if (width !== null && width > 0) {
+            return width;
+        }
+    }
+
+    const borderStyle = dict.lookupMaybe(BORDER_STYLE_NAME, PDFDict);
+    if (borderStyle instanceof PDFDict) {
+        const width = borderStyle.lookupMaybe(WIDTH_NAME, PDFNumber);
+        if (width instanceof PDFNumber && width.asNumber() > 0) {
+            return width.asNumber();
+        }
+    }
+
+    return 1;
+}
+
+function refToAnnotationId(ref: PDFRef) {
+    return `${ref.objectNumber}R${ref.generationNumber}`;
+}
+
+function createImportedShapeId(
+    pageIndex: number,
+    annotationId: string | null,
+    subtype: TEmbeddedPdfShapeSubtype,
+) {
+    if (annotationId) {
+        return `embedded-shape:${pageIndex}:${annotationId}`;
+    }
+    return `embedded-shape:${pageIndex}:${subtype}:${crypto.randomUUID()}`;
+}
+
+function toLineEndStyle(value: string | null | undefined): TLineEndStyle | undefined {
+    switch ((value ?? '').replace(/^\//, '').trim().toLowerCase()) {
+        case 'openarrow':
+            return 'openArrow';
+        case 'closedarrow':
+            return 'closedArrow';
+        case 'none':
+        case '':
+            return 'none';
+        default:
+            return undefined;
+    }
+}
+
+function readLineEndingStyles(dict: PDFDict) {
+    const lineEndings = dict.lookupMaybe(LINE_ENDINGS_NAME, PDFArray);
+    if (!(lineEndings instanceof PDFArray)) {
+        return {
+            lineStartStyle: undefined,
+            lineEndStyle: undefined,
+        };
+    }
+
+    return {
+        lineStartStyle: toLineEndStyle(lineEndings.get(0)?.toString()),
+        lineEndStyle: toLineEndStyle(lineEndings.get(1)?.toString()),
+    };
+}
+
+function toImportedShapeType(
+    subtype: TEmbeddedPdfShapeSubtype,
+    lineStartStyle?: TLineEndStyle,
+    lineEndStyle?: TLineEndStyle,
+): TShapeType {
+    switch (subtype) {
+        case 'Square':
+            return 'rectangle';
+        case 'Circle':
+            return 'circle';
+        case 'Line':
+            return (lineStartStyle ?? 'none') === 'none' && (lineEndStyle ?? 'none') === 'none'
+                ? 'line'
+                : 'arrow';
+        case 'PolyLine':
+            return 'polyline';
+        case 'Polygon':
+            return 'polygon';
+    }
+}
+
+function toPointsBounds(points: IShapePoint[]) {
+    if (points.length === 0) {
+        return null;
+    }
+
+    const xs = points.map(point => point.x);
+    const ys = points.map(point => point.y);
+    return {
+        x: Math.min(...xs),
+        y: Math.min(...ys),
+        width: Math.max(0.0001, Math.max(...xs) - Math.min(...xs)),
+        height: Math.max(0.0001, Math.max(...ys) - Math.min(...ys)),
+    };
+}
+
+function importRectShape(
+    dict: PDFDict,
+    ref: PDFRef,
+    pageIndex: number,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+    subtype: Extract<TEmbeddedPdfShapeSubtype, 'Square' | 'Circle'>,
+): IShapeAnnotation | null {
+    const markerRect = normalizeMarkerRect(
+        toMarkerRectFromPdfRect(readPdfRectFromDict(dict), pageView, pageRotation),
+    );
+    if (!markerRect) {
+        return null;
+    }
+
+    const annotationId = refToAnnotationId(ref);
+    const fillColor = toHexColor(readColor(dict, INTERIOR_COLOR_NAME), '');
+    return {
+        id: createImportedShapeId(pageIndex, annotationId, subtype),
+        type: toImportedShapeType(subtype),
+        pageIndex,
+        x: markerRect.left,
+        y: markerRect.top,
+        width: markerRect.width,
+        height: markerRect.height,
+        color: toHexColor(readColor(dict, COLOR_NAME), '#ff0000'),
+        fillColor: fillColor || undefined,
+        opacity: readOpacity(dict),
+        strokeWidth: readBorderWidth(dict),
+        source: 'embedded',
+        annotationId,
+        pdfSubtype: subtype,
+    };
+}
+
+function importLineShape(
+    dict: PDFDict,
+    ref: PDFRef,
+    pageIndex: number,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+): IShapeAnnotation | null {
+    const line = dict.lookupMaybe(LINE_POINTS_NAME, PDFArray);
+    if (!(line instanceof PDFArray) || line.size() < 4) {
+        return null;
+    }
+
+    const values = numbersFromPdfArray(line);
+    if (!values || values.length < 4) {
+        return null;
+    }
+
+    const start = toMarkerPointFromPdfPoint(
+        values[0]!,
+        values[1]!,
+        pageView,
+        pageRotation,
+    );
+    const end = toMarkerPointFromPdfPoint(
+        values[2]!,
+        values[3]!,
+        pageView,
+        pageRotation,
+    );
+    if (!start || !end) {
+        return null;
+    }
+
+    const annotationId = refToAnnotationId(ref);
+    const {
+        lineStartStyle,
+        lineEndStyle,
+    } = readLineEndingStyles(dict);
+
+    return {
+        id: createImportedShapeId(pageIndex, annotationId, 'Line'),
+        type: toImportedShapeType('Line', lineStartStyle, lineEndStyle),
+        pageIndex,
+        x: start.x,
+        y: start.y,
+        x2: end.x,
+        y2: end.y,
+        width: Math.abs(end.x - start.x),
+        height: Math.abs(end.y - start.y),
+        color: toHexColor(readColor(dict, COLOR_NAME), '#ff0000'),
+        opacity: readOpacity(dict),
+        strokeWidth: readBorderWidth(dict),
+        source: 'embedded',
+        annotationId,
+        pdfSubtype: 'Line',
+        lineStartStyle,
+        lineEndStyle,
+    };
+}
+
+function importVerticesShape(
+    dict: PDFDict,
+    ref: PDFRef,
+    pageIndex: number,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+    subtype: Extract<TEmbeddedPdfShapeSubtype, 'PolyLine' | 'Polygon'>,
+): IShapeAnnotation | null {
+    const vertices = dict.lookupMaybe(VERTICES_NAME, PDFArray);
+    if (!(vertices instanceof PDFArray) || vertices.size() < 4) {
+        return null;
+    }
+
+    const values = numbersFromPdfArray(vertices);
+    if (!values || values.length < 4) {
+        return null;
+    }
+
+    const points: IShapePoint[] = [];
+    for (let index = 0; index < values.length; index += 2) {
+        const point = toMarkerPointFromPdfPoint(
+            values[index]!,
+            values[index + 1]!,
+            pageView,
+            pageRotation,
+        );
+        if (point) {
+            points.push(point);
+        }
+    }
+
+    if (points.length < 2) {
+        return null;
+    }
+
+    const bounds = toPointsBounds(points);
+    if (!bounds) {
+        return null;
+    }
+
+    const annotationId = refToAnnotationId(ref);
+    const {
+        lineStartStyle,
+        lineEndStyle,
+    } = readLineEndingStyles(dict);
+    const fillColor = subtype === 'Polygon'
+        ? toHexColor(readColor(dict, INTERIOR_COLOR_NAME), '')
+        : '';
+
+    return {
+        id: createImportedShapeId(pageIndex, annotationId, subtype),
+        type: toImportedShapeType(subtype, lineStartStyle, lineEndStyle),
+        pageIndex,
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        color: toHexColor(readColor(dict, COLOR_NAME), '#ff0000'),
+        fillColor: fillColor || undefined,
+        opacity: readOpacity(dict),
+        strokeWidth: readBorderWidth(dict),
+        points,
+        source: 'embedded',
+        annotationId,
+        pdfSubtype: subtype,
+        lineStartStyle,
+        lineEndStyle,
+    };
+}
+
+export function isImportedEmbeddedShapeSubtype(subtype: string | null | undefined) {
+    const normalizedSubtype = normalizeImportedShapeSubtype(subtype);
+    return normalizedSubtype ? IMPORTED_SHAPE_SUBTYPES.has(normalizedSubtype) : false;
+}
+
+export async function importEmbeddedShapeAnnotations(data: Uint8Array) {
+    const pdfDocument = await PDFDocument.load(data, { updateMetadata: false });
+    const importedShapes: IShapeAnnotation[] = [];
+
+    for (const [
+        pageIndex,
+        page,
+    ] of pdfDocument.getPages().entries()) {
+        const pageView = resolvePdfPageView(page);
+        if (!pageView) {
+            continue;
+        }
+
+        const pageRotation = normalizePageRotation(page.getRotation().angle);
+        const annots = page.node.Annots();
+        if (!(annots instanceof PDFArray)) {
+            continue;
+        }
+
+        for (let annotationIndex = 0; annotationIndex < annots.size(); annotationIndex += 1) {
+            const value = annots.get(annotationIndex);
+            if (!(value instanceof PDFRef)) {
+                continue;
+            }
+
+            const dict = pdfDocument.context.lookupMaybe(value, PDFDict);
+            if (!(dict instanceof PDFDict)) {
+                continue;
+            }
+
+            const rawSubtype = dict.get(PDFName.of('Subtype'))?.toString() ?? null;
+            const subtype = normalizeImportedShapeSubtype(rawSubtype?.replace(/^\//, ''));
+            if (!subtype) {
+                continue;
+            }
+
+            const importedShape = (() => {
+                switch (subtype) {
+                    case 'Square':
+                    case 'Circle':
+                        return importRectShape(dict, value, pageIndex, pageView, pageRotation, subtype);
+                    case 'Line':
+                        return importLineShape(dict, value, pageIndex, pageView, pageRotation);
+                    case 'PolyLine':
+                    case 'Polygon':
+                        return importVerticesShape(dict, value, pageIndex, pageView, pageRotation, subtype);
+                }
+            })();
+
+            if (importedShape) {
+                importedShapes.push(importedShape);
+            }
+        }
+    }
+
+    return importedShapes;
+}
+
+export function collectEmbeddedShapeAnnotationIds(shapes: IShapeAnnotation[]) {
+    const ids = new Set<string>();
+    shapes.forEach((shape) => {
+        if (shape.source === 'embedded' && shape.annotationId) {
+            ids.add(shape.annotationId);
+        }
+    });
+    return ids;
+}

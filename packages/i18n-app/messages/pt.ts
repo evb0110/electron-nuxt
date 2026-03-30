@@ -180,6 +180,7 @@ export default {
     },
     'annotationProperties': {
         'close': 'Fechar',
+        'delete': 'Eliminar',
         'color': 'Cor',
         'fill': 'Preenchimento',
         'stroke': 'Contorno',

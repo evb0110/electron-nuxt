@@ -28,6 +28,9 @@
             @start-drawing="shapeContext.handleStartDrawing(page - 1, $event)"
             @continue-drawing="shapeContext.handleContinueDrawing($event)"
             @finish-drawing="shapeContext.handleFinishDrawing()"
+            @start-drag-shape="shapeContext.handleStartDraggingShape($event.shapeId, $event)"
+            @continue-drag-shape="shapeContext.handleContinueDraggingShape($event)"
+            @finish-drag-shape="shapeContext.handleFinishDraggingShape()"
             @select-shape="shapeContext.handleSelectShape($event)"
             @shape-contextmenu="shapeContext.handleShapeContextMenu($event)"
         />

@@ -18,6 +18,7 @@ const SUPPORTED_EXTENSIONS = new Set([
 
 const EXTERNAL_OPEN_BATCH_WINDOW_MS = 800;
 const EXTERNAL_OPEN_MAX_BATCH_WAIT_MS = 10_000;
+const EXTERNAL_OPEN_RETRY_DISPATCH_MS = 1_000;
 const EXTERNAL_OPEN_PENDING_MAX_PATHS = (() => {
     const parsed = Number.parseInt(process.env.EVB_EXTERNAL_OPEN_PENDING_MAX_PATHS ?? '256', 10);
     if (!Number.isFinite(parsed) || parsed < 8) {
@@ -52,7 +53,7 @@ interface ICreateExternalOpenManagerOptions {
     getMainWindow: () => IWindowLike | null;
     hasWindows: () => boolean;
     createWindow: () => Promise<unknown>;
-    dispatchOpenPaths: (paths: string[]) => void;
+    dispatchOpenPaths: (paths: string[]) => boolean;
 }
 
 function isSupportedExternalOpenPath(filePath: string) {
@@ -108,10 +109,12 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     const pendingExternalOpenPaths: string[] = [];
     const pendingExternalOpenPathSet = new Set<string>();
     let flushPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
     let batchWindowStartTime: number | null = null;
     let externalOpenBootstrapReady = false;
     let ensureWindowForExternalOpenPromise: Promise<void> | null = null;
     let hasHandledInitialExternalOpenDispatch = false;
+    let pendingFlushRequested = false;
 
     function isSupportedFile(filePath: string) {
         return isSupportedExternalOpenPath(filePath);
@@ -221,16 +224,24 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
                 `External open queue exceeded cap (${EXTERNAL_OPEN_PENDING_MAX_PATHS}); dropped ${droppedCount} oldest path(s)`,
             );
         }
+
+        if (externalOpenBootstrapReady && options.hasWindows()) {
+            scheduleFlushPendingFiles();
+        }
     }
 
-    function collectMergedPendingPaths() {
-        if (pendingExternalOpenPaths.length === 0) {
-            return [];
+    function getPendingPathsSnapshot() {
+        return pendingExternalOpenPaths.slice();
+    }
+
+    function removePendingPaths(paths: string[]) {
+        for (const path of paths) {
+            const existingIndex = pendingExternalOpenPaths.indexOf(path);
+            if (existingIndex >= 0) {
+                pendingExternalOpenPaths.splice(existingIndex, 1);
+            }
+            pendingExternalOpenPathSet.delete(path);
         }
-        const mergedPaths = pendingExternalOpenPaths.slice();
-        pendingExternalOpenPaths.length = 0;
-        pendingExternalOpenPathSet.clear();
-        return mergedPaths;
     }
 
     function queueOpenRequestFromArgs(args: string[]) {
@@ -256,6 +267,31 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         }
 
         window.focus();
+    }
+
+    function clearRetryPendingFilesTimer() {
+        if (!retryPendingFilesTimer) {
+            return;
+        }
+
+        clearTimeout(retryPendingFilesTimer);
+        retryPendingFilesTimer = null;
+    }
+
+    function scheduleRetryPendingFiles() {
+        if (
+            retryPendingFilesTimer
+            || !externalOpenBootstrapReady
+            || pendingExternalOpenPaths.length === 0
+        ) {
+            return;
+        }
+
+        retryPendingFilesTimer = setTimeout(() => {
+            retryPendingFilesTimer = null;
+            flushPendingFiles();
+        }, EXTERNAL_OPEN_RETRY_DISPATCH_MS);
+        retryPendingFilesTimer.unref?.();
     }
 
     async function ensureMainWindowForExternalOpen() {
@@ -296,20 +332,50 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         }
         batchWindowStartTime = null;
 
-        if (!options.isMainWindowRendererReady()) {
+        if (pendingExternalOpenPaths.length === 0) {
+            pendingFlushRequested = false;
+            clearRetryPendingFilesTimer();
             return;
         }
 
-        const paths = collectMergedPendingPaths();
-        if (paths.length > 0) {
-            options.logger.info(`Flushing ${paths.length} batched external open path(s)`);
-            options.dispatchOpenPaths(paths);
-            options.logStartupPhase(`Dispatched external file open batch (${paths.length} path(s))`);
+        if (!options.isMainWindowRendererReady()) {
+            pendingFlushRequested = true;
+            scheduleRetryPendingFiles();
+            return;
         }
+
+        clearRetryPendingFilesTimer();
+        const paths = getPendingPathsSnapshot();
+        if (paths.length === 0) {
+            pendingFlushRequested = false;
+            return;
+        }
+
+        options.logger.info(`Flushing ${paths.length} batched external open path(s)`);
+        const dispatched = options.dispatchOpenPaths(paths);
+        if (!dispatched) {
+            pendingFlushRequested = true;
+            options.logger.warn('External open dispatch could not reach the renderer; keeping paths queued for retry');
+            scheduleRetryPendingFiles();
+            return;
+        }
+
+        removePendingPaths(paths);
+        pendingFlushRequested = pendingExternalOpenPaths.length > 0;
+        options.logStartupPhase(`Dispatched external file open batch (${paths.length} path(s))`);
     }
 
     function scheduleFlushPendingFiles() {
+        if (pendingExternalOpenPaths.length === 0) {
+            pendingFlushRequested = false;
+            clearRetryPendingFilesTimer();
+            return;
+        }
+
+        pendingFlushRequested = true;
+
         if (!options.isMainWindowRendererReady()) {
+            scheduleRetryPendingFiles();
             return;
         }
 
@@ -343,6 +409,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             clearTimeout(flushPendingFilesTimer);
             flushPendingFilesTimer = null;
         }
+        clearRetryPendingFilesTimer();
         batchWindowStartTime = null;
     }
 
@@ -351,6 +418,9 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         isSupportedFile,
         markBootstrapReady() {
             externalOpenBootstrapReady = true;
+            if (pendingFlushRequested || pendingExternalOpenPaths.length > 0) {
+                scheduleRetryPendingFiles();
+            }
         },
         queueOpenRequest,
         queueOpenRequestFromArgs,

@@ -29,7 +29,7 @@
                 >
             </label>
 
-            <label v-if="shape.type === 'rectangle' || shape.type === 'circle'" class="annotation-properties-field">
+            <label v-if="shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'polygon'" class="annotation-properties-field">
                 <span class="annotation-properties-label">{{ t('annotationProperties.fill') }}</span>
                 <div class="annotation-properties-fill-row">
                     <input
@@ -77,6 +77,17 @@
                 >
                 <span class="annotation-properties-value">{{ Math.round(shape.opacity * 100) }}%</span>
             </label>
+
+            <UButton
+                color="error"
+                variant="soft"
+                size="xs"
+                icon="i-lucide-trash-2"
+                class="annotation-properties-delete"
+                @click="emit('delete')"
+            >
+                {{ t('annotationProperties.delete') }}
+            </UButton>
         </div>
     </div>
 </template>
@@ -98,6 +109,7 @@ const props = defineProps<IProps>();
 const emit = defineEmits<{
     (e: 'update', updates: Partial<IShapeAnnotation>): void;
     (e: 'close'): void;
+    (e: 'delete'): void;
 }>();
 
 const shapeLabel = computed(() => {
@@ -106,6 +118,8 @@ const shapeLabel = computed(() => {
         case 'circle': return t('annotationProperties.ellipse');
         case 'line': return t('annotationProperties.line');
         case 'arrow': return t('annotationProperties.arrow');
+        case 'polyline': return t('annotationProperties.line');
+        case 'polygon': return t('annotationProperties.shape');
         default: return t('annotationProperties.shape');
     }
 });
@@ -171,6 +185,11 @@ function toggleFill() {
 
 .annotation-properties-body {
     padding: 8px 10px;
+}
+
+.annotation-properties-delete {
+    margin-top: 4px;
+    align-self: flex-end;
 }
 
 .annotation-properties-field {

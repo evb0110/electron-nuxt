@@ -25,6 +25,7 @@ interface IPdfViewerForSave {
     saveDocument: () => Promise<Uint8Array | null>;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype> | undefined;
     getAllShapes: () => IShapeAnnotation[];
+    getDeletedEmbeddedShapeAnnotationIds: () => string[];
 }
 
 interface IPageSaveOrchestrationDeps {
@@ -127,6 +128,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         untitledBookmarkLabel: t('bookmarks.untitled'),
         getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
         getAllShapes: () => pdfViewerRef.value?.getAllShapes() ?? [],
+        getDeletedEmbeddedShapeAnnotationIds: () => pdfViewerRef.value?.getDeletedEmbeddedShapeAnnotationIds() ?? [],
     });
 
     const {

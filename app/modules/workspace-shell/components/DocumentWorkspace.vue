@@ -259,6 +259,7 @@
                         v-if="pdfSrc"
                         ref="pdfViewerRef"
                         :src="pdfSrc!"
+                        :source-pdf-data="viewerSourcePdfData"
                         :is-any-saving="isAnySaving"
                         :zoom="zoom"
                         :zoom-mode="zoomMode"
@@ -397,6 +398,7 @@
             @page-select-all="handlePageContextMenuSelectAll"
             @page-invert-selection="handlePageContextMenuInvertSelection"
             @shape-update="handleShapePropertyUpdate"
+            @shape-delete="handleDeleteSelectedShape"
             @shape-close="closeShapeProperties"
         />
 
@@ -529,6 +531,7 @@ const w = useWorkspaceOrchestration({
 
 const {
     pdfSrc,
+    pdfData,
     pdfError,
     workingCopyPath,
     pdfDocument,
@@ -673,6 +676,7 @@ const {
     handleAnnotationCommentClick,
     handleOpenAnnotationNote,
     closeShapeProperties,
+    handleDeleteSelectedShape,
     handleShapePropertyUpdate,
     handleShapeContextMenu,
     handleViewerAnnotationContextMenu,
@@ -735,6 +739,8 @@ const {
     initFromStorage,
     hasPdf,
 } = w;
+
+const viewerSourcePdfData = computed(() => pdfData.value);
 
 const showNativeDjvuViewer = computed(() => (
     isDjvuMode.value
@@ -936,6 +942,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleExportImages,
     handleExportMultiPageTiff,
     hasPdf,
+    isOpeningDocument: computed(() => pendingDocumentOpen.value || isRestoringSplitPayload.value),
     canSave,
     canUndo,
     canRedo,

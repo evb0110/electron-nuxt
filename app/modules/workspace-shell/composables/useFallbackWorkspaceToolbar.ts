@@ -58,6 +58,7 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
     function createDefaultToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         return {
             hasPdf: false,
+            isOpeningDocument: false,
             canSave: false,
             canUndo: false,
             canRedo: false,
@@ -167,6 +168,7 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
 
     const fallbackToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
         hasPdf: fallbackHasPdf.value,
+        isOpeningDocument: false,
         canSave: fallbackCanSave.value,
         canUndo: fallbackCanUndo.value,
         canRedo: fallbackCanRedo.value,

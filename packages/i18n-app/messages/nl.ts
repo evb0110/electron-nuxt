@@ -177,6 +177,7 @@ export default {
     },
     'annotationProperties': {
         'close': 'Sluiten',
+        'delete': 'Verwijderen',
         'color': 'Kleur',
         'fill': 'Vulling',
         'stroke': 'Lijnkleur',

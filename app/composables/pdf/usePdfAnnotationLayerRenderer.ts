@@ -112,6 +112,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     currentPage: Ref<number>;
     pdfDocument: Ref<PDFDocumentProxy | null>;
     showAnnotations: MaybeRefOrGetter<boolean>;
+    hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     annotationUiManager: MaybeRefOrGetter<AnnotationEditorUIManager | null>;
     annotationL10n: MaybeRefOrGetter<IL10n | null>;
     scrollToPage?: (pageNumber: number) => void;
@@ -140,6 +141,15 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         pause: () => {},
         resume: () => {},
     };
+
+    function getAnnotationId(annotation: unknown) {
+        if (!annotation || typeof annotation !== 'object') {
+            return null;
+        }
+
+        const annotationId = (annotation as { id?: unknown }).id;
+        return typeof annotationId === 'string' ? annotationId : null;
+    }
 
     function toPdfjsTextLayerRef(
         textLayerDiv: HTMLDivElement | null,
@@ -206,6 +216,22 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         clearAllLayers();
     }
 
+    function applyHiddenAnnotations(annotationLayerDiv: HTMLElement) {
+        const hiddenAnnotationIds = toValue(deps.hiddenAnnotationIds) ?? new Set<string>();
+        if (hiddenAnnotationIds.size === 0) {
+            return;
+        }
+
+        annotationLayerDiv.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach((element) => {
+            const annotationId = element.dataset.annotationId;
+            if (!annotationId || !hiddenAnnotationIds.has(annotationId)) {
+                return;
+            }
+            element.style.display = 'none';
+            element.setAttribute('aria-hidden', 'true');
+        });
+    }
+
     async function renderAnnotationLayer(
         pdfPage: PDFPageProxy,
         annotationLayerDiv: HTMLElement,
@@ -215,6 +241,10 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         annotationLayerDiv.innerHTML = '';
 
         const annotations = await pdfPage.getAnnotations();
+        const hiddenAnnotationIds = toValue(deps.hiddenAnnotationIds) ?? new Set<string>();
+        const visibleAnnotations = hiddenAnnotationIds.size === 0
+            ? annotations
+            : annotations.filter(annotation => !hiddenAnnotationIds.has(getAnnotationId(annotation) ?? ''));
         const annotationStorage = deps.pdfDocument.value?.annotationStorage;
         const annotationUiManager = toValue(deps.annotationUiManager) ?? null;
 
@@ -267,7 +297,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         });
 
         await annotationLayerInstance.render({
-            annotations,
+            annotations: visibleAnnotations,
             viewport,
             div: annotationLayerDiv as HTMLDivElement,
             page: pdfPage,
@@ -275,6 +305,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             renderForms: false,
             annotationStorage,
         });
+        applyHiddenAnnotations(annotationLayerDiv);
 
         return annotationLayerInstance;
     }

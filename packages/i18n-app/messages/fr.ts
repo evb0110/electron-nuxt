@@ -180,6 +180,7 @@ export default {
     },
     'annotationProperties': {
         'close': 'Fermer',
+        'delete': 'Supprimer',
         'color': 'Couleur',
         'fill': 'Remplissage',
         'stroke': 'Contour',

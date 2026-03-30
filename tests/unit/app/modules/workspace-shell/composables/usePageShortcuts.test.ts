@@ -34,7 +34,10 @@ function createDeps() {
         showSettings: ref(false),
         annotationTool: ref<TAnnotationTool>('none'),
         annotationPlacingPageNote: ref(false),
-        pdfViewerRef: ref(null),
+        pdfViewerRef: ref({
+            cancelCommentPlacement: vi.fn(),
+            deleteSelectedShape: vi.fn(),
+        }),
         shapePropertiesPopoverVisible: ref(false),
         annotationContextMenuVisible: ref(false),
         pageContextMenuVisible: ref(false),
@@ -199,5 +202,26 @@ describe('usePageShortcuts', () => {
         }));
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
         expect(deps.closePageContextMenu).toHaveBeenCalledOnce();
+    });
+
+    it('deletes the selected shape on Delete without modifiers', async () => {
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 'Delete',
+            code: 'Delete',
+            metaKey: false,
+            ctrlKey: false,
+            altKey: false,
+            target: null,
+            preventDefault,
+        }));
+
+        expect(preventDefault).toHaveBeenCalledOnce();
+        expect(deps.pdfViewerRef.value?.deleteSelectedShape).toHaveBeenCalledOnce();
     });
 });

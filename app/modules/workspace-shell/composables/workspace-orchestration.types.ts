@@ -42,6 +42,7 @@ export interface IPdfViewerExpose {
     removeAnnotationFromInternalCache: (stableKey: string) => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
     getAllShapes: () => IShapeAnnotation[];
+    getDeletedEmbeddedShapeAnnotationIds: () => string[];
     loadShapes: (shapes: IShapeAnnotation[]) => void;
     clearShapes: () => void;
     deleteSelectedShape: () => void;

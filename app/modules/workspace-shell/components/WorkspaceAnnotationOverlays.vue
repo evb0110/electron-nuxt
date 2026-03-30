@@ -117,6 +117,7 @@
         :y="shapePropertiesY"
         @update="(updates: Partial<IShapeAnnotation>) => $emit('shape-update', updates)"
         @close="$emit('shape-close')"
+        @delete="$emit('shape-delete')"
     />
 </template>
 
@@ -767,6 +768,7 @@ const emit = defineEmits<{
     'page-invert-selection': [];
     'shape-update': [updates: Partial<IShapeAnnotation>];
     'shape-close': [];
+    'shape-delete': [];
 }>();
 </script>
 

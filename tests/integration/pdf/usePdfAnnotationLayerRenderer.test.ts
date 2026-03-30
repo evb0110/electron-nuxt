@@ -34,7 +34,17 @@ const editorLayerInstances: MockAnnotationEditorLayer[] = [];
 const drawLayerInstances: MockDrawLayer[] = [];
 
 class MockAnnotationLayer {
-    async render() {
+    async render(params?: {
+        div?: HTMLDivElement;
+        annotations?: Array<{ id?: string | null }>;
+    }) {
+        params?.annotations?.forEach((annotation) => {
+            if (!params.div || !annotation.id) {
+                return;
+            }
+            cast<{ append: (element: IFakeAnnotationElement) => void }>(params.div)
+                .append(createAnnotationElement(annotation.id));
+        });
         return;
     }
 }
@@ -124,6 +134,18 @@ interface IViewportLike {
     rawDims?: Record<string, unknown>;
 }
 
+interface IFakeAnnotationElement {
+    dataset: { annotationId?: string; };
+    style: Record<string, string>;
+    setAttribute: (name: string, value: string) => void;
+    getAttribute: (name: string) => string | null;
+}
+
+interface IFakeAnnotationLayerDiv extends IFakeDivElement {
+    append: (element: IFakeAnnotationElement) => void;
+    querySelectorAll: (selector: string) => IFakeAnnotationElement[];
+}
+
 function createDiv(): HTMLDivElement {
     const fakeDiv: IFakeDivElement = {
         innerHTML: '',
@@ -132,6 +154,45 @@ function createDiv(): HTMLDivElement {
         style: {},
         setAttribute: vi.fn(),
         addEventListener: vi.fn(),
+    };
+    return cast<HTMLDivElement>(fakeDiv);
+}
+
+function createAnnotationElement(annotationId: string): IFakeAnnotationElement {
+    const attributes = new Map<string, string>();
+    const element: IFakeAnnotationElement = {
+        dataset: { annotationId },
+        style: {},
+        setAttribute: (name: string, value: string) => {
+            attributes.set(name, value);
+        },
+        getAttribute: (name: string) => attributes.get(name) ?? null,
+    };
+    return element;
+}
+
+function createAnnotationLayerDiv(): HTMLDivElement {
+    const appended: IFakeAnnotationElement[] = [];
+    const fakeDiv: IFakeAnnotationLayerDiv = {
+        innerHTML: '',
+        dir: 'ltr',
+        hidden: false,
+        style: {},
+        setAttribute: vi.fn(),
+        addEventListener: vi.fn(),
+        append: (element: IFakeAnnotationElement) => {
+            appended.push(element);
+        },
+        querySelectorAll: (selector: string) => {
+            const exactMatch = selector.match(/^\[data-annotation-id="(.+)"\]$/);
+            if (selector === '[data-annotation-id]') {
+                return appended;
+            }
+            if (exactMatch) {
+                return appended.filter(element => element.dataset.annotationId === exactMatch[1]);
+            }
+            return [];
+        },
     };
     return cast<HTMLDivElement>(fakeDiv);
 }
@@ -282,5 +343,30 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(thirdResult).toBe(true);
         expect(loggerWarn).toHaveBeenCalledTimes(1);
         expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(2);
+    });
+
+    it('suppresses imported embedded annotations before they are added to the annotation layer DOM', async () => {
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(1),
+            currentPage: ref(1),
+            pdfDocument: ref(null),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds: ref(new Set(['12R0'])),
+            annotationUiManager: mockUiManagerRef(createUiManager(false)),
+            annotationL10n: ref(null),
+        });
+
+        const annotationLayerDiv = createAnnotationLayerDiv();
+        const pdfPage = cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => [{ id: '12R0' }]) });
+
+        await renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv,
+            createViewport(),
+            1,
+        );
+
+        const hiddenElement = annotationLayerDiv.querySelectorAll('[data-annotation-id="12R0"]')[0] as IFakeAnnotationElement | undefined;
+        expect(hiddenElement).toBeUndefined();
     });
 });
