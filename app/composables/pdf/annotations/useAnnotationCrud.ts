@@ -1046,6 +1046,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         const highlight = getHighlight();
         const inlineIndicators = getInlineIndicators();
         const clickTarget = event.target;
+        const clickedEditorMatch = findEditorFromTarget(clickTarget);
 
         if (highlight.isPlacingComment.value) {
             const attemptId = nextNotePlacementAttemptId();
@@ -1148,7 +1149,9 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         setActiveCommentAndSync(summary.stableKey);
         inlineIndicators.pulseCommentIndicator(summary.stableKey);
         emitAnnotationCommentClick(summary);
-        clearStickyHighlightSelectionState(findEditorForComment(summary));
+        if (!clickedEditorMatch) {
+            clearStickyHighlightSelectionState(findEditorForComment(summary));
+        }
     }
 
     function handleAnnotationCommentContextMenu(event: MouseEvent) {

@@ -47,11 +47,10 @@ export function useWorkspaceViewState(deps: IWorkspaceViewStateDeps) {
             return false;
         }
 
-        // Keep editor layer active while note windows are open, otherwise
-        // PDF.js destroys their backing editors (see docs/freetext-note-persistence.md)
-        return deps.annotationTool.value !== 'none'
-            || deps.annotationEditorState.value.hasSelectedEditor
-            || deps.hasOpenAnnotationNotes.value;
+        // In text-select mode we still want existing PDF annotations and
+        // PDF.js-backed drawings to remain interactable/selectable. Hand tool
+        // is the only state that should fully disable annotation interaction.
+        return true;
     });
     const canUndo = computed(() => (
         isAnnotationUndoContext.value
