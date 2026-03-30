@@ -6,12 +6,14 @@ import {
 import { ref } from 'vue';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspace-view-state';
 
-function createState() {
+function createState(options?: { dragMode?: boolean; }) {
     return useWorkspaceViewState({
         fitMode: ref('width'),
         zoomMode: ref('fit-width'),
         zoom: ref(1),
-        dragMode: ref(true),
+        dragMode: ref(
+            options?.dragMode ?? true,
+        ),
         showSidebar: ref(false),
         sidebarTab: ref('thumbnails'),
         annotationTool: ref('none'),
@@ -51,5 +53,10 @@ describe('useWorkspaceViewState', () => {
     it('disables annotation cursor when drag mode is enabled', () => {
         const state = createState();
         expect(state.annotationCursorMode.value).toBe(false);
+    });
+
+    it('keeps annotation cursor enabled outside hand-tool mode', () => {
+        const state = createState({ dragMode: false });
+        expect(state.annotationCursorMode.value).toBe(true);
     });
 });

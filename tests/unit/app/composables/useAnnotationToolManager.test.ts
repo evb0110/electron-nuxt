@@ -166,4 +166,14 @@ describe('useAnnotationToolState', () => {
 
         expect(emitAnnotationToolAutoReset).toHaveBeenCalledTimes(1);
     });
+
+    it('keeps popup interaction mode available when annotation cursor mode is enabled', async () => {
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const manager = useAnnotationToolState(createToolStateOptions(
+            createUiManager(),
+            { annotationCursorMode: computed(() => true) },
+        ) as never);
+
+        expect(manager.getAnnotationMode('none')).toBe(4);
+    });
 });
