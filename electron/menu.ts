@@ -158,15 +158,17 @@ function buildMergeWindowSubmenu(sourceWindowId: number): MenuItemConstructorOpt
 
 export function sendToWindow(window: BaseWindow | undefined | null, channel: string, ...args: unknown[]) {
     if (!(window instanceof BrowserWindow) || window.isDestroyed() || window.webContents.isDestroyed()) {
-        return;
+        return false;
     }
 
     try {
         window.webContents.send(channel, ...args);
+        return true;
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         // Menu clicks can race with window teardown; avoid surfacing this as a main-process crash.
         logger.warn(`Failed to send "${channel}" to renderer: ${message}`);
+        return false;
     }
 }
 

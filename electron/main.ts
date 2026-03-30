@@ -287,11 +287,12 @@ const externalOpenManager = createExternalOpenManager({
         await createWindow();
     },
     dispatchOpenPaths: (paths) => {
-        const window = getMainWindow();
+        const window = BrowserWindow.getFocusedWindow() ?? getMainWindow();
         if (!window) {
-            return;
+            return false;
         }
-        sendToWindow(window, 'menu:openExternalPaths', paths);
+
+        return sendToWindow(window, 'menu:openExternalPaths', paths);
     },
 });
 macOpenFileRouter.attachExternalOpenManager(externalOpenManager);

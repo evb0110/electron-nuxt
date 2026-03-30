@@ -773,6 +773,7 @@ export const usePdfFile = () => {
     async function persistPdfDataSilently(data: Uint8Array) {
         const snapshot = data.slice();
         pdfData.value = snapshot;
+        pdfSrc.value = toPdfBlob(snapshot);
         pushHistorySnapshot(snapshot, { reuseSnapshot: true });
 
         if (workingCopyPath.value) {

@@ -15,9 +15,68 @@
             v-for="shape in shapes"
             :key="shape.id"
             :class="{ 'is-selected': shape.id === selectedShapeId }"
-            @pointerdown.stop.prevent="handleShapeClick(shape.id)"
+            @pointerdown.stop.prevent="handleShapePointerDown(shape, $event)"
+            @click.stop.prevent="handleShapeClick(shape.id)"
             @contextmenu.stop.prevent="handleShapeContextMenu(shape.id, $event)"
         >
+            <rect
+                v-if="shape.type === 'rectangle'"
+                :x="shape.x"
+                :y="shape.y"
+                :width="shape.width"
+                :height="shape.height"
+                class="shape-hit-target"
+                fill="transparent"
+                stroke="transparent"
+                :stroke-width="interactionStrokeWidth(shape)"
+                pointer-events="all"
+                vector-effect="non-scaling-stroke"
+            />
+            <ellipse
+                v-if="shape.type === 'circle'"
+                :cx="shape.x + shape.width / 2"
+                :cy="shape.y + shape.height / 2"
+                :rx="shape.width / 2"
+                :ry="shape.height / 2"
+                class="shape-hit-target"
+                fill="transparent"
+                stroke="transparent"
+                :stroke-width="interactionStrokeWidth(shape)"
+                pointer-events="all"
+                vector-effect="non-scaling-stroke"
+            />
+            <line
+                v-if="shape.type === 'line' || shape.type === 'arrow'"
+                :x1="lineVisibleSegment(shape).x1"
+                :y1="lineVisibleSegment(shape).y1"
+                :x2="lineVisibleSegment(shape).x2"
+                :y2="lineVisibleSegment(shape).y2"
+                class="shape-hit-target"
+                stroke="transparent"
+                :stroke-width="interactionStrokeWidth(shape)"
+                pointer-events="stroke"
+                vector-effect="non-scaling-stroke"
+            />
+            <polyline
+                v-if="shape.type === 'polyline'"
+                :points="shapePoints(shape)"
+                class="shape-hit-target"
+                fill="none"
+                stroke="transparent"
+                :stroke-width="interactionStrokeWidth(shape)"
+                pointer-events="stroke"
+                vector-effect="non-scaling-stroke"
+            />
+            <polygon
+                v-if="shape.type === 'polygon'"
+                :points="shapePoints(shape)"
+                class="shape-hit-target"
+                fill="transparent"
+                stroke="transparent"
+                :stroke-width="interactionStrokeWidth(shape)"
+                pointer-events="all"
+                vector-effect="non-scaling-stroke"
+            />
             <rect
                 v-if="shape.type === 'rectangle'"
                 :x="shape.x"
@@ -43,41 +102,63 @@
                 vector-effect="non-scaling-stroke"
             />
             <line
-                v-if="shape.type === 'line'"
-                :x1="shape.x"
-                :y1="shape.y"
-                :x2="shape.x2 ?? shape.x"
-                :y2="shape.y2 ?? shape.y"
+                v-if="shape.type === 'line' || shape.type === 'arrow'"
+                :x1="lineVisibleSegment(shape).x1"
+                :y1="lineVisibleSegment(shape).y1"
+                :x2="lineVisibleSegment(shape).x2"
+                :y2="lineVisibleSegment(shape).y2"
                 :stroke="shape.color"
                 :opacity="shape.opacity"
                 :stroke-width="strokeWidthNorm(shape.strokeWidth)"
                 vector-effect="non-scaling-stroke"
             />
-            <line
-                v-if="shape.type === 'arrow'"
-                :x1="shape.x"
-                :y1="shape.y"
-                :x2="arrowLineEnd(shape).x"
-                :y2="arrowLineEnd(shape).y"
+            <polyline
+                v-if="shape.type === 'polyline'"
+                :points="shapePoints(shape)"
+                fill="none"
                 :stroke="shape.color"
                 :opacity="shape.opacity"
                 :stroke-width="strokeWidthNorm(shape.strokeWidth)"
                 vector-effect="non-scaling-stroke"
             />
             <polygon
-                v-if="shape.type === 'arrow' && shape.lineEndStyle !== 'openArrow'"
-                :points="arrowHeadPoints(shape)"
-                :fill="shape.color"
+                v-if="shape.type === 'polygon'"
+                :points="shapePoints(shape)"
+                :fill="shape.fillColor ?? 'none'"
+                :stroke="shape.color"
                 :opacity="shape.opacity"
+                :stroke-width="strokeWidthNorm(shape.strokeWidth)"
+                vector-effect="non-scaling-stroke"
             />
             <polyline
-                v-if="shape.type === 'arrow' && shape.lineEndStyle === 'openArrow'"
-                :points="arrowHeadPoints(shape)"
+                v-if="shape.lineStartStyle === 'openArrow'"
+                :points="lineArrowHeadPoints(shape, 'start')"
                 fill="none"
                 :stroke="shape.color"
                 :opacity="shape.opacity"
                 :stroke-width="strokeWidthNorm(shape.strokeWidth)"
                 vector-effect="non-scaling-stroke"
+            />
+            <polygon
+                v-if="isClosedArrow(shape.lineStartStyle)"
+                :points="lineArrowHeadPoints(shape, 'start')"
+                :fill="shape.color"
+                :opacity="shape.opacity"
+            />
+            <polyline
+                v-if="shape.lineEndStyle === 'openArrow'"
+                :points="lineArrowHeadPoints(shape, 'end')"
+                fill="none"
+                :stroke="shape.color"
+                :opacity="shape.opacity"
+                :stroke-width="strokeWidthNorm(shape.strokeWidth)"
+                vector-effect="non-scaling-stroke"
+            />
+            <polygon
+                v-if="isClosedArrow(shape.lineEndStyle)"
+                :points="lineArrowHeadPoints(shape, 'end')"
+                :fill="shape.color"
+                :opacity="shape.opacity"
             />
         </g>
 
@@ -109,23 +190,11 @@
                 vector-effect="non-scaling-stroke"
             />
             <line
-                v-if="drawingShape.type === 'line'"
-                :x1="drawingShape.x"
-                :y1="drawingShape.y"
-                :x2="drawingShape.x2 ?? drawingShape.x"
-                :y2="drawingShape.y2 ?? drawingShape.y"
-                :stroke="drawingShape.color"
-                :opacity="drawingShape.opacity"
-                :stroke-width="strokeWidthNorm(drawingShape.strokeWidth)"
-                stroke-dasharray="0.01 0.005"
-                vector-effect="non-scaling-stroke"
-            />
-            <line
-                v-if="drawingShape.type === 'arrow'"
-                :x1="drawingShape.x"
-                :y1="drawingShape.y"
-                :x2="arrowLineEnd(drawingShape).x"
-                :y2="arrowLineEnd(drawingShape).y"
+                v-if="drawingShape.type === 'line' || drawingShape.type === 'arrow'"
+                :x1="lineVisibleSegment(drawingShape).x1"
+                :y1="lineVisibleSegment(drawingShape).y1"
+                :x2="lineVisibleSegment(drawingShape).x2"
+                :y2="lineVisibleSegment(drawingShape).y2"
                 :stroke="drawingShape.color"
                 :opacity="drawingShape.opacity"
                 :stroke-width="strokeWidthNorm(drawingShape.strokeWidth)"
@@ -133,14 +202,29 @@
                 vector-effect="non-scaling-stroke"
             />
             <polygon
-                v-if="drawingShape.type === 'arrow' && drawingShape.lineEndStyle !== 'openArrow'"
-                :points="arrowHeadPoints(drawingShape)"
+                v-if="isClosedArrow(drawingShape.lineStartStyle)"
+                :points="lineArrowHeadPoints(drawingShape, 'start')"
                 :fill="drawingShape.color"
                 :opacity="drawingShape.opacity"
             />
             <polyline
-                v-if="drawingShape.type === 'arrow' && drawingShape.lineEndStyle === 'openArrow'"
-                :points="arrowHeadPoints(drawingShape)"
+                v-if="drawingShape.lineStartStyle === 'openArrow'"
+                :points="lineArrowHeadPoints(drawingShape, 'start')"
+                fill="none"
+                :stroke="drawingShape.color"
+                :opacity="drawingShape.opacity"
+                :stroke-width="strokeWidthNorm(drawingShape.strokeWidth)"
+                vector-effect="non-scaling-stroke"
+            />
+            <polygon
+                v-if="isClosedArrow(drawingShape.lineEndStyle)"
+                :points="lineArrowHeadPoints(drawingShape, 'end')"
+                :fill="drawingShape.color"
+                :opacity="drawingShape.opacity"
+            />
+            <polyline
+                v-if="drawingShape.lineEndStyle === 'openArrow'"
+                :points="lineArrowHeadPoints(drawingShape, 'end')"
                 fill="none"
                 :stroke="drawingShape.color"
                 :opacity="drawingShape.opacity"
@@ -170,7 +254,7 @@ import { useResizeObserver } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import type {
     IShapeAnnotation,
-    TShapeType,
+    TDrawableShapeType,
     IAnnotationSettings,
 } from '@app/types/annotations';
 
@@ -180,7 +264,7 @@ interface IProps {
     drawingShape: IShapeAnnotation | null;
     selectedShapeId: string | null;
     isActive: boolean;
-    tool: TShapeType | null;
+    tool: TDrawableShapeType | null;
     settings: IAnnotationSettings;
 }
 
@@ -196,6 +280,16 @@ const emit = defineEmits<{
         y: number 
     }): void;
     (e: 'finish-drawing'): void;
+    (e: 'start-drag-shape', payload: {
+        shapeId: string;
+        x: number;
+        y: number
+    }): void;
+    (e: 'continue-drag-shape', payload: {
+        x: number;
+        y: number
+    }): void;
+    (e: 'finish-drag-shape'): void;
     (e: 'select-shape', id: string | null): void;
     (e: 'shape-contextmenu', payload: {
         shapeId: string;
@@ -220,16 +314,32 @@ function strokeWidthNorm(px: number) {
     return px;
 }
 
-function arrowGeometry(shape: IShapeAnnotation) {
-    const x1 = shape.x;
-    const y1 = shape.y;
-    const x2 = shape.x2 ?? shape.x;
-    const y2 = shape.y2 ?? shape.y;
+function interactionStrokeWidth(shape: IShapeAnnotation) {
+    return Math.max(shape.strokeWidth + 8, 12);
+}
+
+function isLineLikeShape(shape: IShapeAnnotation) {
+    return shape.type === 'line' || shape.type === 'arrow';
+}
+
+function hasArrowHead(style: IShapeAnnotation['lineEndStyle']) {
+    return style === 'openArrow' || style === 'closedArrow';
+}
+
+function isClosedArrow(style: IShapeAnnotation['lineEndStyle']) {
+    return style === 'closedArrow';
+}
+
+function lineArrowGeometry(shape: IShapeAnnotation, edge: 'start' | 'end') {
+    const anchorX = edge === 'start' ? shape.x : (shape.x2 ?? shape.x);
+    const anchorY = edge === 'start' ? shape.y : (shape.y2 ?? shape.y);
+    const otherX = edge === 'start' ? (shape.x2 ?? shape.x) : shape.x;
+    const otherY = edge === 'start' ? (shape.y2 ?? shape.y) : shape.y;
     const w = svgWidth.value;
     const h = svgHeight.value;
 
-    const dxPx = (x2 - x1) * w;
-    const dyPx = (y2 - y1) * h;
+    const dxPx = (anchorX - otherX) * w;
+    const dyPx = (anchorY - otherY) * h;
     const angle = Math.atan2(dyPx, dxPx);
     const cosA = Math.cos(angle);
     const sinA = Math.sin(angle);
@@ -237,8 +347,8 @@ function arrowGeometry(shape: IShapeAnnotation) {
     const headLength = 10 * shape.strokeWidth;
     const headHalfWidth = 3.5 * shape.strokeWidth;
 
-    const baseCenterNX = x2 - (headLength * cosA) / w;
-    const baseCenterNY = y2 - (headLength * sinA) / h;
+    const baseCenterNX = anchorX - (headLength * cosA) / w;
+    const baseCenterNY = anchorY - (headLength * sinA) / h;
 
     const perpNX = (-sinA * headHalfWidth) / w;
     const perpNY = (cosA * headHalfWidth) / h;
@@ -249,20 +359,42 @@ function arrowGeometry(shape: IShapeAnnotation) {
     const rightY = baseCenterNY - perpNY;
 
     return {
-        headPoints: `${x2},${y2} ${leftX},${leftY} ${rightX},${rightY}`,
-        lineEnd: {
+        headPoints: `${anchorX},${anchorY} ${leftX},${leftY} ${rightX},${rightY}`,
+        lineAnchor: {
             x: baseCenterNX,
             y: baseCenterNY, 
         },
     };
 }
 
-function arrowHeadPoints(shape: IShapeAnnotation) {
-    return arrowGeometry(shape).headPoints;
+function lineArrowHeadPoints(shape: IShapeAnnotation, edge: 'start' | 'end') {
+    return lineArrowGeometry(shape, edge).headPoints;
 }
 
-function arrowLineEnd(shape: IShapeAnnotation) {
-    return arrowGeometry(shape).lineEnd;
+function lineVisibleSegment(shape: IShapeAnnotation) {
+    const start = hasArrowHead(shape.lineStartStyle)
+        ? lineArrowGeometry(shape, 'start').lineAnchor
+        : {
+            x: shape.x,
+            y: shape.y,
+        };
+    const end = hasArrowHead(shape.lineEndStyle)
+        ? lineArrowGeometry(shape, 'end').lineAnchor
+        : {
+            x: shape.x2 ?? shape.x,
+            y: shape.y2 ?? shape.y,
+        };
+
+    return {
+        x1: start.x,
+        y1: start.y,
+        x2: end.x,
+        y2: end.y,
+    };
+}
+
+function shapePoints(shape: IShapeAnnotation) {
+    return shape.points?.map(point => `${point.x},${point.y}`).join(' ') ?? '';
 }
 
 function getNormalizedCoords(event: PointerEvent) {
@@ -290,7 +422,7 @@ const selectedShapeBounds = computed(() => {
     if (!shape) {
         return null;
     }
-    if (shape.type === 'line' || shape.type === 'arrow') {
+    if (isLineLikeShape(shape)) {
         const x1 = shape.x;
         const y1 = shape.y;
         const x2 = shape.x2 ?? shape.x;
@@ -304,6 +436,20 @@ const selectedShapeBounds = computed(() => {
             height: Math.max(0.01, Math.abs(y2 - y1)),
         };
     }
+    if ((shape.type === 'polyline' || shape.type === 'polygon') && shape.points && shape.points.length > 0) {
+        const xs = shape.points.map(point => point.x);
+        const ys = shape.points.map(point => point.y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        return {
+            x: minX,
+            y: minY,
+            width: Math.max(0.01, maxX - minX),
+            height: Math.max(0.01, maxY - minY),
+        };
+    }
     return {
         x: shape.x,
         y: shape.y,
@@ -313,6 +459,7 @@ const selectedShapeBounds = computed(() => {
 });
 
 let pointerDrawing = false;
+let pointerDraggingShapeId: string | null = null;
 
 function handlePointerDown(event: PointerEvent) {
     if (!props.isActive || !props.tool) {
@@ -330,6 +477,14 @@ function handlePointerDown(event: PointerEvent) {
 }
 
 function handlePointerMove(event: PointerEvent) {
+    if (pointerDraggingShapeId) {
+        const coords = getNormalizedCoords(event);
+        if (!coords) {
+            return;
+        }
+        emit('continue-drag-shape', coords);
+        return;
+    }
     if (!pointerDrawing) {
         return;
     }
@@ -341,6 +496,11 @@ function handlePointerMove(event: PointerEvent) {
 }
 
 function handlePointerUp() {
+    if (pointerDraggingShapeId) {
+        pointerDraggingShapeId = null;
+        emit('finish-drag-shape');
+        return;
+    }
     if (!pointerDrawing) {
         return;
     }
@@ -353,6 +513,25 @@ function handleShapeClick(id: string) {
         return;
     }
     emit('select-shape', id);
+}
+
+function handleShapePointerDown(shape: IShapeAnnotation, event: PointerEvent) {
+    if (props.isActive && props.tool) {
+        return;
+    }
+
+    const coords = getNormalizedCoords(event);
+    if (!coords) {
+        return;
+    }
+
+    pointerDraggingShapeId = shape.id;
+    emit('select-shape', shape.id);
+    emit('start-drag-shape', {
+        shapeId: shape.id,
+        ...coords,
+    });
+    (event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId);
 }
 
 function handleShapeContextMenu(id: string, event: MouseEvent) {
@@ -380,6 +559,10 @@ function handleShapeContextMenu(id: string, event: MouseEvent) {
 }
 
 .pdf-shape-overlay > g {
+    pointer-events: auto;
+}
+
+.shape-hit-target {
     pointer-events: auto;
 }
 

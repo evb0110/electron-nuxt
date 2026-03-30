@@ -85,6 +85,10 @@ import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
 import { usePdfSkeletonInsets } from '@app/composables/pdf/usePdfSkeletonInsets';
 import { usePdfImagePlacement } from '@app/composables/pdf/usePdfImagePlacement';
 import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
+import {
+    collectEmbeddedShapeAnnotationIds,
+    importEmbeddedShapeAnnotations,
+} from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { usePdfViewerCore } from '@app/modules/pdf-viewer-runtime/usePdfViewerCore';
@@ -131,6 +135,7 @@ import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
 interface IProps {
     src: TPdfSource | null;
+    sourcePdfData?: Uint8Array | null;
     bufferPages?: number;
     isAnySaving?: boolean;
     zoom?: number;
@@ -155,6 +160,7 @@ interface IProps {
 const props = defineProps<IProps>();
 
 const src = computed(() => props.src);
+const sourcePdfData = computed(() => props.sourcePdfData ?? null);
 const bufferPages = computed(() => props.bufferPages ?? 2);
 const isAnySaving = computed(() => props.isAnySaving ?? false);
 const zoom = computed(() => props.zoom ?? 1);
@@ -351,7 +357,88 @@ const {
 } = usePdfSkeletonInsets(basePageWidth, basePageHeight, effectiveScale);
 
 const shapeComposable = useAnnotationShapes();
+let embeddedShapeImportToken = 0;
 let pageRenderStallRecoveryHandler: ((payload: IPageRenderStallPayload) => void) | null = null;
+
+const hiddenEmbeddedAnnotationIds = computed(() => {
+    const ids = collectEmbeddedShapeAnnotationIds(shapeComposable.getAllShapes());
+    shapeComposable.deletedEmbeddedAnnotationIds.value.forEach(id => ids.add(id));
+    return ids;
+});
+
+function syncHiddenEmbeddedAnnotationDom() {
+    const container = viewerContainer.value;
+    if (!container) {
+        return;
+    }
+
+    const hiddenIds = hiddenEmbeddedAnnotationIds.value;
+    container.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach((element) => {
+        const annotationId = element.dataset.annotationId;
+        if (!annotationId) {
+            return;
+        }
+
+        if (hiddenIds.has(annotationId)) {
+            element.style.display = 'none';
+            element.setAttribute('aria-hidden', 'true');
+            return;
+        }
+
+        if (element.style.display === 'none') {
+            element.style.removeProperty('display');
+        }
+        element.removeAttribute('aria-hidden');
+    });
+}
+
+watch(
+    () => [
+        sourcePdfData.value,
+        pdfDocument.value,
+    ] as const,
+    async ([
+        data,
+        doc,
+    ]) => {
+        const localToken = ++embeddedShapeImportToken;
+        if (!data || data.length === 0) {
+            shapeComposable.loadShapes([]);
+            await nextTick();
+            syncHiddenEmbeddedAnnotationDom();
+            return;
+        }
+        if (!doc) {
+            return;
+        }
+
+        let importedShapes: IShapeAnnotation[] = [];
+        try {
+            importedShapes = await importEmbeddedShapeAnnotations(data);
+        } catch (error) {
+            BrowserLogger.warn('pdf-shapes', 'Failed to import embedded PDF shapes', error);
+            return;
+        }
+        if (
+            embeddedShapeImportToken !== localToken
+            || sourcePdfData.value !== data
+            || pdfDocument.value !== doc
+        ) {
+            return;
+        }
+
+        shapeComposable.loadShapes(importedShapes);
+        await nextTick();
+        syncHiddenEmbeddedAnnotationDom();
+    },
+    { immediate: true },
+);
+
+watch(hiddenEmbeddedAnnotationIds, () => {
+    void nextTick().then(() => {
+        syncHiddenEmbeddedAnnotationDom();
+    });
+});
 
 function relayPageRenderStall(payload: IPageRenderStallPayload) {
     pageRenderStallRecoveryHandler?.(payload);
@@ -364,6 +451,35 @@ function registerShapeHistoryCommand(command: {
     annotationUiManager.value?.addCommands({
         ...command,
         mustExec: false,
+    });
+}
+
+function cloneShape(shape: IShapeAnnotation): IShapeAnnotation {
+    return {
+        ...shape,
+        points: shape.points?.map(point => ({ ...point })),
+    };
+}
+
+function applyShapeUpdateWithHistory(previousShape: IShapeAnnotation, nextShape: IShapeAnnotation) {
+    const hasChanges = JSON.stringify(cloneShape(previousShape)) !== JSON.stringify(cloneShape(nextShape));
+    if (!hasChanges) {
+        return;
+    }
+
+    emit('annotation-modified');
+
+    registerShapeHistoryCommand({
+        cmd: () => {
+            shapeComposable.updateShape(nextShape.id, nextShape);
+            shapeComposable.selectShape(nextShape.id);
+            emit('annotation-modified');
+        },
+        undo: () => {
+            shapeComposable.updateShape(previousShape.id, previousShape);
+            shapeComposable.selectShape(previousShape.id);
+            emit('annotation-modified');
+        },
     });
 }
 
@@ -388,6 +504,7 @@ usePdfShapeContext({
     annotationTool,
     annotationSettings,
     onShapeCreated: handleShapeCreated,
+    onShapeUpdated: applyShapeUpdateWithHistory,
     onShapeContextMenu: (payload) => {
         emit('shape-context-menu', payload);
     },
@@ -411,6 +528,7 @@ const {
     effectiveScale,
     bufferPages,
     showAnnotations,
+    hiddenAnnotationIds: hiddenEmbeddedAnnotationIds,
     annotationUiManager,
     annotationL10n,
     scrollToPage: (
@@ -887,26 +1005,13 @@ function updateShape(id: string, updates: Partial<IShapeAnnotation>) {
         return;
     }
 
-    const nextShape: IShapeAnnotation = {
+    const nextShape: IShapeAnnotation = cloneShape({
         ...previousShape,
         ...updates,
-    };
+    });
 
     shapeComposable.updateShape(id, updates);
-    emit('annotation-modified');
-
-    registerShapeHistoryCommand({
-        cmd: () => {
-            shapeComposable.updateShape(id, nextShape);
-            shapeComposable.selectShape(id);
-            emit('annotation-modified');
-        },
-        undo: () => {
-            shapeComposable.updateShape(id, previousShape);
-            shapeComposable.selectShape(id);
-            emit('annotation-modified');
-        },
-    });
+    applyShapeUpdateWithHistory(cloneShape(previousShape), nextShape);
 }
 
 function deleteSelectedShape() {
@@ -957,6 +1062,7 @@ defineExpose({
     deleteAnnotationComment: commentCrud.deleteAnnotationComment,
     getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
     getAllShapes: shapeComposable.getAllShapes,
+    getDeletedEmbeddedShapeAnnotationIds: shapeComposable.getDeletedEmbeddedAnnotationIds,
     loadShapes: shapeComposable.loadShapes,
     clearShapes: shapeComposable.clearShapes,
     deleteSelectedShape,

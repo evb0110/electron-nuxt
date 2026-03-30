@@ -5,7 +5,7 @@ import type {
 } from 'vue';
 import type {
     IShapeAnnotation,
-    TShapeType,
+    TDrawableShapeType,
     IAnnotationSettings,
 } from '@app/types/annotations';
 import { isShapeTool } from '@app/composables/pdf/annotations/annotationRules';
@@ -18,7 +18,7 @@ export interface IShapeContextProvide {
     selectedShapeId: Ref<string | null>;
     drawingShape: Ref<IShapeAnnotation | null>;
     isShapeToolActive: ComputedRef<boolean>;
-    activeShapeTool: ComputedRef<TShapeType | null>;
+    activeShapeTool: ComputedRef<TDrawableShapeType | null>;
     settings: Ref<IAnnotationSettings>;
     getShapesForPage: (pageIndex: number) => IShapeAnnotation[];
     handleStartDrawing: (pageIndex: number, coords: {
@@ -31,6 +31,15 @@ export interface IShapeContextProvide {
     }) => void;
     handleFinishDrawing: () => void;
     handleSelectShape: (id: string | null) => void;
+    handleStartDraggingShape: (shapeId: string, coords: {
+        x: number;
+        y: number
+    }) => void;
+    handleContinueDraggingShape: (coords: {
+        x: number;
+        y: number
+    }) => void;
+    handleFinishDraggingShape: () => void;
     handleShapeContextMenu: (payload: {
         shapeId: string;
         clientX: number;
@@ -43,10 +52,51 @@ export const useAnnotationShapes = () => {
     const selectedShapeId = ref<string | null>(null);
     const drawingShape = ref<IShapeAnnotation | null>(null);
     const isDrawing = ref(false);
+    const deletedEmbeddedAnnotationIds = ref<Set<string>>(new Set());
+    const baselineSignature = ref('[]');
     let drawOrigin: {
         x: number;
         y: number 
     } | null = null;
+
+    function toComparableShape(shape: IShapeAnnotation) {
+        const comparable = {
+            annotationId: shape.annotationId ?? null,
+            color: shape.color,
+            fillColor: shape.fillColor ?? null,
+            height: shape.height,
+            lineEndStyle: shape.lineEndStyle ?? null,
+            lineStartStyle: shape.lineStartStyle ?? null,
+            opacity: shape.opacity,
+            pageIndex: shape.pageIndex,
+            pdfSubtype: shape.pdfSubtype ?? null,
+            points: shape.points?.map(point => ({
+                x: point.x,
+                y: point.y,
+            })) ?? null,
+            source: shape.source ?? 'local',
+            strokeWidth: shape.strokeWidth,
+            type: shape.type,
+            width: shape.width,
+            x: shape.x,
+            x2: shape.x2 ?? null,
+            y: shape.y,
+            y2: shape.y2 ?? null,
+        };
+        return comparable;
+    }
+
+    function toShapesSignature(input: IShapeAnnotation[]) {
+        const comparable = input
+            .map(shape => toComparableShape(shape))
+            .sort((left, right) => (
+                left.pageIndex - right.pageIndex
+                || (left.annotationId ?? left.type).localeCompare(right.annotationId ?? right.type)
+                || left.x - right.x
+                || left.y - right.y
+            ));
+        return JSON.stringify(comparable);
+    }
 
     function getShapesForPage(pageIndex: number) {
         return shapes.value.get(pageIndex) ?? [];
@@ -70,11 +120,30 @@ export const useAnnotationShapes = () => {
         return null;
     }
 
+    function getDeletedEmbeddedAnnotationIds() {
+        return [...deletedEmbeddedAnnotationIds.value];
+    }
+
+    function getManagedEmbeddedAnnotationIds() {
+        const ids = new Set(deletedEmbeddedAnnotationIds.value);
+        for (const shape of getAllShapes()) {
+            if (shape.source === 'embedded' && shape.annotationId) {
+                ids.add(shape.annotationId);
+            }
+        }
+        return [...ids];
+    }
+
     function addShape(shape: IShapeAnnotation) {
         const pageShapes = shapes.value.get(shape.pageIndex) ?? [];
         pageShapes.push(shape);
         shapes.value.set(shape.pageIndex, pageShapes);
         shapes.value = new Map(shapes.value);
+        if (shape.annotationId) {
+            const nextDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
+            nextDeletedIds.delete(shape.annotationId);
+            deletedEmbeddedAnnotationIds.value = nextDeletedIds;
+        }
     }
 
     function updateShape(id: string, updates: Partial<IShapeAnnotation>) {
@@ -102,9 +171,15 @@ export const useAnnotationShapes = () => {
         ] of shapes.value.entries()) {
             const index = pageShapes.findIndex(s => s.id === id);
             if (index !== -1) {
+                const deletedShape = pageShapes[index]!;
                 pageShapes.splice(index, 1);
                 shapes.value.set(pageIndex, [...pageShapes]);
                 shapes.value = new Map(shapes.value);
+                if (deletedShape.source === 'embedded' && deletedShape.annotationId) {
+                    const nextDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
+                    nextDeletedIds.add(deletedShape.annotationId);
+                    deletedEmbeddedAnnotationIds.value = nextDeletedIds;
+                }
                 if (selectedShapeId.value === id) {
                     selectedShapeId.value = null;
                 }
@@ -129,6 +204,8 @@ export const useAnnotationShapes = () => {
         drawingShape.value = null;
         isDrawing.value = false;
         drawOrigin = null;
+        deletedEmbeddedAnnotationIds.value = new Set();
+        baselineSignature.value = '[]';
     }
 
     function loadShapes(loaded: IShapeAnnotation[]) {
@@ -139,11 +216,13 @@ export const useAnnotationShapes = () => {
             grouped.set(shape.pageIndex, pageShapes);
         }
         shapes.value = grouped;
+        deletedEmbeddedAnnotationIds.value = new Set();
+        baselineSignature.value = toShapesSignature(loaded);
     }
 
     function startDrawing(
         pageIndex: number,
-        tool: TShapeType,
+        tool: TDrawableShapeType,
         x: number,
         y: number,
         settings: IAnnotationSettings,
@@ -167,6 +246,7 @@ export const useAnnotationShapes = () => {
             fillColor: settings.shapeFillColor === 'transparent' ? undefined : settings.shapeFillColor,
             opacity: settings.shapeOpacity,
             strokeWidth: settings.shapeStrokeWidth,
+            source: 'local',
             lineEndStyle: tool === 'arrow' ? 'closedArrow' : undefined,
         };
         drawingShape.value = shape;
@@ -234,14 +314,10 @@ export const useAnnotationShapes = () => {
         drawOrigin = null;
     }
 
-    const hasShapes = computed(() => {
-        for (const pageShapes of shapes.value.values()) {
-            if (pageShapes.length > 0) {
-                return true;
-            }
-        }
-        return false;
-    });
+    const hasShapes = computed(() => (
+        deletedEmbeddedAnnotationIds.value.size > 0
+        || toShapesSignature(getAllShapes()) !== baselineSignature.value
+    ));
 
     return {
         shapes,
@@ -253,10 +329,13 @@ export const useAnnotationShapes = () => {
         getShapesForPage,
         getAllShapes,
         getShapeById,
+        getDeletedEmbeddedAnnotationIds,
+        getManagedEmbeddedAnnotationIds,
         addShape,
         updateShape,
         deleteShape,
         deleteSelectedShape,
+        deletedEmbeddedAnnotationIds,
         selectShape,
         clearShapes,
         loadShapes,

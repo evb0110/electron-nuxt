@@ -14,6 +14,8 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
     IShapeAnnotation,
+    IShapePoint,
+    TLineEndStyle,
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
@@ -24,10 +26,14 @@ import type {
 import {
     markerRectIoU,
     normalizePageRotation,
+    toPdfPointFromMarkerPoint,
     toMarkerRectFromPdfRect,
     toPdfRectFromMarkerRect,
 } from '@app/composables/pdf/annotationGeometry';
-import { getPdfDictContents } from '@app/utils/pdf-dict';
+import {
+    getPdfDictContents,
+    getPdfDictSubtype,
+} from '@app/utils/pdf-dict';
 import {
     collectAnnotationRefsToDelete,
     removeAnnotationRefsFromPages,
@@ -40,6 +46,7 @@ import {
     normalizePageLabelRanges,
 } from '@app/utils/pdf-page-labels';
 import { normalizeBookmarkEntries } from '@app/composables/pdf/usePdfBookmarkSerialization';
+import { parseHexColor } from '@app/utils/color';
 
 const MARKUP_SUBTYPE_TO_PDF_NAME: Record<TMarkupSubtype, string> = {
     Highlight: 'Highlight',
@@ -56,6 +63,7 @@ export interface IPdfSerializationSavePayload {
     markupSubtypeOverrides: Array<readonly [string, TMarkupSubtype]>;
     markupSubtypeHints: IMarkupSubtypeHint[];
     shapes: IShapeAnnotation[];
+    deletedShapeAnnotationIds: string[];
     freeTextComments: IAnnotationCommentSummary[];
     annotationComments: IAnnotationCommentSummary[];
     pendingEmbeddedTextUpdates: Array<readonly [string, string]>;
@@ -175,148 +183,460 @@ function isAnnotationMarkerRect(value: IAnnotationCommentSummary['markerRect']):
     );
 }
 
-function createRectAnnotationDict(
-    doc: PDFDocument,
-    shape: IShapeAnnotation,
-    subtype: 'Square' | 'Circle',
-    pageWidth: number,
-    pageHeight: number,
-): PDFDict {
-    const x = shape.x * pageWidth;
-    const y = (1 - shape.y - shape.height) * pageHeight;
-    const width = shape.width * pageWidth;
-    const height = shape.height * pageHeight;
-    const rect = doc.context.obj([
-        x,
-        y,
-        x + width,
-        y + height,
-    ]);
-    const red = Number.parseInt(shape.color.slice(1, 3), 16) / 255;
-    const green = Number.parseInt(shape.color.slice(3, 5), 16) / 255;
-    const blue = Number.parseInt(shape.color.slice(5, 7), 16) / 255;
-
-    return doc.context.obj({
-        Type: 'Annot',
-        Subtype: subtype,
-        Rect: rect,
-        C: [
-            red,
-            green,
-            blue,
-        ],
-        CA: shape.opacity,
-        Border: [
-            0,
-            0,
-            shape.strokeWidth,
-        ],
-    });
+function refToTag(ref: PDFRef) {
+    return `${ref.objectNumber}R${ref.generationNumber}`;
 }
 
-function setInteriorColor(annotDict: PDFDict, doc: PDFDocument, fillColor: string | undefined) {
-    if (!fillColor) {
+function setRgbColor(
+    annotDict: PDFDict,
+    doc: PDFDocument,
+    key: 'C' | 'IC',
+    color: string | undefined,
+) {
+    if (!color || color === 'transparent' || color === 'none') {
+        annotDict.delete(PDFName.of(key));
         return;
     }
 
-    const red = Number.parseInt(fillColor.slice(1, 3), 16) / 255;
-    const green = Number.parseInt(fillColor.slice(3, 5), 16) / 255;
-    const blue = Number.parseInt(fillColor.slice(5, 7), 16) / 255;
-    annotDict.set(PDFName.of('IC'), doc.context.obj([
+    const [
+        red,
+        green,
+        blue,
+    ] = parseHexColor(color);
+    annotDict.set(PDFName.of(key), doc.context.obj([
         red,
         green,
         blue,
     ]));
 }
 
+function setOpacity(annotDict: PDFDict, opacity: number) {
+    annotDict.set(PDFName.of('CA'), PDFNumber.of(opacity));
+}
+
+function setBorderWidth(annotDict: PDFDict, doc: PDFDocument, strokeWidth: number) {
+    annotDict.set(PDFName.of('Border'), doc.context.obj([
+        0,
+        0,
+        strokeWidth,
+    ]));
+}
+
+function toPdfLineEndingName(style: TLineEndStyle | undefined) {
+    switch (style) {
+        case 'openArrow':
+            return PDFName.of('OpenArrow');
+        case 'closedArrow':
+            return PDFName.of('ClosedArrow');
+        default:
+            return PDFName.of('None');
+    }
+}
+
+function setLineEndings(annotDict: PDFDict, doc: PDFDocument, shape: IShapeAnnotation) {
+    const lineStartStyle = shape.lineStartStyle ?? 'none';
+    const lineEndStyle = shape.lineEndStyle ?? 'none';
+    if (lineStartStyle === 'none' && lineEndStyle === 'none') {
+        annotDict.delete(PDFName.of('LE'));
+        return;
+    }
+
+    annotDict.set(PDFName.of('LE'), doc.context.obj([
+        toPdfLineEndingName(lineStartStyle),
+        toPdfLineEndingName(lineEndStyle),
+    ]));
+}
+
+function resolveShapePageContext(page: ReturnType<PDFDocument['getPages']>[number]) {
+    const pageView = resolvePdfPageView(page);
+    if (!pageView) {
+        return null;
+    }
+
+    return {
+        pageView,
+        pageRotation: normalizePageRotation(page.getRotation().angle),
+    };
+}
+
+function toPdfLinePoints(
+    shape: IShapeAnnotation,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const start = toPdfPointFromMarkerPoint(shape.x, shape.y, pageView, pageRotation);
+    const end = toPdfPointFromMarkerPoint(shape.x2 ?? shape.x, shape.y2 ?? shape.y, pageView, pageRotation);
+    if (!start || !end) {
+        return null;
+    }
+
+    return [
+        start,
+        end,
+    ] as const;
+}
+
+function toPdfVertexPoints(
+    points: IShapePoint[] | undefined,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    if (!points || points.length < 2) {
+        return null;
+    }
+
+    const pdfPoints = points
+        .map(point => toPdfPointFromMarkerPoint(point.x, point.y, pageView, pageRotation))
+        .filter((point): point is NonNullable<typeof point> => Boolean(point));
+    return pdfPoints.length === points.length ? pdfPoints : null;
+}
+
+function toPdfBoundsRect(points: ReadonlyArray<{
+    x: number;
+    y: number;
+}>, strokeWidth: number) {
+    if (points.length === 0) {
+        return null;
+    }
+
+    const xs = points.map(point => point.x);
+    const ys = points.map(point => point.y);
+    return [
+        Math.min(...xs) - strokeWidth,
+        Math.min(...ys) - strokeWidth,
+        Math.max(...xs) + strokeWidth,
+        Math.max(...ys) + strokeWidth,
+    ] as [number, number, number, number];
+}
+
+function updateShapeStyle(annotDict: PDFDict, doc: PDFDocument, shape: IShapeAnnotation) {
+    setRgbColor(annotDict, doc, 'C', shape.color);
+    setOpacity(annotDict, shape.opacity);
+    setBorderWidth(annotDict, doc, shape.strokeWidth);
+}
+
+function createRectAnnotationDict(
+    doc: PDFDocument,
+    shape: IShapeAnnotation,
+    subtype: 'Square' | 'Circle',
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const rect = toPdfRectFromMarkerRect({
+        left: shape.x,
+        top: shape.y,
+        width: shape.width,
+        height: shape.height,
+    }, pageView, pageRotation);
+    if (!rect) {
+        return null;
+    }
+
+    const annotDict = doc.context.obj({
+        Type: 'Annot',
+        Subtype: subtype,
+        Rect: doc.context.obj(rect),
+    });
+    updateShapeStyle(annotDict, doc, shape);
+    setRgbColor(annotDict, doc, 'IC', shape.fillColor);
+    return annotDict;
+}
+
+function updateRectAnnotationDict(
+    annotDict: PDFDict,
+    doc: PDFDocument,
+    shape: IShapeAnnotation,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const rect = toPdfRectFromMarkerRect({
+        left: shape.x,
+        top: shape.y,
+        width: shape.width,
+        height: shape.height,
+    }, pageView, pageRotation);
+    if (!rect) {
+        return false;
+    }
+
+    annotDict.set(PDFName.of('Rect'), doc.context.obj(rect));
+    updateShapeStyle(annotDict, doc, shape);
+    setRgbColor(annotDict, doc, 'IC', shape.fillColor);
+    return true;
+}
+
 function createLineAnnotationDict(
     doc: PDFDocument,
     shape: IShapeAnnotation,
-    pageWidth: number,
-    pageHeight: number,
-): PDFDict {
-    const x1 = shape.x * pageWidth;
-    const y1 = (1 - shape.y) * pageHeight;
-    const x2 = (shape.x2 ?? shape.x) * pageWidth;
-    const y2 = (1 - (shape.y2 ?? shape.y)) * pageHeight;
-    const lineWidth = shape.strokeWidth;
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const pdfPoints = toPdfLinePoints(shape, pageView, pageRotation);
+    if (!pdfPoints) {
+        return null;
+    }
 
-    const minX = Math.min(x1, x2) - lineWidth;
-    const minY = Math.min(y1, y2) - lineWidth;
-    const maxX = Math.max(x1, x2) + lineWidth;
-    const maxY = Math.max(y1, y2) + lineWidth;
-    const red = Number.parseInt(shape.color.slice(1, 3), 16) / 255;
-    const green = Number.parseInt(shape.color.slice(3, 5), 16) / 255;
-    const blue = Number.parseInt(shape.color.slice(5, 7), 16) / 255;
+    const rect = toPdfBoundsRect(pdfPoints, shape.strokeWidth);
+    if (!rect) {
+        return null;
+    }
 
     const annotDict = doc.context.obj({
         Type: 'Annot',
         Subtype: 'Line',
-        Rect: doc.context.obj([
-            minX,
-            minY,
-            maxX,
-            maxY,
-        ]),
+        Rect: doc.context.obj(rect),
         L: doc.context.obj([
-            x1,
-            y1,
-            x2,
-            y2,
+            pdfPoints[0].x,
+            pdfPoints[0].y,
+            pdfPoints[1].x,
+            pdfPoints[1].y,
         ]),
-        C: [
-            red,
-            green,
-            blue,
-        ],
-        CA: shape.opacity,
-        Border: [
-            0,
-            0,
-            lineWidth,
-        ],
     });
-
-    if (shape.type === 'arrow') {
-        annotDict.set(PDFName.of('LE'), doc.context.obj([
-            PDFName.of('None'),
-            PDFName.of(shape.lineEndStyle === 'openArrow' ? 'OpenArrow' : 'ClosedArrow'),
-        ]));
-    }
-
+    updateShapeStyle(annotDict, doc, shape);
+    setLineEndings(annotDict, doc, shape);
     return annotDict;
 }
 
-function applyShapeAnnotations(doc: PDFDocument, shapes: IShapeAnnotation[]) {
-    if (shapes.length === 0) {
+function updateLineAnnotationDict(
+    annotDict: PDFDict,
+    doc: PDFDocument,
+    shape: IShapeAnnotation,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const pdfPoints = toPdfLinePoints(shape, pageView, pageRotation);
+    if (!pdfPoints) {
+        return false;
+    }
+
+    const rect = toPdfBoundsRect(pdfPoints, shape.strokeWidth);
+    if (!rect) {
+        return false;
+    }
+
+    annotDict.set(PDFName.of('Rect'), doc.context.obj(rect));
+    annotDict.set(PDFName.of('L'), doc.context.obj([
+        pdfPoints[0].x,
+        pdfPoints[0].y,
+        pdfPoints[1].x,
+        pdfPoints[1].y,
+    ]));
+    updateShapeStyle(annotDict, doc, shape);
+    setLineEndings(annotDict, doc, shape);
+    return true;
+}
+
+function createVertexAnnotationDict(
+    doc: PDFDocument,
+    shape: IShapeAnnotation,
+    subtype: 'PolyLine' | 'Polygon',
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const pdfPoints = toPdfVertexPoints(shape.points, pageView, pageRotation);
+    if (!pdfPoints) {
+        return null;
+    }
+
+    const rect = toPdfBoundsRect(pdfPoints, shape.strokeWidth);
+    if (!rect) {
+        return null;
+    }
+
+    const vertices: number[] = [];
+    pdfPoints.forEach((point) => {
+        vertices.push(point.x, point.y);
+    });
+
+    const annotDict = doc.context.obj({
+        Type: 'Annot',
+        Subtype: subtype,
+        Rect: doc.context.obj(rect),
+        Vertices: doc.context.obj(vertices),
+    });
+    updateShapeStyle(annotDict, doc, shape);
+    if (subtype === 'PolyLine') {
+        setLineEndings(annotDict, doc, shape);
+    } else {
+        annotDict.delete(PDFName.of('LE'));
+    }
+    if (subtype === 'Polygon') {
+        setRgbColor(annotDict, doc, 'IC', shape.fillColor);
+    }
+    return annotDict;
+}
+
+function updateVertexAnnotationDict(
+    annotDict: PDFDict,
+    doc: PDFDocument,
+    shape: IShapeAnnotation,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+    subtype: 'PolyLine' | 'Polygon',
+) {
+    const pdfPoints = toPdfVertexPoints(shape.points, pageView, pageRotation);
+    if (!pdfPoints) {
+        return false;
+    }
+
+    const rect = toPdfBoundsRect(pdfPoints, shape.strokeWidth);
+    if (!rect) {
+        return false;
+    }
+
+    const vertices: number[] = [];
+    pdfPoints.forEach((point) => {
+        vertices.push(point.x, point.y);
+    });
+
+    annotDict.set(PDFName.of('Rect'), doc.context.obj(rect));
+    annotDict.set(PDFName.of('Vertices'), doc.context.obj(vertices));
+    updateShapeStyle(annotDict, doc, shape);
+    if (subtype === 'PolyLine') {
+        setLineEndings(annotDict, doc, shape);
+    } else {
+        annotDict.delete(PDFName.of('LE'));
+    }
+    if (subtype === 'Polygon') {
+        setRgbColor(annotDict, doc, 'IC', shape.fillColor);
+    } else {
+        annotDict.delete(PDFName.of('IC'));
+    }
+    return true;
+}
+
+function createShapeAnnotationDict(
+    doc: PDFDocument,
+    shape: IShapeAnnotation,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    switch (shape.type) {
+        case 'rectangle':
+            return createRectAnnotationDict(doc, shape, 'Square', pageView, pageRotation);
+        case 'circle':
+            return createRectAnnotationDict(doc, shape, 'Circle', pageView, pageRotation);
+        case 'line':
+        case 'arrow':
+            return createLineAnnotationDict(doc, shape, pageView, pageRotation);
+        case 'polyline':
+            return createVertexAnnotationDict(doc, shape, 'PolyLine', pageView, pageRotation);
+        case 'polygon':
+            return createVertexAnnotationDict(doc, shape, 'Polygon', pageView, pageRotation);
+        default:
+            return null;
+    }
+}
+
+function updateEmbeddedShapeAnnotationDict(
+    doc: PDFDocument,
+    annotDict: PDFDict,
+    shape: IShapeAnnotation,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const subtype = getPdfDictSubtype(annotDict);
+    switch (subtype) {
+        case 'Square':
+        case 'Circle':
+            return updateRectAnnotationDict(annotDict, doc, shape, pageView, pageRotation);
+        case 'Line':
+            return updateLineAnnotationDict(annotDict, doc, shape, pageView, pageRotation);
+        case 'PolyLine':
+            return updateVertexAnnotationDict(annotDict, doc, shape, pageView, pageRotation, 'PolyLine');
+        case 'Polygon':
+            return updateVertexAnnotationDict(annotDict, doc, shape, pageView, pageRotation, 'Polygon');
+        default:
+            return false;
+    }
+}
+
+function applyShapeAnnotations(
+    doc: PDFDocument,
+    shapes: IShapeAnnotation[],
+    deletedShapeAnnotationIds: string[],
+) {
+    if (shapes.length === 0 && deletedShapeAnnotationIds.length === 0) {
         return false;
     }
 
     const pages = doc.getPages();
+    const shapesByAnnotationId = new Map<string, IShapeAnnotation>();
+    const pendingNewShapes: IShapeAnnotation[] = [];
+    shapes.forEach((shape) => {
+        if (shape.annotationId) {
+            shapesByAnnotationId.set(shape.annotationId, shape);
+            return;
+        }
+        pendingNewShapes.push(shape);
+    });
+
+    const refsToDeleteByTag = new Map<string, PDFRef>();
+    const deletedIds = new Set(deletedShapeAnnotationIds);
     let modified = false;
 
-    for (const shape of shapes) {
+    for (const page of pages) {
+        const context = resolveShapePageContext(page);
+        if (!context) {
+            continue;
+        }
+
+        const annots = page.node.Annots();
+        if (!(annots instanceof PDFArray)) {
+            continue;
+        }
+
+        for (let index = 0; index < annots.size(); index += 1) {
+            const value = annots.get(index);
+            if (!(value instanceof PDFRef)) {
+                continue;
+            }
+
+            const annotationId = refToTag(value);
+            if (deletedIds.has(annotationId)) {
+                collectAnnotationRefsToDelete(doc, value).forEach((ref) => {
+                    refsToDeleteByTag.set(refToTag(ref), ref);
+                });
+                modified = true;
+                continue;
+            }
+
+            const shape = shapesByAnnotationId.get(annotationId);
+            if (!shape) {
+                continue;
+            }
+
+            const annotDict = doc.context.lookupMaybe(value, PDFDict);
+            if (!annotDict) {
+                continue;
+            }
+
+            if (updateEmbeddedShapeAnnotationDict(doc, annotDict, shape, context.pageView, context.pageRotation)) {
+                modified = true;
+                shapesByAnnotationId.delete(annotationId);
+            }
+        }
+    }
+
+    if (refsToDeleteByTag.size > 0) {
+        modified = removeAnnotationRefsFromPages(doc, [...refsToDeleteByTag.values()]) || modified;
+    }
+
+    for (const shape of [
+        ...shapesByAnnotationId.values(),
+        ...pendingNewShapes,
+    ]) {
         const page = pages[shape.pageIndex];
         if (!page) {
             continue;
         }
 
-        const {
-            width: pageWidth,
-            height: pageHeight,
-        } = page.getSize();
-
-        let annotDict: PDFDict | null = null;
-        if (shape.type === 'rectangle') {
-            annotDict = createRectAnnotationDict(doc, shape, 'Square', pageWidth, pageHeight);
-            setInteriorColor(annotDict, doc, shape.fillColor);
-        } else if (shape.type === 'circle') {
-            annotDict = createRectAnnotationDict(doc, shape, 'Circle', pageWidth, pageHeight);
-            setInteriorColor(annotDict, doc, shape.fillColor);
-        } else if (shape.type === 'line' || shape.type === 'arrow') {
-            annotDict = createLineAnnotationDict(doc, shape, pageWidth, pageHeight);
+        const context = resolveShapePageContext(page);
+        if (!context) {
+            continue;
         }
 
+        const annotDict = createShapeAnnotationDict(doc, shape, context.pageView, context.pageRotation);
         if (!annotDict) {
             continue;
         }
@@ -936,6 +1256,7 @@ function hasSaveWork(payload: IPdfSerializationSavePayload) {
     return payload.markupSubtypeOverrides.length > 0
         || payload.markupSubtypeHints.length > 0
         || payload.shapes.length > 0
+        || payload.deletedShapeAnnotationIds.length > 0
         || payload.freeTextComments.length > 0
         || payload.pendingEmbeddedTextUpdates.length > 0
         || payload.pageLabelsDirty
@@ -955,7 +1276,7 @@ export async function serializePdfEdits(
     let modified = false;
 
     modified = applyMarkupSubtypeRewrites(doc, payload.markupSubtypeOverrides, payload.markupSubtypeHints) || modified;
-    modified = applyShapeAnnotations(doc, payload.shapes) || modified;
+    modified = applyShapeAnnotations(doc, payload.shapes, payload.deletedShapeAnnotationIds) || modified;
     modified = applyFreeTextNoteRects(doc, payload.freeTextComments) || modified;
     modified = applyEmbeddedNoteTextUpdates(doc, payload.annotationComments, payload.pendingEmbeddedTextUpdates) || modified;
     modified = applyPageLabels(doc, payload.pageLabelsDirty, payload.pageLabelRanges, payload.totalPages) || modified;

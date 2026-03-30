@@ -40,6 +40,15 @@ interface IUseAppShellWorkspaceRoutingOptions {
     mergeWindowInto: (windowId: number) => Promise<void>;
 }
 
+function readWorkspaceToolbarSnapshot(workspace: IWorkspaceExpose) {
+    try {
+        return workspace.getToolbarSnapshot();
+    } catch (error) {
+        BrowserLogger.warn('workspace-routing', 'Failed to read workspace toolbar snapshot', { error });
+        return null;
+    }
+}
+
 export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutingOptions) {
     const {
         activeGroupId,
@@ -64,13 +73,13 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         });
     }
 
-    function workspaceHasOpenDocument(workspace: IWorkspaceExpose) {
+    function workspaceOccupiesTab(workspace: IWorkspaceExpose) {
         if (workspaceHasPdf(workspace)) {
             return true;
         }
 
-        const snapshot = workspace.getToolbarSnapshot();
-        return snapshot.isDjvuMode;
+        const snapshot = readWorkspaceToolbarSnapshot(workspace);
+        return Boolean(snapshot?.isDjvuMode || snapshot?.isOpeningDocument);
     }
 
     async function resolveWorkspaceForTab(tabId: string | null) {
@@ -121,7 +130,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
 
     async function openResultInAppropriateTab(result: TOpenFileResult) {
         const workspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
-        if (workspace && !workspaceHasOpenDocument(workspace)) {
+        if (workspace && !workspaceOccupiesTab(workspace)) {
             await workspace.handleOpenFileWithResult(result);
             return;
         }
@@ -131,7 +140,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
 
     async function openPathInAppropriateTab(path: TDocumentRef) {
         const workspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
-        if (workspace && !workspaceHasOpenDocument(workspace)) {
+        if (workspace && !workspaceOccupiesTab(workspace)) {
             await workspace.handleOpenFileDirectWithPersist(path);
             return;
         }
@@ -152,7 +161,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         if (initialActiveTab && initialActiveWorkspace) {
             canReuseActiveTab = (
                 !hasDocumentMountHint(initialActiveTab)
-                && !workspaceHasOpenDocument(initialActiveWorkspace)
+                && !workspaceOccupiesTab(initialActiveWorkspace)
             );
         }
 
@@ -170,9 +179,13 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
                 await handleOpenInNewTab(path, activeGroupId.value ?? undefined);
             } catch (error) {
                 const activeTab = getTabById(activeTabId.value);
+                const currentActiveWorkspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
                 canReuseActiveTab = false;
-                if (activeTab) {
-                    canReuseActiveTab = !hasDocumentMountHint(activeTab);
+                if (activeTab && currentActiveWorkspace) {
+                    canReuseActiveTab = (
+                        !hasDocumentMountHint(activeTab)
+                        && !workspaceOccupiesTab(currentActiveWorkspace)
+                    );
                 }
                 BrowserLogger.warn('workspace-routing', 'Failed to open dropped/external path in its own tab', {
                     path,

@@ -99,7 +99,7 @@ interface IPageRectBounds {
     height: number;
 }
 
-function toMarkerPointFromPdfPoint(
+function toMarkerPointFromPdfPointInternal(
     x: number,
     y: number,
     bounds: IPageRectBounds,
@@ -132,7 +132,7 @@ function toMarkerPointFromPdfPoint(
     }
 }
 
-function toPdfPointFromMarkerPoint(
+function toPdfPointFromMarkerPointInternal(
     markerX: number,
     markerY: number,
     bounds: IPageRectBounds,
@@ -201,10 +201,10 @@ export function toMarkerRectFromPdfRect(
     const normalizedRotation = normalizePageRotation(pageRotation);
 
     const cornerPoints = [
-        toMarkerPointFromPdfPoint(minX, minY, bounds, normalizedRotation),
-        toMarkerPointFromPdfPoint(minX, maxY, bounds, normalizedRotation),
-        toMarkerPointFromPdfPoint(maxX, minY, bounds, normalizedRotation),
-        toMarkerPointFromPdfPoint(maxX, maxY, bounds, normalizedRotation),
+        toMarkerPointFromPdfPointInternal(minX, minY, bounds, normalizedRotation),
+        toMarkerPointFromPdfPointInternal(minX, maxY, bounds, normalizedRotation),
+        toMarkerPointFromPdfPointInternal(maxX, minY, bounds, normalizedRotation),
+        toMarkerPointFromPdfPointInternal(maxX, maxY, bounds, normalizedRotation),
     ];
 
     const markerLeft = Math.min(...cornerPoints.map(point => point.x));
@@ -271,10 +271,10 @@ export function toPdfRectFromMarkerRect(
     const markerBottom = normalized.top + normalized.height;
 
     const cornerPoints = [
-        toPdfPointFromMarkerPoint(normalized.left, normalized.top, bounds, normalizedRotation),
-        toPdfPointFromMarkerPoint(markerRight, normalized.top, bounds, normalizedRotation),
-        toPdfPointFromMarkerPoint(normalized.left, markerBottom, bounds, normalizedRotation),
-        toPdfPointFromMarkerPoint(markerRight, markerBottom, bounds, normalizedRotation),
+        toPdfPointFromMarkerPointInternal(normalized.left, normalized.top, bounds, normalizedRotation),
+        toPdfPointFromMarkerPointInternal(markerRight, normalized.top, bounds, normalizedRotation),
+        toPdfPointFromMarkerPointInternal(normalized.left, markerBottom, bounds, normalizedRotation),
+        toPdfPointFromMarkerPointInternal(markerRight, markerBottom, bounds, normalizedRotation),
     ];
 
     const minX = Math.min(...cornerPoints.map(point => point.x));
@@ -288,6 +288,62 @@ export function toPdfRectFromMarkerRect(
         maxX,
         maxY,
     ];
+}
+
+export function toMarkerPointFromPdfPoint(
+    x: number,
+    y: number,
+    pageView: number[] | null | undefined,
+    pageRotation: TPageRotation = 0,
+) {
+    if (!pageView || pageView.length < 4) {
+        return null;
+    }
+
+    const xMin = pageView[0] ?? 0;
+    const yMin = pageView[1] ?? 0;
+    const xMax = pageView[2] ?? 0;
+    const yMax = pageView[3] ?? 0;
+    const pageWidth = xMax - xMin;
+    const pageHeight = yMax - yMin;
+    if (!Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) || pageWidth <= 0 || pageHeight <= 0) {
+        return null;
+    }
+
+    return toMarkerPointFromPdfPointInternal(x, y, {
+        xMin,
+        yMin,
+        width: pageWidth,
+        height: pageHeight,
+    }, normalizePageRotation(pageRotation));
+}
+
+export function toPdfPointFromMarkerPoint(
+    markerX: number,
+    markerY: number,
+    pageView: number[] | null | undefined,
+    pageRotation: TPageRotation = 0,
+) {
+    if (!pageView || pageView.length < 4) {
+        return null;
+    }
+
+    const xMin = pageView[0] ?? 0;
+    const yMin = pageView[1] ?? 0;
+    const xMax = pageView[2] ?? 0;
+    const yMax = pageView[3] ?? 0;
+    const pageWidth = xMax - xMin;
+    const pageHeight = yMax - yMin;
+    if (!Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) || pageWidth <= 0 || pageHeight <= 0) {
+        return null;
+    }
+
+    return toPdfPointFromMarkerPointInternal(markerX, markerY, {
+        xMin,
+        yMin,
+        width: pageWidth,
+        height: pageHeight,
+    }, normalizePageRotation(pageRotation));
 }
 
 export function markerRectIoU(

@@ -183,6 +183,7 @@ export default {
     },
     'annotationProperties': {
         'close': 'Закрыть',
+        'delete': 'Удалить',
         'color': 'Цвет',
         'fill': 'Заливка',
         'stroke': 'Обводка',

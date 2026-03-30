@@ -70,6 +70,7 @@ describe('useWorkspaceCrop', () => {
             removeAnnotationFromInternalCache: vi.fn(),
             getMarkupSubtypeOverrides: () => new Map(),
             getAllShapes: () => [],
+            getDeletedEmbeddedShapeAnnotationIds: () => [],
             loadShapes: vi.fn(),
             clearShapes: vi.fn(),
             deleteSelectedShape: vi.fn(),

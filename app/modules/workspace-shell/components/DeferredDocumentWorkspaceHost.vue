@@ -180,6 +180,7 @@ const hasPdf = computed<boolean>(() => {
 function createEmptyToolbarSnapshot(): IWorkspaceToolbarSnapshot {
     return {
         hasPdf: false,
+        isOpeningDocument: false,
         canSave: false,
         canUndo: false,
         canRedo: false,
@@ -214,19 +215,27 @@ function readWorkspaceToolbarSnapshot() {
     const workspace = mountedWorkspace.value;
     if (!workspace) {
         if (workspaceRequested.value || isDocumentOpenInFlight.value || hasQueuedSplitRestore.value) {
-            return lastToolbarSnapshot.value;
+            return {
+                ...lastToolbarSnapshot.value,
+                isOpeningDocument: isDocumentOpenInFlight.value,
+            };
         }
 
         lastToolbarSnapshot.value = createEmptyToolbarSnapshot();
         return lastToolbarSnapshot.value;
     }
 
-    const snapshot = workspace.getToolbarSnapshot();
+    const workspaceSnapshot = workspace.getToolbarSnapshot();
+    const snapshot = {
+        ...workspaceSnapshot,
+        isOpeningDocument: workspaceSnapshot.isOpeningDocument || isDocumentOpenInFlight.value,
+    };
     lastToolbarSnapshot.value = snapshot;
     return snapshot;
 }
 const hasQueuedSplitRestore = computed(() => workspaceSplitCache.has(props.tabId));
 const isDocumentOpenInFlight = computed(() => documentOpenInFlightCount.value > 0);
+let documentOpenQueue: Promise<void> = Promise.resolve();
 const shouldShowWorkspaceMountLoader = computed(() => isDocumentOpenInFlight.value);
 const isHostErrorVisible = computed(() => (
     hasWorkspaceChunkLoadError.value
@@ -328,6 +337,14 @@ async function runWhileOpeningDocument(run: () => Promise<void>) {
     } finally {
         documentOpenInFlightCount.value = Math.max(0, documentOpenInFlightCount.value - 1);
     }
+}
+
+async function enqueueDocumentOpen(run: () => Promise<void>) {
+    const queuedRun = documentOpenQueue
+        .catch(() => {})
+        .then(() => runWhileOpeningDocument(run));
+    documentOpenQueue = queuedRun.catch(() => {});
+    await queuedRun;
 }
 
 async function preloadWorkspaceComponent(reason: string) {
@@ -511,7 +528,7 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         hasMountedWorkspace: hasMountedWorkspace.value,
     });
 
-    await runWhileOpeningDocument(async () => {
+    await enqueueDocumentOpen(async () => {
         const preloadedWorkspace = mountedWorkspace.value ?? await ensureWorkspaceLoaded('openRecentFromPlaceholder:preload');
         if (!preloadedWorkspace) {
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Failed to preload workspace for recent open', {
@@ -534,7 +551,7 @@ async function handleClearRecentFromPlaceholder() {
 }
 
 async function handleOpenFileFromUi() {
-    await runWhileOpeningDocument(async () => {
+    await enqueueDocumentOpen(async () => {
         await withWorkspace('handleOpenFileFromUi', async (workspace) => {
             await workspace.handleOpenFileFromUi();
         });
@@ -586,12 +603,12 @@ const workspaceExpose: IWorkspaceExpose = {
         await withLoadedWorkspace('handleCombineImages', workspace => workspace.handleCombineImages());
     },
     handleOpenFileDirectWithPersist: async (path: string) => {
-        await runWhileOpeningDocument(async () => {
+        await enqueueDocumentOpen(async () => {
             await openPath(path, 'handleOpenFileDirectWithPersist');
         });
     },
     handleOpenFileDirectBatchWithPersist: async (paths: string[]) => {
-        await runWhileOpeningDocument(async () => {
+        await enqueueDocumentOpen(async () => {
             await withWorkspace(
                 'handleOpenFileDirectBatchWithPersist',
                 workspace => workspace.handleOpenFileDirectBatchWithPersist(paths),
@@ -599,7 +616,7 @@ const workspaceExpose: IWorkspaceExpose = {
         });
     },
     handleOpenFileWithResult: async (result: TOpenFileResult) => {
-        await runWhileOpeningDocument(async () => {
+        await enqueueDocumentOpen(async () => {
             await withWorkspace('handleOpenFileWithResult', workspace => workspace.handleOpenFileWithResult(result));
         });
     },

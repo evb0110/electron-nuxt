@@ -2,9 +2,16 @@ export type TAnnotationTool = 'none' | 'highlight' | 'underline' | 'strikethroug
 
 export type TMarkupSubtype = 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly';
 
-export type TShapeType = 'rectangle' | 'circle' | 'line' | 'arrow';
+export type TShapeType = 'rectangle' | 'circle' | 'line' | 'arrow' | 'polyline' | 'polygon';
+export type TDrawableShapeType = Extract<TShapeType, 'rectangle' | 'circle' | 'line' | 'arrow'>;
 
 export type TLineEndStyle = 'none' | 'openArrow' | 'closedArrow';
+export type TEmbeddedPdfShapeSubtype = 'Square' | 'Circle' | 'Line' | 'PolyLine' | 'Polygon';
+
+export interface IShapePoint {
+    x: number;
+    y: number;
+}
 
 export interface IShapeAnnotation {
     id: string;
@@ -20,6 +27,12 @@ export interface IShapeAnnotation {
     fillColor?: string;
     opacity: number;
     strokeWidth: number;
+    points?: IShapePoint[];
+    source?: 'local' | 'embedded';
+    annotationId?: string | null;
+    stableKey?: string | null;
+    pdfSubtype?: TEmbeddedPdfShapeSubtype | null;
+    lineStartStyle?: TLineEndStyle;
     lineEndStyle?: TLineEndStyle;
 }
 

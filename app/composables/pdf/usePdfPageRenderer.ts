@@ -54,6 +54,7 @@ interface IUsePdfPageRendererOptions {
 
     bufferPages?: MaybeRefOrGetter<number>;
     showAnnotations?: MaybeRefOrGetter<boolean>;
+    hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     scrollToPage?: (
         pageNumber: number,
         options?: { preferExactDom?: boolean; },
@@ -159,6 +160,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         currentPage: options.currentPage,
         pdfDocument,
         showAnnotations,
+        hiddenAnnotationIds: options.hiddenAnnotationIds ?? new Set<string>(),
         annotationUiManager: options.annotationUiManager ?? null,
         annotationL10n: options.annotationL10n ?? null,
         scrollToPage: options.scrollToPage,

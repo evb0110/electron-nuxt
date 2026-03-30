@@ -45,6 +45,7 @@ interface IPdfViewerForAnnotationActions {
     selectedShapeId: string | null;
     updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
     getSelectedShape: () => IShapeAnnotation | null;
+    deleteSelectedShape: () => void;
     saveDocument: () => Promise<Uint8Array | null>;
     startImagePlacement: (
         file: File,
@@ -398,6 +399,11 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         };
     }
 
+    function handleDeleteSelectedShape() {
+        pdfViewerRef.value?.deleteSelectedShape();
+        closeShapeProperties();
+    }
+
     function handleViewerAnnotationContextMenu(payload: {
         comment: IAnnotationCommentSummary | null;
         clientX: number;
@@ -659,7 +665,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         // PDF-sourced annotations render via the annotation layer, not the
         // editor layer. uiManager.delete() operates on the editor layer and
         // may falsely report success. Always attempt embedded-level fallback.
-        if (!deleted || comment.source === 'pdf') {
+        if (!deleted || comment.source === 'pdf' || Boolean(comment.annotationId)) {
             if (comment.annotationId && pdfViewerRef.value) {
                 // Optimistic path — instant visual removal, no PDF reload
                 pdfViewerRef.value.suppressAnnotationId(comment.annotationId);
@@ -742,6 +748,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         handleAnnotationCommentClick,
         handleOpenAnnotationNote,
         closeShapeProperties,
+        handleDeleteSelectedShape,
         handleShapePropertyUpdate,
         handleShapeContextMenu,
         handleViewerAnnotationContextMenu,

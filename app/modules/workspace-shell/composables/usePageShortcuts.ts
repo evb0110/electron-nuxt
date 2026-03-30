@@ -116,6 +116,12 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
                 return;
             }
 
+            if ((e.key === 'Delete' || e.key === 'Backspace') && pdfSrc.value) {
+                e.preventDefault();
+                deps.pdfViewerRef.value?.deleteSelectedShape();
+                return;
+            }
+
             if (!hasMod || !pdfSrc.value) {
                 return;
             }

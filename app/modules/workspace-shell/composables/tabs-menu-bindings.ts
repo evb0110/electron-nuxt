@@ -61,17 +61,21 @@ export function registerTabsMenuBindings(
             return;
         }
 
-        documentOpenQueue = documentOpenQueue.then(async () => {
-            if (disposed) {
-                return;
-            }
+        documentOpenQueue = documentOpenQueue
+            .catch((error) => {
+                BrowserLogger.warn('tabs-menu', 'Recovered poisoned document-open queue', error);
+            })
+            .then(async () => {
+                if (disposed) {
+                    return;
+                }
 
-            try {
-                await action();
-            } catch (error) {
-                BrowserLogger.warn('tabs-menu', `Queued document open failed: ${actionName}`, error);
-            }
-        });
+                try {
+                    await action();
+                } catch (error) {
+                    BrowserLogger.warn('tabs-menu', `Queued document open failed: ${actionName}`, error);
+                }
+            });
     };
 
     const cleanups = [

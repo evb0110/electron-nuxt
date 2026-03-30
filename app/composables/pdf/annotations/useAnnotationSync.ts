@@ -34,6 +34,7 @@ import {
     toMarkerRectFromEditorRect,
     toMarkerRectFromPdfRect,
 } from '@app/composables/pdf/annotationGeometry';
+import { isImportedEmbeddedShapeSubtype } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import { toCssColor } from '@app/composables/pdf/annotationCssUtils';
 import {
     getOptionalFunction,
@@ -356,6 +357,10 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                             });
                         }
                     }
+                    return;
+                }
+
+                if (isImportedEmbeddedShapeSubtype(annotation.subtype)) {
                     return;
                 }
 

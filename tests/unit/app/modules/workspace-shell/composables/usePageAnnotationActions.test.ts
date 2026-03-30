@@ -76,6 +76,7 @@ function createHarness() {
         selectedShapeId: 'shape-1' as string | null,
         updateShape: vi.fn(),
         getSelectedShape: vi.fn(() => null),
+        deleteSelectedShape: vi.fn(),
         saveDocument: vi.fn(async () => new Uint8Array([
             9,
             9,
@@ -120,7 +121,7 @@ function createHarness() {
         setAnnotationNoteWindowError: vi.fn(),
         isSameAnnotationComment: vi.fn((a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) => a.stableKey === b.stableKey),
         annotationNoteWindows: ref<Array<{ comment: IAnnotationCommentSummary }>>([]),
-        deleteEmbeddedByRef: vi.fn(async () => null),
+        deleteEmbeddedByRef: vi.fn<(_: IAnnotationCommentSummary) => Promise<Uint8Array | null>>(async () => null),
         loadPdfFromData: vi.fn(async (_data: Uint8Array, _opts?: {
             pushHistory?: boolean;
             persistWorkingCopy?: boolean;
@@ -358,6 +359,38 @@ describe('usePageAnnotationActions', () => {
         ]);
         expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('a');
         expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('b');
+    });
+
+    it('falls back to embedded delete for editor-backed annotations with annotation ids', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createComment('editor-backed');
+        comment.source = 'editor';
+        comment.annotationId = '12R0';
+        deps.deleteEmbeddedByRef.mockImplementation(async () => new Uint8Array([
+            4,
+            5,
+            6,
+        ]));
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
+        expect(viewer.suppressAnnotationId).toHaveBeenCalledWith('12R0');
+        expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(comment);
+        expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
+        expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(comment.stableKey);
+        expect(deps.deleteEmbeddedByRef).toHaveBeenCalledWith(comment);
+        expect(deps.persistPdfDataSilently).toHaveBeenCalledWith(new Uint8Array([
+            4,
+            5,
+            6,
+        ]));
+        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
+        expect(deps.resetAnnotationStorageModified).toHaveBeenCalledOnce();
     });
 
     it('reloads current page from serialized data for embedded fallback', async () => {
