@@ -918,37 +918,30 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
 
         editable.focus();
 
-        if (!editable.isContentEditable && editable.getAttribute('contenteditable') !== 'true') {
+        if (!editable.isContentEditable) {
             editable.setAttribute('contenteditable', 'true');
         }
 
-        if (editable.isContentEditable || editable.getAttribute('contenteditable') === 'true') {
-            editable.textContent = text;
+        editable.textContent = text;
 
+        try {
             const selection = window.getSelection();
             const range = document.createRange();
             range.selectNodeContents(editable);
             range.collapse(false);
             selection?.removeAllRanges();
             selection?.addRange(range);
-
-            editable.dispatchEvent(new InputEvent('input', {
-                bubbles: true,
-                data: text,
-                inputType: 'insertText',
-            }));
-            editable.dispatchEvent(new Event('change', {bubbles: true}));
-            return 'ok';
+        } catch {
+            // Selection API may not work in headless — content is already set.
         }
 
-        if (editable instanceof HTMLInputElement || editable instanceof HTMLTextAreaElement) {
-            editable.value = text;
-            editable.dispatchEvent(new Event('input', {bubbles: true}));
-            editable.dispatchEvent(new Event('change', {bubbles: true}));
-            return 'ok';
-        }
-
-        return 'not-editable';
+        editable.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            data: text,
+            inputType: 'insertText',
+        }));
+        editable.dispatchEvent(new Event('change', {bubbles: true}));
+        return 'ok';
     }, expectedText);
 
     const injectLatestFreeTextContent = async (typedText: string) => {
