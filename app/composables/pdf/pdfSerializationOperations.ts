@@ -18,6 +18,7 @@ import type {
     TLineEndStyle,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import { getShapeStrokePointSets } from '@app/composables/pdf/pdfShapeStrokes';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
 import type {
     IPdfBookmarkEntry,
@@ -292,21 +293,34 @@ function toPdfVertexPoints(
 }
 
 function toPdfInkList(
-    points: IShapePoint[] | undefined,
+    shape: IShapeAnnotation,
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ) {
-    const pdfPoints = toPdfVertexPoints(points, pageView, pageRotation);
-    if (!pdfPoints) {
+    const strokePointSets = getShapeStrokePointSets(shape);
+    if (strokePointSets.length === 0) {
+        return null;
+    }
+
+    const inkList: number[][] = [];
+    const pdfPoints = strokePointSets.flatMap((points) => {
+        const strokePdfPoints = toPdfVertexPoints(points, pageView, pageRotation);
+        if (!strokePdfPoints) {
+            return [];
+        }
+        inkList.push(strokePdfPoints.flatMap(point => [
+            point.x,
+            point.y,
+        ]));
+        return strokePdfPoints;
+    });
+    if (inkList.length === 0 || pdfPoints.length === 0) {
         return null;
     }
 
     return {
         pdfPoints,
-        inkList: pdfPoints.flatMap(point => [
-            point.x,
-            point.y,
-        ]),
+        inkList,
     };
 }
 
@@ -530,7 +544,7 @@ function createInkAnnotationDict(
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ) {
-    const inkData = toPdfInkList(shape.points, pageView, pageRotation);
+    const inkData = toPdfInkList(shape, pageView, pageRotation);
     if (!inkData) {
         return null;
     }
@@ -544,7 +558,7 @@ function createInkAnnotationDict(
         Type: 'Annot',
         Subtype: 'Ink',
         Rect: doc.context.obj(rect),
-        InkList: doc.context.obj([doc.context.obj(inkData.inkList)]),
+        InkList: doc.context.obj(inkData.inkList.map(points => doc.context.obj(points))),
     });
     updateShapeStyle(annotDict, doc, shape);
     annotDict.delete(PDFName.of('LE'));
@@ -559,7 +573,7 @@ function updateInkAnnotationDict(
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ) {
-    const inkData = toPdfInkList(shape.points, pageView, pageRotation);
+    const inkData = toPdfInkList(shape, pageView, pageRotation);
     if (!inkData) {
         return false;
     }
@@ -570,7 +584,7 @@ function updateInkAnnotationDict(
     }
 
     annotDict.set(PDFName.of('Rect'), doc.context.obj(rect));
-    annotDict.set(PDFName.of('InkList'), doc.context.obj([doc.context.obj(inkData.inkList)]));
+    annotDict.set(PDFName.of('InkList'), doc.context.obj(inkData.inkList.map(points => doc.context.obj(points))));
     updateShapeStyle(annotDict, doc, shape);
     annotDict.delete(PDFName.of('LE'));
     annotDict.delete(PDFName.of('IC'));

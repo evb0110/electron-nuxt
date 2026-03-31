@@ -89,6 +89,10 @@ import {
     collectEmbeddedShapeAnnotationIds,
     importEmbeddedShapeAnnotations,
 } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
+import {
+    cloneShapePoints,
+    cloneShapeStrokes,
+} from '@app/composables/pdf/pdfShapeStrokes';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { usePdfViewerCore } from '@app/modules/pdf-viewer-runtime/usePdfViewerCore';
@@ -473,7 +477,8 @@ function registerShapeHistoryCommand(command: {
 function cloneShape(shape: IShapeAnnotation): IShapeAnnotation {
     return {
         ...shape,
-        points: shape.points?.map(point => ({ ...point })),
+        points: cloneShapePoints(shape.points),
+        strokes: cloneShapeStrokes(shape.strokes),
     };
 }
 

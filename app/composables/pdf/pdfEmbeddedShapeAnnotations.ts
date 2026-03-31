@@ -19,6 +19,7 @@ import {
     toMarkerPointFromPdfPoint,
     toMarkerRectFromPdfRect,
 } from '@app/composables/pdf/annotationGeometry';
+import { getAllShapePoints } from '@app/composables/pdf/pdfShapeStrokes';
 
 const IMPORTED_SHAPE_SUBTYPES = new Set<TEmbeddedPdfShapeSubtype>([
     'Square',
@@ -450,34 +451,45 @@ function importInkShape(
         return null;
     }
 
-    const firstStroke = inkList.lookup(0, PDFArray);
-    if (!(firstStroke instanceof PDFArray) || firstStroke.size() < 4) {
-        return null;
-    }
+    const strokes: IShapePoint[][] = [];
+    for (let strokeIndex = 0; strokeIndex < inkList.size(); strokeIndex += 1) {
+        const strokeArray = inkList.lookup(strokeIndex, PDFArray);
+        if (!(strokeArray instanceof PDFArray) || strokeArray.size() < 4) {
+            continue;
+        }
 
-    const values = numbersFromPdfArray(firstStroke);
-    if (!values || values.length < 4) {
-        return null;
-    }
+        const values = numbersFromPdfArray(strokeArray);
+        if (!values || values.length < 4) {
+            continue;
+        }
 
-    const points: IShapePoint[] = [];
-    for (let index = 0; index < values.length; index += 2) {
-        const point = toMarkerPointFromPdfPoint(
-            values[index]!,
-            values[index + 1]!,
-            pageView,
-            pageRotation,
-        );
-        if (point) {
-            points.push(point);
+        const points: IShapePoint[] = [];
+        for (let index = 0; index < values.length; index += 2) {
+            const point = toMarkerPointFromPdfPoint(
+                values[index]!,
+                values[index + 1]!,
+                pageView,
+                pageRotation,
+            );
+            if (point) {
+                points.push(point);
+            }
+        }
+
+        if (points.length >= 2) {
+            strokes.push(points);
         }
     }
 
-    if (points.length < 2) {
+    if (strokes.length === 0) {
         return null;
     }
 
-    const bounds = toPointsBounds(points);
+    const points = strokes[0]!;
+    const bounds = toPointsBounds(getAllShapePoints({
+        points,
+        strokes,
+    }));
     if (!bounds) {
         return null;
     }
@@ -495,6 +507,7 @@ function importInkShape(
         opacity: readOpacity(dict),
         strokeWidth: readBorderWidth(dict),
         points,
+        strokes,
         source: 'embedded',
         annotationId,
         pdfSubtype: 'Ink',

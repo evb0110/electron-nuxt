@@ -17,6 +17,10 @@ import {
     getShapeBounds,
     resizeShapeToBounds,
 } from '@app/composables/pdf/pdfShapeResize';
+import {
+    cloneShapePoints,
+    cloneShapeStrokes,
+} from '@app/composables/pdf/pdfShapeStrokes';
 
 interface IShapeContextMenuPayload {
     shapeId: string;
@@ -76,15 +80,19 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
             };
         }
 
-        if ((shape.type === 'polyline' || shape.type === 'polygon') && shape.points) {
+        if ((shape.type === 'polyline' || shape.type === 'polygon') && (shape.points || shape.strokes)) {
             return {
                 ...shape,
                 x: shape.x + safeDeltaX,
                 y: shape.y + safeDeltaY,
-                points: shape.points.map(point => ({
+                points: shape.points?.map(point => ({
                     x: point.x + safeDeltaX,
                     y: point.y + safeDeltaY,
                 })),
+                strokes: shape.strokes?.map(points => points.map(point => ({
+                    x: point.x + safeDeltaX,
+                    y: point.y + safeDeltaY,
+                }))),
             };
         }
 
@@ -98,7 +106,8 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
     function cloneShape(shape: IShapeAnnotation): IShapeAnnotation {
         return {
             ...shape,
-            points: shape.points?.map(point => ({ ...point })),
+            points: cloneShapePoints(shape.points),
+            strokes: cloneShapeStrokes(shape.strokes),
         };
     }
 
