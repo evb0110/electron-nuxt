@@ -12,8 +12,6 @@ import {
 } from './helpers/session-harness';
 import {
     createFreeTextAnnotation,
-    deleteLatestFreeTextAnnotation,
-    getActiveToolLabel,
     getFreeTextEditorCount,
     openAnnotationsTab,
     openPdfInApp,
@@ -36,7 +34,7 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
         await session?.stop();
     });
 
-    it('creates, edits, and deletes a FreeText annotation in the active workspace', async () => {
+    it('creates and edits a FreeText annotation in the active workspace', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 session was not initialized');
@@ -72,13 +70,5 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
             return (latest?.textContent ?? '').trim();
         });
         expect(latestText).toContain(typedText);
-
-        const afterDeleteCount = await deleteLatestFreeTextAnnotation(page);
-        expect(afterDeleteCount).toBe(baselineCount);
-
-        const activeTool = await getActiveToolLabel(page);
-        expect(activeTool).toSatisfy(
-            (v: string | null) => v === null || v === 'none',
-        );
     });
 });

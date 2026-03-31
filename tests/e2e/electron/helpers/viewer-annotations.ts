@@ -4,6 +4,7 @@ import {
     findVisiblePointInActiveHost,
 } from './viewer-dom';
 import {
+    clickToolbarButtonWhenEnabled,
     openAnnotationsTab,
     waitForViewerInteractive,
 } from './viewer-core';
@@ -27,6 +28,16 @@ function resolveToolId(label: string): string | null {
     return TOOL_LABEL_TO_ID[label] ?? label.toLowerCase();
 }
 
+type TAnnotationUiManagerHolder = { value?: unknown };
+
+type TPdfViewerWorkspaceInstance = {$?: {setupState?: {
+    pdfViewerRef?: {value?: {
+        $?: {setupState?: {annotationUiManager?: TAnnotationUiManagerHolder;};};
+        annotationUiManager?: TAnnotationUiManagerHolder;
+    };};
+    annotationUiManager?: TAnnotationUiManagerHolder;
+};};};
+
 async function waitForActiveAnnotationTool(
     page: Page,
     toolId: string,
@@ -41,6 +52,39 @@ async function waitForActiveAnnotationTool(
         const activeBtn = host.querySelector('.notes-panel .tool-button.is-active');
         return activeBtn?.getAttribute('data-tool') === expectedToolId;
     }, {timeout: timeoutMs}, toolId);
+}
+
+async function waitForAnnotationToolCleared(
+    page: Page,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
+    await page.waitForFunction(() => {
+        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+            ?? document.querySelector<HTMLElement>('.workspace-host')
+            ?? null;
+        if (!host) {
+            return false;
+        }
+
+        const activeBtn = host.querySelector('.notes-panel .tool-button.is-active');
+        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: {value?: {$?: {setupState?: {
+            pdfViewerRef?: {value?: {
+                $?: {setupState?: {annotationUiManager?: {value?: {getMode?: () => number;};};};};
+                annotationUiManager?: {value?: {getMode?: () => number;};};
+            };};
+            annotationUiManager?: {value?: {getMode?: () => number;};};
+        };};};};};};} | null)?.__vueParentComponent?.setupState?.workspaceRef?.value;
+        const workspaceSetupState = workspaceInstance?.$?.setupState ?? null;
+        const pdfViewerInstance = workspaceSetupState?.pdfViewerRef?.value ?? null;
+        const pdfViewerSetupState = pdfViewerInstance?.$?.setupState ?? null;
+        const uiManager = pdfViewerSetupState?.annotationUiManager?.value
+            ?? pdfViewerInstance?.annotationUiManager?.value
+            ?? workspaceSetupState?.annotationUiManager?.value
+            ?? null;
+        const mode = (uiManager as { getMode?: () => number } | null)?.getMode?.() ?? 0;
+
+        return !activeBtn && mode === 0;
+    }, { timeout: timeoutMs });
 }
 
 async function waitForAnnotationEditorLayerInteractive(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -232,6 +276,35 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
             const activeBtn = host?.querySelector<HTMLButtonElement>('.notes-panel .tool-button.is-active');
             activeBtn?.click();
         });
+        try {
+            await waitForAnnotationToolCleared(page, Math.min(timeoutMs, 4_000));
+            return;
+        } catch {
+            const resetViaWorkspace = await page.evaluate(async () => {
+                const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+                    ?? document.querySelector<HTMLElement>('.workspace-host')
+                    ?? null;
+                if (!host) {
+                    return false;
+                }
+
+                const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: {value?: {$?: {setupState?: {handleAnnotationToolChange?: (tool: 'none') => void;};};};};};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
+                const handleAnnotationToolChange = workspaceInstance?.$?.setupState?.handleAnnotationToolChange;
+                if (typeof handleAnnotationToolChange !== 'function') {
+                    return false;
+                }
+
+                handleAnnotationToolChange('none');
+                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                return true;
+            });
+
+            if (!resetViaWorkspace) {
+                throw new Error('Failed to reset annotation tool to Select mode');
+            }
+            await waitForAnnotationToolCleared(page, timeoutMs);
+        }
         return;
     }
 
@@ -575,6 +648,32 @@ async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number
             : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
         const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
         const layer = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer') ?? null;
+        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: {value?: {$?: {setupState?: {
+            pdfViewerRef?: {value?: {
+                $?: {setupState?: {annotationUiManager?: { value?: unknown; };};};
+                annotationUiManager?: { value?: unknown; };
+            };};
+            annotationUiManager?: { value?: unknown; };
+        };};};};};};} | null)?.__vueParentComponent?.setupState?.workspaceRef?.value;
+        const workspaceSetupState = workspaceInstance?.$?.setupState ?? null;
+        const pdfViewerInstance = workspaceSetupState?.pdfViewerRef?.value ?? null;
+        const pdfViewerSetupState = pdfViewerInstance?.$?.setupState ?? null;
+        const uiManager = pdfViewerSetupState?.annotationUiManager?.value
+            ?? pdfViewerInstance?.annotationUiManager?.value
+            ?? workspaceSetupState?.annotationUiManager?.value
+            ?? null;
+        const pageAttribute = Number(pageContainer?.dataset.page ?? '1');
+        const resolvedPageNumber = Number.isFinite(pageAttribute) && pageAttribute > 0
+            ? pageAttribute
+            : 1;
+        const resolvedPageIndex = Math.max(0, (targetPageNumber ?? resolvedPageNumber) - 1);
+        const getLayer = (uiManager as {
+            getLayer?: (pageIndex: number) => unknown;
+            currentLayer?: unknown;
+        } | null)?.getLayer;
+        const programmaticLayer = getLayer?.call(uiManager, resolvedPageIndex)
+            ?? (uiManager as { currentLayer?: unknown } | null)?.currentLayer
+            ?? null;
         const fatalDialog = Array.from(document.querySelectorAll<HTMLElement>('div.fixed.inset-0'))
             .find((candidate) => candidate.textContent?.includes('Reload') && candidate.textContent?.includes('runtime') !== false)
             ?? null;
@@ -596,6 +695,9 @@ async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number
                 : null,
             layerClassName: layer?.className ?? null,
             layerPointerEvents: layer ? window.getComputedStyle(layer).pointerEvents : null,
+            hasProgrammaticUiManager: Boolean(uiManager),
+            hasProgrammaticEditorLayer: Boolean(programmaticLayer),
+            programmaticLayerSupportsCreate: typeof (programmaticLayer as {createAndAddNewEditor?: unknown;} | null)?.createAndAddNewEditor === 'function',
             fatalRuntimeVisible: Boolean(fatalDialog),
             fatalRuntimeDetail: detailBlock?.textContent?.trim() ?? null,
         };
@@ -651,21 +753,21 @@ async function triggerKeyboardFreeTextCreation(page: Page, pageNumber?: number) 
 }
 
 /**
- * Programmatic FreeText editor creation via PointerEvent dispatch on the
- * annotation editor layer — mirrors the internal path used by
- * useAnnotationHighlight.ts for deterministic creation in headless CI.
+ * Programmatic FreeText editor creation via the PDF.js editor layer itself.
+ * Headless CI can ignore otherwise-valid synthesized clicks, so this mirrors
+ * the direct create path the app already uses for deterministic annotations.
  */
 async function programmaticFreeTextCreation(
     page: Page,
     ratio: {
         x: number;
-        y: number 
+        y: number;
     },
     pageNumber?: number,
 ) {
     await waitForViewerInteractive(page);
 
-    return page.evaluate(({
+    return page.evaluate(async ({
         xRatio,
         yRatio,
         targetPageNumber,
@@ -699,12 +801,60 @@ async function programmaticFreeTextCreation(
         }
 
         const pageContainer = host.querySelector<HTMLElement>(pageSelector);
-        const layerDiv = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
-        if (!layerDiv) {
+        const targetLayer = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer')
+            ?? null;
+        if (!pageContainer || !targetLayer) {
             return false;
         }
 
-        const rect = layerDiv.getBoundingClientRect();
+        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: {value?: {$?: {setupState?: {
+            pdfViewerRef?: {value?: {
+                $?: {setupState?: {annotationUiManager?: { value?: unknown; };};};
+                annotationUiManager?: { value?: unknown; };
+            };};
+            annotationUiManager?: { value?: unknown; };
+        };};};};};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
+        const workspaceSetupState = workspaceInstance?.$?.setupState ?? null;
+        const pdfViewerInstance = workspaceSetupState?.pdfViewerRef?.value ?? null;
+        const pdfViewerSetupState = pdfViewerInstance?.$?.setupState ?? null;
+        const uiManager = pdfViewerSetupState?.annotationUiManager?.value
+            ?? pdfViewerInstance?.annotationUiManager?.value
+            ?? workspaceSetupState?.annotationUiManager?.value
+            ?? null;
+        if (!uiManager) {
+            return false;
+        }
+
+        const pageAttribute = Number(pageContainer.dataset.page ?? '1');
+        const resolvedPageNumber = Number.isFinite(pageAttribute) && pageAttribute > 0
+            ? pageAttribute
+            : 1;
+        const resolvedPageIndex = Math.max(0, (targetPageNumber ?? resolvedPageNumber) - 1);
+
+        try {
+            const waitForEditorsRendered = (uiManager as {waitForEditorsRendered?: (target: number) => Promise<void>;}).waitForEditorsRendered;
+            await waitForEditorsRendered?.call(uiManager, resolvedPageIndex + 1);
+        } catch {
+            // Best effort only; some PDF.js builds can reject during transitions.
+        }
+
+        const getLayer = (uiManager as {
+            getLayer?: (pageIndex: number) => unknown;
+            currentLayer?: unknown;
+        }).getLayer;
+        const layer = getLayer?.call(uiManager, resolvedPageIndex)
+            ?? (uiManager as { currentLayer?: unknown }).currentLayer
+            ?? null;
+        const createAndAddNewEditor = (layer as {createAndAddNewEditor?: (
+            event: PointerEvent,
+            isCentered: boolean,
+            data?: Record<string, unknown>,
+        ) => unknown;} | null)?.createAndAddNewEditor;
+        if (typeof createAndAddNewEditor !== 'function') {
+            return false;
+        }
+
+        const rect = targetLayer.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) {
             return false;
         }
@@ -712,22 +862,26 @@ async function programmaticFreeTextCreation(
         const clientX = Math.round(rect.left + rect.width * xRatio);
         const clientY = Math.round(rect.top + rect.height * yRatio);
 
-        const eventInit: PointerEventInit = {
-            clientX,
-            clientY,
-            button: 0,
-            buttons: 1,
-            bubbles: true,
-            pointerType: 'mouse',
-            isPrimary: true,
-        };
-        layerDiv.dispatchEvent(new PointerEvent('pointerdown', eventInit));
-        layerDiv.dispatchEvent(new PointerEvent('pointerup', eventInit));
-        return true;
+        const createdEditor = createAndAddNewEditor.call(
+            layer,
+            new PointerEvent('pointerdown', {
+                clientX,
+                clientY,
+                button: 0,
+                buttons: 1,
+                bubbles: true,
+                pointerType: 'mouse',
+                isPrimary: true,
+            }),
+            false,
+        );
+
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        return Boolean(createdEditor);
     }, {
         xRatio: ratio.x,
         yRatio: ratio.y,
-        targetPageNumber: pageNumber ?? null, 
+        targetPageNumber: pageNumber ?? null,
     });
 }
 
@@ -1106,10 +1260,23 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
         }, {timeout: timeoutMs}, before);
     };
 
+    // The E2E path creates a committed FreeText editor immediately before
+    // deleting it. Reverting the latest annotation history entry is the most
+    // reliable headless-safe way to remove that just-created editor.
+    try {
+        await clickAnnotationTool(page, 'Select');
+        await clickToolbarButtonWhenEnabled(page, 'Undo', Math.min(DEFAULT_TIMEOUT_MS, 4_000));
+        await waitForCountDrop(Math.min(DEFAULT_TIMEOUT_MS, 4_000));
+        return getFreeTextEditorCount(page);
+    } catch {
+        // Fall back to selection-based deletion below.
+    }
+
     // In NONE idle mode the editor layer is disabled (pointer-events: none),
     // so we must activate the FreeText tool to make editors interactive.
     // Clicking an editor in FREETEXT mode enters editing; Escape exits editing
     // while keeping the editor selected, then Delete removes it.
+    let lastError: Error | null = null;
     for (const editorPoint of editorPoints) {
         await clickAnnotationTool(page, 'Text');
         await page.mouse.click(editorPoint.x, editorPoint.y);
@@ -1122,19 +1289,98 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
             return getFreeTextEditorCount(page);
         } catch {
             // Escape+Delete didn't work — try programmatic removal via PDF.js
-            const removed = await page.evaluate(() => {
+            const removalResult = await page.evaluate(() => {
                 const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
-                    ?? document.querySelector<HTMLElement>('.workspace-host');
-                const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
-                const target = editors[editors.length - 1];
-                if (!target) {
-                    return false;
+                    ?? document.querySelector<HTMLElement>('.workspace-host')
+                    ?? null;
+                const target = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []).at(-1) ?? null;
+                if (!host || !target) {
+                    return {
+                        removed: false,
+                        reason: 'missing-host-or-target',
+                    };
                 }
-                target.remove();
-                return true;
+
+                let workspaceInstance: TPdfViewerWorkspaceInstance | null = null;
+
+                for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
+                    const component = (element as HTMLElement & {__vueParentComponent?: {
+                        exposed?: unknown;
+                        setupState?: {
+                            mountedWorkspace?: { value?: unknown; };
+                            workspaceRef?: { value?: unknown; };
+                        };
+                    };}).__vueParentComponent;
+
+                    for (const candidate of [
+                        component?.setupState?.mountedWorkspace?.value,
+                        component?.setupState?.workspaceRef?.value,
+                        component?.exposed,
+                    ]) {
+                        if (candidate && typeof candidate === 'object') {
+                            workspaceInstance = candidate as TPdfViewerWorkspaceInstance;
+                            break;
+                        }
+                    }
+
+                    if (workspaceInstance) {
+                        break;
+                    }
+                }
+
+                const workspaceSetupState = workspaceInstance?.$?.setupState ?? null;
+                const pdfViewerInstance = workspaceSetupState?.pdfViewerRef?.value ?? null;
+                const pdfViewerSetupState = pdfViewerInstance?.$?.setupState ?? null;
+                const uiManager = pdfViewerSetupState?.annotationUiManager?.value
+                    ?? pdfViewerInstance?.annotationUiManager?.value
+                    ?? workspaceSetupState?.annotationUiManager?.value
+                    ?? null;
+                if (!uiManager) {
+                    return {
+                        removed: false,
+                        reason: 'missing-ui-manager',
+                    };
+                }
+
+                const getEditors = (uiManager as {getEditors?: (pageIndex: number) => Iterable<{div?: HTMLElement | null;}>;} | null)?.getEditors;
+                const setSelected = (uiManager as {setSelected?: (editor: unknown) => void;} | null)?.setSelected;
+                const deleteSelection = (uiManager as {delete?: () => void;} | null)?.delete;
+                if (
+                    typeof getEditors !== 'function'
+                    || typeof setSelected !== 'function'
+                    || typeof deleteSelection !== 'function'
+                ) {
+                    return {
+                        removed: false,
+                        reason: 'missing-delete-api',
+                    };
+                }
+
+                const pageCount = Math.max(1, host.querySelectorAll('.page_container').length);
+                const editors = Array.from({ length: pageCount }, (_, pageIndex) => (
+                    Array.from(getEditors.call(uiManager, pageIndex) ?? [])
+                )).flat();
+                const matchingEditor = editors.find((editor) => {
+                    const div = editor.div ?? null;
+                    return div === target || Boolean(div?.contains(target)) || Boolean(target.contains(div));
+                }) ?? editors.find((editor) => editor.div?.classList.contains('freeTextEditor')) ?? null;
+
+                if (!matchingEditor) {
+                    return {
+                        removed: false,
+                        reason: `no-matching-editor:${editors.length}`,
+                    };
+                }
+
+                setSelected.call(uiManager, matchingEditor);
+                deleteSelection.call(uiManager);
+                return {
+                    removed: true,
+                    reason: `deleted:${editors.length}`,
+                };
             });
 
-            if (removed) {
+            if (removalResult.removed) {
                 try {
                     await waitForCountDrop(DEFAULT_TIMEOUT_MS);
                     await clickAnnotationTool(page, 'Select');
@@ -1143,11 +1389,21 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
                     continue;
                 }
             }
+            lastError = new Error(`Programmatic delete failed (${removalResult.reason})`);
             continue;
         }
     }
 
-    throw new Error('Unable to delete the latest FreeText annotation from any hit target');
+    try {
+        await clickAnnotationTool(page, 'Select');
+        await clickToolbarButtonWhenEnabled(page, 'Undo', Math.min(DEFAULT_TIMEOUT_MS, 4_000));
+        await waitForCountDrop(DEFAULT_TIMEOUT_MS);
+        return getFreeTextEditorCount(page);
+    } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+    }
+
+    throw new Error(`Unable to delete the latest FreeText annotation from any hit target${lastError ? ` (${lastError.message})` : ''}`);
 }
 
 export async function createHighlightFromVisibleText(page: Page) {
