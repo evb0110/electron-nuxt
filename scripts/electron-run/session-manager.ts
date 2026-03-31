@@ -408,8 +408,15 @@ async function cleanupStaleNuxtPortOwners(reason: string) {
 }
 
 async function startNuxtServer(forceClean = false): Promise<ChildProcess | null> {
-    setNuxtPort(DEFAULT_NUXT_PORT);
-    console.log(`[Nuxt] Using fixed dev port ${getNuxtPort()}`);
+    const isDefaultSession = getCurrentSessionName() === 'default';
+    if (isDefaultSession) {
+        setNuxtPort(DEFAULT_NUXT_PORT);
+        console.log(`[Nuxt] Using fixed dev port ${getNuxtPort()}`);
+    } else {
+        const freePort = await findFreePort();
+        setNuxtPort(freePort);
+        console.log(`[Nuxt] Using isolated port ${getNuxtPort()} for session '${getCurrentSessionName()}'`);
+    }
     console.log(`[Nuxt] Browser dev server: http://localhost:${getNuxtPort()}/`);
 
     if (forceClean) {
