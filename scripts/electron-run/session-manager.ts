@@ -1194,6 +1194,12 @@ export async function startSession(forceClean = false) {
                     continue;
                 }
 
+                if (attempt === 0 && message.includes('frame was detached')) {
+                    console.log('[Recovery] Frame detached during initial page load — retrying...');
+                    await delay(2000);
+                    continue;
+                }
+
                 break;
             }
         }
