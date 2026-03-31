@@ -44,6 +44,109 @@ function describeError(error: unknown) {
     return String(error);
 }
 
+type TWorkspaceHistorySnapshot = {
+    canUndo?: boolean;
+    canRedo?: boolean;
+};
+
+type TWorkspaceHistoryController = {
+    handleUndo?: () => void;
+    handleRedo?: () => void;
+    getToolbarSnapshot?: () => TWorkspaceHistorySnapshot;
+};
+
+async function triggerHistoryShortcut(page: Page, ariaLabel: string) {
+    const isMac = process.platform === 'darwin';
+    if (ariaLabel === 'Undo') {
+        const modifier = isMac ? 'Meta' : 'Control';
+        await page.keyboard.down(modifier);
+        await page.keyboard.press('Z');
+        await page.keyboard.up(modifier);
+        return true;
+    }
+
+    if (ariaLabel === 'Redo') {
+        if (isMac) {
+            await page.keyboard.down('Meta');
+            await page.keyboard.down('Shift');
+            await page.keyboard.press('Z');
+            await page.keyboard.up('Shift');
+            await page.keyboard.up('Meta');
+            return true;
+        }
+
+        await page.keyboard.down('Control');
+        await page.keyboard.press('Y');
+        await page.keyboard.up('Control');
+        return true;
+    }
+
+    return false;
+}
+
+async function triggerWorkspaceHistoryAction(page: Page, ariaLabel: string) {
+    if (ariaLabel !== 'Undo' && ariaLabel !== 'Redo') {
+        return false;
+    }
+
+    return page.evaluate((label: string) => {
+        let workspace: TWorkspaceHistoryController | null = null;
+
+        for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
+            const component = (element as HTMLElement & {__vueParentComponent?: {
+                exposed?: unknown;
+                setupState?: {
+                    workspaceRef?: {value?: unknown;};
+                    mountedWorkspace?: {value?: unknown;};
+                };
+            };}).__vueParentComponent;
+            const candidates = [
+                component?.exposed,
+                component?.setupState?.mountedWorkspace?.value,
+                component?.setupState?.workspaceRef?.value,
+            ];
+
+            for (const candidate of candidates) {
+                if (!candidate || typeof candidate !== 'object') {
+                    continue;
+                }
+                const resolvedWorkspace = candidate as TWorkspaceHistoryController;
+                if (
+                    typeof resolvedWorkspace.handleUndo === 'function'
+                    || typeof resolvedWorkspace.handleRedo === 'function'
+                ) {
+                    workspace = resolvedWorkspace;
+                    break;
+                }
+            }
+
+            if (workspace) {
+                break;
+            }
+        }
+
+        if (!workspace) {
+            return false;
+        }
+
+        const snapshot = workspace.getToolbarSnapshot?.() ?? null;
+        if (label === 'Undo' && snapshot && snapshot.canUndo === false) {
+            return false;
+        }
+        if (label === 'Redo' && snapshot && snapshot.canRedo === false) {
+            return false;
+        }
+
+        if (label === 'Undo') {
+            workspace.handleUndo?.();
+            return true;
+        }
+
+        workspace.handleRedo?.();
+        return true;
+    }, ariaLabel);
+}
+
 async function runWithExecutionContextRetry<T>(
     page: Page,
     task: () => Promise<T>,
@@ -282,9 +385,10 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
             return iconHints.some(selector => Boolean(element.querySelector(selector)));
         };
 
-        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button.toolbar-btn[aria-label]'));
+        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'));
         const target = buttons.find((button) => {
-            if (!matchesToolbarAction(button, args.label, args.iconHints) || button.disabled) {
+            const isDisabled = button.disabled || button.getAttribute('aria-disabled') === 'true';
+            if (!matchesToolbarAction(button, args.label, args.iconHints) || isDisabled) {
                 return false;
             }
             const rect = button.getBoundingClientRect();
@@ -346,7 +450,100 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
         });
 
         if (!overflowPoint) {
-            throw new Error(`Visible toolbar button not found: ${ariaLabel}`);
+            const appMenuPoint = await page.evaluate(() => {
+                const menuButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
+                    .find((candidate) => {
+                        const ariaLabel = candidate.getAttribute('aria-label')?.trim() ?? '';
+                        const rect = candidate.getBoundingClientRect();
+                        const style = window.getComputedStyle(candidate);
+                        return (
+                            ariaLabel === 'Menu'
+                            && rect.width > 8
+                            && rect.height > 8
+                            && style.display !== 'none'
+                            && style.visibility !== 'hidden'
+                            && Number(style.opacity || '1') > 0
+                            && !candidate.disabled
+                            && candidate.getAttribute('aria-disabled') !== 'true'
+                        );
+                    });
+                if (!menuButton) {
+                    return null;
+                }
+                const rect = menuButton.getBoundingClientRect();
+                return {
+                    x: Math.round(rect.left + rect.width / 2),
+                    y: Math.round(rect.top + rect.height / 2),
+                };
+            });
+
+            if (!appMenuPoint) {
+                throw new Error(`Visible toolbar button not found: ${ariaLabel}`);
+            }
+
+            await page.mouse.click(appMenuPoint.x, appMenuPoint.y);
+            await page.waitForSelector('.app-menu', { timeout: 4_000 });
+
+            const appMenuItemPoint = await page.evaluate((args: {
+                label: string;
+                iconHints: string[];
+            }) => {
+                const matchesToolbarAction = (element: HTMLElement, label: string, iconHints: string[]) => {
+                    const text = (element.querySelector('.app-menu-label')?.textContent ?? '').trim();
+                    if (text === label) {
+                        return true;
+                    }
+                    return iconHints.some(selector => Boolean(element.querySelector(selector)));
+                };
+
+                const items = Array.from(document.querySelectorAll<HTMLElement>('.app-menu .app-menu-item'));
+                const target = items.find((item) => {
+                    if (!matchesToolbarAction(item, args.label, args.iconHints)) {
+                        return false;
+                    }
+                    const rect = item.getBoundingClientRect();
+                    const style = window.getComputedStyle(item);
+                    return (
+                        rect.width > 8
+                        && rect.height > 8
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && Number(style.opacity || '1') > 0
+                        && !item.hasAttribute('disabled')
+                        && item.getAttribute('aria-disabled') !== 'true'
+                    );
+                });
+                if (!target) {
+                    return null;
+                }
+                const rect = target.getBoundingClientRect();
+                return {
+                    x: Math.round(rect.left + rect.width / 2),
+                    y: Math.round(rect.top + rect.height / 2),
+                };
+            }, {
+                label: ariaLabel,
+                iconHints: getToolbarActionIconHints(ariaLabel),
+            });
+
+            if (!appMenuItemPoint) {
+                throw new Error(`Toolbar action not found in app menu: ${ariaLabel}`);
+            }
+
+            await page.mouse.click(appMenuItemPoint.x, appMenuItemPoint.y);
+            await page.waitForFunction(() => {
+                const menu = document.querySelector('.app-menu');
+                if (!menu) {
+                    return true;
+                }
+                const style = window.getComputedStyle(menu as HTMLElement);
+                return (
+                    style.display === 'none'
+                    || style.visibility === 'hidden'
+                    || Number(style.opacity || '1') === 0
+                );
+            }, { timeout: 4_000 });
+            return;
         }
 
         await page.mouse.click(overflowPoint.x, overflowPoint.y);
@@ -432,6 +629,14 @@ export async function clickToolbarButtonWhenEnabled(
             lastError = error instanceof Error ? error : new Error(String(error));
             await delay(125);
         }
+    }
+
+    if (await triggerWorkspaceHistoryAction(page, ariaLabel)) {
+        return;
+    }
+
+    if (await triggerHistoryShortcut(page, ariaLabel)) {
+        return;
     }
 
     const elapsedMs = Date.now() - startedAt;
