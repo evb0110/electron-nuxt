@@ -131,7 +131,10 @@ import type {
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
 import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotationContextMenu';
-import { isSelectionMarkupTool } from '@app/composables/pdf/annotations/annotationRules';
+import {
+    isSelectionInteractionTool,
+    isSelectionMarkupTool,
+} from '@app/composables/pdf/annotations/annotationRules';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { readDocumentBytes } from '@app/utils/document-bytes';
@@ -616,6 +619,12 @@ watch(isImagePlacementActive, (active) => {
     }
 });
 
+watch(annotationTool, (tool) => {
+    if (!isSelectionInteractionTool(tool)) {
+        shapeComposable.selectShape(null);
+    }
+});
+
 const annotations = useAnnotationOrchestrator({
     viewerContainer,
     pdfDocument,
@@ -1010,6 +1019,10 @@ function getSelectedShape(): IShapeAnnotation | null {
     return shapeComposable.getShapeById(id);
 }
 
+function clearSelectedShape() {
+    shapeComposable.selectShape(null);
+}
+
 function updateShape(id: string, updates: Partial<IShapeAnnotation>) {
     const previousShape = shapeComposable.getShapeById(id);
     if (!previousShape) {
@@ -1086,6 +1099,7 @@ defineExpose({
     getDeletedEmbeddedShapeAnnotationIds: shapeComposable.getDeletedEmbeddedAnnotationIds,
     loadShapes: shapeComposable.loadShapes,
     clearShapes: shapeComposable.clearShapes,
+    clearSelectedShape,
     deleteSelectedShape,
     hasShapes: shapeComposable.hasShapes,
     selectedShapeId: shapeComposable.selectedShapeId,

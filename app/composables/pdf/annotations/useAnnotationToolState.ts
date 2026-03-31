@@ -17,6 +17,7 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import {
+    isAuthoringAnnotationTool,
     isSelectionMarkupTool,
     shouldForceTextMarkup,
     TOOL_TO_MARKUP_SUBTYPE,
@@ -94,6 +95,7 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
             case 'circle':
             case 'line':
             case 'arrow':
+            case 'select':
                 return AnnotationEditorType.NONE;
             case 'none':
             default:
@@ -251,7 +253,7 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
         if (annotationKeepActive.value) {
             return;
         }
-        if (annotationTool.value === 'none') {
+        if (!isAuthoringAnnotationTool(annotationTool.value)) {
             return;
         }
         queueMicrotask(() => {

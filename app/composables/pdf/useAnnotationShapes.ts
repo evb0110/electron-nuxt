@@ -24,6 +24,7 @@ export interface IShapeContextProvide {
     drawingShape: Ref<IShapeAnnotation | null>;
     isShapeToolActive: ComputedRef<boolean>;
     isAnyAnnotationToolActive: ComputedRef<boolean>;
+    isSelectionToolActive: ComputedRef<boolean>;
     activeShapeTool: ComputedRef<TDrawableShapeType | null>;
     settings: Ref<IAnnotationSettings>;
     getShapesForPage: (pageIndex: number) => IShapeAnnotation[];

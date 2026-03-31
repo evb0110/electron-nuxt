@@ -6,6 +6,7 @@
         :class="{
             'annotation-tool-blocked': isAnnotationToolBlocked,
             'is-tool-active': isActive,
+            'is-selection-enabled': selectionEnabled,
             'has-shapes': shapes.length > 0,
             'has-selection': Boolean(selectedShapeId),
         }"
@@ -321,6 +322,7 @@ interface IProps {
     selectedShapeId: string | null;
     isActive: boolean;
     isAnnotationToolActive: boolean;
+    selectionEnabled: boolean;
     tool: TDrawableShapeType | null;
     settings: IAnnotationSettings;
 }
@@ -686,6 +688,9 @@ function findInteractiveShape(event: Pick<PointerEvent, 'clientX' | 'clientY' | 
 
 function handlePointerDown(event: PointerEvent) {
     if (!props.isActive || !props.tool) {
+        if (!props.selectionEnabled) {
+            return;
+        }
         if (event.button !== 0) {
             return;
         }
@@ -776,10 +781,16 @@ function handlePointerUp(event?: PointerEvent) {
 }
 
 function handleShapeClick(id: string) {
+    if (!props.selectionEnabled) {
+        return;
+    }
     emit('select-shape', id);
 }
 
 function handleShapePointerDown(shape: IShapeAnnotation, event: PointerEvent) {
+    if (!props.selectionEnabled) {
+        return;
+    }
     if (event.button !== 0) {
         return;
     }
@@ -792,6 +803,9 @@ function handleShapePointerDown(shape: IShapeAnnotation, event: PointerEvent) {
 }
 
 function handleShapeContextMenu(id: string, event: MouseEvent) {
+    if (!props.selectionEnabled) {
+        return;
+    }
     emit('select-shape', id);
     emit('shape-contextmenu', {
         shapeId: id,
@@ -801,6 +815,9 @@ function handleShapeContextMenu(id: string, event: MouseEvent) {
 }
 
 function handleContextMenu(event: MouseEvent) {
+    if (!props.selectionEnabled) {
+        return;
+    }
     if (props.isActive || props.tool) {
         return;
     }
@@ -819,6 +836,9 @@ function handleContextMenu(event: MouseEvent) {
 }
 
 function handleSelectedShapeBoundsContextMenu(event: MouseEvent) {
+    if (!props.selectionEnabled) {
+        return;
+    }
     if (!props.selectedShapeId) {
         return;
     }
@@ -831,6 +851,9 @@ function handleSelectedShapeBoundsContextMenu(event: MouseEvent) {
 }
 
 function handleResizeHandlePointerDown(handle: TShapeResizeHandle, event: PointerEvent) {
+    if (!props.selectionEnabled) {
+        return;
+    }
     if (event.button !== 0 || !selectedShape.value) {
         return;
     }
@@ -868,11 +891,17 @@ function handleResizeHandlePointerDown(handle: TShapeResizeHandle, event: Pointe
 }
 
 .pdf-shape-overlay.is-tool-active,
-.pdf-shape-overlay.has-selection:not(.annotation-tool-blocked) {
+.pdf-shape-overlay.is-selection-enabled {
     pointer-events: auto;
 }
 
-.pdf-shape-overlay > g {
+.pdf-shape-overlay > g,
+.pdf-shape-overlay > g * {
+    pointer-events: none;
+}
+
+.pdf-shape-overlay.is-selection-enabled > g,
+.pdf-shape-overlay.is-selection-enabled > g * {
     pointer-events: auto;
 }
 
@@ -900,14 +929,19 @@ function handleResizeHandlePointerDown(handle: TShapeResizeHandle, event: Pointe
     stroke: var(--app-pdf-shape-selection-stroke);
 }
 
-.selection-hit-target {
-    pointer-events: auto;
-}
-
 .selection-resize-handle {
     fill: var(--ui-bg);
     stroke: var(--app-pdf-shape-selection-stroke);
     stroke-width: 1;
+}
+
+.selection-hit-target,
+.selection-resize-handle {
+    pointer-events: none;
+}
+
+.pdf-shape-overlay.is-selection-enabled .selection-hit-target,
+.pdf-shape-overlay.is-selection-enabled .selection-resize-handle {
     pointer-events: auto;
 }
 

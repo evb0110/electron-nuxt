@@ -24,6 +24,7 @@
             :selected-shape-id="shapeContext.selectedShapeId.value"
             :is-active="shapeContext.isShapeToolActive.value"
             :is-annotation-tool-active="shapeContext.isAnyAnnotationToolActive.value"
+            :selection-enabled="shapeContext.isSelectionToolActive.value"
             :tool="shapeContext.activeShapeTool.value"
             :settings="shapeContext.settings.value"
             @start-drawing="shapeContext.handleStartDrawing(page - 1, $event)"

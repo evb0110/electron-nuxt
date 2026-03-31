@@ -167,6 +167,20 @@ describe('useAnnotationToolState', () => {
         expect(emitAnnotationToolAutoReset).toHaveBeenCalledTimes(1);
     });
 
+    it('does not auto-reset explicit select mode', async () => {
+        const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const emitAnnotationToolAutoReset = vi.fn();
+        const manager = useAnnotationToolState(createToolStateOptions(createUiManager(), {
+            tool: 'select',
+            emitAnnotationToolAutoReset,
+        }) as never);
+
+        manager.maybeAutoResetAnnotationTool();
+        await Promise.resolve();
+
+        expect(emitAnnotationToolAutoReset).not.toHaveBeenCalled();
+    });
+
     it('keeps idle mode at none even when annotation cursor mode is enabled', async () => {
         const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
         const manager = useAnnotationToolState(createToolStateOptions(
@@ -175,5 +189,6 @@ describe('useAnnotationToolState', () => {
         ) as never);
 
         expect(manager.getAnnotationMode('none')).toBe(0);
+        expect(manager.getAnnotationMode('select')).toBe(0);
     });
 });

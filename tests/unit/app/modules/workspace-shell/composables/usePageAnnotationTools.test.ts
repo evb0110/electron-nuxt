@@ -22,6 +22,7 @@ function createEditorState(overrides: Partial<IAnnotationEditorState> = {}): IAn
 function createHarness() {
     const viewer = {
         cancelCommentPlacement: vi.fn(),
+        clearSelectedShape: vi.fn(),
         selectedShapeId: null as string | null,
         updateShape: vi.fn(),
     };
@@ -56,8 +57,31 @@ describe('usePageAnnotationTools', () => {
         expect(tools.annotationTool.value).toBe('highlight');
         expect(deps.dragMode.value).toBe(false);
         expect(viewer.cancelCommentPlacement).toHaveBeenCalledOnce();
+        expect(viewer.clearSelectedShape).toHaveBeenCalledOnce();
         expect(tools.annotationPlacingPageNote.value).toBe(false);
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
+    });
+
+    it('keeps shape selection when select mode is activated', () => {
+        const {
+            viewer,
+            tools,
+        } = createHarness();
+
+        tools.handleAnnotationToolChange('select');
+
+        expect(viewer.clearSelectedShape).not.toHaveBeenCalled();
+    });
+
+    it('clears shape selection when annotation tool is cancelled', () => {
+        const {
+            viewer,
+            tools,
+        } = createHarness();
+
+        tools.handleAnnotationToolCancel();
+
+        expect(viewer.clearSelectedShape).toHaveBeenCalledOnce();
     });
 
     it('propagates shape setting updates to selected shape', () => {

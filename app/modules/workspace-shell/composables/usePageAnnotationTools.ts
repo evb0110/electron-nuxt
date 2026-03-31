@@ -9,6 +9,7 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults'
 
 interface IPdfViewerForAnnotationTools {
     cancelCommentPlacement: () => void;
+    clearSelectedShape: () => void;
     selectedShapeId: string | null;
     updateShape: (id: string, updates: Record<string, unknown>) => void;
 }
@@ -54,6 +55,9 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         annotationTool.value = tool;
         dragMode.value = false;
         pdfViewerRef.value?.cancelCommentPlacement();
+        if (tool !== 'select') {
+            pdfViewerRef.value?.clearSelectedShape();
+        }
         annotationPlacingPageNote.value = false;
         closeAnnotationContextMenu();
     }
@@ -63,12 +67,14 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
             return;
         }
         annotationTool.value = 'none';
+        pdfViewerRef.value?.clearSelectedShape();
         annotationPlacingPageNote.value = false;
         closeAnnotationContextMenu();
     }
 
     function handleAnnotationToolCancel() {
         annotationTool.value = 'none';
+        pdfViewerRef.value?.clearSelectedShape();
         annotationPlacingPageNote.value = false;
         closeAnnotationContextMenu();
     }

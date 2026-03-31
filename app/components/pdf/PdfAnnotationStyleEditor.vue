@@ -1,6 +1,6 @@
 <template>
-    <div class="annotation-style-editor flex flex-col gap-2" :class="{ 'is-idle': tool === 'none' }">
-        <template v-if="tool !== 'none'">
+    <div class="annotation-style-editor flex flex-col gap-2" :class="{ 'is-idle': !hasStyleControls }">
+        <template v-if="hasStyleControls">
             <div class="swatch-row">
                 <button
                     v-for="swatch in colorSwatches"
@@ -78,7 +78,10 @@ import type {
 } from '@app/types/annotations';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdf-colors';
 import { ANNOTATION_PROPERTY_RANGES } from '@app/constants/annotation-defaults';
-import { isShapeTool } from '@app/composables/pdf/annotations/annotationRules';
+import {
+    isAuthoringAnnotationTool,
+    isShapeTool,
+} from '@app/composables/pdf/annotations/annotationRules';
 
 type TDrawStyle = 'pen' | 'pencil' | 'marker';
 
@@ -115,6 +118,7 @@ const emit = defineEmits<{
 }>();
 
 const colorSwatches = ANNOTATION_COLOR_SWATCHES;
+const hasStyleControls = computed(() => isAuthoringAnnotationTool(props.tool));
 
 const drawStylePresets = computed<IDrawStylePreset[]>(() => [
     {
