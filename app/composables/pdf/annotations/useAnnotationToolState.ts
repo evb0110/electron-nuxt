@@ -54,6 +54,7 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
         annotationUiManager,
         currentPage,
         annotationTool,
+        annotationCursorMode,
         annotationKeepActive,
         annotationSettings,
         numPages,
@@ -97,12 +98,9 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
                 return AnnotationEditorType.NONE;
             case 'none':
             default:
-                // Leaving the viewer in text-select mode should not force
-                // PDF.js into popup-selection mode up front. That made
-                // existing ink/freehand drawings harder to reselect than the
-                // simpler idle NONE mode; targeted clicks can still promote
-                // into popup/editor interaction on demand.
-                return AnnotationEditorType.NONE;
+                return annotationCursorMode.value
+                    ? AnnotationEditorType.POPUP
+                    : AnnotationEditorType.NONE;
         }
     }
 

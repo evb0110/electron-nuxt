@@ -26,7 +26,7 @@ describe('usePdfViewerMouseInteractions', () => {
         vi.unstubAllGlobals();
     });
 
-    it('always suppresses the browser context menu inside the viewer', () => {
+    it('delegates context menu to the annotation handler without suppressing the browser menu', () => {
         vi.stubGlobal('HTMLElement', class HTMLElementStub {
             closest() {
                 return null;
@@ -49,7 +49,7 @@ describe('usePdfViewerMouseInteractions', () => {
         const event = createMouseEvent();
         interactions.handleViewerContextMenu(event);
 
-        expect(event.preventDefault).toHaveBeenCalledOnce();
+        expect(event.preventDefault).not.toHaveBeenCalled();
         expect(handleViewerContextMenuAnnotation).toHaveBeenCalledWith(event);
     });
 
