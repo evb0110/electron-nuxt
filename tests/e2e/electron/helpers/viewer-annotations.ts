@@ -861,6 +861,17 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         throw new Error(`${baseMessage} (${JSON.stringify(debugState)})`);
     }
 
+    // Prevent PDF.js from auto-removing the empty editor before we can type
+    // into it. Mirrors useAnnotationHighlight.ts:1082-1087.
+    await page.evaluate(() => {
+        const editors = Array.from(document.querySelectorAll<HTMLElement>('.freeTextEditor'));
+        const latest = editors[editors.length - 1];
+        const editable = latest?.querySelector<HTMLElement>('[contenteditable], .internal') ?? latest;
+        if (editable) {
+            editable.textContent = '\u200B';
+        }
+    });
+
     const editorPoint = await page.evaluate(() => {
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter((candidate) => {
