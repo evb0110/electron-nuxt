@@ -136,6 +136,32 @@ function getRectNumbers(dict: PDFDict) {
     return values;
 }
 
+function getNestedNumberArrays(dict: PDFDict, key: string) {
+    const outer = dict.lookupMaybe(PDFName.of(key), PDFArray);
+    if (!(outer instanceof PDFArray)) {
+        return null;
+    }
+
+    const values: number[][] = [];
+    for (let outerIndex = 0; outerIndex < outer.size(); outerIndex += 1) {
+        const inner = outer.lookup(outerIndex, PDFArray);
+        if (!(inner instanceof PDFArray)) {
+            return null;
+        }
+
+        const row: number[] = [];
+        for (let innerIndex = 0; innerIndex < inner.size(); innerIndex += 1) {
+            const value = inner.get(innerIndex);
+            if (!(value instanceof PDFNumber)) {
+                return null;
+            }
+            row.push(value.asNumber());
+        }
+        values.push(row);
+    }
+    return values;
+}
+
 describe('serializePdfEdits embedded geometric shapes', () => {
     it('updates imported geometric annotations in place and deletes removed ones by ref', async () => {
         const {
@@ -231,5 +257,69 @@ describe('serializePdfEdits embedded geometric shapes', () => {
         expect(polygonDict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Polygon');
         expect(polygonDict?.lookupMaybe(PDFName.of('Vertices'), PDFArray)).toBeInstanceOf(PDFArray);
         expect(polygonDict?.lookupMaybe(PDFName.of('IC'), PDFArray)).toBeInstanceOf(PDFArray);
+    });
+
+    it('serializes embedded ink-like polylines back as Ink annotations', async () => {
+        const sourceDoc = await PDFDocument.create();
+        sourceDoc.addPage([
+            600,
+            800,
+        ]);
+
+        const payload = createEmptyPayload();
+        payload.shapes = [{
+            id: 'ink-shape',
+            type: 'polyline',
+            pageIndex: 0,
+            x: 0.15,
+            y: 0.2,
+            width: 0.35,
+            height: 0.24,
+            color: '#f0c000',
+            opacity: 0.7,
+            strokeWidth: 5,
+            points: [
+                {
+                    x: 0.15,
+                    y: 0.2,
+                },
+                {
+                    x: 0.25,
+                    y: 0.24,
+                },
+                {
+                    x: 0.38,
+                    y: 0.31,
+                },
+                {
+                    x: 0.5,
+                    y: 0.44,
+                },
+            ],
+            source: 'embedded',
+            annotationId: null,
+            pdfSubtype: 'Ink',
+        } satisfies IShapeAnnotation];
+
+        const result = await serializePdfEdits(
+            new Uint8Array(await sourceDoc.save()),
+            payload,
+        );
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const annotRefs = getPageAnnotRefs(doc);
+
+        expect(annotRefs).toHaveLength(1);
+        const inkDict = getAnnotDict(doc, annotRefs[0]!);
+        expect(inkDict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Ink');
+        expect(getNestedNumberArrays(inkDict!, 'InkList')).toEqual([[
+            expect.closeTo(90, 6),
+            expect.closeTo(640, 6),
+            expect.closeTo(150, 6),
+            expect.closeTo(608, 6),
+            expect.closeTo(228, 6),
+            expect.closeTo(552, 6),
+            expect.closeTo(300, 6),
+            expect.closeTo(448, 6),
+        ]]);
     });
 });

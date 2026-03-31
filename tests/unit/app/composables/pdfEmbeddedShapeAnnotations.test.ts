@@ -165,12 +165,44 @@ async function createPdfWithEmbeddedShapes() {
             4,
         ],
     });
+    const inkDict = doc.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Ink'),
+        Rect: [
+            70,
+            260,
+            420,
+            520,
+        ],
+        InkList: [[
+            80,
+            500,
+            160,
+            470,
+            240,
+            430,
+            320,
+            380,
+        ]],
+        C: [
+            0.95,
+            0.75,
+            0.05,
+        ],
+        CA: 0.9,
+        Border: [
+            0,
+            0,
+            6,
+        ],
+    });
 
     const squareRef = doc.context.register(squareDict);
     const circleRef = doc.context.register(circleDict);
     const lineRef = doc.context.register(lineDict);
     const polyLineRef = doc.context.register(polyLineDict);
     const polygonRef = doc.context.register(polygonDict);
+    const inkRef = doc.context.register(inkDict);
 
     page.node.set(PDFName.of('Annots'), doc.context.obj([
         squareRef,
@@ -178,6 +210,7 @@ async function createPdfWithEmbeddedShapes() {
         lineRef,
         polyLineRef,
         polygonRef,
+        inkRef,
     ]));
 
     return {
@@ -187,6 +220,7 @@ async function createPdfWithEmbeddedShapes() {
         lineRef,
         polyLineRef,
         polygonRef,
+        inkRef,
     };
 }
 
@@ -199,11 +233,12 @@ describe('importEmbeddedShapeAnnotations', () => {
             lineRef,
             polyLineRef,
             polygonRef,
+            inkRef,
         } = await createPdfWithEmbeddedShapes();
 
         const shapes = await importEmbeddedShapeAnnotations(bytes);
 
-        expect(shapes).toHaveLength(5);
+        expect(shapes).toHaveLength(6);
 
         expect(shapes[0]).toMatchObject({
             type: 'rectangle',
@@ -260,6 +295,16 @@ describe('importEmbeddedShapeAnnotations', () => {
             opacity: 0.7,
         });
         expect(shapes[4]?.points).toHaveLength(3);
+
+        expect(shapes[5]).toMatchObject({
+            type: 'polyline',
+            annotationId: `${inkRef.objectNumber}R${inkRef.generationNumber}`,
+            pdfSubtype: 'Ink',
+            color: '#f2bf0d',
+            opacity: 0.9,
+            strokeWidth: 6,
+        });
+        expect(shapes[5]?.points).toHaveLength(4);
     });
 
     it('collects embedded annotation ids from imported shapes only', () => {

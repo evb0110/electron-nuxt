@@ -78,16 +78,14 @@
                 <span class="annotation-properties-value">{{ Math.round(shape.opacity * 100) }}%</span>
             </label>
 
-            <UButton
-                color="error"
-                variant="soft"
-                size="xs"
-                icon="i-lucide-trash-2"
+            <button
+                type="button"
                 class="annotation-properties-delete"
                 @click="emit('delete')"
             >
-                {{ t('annotationProperties.delete') }}
-            </UButton>
+                <UIcon name="i-lucide-trash-2" class="annotation-properties-delete-icon" />
+                <span>{{ t('annotationProperties.delete') }}</span>
+            </button>
         </div>
     </div>
 </template>
@@ -188,8 +186,58 @@ function toggleFill() {
 }
 
 .annotation-properties-delete {
-    margin-top: 4px;
-    align-self: flex-end;
+    margin-top: 0.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-height: 2rem;
+    padding: 0.45rem 0.75rem;
+    border: 1px solid color-mix(in oklab, var(--ui-error) 24%, var(--ui-border) 76%);
+    border-radius: 0.5rem;
+    background:
+        linear-gradient(
+            180deg,
+            color-mix(in oklab, var(--ui-bg-elevated) 92%, var(--ui-error) 8%),
+            color-mix(in oklab, var(--ui-bg-elevated) 84%, var(--ui-error) 16%)
+        );
+    color: var(--app-pdf-context-menu-danger-fg);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition:
+        border-color 0.15s ease,
+        background 0.15s ease,
+        color 0.15s ease,
+        transform 0.15s ease;
+}
+
+.annotation-properties-delete:hover {
+    border-color: color-mix(in oklab, var(--ui-error) 38%, var(--ui-border) 62%);
+    background:
+        linear-gradient(
+            180deg,
+            color-mix(in oklab, var(--ui-bg-elevated) 86%, var(--ui-error) 14%),
+            color-mix(in oklab, var(--ui-bg-elevated) 74%, var(--ui-error) 26%)
+        );
+    color: var(--ui-error);
+}
+
+.annotation-properties-delete:active {
+    transform: translateY(1px);
+}
+
+.annotation-properties-delete:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--ui-error) 55%, white 45%);
+    outline-offset: 2px;
+}
+
+.annotation-properties-delete-icon {
+    width: 0.875rem;
+    height: 0.875rem;
+    flex-shrink: 0;
 }
 
 .annotation-properties-field {

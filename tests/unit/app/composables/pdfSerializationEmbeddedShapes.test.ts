@@ -95,14 +95,46 @@ async function createPdfWithEmbeddedShapes() {
             1,
         ],
     });
+    const inkDict = doc.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Ink'),
+        Rect: [
+            100,
+            140,
+            320,
+            320,
+        ],
+        InkList: [[
+            120,
+            300,
+            180,
+            270,
+            240,
+            220,
+            300,
+            170,
+        ]],
+        C: [
+            0.9,
+            0.7,
+            0.1,
+        ],
+        Border: [
+            0,
+            0,
+            5,
+        ],
+    });
 
     const squareRef = doc.context.register(squareDict);
     const lineRef = doc.context.register(lineDict);
     const polygonRef = doc.context.register(polygonDict);
+    const inkRef = doc.context.register(inkDict);
     page.node.set(PDFName.of('Annots'), doc.context.obj([
         squareRef,
         lineRef,
         polygonRef,
+        inkRef,
     ]));
 
     return {
@@ -110,6 +142,7 @@ async function createPdfWithEmbeddedShapes() {
         squareRef,
         lineRef,
         polygonRef,
+        inkRef,
     };
 }
 
@@ -170,10 +203,12 @@ describe('serializePdfEdits embedded shapes', () => {
             squareRef,
             lineRef,
             polygonRef,
+            inkRef,
         } = await createPdfWithEmbeddedShapes();
         const squareTag = `${squareRef.objectNumber}R${squareRef.generationNumber}`;
         const lineTag = `${lineRef.objectNumber}R${lineRef.generationNumber}`;
         const polygonTag = `${polygonRef.objectNumber}R${polygonRef.generationNumber}`;
+        const inkTag = `${inkRef.objectNumber}R${inkRef.generationNumber}`;
 
         const shapes: IShapeAnnotation[] = [
             {
@@ -211,6 +246,39 @@ describe('serializePdfEdits embedded shapes', () => {
                 annotationId: lineTag,
                 pdfSubtype: 'Line',
             },
+            {
+                id: 'shape-ink',
+                type: 'polyline',
+                pageIndex: 0,
+                x: 0.2,
+                y: 0.55,
+                width: 0.3,
+                height: 0.15,
+                color: '#f0c000',
+                opacity: 0.75,
+                strokeWidth: 7,
+                points: [
+                    {
+                        x: 0.2,
+                        y: 0.55,
+                    },
+                    {
+                        x: 0.3,
+                        y: 0.58,
+                    },
+                    {
+                        x: 0.38,
+                        y: 0.63,
+                    },
+                    {
+                        x: 0.5,
+                        y: 0.7,
+                    },
+                ],
+                source: 'embedded',
+                annotationId: inkTag,
+                pdfSubtype: 'Ink',
+            },
         ];
 
         const result = await serializePdfEdits(data, {
@@ -235,10 +303,12 @@ describe('serializePdfEdits embedded shapes', () => {
         expect(annotRefs.map(ref => refTag(ref))).toEqual([
             refTag(squareRef),
             refTag(lineRef),
+            refTag(inkRef),
         ]);
 
         const squareDict = getAnnotDict(doc, squareRef)!;
         const lineDict = getAnnotDict(doc, lineRef)!;
+        const inkDict = getAnnotDict(doc, inkRef)!;
         expect(getRectNumbers(squareDict)).toEqual([
             expect.closeTo(120, 6),
             expect.closeTo(480, 6),
@@ -257,5 +327,7 @@ describe('serializePdfEdits embedded shapes', () => {
             '/OpenArrow',
             '/ClosedArrow',
         ]);
+        expect(inkDict.get(PDFName.of('Subtype'))?.toString()).toBe('/Ink');
+        expect(inkDict.lookupMaybe(PDFName.of('InkList'), PDFArray)).toBeInstanceOf(PDFArray);
     });
 });

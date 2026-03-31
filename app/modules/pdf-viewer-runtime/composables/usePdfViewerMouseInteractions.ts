@@ -99,8 +99,8 @@ export function usePdfViewerMouseInteractions(options: IUsePdfViewerMouseInterac
     }
 
     function handleViewerContextMenu(event: MouseEvent) {
+        event.preventDefault();
         if (isSnipActive() || isImagePlacementTarget(event.target)) {
-            event.preventDefault();
             return;
         }
         handleViewerContextMenuAnnotation(event);

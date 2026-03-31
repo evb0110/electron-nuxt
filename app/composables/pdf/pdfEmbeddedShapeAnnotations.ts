@@ -26,6 +26,7 @@ const IMPORTED_SHAPE_SUBTYPES = new Set<TEmbeddedPdfShapeSubtype>([
     'Line',
     'PolyLine',
     'Polygon',
+    'Ink',
 ]);
 
 const RECT_NAME = PDFName.of('Rect');
@@ -37,6 +38,7 @@ const INTERIOR_COLOR_NAME = PDFName.of('IC');
 const OPACITY_NAME = PDFName.of('CA');
 const LINE_POINTS_NAME = PDFName.of('L');
 const VERTICES_NAME = PDFName.of('Vertices');
+const INK_LIST_NAME = PDFName.of('InkList');
 const LINE_ENDINGS_NAME = PDFName.of('LE');
 const CROP_BOX_NAME = PDFName.of('CropBox');
 const MEDIA_BOX_NAME = PDFName.of('MediaBox');
@@ -52,6 +54,7 @@ function normalizeImportedShapeSubtype(
         case 'Line':
         case 'PolyLine':
         case 'Polygon':
+        case 'Ink':
             return subtype as TEmbeddedPdfShapeSubtype;
         default:
             return null;
@@ -250,6 +253,8 @@ function toImportedShapeType(
             return 'polyline';
         case 'Polygon':
             return 'polygon';
+        case 'Ink':
+            return 'polyline';
     }
 }
 
@@ -433,6 +438,69 @@ function importVerticesShape(
     };
 }
 
+function importInkShape(
+    dict: PDFDict,
+    ref: PDFRef,
+    pageIndex: number,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+): IShapeAnnotation | null {
+    const inkList = dict.lookupMaybe(INK_LIST_NAME, PDFArray);
+    if (!(inkList instanceof PDFArray) || inkList.size() === 0) {
+        return null;
+    }
+
+    const firstStroke = inkList.lookup(0, PDFArray);
+    if (!(firstStroke instanceof PDFArray) || firstStroke.size() < 4) {
+        return null;
+    }
+
+    const values = numbersFromPdfArray(firstStroke);
+    if (!values || values.length < 4) {
+        return null;
+    }
+
+    const points: IShapePoint[] = [];
+    for (let index = 0; index < values.length; index += 2) {
+        const point = toMarkerPointFromPdfPoint(
+            values[index]!,
+            values[index + 1]!,
+            pageView,
+            pageRotation,
+        );
+        if (point) {
+            points.push(point);
+        }
+    }
+
+    if (points.length < 2) {
+        return null;
+    }
+
+    const bounds = toPointsBounds(points);
+    if (!bounds) {
+        return null;
+    }
+
+    const annotationId = refToAnnotationId(ref);
+    return {
+        id: createImportedShapeId(pageIndex, annotationId, 'Ink'),
+        type: toImportedShapeType('Ink'),
+        pageIndex,
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        color: toHexColor(readColor(dict, COLOR_NAME), '#ff0000'),
+        opacity: readOpacity(dict),
+        strokeWidth: readBorderWidth(dict),
+        points,
+        source: 'embedded',
+        annotationId,
+        pdfSubtype: 'Ink',
+    };
+}
+
 export function isImportedEmbeddedShapeSubtype(subtype: string | null | undefined) {
     const normalizedSubtype = normalizeImportedShapeSubtype(subtype);
     return normalizedSubtype ? IMPORTED_SHAPE_SUBTYPES.has(normalizedSubtype) : false;
@@ -484,6 +552,8 @@ export async function importEmbeddedShapeAnnotations(data: Uint8Array) {
                     case 'PolyLine':
                     case 'Polygon':
                         return importVerticesShape(dict, value, pageIndex, pageView, pageRotation, subtype);
+                    case 'Ink':
+                        return importInkShape(dict, value, pageIndex, pageView, pageRotation);
                 }
             })();
 

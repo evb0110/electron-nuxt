@@ -23,6 +23,7 @@
             :drawing-shape="pageDrawingShape"
             :selected-shape-id="shapeContext.selectedShapeId.value"
             :is-active="shapeContext.isShapeToolActive.value"
+            :is-annotation-tool-active="shapeContext.isAnyAnnotationToolActive.value"
             :tool="shapeContext.activeShapeTool.value"
             :settings="shapeContext.settings.value"
             @start-drawing="shapeContext.handleStartDrawing(page - 1, $event)"
@@ -31,6 +32,9 @@
             @start-drag-shape="shapeContext.handleStartDraggingShape($event.shapeId, $event)"
             @continue-drag-shape="shapeContext.handleContinueDraggingShape($event)"
             @finish-drag-shape="shapeContext.handleFinishDraggingShape()"
+            @start-resize-shape="shapeContext.handleStartResizingShape($event.shapeId, $event.handle, $event)"
+            @continue-resize-shape="shapeContext.handleContinueResizingShape($event)"
+            @finish-resize-shape="shapeContext.handleFinishResizingShape()"
             @select-shape="shapeContext.handleSelectShape($event)"
             @shape-contextmenu="shapeContext.handleShapeContextMenu($event)"
         />

@@ -920,11 +920,6 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
     }
 
     async function ensureEditorInteractionModeFromTarget(target: HTMLElement) {
-        const activeTool = annotationTool.value;
-        if (activeTool !== 'none' && activeTool !== 'text') {
-            return false;
-        }
-
         const uiManager = annotationUiManager.value;
         if (!uiManager) {
             return false;
@@ -942,7 +937,12 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
             return false;
         }
 
-        const mode = activeTool === 'text' ? AnnotationEditorType.FREETEXT : AnnotationEditorType.POPUP;
+        const activeTool = annotationTool.value;
+        const mode = activeTool === 'text'
+            ? AnnotationEditorType.FREETEXT
+            : activeTool === 'draw'
+                ? AnnotationEditorType.INK
+                : AnnotationEditorType.POPUP;
         const modeError = await getToolManager().updateModeWithRetry(uiManager, mode, match.pageIndex + 1);
         if (modeError) {
             BrowserLogger.warn('annotations', `Failed to enable editor interaction mode: ${errorToLogText(modeError)}`);
@@ -1072,6 +1072,15 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
                 },
             );
             return;
+        }
+
+        if (clickedEditorMatch) {
+            if (annotationTool.value !== 'none') {
+                emitAnnotationToolCancel();
+                await nextTick();
+            }
+
+            await ensureEditorInteractionModeFromTarget(clickTarget);
         }
 
         const indicatorSummary = resolveCommentFromIndicatorClickTarget(

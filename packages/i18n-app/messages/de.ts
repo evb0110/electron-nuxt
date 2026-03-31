@@ -136,6 +136,7 @@ export default {
             other: '{count} Notizen',
         }),
         'notes': 'Notizen',
+        'select': 'Auswählen',
         'closeTool': 'Werkzeug deaktivieren',
         'notesList': 'Notizenliste',
         'searchNotes': 'Notizen, Autor, Seite suchen...',

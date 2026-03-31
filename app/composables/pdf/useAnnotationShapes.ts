@@ -7,6 +7,7 @@ import type {
     IShapeAnnotation,
     TDrawableShapeType,
     IAnnotationSettings,
+    TShapeResizeHandle,
 } from '@app/types/annotations';
 import { isShapeTool } from '@app/composables/pdf/annotations/annotationRules';
 
@@ -18,6 +19,7 @@ export interface IShapeContextProvide {
     selectedShapeId: Ref<string | null>;
     drawingShape: Ref<IShapeAnnotation | null>;
     isShapeToolActive: ComputedRef<boolean>;
+    isAnyAnnotationToolActive: ComputedRef<boolean>;
     activeShapeTool: ComputedRef<TDrawableShapeType | null>;
     settings: Ref<IAnnotationSettings>;
     getShapesForPage: (pageIndex: number) => IShapeAnnotation[];
@@ -40,6 +42,15 @@ export interface IShapeContextProvide {
         y: number
     }) => void;
     handleFinishDraggingShape: () => void;
+    handleStartResizingShape: (shapeId: string, handle: TShapeResizeHandle, coords: {
+        x: number;
+        y: number
+    }) => void;
+    handleContinueResizingShape: (coords: {
+        x: number;
+        y: number
+    }) => void;
+    handleFinishResizingShape: () => void;
     handleShapeContextMenu: (payload: {
         shapeId: string;
         clientX: number;

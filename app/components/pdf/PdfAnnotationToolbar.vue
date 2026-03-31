@@ -44,6 +44,11 @@ const tool = computed(() => props.tool);
 
 const toolItems = computed<IToolItem[]>(() => [
     {
+        id: 'none',
+        label: t('annotations.select'),
+        icon: 'i-lucide-scan',
+    },
+    {
         id: 'draw',
         label: t('annotations.draw'),
         icon: 'i-lucide-pen-tool',
