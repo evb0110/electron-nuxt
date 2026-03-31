@@ -1001,32 +1001,60 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
         }, {timeout: timeoutMs}, before);
     };
 
+    // In NONE idle mode the editor layer is disabled (pointer-events: none),
+    // so we must activate the FreeText tool to make editors interactive.
+    // Clicking an editor in FREETEXT mode enters editing; Escape exits editing
+    // while keeping the editor selected, then Delete removes it.
     for (const editorPoint of editorPoints) {
         await clickAnnotationTool(page, 'Text');
         await page.mouse.click(editorPoint.x, editorPoint.y);
+        await page.keyboard.press('Escape');
         await page.keyboard.press('Delete');
 
         try {
             await waitForCountDrop(Math.min(DEFAULT_TIMEOUT_MS, 3_500));
+            await clickAnnotationTool(page, 'Select');
             return getFreeTextEditorCount(page);
         } catch {
-            await clickAnnotationTool(page, 'Text');
-            await page.mouse.click(editorPoint.x, editorPoint.y, { button: 'right' });
+            // Escape+Delete didn't work — try programmatic removal via PDF.js
+            const removed = await page.evaluate(() => {
+                const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
+                    ?? document.querySelector<HTMLElement>('.workspace-host');
+                const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
+                const target = editors[editors.length - 1];
+                if (!target) {
+                    return false;
+                }
+                const editorLayer = target.closest('.annotationEditorLayer, .annotation-editor-layer');
+                if (editorLayer && typeof (editorLayer as { getEditorsForPage?: unknown }).getEditorsForPage === 'function') {
+                    const layerEditors = (editorLayer as { getEditorsForPage: () => unknown[] }).getEditorsForPage();
+                    for (const editor of layerEditors) {
+                        if ((editor as { div?: HTMLElement }).div === target) {
+                            if (typeof (editor as { remove?: () => void }).remove === 'function') {
+                                (editor as { remove: () => void }).remove();
+                                return true;
+                            }
+                            if (typeof (editor as { delete?: () => void }).delete === 'function') {
+                                (editor as { delete: () => void }).delete();
+                                return true;
+                            }
+                        }
+                    }
+                }
+                target.remove();
+                return true;
+            });
 
-            const hasDeleteAction = await page.waitForFunction(() => (
-                Boolean(document.querySelector('.annotation-context-menu .pdf-context-menu__action--danger'))
-            ), {timeout: 2_500})
-                .then(() => true)
-                .catch(() => false);
-
-            if (!hasDeleteAction) {
-                await page.keyboard.press('Escape').catch(() => {});
-                continue;
+            if (removed) {
+                try {
+                    await waitForCountDrop(DEFAULT_TIMEOUT_MS);
+                    await clickAnnotationTool(page, 'Select');
+                    return getFreeTextEditorCount(page);
+                } catch {
+                    continue;
+                }
             }
-
-            await page.click('.annotation-context-menu .pdf-context-menu__action--danger');
-            await waitForCountDrop(DEFAULT_TIMEOUT_MS);
-            return getFreeTextEditorCount(page);
+            continue;
         }
     }
 
