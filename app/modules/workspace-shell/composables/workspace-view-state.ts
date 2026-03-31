@@ -8,6 +8,7 @@ import type {
     IAnnotationEditorState,
     TAnnotationTool,
 } from '@app/types/annotations';
+import { isAuthoringAnnotationTool } from '@app/composables/pdf/annotations/annotationRules';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
@@ -38,7 +39,7 @@ export function useWorkspaceViewState(deps: IWorkspaceViewStateDeps) {
         () => deps.zoomMode.value === 'fit-height',
     );
     const isAnnotationUndoContext = computed(
-        () => deps.annotationTool.value !== 'none'
+        () => isAuthoringAnnotationTool(deps.annotationTool.value)
             || deps.annotationEditorState.value.hasSomethingToUndo
             || deps.annotationEditorState.value.hasSomethingToRedo,
     );

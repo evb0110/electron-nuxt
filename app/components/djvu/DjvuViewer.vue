@@ -1049,6 +1049,7 @@ defineExpose<IPdfViewerExpose>({
     getDeletedEmbeddedShapeAnnotationIds: () => [],
     loadShapes: noop,
     clearShapes: noop,
+    clearSelectedShape: noop,
     deleteSelectedShape: noop,
     hasShapes: false,
     selectedShapeId: null,

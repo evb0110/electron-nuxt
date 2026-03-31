@@ -45,6 +45,7 @@ export interface IPdfViewerExpose {
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
     loadShapes: (shapes: IShapeAnnotation[]) => void;
     clearShapes: () => void;
+    clearSelectedShape: () => void;
     deleteSelectedShape: () => void;
     hasShapes: boolean;
     selectedShapeId: string | null;

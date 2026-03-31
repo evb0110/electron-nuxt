@@ -73,6 +73,7 @@ describe('useWorkspaceCrop', () => {
             getDeletedEmbeddedShapeAnnotationIds: () => [],
             loadShapes: vi.fn(),
             clearShapes: vi.fn(),
+            clearSelectedShape: vi.fn(),
             deleteSelectedShape: vi.fn(),
             hasShapes: false,
             selectedShapeId: null,

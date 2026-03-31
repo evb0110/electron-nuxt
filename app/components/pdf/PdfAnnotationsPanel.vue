@@ -5,7 +5,7 @@
             @set-tool="emit('set-tool', $event)"
         />
 
-        <template v-if="tool !== 'none'">
+        <template v-if="showStyleEditor">
             <PdfAnnotationStyleEditor
                 :tool="tool"
                 :settings="settings"
@@ -34,6 +34,7 @@ import type {
     IAnnotationSettings,
     TAnnotationTool,
 } from '@app/types/annotations';
+import { isAuthoringAnnotationTool } from '@app/composables/pdf/annotations/annotationRules';
 import PdfAnnotationCommentsList from '@app/components/pdf/PdfAnnotationCommentsList.vue';
 import PdfAnnotationStyleEditor from '@app/components/pdf/PdfAnnotationStyleEditor.vue';
 import PdfAnnotationToolbar from '@app/components/pdf/PdfAnnotationToolbar.vue';
@@ -49,7 +50,8 @@ interface IProps {
 
 const { settings: appSettings } = useSettings();
 
-defineProps<IProps>();
+const props = defineProps<IProps>();
+const showStyleEditor = computed(() => isAuthoringAnnotationTool(props.tool));
 
 const emit = defineEmits<{
     (e: 'set-tool', tool: TAnnotationTool): void;

@@ -10,7 +10,11 @@ import type {
     IShapeContextProvide,
     TUseAnnotationShapesReturn,
 } from '@app/composables/pdf/useAnnotationShapes';
-import { isShapeTool } from '@app/composables/pdf/annotations/annotationRules';
+import {
+    isAuthoringAnnotationTool,
+    isSelectionInteractionTool,
+    isShapeTool,
+} from '@app/composables/pdf/annotations/annotationRules';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
 import {
     getResizedBoundsForHandle,
@@ -48,7 +52,8 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
     } = deps;
 
     const isShapeToolActive = computed(() => isShapeTool(annotationTool.value));
-    const isAnyAnnotationToolActive = computed(() => annotationTool.value !== 'none');
+    const isAnyAnnotationToolActive = computed(() => isAuthoringAnnotationTool(annotationTool.value));
+    const isSelectionToolActive = computed(() => isSelectionInteractionTool(annotationTool.value));
     const activeShapeTool = computed<TDrawableShapeType | null>(() => isShapeTool(annotationTool.value) ? annotationTool.value : null);
     let dragState: {
         shapeId: string;
@@ -116,6 +121,7 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
         drawingShape: shapeComposable.drawingShape,
         isShapeToolActive,
         isAnyAnnotationToolActive,
+        isSelectionToolActive,
         activeShapeTool,
         settings: computed(() => annotationSettings.value ?? DEFAULT_ANNOTATION_SETTINGS),
         getShapesForPage: shapeComposable.getShapesForPage,
