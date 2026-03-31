@@ -787,11 +787,11 @@ function handleContextMenu(event: MouseEvent) {
         return;
     }
 
-    event.preventDefault();
     const hit = findInteractiveShape(event as PointerEvent);
     if (!hit) {
         return;
     }
+    event.preventDefault();
     emit('select-shape', hit.shape.id);
     emit('shape-contextmenu', {
         shapeId: hit.shape.id,
