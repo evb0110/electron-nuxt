@@ -175,6 +175,17 @@
     pointer-events: none !important;
 }
 
+/* Keep individual editors interactive when the editor layer is in disabled
+   (NONE) mode so that click-to-select and right-click context menus still
+   work. The layer itself stays pointer-events:none (no creation cursor,
+   clicks on empty areas pass to the page), but editors themselves remain
+   clickable for selection and deletion workflows. */
+:is(.pdfViewer, .pdf-viewer-container)
+    :is(.annotationEditorLayer, .annotation-editor-layer).disabled
+    :is(.freeTextEditor, .inkEditor, .stampEditor, .highlightEditor, .signatureEditor) {
+    pointer-events: auto;
+}
+
 /* Hide native PDF.js popup trigger bubbles; custom inline note anchors
    provide the single source of truth for note interaction. */
 .pdfViewer .annotationLayer .popupTriggerArea,
