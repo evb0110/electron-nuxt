@@ -7,6 +7,7 @@
             'annotation-tool-blocked': isAnnotationToolBlocked,
             'is-tool-active': isActive,
             'has-shapes': shapes.length > 0,
+            'has-selection': Boolean(selectedShapeId),
         }"
         :viewBox="`0 0 1 1`"
         preserveAspectRatio="none"
@@ -850,7 +851,7 @@ function handleResizeHandlePointerDown(handle: TShapeResizeHandle, event: Pointe
 }
 
 .pdf-shape-overlay.is-tool-active,
-.pdf-shape-overlay.has-shapes:not(.annotation-tool-blocked) {
+.pdf-shape-overlay.has-selection:not(.annotation-tool-blocked) {
     pointer-events: auto;
 }
 
