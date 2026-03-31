@@ -889,80 +889,83 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         }, {timeout: timeoutMs}, typedText);
     };
 
-    const injectLatestFreeTextContent = async (typedText: string) => {
-        // Give the editor DOM time to fully initialize (helps in headless CI).
-        await page.evaluate(async () => {
-            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-        });
-
-        const injected = await page.evaluate((expectedText: string) => {
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter((candidate) => {
-                    const rect = candidate.getBoundingClientRect();
-                    const style = window.getComputedStyle(candidate);
-                    return (
-                        style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                        && Number(style.opacity || '1') > 0
-                        && rect.width > 100
-                        && rect.height > 100
-                    );
-                });
-            const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
-            const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
-            const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
-                ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
-                ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
-            const latestEditor = editors[editors.length - 1];
-            const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
-                ?? latestEditor
-                ?? null;
-            if (!editable) {
-                return false;
-            }
-
-            editable.focus();
-
-            // In headless environments the contenteditable attribute may not
-            // be set yet — force it so injection can proceed.
-            if (!editable.isContentEditable && editable.getAttribute('contenteditable') !== 'true') {
-                editable.setAttribute('contenteditable', 'true');
-            }
-
-            if (editable.isContentEditable || editable.getAttribute('contenteditable') === 'true') {
-                editable.textContent = expectedText;
-
-                const selection = window.getSelection();
-                const range = document.createRange();
-                range.selectNodeContents(editable);
-                range.collapse(false);
-                selection?.removeAllRanges();
-                selection?.addRange(range);
-
-                editable.dispatchEvent(new InputEvent('input', {
-                    bubbles: true,
-                    data: expectedText,
-                    inputType: 'insertText',
-                }));
-                editable.dispatchEvent(new Event('change', {bubbles: true}));
-                return true;
-            }
-
-            if (editable instanceof HTMLInputElement || editable instanceof HTMLTextAreaElement) {
-                editable.value = expectedText;
-                editable.dispatchEvent(new Event('input', {bubbles: true}));
-                editable.dispatchEvent(new Event('change', {bubbles: true}));
-                return true;
-            }
-
-            return false;
-        }, typedText);
-
-        if (!injected) {
-            throw new Error('Failed to inject created FreeText editor content');
+    const tryInjectEditorContent = (expectedText: string) => page.evaluate((text: string) => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector('.freeTextEditor'));
+        const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
+            ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
+            ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
+        const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
+        const latestEditor = editors[editors.length - 1];
+        const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
+            ?? latestEditor
+            ?? null;
+        if (!editable) {
+            return 'no-editor';
         }
+
+        editable.focus();
+
+        if (!editable.isContentEditable && editable.getAttribute('contenteditable') !== 'true') {
+            editable.setAttribute('contenteditable', 'true');
+        }
+
+        if (editable.isContentEditable || editable.getAttribute('contenteditable') === 'true') {
+            editable.textContent = text;
+
+            const selection = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(editable);
+            range.collapse(false);
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+
+            editable.dispatchEvent(new InputEvent('input', {
+                bubbles: true,
+                data: text,
+                inputType: 'insertText',
+            }));
+            editable.dispatchEvent(new Event('change', {bubbles: true}));
+            return 'ok';
+        }
+
+        if (editable instanceof HTMLInputElement || editable instanceof HTMLTextAreaElement) {
+            editable.value = text;
+            editable.dispatchEvent(new Event('input', {bubbles: true}));
+            editable.dispatchEvent(new Event('change', {bubbles: true}));
+            return 'ok';
+        }
+
+        return 'not-editable';
+    }, expectedText);
+
+    const injectLatestFreeTextContent = async (typedText: string) => {
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            await page.evaluate(async () => {
+                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            });
+            const result = await tryInjectEditorContent(typedText);
+            if (result === 'ok') {
+                return;
+            }
+            if (attempt < 4) {
+                await page.evaluate(() => new Promise<void>(r => setTimeout(r, 300)));
+            }
+        }
+        throw new Error('Failed to inject created FreeText editor content');
     };
 
     await page.keyboard.type(text, { delay: 10 });
