@@ -1002,7 +1002,7 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
     };
 
     for (const editorPoint of editorPoints) {
-        await clickAnnotationTool(page, 'Select');
+        await clickAnnotationTool(page, 'Text');
         await page.mouse.click(editorPoint.x, editorPoint.y);
         await page.keyboard.press('Delete');
 
@@ -1010,7 +1010,7 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
             await waitForCountDrop(Math.min(DEFAULT_TIMEOUT_MS, 3_500));
             return getFreeTextEditorCount(page);
         } catch {
-            await clickAnnotationTool(page, 'Select');
+            await clickAnnotationTool(page, 'Text');
             await page.mouse.click(editorPoint.x, editorPoint.y, { button: 'right' });
 
             const hasDeleteAction = await page.waitForFunction(() => (

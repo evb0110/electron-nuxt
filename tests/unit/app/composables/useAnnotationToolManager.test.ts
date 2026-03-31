@@ -167,13 +167,13 @@ describe('useAnnotationToolState', () => {
         expect(emitAnnotationToolAutoReset).toHaveBeenCalledTimes(1);
     });
 
-    it('uses popup mode when annotation cursor mode is enabled and tool is none', async () => {
+    it('keeps idle mode at none even when annotation cursor mode is enabled', async () => {
         const { useAnnotationToolState } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
         const manager = useAnnotationToolState(createToolStateOptions(
             createUiManager(),
             { annotationCursorMode: computed(() => true) },
         ) as never);
 
-        expect(manager.getAnnotationMode('none')).toBe(4);
+        expect(manager.getAnnotationMode('none')).toBe(0);
     });
 });

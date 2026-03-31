@@ -54,7 +54,6 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
         annotationUiManager,
         currentPage,
         annotationTool,
-        annotationCursorMode,
         annotationKeepActive,
         annotationSettings,
         numPages,
@@ -98,9 +97,7 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
                 return AnnotationEditorType.NONE;
             case 'none':
             default:
-                return annotationCursorMode.value
-                    ? AnnotationEditorType.POPUP
-                    : AnnotationEditorType.NONE;
+                return AnnotationEditorType.NONE;
         }
     }
 
