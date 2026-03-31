@@ -151,16 +151,14 @@ import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/u
 import { useWorkspaceRefRegistry } from '@app/modules/workspace-shell/composables/useWorkspaceRefRegistry';
 import { useAppUpdates } from '@app/composables/useAppUpdates';
 import { useAnalytics } from '@app/composables/useAnalytics';
+import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { useEditorGroupsManager } from '@app/modules/workspace-shell/composables/useEditorGroupsManager';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
-import {
-    getPlatformAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+import { getPlatformAPI } from '@app/utils/platform';
 
 traceRendererStartup('index.vue script setup start');
 
@@ -190,7 +188,7 @@ const {
 const { t } = useTypedI18n();
 const analytics = useAnalytics();
 const showSettings = ref(false);
-const isBrowserRuntime = !hasElectronAPI();
+const { isBrowserRuntime } = useRuntimeEnvironment();
 const runtimeConfig = useRuntimeConfig();
 const browserInstallHintCookie = useCookie<string | null>(
     BROWSER_INSTALL_HINT_COOKIE_KEY,
@@ -451,7 +449,7 @@ const {
     clearRecentFiles,
 } = useRecentFiles();
 const browserInstallUrl = computed(() => {
-    if (!isBrowserRuntime) {
+    if (!isBrowserRuntime.value) {
         return undefined;
     }
 
@@ -461,7 +459,7 @@ const browserInstallUrl = computed(() => {
     return url || undefined;
 });
 const showBrowserInstallHint = computed(() => (
-    isBrowserRuntime
+    isBrowserRuntime.value
     && Boolean(browserInstallUrl.value)
     && !browserInstallHintDismissed.value
 ));
@@ -470,7 +468,7 @@ const windowTitle = computed(() => resolveAppWindowTitle({
     appTitle: t('app.title'),
     webTitle: t('app.webTitle'),
     fileName: activeTab.value?.fileName ?? null,
-    isBrowserRuntime,
+    isBrowserRuntime: isBrowserRuntime.value,
 }));
 
 function getBrowserInstallHost() {
@@ -504,7 +502,7 @@ function dismissBrowserInstallHint(reason: 'manual' | 'auto' = 'manual') {
     browserInstallHintDismissed.value = true;
     trackBrowserInstallHint(reason === 'auto' ? 'auto_dismissed' : 'dismissed');
 
-    if (!import.meta.client || !isBrowserRuntime) {
+    if (!import.meta.client || !isBrowserRuntime.value) {
         return;
     }
 
@@ -516,7 +514,7 @@ watch(windowTitle, (nextTitle) => {
         return;
     }
 
-    if (isBrowserRuntime) {
+    if (isBrowserRuntime.value) {
         if (typeof document === 'undefined' || document.title === nextTitle) {
             return;
         }
@@ -535,7 +533,7 @@ watch(windowTitle, (nextTitle) => {
 const BROWSER_INSTALL_HINT_AUTO_DISMISS_MS = 60_000;
 
 onMounted(() => {
-    if (isBrowserRuntime && !didTrackViewerSession.value) {
+    if (isBrowserRuntime.value && !didTrackViewerSession.value) {
         didTrackViewerSession.value = true;
         analytics.track('viewer_session_started', {
             installHintVisible: showBrowserInstallHint.value,
@@ -543,7 +541,7 @@ onMounted(() => {
         }, { includeReferrer: true });
     }
 
-    if (!isBrowserRuntime || browserInstallHintDismissed.value) {
+    if (!isBrowserRuntime.value || browserInstallHintDismissed.value) {
         return;
     }
 
@@ -552,7 +550,7 @@ onMounted(() => {
 });
 
 watch(showBrowserInstallHint, (isVisible) => {
-    if (!isBrowserRuntime || !isVisible || didTrackInstallHintShown.value) {
+    if (!isBrowserRuntime.value || !isVisible || didTrackInstallHintShown.value) {
         return;
     }
 

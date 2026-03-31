@@ -161,7 +161,7 @@ import PdfToolbar from '@app/components/pdf/PdfToolbar.vue';
 import PdfZoomDropdown from '@app/components/pdf/PdfZoomDropdown.vue';
 import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
-import { hasElectronAPI } from '@app/utils/platform';
+import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 
@@ -175,7 +175,8 @@ const props = defineProps<{
     appMenuOpen: boolean;
 }>();
 
-const canUseOcr = hasElectronAPI();
+const { isDesktopRuntime } = useRuntimeEnvironment();
+const canUseOcr = computed(() => isDesktopRuntime.value);
 const canUseDjvu = true;
 
 const emit = defineEmits<{
