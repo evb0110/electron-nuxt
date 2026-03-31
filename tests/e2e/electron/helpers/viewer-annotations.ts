@@ -1025,22 +1025,6 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
                 if (!target) {
                     return false;
                 }
-                const editorLayer = target.closest('.annotationEditorLayer, .annotation-editor-layer');
-                if (editorLayer && typeof (editorLayer as { getEditorsForPage?: unknown }).getEditorsForPage === 'function') {
-                    const layerEditors = (editorLayer as { getEditorsForPage: () => unknown[] }).getEditorsForPage();
-                    for (const editor of layerEditors) {
-                        if ((editor as { div?: HTMLElement }).div === target) {
-                            if (typeof (editor as { remove?: () => void }).remove === 'function') {
-                                (editor as { remove: () => void }).remove();
-                                return true;
-                            }
-                            if (typeof (editor as { delete?: () => void }).delete === 'function') {
-                                (editor as { delete: () => void }).delete();
-                                return true;
-                            }
-                        }
-                    }
-                }
                 target.remove();
                 return true;
             });
