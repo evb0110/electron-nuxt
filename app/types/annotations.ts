@@ -6,7 +6,8 @@ export type TShapeType = 'rectangle' | 'circle' | 'line' | 'arrow' | 'polyline' 
 export type TDrawableShapeType = Extract<TShapeType, 'rectangle' | 'circle' | 'line' | 'arrow'>;
 
 export type TLineEndStyle = 'none' | 'openArrow' | 'closedArrow';
-export type TEmbeddedPdfShapeSubtype = 'Square' | 'Circle' | 'Line' | 'PolyLine' | 'Polygon';
+export type TEmbeddedPdfShapeSubtype = 'Square' | 'Circle' | 'Line' | 'PolyLine' | 'Polygon' | 'Ink';
+export type TShapeResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
 
 export interface IShapePoint {
     x: number;

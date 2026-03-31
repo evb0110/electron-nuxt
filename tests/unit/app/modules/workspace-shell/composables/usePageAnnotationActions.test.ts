@@ -7,10 +7,14 @@ import {
     vi,
 } from 'vitest';
 import { retry } from 'es-toolkit/function';
-import { ref } from 'vue';
+import {
+    nextTick,
+    ref,
+} from 'vue';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
 import type {
     IAnnotationCommentSummary,
+    IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
@@ -60,8 +64,27 @@ async function waitForCondition(condition: () => boolean, timeoutMs = 300) {
     }
 }
 
+interface ITestViewerRect {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+
+interface ITestViewerPageContainer { getBoundingClientRect: () => ITestViewerRect; }
+
+interface ITestViewerContainer {
+    addEventListener: ReturnType<typeof vi.fn>;
+    removeEventListener: ReturnType<typeof vi.fn>;
+    querySelector: (selector: string) => ITestViewerPageContainer | null;
+}
+
 function createHarness() {
+    const selectedShape = ref<IShapeAnnotation | null>(null);
+    const viewerContainer = ref<ITestViewerContainer | null>(null);
+
     const viewer = {
+        getViewerContainer: vi.fn(() => viewerContainer.value as HTMLElement | null),
         commentSelection: vi.fn(async () => false),
         commentAtPoint: vi.fn(async () => true),
         startCommentPlacement: vi.fn(),
@@ -73,9 +96,9 @@ function createHarness() {
         suppressAnnotationId: vi.fn(),
         removeAnnotationFromDom: vi.fn(),
         removeAnnotationFromInternalCache: vi.fn(),
-        selectedShapeId: 'shape-1' as string | null,
+        selectedShapeId: null as string | null,
         updateShape: vi.fn(),
-        getSelectedShape: vi.fn(() => null),
+        getSelectedShape: vi.fn(() => selectedShape.value),
         deleteSelectedShape: vi.fn(),
         saveDocument: vi.fn(async () => new Uint8Array([
             9,
@@ -139,6 +162,8 @@ function createHarness() {
 
     return {
         viewer,
+        selectedShape,
+        viewerContainer,
         deps,
         actions: usePageAnnotationActions(deps),
     };
@@ -217,6 +242,65 @@ describe('usePageAnnotationActions', () => {
 
         expect(deps.annotationSettings.value.shapeStrokeWidth).toBe(7.5);
         expect(viewer.updateShape).toHaveBeenCalledWith('shape-1', { strokeWidth: 7.5 });
+    });
+
+    it('opens shape properties automatically for a newly selected shape', async () => {
+        const {
+            deps,
+            viewer,
+            selectedShape,
+            viewerContainer,
+            actions,
+        } = createHarness();
+
+        vi.stubGlobal('window', {
+            innerWidth: 1400,
+            innerHeight: 1000,
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        });
+
+        viewerContainer.value = {
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            querySelector: (selector: string) => (
+                selector === '.page_container[data-page="1"]'
+                    ? { getBoundingClientRect: () => ({
+                        left: 100,
+                        top: 80,
+                        width: 600,
+                        height: 800,
+                    }) }
+                    : null
+            ),
+        };
+
+        selectedShape.value = {
+            id: 'shape-1',
+            type: 'line',
+            pageIndex: 0,
+            x: 0.25,
+            y: 0.4,
+            x2: 0.8,
+            y2: 0.2,
+            width: 0.55,
+            height: 0.2,
+            color: '#3b82f6',
+            opacity: 1,
+            strokeWidth: 4,
+        };
+        deps.pdfViewerRef.value = {
+            ...viewer,
+            selectedShapeId: 'shape-1',
+        };
+
+        await nextTick();
+        await nextTick();
+
+        expect(actions.selectedShapeForProperties.value?.id).toBe('shape-1');
+        expect(actions.shapePropertiesPopover.value.visible).toBe(true);
+        expect(actions.shapePropertiesPopover.value.x).toBeGreaterThan(580);
+        expect(actions.shapePropertiesPopover.value.y).toBeGreaterThanOrEqual(200);
     });
 
     it('creates markup from context menu and resets tool when keep-active is disabled', async () => {

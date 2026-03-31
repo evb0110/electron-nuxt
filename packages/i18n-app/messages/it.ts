@@ -136,6 +136,7 @@ export default {
             other: '{count} note',
         }),
         'notes': 'Note',
+        'select': 'Seleziona',
         'closeTool': 'Disattiva strumento',
         'notesList': 'Elenco note',
         'searchNotes': 'Cerca note, autore, pagina...',

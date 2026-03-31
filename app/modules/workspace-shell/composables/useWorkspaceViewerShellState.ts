@@ -64,7 +64,9 @@ export function useWorkspaceViewerShellState() {
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
 
     const isLoading = ref(false);
-    const dragMode = ref(true);
+    // Default to text selection so reopened annotations remain immediately
+    // discoverable and interactable without an extra mode switch.
+    const dragMode = ref(false);
     const continuousScroll = ref(true);
     const showSidebar = ref(false);
     const showSettings = ref(false);

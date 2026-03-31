@@ -19,6 +19,7 @@ export const AnnotationEditorLayer = getOptionalExport<typeof pdfjsLib.Annotatio
 export const AnnotationEditorParamsType = getOptionalExport<typeof pdfjsLib.AnnotationEditorParamsType>('AnnotationEditorParamsType');
 export const AnnotationEditorType = getOptionalExport<typeof pdfjsLib.AnnotationEditorType>('AnnotationEditorType');
 export const AnnotationEditorUIManager = getOptionalExport<typeof pdfjsLib.AnnotationEditorUIManager>('AnnotationEditorUIManager');
+export const AnnotationMode = getOptionalExport<typeof pdfjsLib.AnnotationMode>('AnnotationMode');
 export const DrawLayer = getOptionalExport<typeof pdfjsLib.DrawLayer>('DrawLayer');
 export const PDFDateString = getOptionalExport<typeof pdfjsLib.PDFDateString>('PDFDateString');
 export const PixelsPerInch = getOptionalExport<typeof pdfjsLib.PixelsPerInch>('PixelsPerInch');

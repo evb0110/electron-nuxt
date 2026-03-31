@@ -12,7 +12,7 @@ function createState(options?: { dragMode?: boolean; }) {
         zoomMode: ref('fit-width'),
         zoom: ref(1),
         dragMode: ref(
-            options?.dragMode ?? true,
+            options?.dragMode ?? false,
         ),
         showSidebar: ref(false),
         sidebarTab: ref('thumbnails'),
@@ -51,12 +51,12 @@ describe('useWorkspaceViewState', () => {
     });
 
     it('disables annotation cursor when drag mode is enabled', () => {
-        const state = createState();
+        const state = createState({ dragMode: true });
         expect(state.annotationCursorMode.value).toBe(false);
     });
 
     it('keeps annotation cursor enabled outside hand-tool mode', () => {
-        const state = createState({ dragMode: false });
+        const state = createState();
         expect(state.annotationCursorMode.value).toBe(true);
     });
 });

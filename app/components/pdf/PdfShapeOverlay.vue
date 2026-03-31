@@ -3,13 +3,18 @@
         v-if="isActive || shapes.length > 0 || drawingShape"
         ref="svgRef"
         class="pdf-shape-overlay"
-        :class="{ 'is-tool-active': isActive }"
+        :class="{
+            'annotation-tool-blocked': isAnnotationToolBlocked,
+            'is-tool-active': isActive,
+            'has-shapes': shapes.length > 0,
+        }"
         :viewBox="`0 0 1 1`"
         preserveAspectRatio="none"
         @pointerdown="handlePointerDown"
         @pointermove="handlePointerMove"
         @pointerup="handlePointerUp"
         @pointerleave="handlePointerUp"
+        @contextmenu="handleContextMenu"
     >
         <g
             v-for="shape in shapes"
@@ -55,6 +60,7 @@
                 stroke="transparent"
                 :stroke-width="interactionStrokeWidth(shape)"
                 pointer-events="stroke"
+                stroke-linecap="round"
                 vector-effect="non-scaling-stroke"
             />
             <polyline
@@ -65,6 +71,8 @@
                 stroke="transparent"
                 :stroke-width="interactionStrokeWidth(shape)"
                 pointer-events="stroke"
+                stroke-linecap="round"
+                stroke-linejoin="round"
                 vector-effect="non-scaling-stroke"
             />
             <polygon
@@ -110,6 +118,7 @@
                 :stroke="shape.color"
                 :opacity="shape.opacity"
                 :stroke-width="strokeWidthNorm(shape.strokeWidth)"
+                stroke-linecap="round"
                 vector-effect="non-scaling-stroke"
             />
             <polyline
@@ -119,6 +128,8 @@
                 :stroke="shape.color"
                 :opacity="shape.opacity"
                 :stroke-width="strokeWidthNorm(shape.strokeWidth)"
+                stroke-linecap="round"
+                stroke-linejoin="round"
                 vector-effect="non-scaling-stroke"
             />
             <polygon
@@ -234,6 +245,34 @@
         </g>
 
         <rect
+            v-if="selectedShapeContextBounds"
+            class="selection-hit-target"
+            :x="selectedShapeContextBounds.x"
+            :y="selectedShapeContextBounds.y"
+            :width="selectedShapeContextBounds.width"
+            :height="selectedShapeContextBounds.height"
+            fill="transparent"
+            stroke="transparent"
+            pointer-events="all"
+            @contextmenu.stop.prevent="handleSelectedShapeBoundsContextMenu"
+        />
+
+        <rect
+            v-for="resizeHandle in resizeHandles"
+            :key="`resize-${resizeHandle.handle}`"
+            class="selection-resize-handle"
+            :class="`selection-resize-handle--${resizeHandle.handle}`"
+            :x="resizeHandle.x - resizeHandleSize.width / 2"
+            :y="resizeHandle.y - resizeHandleSize.height / 2"
+            :width="resizeHandleSize.width"
+            :height="resizeHandleSize.height"
+            rx="0.004"
+            ry="0.004"
+            vector-effect="non-scaling-stroke"
+            @pointerdown.stop.prevent="handleResizeHandlePointerDown(resizeHandle.handle, $event)"
+        />
+
+        <rect
             v-if="selectedShapeId && selectedShapeBounds"
             class="selection-outline"
             :x="selectedShapeBounds.x - 0.003"
@@ -256,7 +295,13 @@ import type {
     IShapeAnnotation,
     TDrawableShapeType,
     IAnnotationSettings,
+    TShapeResizeHandle,
 } from '@app/types/annotations';
+import {
+    findShapeAtPoint,
+    getNormalizedSvgPointerCoords,
+    hasPointerMovedPastThreshold,
+} from '@app/composables/pdf/pdfShapeOverlayInteractions';
 
 interface IProps {
     pageIndex: number;
@@ -264,6 +309,7 @@ interface IProps {
     drawingShape: IShapeAnnotation | null;
     selectedShapeId: string | null;
     isActive: boolean;
+    isAnnotationToolActive: boolean;
     tool: TDrawableShapeType | null;
     settings: IAnnotationSettings;
 }
@@ -290,6 +336,17 @@ const emit = defineEmits<{
         y: number
     }): void;
     (e: 'finish-drag-shape'): void;
+    (e: 'start-resize-shape', payload: {
+        shapeId: string;
+        handle: TShapeResizeHandle;
+        x: number;
+        y: number
+    }): void;
+    (e: 'continue-resize-shape', payload: {
+        x: number;
+        y: number
+    }): void;
+    (e: 'finish-resize-shape'): void;
     (e: 'select-shape', id: string | null): void;
     (e: 'shape-contextmenu', payload: {
         shapeId: string;
@@ -301,6 +358,12 @@ const emit = defineEmits<{
 const svgRef = ref<SVGSVGElement | null>(null);
 const svgWidth = ref(1);
 const svgHeight = ref(1);
+const RESIZE_HANDLES: TShapeResizeHandle[] = [
+    'nw',
+    'ne',
+    'sw',
+    'se',
+];
 
 useResizeObserver(svgRef, (entries) => {
     const entry = entries[0];
@@ -315,7 +378,10 @@ function strokeWidthNorm(px: number) {
 }
 
 function interactionStrokeWidth(shape: IShapeAnnotation) {
-    return Math.max(shape.strokeWidth + 8, 12);
+    if (shape.type === 'line' || shape.type === 'arrow' || shape.type === 'polyline') {
+        return Math.max(shape.strokeWidth + 14, 20);
+    }
+    return Math.max(shape.strokeWidth + 10, 14);
 }
 
 function isLineLikeShape(shape: IShapeAnnotation) {
@@ -398,20 +464,33 @@ function shapePoints(shape: IShapeAnnotation) {
 }
 
 function getNormalizedCoords(event: PointerEvent) {
-    const svg = (event.currentTarget as SVGSVGElement) ?? (event.target as Element)?.closest('svg');
-    if (!svg) {
+    const coords = getNormalizedSvgPointerCoords(event);
+    if (!coords) {
         return null;
     }
-    const rect = svg.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) {
-        return null;
-    }
-    const x = clamp((event.clientX - rect.left) / rect.width, 0, 1);
-    const y = clamp((event.clientY - rect.top) / rect.height, 0, 1);
     return {
-        x,
-        y, 
+        x: clamp(coords.x, 0, 1),
+        y: clamp(coords.y, 0, 1),
     };
+}
+
+function boundsContainCoords(bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}, coords: {
+    x: number;
+    y: number;
+}) {
+    const padX = 12 / Math.max(svgWidth.value, 1);
+    const padY = 12 / Math.max(svgHeight.value, 1);
+    return (
+        coords.x >= bounds.x - padX
+        && coords.x <= bounds.x + bounds.width + padX
+        && coords.y >= bounds.y - padY
+        && coords.y <= bounds.y + bounds.height + padY
+    );
 }
 
 const selectedShapeBounds = computed(() => {
@@ -458,11 +537,145 @@ const selectedShapeBounds = computed(() => {
     };
 });
 
+const selectedShape = computed(() => (
+    props.selectedShapeId
+        ? props.shapes.find(shape => shape.id === props.selectedShapeId) ?? null
+        : null
+));
+
+const resizeHandleSize = computed(() => ({
+    width: 10 / Math.max(svgWidth.value, 1),
+    height: 10 / Math.max(svgHeight.value, 1),
+}));
+const isAnnotationToolBlocked = computed(() => props.isAnnotationToolActive && !props.isActive);
+
+const resizeHandles = computed(() => {
+    if (!selectedShape.value || !selectedShapeBounds.value || props.isActive) {
+        return [];
+    }
+
+    const bounds = selectedShapeBounds.value;
+    const corners: Record<TShapeResizeHandle, {
+        x: number;
+        y: number;
+    }> = {
+        nw: {
+            x: bounds.x,
+            y: bounds.y,
+        },
+        ne: {
+            x: bounds.x + bounds.width,
+            y: bounds.y,
+        },
+        sw: {
+            x: bounds.x,
+            y: bounds.y + bounds.height,
+        },
+        se: {
+            x: bounds.x + bounds.width,
+            y: bounds.y + bounds.height,
+        },
+    };
+
+    return RESIZE_HANDLES.map(handle => ({
+        handle,
+        x: corners[handle].x,
+        y: corners[handle].y,
+    }));
+});
+
+const selectedShapeContextBounds = computed(() => {
+    if (!props.selectedShapeId || !selectedShapeBounds.value) {
+        return null;
+    }
+
+    const selectedShape = props.shapes.find(shape => shape.id === props.selectedShapeId) ?? null;
+    if (!selectedShape) {
+        return null;
+    }
+
+    if (selectedShape.type === 'rectangle' || selectedShape.type === 'circle') {
+        return null;
+    }
+
+    return selectedShapeBounds.value;
+});
+
 let pointerDrawing = false;
 let pointerDraggingShapeId: string | null = null;
+let pointerResizingShapeId: string | null = null;
+let pendingShapeDrag: {
+    shapeId: string;
+    x: number;
+    y: number;
+    clientX: number;
+    clientY: number;
+} | null = null;
+
+function canCapturePointer(event: PointerEvent) {
+    return typeof event.pointerId === 'number' && event.pointerId > 0;
+}
+
+function beginPendingShapeInteraction(shape: IShapeAnnotation, coords: {
+    x: number;
+    y: number;
+}, event: PointerEvent) {
+    emit('select-shape', shape.id);
+    pendingShapeDrag = {
+        shapeId: shape.id,
+        x: coords.x,
+        y: coords.y,
+        clientX: event.clientX,
+        clientY: event.clientY,
+    };
+    if (canCapturePointer(event)) {
+        svgRef.value?.setPointerCapture?.(event.pointerId);
+    }
+}
+
+function findInteractiveShape(event: Pick<PointerEvent, 'clientX' | 'clientY' | 'currentTarget' | 'target'>) {
+    const coords = getNormalizedCoords(event as PointerEvent);
+    if (!coords) {
+        return null;
+    }
+
+    const shape = findShapeAtPoint({
+        shapes: props.shapes,
+        x: coords.x,
+        y: coords.y,
+        svgWidth: svgWidth.value,
+        svgHeight: svgHeight.value,
+    });
+
+    if (!shape) {
+        const selectedShape = props.selectedShapeId
+            ? props.shapes.find(candidate => candidate.id === props.selectedShapeId) ?? null
+            : null;
+        if (selectedShape && selectedShapeBounds.value && boundsContainCoords(selectedShapeBounds.value, coords)) {
+            return {
+                coords,
+                shape: selectedShape,
+            };
+        }
+        return null;
+    }
+
+    return {
+        coords,
+        shape,
+    };
+}
 
 function handlePointerDown(event: PointerEvent) {
     if (!props.isActive || !props.tool) {
+        if (event.button !== 0) {
+            return;
+        }
+        const hit = findInteractiveShape(event);
+        if (hit) {
+            beginPendingShapeInteraction(hit.shape, hit.coords, event);
+            return;
+        }
         emit('select-shape', null);
         return;
     }
@@ -472,16 +685,40 @@ function handlePointerDown(event: PointerEvent) {
         return;
     }
     pointerDrawing = true;
-    (event.currentTarget as Element)?.setPointerCapture(event.pointerId);
+    if (canCapturePointer(event)) {
+        svgRef.value?.setPointerCapture?.(event.pointerId);
+    }
     emit('start-drawing', coords);
 }
 
 function handlePointerMove(event: PointerEvent) {
-    if (pointerDraggingShapeId) {
+    if (pointerResizingShapeId) {
         const coords = getNormalizedCoords(event);
         if (!coords) {
             return;
         }
+        emit('continue-resize-shape', coords);
+        return;
+    }
+    if (pendingShapeDrag) {
+        const coords = getNormalizedCoords(event);
+        if (!coords) {
+            return;
+        }
+
+        if (!pointerDraggingShapeId) {
+            if (!hasPointerMovedPastThreshold(pendingShapeDrag, event, 6)) {
+                return;
+            }
+
+            pointerDraggingShapeId = pendingShapeDrag.shapeId;
+            emit('start-drag-shape', {
+                shapeId: pendingShapeDrag.shapeId,
+                x: pendingShapeDrag.x,
+                y: pendingShapeDrag.y,
+            });
+        }
+
         emit('continue-drag-shape', coords);
         return;
     }
@@ -495,7 +732,19 @@ function handlePointerMove(event: PointerEvent) {
     emit('continue-drawing', coords);
 }
 
-function handlePointerUp() {
+function handlePointerUp(event?: PointerEvent) {
+    if (event?.type === 'pointerleave' && event.pointerId && svgRef.value?.hasPointerCapture?.(event.pointerId)) {
+        return;
+    }
+    if (event && svgRef.value?.hasPointerCapture?.(event.pointerId)) {
+        svgRef.value.releasePointerCapture(event.pointerId);
+    }
+    pendingShapeDrag = null;
+    if (pointerResizingShapeId) {
+        pointerResizingShapeId = null;
+        emit('finish-resize-shape');
+        return;
+    }
     if (pointerDraggingShapeId) {
         pointerDraggingShapeId = null;
         emit('finish-drag-shape');
@@ -509,29 +758,19 @@ function handlePointerUp() {
 }
 
 function handleShapeClick(id: string) {
-    if (props.isActive && props.tool) {
-        return;
-    }
     emit('select-shape', id);
 }
 
 function handleShapePointerDown(shape: IShapeAnnotation, event: PointerEvent) {
-    if (props.isActive && props.tool) {
+    if (event.button !== 0) {
         return;
     }
-
     const coords = getNormalizedCoords(event);
     if (!coords) {
         return;
     }
 
-    pointerDraggingShapeId = shape.id;
-    emit('select-shape', shape.id);
-    emit('start-drag-shape', {
-        shapeId: shape.id,
-        ...coords,
-    });
-    (event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId);
+    beginPendingShapeInteraction(shape, coords, event);
 }
 
 function handleShapeContextMenu(id: string, event: MouseEvent) {
@@ -541,6 +780,62 @@ function handleShapeContextMenu(id: string, event: MouseEvent) {
         clientX: event.clientX,
         clientY: event.clientY,
     });
+}
+
+function handleContextMenu(event: MouseEvent) {
+    if (props.isActive || props.tool) {
+        return;
+    }
+
+    event.preventDefault();
+    const hit = findInteractiveShape(event as PointerEvent);
+    if (!hit) {
+        return;
+    }
+    emit('select-shape', hit.shape.id);
+    emit('shape-contextmenu', {
+        shapeId: hit.shape.id,
+        clientX: event.clientX,
+        clientY: event.clientY,
+    });
+}
+
+function handleSelectedShapeBoundsContextMenu(event: MouseEvent) {
+    if (!props.selectedShapeId) {
+        return;
+    }
+    emit('select-shape', props.selectedShapeId);
+    emit('shape-contextmenu', {
+        shapeId: props.selectedShapeId,
+        clientX: event.clientX,
+        clientY: event.clientY,
+    });
+}
+
+function handleResizeHandlePointerDown(handle: TShapeResizeHandle, event: PointerEvent) {
+    if (event.button !== 0 || !selectedShape.value) {
+        return;
+    }
+
+    const coords = getNormalizedCoords(event);
+    if (!coords) {
+        return;
+    }
+
+    pendingShapeDrag = null;
+    pointerDraggingShapeId = null;
+    pointerDrawing = false;
+    pointerResizingShapeId = selectedShape.value.id;
+    emit('select-shape', selectedShape.value.id);
+    emit('start-resize-shape', {
+        shapeId: selectedShape.value.id,
+        handle,
+        x: coords.x,
+        y: coords.y,
+    });
+    if (canCapturePointer(event)) {
+        svgRef.value?.setPointerCapture?.(event.pointerId);
+    }
 }
 </script>
 
@@ -554,12 +849,20 @@ function handleShapeContextMenu(id: string, event: MouseEvent) {
     pointer-events: none;
 }
 
-.pdf-shape-overlay.is-tool-active {
+.pdf-shape-overlay.is-tool-active,
+.pdf-shape-overlay.has-shapes:not(.annotation-tool-blocked) {
     pointer-events: auto;
 }
 
 .pdf-shape-overlay > g {
     pointer-events: auto;
+}
+
+.pdf-shape-overlay.annotation-tool-blocked > g,
+.pdf-shape-overlay.annotation-tool-blocked > g *,
+.pdf-shape-overlay.is-tool-active > g,
+.pdf-shape-overlay.is-tool-active > g * {
+    pointer-events: none;
 }
 
 .shape-hit-target {
@@ -577,5 +880,33 @@ function handleShapeContextMenu(id: string, event: MouseEvent) {
 .selection-outline {
     pointer-events: none;
     stroke: var(--app-pdf-shape-selection-stroke);
+}
+
+.selection-hit-target {
+    pointer-events: auto;
+}
+
+.selection-resize-handle {
+    fill: var(--ui-bg);
+    stroke: var(--app-pdf-shape-selection-stroke);
+    stroke-width: 1;
+    pointer-events: auto;
+}
+
+.pdf-shape-overlay.annotation-tool-blocked .selection-hit-target,
+.pdf-shape-overlay.annotation-tool-blocked .selection-resize-handle,
+.pdf-shape-overlay.is-tool-active .selection-hit-target,
+.pdf-shape-overlay.is-tool-active .selection-resize-handle {
+    pointer-events: none;
+}
+
+.selection-resize-handle--nw,
+.selection-resize-handle--se {
+    cursor: nwse-resize;
+}
+
+.selection-resize-handle--ne,
+.selection-resize-handle--sw {
+    cursor: nesw-resize;
 }
 </style>

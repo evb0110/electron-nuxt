@@ -1,4 +1,5 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
+import { AnnotationMode } from '@app/services/pdfjs/runtime-lib';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface ICanvasRenderResult {
@@ -112,6 +113,9 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
             canvas,
             transform,
             viewport,
+            // Render annotations through the dedicated annotation/editor layers
+            // instead of baking their appearance streams into the page canvas.
+            annotationMode: AnnotationMode?.DISABLE ?? 0,
         };
 
         const renderTask = pdfPage.render(renderContext) as ICancelableRenderTask;

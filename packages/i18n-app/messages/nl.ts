@@ -136,6 +136,7 @@ export default {
             other: '{count} notities',
         }),
         'notes': 'Notities',
+        'select': 'Selecteren',
         'closeTool': 'Hulpmiddel deactiveren',
         'notesList': 'Notitielijst',
         'searchNotes': 'Zoek notities, auteur, pagina...',

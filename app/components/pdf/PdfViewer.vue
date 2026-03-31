@@ -130,6 +130,7 @@ import type { IAnnotationContextMenuPayload } from '@app/composables/pdf/annotat
 import { isSelectionMarkupTool } from '@app/composables/pdf/annotations/annotationRules';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { readDocumentBytes } from '@app/utils/document-bytes';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
@@ -395,14 +396,16 @@ function syncHiddenEmbeddedAnnotationDom() {
 watch(
     () => [
         sourcePdfData.value,
+        workingCopyPath.value,
         pdfDocument.value,
     ] as const,
     async ([
         data,
+        path,
         doc,
     ]) => {
         const localToken = ++embeddedShapeImportToken;
-        if (!data || data.length === 0) {
+        if ((!data || data.length === 0) && !path) {
             shapeComposable.loadShapes([]);
             await nextTick();
             syncHiddenEmbeddedAnnotationDom();
@@ -413,8 +416,20 @@ watch(
         }
 
         let importedShapes: IShapeAnnotation[] = [];
+        let sourceData = data;
         try {
-            importedShapes = await importEmbeddedShapeAnnotations(data);
+            if ((!sourceData || sourceData.length === 0) && path) {
+                sourceData = await readDocumentBytes(path);
+            }
+
+            if (!sourceData || sourceData.length === 0) {
+                shapeComposable.loadShapes([]);
+                await nextTick();
+                syncHiddenEmbeddedAnnotationDom();
+                return;
+            }
+
+            importedShapes = await importEmbeddedShapeAnnotations(sourceData);
         } catch (error) {
             BrowserLogger.warn('pdf-shapes', 'Failed to import embedded PDF shapes', error);
             return;
@@ -422,6 +437,7 @@ watch(
         if (
             embeddedShapeImportToken !== localToken
             || sourcePdfData.value !== data
+            || workingCopyPath.value !== path
             || pdfDocument.value !== doc
         ) {
             return;

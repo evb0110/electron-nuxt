@@ -26,6 +26,7 @@ const SUPPORTED_IMAGE_MIME_TYPES = [
 const PREFERRED_CLIPBOARD_IMAGE_TYPES = SUPPORTED_IMAGE_MIME_TYPES.filter(type => type !== 'image/svg+xml');
 
 interface IPdfViewerForAnnotationActions {
+    getViewerContainer: () => HTMLElement | null;
     commentSelection: () => Promise<boolean>;
     commentAtPoint: (
         pageNumber: number,
@@ -151,12 +152,94 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         x: 0,
         y: 0,
     });
+    const dismissedShapePropertiesId = ref<string | null>(null);
+    const selectedShapeId = computed(() => pdfViewerRef.value?.selectedShapeId ?? null);
+    const selectedShape = computed(() => {
+        if (!selectedShapeId.value) {
+            return null;
+        }
+        return pdfViewerRef.value?.getSelectedShape() ?? null;
+    });
 
     const selectedShapeForProperties = computed(() =>
         shapePropertiesPopover.value.visible
-            ? pdfViewerRef.value?.getSelectedShape() ?? null
+            ? selectedShape.value
             : null,
     );
+
+    function getShapeBounds(shape: IShapeAnnotation) {
+        if ((shape.type === 'polyline' || shape.type === 'polygon') && shape.points && shape.points.length > 0) {
+            const xs = shape.points.map(point => point.x);
+            const ys = shape.points.map(point => point.y);
+            const minX = Math.min(...xs);
+            const minY = Math.min(...ys);
+            const maxX = Math.max(...xs);
+            const maxY = Math.max(...ys);
+            return {
+                x: minX,
+                y: minY,
+                width: Math.max(0.01, maxX - minX),
+                height: Math.max(0.01, maxY - minY),
+            };
+        }
+
+        if (shape.type === 'line' || shape.type === 'arrow') {
+            const x2 = shape.x2 ?? shape.x;
+            const y2 = shape.y2 ?? shape.y;
+            const minX = Math.min(shape.x, x2);
+            const minY = Math.min(shape.y, y2);
+            return {
+                x: minX,
+                y: minY,
+                width: Math.max(0.01, Math.abs(x2 - shape.x)),
+                height: Math.max(0.01, Math.abs(y2 - shape.y)),
+            };
+        }
+
+        return {
+            x: shape.x,
+            y: shape.y,
+            width: Math.max(0.01, shape.width),
+            height: Math.max(0.01, shape.height),
+        };
+    }
+
+    function updateShapePropertiesPopoverPosition(shape: IShapeAnnotation) {
+        const viewerContainer = pdfViewerRef.value?.getViewerContainer();
+        if (!viewerContainer) {
+            return false;
+        }
+
+        const pageContainer = viewerContainer.querySelector<HTMLElement>(
+            `.page_container[data-page="${shape.pageIndex + 1}"]`,
+        );
+        if (!pageContainer) {
+            return false;
+        }
+
+        const pageRect = pageContainer.getBoundingClientRect();
+        if (pageRect.width <= 0 || pageRect.height <= 0) {
+            return false;
+        }
+
+        const bounds = getShapeBounds(shape);
+        const desiredX = pageRect.left + ((bounds.x + bounds.width) * pageRect.width) + 12;
+        const desiredY = pageRect.top + (bounds.y * pageRect.height) - 8;
+        const clampedPosition = clampToViewport(
+            desiredX,
+            desiredY,
+            260,
+            220,
+            8,
+        );
+
+        shapePropertiesPopover.value = {
+            visible: true,
+            x: clampedPosition.x,
+            y: clampedPosition.y,
+        };
+        return true;
+    }
 
     function mimeTypeFromPath(path: string) {
         const normalized = path.toLowerCase();
@@ -339,6 +422,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     function closeShapeProperties() {
+        dismissedShapePropertiesId.value = selectedShape.value?.id ?? null;
         shapePropertiesPopover.value = {
             visible: false,
             x: 0,
@@ -384,6 +468,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         clientY: number;
     }) {
         closeAnnotationContextMenu();
+        dismissedShapePropertiesId.value = null;
         const clampedPosition = clampToViewport(
             payload.clientX,
             payload.clientY,
@@ -403,6 +488,82 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         pdfViewerRef.value?.deleteSelectedShape();
         closeShapeProperties();
     }
+
+    watch(
+        () => selectedShapeId.value,
+        (shapeId, previousShapeId) => {
+            if (!shapeId) {
+                dismissedShapePropertiesId.value = null;
+                shapePropertiesPopover.value = {
+                    visible: false,
+                    x: 0,
+                    y: 0,
+                };
+                return;
+            }
+
+            if (shapeId === previousShapeId && shapePropertiesPopover.value.visible) {
+                return;
+            }
+
+            if (dismissedShapePropertiesId.value === shapeId) {
+                return;
+            }
+
+            if (selectedShape.value) {
+                updateShapePropertiesPopoverPosition(selectedShape.value);
+            }
+        },
+        { immediate: true },
+    );
+
+    watch(
+        () => {
+            const shape = selectedShape.value;
+            if (!shape || !shapePropertiesPopover.value.visible) {
+                return null;
+            }
+            return JSON.stringify({
+                id: shape.id,
+                x: shape.x,
+                y: shape.y,
+                width: shape.width,
+                height: shape.height,
+                x2: shape.x2 ?? null,
+                y2: shape.y2 ?? null,
+                points: shape.points ?? null,
+            });
+        },
+        () => {
+            if (selectedShape.value && shapePropertiesPopover.value.visible) {
+                updateShapePropertiesPopoverPosition(selectedShape.value);
+            }
+        },
+    );
+
+    watch(
+        () => pdfViewerRef.value?.getViewerContainer() ?? null,
+        (container, _previous, onCleanup) => {
+            if (!container) {
+                return;
+            }
+
+            const handleViewportChange = () => {
+                if (selectedShape.value && shapePropertiesPopover.value.visible) {
+                    updateShapePropertiesPopoverPosition(selectedShape.value);
+                }
+            };
+
+            container.addEventListener('scroll', handleViewportChange, { passive: true });
+            window.addEventListener('resize', handleViewportChange);
+
+            onCleanup(() => {
+                container.removeEventListener('scroll', handleViewportChange);
+                window.removeEventListener('resize', handleViewportChange);
+            });
+        },
+        { immediate: true },
+    );
 
     function handleViewerAnnotationContextMenu(payload: {
         comment: IAnnotationCommentSummary | null;

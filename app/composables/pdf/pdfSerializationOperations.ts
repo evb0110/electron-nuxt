@@ -291,6 +291,25 @@ function toPdfVertexPoints(
     return pdfPoints.length === points.length ? pdfPoints : null;
 }
 
+function toPdfInkList(
+    points: IShapePoint[] | undefined,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const pdfPoints = toPdfVertexPoints(points, pageView, pageRotation);
+    if (!pdfPoints) {
+        return null;
+    }
+
+    return {
+        pdfPoints,
+        inkList: pdfPoints.flatMap(point => [
+            point.x,
+            point.y,
+        ]),
+    };
+}
+
 function toPdfBoundsRect(points: ReadonlyArray<{
     x: number;
     y: number;
@@ -505,6 +524,59 @@ function updateVertexAnnotationDict(
     return true;
 }
 
+function createInkAnnotationDict(
+    doc: PDFDocument,
+    shape: IShapeAnnotation,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const inkData = toPdfInkList(shape.points, pageView, pageRotation);
+    if (!inkData) {
+        return null;
+    }
+
+    const rect = toPdfBoundsRect(inkData.pdfPoints, shape.strokeWidth);
+    if (!rect) {
+        return null;
+    }
+
+    const annotDict = doc.context.obj({
+        Type: 'Annot',
+        Subtype: 'Ink',
+        Rect: doc.context.obj(rect),
+        InkList: doc.context.obj([doc.context.obj(inkData.inkList)]),
+    });
+    updateShapeStyle(annotDict, doc, shape);
+    annotDict.delete(PDFName.of('LE'));
+    annotDict.delete(PDFName.of('IC'));
+    return annotDict;
+}
+
+function updateInkAnnotationDict(
+    annotDict: PDFDict,
+    doc: PDFDocument,
+    shape: IShapeAnnotation,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const inkData = toPdfInkList(shape.points, pageView, pageRotation);
+    if (!inkData) {
+        return false;
+    }
+
+    const rect = toPdfBoundsRect(inkData.pdfPoints, shape.strokeWidth);
+    if (!rect) {
+        return false;
+    }
+
+    annotDict.set(PDFName.of('Rect'), doc.context.obj(rect));
+    annotDict.set(PDFName.of('InkList'), doc.context.obj([doc.context.obj(inkData.inkList)]));
+    updateShapeStyle(annotDict, doc, shape);
+    annotDict.delete(PDFName.of('LE'));
+    annotDict.delete(PDFName.of('IC'));
+    return true;
+}
+
 function createShapeAnnotationDict(
     doc: PDFDocument,
     shape: IShapeAnnotation,
@@ -520,6 +592,9 @@ function createShapeAnnotationDict(
         case 'arrow':
             return createLineAnnotationDict(doc, shape, pageView, pageRotation);
         case 'polyline':
+            if (shape.pdfSubtype === 'Ink') {
+                return createInkAnnotationDict(doc, shape, pageView, pageRotation);
+            }
             return createVertexAnnotationDict(doc, shape, 'PolyLine', pageView, pageRotation);
         case 'polygon':
             return createVertexAnnotationDict(doc, shape, 'Polygon', pageView, pageRotation);
@@ -546,6 +621,8 @@ function updateEmbeddedShapeAnnotationDict(
             return updateVertexAnnotationDict(annotDict, doc, shape, pageView, pageRotation, 'PolyLine');
         case 'Polygon':
             return updateVertexAnnotationDict(annotDict, doc, shape, pageView, pageRotation, 'Polygon');
+        case 'Ink':
+            return updateInkAnnotationDict(annotDict, doc, shape, pageView, pageRotation);
         default:
             return false;
     }

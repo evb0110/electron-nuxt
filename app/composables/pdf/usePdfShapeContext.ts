@@ -4,6 +4,7 @@ import type {
     IShapeAnnotation,
     TAnnotationTool,
     TDrawableShapeType,
+    TShapeResizeHandle,
 } from '@app/types/annotations';
 import type {
     IShapeContextProvide,
@@ -11,6 +12,11 @@ import type {
 } from '@app/composables/pdf/useAnnotationShapes';
 import { isShapeTool } from '@app/composables/pdf/annotations/annotationRules';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
+import {
+    getResizedBoundsForHandle,
+    getShapeBounds,
+    resizeShapeToBounds,
+} from '@app/composables/pdf/pdfShapeResize';
 
 interface IShapeContextMenuPayload {
     shapeId: string;
@@ -38,6 +44,7 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
     } = deps;
 
     const isShapeToolActive = computed(() => isShapeTool(annotationTool.value));
+    const isAnyAnnotationToolActive = computed(() => annotationTool.value !== 'none');
     const activeShapeTool = computed<TDrawableShapeType | null>(() => isShapeTool(annotationTool.value) ? annotationTool.value : null);
     let dragState: {
         shapeId: string;
@@ -47,37 +54,12 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
         };
         baselineShape: IShapeAnnotation;
     } | null = null;
-
-    function getShapeBounds(shape: IShapeAnnotation) {
-        if ((shape.type === 'polyline' || shape.type === 'polygon') && shape.points && shape.points.length > 0) {
-            const xs = shape.points.map(point => point.x);
-            const ys = shape.points.map(point => point.y);
-            return {
-                minX: Math.min(...xs),
-                minY: Math.min(...ys),
-                maxX: Math.max(...xs),
-                maxY: Math.max(...ys),
-            };
-        }
-
-        if (shape.type === 'line' || shape.type === 'arrow') {
-            const x2 = shape.x2 ?? shape.x;
-            const y2 = shape.y2 ?? shape.y;
-            return {
-                minX: Math.min(shape.x, x2),
-                minY: Math.min(shape.y, y2),
-                maxX: Math.max(shape.x, x2),
-                maxY: Math.max(shape.y, y2),
-            };
-        }
-
-        return {
-            minX: shape.x,
-            minY: shape.y,
-            maxX: shape.x + shape.width,
-            maxY: shape.y + shape.height,
-        };
-    }
+    let resizeState: {
+        shapeId: string;
+        handle: TShapeResizeHandle;
+        baselineShape: IShapeAnnotation;
+        baselineBounds: ReturnType<typeof getShapeBounds>;
+    } | null = null;
 
     function translateShape(shape: IShapeAnnotation, deltaX: number, deltaY: number): IShapeAnnotation {
         const bounds = getShapeBounds(shape);
@@ -113,10 +95,18 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
         };
     }
 
+    function cloneShape(shape: IShapeAnnotation): IShapeAnnotation {
+        return {
+            ...shape,
+            points: shape.points?.map(point => ({ ...point })),
+        };
+    }
+
     provide<IShapeContextProvide>('shapeContext', {
         selectedShapeId: shapeComposable.selectedShapeId,
         drawingShape: shapeComposable.drawingShape,
         isShapeToolActive,
+        isAnyAnnotationToolActive,
         activeShapeTool,
         settings: computed(() => annotationSettings.value ?? DEFAULT_ANNOTATION_SETTINGS),
         getShapesForPage: shapeComposable.getShapesForPage,
@@ -163,13 +153,11 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
             }
 
             shapeComposable.selectShape(shapeId);
+            resizeState = null;
             dragState = {
                 shapeId,
                 origin: coords,
-                baselineShape: {
-                    ...baselineShape,
-                    points: baselineShape.points?.map(point => ({ ...point })),
-                },
+                baselineShape: cloneShape(baselineShape),
             };
         },
         handleContinueDraggingShape(coords: {
@@ -199,6 +187,62 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
 
             onShapeUpdated(previousShape, currentShape);
         },
+        handleStartResizingShape(shapeId: string, handle: TShapeResizeHandle, _coords: {
+            x: number;
+            y: number
+        }) {
+            if (isShapeToolActive.value) {
+                return;
+            }
+
+            const baselineShape = shapeComposable.getShapeById(shapeId);
+            if (!baselineShape) {
+                return;
+            }
+
+            shapeComposable.selectShape(shapeId);
+            dragState = null;
+            resizeState = {
+                shapeId,
+                handle,
+                baselineShape: cloneShape(baselineShape),
+                baselineBounds: getShapeBounds(baselineShape),
+            };
+        },
+        handleContinueResizingShape(coords: {
+            x: number;
+            y: number
+        }) {
+            if (!resizeState) {
+                return;
+            }
+
+            const nextBounds = getResizedBoundsForHandle(
+                resizeState.baselineBounds,
+                resizeState.handle,
+                coords,
+            );
+            const nextShape = resizeShapeToBounds(
+                resizeState.baselineShape,
+                resizeState.baselineBounds,
+                nextBounds,
+            );
+            shapeComposable.updateShape(resizeState.shapeId, nextShape);
+        },
+        handleFinishResizingShape() {
+            if (!resizeState) {
+                return;
+            }
+
+            const currentShape = shapeComposable.getShapeById(resizeState.shapeId);
+            const previousShape = resizeState.baselineShape;
+            resizeState = null;
+            if (!currentShape) {
+                return;
+            }
+
+            onShapeUpdated(previousShape, currentShape);
+        },
         handleShapeContextMenu(payload: IShapeContextMenuPayload) {
             shapeComposable.selectShape(payload.shapeId);
             onShapeContextMenu(payload);
@@ -206,6 +250,7 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
     });
 
     return {
+        isAnyAnnotationToolActive,
         isShapeToolActive,
         activeShapeTool,
     };
