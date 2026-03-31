@@ -1,4 +1,5 @@
 import type { IRecentFile } from '@contracts/shared';
+import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { getElectronAPI } from '@app/utils/platform';
 import {
     parseRecentFilesPayload,
@@ -10,7 +11,7 @@ let loadPromise: Promise<void> | null = null;
 
 export const useRecentFiles = () => {
     const { t } = useTypedI18n();
-    const isBrowserRuntime = !hasElectronAPI();
+    const { isDesktopRuntime } = useRuntimeEnvironment();
     const recentFilesCookie = useCookie<string | null>(RECENT_FILES_COOKIE_KEY, {
         default: () => null,
         watch: false,
@@ -25,11 +26,11 @@ export const useRecentFiles = () => {
     const error = useState<string | null>('recent-files:error', () => null);
     const isResolved = useState(
         'recent-files:is-resolved',
-        () => (isBrowserRuntime || hasRecentFilesCookie),
+        () => (!isDesktopRuntime.value || hasRecentFilesCookie),
     );
 
     async function syncCookieFromRuntime() {
-        if (!isBrowserRuntime || hasRecentFilesCookie) {
+        if (!isDesktopRuntime.value || hasRecentFilesCookie) {
             return;
         }
 

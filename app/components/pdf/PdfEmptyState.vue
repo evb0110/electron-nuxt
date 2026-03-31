@@ -120,8 +120,8 @@
 <script setup lang="ts">
 import type { TDocumentRef } from '@contracts/platform-api';
 import { formatRelativeTime } from '@app/utils/formatters';
+import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { isBrowserDocumentRef } from '@app/utils/document-ref';
-import { hasElectronAPI } from '@app/utils/platform';
 import { clamp } from 'es-toolkit/math';
 
 interface IRecentFile {
@@ -155,9 +155,9 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+const { isBrowserRuntime } = useRuntimeEnvironment();
 
 const batchEtaText = computed(() => formatEtaDuration(openBatchProgress?.estimatedRemainingMs ?? null));
-const isBrowserRuntime = computed(() => !hasElectronAPI());
 
 function formatRelativeTimeLocalized(timestamp: number) {
     return formatRelativeTime(timestamp, {
