@@ -296,6 +296,40 @@ describe('serializePdfEdits embedded geometric shapes', () => {
                     y: 0.44,
                 },
             ],
+            strokes: [
+                [
+                    {
+                        x: 0.15,
+                        y: 0.2,
+                    },
+                    {
+                        x: 0.25,
+                        y: 0.24,
+                    },
+                    {
+                        x: 0.38,
+                        y: 0.31,
+                    },
+                    {
+                        x: 0.5,
+                        y: 0.44,
+                    },
+                ],
+                [
+                    {
+                        x: 0.2,
+                        y: 0.48,
+                    },
+                    {
+                        x: 0.33,
+                        y: 0.52,
+                    },
+                    {
+                        x: 0.46,
+                        y: 0.56,
+                    },
+                ],
+            ],
             source: 'embedded',
             annotationId: null,
             pdfSubtype: 'Ink',
@@ -311,15 +345,25 @@ describe('serializePdfEdits embedded geometric shapes', () => {
         expect(annotRefs).toHaveLength(1);
         const inkDict = getAnnotDict(doc, annotRefs[0]!);
         expect(inkDict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Ink');
-        expect(getNestedNumberArrays(inkDict!, 'InkList')).toEqual([[
-            expect.closeTo(90, 6),
-            expect.closeTo(640, 6),
-            expect.closeTo(150, 6),
-            expect.closeTo(608, 6),
-            expect.closeTo(228, 6),
-            expect.closeTo(552, 6),
-            expect.closeTo(300, 6),
-            expect.closeTo(448, 6),
-        ]]);
+        expect(getNestedNumberArrays(inkDict!, 'InkList')).toEqual([
+            [
+                expect.closeTo(90, 6),
+                expect.closeTo(640, 6),
+                expect.closeTo(150, 6),
+                expect.closeTo(608, 6),
+                expect.closeTo(228, 6),
+                expect.closeTo(552, 6),
+                expect.closeTo(300, 6),
+                expect.closeTo(448, 6),
+            ],
+            [
+                expect.closeTo(120, 6),
+                expect.closeTo(416, 6),
+                expect.closeTo(198, 6),
+                expect.closeTo(384, 6),
+                expect.closeTo(276, 6),
+                expect.closeTo(352, 6),
+            ],
+        ]);
     });
 });

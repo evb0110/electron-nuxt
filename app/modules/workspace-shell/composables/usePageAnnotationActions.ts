@@ -10,6 +10,7 @@ import type {
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
 import { getElectronAPI } from '@app/utils/platform';
+import { getAllShapePoints } from '@app/composables/pdf/pdfShapeStrokes';
 
 type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 const SUPPORTED_IMAGE_MIME_TYPES = [
@@ -168,19 +169,22 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     );
 
     function getShapeBounds(shape: IShapeAnnotation) {
-        if ((shape.type === 'polyline' || shape.type === 'polygon') && shape.points && shape.points.length > 0) {
-            const xs = shape.points.map(point => point.x);
-            const ys = shape.points.map(point => point.y);
-            const minX = Math.min(...xs);
-            const minY = Math.min(...ys);
-            const maxX = Math.max(...xs);
-            const maxY = Math.max(...ys);
-            return {
-                x: minX,
-                y: minY,
-                width: Math.max(0.01, maxX - minX),
-                height: Math.max(0.01, maxY - minY),
-            };
+        if (shape.type === 'polyline' || shape.type === 'polygon') {
+            const points = getAllShapePoints(shape);
+            if (points.length > 0) {
+                const xs = points.map(point => point.x);
+                const ys = points.map(point => point.y);
+                const minX = Math.min(...xs);
+                const minY = Math.min(...ys);
+                const maxX = Math.max(...xs);
+                const maxY = Math.max(...ys);
+                return {
+                    x: minX,
+                    y: minY,
+                    width: Math.max(0.01, maxX - minX),
+                    height: Math.max(0.01, maxY - minY),
+                };
+            }
         }
 
         if (shape.type === 'line' || shape.type === 'arrow') {
@@ -532,6 +536,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 x2: shape.x2 ?? null,
                 y2: shape.y2 ?? null,
                 points: shape.points ?? null,
+                strokes: shape.strokes ?? null,
             });
         },
         () => {

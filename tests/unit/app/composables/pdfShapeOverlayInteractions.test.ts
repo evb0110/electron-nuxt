@@ -132,6 +132,61 @@ describe('pdfShapeOverlayInteractions', () => {
         })?.id).toBe(shape.id);
     });
 
+    it('finds a nearby point on any stroke of a multi-stroke polyline', () => {
+        const shape: IShapeAnnotation = {
+            id: 'shape-ink',
+            type: 'polyline',
+            pageIndex: 0,
+            x: 0.2,
+            y: 0.2,
+            width: 0.5,
+            height: 0.4,
+            color: '#60a5fa',
+            opacity: 1,
+            strokeWidth: 6,
+            points: [
+                {
+                    x: 0.2,
+                    y: 0.2,
+                },
+                {
+                    x: 0.4,
+                    y: 0.3,
+                },
+            ],
+            strokes: [
+                [
+                    {
+                        x: 0.2,
+                        y: 0.2,
+                    },
+                    {
+                        x: 0.4,
+                        y: 0.3,
+                    },
+                ],
+                [
+                    {
+                        x: 0.55,
+                        y: 0.5,
+                    },
+                    {
+                        x: 0.7,
+                        y: 0.58,
+                    },
+                ],
+            ],
+        };
+
+        expect(findShapeAtPoint({
+            shapes: [shape],
+            x: 0.63,
+            y: 0.54,
+            svgWidth: 1000,
+            svgHeight: 1000,
+        })?.id).toBe(shape.id);
+    });
+
     it('lets clicks inside a closed shape resolve to that shape', () => {
         const shape: IShapeAnnotation = {
             id: 'shape-rectangle',

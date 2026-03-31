@@ -10,6 +10,10 @@ import type {
     TShapeResizeHandle,
 } from '@app/types/annotations';
 import { isShapeTool } from '@app/composables/pdf/annotations/annotationRules';
+import {
+    cloneShapePoints,
+    cloneShapeStrokes,
+} from '@app/composables/pdf/pdfShapeStrokes';
 
 function generateShapeId() {
     return `shape-${crypto.randomUUID()}`;
@@ -85,6 +89,10 @@ export const useAnnotationShapes = () => {
                 x: point.x,
                 y: point.y,
             })) ?? null,
+            strokes: shape.strokes?.map(points => points.map(point => ({
+                x: point.x,
+                y: point.y,
+            }))) ?? null,
             source: shape.source ?? 'local',
             strokeWidth: shape.strokeWidth,
             type: shape.type,
@@ -167,6 +175,8 @@ export const useAnnotationShapes = () => {
                 pageShapes[index] = {
                     ...pageShapes[index]!,
                     ...updates, 
+                    points: updates.points ? cloneShapePoints(updates.points) : pageShapes[index]!.points,
+                    strokes: updates.strokes ? cloneShapeStrokes(updates.strokes) : pageShapes[index]!.strokes,
                 };
                 shapes.value.set(pageIndex, [...pageShapes]);
                 shapes.value = new Map(shapes.value);

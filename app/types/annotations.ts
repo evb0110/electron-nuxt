@@ -29,6 +29,7 @@ export interface IShapeAnnotation {
     opacity: number;
     strokeWidth: number;
     points?: IShapePoint[];
+    strokes?: IShapePoint[][];
     source?: 'local' | 'embedded';
     annotationId?: string | null;
     stableKey?: string | null;

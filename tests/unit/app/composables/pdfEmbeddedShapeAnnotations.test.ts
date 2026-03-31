@@ -174,16 +174,26 @@ async function createPdfWithEmbeddedShapes() {
             420,
             520,
         ],
-        InkList: [[
-            80,
-            500,
-            160,
-            470,
-            240,
-            430,
-            320,
-            380,
-        ]],
+        InkList: [
+            [
+                80,
+                500,
+                160,
+                470,
+                240,
+                430,
+                320,
+                380,
+            ],
+            [
+                180,
+                360,
+                240,
+                340,
+                300,
+                320,
+            ],
+        ],
         C: [
             0.95,
             0.75,
@@ -305,6 +315,8 @@ describe('importEmbeddedShapeAnnotations', () => {
             strokeWidth: 6,
         });
         expect(shapes[5]?.points).toHaveLength(4);
+        expect(shapes[5]?.strokes).toHaveLength(2);
+        expect(shapes[5]?.strokes?.[1]).toHaveLength(3);
     });
 
     it('collects embedded annotation ids from imported shapes only', () => {

@@ -2,6 +2,7 @@ import type {
     IShapeAnnotation,
     IShapePoint,
 } from '@app/types/annotations';
+import { getShapeStrokePointSets } from '@app/composables/pdf/pdfShapeStrokes';
 
 interface IRectLike {
     left: number;
@@ -233,9 +234,11 @@ function shapeContainsPoint(
                 svgHeight,
             ) <= segmentThresholdPx(shape, fallbackPx);
         case 'polyline':
-            return isPointNearPolyline(point, shape.points ?? [], shape, svgWidth, svgHeight, fallbackPx);
+            return getShapeStrokePointSets(shape).some(points => (
+                isPointNearPolyline(point, points, shape, svgWidth, svgHeight, fallbackPx)
+            ));
         case 'polygon': {
-            const points = shape.points ?? [];
+            const points = shape.points ?? getShapeStrokePointSets(shape)[0] ?? [];
             if (pointInPolygon(point, points)) {
                 return true;
             }

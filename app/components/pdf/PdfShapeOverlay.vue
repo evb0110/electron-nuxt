@@ -64,18 +64,21 @@
                 stroke-linecap="round"
                 vector-effect="non-scaling-stroke"
             />
-            <polyline
-                v-if="shape.type === 'polyline'"
-                :points="shapePoints(shape)"
-                class="shape-hit-target"
-                fill="none"
-                stroke="transparent"
-                :stroke-width="interactionStrokeWidth(shape)"
-                pointer-events="stroke"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                vector-effect="non-scaling-stroke"
-            />
+            <template v-if="shape.type === 'polyline'">
+                <polyline
+                    v-for="(points, strokeIndex) in shapeStrokePointSets(shape)"
+                    :key="`hit-${shape.id}-${strokeIndex}`"
+                    :points="points"
+                    class="shape-hit-target"
+                    fill="none"
+                    stroke="transparent"
+                    :stroke-width="interactionStrokeWidth(shape)"
+                    pointer-events="stroke"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    vector-effect="non-scaling-stroke"
+                />
+            </template>
             <polygon
                 v-if="shape.type === 'polygon'"
                 :points="shapePoints(shape)"
@@ -122,17 +125,20 @@
                 stroke-linecap="round"
                 vector-effect="non-scaling-stroke"
             />
-            <polyline
-                v-if="shape.type === 'polyline'"
-                :points="shapePoints(shape)"
-                fill="none"
-                :stroke="shape.color"
-                :opacity="shape.opacity"
-                :stroke-width="strokeWidthNorm(shape.strokeWidth)"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                vector-effect="non-scaling-stroke"
-            />
+            <template v-if="shape.type === 'polyline'">
+                <polyline
+                    v-for="(points, strokeIndex) in shapeStrokePointSets(shape)"
+                    :key="`stroke-${shape.id}-${strokeIndex}`"
+                    :points="points"
+                    fill="none"
+                    :stroke="shape.color"
+                    :opacity="shape.opacity"
+                    :stroke-width="strokeWidthNorm(shape.strokeWidth)"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    vector-effect="non-scaling-stroke"
+                />
+            </template>
             <polygon
                 v-if="shape.type === 'polygon'"
                 :points="shapePoints(shape)"
@@ -303,6 +309,10 @@ import {
     getNormalizedSvgPointerCoords,
     hasPointerMovedPastThreshold,
 } from '@app/composables/pdf/pdfShapeOverlayInteractions';
+import {
+    getAllShapePoints,
+    getShapeStrokePointSets,
+} from '@app/composables/pdf/pdfShapeStrokes';
 
 interface IProps {
     pageIndex: number;
@@ -464,6 +474,10 @@ function shapePoints(shape: IShapeAnnotation) {
     return shape.points?.map(point => `${point.x},${point.y}`).join(' ') ?? '';
 }
 
+function shapeStrokePointSets(shape: IShapeAnnotation) {
+    return getShapeStrokePointSets(shape).map(points => points.map(point => `${point.x},${point.y}`).join(' '));
+}
+
 function getNormalizedCoords(event: PointerEvent) {
     const coords = getNormalizedSvgPointerCoords(event);
     if (!coords) {
@@ -516,19 +530,22 @@ const selectedShapeBounds = computed(() => {
             height: Math.max(0.01, Math.abs(y2 - y1)),
         };
     }
-    if ((shape.type === 'polyline' || shape.type === 'polygon') && shape.points && shape.points.length > 0) {
-        const xs = shape.points.map(point => point.x);
-        const ys = shape.points.map(point => point.y);
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
-        return {
-            x: minX,
-            y: minY,
-            width: Math.max(0.01, maxX - minX),
-            height: Math.max(0.01, maxY - minY),
-        };
+    if (shape.type === 'polyline' || shape.type === 'polygon') {
+        const points = getAllShapePoints(shape);
+        if (points.length > 0) {
+            const xs = points.map(point => point.x);
+            const ys = points.map(point => point.y);
+            const minX = Math.min(...xs);
+            const maxX = Math.max(...xs);
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+            return {
+                x: minX,
+                y: minY,
+                width: Math.max(0.01, maxX - minX),
+                height: Math.max(0.01, maxY - minY),
+            };
+        }
     }
     return {
         x: shape.x,
