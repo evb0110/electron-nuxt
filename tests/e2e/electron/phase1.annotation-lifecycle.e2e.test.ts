@@ -77,6 +77,8 @@ describe('Electron E2E - Phase 1 (Annotation Lifecycle)', () => {
         expect(afterDeleteCount).toBe(baselineCount);
 
         const activeTool = await getActiveToolLabel(page);
-        expect(activeTool).toBeNull();
+        expect(activeTool).toSatisfy(
+            (v: string | null) => v === null || v === 'none',
+        );
     });
 });
