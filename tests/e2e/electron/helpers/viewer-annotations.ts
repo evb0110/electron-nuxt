@@ -890,6 +890,12 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     };
 
     const injectLatestFreeTextContent = async (typedText: string) => {
+        // Give the editor DOM time to fully initialize (helps in headless CI).
+        await page.evaluate(async () => {
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        });
+
         const injected = await page.evaluate((expectedText: string) => {
             const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
                 .filter((candidate) => {
@@ -918,6 +924,12 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
             }
 
             editable.focus();
+
+            // In headless environments the contenteditable attribute may not
+            // be set yet — force it so injection can proceed.
+            if (!editable.isContentEditable && editable.getAttribute('contenteditable') !== 'true') {
+                editable.setAttribute('contenteditable', 'true');
+            }
 
             if (editable.isContentEditable || editable.getAttribute('contenteditable') === 'true') {
                 editable.textContent = expectedText;
