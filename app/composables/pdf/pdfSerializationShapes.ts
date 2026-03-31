@@ -16,6 +16,7 @@ function createShapeSerializationPayload(shapes: IShapeAnnotation[]): IPdfSerial
         freeTextComments: [],
         annotationComments: [],
         pendingEmbeddedTextUpdates: [],
+        pendingEmbeddedAnnotationDeletes: [],
         pageLabelsDirty: false,
         pageLabelRanges: [],
         totalPages: 0,

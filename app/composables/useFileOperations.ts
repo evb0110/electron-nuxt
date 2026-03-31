@@ -1,3 +1,4 @@
+import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type {
     IPdfPersistResult,
     IPdfSaveResult,
@@ -37,10 +38,12 @@ export interface IFileOperationsDeps {
         options?: {
             includeShapes?: boolean;
             pendingTexts?: Map<string, string> | null;
+            pendingDeletes?: IAnnotationCommentSummary[] | null;
         },
     ) => Promise<Uint8Array>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
     consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
+    consumePendingEmbeddedAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
     annotationNoteWindowsCount: Ref<number>;
     loadRecentFiles: () => void;
 }
@@ -68,6 +71,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         serializePdfForSave,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,
+        consumePendingEmbeddedAnnotationDeletes,
         annotationNoteWindowsCount,
         loadRecentFiles,
     } = deps;
@@ -83,6 +87,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     async function buildSerializedSaveResult(
         rawData: Uint8Array,
         pendingTexts: Map<string, string> | null,
+        pendingDeletes: IAnnotationCommentSummary[] | null,
         opts?: {
             includeShapes?: boolean;
             saveMode?: TPdfSaveMode;
@@ -91,6 +96,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         const data = await serializePdfForSave(rawData, {
             includeShapes: opts?.includeShapes,
             pendingTexts,
+            pendingDeletes,
         });
 
         const validation = await validatePdfData(data, getValidationFileName());
@@ -204,15 +210,17 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             }
         }
         const pendingTexts = consumePendingEmbeddedTextUpdates();
+        const pendingDeletes = consumePendingEmbeddedAnnotationDeletes();
         const hasPendingTexts = Boolean(pendingTexts && pendingTexts.size > 0);
+        const hasPendingDeletes = Boolean(pendingDeletes && pendingDeletes.length > 0);
         isSaving.value = true;
         try {
             if (workingCopyPath.value) {
-                const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts;
+                const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
                 if (shouldSerialize) {
                     const rawData = await saveDocumentWithRetry();
                     if (rawData) {
-                        const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, {
+                        const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
                             includeShapes: true,
                             saveMode: 'rewrite',
                         });
@@ -247,7 +255,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
 
             const rawData = await saveDocumentWithRetry();
             if (rawData) {
-                const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, {
+                const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
                     includeShapes: false,
                     saveMode: 'rewrite',
                 });
@@ -280,14 +288,16 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             }
         }
         const pendingTexts = consumePendingEmbeddedTextUpdates();
+        const pendingDeletes = consumePendingEmbeddedAnnotationDeletes();
         const hasPendingTexts = Boolean(pendingTexts && pendingTexts.size > 0);
+        const hasPendingDeletes = Boolean(pendingDeletes && pendingDeletes.length > 0);
         isSavingAs.value = true;
         try {
-            const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts;
+            const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
             if (shouldSerialize) {
                 const rawData = await saveDocumentWithRetry();
                 if (rawData) {
-                    const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, {
+                    const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
                         includeShapes: true,
                         saveMode: 'save_as_rewrite',
                     });

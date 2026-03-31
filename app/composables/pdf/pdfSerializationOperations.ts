@@ -68,6 +68,7 @@ export interface IPdfSerializationSavePayload {
     freeTextComments: IAnnotationCommentSummary[];
     annotationComments: IAnnotationCommentSummary[];
     pendingEmbeddedTextUpdates: Array<readonly [string, string]>;
+    pendingEmbeddedAnnotationDeletes: IAnnotationCommentSummary[];
     pageLabelsDirty: boolean;
     pageLabelRanges: IPdfPageLabelRange[];
     totalPages: number;
@@ -740,6 +741,33 @@ function applyShapeAnnotations(
     return modified;
 }
 
+function applyEmbeddedAnnotationDeletes(
+    doc: PDFDocument,
+    comments: IAnnotationCommentSummary[],
+) {
+    if (comments.length === 0) {
+        return false;
+    }
+
+    const refsToDeleteByTag = new Map<string, PDFRef>();
+    for (const comment of comments) {
+        const targetRef = resolveCommentPdfRefInDocument(doc, comment);
+        if (!targetRef) {
+            continue;
+        }
+
+        collectAnnotationRefsToDelete(doc, targetRef).forEach((ref) => {
+            refsToDeleteByTag.set(refToTag(ref), ref);
+        });
+    }
+
+    if (refsToDeleteByTag.size === 0) {
+        return false;
+    }
+
+    return removeAnnotationRefsFromPages(doc, [...refsToDeleteByTag.values()]);
+}
+
 function applyMarkupSubtypeRewrites(
     doc: PDFDocument,
     overrides: Array<readonly [string, TMarkupSubtype]>,
@@ -1350,6 +1378,7 @@ function hasSaveWork(payload: IPdfSerializationSavePayload) {
         || payload.deletedShapeAnnotationIds.length > 0
         || payload.freeTextComments.length > 0
         || payload.pendingEmbeddedTextUpdates.length > 0
+        || payload.pendingEmbeddedAnnotationDeletes.length > 0
         || payload.pageLabelsDirty
         || payload.bookmarksDirty
         || Boolean(payload.placedImage);
@@ -1368,6 +1397,7 @@ export async function serializePdfEdits(
 
     modified = applyMarkupSubtypeRewrites(doc, payload.markupSubtypeOverrides, payload.markupSubtypeHints) || modified;
     modified = applyShapeAnnotations(doc, payload.shapes, payload.deletedShapeAnnotationIds) || modified;
+    modified = applyEmbeddedAnnotationDeletes(doc, payload.pendingEmbeddedAnnotationDeletes) || modified;
     modified = applyFreeTextNoteRects(doc, payload.freeTextComments) || modified;
     modified = applyEmbeddedNoteTextUpdates(doc, payload.annotationComments, payload.pendingEmbeddedTextUpdates) || modified;
     modified = applyPageLabels(doc, payload.pageLabelsDirty, payload.pageLabelRanges, payload.totalPages) || modified;

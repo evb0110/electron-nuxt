@@ -58,6 +58,7 @@ interface IPageSaveOrchestrationDeps {
     saveWorkingCopyAs: (data?: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
     consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
+    consumePendingEmbeddedAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
     loadRecentFiles: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
     loadPdfFromData: (data: Uint8Array, opts?: {
@@ -101,6 +102,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         saveWorkingCopyAs,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,
+        consumePendingEmbeddedAnnotationDeletes,
         loadRecentFiles,
         clearOcrCache,
         loadPdfFromData,
@@ -155,6 +157,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         serializePdfForSave,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,
+        consumePendingEmbeddedAnnotationDeletes,
         annotationNoteWindowsCount,
         loadRecentFiles,
     });

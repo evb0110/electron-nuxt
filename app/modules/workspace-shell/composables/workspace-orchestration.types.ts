@@ -38,6 +38,7 @@ export interface IPdfViewerExpose {
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     suppressAnnotationId: (id: string) => void;
+    suppressAnnotationStableKey: (stableKey: string) => void;
     removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromInternalCache: (stableKey: string) => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;

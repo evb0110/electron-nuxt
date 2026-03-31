@@ -71,6 +71,7 @@ function createDeps() {
         serializePdfForSave,
         persistAllAnnotationNotes: vi.fn(async () => true),
         consumePendingEmbeddedTextUpdates: vi.fn(() => null),
+        consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
         annotationNoteWindowsCount: ref(0),
         loadRecentFiles: vi.fn(),
     };

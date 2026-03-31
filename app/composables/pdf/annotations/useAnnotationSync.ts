@@ -127,6 +127,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
     const pendingCommentEditorKeys = new Set<string>();
     const trackedCreatedEditors = new WeakSet<object>();
     const suppressedAnnotationIds = new Set<string>();
+    const suppressedAnnotationStableKeys = new Set<string>();
     let pdfAnnotationSnapshot: IPdfAnnotationSnapshot | null = null;
     let pdfAnnotationSnapshotVersion = 0;
     let pdfAnnotationSnapshotPromise: {
@@ -146,8 +147,16 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         suppressedAnnotationIds.add(id);
     }
 
+    function suppressAnnotationStableKey(stableKey: string) {
+        if (!stableKey) {
+            return;
+        }
+        suppressedAnnotationStableKeys.add(stableKey);
+    }
+
     function clearSuppressedAnnotationIds() {
         suppressedAnnotationIds.clear();
+        suppressedAnnotationStableKeys.clear();
     }
 
     watch(pdfDocument, () => {
@@ -540,6 +549,9 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         }
 
         for (const summary of pdfSnapshot.comments) {
+            if (suppressedAnnotationStableKeys.has(summary.stableKey)) {
+                continue;
+            }
             if (summary.annotationId && suppressedAnnotationIds.has(summary.annotationId)) {
                 continue;
             }
@@ -681,6 +693,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         incrementSyncToken,
         clearSyncState,
         suppressAnnotationId,
+        suppressAnnotationStableKey,
         clearSuppressedAnnotationIds,
     };
 }

@@ -42,6 +42,7 @@ interface IPdfViewerForAnnotationActions {
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     suppressAnnotationId: (id: string) => void;
+    suppressAnnotationStableKey: (stableKey: string) => void;
     removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromInternalCache: (stableKey: string) => void;
     selectedShapeId: string | null;
@@ -98,16 +99,14 @@ interface IPageAnnotationActionsDeps {
     setAnnotationNoteWindowError: (stableKey: string, error: string | null) => void;
     isSameAnnotationComment: (a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) => boolean;
     annotationNoteWindows: Ref<Array<{ comment: IAnnotationCommentSummary }>>;
-    deleteEmbeddedByRef: (comment: IAnnotationCommentSummary) => Promise<Uint8Array | null>;
     loadPdfFromData: (data: Uint8Array, opts?: {
         pushHistory?: boolean;
         persistWorkingCopy?: boolean;
     }) => Promise<void>;
     waitForPdfReload: (page: number) => Promise<void>;
     removeAnnotationFromCache: (stableKey: string) => void;
-    persistPdfDataSilently: (data: Uint8Array) => Promise<void>;
-    markAnnotationSaved: () => void;
-    resetAnnotationStorageModified: () => void;
+    markAnnotationDirty: () => void;
+    queuePendingEmbeddedAnnotationDelete: (comment: IAnnotationCommentSummary) => void;
     embedPlacedImageToPage: (
         data: Uint8Array,
         placement: IPdfPlacedImageFinalizePayload,
@@ -832,51 +831,20 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         // editor layer. uiManager.delete() operates on the editor layer and
         // may falsely report success. Always attempt embedded-level fallback.
         if (!deleted || comment.source === 'pdf' || Boolean(comment.annotationId)) {
-            if (comment.annotationId && pdfViewerRef.value) {
-                // Optimistic path — instant visual removal, no PDF reload
+            const shouldMarkDirty = !deleted;
+            // Keep embedded annotation deletes local until the user saves.
+            // This matches note text edits and avoids an immediate rewrite/reload.
+            pdfViewerRef.value.suppressAnnotationStableKey(comment.stableKey);
+            deps.queuePendingEmbeddedAnnotationDelete(comment);
+            if (comment.annotationId) {
                 pdfViewerRef.value.suppressAnnotationId(comment.annotationId);
-                pdfViewerRef.value.removeAnnotationFromDom(comment);
-                pdfViewerRef.value.removeAnnotationFromInternalCache(comment.stableKey);
-                deps.removeAnnotationFromCache(comment.stableKey);
-                deleted = true;
-
-                // Persist: rewrite PDF bytes without the annotation, then save to disk
-                try {
-                    const updatedData = await deps.deleteEmbeddedByRef(comment);
-                    if (updatedData) {
-                        await deps.persistPdfDataSilently(updatedData);
-                        deps.markAnnotationSaved();
-                        deps.resetAnnotationStorageModified();
-                    } else {
-                        BrowserLogger.warn('annotations', 'Embedded delete returned no data', {
-                            stableKey: comment.stableKey,
-                            annotationId: comment.annotationId,
-                        });
-                    }
-                } catch (err) {
-                    BrowserLogger.warn('annotations', 'Embedded delete or persist failed', {
-                        stableKey: comment.stableKey,
-                        error: err instanceof Error ? err.message : String(err),
-                    });
-                }
-            } else {
-                // Fallback for annotations without ID — use reload path
-                BrowserLogger.debug('annotations', 'Attempting PDF-level embedded delete fallback (reload)', {
-                    stableKey: comment.stableKey,
-                    source: comment.source,
-                    annotationId: null,
-                });
-                const updatedData = await deps.deleteEmbeddedByRef(comment);
-                if (updatedData) {
-                    const pageToRestore = currentPage.value;
-                    const restorePromise = waitForPdfReload(pageToRestore);
-                    await loadPdfFromData(updatedData, {
-                        pushHistory: true,
-                        persistWorkingCopy: !!workingCopyPath.value,
-                    });
-                    await restorePromise;
-                    deleted = true;
-                }
+            }
+            pdfViewerRef.value.removeAnnotationFromDom(comment);
+            pdfViewerRef.value.removeAnnotationFromInternalCache(comment.stableKey);
+            deps.removeAnnotationFromCache(comment.stableKey);
+            deleted = true;
+            if (shouldMarkDirty) {
+                deps.markAnnotationDirty();
             }
         }
         if (!deleted) {
