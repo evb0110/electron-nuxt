@@ -650,6 +650,87 @@ async function triggerKeyboardFreeTextCreation(page: Page, pageNumber?: number) 
     return true;
 }
 
+/**
+ * Programmatic FreeText editor creation via PointerEvent dispatch on the
+ * annotation editor layer — mirrors the internal path used by
+ * useAnnotationHighlight.ts for deterministic creation in headless CI.
+ */
+async function programmaticFreeTextCreation(
+    page: Page,
+    ratio: {
+        x: number;
+        y: number 
+    },
+    pageNumber?: number,
+) {
+    await waitForViewerInteractive(page);
+
+    return page.evaluate(({
+        xRatio,
+        yRatio,
+        targetPageNumber,
+    }) => {
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || '1') > 0
+                    && rect.width > 100
+                    && rect.height > 100
+                );
+            });
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const pageSelector = targetPageNumber
+            ? `.page_container[data-page="${targetPageNumber}"]`
+            : '.page_container';
+        const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(pageSelector));
+        const host = (
+            activeHost
+            && visibleHosts.includes(activeHost)
+            && activeHost.querySelector(pageSelector)
+        )
+            ? activeHost
+            : ((matchingHosts.length === 1 ? matchingHosts[0] : null) ?? (visibleHosts.length === 1 ? visibleHosts[0] : null));
+        if (!host) {
+            return false;
+        }
+
+        const pageContainer = host.querySelector<HTMLElement>(pageSelector);
+        const layerDiv = pageContainer?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
+        if (!layerDiv) {
+            return false;
+        }
+
+        const rect = layerDiv.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return false;
+        }
+
+        const clientX = Math.round(rect.left + rect.width * xRatio);
+        const clientY = Math.round(rect.top + rect.height * yRatio);
+
+        const eventInit: PointerEventInit = {
+            clientX,
+            clientY,
+            button: 0,
+            buttons: 1,
+            bubbles: true,
+            pointerType: 'mouse',
+            isPrimary: true,
+        };
+        layerDiv.dispatchEvent(new PointerEvent('pointerdown', eventInit));
+        layerDiv.dispatchEvent(new PointerEvent('pointerup', eventInit));
+        return true;
+    }, {
+        xRatio: ratio.x,
+        yRatio: ratio.y,
+        targetPageNumber: pageNumber ?? null, 
+    });
+}
+
 export async function createFreeTextAnnotation(page: Page, text: string, position?: {
     x: number;
     y: number;
@@ -683,6 +764,10 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
             return 'page';
         }
         return 'keyboard';
+    };
+    const programmaticCreationPoint = async () => {
+        const created = await programmaticFreeTextCreation(page, targetRatio, pageNumber);
+        return created ? 'programmatic' : 'page';
     };
     const waitForEditor = async (timeoutMs: number) => {
         await page.waitForFunction((minCount: number) => {
@@ -746,6 +831,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
             clickAnnotationCreationPoint,
             dispatchAnnotationCreationPoint,
             triggerKeyboardCreationPoint,
+            programmaticCreationPoint,
         ]) {
             await strategy();
 
