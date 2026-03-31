@@ -44,6 +44,7 @@ export interface IPdfSerializationDeps {
 interface ISerializePdfForSaveOptions {
     includeShapes?: boolean;
     pendingTexts?: Map<string, string> | null;
+    pendingDeletes?: IAnnotationCommentSummary[] | null;
     placedImage?: IPdfPlacedImageFinalizePayload | null;
 }
 
@@ -210,6 +211,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             freeTextComments: [],
             annotationComments: [],
             pendingEmbeddedTextUpdates: [],
+            pendingEmbeddedAnnotationDeletes: [],
             pageLabelsDirty: false,
             pageLabelRanges: [],
             totalPages: totalPages.value,
@@ -272,6 +274,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         payload.freeTextComments = getFreeTextNoteComments();
         payload.annotationComments = annotationComments.value;
         payload.pendingEmbeddedTextUpdates = Array.from(options?.pendingTexts?.entries() ?? []);
+        payload.pendingEmbeddedAnnotationDeletes = options?.pendingDeletes ?? [];
         payload.pageLabelsDirty = pageLabelsDirty.value;
         payload.pageLabelRanges = pageLabelRanges.value;
         payload.bookmarksDirty = bookmarksDirty?.value ?? false;

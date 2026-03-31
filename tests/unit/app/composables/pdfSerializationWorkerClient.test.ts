@@ -100,6 +100,7 @@ describe('pdfSerializationWorkerClient', () => {
             freeTextComments: [],
             annotationComments: [],
             pendingEmbeddedTextUpdates: [],
+            pendingEmbeddedAnnotationDeletes: [],
             pageLabelsDirty: false,
             pageLabelRanges: [],
             totalPages: 0,

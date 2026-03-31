@@ -14,6 +14,7 @@ import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shel
 import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-shell/composables/workspace-sidebar-search-sync-controller';
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import type { TOpenFileResult } from '@contracts/platform-api';
+import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TTabUpdate } from '@app/types/tabs';
 import { getElectronAPI } from '@app/utils/platform';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspace-view-state';
@@ -78,7 +79,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         loadPdfFromData,
-        persistPdfDataSilently,
         readWorkingCopyBytes,
         closeFile,
         saveFile,
@@ -257,6 +257,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleAnnotationSettingChange,
         handleAnnotationState,
         handleAnnotationModified,
+        markAnnotationDirty,
         markAnnotationSaved,
         resetAnnotationTracking,
         annotationNoteWindows,
@@ -284,6 +285,26 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         markDirty,
     });
 
+    const pendingEmbeddedAnnotationDeletes = new Map<string, IAnnotationCommentSummary>();
+
+    function queuePendingEmbeddedAnnotationDelete(comment: IAnnotationCommentSummary) {
+        pendingEmbeddedAnnotationDeletes.set(comment.stableKey, comment);
+    }
+
+    function consumePendingEmbeddedAnnotationDeletes() {
+        if (pendingEmbeddedAnnotationDeletes.size === 0) {
+            return null;
+        }
+
+        const deletions = Array.from(pendingEmbeddedAnnotationDeletes.values());
+        pendingEmbeddedAnnotationDeletes.clear();
+        return deletions;
+    }
+
+    watch(workingCopyPath, () => {
+        pendingEmbeddedAnnotationDeletes.clear();
+    });
+
     const {
         handleSave,
         handleSaveAs,
@@ -292,7 +313,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isAnySaving,
         isExportingDocx,
         canSave,
-        deleteEmbeddedByRef,
         embedPlacedImageToPage,
     } = usePageSaveOrchestration({
         pdfData,
@@ -328,6 +348,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         saveWorkingCopyAs,
         persistAllAnnotationNotes: (force: boolean) => persistAllAnnotationNotes(force),
         consumePendingEmbeddedTextUpdates: () => consumePendingEmbeddedTextUpdates(),
+        consumePendingEmbeddedAnnotationDeletes: () => consumePendingEmbeddedAnnotationDeletes(),
         loadRecentFiles: () => {
             void loadRecentFiles();
         },
@@ -447,17 +468,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         setAnnotationNoteWindowError,
         isSameAnnotationComment,
         annotationNoteWindows,
-        deleteEmbeddedByRef,
         loadPdfFromData,
         waitForPdfReload,
         removeAnnotationFromCache: (stableKey: string) => {
             annotationComments.value = annotationComments.value.filter(comment => comment.stableKey !== stableKey);
         },
-        persistPdfDataSilently,
-        markAnnotationSaved,
-        resetAnnotationStorageModified: () => {
-            pdfDocument.value?.annotationStorage?.resetModified();
-        },
+        markAnnotationDirty,
+        queuePendingEmbeddedAnnotationDelete,
         embedPlacedImageToPage,
     });
 

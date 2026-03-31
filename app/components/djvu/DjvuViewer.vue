@@ -1042,6 +1042,7 @@ defineExpose<IPdfViewerExpose>({
     updateAnnotationComment: () => false,
     deleteAnnotationComment: () => Promise.resolve(false),
     suppressAnnotationId: noop,
+    suppressAnnotationStableKey: noop,
     removeAnnotationFromDom: noop,
     removeAnnotationFromInternalCache: noop,
     getMarkupSubtypeOverrides: noopMarkupOverrides,

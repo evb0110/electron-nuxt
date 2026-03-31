@@ -66,6 +66,7 @@ describe('useWorkspaceCrop', () => {
             updateAnnotationComment: vi.fn(() => false),
             deleteAnnotationComment: vi.fn(async () => false),
             suppressAnnotationId: vi.fn(),
+            suppressAnnotationStableKey: vi.fn(),
             removeAnnotationFromDom: vi.fn(),
             removeAnnotationFromInternalCache: vi.fn(),
             getMarkupSubtypeOverrides: () => new Map(),

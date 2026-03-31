@@ -94,6 +94,7 @@ function createHarness() {
         updateAnnotationComment: vi.fn(() => true),
         deleteAnnotationComment: vi.fn(async (_comment: IAnnotationCommentSummary) => true),
         suppressAnnotationId: vi.fn(),
+        suppressAnnotationStableKey: vi.fn(),
         removeAnnotationFromDom: vi.fn(),
         removeAnnotationFromInternalCache: vi.fn(),
         selectedShapeId: null as string | null,
@@ -144,16 +145,14 @@ function createHarness() {
         setAnnotationNoteWindowError: vi.fn(),
         isSameAnnotationComment: vi.fn((a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) => a.stableKey === b.stableKey),
         annotationNoteWindows: ref<Array<{ comment: IAnnotationCommentSummary }>>([]),
-        deleteEmbeddedByRef: vi.fn<(_: IAnnotationCommentSummary) => Promise<Uint8Array | null>>(async () => null),
         loadPdfFromData: vi.fn(async (_data: Uint8Array, _opts?: {
             pushHistory?: boolean;
             persistWorkingCopy?: boolean;
         }) => {}),
         waitForPdfReload: vi.fn(async (_page: number) => {}),
         removeAnnotationFromCache: vi.fn(),
-        persistPdfDataSilently: vi.fn(async () => {}),
-        markAnnotationSaved: vi.fn(),
-        resetAnnotationStorageModified: vi.fn(),
+        markAnnotationDirty: vi.fn(),
+        queuePendingEmbeddedAnnotationDelete: vi.fn(),
         embedPlacedImageToPage: vi.fn(async (_data: Uint8Array, _placement: IPdfPlacedImageFinalizePayload) => new Uint8Array([
             7,
             7,
@@ -445,7 +444,7 @@ describe('usePageAnnotationActions', () => {
         expect(deps.removeAnnotationNoteWindow).toHaveBeenCalledWith('b');
     });
 
-    it('falls back to embedded delete for editor-backed annotations with annotation ids', async () => {
+    it('queues embedded delete for save instead of persisting immediately', async () => {
         const {
             deps,
             viewer,
@@ -454,27 +453,33 @@ describe('usePageAnnotationActions', () => {
         const comment = createComment('editor-backed');
         comment.source = 'editor';
         comment.annotationId = '12R0';
-        deps.deleteEmbeddedByRef.mockImplementation(async () => new Uint8Array([
-            4,
-            5,
-            6,
-        ]));
 
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.deleteAnnotationComment).toHaveBeenCalledWith(comment);
+        expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
         expect(viewer.suppressAnnotationId).toHaveBeenCalledWith('12R0');
         expect(viewer.removeAnnotationFromDom).toHaveBeenCalledWith(comment);
         expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
         expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(comment.stableKey);
-        expect(deps.deleteEmbeddedByRef).toHaveBeenCalledWith(comment);
-        expect(deps.persistPdfDataSilently).toHaveBeenCalledWith(new Uint8Array([
-            4,
-            5,
-            6,
-        ]));
-        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
-        expect(deps.resetAnnotationStorageModified).toHaveBeenCalledOnce();
+        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
+        expect(deps.markAnnotationDirty).not.toHaveBeenCalled();
+    });
+
+    it('marks embedded delete dirty when viewer delete could not resolve the note locally', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createComment('queued-delete');
+        viewer.deleteAnnotationComment.mockResolvedValue(false);
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(viewer.suppressAnnotationStableKey).toHaveBeenCalledWith(comment.stableKey);
+        expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
+        expect(deps.markAnnotationDirty).toHaveBeenCalledOnce();
     });
 
     it('reloads current page from serialized data for embedded fallback', async () => {

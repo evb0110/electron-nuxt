@@ -11,7 +11,10 @@ import {
     PDFNumber,
     PDFRef,
 } from 'pdf-lib';
-import type { IShapeAnnotation } from '@app/types/annotations';
+import type {
+    IAnnotationCommentSummary,
+    IShapeAnnotation,
+} from '@app/types/annotations';
 import {
     type IPdfSerializationSavePayload,
     serializePdfEdits,
@@ -26,6 +29,7 @@ function createEmptyPayload(): IPdfSerializationSavePayload {
         freeTextComments: [],
         annotationComments: [],
         pendingEmbeddedTextUpdates: [],
+        pendingEmbeddedAnnotationDeletes: [],
         pageLabelsDirty: false,
         pageLabelRanges: [],
         totalPages: 1,
@@ -365,5 +369,35 @@ describe('serializePdfEdits embedded geometric shapes', () => {
                 expect.closeTo(352, 6),
             ],
         ]);
+    });
+
+    it('removes queued embedded annotation deletes during save serialization', async () => {
+        const {
+            bytes,
+            squareRef,
+            lineRef,
+        } = await createPdfWithSquareAndLineAnnotations();
+
+        const payload = createEmptyPayload();
+        payload.pendingEmbeddedAnnotationDeletes = [{
+            id: `${lineRef.objectNumber}R${lineRef.generationNumber}`,
+            stableKey: `ann:0:${lineRef.objectNumber}R${lineRef.generationNumber}`,
+            pageIndex: 0,
+            pageNumber: 1,
+            text: '',
+            author: null,
+            modifiedAt: null,
+            color: null,
+            uid: null,
+            annotationId: `${lineRef.objectNumber}R${lineRef.generationNumber}`,
+            source: 'pdf',
+        } satisfies IAnnotationCommentSummary];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const annotRefs = getPageAnnotRefs(doc);
+
+        expect(annotRefs.map(ref => ref.toString())).toEqual([squareRef.toString()]);
+        expect(getAnnotDict(doc, lineRef)).toBeInstanceOf(PDFDict);
     });
 });

@@ -1110,6 +1110,7 @@ defineExpose({
     restorePendingImagePlacement,
     invalidatePages,
     suppressAnnotationId: annotations.commentSync.suppressAnnotationId,
+    suppressAnnotationStableKey: annotations.commentSync.suppressAnnotationStableKey,
     removeAnnotationFromDom: commentCrud.removeAnnotationFromDom,
     removeAnnotationFromInternalCache: (stableKey: string) => {
         pendingMarkerMoves.delete(stableKey);
