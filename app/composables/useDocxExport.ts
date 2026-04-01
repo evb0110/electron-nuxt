@@ -8,6 +8,7 @@ import {
 } from '@app/composables/ocrProcessing';
 import { createOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 import { useAnalytics } from '@app/composables/useAnalytics';
+import { getDocumentRefBaseName } from '@app/utils/document-ref';
 
 const RTL_OCR_LANGUAGES = new Set([
     'heb',
@@ -17,6 +18,7 @@ const RTL_OCR_LANGUAGES = new Set([
 export const useDocxExport = () => {
     const analytics = useAnalytics();
     const { t } = useTypedI18n();
+    const toast = useToast();
     const { localizeOcrError } = createOcrErrorLocalizer(t);
 
     const isExportingDocx = ref(false);
@@ -37,15 +39,6 @@ export const useDocxExport = () => {
         docxExportError.value = null;
 
         try {
-            let text = params.workingCopyPath ? await loadOcrText(params.workingCopyPath) : null;
-            if (!text && params.pdfDocument) {
-                text = await extractPdfText(params.pdfDocument);
-            }
-            if (!text) {
-                docxExportError.value = t('errors.ocr.noText');
-                return false;
-            }
-
             const api = getElectronAPI();
             const outPath = await api.documents.saveDocxAs(workingPath);
             if (!outPath) {
@@ -53,6 +46,15 @@ export const useDocxExport = () => {
             }
 
             try {
+                let text = params.workingCopyPath ? await loadOcrText(params.workingCopyPath) : null;
+                if (!text && params.pdfDocument) {
+                    text = await extractPdfText(params.pdfDocument);
+                }
+                if (!text) {
+                    docxExportError.value = t('errors.ocr.noText');
+                    return false;
+                }
+
                 const hasRtl = selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
                 const docxBytes = await createDocxFromTextAsync(text, hasRtl);
                 await api.documents.writeDocxFile(outPath, docxBytes);
@@ -61,6 +63,11 @@ export const useDocxExport = () => {
                     hasRtl,
                     selectedLanguageCount: selectedLanguages.length,
                     status: 'success',
+                });
+                toast.add({
+                    color: 'success',
+                    title: t('notifications.docxSavedTitle'),
+                    description: t('notifications.docxSavedDescription', {name: getDocumentRefBaseName(outPath) ?? outPath}),
                 });
                 return true;
             } finally {

@@ -52,6 +52,10 @@ export default {
         'cropHint': 'Glissez pour sélectionner la zone à recadrer. Échap pour annuler.',
         'fullscreen': 'Plein écran',
     },
+    'notifications': {
+        'docxSavedTitle': 'DOCX enregistré',
+        'docxSavedDescription': '{name}',
+    },
     'tabs': {
         'newTab': 'Nouvel onglet',
         'unsavedChanges': 'Modifications non enregistrées',
@@ -749,6 +753,14 @@ export default {
         'summaryRange': 'Les pages de la plage seront exportées ({count}).',
         'summaryRangeHint': 'Saisissez une plage complète comme 3-12 ou une page unique comme 7.',
         'inProgress': 'Export en cours...',
+        'statusImages': 'Export des images...',
+        'statusTiff': 'Export du TIFF...',
+        'successImages': 'Images exportées',
+        'successTiff': 'TIFF exporté',
+        'pageCount': plural({
+            one: '{count} page',
+            other: '{count} pages',
+        }),
     },
     'crop': {
         'dialogTitle': 'Recadrer les pages',

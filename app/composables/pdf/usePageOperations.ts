@@ -28,6 +28,7 @@ export const usePageOperations = (deps: {
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
+    onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
 }) => {
     const analytics = useAnalytics();
     const { t } = useTypedI18n();
@@ -37,6 +38,7 @@ export const usePageOperations = (deps: {
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
+        onExtractedDocument,
     } = deps;
 
     const isOperationInProgress = ref(false);
@@ -55,6 +57,7 @@ export const usePageOperations = (deps: {
         run: TPageOperationRunner<TResult>;
         shouldReload?: boolean;
         isSuccessful?: TPageOperationSuccess<TResult>;
+        onSuccess?: (result: TResult) => Promise<void> | void;
     }) {
         const path = workingCopyPath.value;
         if (!path) {
@@ -82,6 +85,8 @@ export const usePageOperations = (deps: {
                 invalidateCaches();
                 await reloadWorkingCopyIntoHistory({ markDirty: true });
             }
+
+            await options.onSuccess?.(result);
 
             return true;
         } catch (e) {
@@ -137,6 +142,11 @@ export const usePageOperations = (deps: {
                 return api.documents.pageOps.extract(path, [...pages]);
             },
             isSuccessful: result => result.success && !result.canceled,
+            onSuccess: async (result) => {
+                if (result.destPath) {
+                    await onExtractedDocument?.(result.destPath);
+                }
+            },
         });
         if (didSucceed) {
             analytics.track('page_operation_completed', {

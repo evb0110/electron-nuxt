@@ -183,12 +183,12 @@ pnpm typecheck
 # Unit + integration tests
 pnpm test
 
-# Electron E2E
-pnpm run test:e2e:electron:smoke
-pnpm run test:e2e:electron:full
+# Manual Electron E2E diagnostics
+pnpm run test:e2e:electron
 
 # Full contributor validation
 pnpm validate
+pnpm run test:smoke
 
 # Native-resource sanity check
 pnpm run check:resources:matrix
@@ -197,16 +197,15 @@ pnpm run check:resources:matrix
 pnpm run release:verify
 ```
 
-The Electron E2E suite currently covers:
+Release-critical checks intentionally stop at linting, typechecking, builds,
+and the fast unit/integration suite. Electron E2E is available as a manual
+diagnostic tool when we need true desktop-shell coverage.
 
-- Annotation lifecycle and interactions
-- Annotation history and persistence
-- Marker drag persistence
-- OCR pipeline
-- Page operations
-- Recent files persistence
-- DjVu viewing
-- Sidebar resize/page stability
+The manual Electron E2E smoke lane currently covers:
+
+- Startup hydration on desktop
+
+Broader regressions such as page operations, DOCX/image export, browser/desktop page extraction, recent-files persistence, and external-open routing are covered by fast unit/integration tests so releases do not depend on long serial UI automation.
 
 ## OCR Tuning
 

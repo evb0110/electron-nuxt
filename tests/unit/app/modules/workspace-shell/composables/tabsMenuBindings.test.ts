@@ -37,6 +37,7 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
         activeTabId: ref(null),
         createTab: vi.fn(() => ({ id: 'tab-1' })),
         handleCloseTab: vi.fn(async (_tabId: string) => {}),
+        handleFallbackToolbarOpenFile: vi.fn(async () => {}),
         openPathInAppropriateTab: vi.fn(async (_path: string) => {}),
         openPathsInAppropriateTab: vi.fn(async (_paths: string[]) => {}),
         clearRecentFiles: vi.fn(async () => {}),
@@ -53,10 +54,17 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
 }
 
 function createElectronApi() {
+    let onMenuOpenPdf: (() => void) | null = null;
     let onMenuOpenExternalPaths: ((paths: string[]) => void) | null = null;
     let onMenuOpenRecentFile: ((path: string) => void) | null = null;
 
     const api = cast<IElectronAPI>({documents: {
+        onMenuOpenPdf: vi.fn((callback: () => void) => {
+            onMenuOpenPdf = callback;
+            return () => {
+                onMenuOpenPdf = null;
+            };
+        }),
         onMenuOpenExternalPaths: vi.fn((callback: (paths: string[]) => void) => {
             onMenuOpenExternalPaths = callback;
             return () => {
@@ -73,6 +81,9 @@ function createElectronApi() {
 
     return {
         api,
+        emitOpenPdf() {
+            onMenuOpenPdf?.();
+        },
         emitExternalPaths(paths: string[]) {
             onMenuOpenExternalPaths?.(paths);
         },
@@ -83,6 +94,18 @@ function createElectronApi() {
 }
 
 describe('registerTabsMenuBindings', () => {
+    it('routes menu open-file through the placeholder-aware fallback handler', async () => {
+        const handleFallbackToolbarOpenFile = vi.fn(async () => {});
+        const deps = createDeps({ handleFallbackToolbarOpenFile });
+        const electronApi = createElectronApi();
+
+        registerTabsMenuBindings(electronApi.api, deps);
+        electronApi.emitOpenPdf();
+        await flushMicrotasks();
+
+        expect(handleFallbackToolbarOpenFile).toHaveBeenCalledTimes(1);
+    });
+
     it('serializes external open requests so later launches wait for the first one', async () => {
         const firstOpen = createDeferred();
         const secondOpen = createDeferred();

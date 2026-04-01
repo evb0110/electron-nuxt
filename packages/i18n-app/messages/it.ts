@@ -52,6 +52,10 @@ export default {
         'cropHint': 'Trascina per selezionare l’area di ritaglio. Esc per annullare.',
         'fullscreen': 'Schermo intero',
     },
+    'notifications': {
+        'docxSavedTitle': 'DOCX salvato',
+        'docxSavedDescription': '{name}',
+    },
     'tabs': {
         'newTab': 'Nuova scheda',
         'unsavedChanges': 'Modifiche non salvate',
@@ -737,6 +741,14 @@ export default {
         'summaryRange': 'Saranno esportate le pagine dell’intervallo ({count}).',
         'summaryRangeHint': 'Inserisci un intervallo completo come 3-12 oppure una singola pagina come 7.',
         'inProgress': 'Esportazione in corso...',
+        'statusImages': 'Esportazione immagini...',
+        'statusTiff': 'Esportazione TIFF...',
+        'successImages': 'Immagini esportate',
+        'successTiff': 'TIFF esportato',
+        'pageCount': plural({
+            one: '{count} pagina',
+            other: '{count} pagine',
+        }),
     },
     'crop': {
         'dialogTitle': 'Ritaglia pagine',

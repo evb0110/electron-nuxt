@@ -5,6 +5,7 @@ import type { IOcrLanguage } from '@contracts/shared';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { getElectronAPI } from '@app/utils/platform';
 import { createDocxFromText } from '@app/utils/docx';
+import { getDocumentRefBaseName } from '@app/utils/document-ref';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { waitForVisualFrames } from '@app/utils/async-helpers';
@@ -34,6 +35,7 @@ class OcrCanceledError extends Error {
 
 export const useOcr = () => {
     const { t } = useTypedI18n();
+    const toast = useToast();
     const { localizeOcrError } = createOcrErrorLocalizer(t);
 
     const availableLanguages = ref<IOcrLanguage[]>([]);
@@ -455,15 +457,6 @@ export const useOcr = () => {
         error.value = null;
 
         try {
-            let text = workingCopyPath ? await loadOcrText(workingCopyPath) : null;
-            if (!text && pdfDocument) {
-                text = await extractPdfText(pdfDocument);
-            }
-            if (!text) {
-                error.value = t('errors.ocr.noText');
-                return false;
-            }
-
             const api = getElectronAPI();
             const outPath = await api.documents.saveDocxAs(workingPath);
             if (!outPath) {
@@ -471,9 +464,23 @@ export const useOcr = () => {
             }
 
             try {
+                let text = workingCopyPath ? await loadOcrText(workingCopyPath) : null;
+                if (!text && pdfDocument) {
+                    text = await extractPdfText(pdfDocument);
+                }
+                if (!text) {
+                    error.value = t('errors.ocr.noText');
+                    return false;
+                }
+
                 const hasRtl = settings.value.selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
                 const docxBytes = createDocxFromText(text, hasRtl);
                 await api.documents.writeDocxFile(outPath, docxBytes);
+                toast.add({
+                    color: 'success',
+                    title: t('notifications.docxSavedTitle'),
+                    description: t('notifications.docxSavedDescription', {name: getDocumentRefBaseName(outPath) ?? outPath}),
+                });
                 return true;
             } finally {
                 await api.documents.cleanupFile(outPath).catch(() => {});

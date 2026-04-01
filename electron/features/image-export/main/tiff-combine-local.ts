@@ -18,6 +18,22 @@ interface IUtifModule {
     encode(ifds: Array<Record<string, unknown>>): ArrayBuffer;
 }
 
+interface IUtifBinaryWriter {
+    writeUint(buffer: Uint8Array, offset: number, value: number): void;
+    writeUshort(buffer: Uint8Array, offset: number, value: number): void;
+}
+
+interface IUtifEncoderModule extends IUtifModule {
+    _binBE: IUtifBinaryWriter;
+    _writeIFD(
+        bin: IUtifBinaryWriter,
+        data: Uint8Array,
+        offset: number,
+        ifd: Record<string, unknown>,
+    ): [number, number];
+    ttypes: Record<number, number | undefined>;
+}
+
 interface ITiffPageRgba {
     width: number;
     height: number;
@@ -31,7 +47,16 @@ interface ITiffPageDescriptor {
     dataLength: number;
 }
 
-const UTIF = utifModule as IUtifModule;
+const TIFF_TYPE_BYTES: Record<number, number> = {
+    1: 1,
+    2: 1,
+    3: 2,
+    4: 4,
+    5: 8,
+    12: 8,
+};
+const UTIF_BASE = utifModule as IUtifModule;
+const UTIF = UTIF_BASE as IUtifEncoderModule;
 
 function toPositiveInteger(value: unknown) {
     if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
@@ -187,6 +212,73 @@ function buildTiffIfd(
     };
 }
 
+function getTiffValueCount(value: unknown): number {
+    if (Array.isArray(value)) {
+        return value.length;
+    }
+
+    if (
+        ArrayBuffer.isView(value)
+        && 'BYTES_PER_ELEMENT' in value
+        && typeof value.BYTES_PER_ELEMENT === 'number'
+        && value.BYTES_PER_ELEMENT > 0
+    ) {
+        return Math.floor(value.byteLength / value.BYTES_PER_ELEMENT);
+    }
+
+    return 1;
+}
+
+function measureTiffIfdSize(ifd: Record<string, unknown>) {
+    const keys = Object.keys(ifd);
+    let extraDataLength = 0;
+
+    for (const key of keys) {
+        const tag = Number.parseInt(key.slice(1), 10);
+        const type = UTIF.ttypes[tag];
+        if (!type) {
+            throw new Error(`Unsupported TIFF tag type for tag ${tag}`);
+        }
+
+        const rawValue = ifd[key];
+        const valueLength = type === 2
+            ? `${String(Array.isArray(rawValue) ? rawValue[0] ?? '' : rawValue ?? '')}\0`.length
+            : getTiffValueCount(rawValue);
+        const dataLength = (TIFF_TYPE_BYTES[type] ?? 0) * valueLength;
+        if (dataLength > 4) {
+            extraDataLength += dataLength + (dataLength & 1);
+        }
+    }
+
+    return 2 + (keys.length * 12) + 4 + extraDataLength;
+}
+
+function encodeTiffIfds(ifds: Array<Record<string, unknown>>) {
+    const capacity = ifds.reduce((total, ifd) => total + measureTiffIfdSize(ifd), 8);
+    const data = new Uint8Array(capacity);
+    const bin = UTIF._binBE;
+
+    data[0] = 77;
+    data[1] = 77;
+    data[3] = 42;
+
+    let ifdOffset = 8;
+    bin.writeUint(data, 4, ifdOffset);
+
+    for (let index = 0; index < ifds.length; index += 1) {
+        const [
+            nextIfdPointerOffset,
+            nextIfdOffset,
+        ] = UTIF._writeIFD(bin, data, ifdOffset, ifds[index]!);
+        ifdOffset = nextIfdOffset;
+        if (index < ifds.length - 1) {
+            bin.writeUint(data, nextIfdPointerOffset, ifdOffset);
+        }
+    }
+
+    return data.slice(0, ifdOffset);
+}
+
 function resolvePageDataOffsets(
     pages: Array<Pick<ITiffPageDescriptor, 'dataLength'>>,
     firstDataOffset: number,
@@ -263,12 +355,11 @@ export async function combinePagesIntoMultiPageTiffLocal(pagePaths: string[], ou
 
     let firstDataOffset = 0;
     let header = new Uint8Array();
-    let pageOffsets: number[] = [];
 
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-        pageOffsets = resolvePageDataOffsets(pages, firstDataOffset);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        const pageOffsets = resolvePageDataOffsets(pages, firstDataOffset);
         const ifds = pages.map((page, index) => buildTiffIfd(page, pageOffsets[index]!));
-        header = new Uint8Array(UTIF.encode(ifds));
+        header = encodeTiffIfds(ifds);
         const nextFirstDataOffset = alignOffset(header.length, 8);
         if (nextFirstDataOffset === firstDataOffset) {
             break;
@@ -276,11 +367,12 @@ export async function combinePagesIntoMultiPageTiffLocal(pagePaths: string[], ou
         firstDataOffset = nextFirstDataOffset;
     }
 
-    pageOffsets = resolvePageDataOffsets(pages, alignOffset(header.length, 8));
-    const finalIfds = pages.map((page, index) => buildTiffIfd(page, pageOffsets[index]!));
-    header = new Uint8Array(UTIF.encode(finalIfds));
-
     const firstPageDataOffset = alignOffset(header.length, 8);
+    const totalByteLength = firstPageDataOffset + pages.reduce((total, page) => total + page.dataLength, 0);
+    if (totalByteLength > 0xFFFFFFFF) {
+        throw new Error('Multi-page TIFF export exceeds the Classic TIFF 4GB limit');
+    }
+
     const stream = createWriteStream(outputPath, { flags: 'w' });
 
     try {

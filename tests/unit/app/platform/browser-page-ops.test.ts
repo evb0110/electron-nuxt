@@ -15,6 +15,8 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
     read: vi.fn(),
     stat: vi.fn(),
     write: vi.fn(async () => {}),
+    createStoredDocument: vi.fn(),
+    touchRecentFile: vi.fn(async () => {}),
 }));
 const BrowserPageOpsWorkerUnavailableError = vi.hoisted(() => class extends Error {});
 const browserPageOpsWorkerMock = vi.hoisted(() => ({
@@ -30,6 +32,7 @@ vi.mock('@app/platform/browser-api/browser-page-ops-worker-client', () => ({
 }));
 vi.mock('@app/platform/browser-document-store', () => ({
     BROWSER_DOCUMENT_CHUNK_SIZE: 4 * 1024 * 1024,
+    getBrowserDocumentFileName: (ref: string) => ref.split('/').at(-1) ?? 'document.pdf',
     browserDocumentStore: browserDocumentStoreMock,
 }));
 
@@ -40,6 +43,9 @@ describe('createBrowserPageOps', () => {
         browserDocumentStoreMock.stat.mockReset();
         browserDocumentStoreMock.write.mockReset();
         browserDocumentStoreMock.write.mockResolvedValue(undefined);
+        browserDocumentStoreMock.createStoredDocument.mockReset();
+        browserDocumentStoreMock.touchRecentFile.mockReset();
+        browserDocumentStoreMock.touchRecentFile.mockResolvedValue(undefined);
         browserPageOpsWorkerMock.canUse.mockReset();
         browserPageOpsWorkerMock.canUse.mockReturnValue(false);
         browserPageOpsWorkerMock.run.mockReset();
@@ -62,7 +68,9 @@ describe('createBrowserPageOps', () => {
             pickFiles: vi.fn(),
             buildOpenPdfPickerTypes: vi.fn(),
             createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
             saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
         });
 
         const result = await pageOps.rotate('/tmp/work.pdf', [
@@ -87,7 +95,9 @@ describe('createBrowserPageOps', () => {
             pickFiles: vi.fn(),
             buildOpenPdfPickerTypes: vi.fn(),
             createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
             saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
         });
 
         await expect(pageOps.delete('/tmp/work.pdf', [1], 1)).rejects.toThrow(
@@ -124,7 +134,9 @@ describe('createBrowserPageOps', () => {
             pickFiles: vi.fn(),
             buildOpenPdfPickerTypes: vi.fn(),
             createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
             saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
         });
 
         const result = await pageOps.crop('/tmp/work.pdf', [1], {
@@ -179,7 +191,9 @@ describe('createBrowserPageOps', () => {
             pickFiles: vi.fn(),
             buildOpenPdfPickerTypes: vi.fn(),
             createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
             saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
         });
 
         await expect(pageOps.getPageGeometry('/tmp/work.pdf', 1)).resolves.toEqual(geometry);
@@ -209,7 +223,9 @@ describe('createBrowserPageOps', () => {
             pickFiles: vi.fn(),
             buildOpenPdfPickerTypes: vi.fn(),
             createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
             saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
         });
 
         await expect(pageOps.getPageGeometry('/tmp/work.pdf', 1)).resolves.toEqual({
@@ -228,5 +244,82 @@ describe('createBrowserPageOps', () => {
             rotation: 90,
         });
         expect(browserDocumentStoreMock.read).toHaveBeenCalledTimes(1);
+    });
+
+    it('locks in the browser save target before extracting pages and writes to that handle', async () => {
+        const pdfDocument = await PDFDocument.create();
+        pdfDocument.addPage();
+        pdfDocument.addPage();
+        pdfDocument.addPage();
+        const pdfBytes = new Uint8Array(await pdfDocument.save());
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
+        browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
+        browserDocumentStoreMock.createStoredDocument.mockResolvedValue(
+            'browser://documents/extract/work-extract.pdf',
+        );
+
+        const pickSaveTarget = vi.fn(async () => ({
+            canceled: false,
+            fileName: 'work-extract.pdf',
+            handle: { name: 'work-extract.pdf' } as FileSystemFileHandle,
+        }));
+        const saveBytesToPickerOrDownload = vi.fn();
+        const writeBytesToHandle = vi.fn(
+            async (_handle: FileSystemFileHandle, _data: Uint8Array) => {},
+        );
+
+        const { createBrowserPageOps } = await import('@app/platform/browser-api/documents-page-ops');
+        const pageOps = createBrowserPageOps({
+            clearSearchCaches: vi.fn(),
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget,
+            saveBytesToPickerOrDownload,
+            writeBytesToHandle,
+        });
+
+        const result = await pageOps.extract('/tmp/work.pdf', [
+            2,
+            3,
+        ]);
+
+        expect(result).toEqual({
+            success: true,
+            destPath: 'browser://documents/extract/work-extract.pdf',
+        });
+        expect(pickSaveTarget).toHaveBeenCalledWith({
+            suggestedName: 'work-extract.pdf',
+            pickerTypes: expect.any(Array),
+        });
+        expect(pickSaveTarget.mock.invocationCallOrder[0]).toBeLessThan(
+            browserDocumentStoreMock.read.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+        );
+        expect(writeBytesToHandle).toHaveBeenCalledTimes(1);
+        expect(saveBytesToPickerOrDownload).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.createStoredDocument).toHaveBeenCalledWith(
+            'work-extract.pdf',
+            expect.any(Uint8Array),
+            expect.objectContaining({
+                mimeType: 'application/pdf',
+                saveKind: 'pdf',
+                kind: 'source',
+                saveHandle: expect.objectContaining({ name: 'work-extract.pdf' }),
+            }),
+        );
+        expect(browserDocumentStoreMock.touchRecentFile).toHaveBeenCalledWith(
+            'browser://documents/extract/work-extract.pdf',
+        );
+
+        const writeCall = writeBytesToHandle.mock.calls[0];
+        expect(writeCall).toBeDefined();
+        if (!writeCall) {
+            throw new Error('Expected extract to write bytes to the reserved save handle');
+        }
+        const writtenBytes = writeCall[1];
+        expect(writtenBytes).toBeInstanceOf(Uint8Array);
+        const extractedPdf = await PDFDocument.load(writtenBytes);
+        expect(extractedPdf.getPageCount()).toBe(2);
     });
 });

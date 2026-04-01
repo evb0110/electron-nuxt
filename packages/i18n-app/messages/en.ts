@@ -52,6 +52,10 @@ export default {
         'fullscreen': 'Toggle Fullscreen',
         'appMenu': 'Menu',
     },
+    'notifications': {
+        'docxSavedTitle': 'DOCX saved',
+        'docxSavedDescription': '{name}',
+    },
     'tabs': {
         'newTab': 'New Tab',
         'unsavedChanges': 'Unsaved changes',
@@ -737,6 +741,14 @@ export default {
         'summaryRange': 'Range pages will be exported ({count}).',
         'summaryRangeHint': 'Enter a full range like 3-12 or a single page like 7.',
         'inProgress': 'Export in progress...',
+        'statusImages': 'Exporting images...',
+        'statusTiff': 'Exporting TIFF...',
+        'successImages': 'Images exported',
+        'successTiff': 'TIFF exported',
+        'pageCount': plural({
+            one: '{count} page',
+            other: '{count} pages',
+        }),
     },
     'crop': {
         'dialogTitle': 'Crop Pages',

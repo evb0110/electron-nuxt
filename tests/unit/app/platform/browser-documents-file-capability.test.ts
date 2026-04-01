@@ -171,7 +171,9 @@ function createMockElement(tagName: string) {
     };
 }
 
-async function loadBrowserDocumentsFileCapability() {
+interface ILoadBrowserDocumentsFileCapabilityOptions { windowOverrides?: Record<string, unknown>; }
+
+async function loadBrowserDocumentsFileCapability(options?: ILoadBrowserDocumentsFileCapabilityOptions) {
     vi.resetModules();
     vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
     const localStorage = new MemoryStorage();
@@ -181,6 +183,7 @@ async function loadBrowserDocumentsFileCapability() {
         removeEventListener() {},
         setTimeout,
         clearTimeout,
+        ...options?.windowOverrides,
     });
     vi.stubGlobal('document', {
         cookie: '',
@@ -248,6 +251,19 @@ describe('createBrowserDocumentsFileCapability', () => {
         await capability.cleanupFile(ref);
 
         await expect(browserDocumentStore.exists(ref)).resolves.toBe(false);
+    });
+
+    it('does not expose DjVu files in the browser combine picker', async () => {
+        const showOpenFilePicker = vi.fn(async () => []);
+        const { capability } = await loadBrowserDocumentsFileCapability({ windowOverrides: { showOpenFilePicker } });
+
+        await expect(capability.openCombineDialog()).resolves.toBeNull();
+
+        expect(showOpenFilePicker).toHaveBeenCalledTimes(1);
+        expect(showOpenFilePicker).toHaveBeenCalledWith(expect.objectContaining({
+            multiple: true,
+            types: [expect.objectContaining({ accept: expect.not.objectContaining({'application/octet-stream': expect.anything()}) })],
+        }));
     });
 
     it('creates transient working copies from raw browser data without durable recents', async () => {

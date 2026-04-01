@@ -52,6 +52,10 @@ export default {
         'fullscreen': 'Полноэкранный режим',
         'appMenu': 'Меню',
     },
+    'notifications': {
+        'docxSavedTitle': 'DOCX сохранён',
+        'docxSavedDescription': '{name}',
+    },
     'tabs': {
         'newTab': 'Новая вкладка',
         'unsavedChanges': 'Несохранённые изменения',
@@ -761,6 +765,16 @@ export default {
         'summaryRange': 'Будут экспортированы страницы диапазона ({count}).',
         'summaryRangeHint': 'Введите полный диапазон, например 3-12, или одну страницу, например 7.',
         'inProgress': 'Идет экспорт...',
+        'statusImages': 'Идет экспорт изображений...',
+        'statusTiff': 'Идет экспорт TIFF...',
+        'successImages': 'Изображения экспортированы',
+        'successTiff': 'TIFF экспортирован',
+        'pageCount': plural({
+            one: '{count} страница',
+            few: '{count} страницы',
+            many: '{count} страниц',
+            other: '{count} страницы',
+        }),
     },
     'crop': {
         'dialogTitle': 'Обрезка страниц',

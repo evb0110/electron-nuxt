@@ -52,6 +52,10 @@ export default {
         'cropHint': 'Arrastre para seleccionar el área de recorte. Esc para cancelar.',
         'fullscreen': 'Pantalla completa',
     },
+    'notifications': {
+        'docxSavedTitle': 'DOCX guardado',
+        'docxSavedDescription': '{name}',
+    },
     'tabs': {
         'newTab': 'Nueva pestaña',
         'unsavedChanges': 'Cambios sin guardar',
@@ -737,6 +741,14 @@ export default {
         'summaryRange': 'Se exportarán las páginas del rango ({count}).',
         'summaryRangeHint': 'Introduzca un rango completo, como 3-12, o una sola página, como 7.',
         'inProgress': 'Exportación en curso...',
+        'statusImages': 'Exportando imágenes...',
+        'statusTiff': 'Exportando TIFF...',
+        'successImages': 'Imágenes exportadas',
+        'successTiff': 'TIFF exportado',
+        'pageCount': plural({
+            one: '{count} página',
+            other: '{count} páginas',
+        }),
     },
     'crop': {
         'dialogTitle': 'Recortar páginas',

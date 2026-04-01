@@ -9,6 +9,14 @@ import { effectScope } from 'vue';
 import { retry } from 'es-toolkit/function';
 import { withTimeout } from 'es-toolkit/promise';
 
+const loadOcrTextMock = vi.hoisted(() => vi.fn<() => Promise<string | null>>(async () => null));
+const extractPdfTextMock = vi.hoisted(() => vi.fn<() => Promise<string | null>>(async () => null));
+const createDocxFromTextMock = vi.hoisted(() => vi.fn(() => new Uint8Array([
+    7,
+    8,
+    9,
+])));
+const toastAddMock = vi.hoisted(() => vi.fn());
 const mockOcr = {
     onProgress: vi.fn(),
     onComplete: vi.fn(),
@@ -20,6 +28,7 @@ const mockOcr = {
 const mockDocuments = {
     saveDocxAs: vi.fn(),
     writeDocxFile: vi.fn(),
+    cleanupFile: vi.fn(),
     readFile: vi.fn(),
     cleanupOcrTemp: vi.fn(),
 };
@@ -29,6 +38,12 @@ const mockElectronAPI = {
 };
 
 vi.mock('@app/utils/platform', () => ({getElectronAPI: () => mockElectronAPI}));
+vi.mock('@app/composables/ocrProcessing', () => ({
+    loadOcrText: loadOcrTextMock,
+    extractPdfText: extractPdfTextMock,
+}));
+vi.mock('@app/utils/docx', () => ({createDocxFromText: createDocxFromTextMock}));
+vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
 
 vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     callback(0);
@@ -102,6 +117,57 @@ describe('useOcr', () => {
             expect(completeUnsubscribe).toHaveBeenCalledTimes(1);
             expect(ocr.progress.value.isRunning).toBe(false);
             expect(ocr.error.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('opens the DOCX save dialog before gathering text for export', async () => {
+        const callOrder: string[] = [];
+        mockDocuments.saveDocxAs.mockImplementationOnce(async () => {
+            callOrder.push('saveDocxAs');
+            return '/tmp/export.docx';
+        });
+        mockDocuments.writeDocxFile.mockResolvedValueOnce(undefined);
+        mockDocuments.cleanupFile.mockResolvedValueOnce(undefined);
+        loadOcrTextMock.mockImplementationOnce(async () => {
+            callOrder.push('loadOcrText');
+            return null;
+        });
+        extractPdfTextMock.mockImplementationOnce(async () => {
+            callOrder.push('extractPdfText');
+            return 'pdf text';
+        });
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            await expect(ocr.exportDocx('/tmp/work.pdf', {} as never)).resolves.toBe(true);
+
+            expect(callOrder).toEqual([
+                'saveDocxAs',
+                'loadOcrText',
+                'extractPdfText',
+            ]);
+            expect(createDocxFromTextMock).toHaveBeenCalledWith('pdf text', false);
+            expect(mockDocuments.writeDocxFile).toHaveBeenCalledWith(
+                '/tmp/export.docx',
+                new Uint8Array([
+                    7,
+                    8,
+                    9,
+                ]),
+            );
+            expect(mockDocuments.cleanupFile).toHaveBeenCalledWith('/tmp/export.docx');
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'success',
+                title: expect.any(String),
+                description: expect.any(String),
+            }));
         } finally {
             scope.stop();
         }
