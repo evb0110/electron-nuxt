@@ -35,6 +35,11 @@ function createDeps() {
             2,
             3,
         ])),
+        getSourcePdfData: vi.fn(async () => new Uint8Array([
+            1,
+            2,
+            3,
+        ])),
         readWorkingCopyBytes: vi.fn(async () => new Uint8Array([
             1,
             2,
@@ -97,7 +102,8 @@ describe('useFileOperations', () => {
         const { handleSave } = useFileOperations(deps);
         await handleSave();
 
-        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(deps.saveFile).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
@@ -132,7 +138,8 @@ describe('useFileOperations', () => {
         const { handleSaveAs } = useFileOperations(deps);
         await handleSaveAs();
 
-        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopyAs).toHaveBeenCalledOnce();
         expect(annotationReset).toHaveBeenCalledOnce();
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
@@ -152,6 +159,19 @@ describe('useFileOperations', () => {
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(deps.isSaving.value).toBe(false);
+    });
+
+    it('serializes note-only saves from source bytes without calling PDF.js saveDocument', async () => {
+        const { deps } = createDeps();
+        deps.annotationDirty.value = true;
+
+        const { handleSave } = useFileOperations(deps);
+        await handleSave();
+
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
+        expect(deps.saveFile).toHaveBeenCalledOnce();
     });
 
     it('stops before persisting when validation fails', async () => {

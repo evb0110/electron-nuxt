@@ -111,6 +111,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     } = deps;
 
     const {
+        getSourcePdfData,
         serializePdfForSave,
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
@@ -145,6 +146,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         bookmarksDirty,
         pdfDocument,
         saveDocument: () => pdfViewerRef.value?.saveDocument() ?? Promise.resolve(null),
+        getSourcePdfData,
         readWorkingCopyBytes,
         validatePdfData,
         saveFile,

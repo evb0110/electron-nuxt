@@ -8,6 +8,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { useFileOperations } from '@app/composables/useFileOperations';
 
@@ -40,6 +41,7 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
             bookmarksDirty: ref(false),
             pdfDocument: shallowRef(cast({ annotationStorage: { resetModified } })),
             saveDocument: vi.fn(async () => new Uint8Array([1])),
+            getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
             readWorkingCopyBytes: vi.fn(async () => new Uint8Array([1])),
             validatePdfData: vi.fn(async () => ({
                 isValid: true,
@@ -91,7 +93,8 @@ describe('useFileOperations', () => {
 
         await handleSave();
 
-        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
         expect(saveFile).toHaveBeenCalledOnce();
@@ -137,7 +140,8 @@ describe('useFileOperations', () => {
 
         await handleSaveAs();
 
-        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
         expect(saveWorkingCopyAs).toHaveBeenCalledOnce();
         expect(Array.from(saveWorkingCopyAs.mock.calls[0]?.[0] ?? [])).toEqual([
@@ -187,11 +191,46 @@ describe('useFileOperations', () => {
         expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
     });
 
+    it('uses PDF.js saveDocument when live annotation storage has modified ids', async () => {
+        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+            resetModified: vi.fn(),
+            modifiedIds: { ids: new Set(['annot-1']) },
+        } }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            pdfDocument: livePdfDocument,
+            saveDocument: vi.fn(async () => new Uint8Array([7])),
+            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
+            7,
+            2,
+            3,
+            6,
+            4,
+            5,
+        ]);
+    });
+
     it('stops the saving state when PDF.js saveDocument stalls', async () => {
         vi.useFakeTimers();
         const stalledSave = new Promise<Uint8Array | null>(() => undefined);
+        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+            resetModified: vi.fn(),
+            modifiedIds: { ids: new Set(['annot-1']) },
+        } }));
         const { deps } = createDeps({
             annotationDirty: ref(true),
+            pdfDocument: livePdfDocument,
             saveDocument: vi.fn(() => stalledSave),
         });
         const { handleSave } = useFileOperations(deps);
