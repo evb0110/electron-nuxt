@@ -155,12 +155,21 @@ jobs:
           done
 
       - name: Create or update GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.prepare.outputs.tag }}
-          draft: false
-          generate_release_notes: true
-          files: artifacts/*
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Prefer the GitHub CLI here so the release publish path tracks the
+          # runner's current Node/LTS stack instead of a separately versioned
+          # JavaScript action runtime.
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" artifacts/* --clobber
+          else
+            gh release create "$RELEASE_TAG" artifacts/* --generate-notes --verify-tag
+          fi
 
   publish_mac_intel:
     name: Attach macOS Intel Release Asset
@@ -181,9 +190,10 @@ jobs:
           merge-multiple: true
 
       - name: Attach macOS Intel assets to existing release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.prepare.outputs.tag }}
-          draft: false
-          files: artifacts/*
-          overwrite_files: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" artifacts/* --clobber
