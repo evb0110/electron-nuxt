@@ -52,6 +52,10 @@ export default {
         'cropHint': 'Sleep om het bijsnijdgebied te selecteren. Esc om te annuleren.',
         'fullscreen': 'Volledig scherm',
     },
+    'notifications': {
+        'docxSavedTitle': 'DOCX opgeslagen',
+        'docxSavedDescription': '{name}',
+    },
     'tabs': {
         'newTab': 'Nieuw tabblad',
         'unsavedChanges': 'Niet-opgeslagen wijzigingen',
@@ -737,6 +741,14 @@ export default {
         'summaryRange': 'Pagina\'s uit het bereik worden geëxporteerd ({count}).',
         'summaryRangeHint': 'Voer een volledig bereik in, zoals 3-12, of één pagina, zoals 7.',
         'inProgress': 'Exporteren...',
+        'statusImages': 'Afbeeldingen exporteren...',
+        'statusTiff': 'TIFF exporteren...',
+        'successImages': 'Afbeeldingen geëxporteerd',
+        'successTiff': 'TIFF geëxporteerd',
+        'pageCount': plural({
+            one: '{count} pagina',
+            other: '{count} pagina\'s',
+        }),
     },
     'crop': {
         'dialogTitle': 'Pagina\'s bijsnijden',

@@ -61,7 +61,10 @@ function createRoutingOptions(options: {
     activeGroupId: Ref<string | null>;
     activeTabId: Ref<string | null>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    createTab: (args?: { activate?: boolean }) => ITab;
+    createTab: (args?: {
+        activate?: boolean;
+        initial?: Partial<ITab>;
+    }) => ITab;
 }) {
     return {
         activeGroupId: options.activeGroupId,
@@ -69,7 +72,16 @@ function createRoutingOptions(options: {
         activeWorkspace: computed(() => options.workspaceRefs.value.get(options.activeTabId.value ?? '') ?? null),
         workspaceRefs: options.workspaceRefs,
         waitForWorkspace: vi.fn(async (tabId: string) => options.workspaceRefs.value.get(tabId) ?? null),
-        createTab: vi.fn(({ activate }: { activate?: boolean } = {}) => options.createTab({ activate })),
+        createTab: vi.fn(({
+            activate,
+            initial,
+        }: {
+            activate?: boolean;
+            initial?: Partial<ITab>;
+        } = {}) => options.createTab({
+            activate,
+            initial,
+        })),
         getTabById: vi.fn((tabId: string | null | undefined) => (
             tabId
                 ? createTabStub(tabId)
@@ -156,6 +168,36 @@ describe('useAppShellWorkspaceRouting', () => {
 
         expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/first.pdf');
         expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/second.pdf');
+    });
+
+    it('reuses the active placeholder tab during startup even before its workspace ref is registered', async () => {
+        const activeGroupId = ref('group-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(false);
+
+        const routingOptions = createRoutingOptions({
+            activeGroupId,
+            activeTabId,
+            workspaceRefs,
+            createTab: () => {
+                throw new Error('should not create a new tab for startup reuse');
+            },
+        });
+        routingOptions.waitForWorkspace = vi.fn(async (tabId: string) => {
+            if (tabId !== 'tab-1') {
+                return null;
+            }
+
+            workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+            return initialWorkspace.workspace;
+        });
+        const routing = useAppShellWorkspaceRouting(routingOptions);
+
+        await routing.openPathsInAppropriateTab(['/docs/cold-start.pdf']);
+
+        expect(routingOptions.createTab).not.toHaveBeenCalled();
+        expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/cold-start.pdf');
     });
 
     it('treats a DjVu tab as occupied and opens dropped PDFs in a new tab', async () => {
@@ -301,5 +343,118 @@ describe('useAppShellWorkspaceRouting', () => {
         expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/first.pdf');
         expect(initialWorkspace.openPath).not.toHaveBeenCalledWith('/docs/second.pdf');
         expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/second.pdf');
+    });
+
+    it('seeds new tabs with document hints so external paths can mount a workspace before opening', async () => {
+        const activeGroupId = ref('group-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(true);
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+
+        let createdCount = 1;
+        const createdWorkspaces = new Map<string, IWorkspaceRecord>();
+
+        const routingOptions = createRoutingOptions({
+            activeGroupId,
+            activeTabId,
+            workspaceRefs,
+            createTab: ({
+                activate,
+                initial,
+            }: {
+                activate?: boolean;
+                initial?: Partial<ITab>;
+            } = {}) => {
+                createdCount += 1;
+                const tabId = `tab-${createdCount}`;
+
+                if (initial?.fileName || initial?.originalPath || initial?.isDjvu) {
+                    const record = createWorkspace(false);
+                    createdWorkspaces.set(tabId, record);
+                    workspaceRefs.value.set(tabId, record.workspace);
+                }
+
+                if (activate !== false) {
+                    activeTabId.value = tabId;
+                }
+
+                return {
+                    ...createTabStub(tabId),
+                    ...initial,
+                };
+            },
+        });
+        const routing = useAppShellWorkspaceRouting(routingOptions);
+
+        await routing.openPathInAppropriateTab('/docs/launch-opened.pdf');
+
+        expect(routingOptions.createTab).toHaveBeenCalledWith(
+            expect.objectContaining({ initial: expect.objectContaining({
+                fileName: 'launch-opened.pdf',
+                originalPath: '/docs/launch-opened.pdf',
+                isDjvu: false,
+            }) }),
+        );
+        expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/launch-opened.pdf');
+    });
+
+    it('marks DjVu open results as document hints before opening them in a new tab', async () => {
+        const activeGroupId = ref('group-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(true);
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+
+        let createdCount = 1;
+        const createdWorkspaces = new Map<string, IWorkspaceRecord>();
+
+        const routingOptions = createRoutingOptions({
+            activeGroupId,
+            activeTabId,
+            workspaceRefs,
+            createTab: ({
+                activate,
+                initial,
+            }: {
+                activate?: boolean;
+                initial?: Partial<ITab>;
+            } = {}) => {
+                createdCount += 1;
+                const tabId = `tab-${createdCount}`;
+
+                if (initial?.fileName || initial?.originalPath || initial?.isDjvu) {
+                    const record = createWorkspace(false);
+                    createdWorkspaces.set(tabId, record);
+                    workspaceRefs.value.set(tabId, record.workspace);
+                }
+
+                if (activate !== false) {
+                    activeTabId.value = tabId;
+                }
+
+                return {
+                    ...createTabStub(tabId),
+                    ...initial,
+                };
+            },
+        });
+        const routing = useAppShellWorkspaceRouting(routingOptions);
+        const result = {
+            kind: 'djvu' as const,
+            workingPath: '' as const,
+            originalPath: '/docs/reference.djvu',
+        };
+
+        await routing.openResultInAppropriateTab(result);
+
+        expect(routingOptions.createTab).toHaveBeenCalledWith(
+            expect.objectContaining({ initial: expect.objectContaining({
+                fileName: 'reference.djvu',
+                originalPath: '/docs/reference.djvu',
+                isDjvu: true,
+            }) }),
+        );
+        expect(createdWorkspaces.get('tab-2')?.openResult).toHaveBeenCalledWith(result);
     });
 });

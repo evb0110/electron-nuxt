@@ -40,6 +40,44 @@ interface IUseAppShellWorkspaceRoutingOptions {
     mergeWindowInto: (windowId: number) => Promise<void>;
 }
 
+function decodeDocumentFileName(segment: string) {
+    try {
+        return decodeURIComponent(segment);
+    } catch {
+        return segment;
+    }
+}
+
+function getDocumentRefFileName(ref: TDocumentRef) {
+    const lastSegment = ref.split(/[\\/]/u).at(-1) ?? '';
+    if (!lastSegment) {
+        return null;
+    }
+
+    return decodeDocumentFileName(lastSegment);
+}
+
+function buildPendingTabDocumentHint(pathOrResult: TDocumentRef | TOpenFileResult): Partial<ITab> {
+    if (typeof pathOrResult === 'string') {
+        const fileName = getDocumentRefFileName(pathOrResult);
+        return {
+            fileName,
+            originalPath: pathOrResult,
+            isDjvu: /\.djvu?$/iu.test(fileName ?? pathOrResult),
+        };
+    }
+
+    const fileName = getDocumentRefFileName(
+        pathOrResult.originalPath || (pathOrResult.kind === 'pdf' ? pathOrResult.workingPath : ''),
+    );
+
+    return {
+        fileName,
+        originalPath: pathOrResult.originalPath,
+        isDjvu: pathOrResult.kind === 'djvu',
+    };
+}
+
 function readWorkspaceToolbarSnapshot(workspace: IWorkspaceExpose) {
     try {
         return workspace.getToolbarSnapshot();
@@ -113,6 +151,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         const tab = createTab({
             groupId: targetGroupId,
             activate: true,
+            initial: buildPendingTabDocumentHint(pathOrResult),
         });
         const workspace = await waitForWorkspace(tab.id);
         if (!workspace) {
@@ -158,10 +197,10 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         const initialActiveWorkspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
         const initialActiveTab = getTabById(activeTabId.value);
         let canReuseActiveTab = false;
-        if (initialActiveTab && initialActiveWorkspace) {
+        if (initialActiveTab && !hasDocumentMountHint(initialActiveTab)) {
             canReuseActiveTab = (
-                !hasDocumentMountHint(initialActiveTab)
-                && !workspaceOccupiesTab(initialActiveWorkspace)
+                !initialActiveWorkspace
+                || !workspaceOccupiesTab(initialActiveWorkspace)
             );
         }
 

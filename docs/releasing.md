@@ -6,14 +6,15 @@ Releases are cut locally and published from GitHub by pushing a version tag.
 
 1. Run `pnpm run release:patch`, `pnpm run release:minor`, or `pnpm run release:major`.
    The release script now fails before the version bump unless it is running under Node 24.x, which is the project's current LTS baseline.
-2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree: validation, tests, Electron smoke, current-platform packaging, updater metadata checks when applicable, packaged native-tool verification, packaged startup verification on macOS, and the cross-arch resource matrix.
+2. The script bumps `package.json`, then runs the local release gate against that exact would-be tagged tree: validation, fast release-critical tests, current-platform packaging, updater metadata checks when applicable, packaged native-tool verification, packaged startup verification on macOS, and the cross-arch resource matrix.
 3. If that local release gate passes, the script verifies that only `package.json` changed, commits the release version, creates the matching `v*` tag, and pushes the branch update and tag atomically.
-4. The tag push triggers the GitHub [`Release`](<repo-root>/.github/workflows/release.yml) workflow, which validates, smoke-tests, packages, and publishes the release in one run.
+4. The tag push triggers the GitHub [`Release`](<repo-root>/.github/workflows/release.yml) workflow, which validates, runs the fast release-critical test lane, packages, and publishes the release in one run.
 
 ## Local guardrails
 
 - `pnpm run release:verify` mirrors the local parts of the release workflow and now includes current-platform packaging verification.
-- `release:verify:checks` forces `CI=1` during validation, unit/integration tests, and Electron smoke so the local gate stays closer to the GitHub release runner.
+- `release:verify:checks` forces `CI=1` during validation and the fast release-critical test lane so the local gate stays closer to the GitHub release runner.
+- Release-critical tests should stay deterministic and fast. Long serial Electron E2E checks are available for manual diagnostics, but they no longer block release cutting.
 - Fresh installs now follow the checked-in build-script policy in [`pnpm-workspace.yaml`](<repo-root>/pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
 - `pnpm run release:verify` is intentionally host-only for packaging. If you change cross-platform launcher or packaging decisions, add unit coverage for that branching logic instead of assuming a macOS-local release cut exercises Linux and Windows paths.
 - `pnpm run release:verify:package:local` packages the current platform exactly as the release workflow would, then validates produced artifacts and updater metadata, verifies packaged native tools, and verifies packaged startup on macOS.

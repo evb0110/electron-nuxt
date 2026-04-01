@@ -18,6 +18,7 @@ interface IPageOpsHandlersDeps {
     }>;
     closePageContextMenu: () => void;
     onExportPages: (pages: number[]) => void;
+    onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
@@ -35,6 +36,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         pageContextMenu,
         closePageContextMenu,
         onExportPages,
+        onExtractedDocument,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
@@ -57,6 +59,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
+        onExtractedDocument,
     });
 
     function handlePageContextMenuDelete() {

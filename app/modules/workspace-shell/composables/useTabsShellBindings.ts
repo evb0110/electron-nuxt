@@ -18,6 +18,7 @@ interface IUseTabsShellBindingsOptions {
     createTab: () => { id: string };
     activateTab: (tabId: string) => void;
     handleCloseTab: (tabId: string) => Promise<void>;
+    handleFallbackToolbarOpenFile: () => Promise<void>;
     openPathInAppropriateTab: (path: TDocumentRef) => Promise<void>;
     openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
     clearRecentFiles: () => Promise<void>;
@@ -41,6 +42,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
         createTab,
         activateTab,
         handleCloseTab,
+        handleFallbackToolbarOpenFile,
         openPathInAppropriateTab,
         openPathsInAppropriateTab,
         clearRecentFiles,
@@ -124,6 +126,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
             activeTabId,
             createTab,
             handleCloseTab,
+            handleFallbackToolbarOpenFile,
             openPathInAppropriateTab,
             openPathsInAppropriateTab,
             clearRecentFiles,

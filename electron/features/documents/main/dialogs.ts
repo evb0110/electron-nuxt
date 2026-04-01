@@ -474,7 +474,7 @@ export async function handleSavePdfDialog(
 }
 
 export async function handleSaveDocxAs(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingPath: string,
 ): Promise<string | null> {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
@@ -483,14 +483,18 @@ export async function handleSaveDocxAs(
         ? basename(normalizedWorkingPath, extname(normalizedWorkingPath))
         : 'ocr-text';
 
-    const result = await dialog.showSaveDialog({
+    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    const dialogOptions = {
         title: te('dialogs.saveOcrTextAs'),
         defaultPath: `${suggestedBase}.docx`,
         filters: [{
             name: te('dialogs.wordDocuments'),
             extensions: ['docx'],
         }],
-    });
+    };
+    const result = parentWindow
+        ? await dialog.showSaveDialog(parentWindow, dialogOptions)
+        : await dialog.showSaveDialog(dialogOptions);
 
     if (result.canceled || !result.filePath) {
         return null;

@@ -52,6 +52,10 @@ export default {
         'cropHint': 'Ziehen Sie, um den Zuschneidebereich auszuwählen. Esc zum Abbrechen.',
         'fullscreen': 'Vollbild umschalten',
     },
+    'notifications': {
+        'docxSavedTitle': 'DOCX gespeichert',
+        'docxSavedDescription': '{name}',
+    },
     'tabs': {
         'newTab': 'Neuer Tab',
         'unsavedChanges': 'Ungespeicherte Änderungen',
@@ -737,6 +741,14 @@ export default {
         'summaryRange': 'Seiten aus dem Bereich werden exportiert ({count}).',
         'summaryRangeHint': 'Geben Sie einen vollständigen Bereich wie 3-12 oder eine einzelne Seite wie 7 ein.',
         'inProgress': 'Export läuft...',
+        'statusImages': 'Bilder werden exportiert...',
+        'statusTiff': 'TIFF wird exportiert...',
+        'successImages': 'Bilder exportiert',
+        'successTiff': 'TIFF exportiert',
+        'pageCount': plural({
+            one: '{count} Seite',
+            other: '{count} Seiten',
+        }),
     },
     'crop': {
         'dialogTitle': 'Seiten zuschneiden',

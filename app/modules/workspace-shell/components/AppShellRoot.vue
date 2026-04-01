@@ -576,6 +576,7 @@ useTabsShellBindings({
         }
         await handleCloseTab(group.id, tabId);
     },
+    handleFallbackToolbarOpenFile,
     openPathInAppropriateTab,
     openPathsInAppropriateTab,
     clearRecentFiles,

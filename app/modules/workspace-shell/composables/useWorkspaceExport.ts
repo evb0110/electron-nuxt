@@ -6,6 +6,14 @@ import { getElectronAPI } from '@app/utils/platform';
 import { useAnalytics } from '@app/composables/useAnalytics';
 
 type TExportDialogMode = 'images' | 'multipage-tiff';
+type TExportOverlayKind = 'images' | 'multipage-tiff';
+type TExportOverlayState = 'running' | 'success';
+
+interface IExportOverlayStatus {
+    kind: TExportOverlayKind;
+    pageCount: number;
+    state: TExportOverlayState;
+}
 
 interface IWorkspaceExportDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
@@ -20,10 +28,50 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     } = deps;
 
     const isExportInProgress = ref(false);
+    const exportOverlay = ref<IExportOverlayStatus | null>(null);
     const exportScopeDialogOpen = ref(false);
     const exportScopeDialogMode = ref<TExportDialogMode>('images');
     const exportScopeDialogSelectedPages = ref<number[]>([]);
     let exportScopeDialogResolver: ((selection: number[] | undefined | null) => void) | null = null;
+    let exportOverlayResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function clearExportOverlayTimer() {
+        if (exportOverlayResetTimer !== null) {
+            clearTimeout(exportOverlayResetTimer);
+            exportOverlayResetTimer = null;
+        }
+    }
+
+    function setExportOverlay(status: IExportOverlayStatus | null) {
+        clearExportOverlayTimer();
+        exportOverlay.value = status;
+    }
+
+    function showExportRunning(kind: TExportOverlayKind, pageCount: number) {
+        setExportOverlay({
+            kind,
+            pageCount,
+            state: 'running',
+        });
+    }
+
+    function showExportSuccess(kind: TExportOverlayKind, pageCount: number) {
+        setExportOverlay({
+            kind,
+            pageCount,
+            state: 'success',
+        });
+        exportOverlayResetTimer = setTimeout(() => {
+            exportOverlayResetTimer = null;
+            if (
+                exportOverlay.value?.kind === kind
+                && exportOverlay.value.state === 'success'
+                && exportOverlay.value.pageCount === pageCount
+            ) {
+                exportOverlay.value = null;
+            }
+        }, 2200);
+    }
 
     function normalizeExportSelectedPages(selectedPages: number[]) {
         return uniq(selectedPages)
@@ -77,7 +125,9 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             return;
         }
 
+        const selectedPageCount = pageNumbers?.length ?? totalPages.value;
         isExportInProgress.value = true;
+        showExportRunning('images', selectedPageCount);
         try {
             const api = getElectronAPI();
             const startedAt = Date.now();
@@ -91,14 +141,20 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                     status: result.success ? 'success' : 'canceled',
                 });
             }
-            if (result.outputPaths) {
+            if (result.success && result.outputPaths) {
                 await Promise.allSettled(
                     result.outputPaths.map(async (path) => {
                         await api.documents.cleanupFile(path);
                     }),
                 );
+                showExportSuccess('images', result.outputPaths.length || selectedPageCount);
+            } else if (result.success) {
+                showExportSuccess('images', selectedPageCount);
+            } else {
+                setExportOverlay(null);
             }
         } catch (error) {
+            setExportOverlay(null);
             BrowserLogger.error('workspace', 'export images failed', error);
         } finally {
             isExportInProgress.value = false;
@@ -110,7 +166,9 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             return;
         }
 
+        const selectedPageCount = pageNumbers?.length ?? totalPages.value;
         isExportInProgress.value = true;
+        showExportRunning('multipage-tiff', selectedPageCount);
         try {
             const api = getElectronAPI();
             const startedAt = Date.now();
@@ -123,10 +181,14 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                     status: result.success ? 'success' : 'canceled',
                 });
             }
-            if (result.outputPath) {
+            if (result.success && result.outputPath) {
                 await api.documents.cleanupFile(result.outputPath).catch(() => {});
+                showExportSuccess('multipage-tiff', selectedPageCount);
+            } else {
+                setExportOverlay(null);
             }
         } catch (error) {
+            setExportOverlay(null);
             BrowserLogger.error('workspace', 'export multi-page tiff failed', error);
         } finally {
             isExportInProgress.value = false;
@@ -156,6 +218,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     }
 
     onScopeDispose(() => {
+        clearExportOverlayTimer();
         if (exportScopeDialogResolver) {
             resolveExportScopeDialog(null);
         }
@@ -163,6 +226,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
 
     return {
         isExportInProgress,
+        exportOverlay,
         exportScopeDialogOpen,
         exportScopeDialogMode,
         exportScopeDialogSelectedPages,

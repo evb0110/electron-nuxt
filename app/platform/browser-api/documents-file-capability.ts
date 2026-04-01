@@ -19,9 +19,11 @@ import {
 import { syncBrowserWindowTitle } from '@app/platform/browser-window-tabs';
 import {
     OPEN_IMAGE_ACCEPT,
+    OPEN_PDF_IMAGE_ACCEPT,
     OPEN_INPUT_ACCEPT,
     buildDocxSaveTypes,
     buildImagePickerTypes,
+    buildOpenPdfImagePickerTypes,
     buildOpenPdfPickerTypes,
     buildPdfSaveTypes,
     ensureDocxExtension,
@@ -429,7 +431,7 @@ async function saveBlobToPickerOrDownload(
     };
 }
 
-async function pickSaveTarget(options: {
+export async function pickSaveTarget(options: {
     suggestedName: string;
     pickerTypes: IFilePickerAcceptType[];
 }) {
@@ -481,7 +483,7 @@ export async function saveBytesToPickerOrDownload(
     );
 }
 
-async function writeBytesToHandle(
+export async function writeBytesToHandle(
     handle: FileSystemFileHandle,
     data: Uint8Array,
 ) {
@@ -804,9 +806,9 @@ export function createBrowserDocumentsFileCapability(
         },
         async openCombineDialog() {
             const pickedFiles = await pickFiles({
-                accept: OPEN_INPUT_ACCEPT,
+                accept: OPEN_PDF_IMAGE_ACCEPT,
                 multiple: true,
-                pickerTypes: buildOpenPdfPickerTypes(),
+                pickerTypes: buildOpenPdfImagePickerTypes(),
             });
             if (pickedFiles.length === 0) {
                 return null;

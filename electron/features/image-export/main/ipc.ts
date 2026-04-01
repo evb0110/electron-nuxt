@@ -71,8 +71,7 @@ function buildMultiPageTiffSuggestedName(pageNumbers: number[] | undefined): str
     return 'document-pages.tiff';
 }
 
-async function showExportImageDialog(defaultName: string) {
-    const parentWindow = BrowserWindow.getFocusedWindow();
+async function showExportImageDialog(parentWindow: BrowserWindow | null, defaultName: string) {
     const dialogOptions = {
         title: te('dialogs.exportImages'),
         defaultPath: defaultName,
@@ -103,8 +102,7 @@ async function showExportImageDialog(defaultName: string) {
         : dialog.showSaveDialog(dialogOptions);
 }
 
-async function showMultiPageTiffDialog(defaultName: string) {
-    const parentWindow = BrowserWindow.getFocusedWindow();
+async function showMultiPageTiffDialog(parentWindow: BrowserWindow | null, defaultName: string) {
     const dialogOptions = {
         title: te('dialogs.exportMultiPageTiff'),
         defaultPath: defaultName,
@@ -123,7 +121,7 @@ async function showMultiPageTiffDialog(defaultName: string) {
 }
 
 export async function handlePdfExportImages(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pageNumbers?: number[],
 ): Promise<{
@@ -133,8 +131,9 @@ export async function handlePdfExportImages(
 }> {
     validateWorkingPdfPath(workingCopyPath);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
+    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
 
-    const result = await showExportImageDialog(buildImageSuggestedName(normalizedPageNumbers));
+    const result = await showExportImageDialog(parentWindow, buildImageSuggestedName(normalizedPageNumbers));
     if (result.canceled || !result.filePath) {
         return {
             success: false,
@@ -152,7 +151,7 @@ export async function handlePdfExportImages(
 }
 
 export async function handlePdfExportMultiPageTiff(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pageNumbers?: number[],
 ): Promise<{
@@ -162,8 +161,9 @@ export async function handlePdfExportMultiPageTiff(
 }> {
     validateWorkingPdfPath(workingCopyPath);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
+    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
 
-    const result = await showMultiPageTiffDialog(buildMultiPageTiffSuggestedName(normalizedPageNumbers));
+    const result = await showMultiPageTiffDialog(parentWindow, buildMultiPageTiffSuggestedName(normalizedPageNumbers));
     if (result.canceled || !result.filePath) {
         return {
             success: false,

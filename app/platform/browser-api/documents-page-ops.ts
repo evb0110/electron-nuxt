@@ -49,6 +49,10 @@ interface ICreateBrowserPageOpsOptions {
     }) => Promise<IPickedBrowserFile[]>;
     buildOpenPdfPickerTypes: () => IFilePickerAcceptType[];
     createCombinedPdfFromPaths: (paths: string[]) => Promise<Uint8Array>;
+    pickSaveTarget: (options: {
+        suggestedName: string;
+        pickerTypes: IFilePickerAcceptType[];
+    }) => Promise<ISaveBytesResult>;
     saveBytesToPickerOrDownload: (
         bytes: Uint8Array,
         options: {
@@ -57,6 +61,10 @@ interface ICreateBrowserPageOpsOptions {
             pickerTypes: IFilePickerAcceptType[];
         },
     ) => Promise<ISaveBytesResult>;
+    writeBytesToHandle: (
+        handle: FileSystemFileHandle,
+        data: Uint8Array,
+    ) => Promise<void>;
 }
 
 const BROWSER_PAGE_OP_PDF_MAX_BYTES = 48 * 1024 * 1024;
@@ -170,6 +178,21 @@ export function createBrowserPageOps(
             };
         },
         async extract(workingCopyPath, pages) {
+            const sourceName = getBrowserDocumentFileName(workingCopyPath).replace(
+                /\.pdf$/iu,
+                '',
+            );
+            const saveTarget = await options.pickSaveTarget({
+                suggestedName: ensurePdfExtension(`${sourceName}-extract`),
+                pickerTypes: buildPdfSaveTypes(),
+            });
+            if (saveTarget.canceled) {
+                return {
+                    success: false,
+                    canceled: true,
+                };
+            }
+
             await ensurePdfWithinBudget(workingCopyPath, 'Extracting pages');
             await yieldToBrowser();
             const sourcePdf = await PDFDocument.load(
@@ -184,30 +207,31 @@ export function createBrowserPageOps(
             copiedPages.forEach((page) => nextPdf.addPage(page));
             await yieldToBrowser();
             const outputBytes = new Uint8Array(await nextPdf.save());
-            const sourceName = getBrowserDocumentFileName(workingCopyPath).replace(
-                /\.pdf$/iu,
-                '',
-            );
-            const saveResult = await options.saveBytesToPickerOrDownload(outputBytes, {
-                suggestedName: ensurePdfExtension(`${sourceName}-extract`),
-                mimeType: 'application/pdf',
-                pickerTypes: buildPdfSaveTypes(),
-            });
-            if (saveResult.canceled) {
-                return {
-                    success: false,
-                    canceled: true,
-                };
+
+            if (saveTarget.handle) {
+                await options.writeBytesToHandle(saveTarget.handle, outputBytes);
+            } else {
+                const saveResult = await options.saveBytesToPickerOrDownload(outputBytes, {
+                    suggestedName: ensurePdfExtension(saveTarget.fileName),
+                    mimeType: 'application/pdf',
+                    pickerTypes: buildPdfSaveTypes(),
+                });
+                if (saveResult.canceled) {
+                    return {
+                        success: false,
+                        canceled: true,
+                    };
+                }
             }
 
             const destPath = await browserDocumentStore.createStoredDocument(
-                saveResult.fileName,
+                ensurePdfExtension(saveTarget.fileName),
                 outputBytes,
                 {
                     mimeType: 'application/pdf',
                     saveKind: 'pdf',
                     kind: 'source',
-                    saveHandle: saveResult.handle,
+                    saveHandle: saveTarget.handle,
                 },
             );
             await browserDocumentStore.touchRecentFile(destPath);

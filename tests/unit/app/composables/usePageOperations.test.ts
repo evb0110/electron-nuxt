@@ -49,12 +49,14 @@ function createHarness(path: string | null = '/tmp/work.pdf') {
     const reloadWorkingCopyIntoHistory = vi.fn(async () => true);
     const clearOcrCache = vi.fn();
     const resetSearchCache = vi.fn();
+    const onExtractedDocument = vi.fn(async () => {});
     const pageOps = usePageOperations({
         workingCopyPath,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
+        onExtractedDocument,
     });
 
     return {
@@ -63,6 +65,7 @@ function createHarness(path: string | null = '/tmp/work.pdf') {
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
         resetSearchCache,
+        onExtractedDocument,
     };
 }
 
@@ -110,6 +113,7 @@ describe('usePageOperations', () => {
             reloadWorkingCopyIntoHistory,
             clearOcrCache,
             resetSearchCache,
+            onExtractedDocument,
         } = createHarness();
         pageOpsApi.extract.mockResolvedValueOnce({
             success: true,
@@ -122,6 +126,31 @@ describe('usePageOperations', () => {
         expect(reloadWorkingCopyIntoHistory).not.toHaveBeenCalled();
         expect(clearOcrCache).not.toHaveBeenCalled();
         expect(resetSearchCache).not.toHaveBeenCalled();
+        expect(onExtractedDocument).not.toHaveBeenCalled();
+    });
+
+    it('opens the extracted PDF when the page-op returns a destination path', async () => {
+        const {
+            pageOps,
+            ensureHistoryBaselineForExternalMutation,
+            reloadWorkingCopyIntoHistory,
+            clearOcrCache,
+            resetSearchCache,
+            onExtractedDocument,
+        } = createHarness();
+        pageOpsApi.extract.mockResolvedValueOnce({
+            success: true,
+            destPath: 'browser://documents/extract.pdf',
+        });
+
+        await expect(pageOps.extractPages([3])).resolves.toBe(true);
+
+        expect(pageOpsApi.extract).toHaveBeenCalledWith('/tmp/work.pdf', [3]);
+        expect(ensureHistoryBaselineForExternalMutation).not.toHaveBeenCalled();
+        expect(reloadWorkingCopyIntoHistory).not.toHaveBeenCalled();
+        expect(clearOcrCache).not.toHaveBeenCalled();
+        expect(resetSearchCache).not.toHaveBeenCalled();
+        expect(onExtractedDocument).toHaveBeenCalledWith('browser://documents/extract.pdf');
     });
 
     it('rejects deleting all pages before calling electron API', async () => {

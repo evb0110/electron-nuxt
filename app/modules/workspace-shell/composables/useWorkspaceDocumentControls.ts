@@ -121,6 +121,13 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
         onExportPages: (pages: number[]) => {
             void handleExportImages(pages);
         },
+        onExtractedDocument: (path: TDocumentRef) => {
+            emitOpenInNewTab({
+                kind: 'pdf',
+                workingPath: path,
+                originalPath: path,
+            });
+        },
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
         clearOcrCache,

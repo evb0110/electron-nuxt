@@ -20,6 +20,7 @@ import {
 interface IUtifFrame {
     width?: number;
     height?: number;
+    t273?: number[];
     [key: string]: unknown;
 }
 
@@ -62,8 +63,27 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
 })}));
 
 const { exportPdfAsMultiPageTiff } = await import('@electron/features/image-export/main/export');
+const { combinePagesIntoMultiPageTiffLocal } = await import('@electron/features/image-export/main/tiff-combine-local');
 
 const UTIF = utifModule as IUtifModule;
+
+function countTiffDirectories(bytes: Uint8Array) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let offset = view.getUint32(4, false);
+    let count = 0;
+
+    while (offset !== 0) {
+        expect(offset + 2).toBeLessThanOrEqual(bytes.byteLength);
+        const entryCount = view.getUint16(offset, false);
+        const nextPointerOffset = offset + 2 + (entryCount * 12);
+        expect(nextPointerOffset + 4).toBeLessThanOrEqual(bytes.byteLength);
+        offset = view.getUint32(nextPointerOffset, false);
+        count += 1;
+        expect(count).toBeLessThan(256);
+    }
+
+    return count;
+}
 
 describe('exportPdfAsMultiPageTiff', () => {
     let tempDir = '';
@@ -157,6 +177,42 @@ describe('exportPdfAsMultiPageTiff', () => {
                 commandLabel: 'pdftoppm(export-tiff)',
             }),
         );
+    });
+
+    it('keeps the full TIFF directory chain intact well past the legacy UTIF header limit', async () => {
+        const outputPath = join(tempDir, 'large-local-combine.tiff');
+        const pagePaths: string[] = [];
+        const pageCount = 120;
+
+        for (let index = 0; index < pageCount; index += 1) {
+            const pagePath = join(tempDir, `page-${String(index + 1).padStart(3, '0')}.tif`);
+            const pageBytes = Buffer.from(UTIF.encodeImage(new Uint8Array([
+                index,
+                0,
+                0,
+                255,
+            ]), 1, 1));
+            await writeFile(pagePath, pageBytes);
+            pagePaths.push(pagePath);
+        }
+
+        await combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath);
+
+        const outputBytes = new Uint8Array(await readFile(outputPath));
+        expect(countTiffDirectories(outputBytes)).toBe(pageCount);
+
+        const ifds = UTIF.decode(outputBytes);
+        expect(ifds).toHaveLength(pageCount);
+        expect(ifds[0]?.t273?.[0] ?? 0).toBeGreaterThan(20_000);
+
+        UTIF.decodeImage(outputBytes, ifds[pageCount - 1]!);
+        const lastRgba = UTIF.toRGBA8(ifds[pageCount - 1]!);
+        expect(Array.from(lastRgba.slice(0, 4))).toEqual([
+            pageCount - 1,
+            0,
+            0,
+            255,
+        ]);
     });
 
     it('rejects large TIFF exports when worker startup fails and local fallback is unsafe', async () => {

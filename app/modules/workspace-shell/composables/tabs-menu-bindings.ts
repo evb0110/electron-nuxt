@@ -13,6 +13,7 @@ interface ITabsMenuBindingDeps {
     activeTabId: Ref<string | null>;
     createTab: () => { id: string };
     handleCloseTab: (tabId: string) => Promise<void>;
+    handleFallbackToolbarOpenFile: () => Promise<void>;
     openPathInAppropriateTab: (path: TDocumentRef) => Promise<void>;
     openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
     clearRecentFiles: () => Promise<void>;
@@ -80,7 +81,7 @@ export function registerTabsMenuBindings(
 
     const cleanups = [
         api.documents?.onMenuOpenPdf?.(() => {
-            runMenuAction('open-pdf', () => deps.activeWorkspace.value?.handleOpenFileFromUi());
+            runMenuAction('open-pdf', () => deps.handleFallbackToolbarOpenFile());
         }),
         api.documents?.onMenuInsertImageFromFile?.(() => {
             runMenuAction('insert-image-from-file', () => deps.activeWorkspace.value?.handleInsertImageFromFile());

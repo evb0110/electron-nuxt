@@ -328,13 +328,31 @@
             </WorkspaceViewerHost>
         </WorkspaceSidebarHost>
         <div
-            v-if="isExportInProgress"
-            class="pointer-events-none absolute bottom-12 right-4 z-50 flex items-center gap-2 rounded-md border border-default bg-default/95 px-3 py-2 text-xs text-default shadow-lg"
+            v-if="exportOverlay"
+            class="pointer-events-none absolute bottom-12 right-4 z-50 w-60 rounded-md border border-default bg-default/95 px-3 py-2 shadow-lg"
             role="status"
             aria-live="polite"
         >
-            <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
-            <span>{{ t('export.inProgress') }}</span>
+            <div class="flex items-center gap-2">
+                <UIcon :name="exportOverlayIcon" :class="exportOverlayIconClass" />
+                <div class="min-w-0">
+                    <p class="m-0 text-xs font-medium text-default">
+                        {{ exportOverlayTitle }}
+                    </p>
+                    <p class="m-0 text-[11px] text-muted">
+                        {{ exportOverlayDetail }}
+                    </p>
+                </div>
+            </div>
+            <UProgress
+                v-if="exportOverlay.state === 'success'"
+                :value="100"
+                class="mt-2"
+            />
+            <UProgress
+                v-else
+                class="mt-2"
+            />
         </div>
         <Teleport v-if="isActive && canTeleportStatus" to="#editor-global-status-host">
             <PdfStatusBar
@@ -579,7 +597,7 @@ const {
     isSaving,
     isSavingAs,
     isHistoryBusy,
-    isExportInProgress,
+    exportOverlay,
     exportScopeDialogOpen,
     exportScopeDialogMode,
     exportScopeDialogSelectedPages,
@@ -838,6 +856,30 @@ const {
     pdfViewerRef,
     isResizingSidebar,
 });
+const exportOverlayTitle = computed(() => {
+    if (!exportOverlay.value) {
+        return '';
+    }
+
+    if (exportOverlay.value.state === 'success') {
+        return exportOverlay.value.kind === 'images'
+            ? t('export.successImages')
+            : t('export.successTiff');
+    }
+
+    return exportOverlay.value.kind === 'images'
+        ? t('export.statusImages')
+        : t('export.statusTiff');
+});
+const exportOverlayDetail = computed(() => exportOverlay.value
+    ? t('export.pageCount', {count: exportOverlay.value.pageCount})
+    : '');
+const exportOverlayIcon = computed(() => exportOverlay.value?.state === 'success'
+    ? 'i-lucide-circle-check'
+    : 'i-lucide-loader-circle');
+const exportOverlayIconClass = computed(() => exportOverlay.value?.state === 'success'
+    ? 'size-4 text-[var(--ui-success)]'
+    : 'size-4 animate-spin text-muted');
 
 function handleDeletePages() {
     const pages = selectedThumbnailPages.value;

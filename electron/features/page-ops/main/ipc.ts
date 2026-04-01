@@ -177,7 +177,7 @@ async function handlePageOpsDelete(
 }
 
 async function handlePageOpsExtract(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     pages: number[],
 ) {
@@ -187,7 +187,7 @@ async function handlePageOpsExtract(
     const baseName = basename(normalizedWorkingCopyPath, extname(normalizedWorkingCopyPath));
     const rangeLabel = formatPageRange(pages);
     const suggestedName = `${baseName} (${rangeLabel}).pdf`;
-    const parentWindow = BrowserWindow.getFocusedWindow();
+    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
     const dialogOptions = {
         title: te('dialogs.extractPages'),
         defaultPath: suggestedName,
@@ -242,7 +242,7 @@ async function handlePageOpsReorder(
 }
 
 async function handlePageOpsInsert(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
     totalPages: number,
     afterPage: number,
@@ -256,7 +256,7 @@ async function handlePageOpsInsert(
         throw new Error('Invalid afterPage');
     }
 
-    const parentWindow = BrowserWindow.getFocusedWindow();
+    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
     const dialogOptions = {
         title: te('dialogs.insertPagesFromPdf'),
         filters: [{

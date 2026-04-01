@@ -7,7 +7,9 @@ import {
     createBrowserDocumentsFileCapability,
     createCombinedPdfFromPaths,
     pickFiles,
+    pickSaveTarget,
     saveBytesToPickerOrDownload,
+    writeBytesToHandle,
 } from '@app/platform/browser-api/documents-file-capability';
 import { createBrowserImageExportCapability } from '@app/platform/browser-api/documents-image-export-capability';
 import { browserDocumentsMenuCapability } from '@app/platform/browser-api/documents-menu-capability';
@@ -31,7 +33,9 @@ export function createBrowserDocumentsCapability(
             pickFiles,
             buildOpenPdfPickerTypes: buildOpenPdfImagePickerTypes,
             createCombinedPdfFromPaths,
+            pickSaveTarget,
             saveBytesToPickerOrDownload,
+            writeBytesToHandle,
         }),
     };
 }

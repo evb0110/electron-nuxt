@@ -203,6 +203,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     const {
         isExportInProgress,
+        exportOverlay,
         exportScopeDialogOpen,
         exportScopeDialogMode,
         exportScopeDialogSelectedPages,
@@ -727,6 +728,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isSavingAs,
         isHistoryBusy,
         isExportInProgress,
+        exportOverlay,
         exportScopeDialogOpen,
         exportScopeDialogMode,
         exportScopeDialogSelectedPages,
