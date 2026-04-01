@@ -27,6 +27,7 @@ function createDeps() {
         isSavingAs: ref(false),
         workingCopyPath: ref('/tmp/working.pdf'),
         annotationDirty: ref(false),
+        annotationComments: ref([]),
         pageLabelsDirty: ref(false),
         bookmarksDirty: ref(false),
         pdfDocument,
@@ -171,6 +172,76 @@ describe('useFileOperations', () => {
         expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         expect(deps.saveDocument).not.toHaveBeenCalled();
         expect(deps.serializePdfForSave).toHaveBeenCalledOnce();
+        expect(deps.saveFile).toHaveBeenCalledOnce();
+    });
+
+    it('uses PDF.js saveDocument for editor-only notes without an annotation id', async () => {
+        const { deps } = createDeps();
+        deps.annotationDirty.value = true;
+        deps.annotationComments.value = [{
+            id: 'editor-note-1',
+            stableKey: 'editor:0:editor-note-1',
+            sortIndex: null,
+            pageIndex: 0,
+            pageNumber: 1,
+            text: 'fresh note',
+            kindLabel: 'Note',
+            subtype: 'FreeText',
+            author: null,
+            modifiedAt: Date.now(),
+            color: null,
+            uid: 'editor-uid-1',
+            annotationId: null,
+            source: 'editor',
+            hasNote: true,
+            markerRect: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.01,
+                height: 0.01,
+            },
+        }];
+
+        const { handleSave } = useFileOperations(deps);
+        await handleSave();
+
+        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.saveFile).toHaveBeenCalledOnce();
+    });
+
+    it('uses PDF.js saveDocument for editor-only notes with temporary annotation ids', async () => {
+        const { deps } = createDeps();
+        deps.annotationDirty.value = true;
+        deps.annotationComments.value = [{
+            id: 'editor-note-2',
+            stableKey: 'editor:0:editor-note-2',
+            sortIndex: null,
+            pageIndex: 0,
+            pageNumber: 1,
+            text: 'fresh note with temp id',
+            kindLabel: 'Note',
+            subtype: 'FreeText',
+            author: null,
+            modifiedAt: Date.now(),
+            color: null,
+            uid: 'editor-uid-2',
+            annotationId: 'pdfjs_internal_editor_12',
+            source: 'editor',
+            hasNote: true,
+            markerRect: {
+                left: 0.12,
+                top: 0.12,
+                width: 0.01,
+                height: 0.01,
+            },
+        }];
+
+        const { handleSave } = useFileOperations(deps);
+        await handleSave();
+
+        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
         expect(deps.saveFile).toHaveBeenCalledOnce();
     });
 

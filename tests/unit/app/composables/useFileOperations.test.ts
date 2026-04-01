@@ -37,6 +37,7 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
             isSavingAs: ref(false),
             workingCopyPath: ref('/tmp/work.pdf'),
             annotationDirty: ref(false),
+            annotationComments: ref([]),
             pageLabelsDirty: ref(false),
             bookmarksDirty: ref(false),
             pdfDocument: shallowRef(cast({ annotationStorage: { resetModified } })),
@@ -213,6 +214,102 @@ describe('useFileOperations', () => {
         expect(deps.getSourcePdfData).not.toHaveBeenCalled();
         expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
             7,
+            2,
+            3,
+            6,
+            4,
+            5,
+        ]);
+    });
+
+    it('uses PDF.js saveDocument for editor-only annotations that are not yet materialized', async () => {
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([{
+                id: 'editor-note-1',
+                stableKey: 'editor:0:editor-note-1',
+                sortIndex: null,
+                pageIndex: 0,
+                pageNumber: 1,
+                text: 'fresh note',
+                kindLabel: 'Note',
+                subtype: 'FreeText',
+                author: null,
+                modifiedAt: Date.now(),
+                color: null,
+                uid: 'editor-uid-1',
+                annotationId: null,
+                source: 'editor',
+                hasNote: true,
+                markerRect: {
+                    left: 0.1,
+                    top: 0.1,
+                    width: 0.01,
+                    height: 0.01,
+                },
+            }]),
+            saveDocument: vi.fn(async () => new Uint8Array([8])),
+            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
+            8,
+            2,
+            3,
+            6,
+            4,
+            5,
+        ]);
+    });
+
+    it('uses PDF.js saveDocument for editor-only annotations with temporary non-ref ids', async () => {
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            annotationComments: ref([{
+                id: 'editor-note-2',
+                stableKey: 'editor:0:editor-note-2',
+                sortIndex: null,
+                pageIndex: 0,
+                pageNumber: 1,
+                text: 'fresh note with temp id',
+                kindLabel: 'Note',
+                subtype: 'FreeText',
+                author: null,
+                modifiedAt: Date.now(),
+                color: null,
+                uid: 'editor-uid-2',
+                annotationId: 'pdfjs_internal_editor_12',
+                source: 'editor',
+                hasNote: true,
+                markerRect: {
+                    left: 0.12,
+                    top: 0.12,
+                    width: 0.01,
+                    height: 0.01,
+                },
+            }]),
+            saveDocument: vi.fn(async () => new Uint8Array([10])),
+            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
+            10,
             2,
             3,
             6,
