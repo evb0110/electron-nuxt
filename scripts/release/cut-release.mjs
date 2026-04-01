@@ -2,7 +2,7 @@ import {
     assertCleanWorktree,
     assertChangedFilesMatch,
     assertGitHubCliReady,
-    assertNodeMajor,
+    assertNodeProjectBaseline,
     assertTagAbsent,
     bumpVersion,
     getUpstream,
@@ -23,7 +23,7 @@ async function main() {
         );
     }
 
-    assertNodeMajor(24);
+    assertNodeProjectBaseline();
     assertGitHubCliReady();
     assertCleanWorktree();
     requireNamedBranch();

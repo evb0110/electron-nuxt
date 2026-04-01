@@ -13,6 +13,19 @@ export const VALID_RELEASE_LEVELS = new Set([
     'major',
 ]);
 
+export function parsePinnedNodeMajor(versionRange, context = 'Release') {
+    const match = String(versionRange ?? '').trim().match(/^(\d+)\.x$/);
+
+    if (match?.[1] == null) {
+        throw new Error(
+            `${context} requires package.json engines.node to use a pinned "<major>.x" range. `
+            + `Received "${versionRange ?? ''}".`,
+        );
+    }
+
+    return Number.parseInt(match[1], 10);
+}
+
 export function assertNodeMajor(expectedMajor, context = 'Release') {
     const currentMajor = Number.parseInt(process.versions.node.split('.')[0] ?? '', 10);
 
@@ -25,6 +38,14 @@ export function assertNodeMajor(expectedMajor, context = 'Release') {
         + `Current runtime is ${process.version}. `
         + 'Switch to the version declared in .nvmrc before continuing.',
     );
+}
+
+export function assertNodeProjectBaseline(context = 'Release') {
+    const packageJsonPath = resolve(process.cwd(), 'package.json');
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+    const expectedMajor = parsePinnedNodeMajor(packageJson.engines?.node, context);
+
+    assertNodeMajor(expectedMajor, context);
 }
 
 export function shouldSkipGitHubReleaseWait(env = process.env) {
