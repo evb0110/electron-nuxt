@@ -24,6 +24,7 @@ export interface IFileOperationsDeps {
     bookmarksDirty: Ref<boolean>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     saveDocument: () => Promise<Uint8Array | null>;
+    getSourcePdfData: () => Promise<Uint8Array | null>;
     readWorkingCopyBytes: () => Promise<Uint8Array | null>;
     validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfSaveResult['validation']>;
     saveFile: (data: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
@@ -59,6 +60,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         bookmarksDirty,
         pdfDocument,
         saveDocument,
+        getSourcePdfData,
         readWorkingCopyBytes,
         validatePdfData,
         saveFile,
@@ -82,6 +84,21 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
 
     function isTimeoutError(error: unknown) {
         return error instanceof Error && error.name === 'TimeoutError';
+    }
+
+    function hasLivePdfJsAnnotationChanges() {
+        const document = pdfDocument.value;
+        if (!document) {
+            return false;
+        }
+
+        try {
+            const modifiedIds = document.annotationStorage?.modifiedIds?.ids;
+            return typeof modifiedIds?.size === 'number' && modifiedIds.size > 0;
+        } catch (error) {
+            BrowserLogger.debug('workspace', 'Failed to inspect live PDF.js annotation dirty state', error);
+            return false;
+        }
     }
 
     async function buildSerializedSaveResult(
@@ -198,6 +215,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return null;
     }
 
+    async function getSerializationBasePdfBytes() {
+        if (hasLivePdfJsAnnotationChanges()) {
+            return saveDocumentWithRetry();
+        }
+
+        return getSourcePdfData();
+    }
+
     async function handleSave() {
         if (isSaving.value || isSavingAs.value) {
             return;
@@ -218,7 +243,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             if (workingCopyPath.value) {
                 const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
                 if (shouldSerialize) {
-                    const rawData = await saveDocumentWithRetry();
+                    const rawData = await getSerializationBasePdfBytes();
                     if (rawData) {
                         const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
                             includeShapes: true,
@@ -295,7 +320,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         try {
             const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
             if (shouldSerialize) {
-                const rawData = await saveDocumentWithRetry();
+                const rawData = await getSerializationBasePdfBytes();
                 if (rawData) {
                     const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
                         includeShapes: true,
