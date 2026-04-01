@@ -15,6 +15,10 @@ import {
     createMacOpenFileRouter,
 } from '@electron/bootstrap/external-open';
 import {
+    resolveExternalOpenDispatchWindow,
+    shouldResetRendererReadyOnNavigation,
+} from '@electron/bootstrap/renderer-ready';
+import {
     createShutdownCoordinator,
     runShutdownSteps,
 } from '@electron/bootstrap/shutdown';
@@ -287,7 +291,10 @@ const externalOpenManager = createExternalOpenManager({
         await createWindow();
     },
     dispatchOpenPaths: (paths) => {
-        const window = BrowserWindow.getFocusedWindow() ?? getMainWindow();
+        const window = resolveExternalOpenDispatchWindow({
+            mainWindow: getMainWindow(),
+            focusedWindow: BrowserWindow.getFocusedWindow(),
+        });
         if (!window) {
             return false;
         }
@@ -455,7 +462,15 @@ async function init() {
             readyWindowIds.delete(window.id);
         };
 
-        window.webContents.on('did-start-loading', markNotReady);
+        window.webContents.on('did-start-navigation', (_navEvent, _url, isInPlace, isMainFrame) => {
+            if (!shouldResetRendererReadyOnNavigation({
+                isMainFrame,
+                isInPlace,
+            })) {
+                return;
+            }
+            markNotReady();
+        });
         window.webContents.on('render-process-gone', markNotReady);
 
         window.on('closed', () => {
