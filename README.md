@@ -121,7 +121,7 @@ docs/       Project-specific implementation and release notes
 
 ### Requirements
 
-- Node.js `24.x`
+- Node.js latest LTS, currently `24.x`
 - `pnpm` `10.x`
 
 ### Root App Setup
