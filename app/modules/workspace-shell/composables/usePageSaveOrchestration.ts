@@ -142,6 +142,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         isSavingAs,
         workingCopyPath,
         annotationDirty,
+        annotationComments,
         pageLabelsDirty,
         bookmarksDirty,
         pdfDocument,

@@ -14,12 +14,14 @@ import { withTimeout } from 'es-toolkit/promise';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { useAnalytics } from '@app/composables/useAnalytics';
+import { parsePdfJsAnnotationRef } from '@app/composables/pdf/pdfSerializationRefs';
 
 export interface IFileOperationsDeps {
     isSaving: Ref<boolean>;
     isSavingAs: Ref<boolean>;
     workingCopyPath: Ref<TDocumentRef | null>;
     annotationDirty: Ref<boolean>;
+    annotationComments: Ref<IAnnotationCommentSummary[]>;
     pageLabelsDirty: Ref<boolean>;
     bookmarksDirty: Ref<boolean>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
@@ -56,6 +58,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         isSavingAs,
         workingCopyPath,
         annotationDirty,
+        annotationComments,
         pageLabelsDirty,
         bookmarksDirty,
         pdfDocument,
@@ -99,6 +102,13 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             BrowserLogger.debug('workspace', 'Failed to inspect live PDF.js annotation dirty state', error);
             return false;
         }
+    }
+
+    function hasEditorOnlyAnnotationsPendingMaterialization() {
+        return annotationComments.value.some(comment =>
+            comment.source === 'editor'
+            && !parsePdfJsAnnotationRef(comment.annotationId),
+        );
     }
 
     async function buildSerializedSaveResult(
@@ -216,7 +226,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     async function getSerializationBasePdfBytes() {
-        if (hasLivePdfJsAnnotationChanges()) {
+        if (
+            hasLivePdfJsAnnotationChanges()
+            || hasEditorOnlyAnnotationsPendingMaterialization()
+        ) {
             return saveDocumentWithRetry();
         }
 
