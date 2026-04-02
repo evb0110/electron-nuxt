@@ -39,6 +39,7 @@
                     <button
                         class="open-file-action group"
                         :aria-label="t('toolbar.openPdf')"
+                        :disabled="openInProgress"
                         @click="emit('open-file')"
                     >
                         <UIcon
@@ -75,7 +76,8 @@
                         v-for="file in recentFiles"
                         :key="file.originalPath"
                         class="recent-file-item"
-                        @click="emit('open-recent', file)"
+                        :class="{ 'is-disabled': openInProgress }"
+                        @click="!openInProgress && emit('open-recent', file)"
                     >
                         <UIcon
                             name="i-lucide-file-text"
@@ -93,6 +95,7 @@
                                 variant="ghost"
                                 color="neutral"
                                 class="recent-file-remove"
+                                :disabled="openInProgress"
                                 :aria-label="t('emptyState.removeFromRecent')"
                                 @click.stop="emit('remove-recent', file)"
                             />
@@ -102,6 +105,7 @@
                 <button
                     class="open-file-row group"
                     :aria-label="t('toolbar.openPdf')"
+                    :disabled="openInProgress"
                     @click="emit('open-file')"
                 >
                     <UIcon
@@ -141,10 +145,12 @@ const {
     recentFiles,
     recentFilesResolved = true,
     openBatchProgress = null,
+    openInProgress = false,
 } = defineProps<{
     recentFiles: IRecentFile[];
     recentFilesResolved?: boolean;
     openBatchProgress?: IOpenBatchProgress | null;
+    openInProgress?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -256,6 +262,17 @@ function formatEtaDuration(etaMs: number | null) {
     transform: scale(0.97);
 }
 
+.open-file-action:disabled {
+    cursor: default;
+    opacity: 0.65;
+}
+
+.open-file-action:disabled:hover {
+    border-color: var(--ui-border);
+    background: transparent;
+    box-shadow: none;
+}
+
 /* Recent files block */
 
 .recent-files {
@@ -288,6 +305,15 @@ function formatEtaDuration(etaMs: number | null) {
 
 .recent-file-item:hover {
     background: var(--ui-bg-elevated);
+}
+
+.recent-file-item.is-disabled {
+    cursor: default;
+    opacity: 0.65;
+}
+
+.recent-file-item.is-disabled:hover {
+    background: transparent;
 }
 
 
@@ -346,6 +372,15 @@ function formatEtaDuration(etaMs: number | null) {
 
 .open-file-row:active {
     transform: scale(0.995);
+}
+
+.open-file-row:disabled {
+    cursor: default;
+    opacity: 0.65;
+}
+
+.open-file-row:disabled:hover {
+    background: transparent;
 }
 
 .open-file-row-label {

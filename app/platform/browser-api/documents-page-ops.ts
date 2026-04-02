@@ -70,6 +70,7 @@ interface ICreateBrowserPageOpsOptions {
 const BROWSER_PAGE_OP_PDF_MAX_BYTES = 48 * 1024 * 1024;
 const BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES = 48 * 1024 * 1024;
 const BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES = 128 * 1024 * 1024;
+const BROWSER_PAGE_OP_INSERT_MAX_BYTES = BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES;
 const BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES = 128 * 1024 * 1024;
 const BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES = 64 * 1024 * 1024;
 
@@ -304,7 +305,11 @@ export function createBrowserPageOps(
             }
         },
         async insertFile(workingCopyPath, _totalPages, afterPage, sourcePaths) {
-            await ensurePdfWithinBudget(workingCopyPath, 'Inserting pages');
+            await ensurePdfWithinBudget(
+                workingCopyPath,
+                'Inserting pages',
+                BROWSER_PAGE_OP_INSERT_MAX_BYTES,
+            );
             await ensureCombinedInputsWithinBudget(sourcePaths, 'Inserting pages');
             await yieldToBrowser();
             const destinationPdf = await PDFDocument.load(

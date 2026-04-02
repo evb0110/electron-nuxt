@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
+import { deleteEmbeddedAnnotationOffThread } from '@app/composables/pdf/pdfSerializationWorkerClient';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
@@ -809,6 +810,35 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     let annotationDeleteQueue: Promise<void> = Promise.resolve();
 
+    function shouldReloadEmbeddedDelete(comment: IAnnotationCommentSummary) {
+        return comment.subtype === 'Stamp' && Boolean(comment.annotationId);
+    }
+
+    async function reloadPdfAfterEmbeddedDelete(comment: IAnnotationCommentSummary) {
+        if (!pdfViewerRef.value) {
+            return false;
+        }
+
+        const rawData = await pdfViewerRef.value.saveDocument();
+        if (!rawData) {
+            return false;
+        }
+
+        const deletedData = await deleteEmbeddedAnnotationOffThread(rawData, comment);
+        if (!deletedData) {
+            return false;
+        }
+
+        const pageToRestore = comment.pageNumber || currentPage.value;
+        const restorePromise = waitForPdfReload(pageToRestore);
+        await loadPdfFromData(deletedData, {
+            pushHistory: true,
+            persistWorkingCopy: !!workingCopyPath.value,
+        });
+        await restorePromise;
+        return true;
+    }
+
     async function performDeleteAnnotationComment(comment: IAnnotationCommentSummary) {
         closeAnnotationContextMenu();
         if (!pdfViewerRef.value) {
@@ -831,6 +861,26 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         // editor layer. uiManager.delete() operates on the editor layer and
         // may falsely report success. Always attempt embedded-level fallback.
         if (!deleted || comment.source === 'pdf' || Boolean(comment.annotationId)) {
+            const shouldUseImmediateReload = shouldReloadEmbeddedDelete(comment);
+            if (shouldUseImmediateReload) {
+                try {
+                    deleted = await reloadPdfAfterEmbeddedDelete(comment);
+                } catch (error) {
+                    BrowserLogger.warn('annotations', 'Immediate embedded image delete reload failed', {
+                        stableKey: comment.stableKey,
+                        annotationId: comment.annotationId ?? null,
+                        error,
+                    });
+                }
+            }
+
+            if (shouldUseImmediateReload && deleted) {
+                annotationNoteWindows.value
+                    .filter(note => isSameAnnotationComment(note.comment, comment))
+                    .forEach(note => removeAnnotationNoteWindow(note.comment.stableKey));
+                return;
+            }
+
             const shouldMarkDirty = !deleted;
             // Keep embedded annotation deletes local until the user saves.
             // This matches note text edits and avoids an immediate rewrite/reload.

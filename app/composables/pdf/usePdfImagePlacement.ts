@@ -32,6 +32,9 @@ function resolveDevicePixelRatio() {
         : 1;
 }
 
+const MIN_PLACED_IMAGE_TARGET_LONG_EDGE_PX = 64;
+const MIN_PLACED_IMAGE_TARGET_SHORT_EDGE_PX = 16;
+
 export function getInitialImagePlacementRect(
     target: IImagePlacementTarget,
     dimensions: IImagePlacementDimensions,
@@ -45,6 +48,26 @@ export function getInitialImagePlacementRect(
         y,
         width: dimensions.width,
         height: dimensions.height,
+    };
+}
+
+function resolvePlacedImageTargetPixels(options: {
+    width: number;
+    height: number;
+}) {
+    const requestedWidth = Math.max(1, Math.round(options.width));
+    const requestedHeight = Math.max(1, Math.round(options.height));
+    const longEdge = Math.max(requestedWidth, requestedHeight);
+    const shortEdge = Math.min(requestedWidth, requestedHeight);
+    const scaleFactor = Math.max(
+        1,
+        MIN_PLACED_IMAGE_TARGET_LONG_EDGE_PX / longEdge,
+        MIN_PLACED_IMAGE_TARGET_SHORT_EDGE_PX / shortEdge,
+    );
+
+    return {
+        width: Math.max(1, Math.round(requestedWidth * scaleFactor)),
+        height: Math.max(1, Math.round(requestedHeight * scaleFactor)),
     };
 }
 
@@ -241,10 +264,10 @@ export function usePdfImagePlacement(options: IUsePdfImagePlacementOptions) {
         const basePagePixelWidth = Math.max(1, Math.round(renderedPagePixelWidth / renderScale));
         const basePagePixelHeight = Math.max(1, Math.round(renderedPagePixelHeight / renderScale));
 
-        return {
-            width: Math.max(1, Math.round(placement.width * basePagePixelWidth)),
-            height: Math.max(1, Math.round(placement.height * basePagePixelHeight)),
-        };
+        return resolvePlacedImageTargetPixels({
+            width: placement.width * basePagePixelWidth,
+            height: placement.height * basePagePixelHeight,
+        });
     }
 
     function requestPendingImagePlacementFinalize() {

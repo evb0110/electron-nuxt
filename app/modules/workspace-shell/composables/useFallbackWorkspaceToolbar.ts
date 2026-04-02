@@ -40,6 +40,7 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
     const fallbackIsAnySaving = ref(false);
     const fallbackIsHistoryBusy = ref(false);
     const fallbackIsExportingDocx = ref(false);
+    const fallbackIsOpeningDocument = ref(false);
     const fallbackIsFitWidthActive = ref(false);
     const fallbackIsFitHeightActive = ref(false);
     const fallbackShowSidebar = ref(false);
@@ -109,6 +110,7 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
         fallbackIsAnySaving.value = snapshot.isAnySaving;
         fallbackIsHistoryBusy.value = snapshot.isHistoryBusy;
         fallbackIsExportingDocx.value = snapshot.isExportingDocx;
+        fallbackIsOpeningDocument.value = snapshot.isOpeningDocument;
         fallbackIsFitWidthActive.value = snapshot.isFitWidthActive;
         fallbackIsFitHeightActive.value = snapshot.isFitHeightActive;
         fallbackShowSidebar.value = snapshot.showSidebar;
@@ -168,7 +170,7 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
 
     const fallbackToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
         hasPdf: fallbackHasPdf.value,
-        isOpeningDocument: false,
+        isOpeningDocument: fallbackIsOpeningDocument.value,
         canSave: fallbackCanSave.value,
         canUndo: fallbackCanUndo.value,
         canRedo: fallbackCanRedo.value,

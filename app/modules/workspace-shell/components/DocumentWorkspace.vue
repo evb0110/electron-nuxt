@@ -12,6 +12,7 @@
                 :is-any-saving="isAnySaving"
                 :is-history-busy="isHistoryBusy"
                 :is-exporting-docx="isExportingDocx"
+                :is-opening-document="pendingDocumentOpen"
                 :is-fit-width-active="isFitWidthActive"
                 :is-fit-height-active="isFitHeightActive"
                 :show-sidebar="toolbarShowSidebar"
