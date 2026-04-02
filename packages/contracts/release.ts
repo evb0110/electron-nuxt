@@ -11,6 +11,7 @@ export interface IReleaseInstaller {
     extension: string;
     platform: TReleasePlatform;
     arch: TReleaseArch;
+    isLegacy: boolean;
 }
 
 export interface IReleaseSummary {

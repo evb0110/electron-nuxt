@@ -53,6 +53,14 @@ export default {
             downloadSelected: 'Scarica l\'installer selezionato',
             noArtifacts: 'Nessun artefatto installer trovato nell\'ultima release.',
             recommended: 'Consigliato',
+            legacy: {
+                eyebrow: 'Download legacy',
+                heading: 'Build legacy di Windows',
+                description: 'Le build sperimentali di compatibilita sono elencate separatamente cosi la raccomandazione principale resta sulle release supportate correnti.',
+                manualOnly: 'Solo installazione manuale',
+                note: 'Queste build sono best-effort e possono restare indietro rispetto alla release principale.',
+                win7Label: 'Windows 7 x64 legacy',
+            },
         },
         features: {
             pdfDjvu: {

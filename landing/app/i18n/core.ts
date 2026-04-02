@@ -227,7 +227,7 @@ function selectLegacyPipeForm(template: string, count: number, locale: string): 
         return forms[2] ?? forms[1] ?? forms[0] ?? template;
     }
 
-    return forms.at(-1) ?? template;
+    return forms[forms.length - 1] ?? template;
 }
 
 export function formatTranslationLeaf(

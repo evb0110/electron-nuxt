@@ -1,0 +1,137 @@
+name: Supplemental Windows 7 Legacy Build
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref or commit SHA to build.
+        required: false
+        type: string
+    outputs:
+      artifact_ready:
+        description: Whether the legacy Windows 7 artifact was produced.
+        value: ${{ jobs.build_win7_legacy.outputs.artifact_ready }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: lts/*
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  LEGACY_ELECTRON_VERSION: 22.3.27
+
+jobs:
+  build_win7_legacy:
+    name: build (windows-2022, win7 legacy, x64)
+    runs-on: windows-2022
+    outputs:
+      artifact_ready: ${{ steps.artifact_status.outputs.ready }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Configure pnpm script shell
+        shell: pwsh
+        run: pnpm config set script-shell "C:\Program Files\Git\bin\bash.exe"
+
+      - name: Cache Windows native tool archives
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/win-bundle-cache
+          key: win7-legacy-native-tools-x64-${{ hashFiles('scripts/bundle-tools-windows.sh') }}
+
+      - name: Pin Electron 22 for Windows 7 compatibility experiments
+        shell: bash
+        run: |
+          node <<'EOF'
+          const fs = require('fs');
+          const path = 'package.json';
+          const packageJson = JSON.parse(fs.readFileSync(path, 'utf8'));
+          packageJson.devDependencies = packageJson.devDependencies || {};
+          packageJson.devDependencies.electron = process.env.LEGACY_ELECTRON_VERSION;
+          fs.writeFileSync(path, `${JSON.stringify(packageJson, null, 2)}\n`);
+          EOF
+
+      - name: Install dependencies
+        # This lane is intentionally isolated from the locked release matrix:
+        # it patches Electron down to the last major with official Win7 support.
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Verify Electron install
+        run: pnpm run check:electron:install
+
+      - name: Bundle native tools (Windows)
+        shell: bash
+        env:
+          WIN_BUNDLE_CACHE_DIR: ${{ runner.temp }}/win-bundle-cache
+        run: TARGET_ARCH=x64 bash scripts/bundle-tools-windows.sh
+
+      - name: Build (Nuxt + Electron)
+        run: pnpm run build:strict
+
+      - name: Package installer (Windows 7 legacy)
+        id: package
+        continue-on-error: true
+        shell: bash
+        run: |
+          ATTEMPTS=3
+          for attempt in $(seq 1 $ATTEMPTS); do
+            if pnpm exec electron-builder --publish never --win --x64; then
+              exit 0
+            fi
+            if [ "$attempt" -lt "$ATTEMPTS" ]; then
+              echo "::warning::Windows 7 legacy packaging attempt $attempt failed, retrying in 20s..."
+              sleep 20
+            fi
+          done
+          echo "::warning::Windows 7 legacy packaging failed after $ATTEMPTS attempts"
+          exit 1
+
+      - name: Verify packaged native tools
+        if: steps.package.outcome == 'success'
+        shell: bash
+        run: bash scripts/verify-packaged-native-tools.sh win x64
+
+      - name: Rename legacy artifacts
+        if: steps.package.outcome == 'success'
+        shell: bash
+        run: |
+          rm -f release/latest*.yml release/*.blockmap
+          shopt -s nullglob
+          for exe in release/*.exe; do
+            mv "$exe" "${exe%.exe}-win7-legacy.exe"
+          done
+
+      - name: Record artifact status
+        id: artifact_status
+        shell: bash
+        run: |
+          shopt -s nullglob
+          legacy_artifacts=(release/*win7-legacy*.exe)
+          if [ "${{ steps.package.outcome }}" = "success" ] && [ ${#legacy_artifacts[@]} -gt 0 ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Windows 7 legacy artifact was not produced; main release artifacts remain unaffected."
+          fi
+
+      - name: Upload artifacts
+        if: steps.artifact_status.outputs.ready == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-win7-legacy-x64
+          path: |
+            release/*win7-legacy*.exe
+          if-no-files-found: error

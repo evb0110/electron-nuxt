@@ -1,3 +1,4 @@
+import legacy from '@vitejs/plugin-legacy';
 import {fileURLToPath} from 'node:url';
 
 import {
@@ -94,6 +95,31 @@ export default defineNuxtConfig({
         'circle-flags:nl',
         'simple-icons:github',
     ]}},
+
+    vite: {
+        build: {
+            // Keep the modern bundle parseable for older ESM browsers.
+            target: 'es2016',
+        },
+        plugins: legacy({
+            targets: [
+                'chrome >= 49',
+                'firefox >= 52',
+                'safari >= 10.1',
+                'ios >= 10.3',
+                'edge >= 15',
+                'not IE 11',
+            ],
+            modernPolyfills: [
+                'es.array.at',
+                'es.array.flat',
+                'es.array.flat-map',
+                'es.object.from-entries',
+                'es.promise.finally',
+            ],
+            additionalModernPolyfills: ['whatwg-fetch'],
+        }) as unknown as any[],
+    },
 
     compatibilityDate: '2025-01-15',
 });
