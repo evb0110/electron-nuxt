@@ -20,6 +20,7 @@
                 :recent-files="recentFiles"
                 :recent-files-resolved="isResolved"
                 :open-batch-progress="null"
+                :open-in-progress="isDocumentOpenInFlight"
                 @open-file="handleOpenFileFromUi"
                 @open-recent="handleOpenRecentFromPlaceholder"
                 @remove-recent="handleRemoveRecentFromPlaceholder"
@@ -73,11 +74,15 @@ import type {
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { hasElectronAPI } from '@app/utils/platform';
+import {
+    getPlatformAPI,
+    hasElectronAPI,
+} from '@app/utils/platform';
 import {
     getAsyncChunkLoadErrorMessage,
     shouldRetryAsyncChunkLoad,
 } from '@app/modules/workspace-shell/composables/workspace-host-async-load';
+import { handleWorkspaceHostOpenFileFromUi } from '@app/modules/workspace-shell/composables/workspace-host-open';
 import { isWorkspaceExpose } from '@app/modules/workspace-shell/composables/workspace-expose-contract';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
@@ -552,8 +557,10 @@ async function handleClearRecentFromPlaceholder() {
 
 async function handleOpenFileFromUi() {
     await enqueueDocumentOpen(async () => {
-        await withWorkspace('handleOpenFileFromUi', async (workspace) => {
-            await workspace.handleOpenFileFromUi();
+        await handleWorkspaceHostOpenFileFromUi({
+            mountedWorkspace: mountedWorkspace.value,
+            pickFileToOpen: () => getPlatformAPI().documents.openPdfDialog(),
+            withWorkspace,
         });
     });
 }

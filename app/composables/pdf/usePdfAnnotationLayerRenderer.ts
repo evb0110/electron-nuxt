@@ -237,6 +237,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         annotationLayerDiv: HTMLElement,
         viewport: ReturnType<PDFPageProxy['getViewport']>,
         _pageNumber: number,
+        annotationCanvasMap?: Map<string, HTMLCanvasElement> | null,
     ) {
         annotationLayerDiv.innerHTML = '';
 
@@ -288,7 +289,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             page: pdfPage,
             viewport,
             accessibilityManager: null,
-            annotationCanvasMap: null,
+            annotationCanvasMap: annotationCanvasMap ?? null,
             annotationEditorUIManager: annotationUiManager,
             structTreeLayer: null,
             commentManager: null,

@@ -20,6 +20,16 @@ import type {
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 
+const { deleteEmbeddedAnnotationOffThread } = vi.hoisted(() => ({deleteEmbeddedAnnotationOffThread: vi.fn(async (
+    _data: Uint8Array,
+    _comment: IAnnotationCommentSummary,
+) => new Uint8Array([
+    8,
+    8,
+]))}));
+
+vi.mock('@app/composables/pdf/pdfSerializationWorkerClient', () => ({deleteEmbeddedAnnotationOffThread}));
+
 function createComment(stableKey: string): IAnnotationCommentSummary {
     return {
         id: stableKey,
@@ -169,6 +179,7 @@ function createHarness() {
 }
 
 beforeEach(() => {
+    deleteEmbeddedAnnotationOffThread.mockClear();
     vi.stubGlobal('useTypedI18n', () => ({
         t: (key: string) => key,
         setLocale: vi.fn(async () => {}),
@@ -464,6 +475,36 @@ describe('usePageAnnotationActions', () => {
         expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(comment.stableKey);
         expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
         expect(deps.markAnnotationDirty).not.toHaveBeenCalled();
+    });
+
+    it('reloads embedded image deletes from serialized bytes so stamp canvases do not stay stale', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const comment = createComment('stamp-delete');
+        comment.source = 'editor';
+        comment.annotationId = '12R0';
+        comment.subtype = 'Stamp';
+
+        await actions.handleDeleteAnnotationComment(comment);
+
+        expect(viewer.saveDocument).toHaveBeenCalledOnce();
+        expect(deleteEmbeddedAnnotationOffThread).toHaveBeenCalledWith(new Uint8Array([
+            9,
+            9,
+        ]), comment);
+        expect(deps.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
+            8,
+            8,
+        ]), {
+            pushHistory: true,
+            persistWorkingCopy: true,
+        });
+        expect(deps.waitForPdfReload).toHaveBeenCalledWith(1);
+        expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
+        expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
     });
 
     it('marks embedded delete dirty when viewer delete could not resolve the note locally', async () => {

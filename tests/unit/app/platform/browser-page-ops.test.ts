@@ -322,4 +322,55 @@ describe('createBrowserPageOps', () => {
         const extractedPdf = await PDFDocument.load(writtenBytes);
         expect(extractedPdf.getPageCount()).toBe(2);
     });
+
+    it('allows inserting image-backed pages into larger browser PDFs within the mutation budget', async () => {
+        const destinationPdf = await PDFDocument.create();
+        destinationPdf.addPage([
+            300,
+            500,
+        ]);
+        const destinationBytes = new Uint8Array(await destinationPdf.save());
+
+        const insertionPdf = await PDFDocument.create();
+        insertionPdf.addPage([
+            200,
+            200,
+        ]);
+        const insertionBytes = new Uint8Array(await insertionPdf.save());
+
+        browserDocumentStoreMock.stat.mockImplementation(async (path: string) => {
+            if (path === '/tmp/work.pdf') {
+                return { size: 120 * 1024 * 1024 };
+            }
+
+            return { size: insertionBytes.byteLength };
+        });
+        browserDocumentStoreMock.read.mockResolvedValue(destinationBytes);
+
+        const clearSearchCaches = vi.fn();
+        const createCombinedPdfFromPaths = vi.fn(async () => insertionBytes);
+        const { createBrowserPageOps } = await import('@app/platform/browser-api/documents-page-ops');
+        const pageOps = createBrowserPageOps({
+            clearSearchCaches,
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths,
+            pickSaveTarget: vi.fn(),
+            saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
+        });
+
+        const result = await pageOps.insertFile(
+            '/tmp/work.pdf',
+            1,
+            1,
+            ['browser://documents/picked/image.png'],
+        );
+
+        expect(result.success).toBe(true);
+        expect(createCombinedPdfFromPaths).toHaveBeenCalledWith(['browser://documents/picked/image.png']);
+        expect(browserDocumentStoreMock.write).toHaveBeenCalledTimes(1);
+        expect(clearSearchCaches).toHaveBeenCalledTimes(1);
+    });
 });

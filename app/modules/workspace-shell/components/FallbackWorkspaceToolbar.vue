@@ -10,6 +10,7 @@
         :is-any-saving="snapshot.isAnySaving"
         :is-history-busy="snapshot.isHistoryBusy"
         :is-exporting-docx="snapshot.isExportingDocx"
+        :is-opening-document="snapshot.isOpeningDocument"
         :is-fit-width-active="snapshot.isFitWidthActive"
         :is-fit-height-active="snapshot.isFitHeightActive"
         :show-sidebar="snapshot.showSidebar"

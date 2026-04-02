@@ -5,6 +5,7 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
     viewport: ReturnType<PDFPageProxy['getViewport']>;
+    annotationCanvasMap: Map<string, HTMLCanvasElement>;
     scaleX: number;
     scaleY: number;
     rawDims: {
@@ -107,15 +108,18 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
             0,
             0,
         ] : undefined;
+        const annotationCanvasMap = new Map<string, HTMLCanvasElement>();
 
         const renderContext = {
             canvasContext: context,
             canvas,
             transform,
             viewport,
-            // Render annotations through the dedicated annotation/editor layers
-            // instead of baking their appearance streams into the page canvas.
-            annotationMode: AnnotationMode?.DISABLE ?? 0,
+            // Let PDF.js prepare separate annotation canvases for appearance-backed
+            // annotations (for example placed image stamps) while keeping the
+            // annotation layer responsible for attaching them into the DOM.
+            annotationMode: AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1,
+            annotationCanvasMap,
         };
 
         const renderTask = pdfPage.render(renderContext) as ICancelableRenderTask;
@@ -125,6 +129,7 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
         return {
             canvas,
             viewport,
+            annotationCanvasMap,
             scaleX: sx,
             scaleY: sy,
             rawDims,

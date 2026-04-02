@@ -12,6 +12,8 @@
                 icon="lucide:folder-open"
                 :tooltip="t('toolbar.openPdf')"
                 :shortcut="shortcutLabels.openFile"
+                :disabled="isOpeningDocument"
+                :loading="isOpeningDocument"
                 @click="emit('open-file')"
             />
             <div class="toolbar-separator" />
@@ -247,6 +249,7 @@ defineProps<{
     isAnySaving: boolean;
     isHistoryBusy: boolean;
     isExportingDocx: boolean;
+    isOpeningDocument?: boolean;
     isFitWidthActive: boolean;
     isFitHeightActive: boolean;
     showSidebar: boolean;

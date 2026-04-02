@@ -593,6 +593,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         const {
                             canvas,
                             viewport,
+                            annotationCanvasMap,
                             scaleX,
                             scaleY,
                             rawDims,
@@ -722,6 +723,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                         annotationLayerDiv,
                                         viewport,
                                         pageNumber,
+                                        annotationCanvasMap,
                                     );
                             } catch (annotationError) {
                                 logNonCriticalStageError(

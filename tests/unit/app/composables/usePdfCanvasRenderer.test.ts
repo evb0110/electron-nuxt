@@ -8,7 +8,10 @@ import {
 import { AnnotationMode } from '@app/services/pdfjs/runtime-lib';
 import { usePdfCanvasRenderer } from '@app/composables/pdf/usePdfCanvasRenderer';
 
-vi.mock('@app/services/pdfjs/runtime-lib', () => ({ AnnotationMode: { DISABLE: 0 } }));
+vi.mock('@app/services/pdfjs/runtime-lib', () => ({AnnotationMode: {
+    ENABLE: 1,
+    ENABLE_FORMS: 2,
+}}));
 
 describe('usePdfCanvasRenderer', () => {
     afterEach(() => {
@@ -16,7 +19,7 @@ describe('usePdfCanvasRenderer', () => {
         delete (globalThis as Record<string, unknown>).document;
     });
 
-    it('disables built-in annotation painting on the page canvas', async () => {
+    it('requests separate annotation canvases for appearance-backed annotations', async () => {
         const canvas = {
             width: 0,
             height: 0,
@@ -45,11 +48,13 @@ describe('usePdfCanvasRenderer', () => {
         } as const;
 
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
-        await renderer.renderCanvas(pdfPage as never, 1);
+        const result = await renderer.renderCanvas(pdfPage as never, 1);
 
         expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            annotationMode: AnnotationMode?.DISABLE ?? 0,
+            annotationMode: AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1,
+            annotationCanvasMap: expect.any(Map),
             canvas,
         }));
+        expect(result?.annotationCanvasMap).toBeInstanceOf(Map);
     });
 });
