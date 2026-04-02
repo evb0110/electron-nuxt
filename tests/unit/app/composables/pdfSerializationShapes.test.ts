@@ -11,6 +11,7 @@ import {
     PDFRef,
 } from 'pdf-lib';
 import type { IShapeAnnotation } from '@app/types/annotations';
+import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import { serializeShapeAnnotationsToDoc } from '@app/composables/pdf/pdfSerializationShapes';
 
 async function createPdfDataWithSinglePage() {
@@ -116,6 +117,63 @@ describe('serializeShapeAnnotationsToDoc', () => {
         expect(getName(dicts[1]!, 'Subtype')).toBe('/Line');
         expect(dicts[0]!.get(PDFName.of('IC'))).toBeTruthy();
         expect(dicts[1]!.get(PDFName.of('LE'))).toBeTruthy();
+    });
+
+    it('round-trips newly added drawings through save bytes and embedded-shape import', async () => {
+        const source = await createPdfDataWithSinglePage();
+        const shapes: IShapeAnnotation[] = [
+            {
+                id: 'shape-rect',
+                type: 'rectangle',
+                pageIndex: 0,
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.2,
+                color: '#336699',
+                fillColor: '#abcdef',
+                opacity: 0.5,
+                strokeWidth: 3,
+            },
+            {
+                id: 'shape-arrow',
+                type: 'arrow',
+                pageIndex: 0,
+                x: 0.4,
+                y: 0.4,
+                x2: 0.7,
+                y2: 0.45,
+                width: 0,
+                height: 0,
+                color: '#000000',
+                opacity: 1,
+                strokeWidth: 2,
+                lineEndStyle: 'openArrow',
+            },
+        ];
+
+        const result = await serializeShapeAnnotationsToDoc(source, shapes);
+        const importedShapes = await importEmbeddedShapeAnnotations(result);
+
+        expect(importedShapes).toHaveLength(2);
+        expect(importedShapes[0]).toMatchObject({
+            type: 'rectangle',
+            source: 'embedded',
+            pdfSubtype: 'Square',
+            color: '#336699',
+            fillColor: '#abcdef',
+            opacity: 0.5,
+            strokeWidth: 3,
+        });
+        expect(importedShapes[1]).toMatchObject({
+            type: 'arrow',
+            source: 'embedded',
+            pdfSubtype: 'Line',
+            color: '#000000',
+            opacity: 1,
+            strokeWidth: 2,
+            lineEndStyle: 'openArrow',
+        });
     });
 
     it('ignores shapes whose page index does not exist', async () => {

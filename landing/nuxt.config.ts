@@ -97,10 +97,6 @@ export default defineNuxtConfig({
     ]}},
 
     vite: {
-        build: {
-            // Keep the modern bundle parseable for older ESM browsers.
-            target: 'es2016',
-        },
         plugins: legacy({
             targets: [
                 'chrome >= 49',

@@ -550,6 +550,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                 pdfPage,
                                 scale,
                                 {
+                                    hiddenAnnotationIds: toValue(options.hiddenAnnotationIds) ?? undefined,
                                     maxCanvasPixels: renderOptions?.maxCanvasPixelsOverride,
                                     onRenderTask: (task) => {
                                         if (renderVersion !== version) {

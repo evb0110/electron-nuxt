@@ -84,7 +84,7 @@ describe('pdfSerializationWorkerClient', () => {
         vi.stubGlobal('Worker', FakeWorker);
     });
 
-    it('posts full-span buffers with a transferable array buffer', async () => {
+    it('posts a cloned buffer to the worker so the caller data stays attached', async () => {
         const { serializePdfEditsOffThread } = await import('@app/composables/pdf/pdfSerializationWorkerClient');
 
         const data = new Uint8Array([
@@ -122,5 +122,11 @@ describe('pdfSerializationWorkerClient', () => {
 
         const request = firstCall?.message as { payload: { data: Uint8Array } };
         expect(firstCall?.transfer[0]).toBe(request.payload.data.buffer);
+        expect(request.payload.data.buffer).not.toBe(data.buffer);
+        expect(Array.from(data)).toEqual([
+            1,
+            2,
+            3,
+        ]);
     });
 });

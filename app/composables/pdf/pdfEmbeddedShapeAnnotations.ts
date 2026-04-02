@@ -19,6 +19,7 @@ import {
     toMarkerPointFromPdfPoint,
     toMarkerRectFromPdfRect,
 } from '@app/composables/pdf/annotationGeometry';
+import { formatPdfJsAnnotationRef } from '@app/composables/pdf/pdfSerializationRefs';
 import { getAllShapePoints } from '@app/composables/pdf/pdfShapeStrokes';
 
 const IMPORTED_SHAPE_SUBTYPES = new Set<TEmbeddedPdfShapeSubtype>([
@@ -193,7 +194,7 @@ function readBorderWidth(dict: PDFDict) {
 }
 
 function refToAnnotationId(ref: PDFRef) {
-    return `${ref.objectNumber}R${ref.generationNumber}`;
+    return formatPdfJsAnnotationRef(ref);
 }
 
 function createImportedShapeId(

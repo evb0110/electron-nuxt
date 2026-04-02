@@ -54,6 +54,7 @@ export default {
             noArtifacts: 'Geen installatieartefacten gevonden in de laatste release.',
             recommended: 'Aanbevolen',
             legacy: {
+                tab: 'Legacy',
                 eyebrow: 'Legacy-downloads',
                 heading: 'Legacy Windows-builds',
                 description: 'Experimentele compatibiliteitsbuilds staan apart vermeld zodat de primaire aanbeveling op de huidige ondersteunde releases blijft.',

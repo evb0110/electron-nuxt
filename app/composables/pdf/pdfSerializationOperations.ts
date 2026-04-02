@@ -40,7 +40,11 @@ import {
     removeAnnotationRefsFromPages,
     updateAnnotationTextByRef,
 } from '@app/composables/pdf/pdfSerializationComments';
-import { resolveCommentPdfRefInDocument } from '@app/composables/pdf/pdfSerializationRefs';
+import {
+    formatPdfJsAnnotationRef,
+    normalizePdfJsAnnotationId,
+    resolveCommentPdfRefInDocument,
+} from '@app/composables/pdf/pdfSerializationRefs';
 import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
 import {
     isImplicitDefaultPageLabels,
@@ -186,7 +190,7 @@ function isAnnotationMarkerRect(value: IAnnotationCommentSummary['markerRect']):
 }
 
 function refToTag(ref: PDFRef) {
-    return `${ref.objectNumber}R${ref.generationNumber}`;
+    return formatPdfJsAnnotationRef(ref);
 }
 
 function setRgbColor(
@@ -656,15 +660,22 @@ function applyShapeAnnotations(
     const shapesByAnnotationId = new Map<string, IShapeAnnotation>();
     const pendingNewShapes: IShapeAnnotation[] = [];
     shapes.forEach((shape) => {
-        if (shape.annotationId) {
-            shapesByAnnotationId.set(shape.annotationId, shape);
+        const annotationId = normalizePdfJsAnnotationId(shape.annotationId);
+        if (annotationId) {
+            shapesByAnnotationId.set(annotationId, shape);
             return;
         }
         pendingNewShapes.push(shape);
     });
 
     const refsToDeleteByTag = new Map<string, PDFRef>();
-    const deletedIds = new Set(deletedShapeAnnotationIds);
+    const deletedIds = new Set<string>();
+    deletedShapeAnnotationIds.forEach((annotationId) => {
+        const normalizedId = normalizePdfJsAnnotationId(annotationId);
+        if (normalizedId) {
+            deletedIds.add(normalizedId);
+        }
+    });
     let modified = false;
 
     for (const page of pages) {
@@ -831,7 +842,7 @@ function applyMarkupSubtypeRewrites(
                 continue;
             }
 
-            const refTag = `${ref.objectNumber}R${ref.generationNumber}`;
+            const refTag = formatPdfJsAnnotationRef(ref);
             let targetSubtype = overridesMap.get(refTag) ?? null;
             if (!targetSubtype && pageHints.length > 0) {
                 const markerRect = toMarkerRectFromPdfRect(
@@ -955,7 +966,7 @@ function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCommentSu
                     continue;
                 }
 
-                if (comment.annotationId === refTag) {
+                if (normalizePdfJsAnnotationId(comment.annotationId) === refTag) {
                     bestMatch = {
                         comment,
                         score: 100,

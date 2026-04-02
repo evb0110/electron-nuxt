@@ -21,6 +21,7 @@ import type {
     Ref,
 } from 'vue';
 import { defaultDocument } from '@vueuse/core';
+import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/platform';
 
@@ -142,6 +143,17 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         resume: () => {},
     };
 
+    function getNormalizedHiddenAnnotationIds() {
+        const normalizedIds = new Set<string>();
+        (toValue(deps.hiddenAnnotationIds) ?? new Set<string>()).forEach((id) => {
+            const normalizedId = normalizePdfJsAnnotationId(id);
+            if (normalizedId) {
+                normalizedIds.add(normalizedId);
+            }
+        });
+        return normalizedIds;
+    }
+
     function getAnnotationId(annotation: unknown) {
         if (!annotation || typeof annotation !== 'object') {
             return null;
@@ -217,13 +229,13 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     }
 
     function applyHiddenAnnotations(annotationLayerDiv: HTMLElement) {
-        const hiddenAnnotationIds = toValue(deps.hiddenAnnotationIds) ?? new Set<string>();
+        const hiddenAnnotationIds = getNormalizedHiddenAnnotationIds();
         if (hiddenAnnotationIds.size === 0) {
             return;
         }
 
         annotationLayerDiv.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach((element) => {
-            const annotationId = element.dataset.annotationId;
+            const annotationId = normalizePdfJsAnnotationId(element.dataset.annotationId);
             if (!annotationId || !hiddenAnnotationIds.has(annotationId)) {
                 return;
             }
@@ -242,10 +254,13 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         annotationLayerDiv.innerHTML = '';
 
         const annotations = await pdfPage.getAnnotations();
-        const hiddenAnnotationIds = toValue(deps.hiddenAnnotationIds) ?? new Set<string>();
+        const hiddenAnnotationIds = getNormalizedHiddenAnnotationIds();
         const visibleAnnotations = hiddenAnnotationIds.size === 0
             ? annotations
-            : annotations.filter(annotation => !hiddenAnnotationIds.has(getAnnotationId(annotation) ?? ''));
+            : annotations.filter(annotation => {
+                const annotationId = normalizePdfJsAnnotationId(getAnnotationId(annotation));
+                return !annotationId || !hiddenAnnotationIds.has(annotationId);
+            });
         const annotationStorage = deps.pdfDocument.value?.annotationStorage;
         const annotationUiManager = toValue(deps.annotationUiManager) ?? null;
 

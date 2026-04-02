@@ -13,6 +13,7 @@ import type {
     IPdfPersistResult,
     IPdfPageLabelRange,
     IPdfSaveResult,
+    IScrollSnapshot,
     TPdfSaveMode,
 } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/platform-api';
@@ -20,8 +21,15 @@ import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import { useFileOperations } from '@app/composables/useFileOperations';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/platform';
+import { createPdfReloadWaiter } from '@app/composables/pdf/pdfReloadWaiter';
 
 interface IPdfViewerForSave {
+    scrollToPage: (pageNumber: number) => void;
+    captureScrollSnapshot?: () => IScrollSnapshot | null;
+    restoreScrollSnapshot?: (
+        snapshot: IScrollSnapshot | null,
+        options?: { fallbackPage?: number | null; },
+    ) => void;
     saveDocument: () => Promise<Uint8Array | null>;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype> | undefined;
     getAllShapes: () => IShapeAnnotation[];
@@ -67,6 +75,7 @@ interface IPageSaveOrchestrationDeps {
     }) => Promise<void>;
     currentPage: Ref<number>;
     waitForPdfReload: (page: number) => Promise<void>;
+    resetSearchCache: () => void;
 }
 
 export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
@@ -108,6 +117,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         loadPdfFromData,
         currentPage,
         waitForPdfReload,
+        resetSearchCache,
     } = deps;
 
     const {
@@ -135,8 +145,8 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     });
 
     const {
-        handleSave,
-        handleSaveAs,
+        handleSave: handleSaveWithReload,
+        handleSaveAs: handleSaveAsWithReload,
     } = useFileOperations({
         isSaving,
         isSavingAs,
@@ -163,6 +173,12 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         consumePendingEmbeddedAnnotationDeletes,
         annotationNoteWindowsCount,
         loadRecentFiles,
+        preparePostSaveReload: () => createPdfReloadWaiter({
+            pdfDocument,
+            pdfViewerRef,
+            resetSearchCache,
+            pageToRestore: currentPage.value,
+        }),
     });
 
     const isAnySaving = computed(() => isSaving.value || isSavingAs.value);
@@ -174,6 +190,14 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         if (result === false) {
             openOcrPopup();
         }
+    }
+
+    async function handleSave() {
+        await handleSaveWithReload();
+    }
+
+    async function handleSaveAs() {
+        await handleSaveAsWithReload();
     }
 
     async function handleOcrComplete(ocrPdfData: Uint8Array) {

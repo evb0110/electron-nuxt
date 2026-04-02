@@ -357,6 +357,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         loadPdfFromData,
         currentPage,
         waitForPdfReload: (page: number) => waitForPdfReload(page),
+        resetSearchCache,
     });
 
     const {

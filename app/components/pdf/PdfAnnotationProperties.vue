@@ -160,8 +160,8 @@ function toggleFill() {
     border: 1px solid var(--ui-border);
     border-radius: 8px;
     box-shadow: var(--app-pdf-popover-shadow);
-    min-width: 200px;
-    max-width: 260px;
+    min-width: 240px;
+    max-width: 320px;
     font-size: 12px;
 }
 
@@ -241,19 +241,21 @@ function toggleFill() {
 }
 
 .annotation-properties-field {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(88px, auto) minmax(0, 1fr) auto;
     align-items: center;
-    gap: 8px;
+    gap: 8px 10px;
 }
 
 .annotation-properties-label {
-    flex-shrink: 0;
-    width: 44px;
     font-size: 11px;
     color: var(--ui-text-muted);
+    line-height: 1.25;
+    overflow-wrap: anywhere;
 }
 
 .annotation-properties-color {
+    justify-self: start;
     width: 28px;
     height: 28px;
     padding: 1px;
@@ -272,12 +274,15 @@ function toggleFill() {
     display: flex;
     align-items: center;
     gap: 8px;
+    min-width: 0;
+    flex-wrap: wrap;
 }
 
 .annotation-properties-checkbox {
     display: flex;
     align-items: center;
     gap: 4px;
+    min-width: 0;
     font-size: 11px;
     color: var(--ui-text-muted);
     cursor: pointer;
@@ -285,7 +290,8 @@ function toggleFill() {
 
 .annotation-properties-range {
     flex: 1;
-    min-width: 60px;
+    min-width: 0;
+    width: 100%;
     appearance: none;
     height: 4px;
     border-radius: 2px;
@@ -307,7 +313,7 @@ function toggleFill() {
 
 .annotation-properties-value {
     flex-shrink: 0;
-    width: 36px;
+    min-width: 44px;
     text-align: right;
     font-size: 11px;
     color: var(--ui-text-muted);

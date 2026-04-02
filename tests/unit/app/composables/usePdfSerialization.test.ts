@@ -14,6 +14,7 @@ import {
     PDFRef,
 } from 'pdf-lib';
 import type { IShapeAnnotation } from '@app/types/annotations';
+import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 
 vi.mock('@app/composables/pdf/pdfAnnotationUtils', () => ({ markerRectIoU: () => 0 }));
@@ -163,6 +164,15 @@ async function createPdfDataWithEmbeddedShapes() {
         squareRef,
         lineRef,
     };
+}
+
+async function createPdfDataWithSinglePage() {
+    const doc = await PDFDocument.create();
+    doc.addPage([
+        600,
+        800,
+    ]);
+    return new Uint8Array(await doc.save());
 }
 
 describe('usePdfSerialization embedPlacedImageToPage', () => {
@@ -323,5 +333,75 @@ describe('usePdfSerialization embedded shapes', () => {
             expect.closeTo(270, 6),
             expect.closeTo(680, 6),
         ]));
+    });
+
+    it('round-trips newly added local drawings through serializePdfForSave', async () => {
+        const source = await createPdfDataWithSinglePage();
+        const shapes: IShapeAnnotation[] = [
+            {
+                id: 'shape-rect',
+                type: 'rectangle',
+                pageIndex: 0,
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.2,
+                color: '#336699',
+                fillColor: '#abcdef',
+                opacity: 0.5,
+                strokeWidth: 3,
+                source: 'local',
+            },
+            {
+                id: 'shape-arrow',
+                type: 'arrow',
+                pageIndex: 0,
+                x: 0.4,
+                y: 0.4,
+                x2: 0.7,
+                y2: 0.45,
+                width: 0,
+                height: 0,
+                color: '#000000',
+                opacity: 1,
+                strokeWidth: 2,
+                lineEndStyle: 'openArrow',
+                source: 'local',
+            },
+        ];
+        const serializer = usePdfSerialization({
+            pdfData: ref(source),
+            workingCopyPath: ref(null),
+            annotationComments: ref([]),
+            totalPages: ref(1),
+            pageLabelsDirty: ref(false),
+            pageLabelRanges: ref([]),
+            getMarkupSubtypeOverrides: () => undefined,
+            getAllShapes: () => shapes,
+            getDeletedEmbeddedShapeAnnotationIds: () => [],
+        });
+
+        const result = await serializer.serializePdfForSave(source, { includeShapes: true });
+        const importedShapes = await importEmbeddedShapeAnnotations(result);
+
+        expect(importedShapes).toHaveLength(2);
+        expect(importedShapes[0]).toMatchObject({
+            type: 'rectangle',
+            source: 'embedded',
+            pdfSubtype: 'Square',
+            color: '#336699',
+            fillColor: '#abcdef',
+            opacity: 0.5,
+            strokeWidth: 3,
+        });
+        expect(importedShapes[1]).toMatchObject({
+            type: 'arrow',
+            source: 'embedded',
+            pdfSubtype: 'Line',
+            color: '#000000',
+            opacity: 1,
+            strokeWidth: 2,
+            lineEndStyle: 'openArrow',
+        });
     });
 });
