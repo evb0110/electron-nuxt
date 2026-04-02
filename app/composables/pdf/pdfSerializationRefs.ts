@@ -153,6 +153,24 @@ export function parsePdfJsAnnotationRef(annotationId: string | null | undefined)
     return PDFRef.of(objectNumber, generationNumber);
 }
 
+export function formatPdfJsAnnotationRef(
+    ref: Pick<PDFRef, 'objectNumber' | 'generationNumber'>,
+) {
+    return ref.generationNumber === 0
+        ? `${ref.objectNumber}R`
+        : `${ref.objectNumber}R${ref.generationNumber}`;
+}
+
+export function normalizePdfJsAnnotationId(annotationId: string | null | undefined) {
+    const ref = parsePdfJsAnnotationRef(annotationId);
+    if (ref) {
+        return formatPdfJsAnnotationRef(ref);
+    }
+
+    const trimmed = annotationId?.trim();
+    return trimmed ? trimmed : null;
+}
+
 function parseAnnotationRefFromStableKey(stableKey: string | null | undefined) {
     if (!stableKey) {
         return null;

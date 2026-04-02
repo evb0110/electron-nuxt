@@ -90,6 +90,10 @@ import {
     importEmbeddedShapeAnnotations,
 } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import {
+    refreshDeletedEmbeddedShapePage,
+    rerenderRenderedManagedEmbeddedShapePages,
+} from '@app/composables/pdf/pdfEmbeddedShapeRefresh';
+import {
     cloneShapePoints,
     cloneShapeStrokes,
 } from '@app/composables/pdf/pdfShapeStrokes';
@@ -110,6 +114,8 @@ import {
     captureScrollSnapshot,
     restoreScrollFromSnapshot,
 } from '@app/composables/pdf/pdfPageRenderPipeline';
+import { savePdfDocumentWithCommittedEditors } from '@app/composables/pdf/pdfSaveDocument';
+import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -246,7 +252,6 @@ const {
     basePageWidth,
     basePageHeight,
     pageMetrics,
-    saveDocument,
 } = pdfDocumentResult;
 
 const {
@@ -370,7 +375,12 @@ let pageRenderStallRecoveryHandler: ((payload: IPageRenderStallPayload) => void)
 
 const hiddenEmbeddedAnnotationIds = computed(() => {
     const ids = collectEmbeddedShapeAnnotationIds(shapeComposable.getAllShapes());
-    shapeComposable.deletedEmbeddedAnnotationIds.value.forEach(id => ids.add(id));
+    shapeComposable.deletedEmbeddedAnnotationIds.value.forEach((id) => {
+        const normalizedId = normalizePdfJsAnnotationId(id);
+        if (normalizedId) {
+            ids.add(normalizedId);
+        }
+    });
     return ids;
 });
 
@@ -382,7 +392,7 @@ function syncHiddenEmbeddedAnnotationDom() {
 
     const hiddenIds = hiddenEmbeddedAnnotationIds.value;
     container.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach((element) => {
-        const annotationId = element.dataset.annotationId;
+        const annotationId = normalizePdfJsAnnotationId(element.dataset.annotationId);
         if (!annotationId) {
             return;
         }
@@ -397,6 +407,14 @@ function syncHiddenEmbeddedAnnotationDom() {
             element.style.removeProperty('display');
         }
         element.removeAttribute('aria-hidden');
+    });
+}
+
+function refreshDeletedEmbeddedShape(shape: IShapeAnnotation | null) {
+    refreshDeletedEmbeddedShapePage({
+        shape,
+        viewerContainer: viewerContainer.value,
+        syncHiddenEmbeddedAnnotationDom,
     });
 }
 
@@ -453,6 +471,13 @@ watch(
         shapeComposable.loadShapes(importedShapes);
         await nextTick();
         syncHiddenEmbeddedAnnotationDom();
+        void nextTick().then(() => {
+            rerenderRenderedManagedEmbeddedShapePages({
+                shapes: importedShapes,
+                isPageRendered,
+                renderVisiblePages,
+            });
+        });
     },
     { immediate: true },
 );
@@ -1011,6 +1036,13 @@ function restoreViewerScrollSnapshot(
     singlePageScroll.scrollToPage(fallbackPage);
 }
 
+async function saveViewerDocument() {
+    return savePdfDocumentWithCommittedEditors({
+        pdfDocument: pdfDocument.value,
+        annotationUiManager: annotationUiManager.value,
+    });
+}
+
 function getSelectedShape(): IShapeAnnotation | null {
     const id = shapeComposable.selectedShapeId.value;
     if (!id) {
@@ -1060,11 +1092,13 @@ function deleteSelectedShape() {
     }
 
     shapeComposable.deleteShape(id);
+    refreshDeletedEmbeddedShape(deletedShape);
     emit('annotation-modified');
 
     registerShapeHistoryCommand({
         cmd: () => {
             shapeComposable.deleteShape(id);
+            refreshDeletedEmbeddedShape(deletedShape);
             emit('annotation-modified');
         },
         undo: () => {
@@ -1083,7 +1117,7 @@ defineExpose({
     },
     captureScrollSnapshot: captureViewerScrollSnapshot,
     restoreScrollSnapshot: restoreViewerScrollSnapshot,
-    saveDocument,
+    saveDocument: saveViewerDocument,
     highlightSelection: highlightComposable.highlightSelection,
     commentSelection: highlightComposable.commentSelection,
     commentAtPoint: highlightComposable.commentAtPoint,

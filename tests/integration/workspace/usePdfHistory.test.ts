@@ -207,6 +207,7 @@ describe('usePdfHistory', () => {
 
         deps.pdfDocument.value = { numPages: 10 } as PDFDocumentProxy;
         await nextTick();
+        await vi.advanceTimersByTimeAsync(32);
         await promise;
 
         expect(deps.resetSearchCache).toHaveBeenCalledOnce();
@@ -238,6 +239,7 @@ describe('usePdfHistory', () => {
 
         deps.pdfDocument.value = { numPages: 10 } as PDFDocumentProxy;
         await nextTick();
+        await vi.advanceTimersByTimeAsync(32);
         await promise;
 
         expect(captureScrollSnapshot).toHaveBeenCalledOnce();

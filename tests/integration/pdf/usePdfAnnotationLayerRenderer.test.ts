@@ -357,7 +357,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         });
 
         const annotationLayerDiv = createAnnotationLayerDiv();
-        const pdfPage = cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => [{ id: '12R0' }]) });
+        const pdfPage = cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => [{ id: '12R' }]) });
 
         await renderer.renderAnnotationLayer(
             pdfPage,
@@ -366,7 +366,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             1,
         );
 
-        const hiddenElement = annotationLayerDiv.querySelectorAll('[data-annotation-id="12R0"]')[0] as IFakeAnnotationElement | undefined;
+        const hiddenElement = annotationLayerDiv.querySelectorAll('[data-annotation-id="12R"]')[0] as IFakeAnnotationElement | undefined;
         expect(hiddenElement).toBeUndefined();
     });
 });

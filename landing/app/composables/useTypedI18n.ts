@@ -1,3 +1,4 @@
+import type { Composer } from 'vue-i18n';
 import type {
     TLocale,
     TTranslateFn,
@@ -11,7 +12,7 @@ import {
 } from '~/i18n/core';
 
 export function useTypedI18n() {
-    const composer = useI18n();
+    const composer = useNuxtApp().$i18n as Composer;
     const typedComposer = createTypedI18nComposer<typeof composer, typeof composer.t, TLocale>(composer);
     const t: TTranslateFn = (key, ...args) => {
         const params = normalizeTranslationParams(args[0]);
@@ -31,10 +32,9 @@ export function useTypedI18n() {
         return formatTranslationLeaf(leaf, params, locale);
     };
 
-    return {
-        ...typedComposer,
+    return Object.assign(typedComposer, {
         t,
-    };
+    });
 }
 
 export type TLandingTypedI18nComposer = ReturnType<typeof useTypedI18n>;

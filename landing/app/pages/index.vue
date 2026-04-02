@@ -205,23 +205,26 @@
           </div>
 
           <div
-            v-else-if="installers.length"
+            v-else-if="installers.length || legacyInstallers.length"
             class="installer-content"
           >
             <div class="installer-platforms">
               <UButton
-                v-for="platform in selectablePlatforms"
-                :key="platform"
-                :label="installerPlatformLabel(platform)"
+                v-for="tab in installerTabs"
+                :key="tab"
+                :label="installerTabLabel(tab)"
                 size="sm"
-                :variant="selectedPlatform === platform ? 'solid' : 'ghost'"
-                :color="selectedPlatform === platform ? 'primary' : 'neutral'"
+                :variant="selectedInstallerTab === tab ? 'solid' : 'ghost'"
+                :color="selectedInstallerTab === tab ? 'primary' : 'neutral'"
                 class="installer-platform-button"
-                @click="selectPlatform(platform)"
+                @click="selectInstallerTab(tab)"
               />
             </div>
 
-            <div class="installer-list">
+            <div
+              v-if="selectedInstallerTab !== 'legacy'"
+              class="installer-list"
+            >
               <button
                 v-for="installer in installersForSelectedPlatform"
                 :key="installer.id"
@@ -250,6 +253,57 @@
                 />
               </button>
             </div>
+            <div
+              v-else
+              class="space-y-4"
+            >
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="space-y-2">
+                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+                    {{ t('home.installers.legacy.eyebrow') }}
+                  </p>
+                  <h3 class="text-lg font-semibold text-highlighted">
+                    {{ t('home.installers.legacy.heading') }}
+                  </h3>
+                  <p class="max-w-2xl text-sm text-toned">
+                    {{ t('home.installers.legacy.description') }}
+                  </p>
+                </div>
+
+                <UBadge
+                  :label="t('home.installers.legacy.manualOnly')"
+                  color="warning"
+                  variant="subtle"
+                />
+              </div>
+
+              <div class="installer-list">
+                <button
+                  v-for="installer in legacyInstallers"
+                  :key="installer.id"
+                  type="button"
+                  class="installer-item"
+                  @click="trackDownload(installer); triggerIframeDownload(installer.downloadUrl)"
+                >
+                  <div class="installer-item-info">
+                    <div class="installer-item-header">
+                      <span class="installer-item-variant">{{ legacyInstallerLabel(installer) }}</span>
+                    </div>
+                    <span class="installer-item-meta">
+                      {{ installer.name }} · {{ formatFileSize(installer.size) }}
+                    </span>
+                  </div>
+                  <UIcon
+                    name="i-lucide-download"
+                    class="installer-item-icon"
+                  />
+                </button>
+              </div>
+
+              <p class="text-sm text-toned">
+                {{ t('home.installers.legacy.note') }}
+              </p>
+            </div>
           </div>
 
           <div
@@ -257,58 +311,6 @@
             class="installer-state"
           >
             <p>{{ t('home.installers.noArtifacts') }}</p>
-          </div>
-
-          <div
-            v-if="legacyInstallers.length"
-            class="mt-6 rounded-2xl border border-dashed border-default bg-default/40 p-4"
-          >
-            <div class="flex flex-wrap items-start justify-between gap-3">
-              <div class="space-y-2">
-                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
-                  {{ t('home.installers.legacy.eyebrow') }}
-                </p>
-                <h3 class="text-lg font-semibold text-highlighted">
-                  {{ t('home.installers.legacy.heading') }}
-                </h3>
-                <p class="max-w-2xl text-sm text-toned">
-                  {{ t('home.installers.legacy.description') }}
-                </p>
-              </div>
-
-              <UBadge
-                :label="t('home.installers.legacy.manualOnly')"
-                color="warning"
-                variant="subtle"
-              />
-            </div>
-
-            <div class="installer-list mt-4">
-              <button
-                v-for="installer in legacyInstallers"
-                :key="installer.id"
-                type="button"
-                class="installer-item"
-                @click="trackDownload(installer); triggerIframeDownload(installer.downloadUrl)"
-              >
-                <div class="installer-item-info">
-                  <div class="installer-item-header">
-                    <span class="installer-item-variant">{{ legacyInstallerLabel(installer) }}</span>
-                  </div>
-                  <span class="installer-item-meta">
-                    {{ installer.name }} · {{ formatFileSize(installer.size) }}
-                  </span>
-                </div>
-                <UIcon
-                  name="i-lucide-download"
-                  class="installer-item-icon"
-                />
-              </button>
-            </div>
-
-            <p class="mt-4 text-sm text-toned">
-              {{ t('home.installers.legacy.note') }}
-            </p>
           </div>
         </div>
 
@@ -461,8 +463,7 @@ interface INavigatorUADataLike {
     getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }>
 }
 
-const { t } = useTypedI18n();
-const { locale } = useI18n();
+const { t, locale } = useTypedI18n();
 const route = useRoute();
 const localePath = useLocalePath();
 const runtimeConfig = useRuntimeConfig();
@@ -620,10 +621,21 @@ const {
 const releaseAssets = computed(() => releaseData.value?.assets || []);
 const installers = computed(() => releaseAssets.value.filter(asset => !asset.isLegacy));
 const legacyInstallers = computed(() => releaseAssets.value.filter(asset => asset.isLegacy));
+type TInstallerTab = TReleasePlatform | 'legacy';
 
 const selectablePlatforms = computed<TReleasePlatform[]>(() => INSTALLER_PLATFORM_ORDER.filter(
     platform => installers.value.some(asset => asset.platform === platform),
 ));
+
+const installerTabs = computed<TInstallerTab[]>(() => {
+    const tabs: TInstallerTab[] = [...selectablePlatforms.value];
+
+    if (legacyInstallers.value.length) {
+        tabs.push('legacy');
+    }
+
+    return tabs;
+});
 
 const recommendedInstaller = computed<IReleaseInstaller | null>(() => {
     if (!installers.value.length) {
@@ -646,12 +658,29 @@ const recommendedInstaller = computed<IReleaseInstaller | null>(() => {
     return installers.value[0] || null;
 });
 
-const platformOverride = ref<TReleasePlatform | null>(null);
+const selectedInstallerTabOverride = ref<TInstallerTab | null>(null);
 const assetIdOverride = ref<number | undefined>(undefined);
 
+const selectedInstallerTab = computed<TInstallerTab>(() => {
+    if (selectedInstallerTabOverride.value && installerTabs.value.includes(selectedInstallerTabOverride.value)) {
+        return selectedInstallerTabOverride.value;
+    }
+
+    const recPlatform = recommendedInstaller.value?.platform || 'unknown';
+    if (selectablePlatforms.value.includes(recPlatform)) {
+        return recPlatform;
+    }
+
+    if (!selectablePlatforms.value.length && legacyInstallers.value.length) {
+        return 'legacy';
+    }
+
+    return selectablePlatforms.value[0] || 'unknown';
+});
+
 const selectedPlatform = computed<TReleasePlatform>(() => {
-    if (platformOverride.value && selectablePlatforms.value.includes(platformOverride.value)) {
-        return platformOverride.value;
+    if (selectedInstallerTab.value !== 'legacy' && selectablePlatforms.value.includes(selectedInstallerTab.value)) {
+        return selectedInstallerTab.value;
     }
 
     const recPlatform = recommendedInstaller.value?.platform || 'unknown';
@@ -891,8 +920,8 @@ function scrollToInstallers() {
     }
 }
 
-function selectPlatform(platform: TReleasePlatform) {
-    platformOverride.value = platform;
+function selectInstallerTab(tab: TInstallerTab) {
+    selectedInstallerTabOverride.value = tab;
     assetIdOverride.value = undefined;
 }
 
@@ -910,6 +939,14 @@ function installerPlatformLabel(platform: TReleasePlatform): string {
     }
 
     return formatPlatform(platform);
+}
+
+function installerTabLabel(tab: TInstallerTab): string {
+    if (tab === 'legacy') {
+        return t('home.installers.legacy.tab');
+    }
+
+    return installerPlatformLabel(tab);
 }
 
 function legacyInstallerLabel(installer: IReleaseInstaller): string {

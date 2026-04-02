@@ -541,4 +541,5 @@ describe('usePageAnnotationActions', () => {
             persistWorkingCopy: true,
         });
     });
+
 });

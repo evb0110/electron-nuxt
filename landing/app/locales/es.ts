@@ -54,6 +54,7 @@ export default {
             noArtifacts: 'No se encontraron artefactos de instalador en la ultima version.',
             recommended: 'Recomendado',
             legacy: {
+                tab: 'Legacy',
                 eyebrow: 'Descargas legacy',
                 heading: 'Builds legacy de Windows',
                 description: 'Las compilaciones experimentales de compatibilidad se muestran por separado para que la recomendacion principal siga apuntando a las versiones soportadas actuales.',

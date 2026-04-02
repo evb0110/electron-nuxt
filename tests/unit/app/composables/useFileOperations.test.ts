@@ -16,6 +16,20 @@ function cast<T>(value: unknown): T {
     return value as T;
 }
 
+function createDeferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((innerResolve, innerReject) => {
+        resolve = innerResolve;
+        reject = innerReject;
+    });
+    return {
+        promise,
+        resolve,
+        reject,
+    };
+}
+
 function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> = {}) {
     const resetModified = vi.fn();
     const saveFile = vi.fn(async (_data: Uint8Array) => ({
@@ -222,6 +236,44 @@ describe('useFileOperations', () => {
         ]);
     });
 
+    it('uses PDF.js saveDocument when annotation storage has serializable entries without modified ids', async () => {
+        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+            resetModified: vi.fn(),
+            modifiedIds: { ids: new Set() },
+            serializable: {
+                map: new Map([[
+                    'ink-editor-1',
+                    { path: 'M0 0L1 1' },
+                ]]),
+                hash: 'ink-hash',
+                transfer: [],
+            },
+        } }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            pdfDocument: livePdfDocument,
+            saveDocument: vi.fn(async () => new Uint8Array([11])),
+            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(deps.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
+            11,
+            2,
+            3,
+            6,
+            4,
+            5,
+        ]);
+    });
+
     it('uses PDF.js saveDocument for editor-only annotations that are not yet materialized', async () => {
         const {
             deps,
@@ -316,6 +368,80 @@ describe('useFileOperations', () => {
             4,
             5,
         ]);
+    });
+
+    it('waits for the post-save reload to restore the viewer state after a successful save', async () => {
+        const deferredReload = createDeferred<undefined>();
+        const cancel = vi.fn();
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            preparePostSaveReload: () => ({
+                promise: deferredReload.promise,
+                cancel,
+            }),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        let settled = false;
+        const savePromise = handleSave().then(() => {
+            settled = true;
+        });
+
+        await vi.waitFor(() => {
+            expect(deps.saveFile).toHaveBeenCalledOnce();
+        });
+        expect(settled).toBe(false);
+        expect(cancel).not.toHaveBeenCalled();
+
+        deferredReload.resolve(undefined);
+        await savePromise;
+
+        expect(settled).toBe(true);
+    });
+
+    it('cancels the pending post-save reload waiter when save does not succeed', async () => {
+        const deferredReload = createDeferred<undefined>();
+        const cancel = vi.fn();
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            saveFile: vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            })),
+            preparePostSaveReload: () => ({
+                promise: deferredReload.promise,
+                cancel,
+            }),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it('cancels the pending post-save reload waiter when Save As is canceled without dirty changes', async () => {
+        const deferredReload = createDeferred<undefined>();
+        const cancel = vi.fn();
+        const { deps } = createDeps({
+            saveWorkingCopyAs: vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'save_as_rewrite' as const,
+                didSaveAs: true,
+            })),
+            preparePostSaveReload: () => ({
+                promise: deferredReload.promise,
+                cancel,
+            }),
+        });
+        const { handleSaveAs } = useFileOperations(deps);
+
+        await handleSaveAs();
+
+        expect(cancel).toHaveBeenCalledOnce();
     });
 
     it('stops the saving state when PDF.js saveDocument stalls', async () => {

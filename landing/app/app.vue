@@ -21,8 +21,7 @@ import {
 import SiteFooter from '~/components/SiteFooter.vue';
 import SiteHeader from '~/components/SiteHeader.vue';
 
-const { t } = useTypedI18n();
-const { locale } = useI18n();
+const { t, locale } = useTypedI18n();
 const runtimeConfig = useRuntimeConfig();
 
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));

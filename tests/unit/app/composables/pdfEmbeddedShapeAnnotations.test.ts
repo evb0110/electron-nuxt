@@ -11,6 +11,7 @@ import {
     collectEmbeddedShapeAnnotationIds,
     importEmbeddedShapeAnnotations,
 } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
+import { formatPdfJsAnnotationRef } from '@app/composables/pdf/pdfSerializationRefs';
 import type { IShapeAnnotation } from '@app/types/annotations';
 
 async function createPdfWithEmbeddedShapes() {
@@ -253,7 +254,7 @@ describe('importEmbeddedShapeAnnotations', () => {
         expect(shapes[0]).toMatchObject({
             type: 'rectangle',
             pageIndex: 0,
-            annotationId: `${squareRef.objectNumber}R${squareRef.generationNumber}`,
+            annotationId: formatPdfJsAnnotationRef(squareRef),
             source: 'embedded',
             pdfSubtype: 'Square',
             color: '#336699',
@@ -268,7 +269,7 @@ describe('importEmbeddedShapeAnnotations', () => {
 
         expect(shapes[1]).toMatchObject({
             type: 'circle',
-            annotationId: `${circleRef.objectNumber}R${circleRef.generationNumber}`,
+            annotationId: formatPdfJsAnnotationRef(circleRef),
             pdfSubtype: 'Circle',
             color: '#1ab333',
             opacity: 0.4,
@@ -277,7 +278,7 @@ describe('importEmbeddedShapeAnnotations', () => {
 
         expect(shapes[2]).toMatchObject({
             type: 'arrow',
-            annotationId: `${lineRef.objectNumber}R${lineRef.generationNumber}`,
+            annotationId: formatPdfJsAnnotationRef(lineRef),
             pdfSubtype: 'Line',
             lineStartStyle: 'none',
             lineEndStyle: 'closedArrow',
@@ -289,7 +290,7 @@ describe('importEmbeddedShapeAnnotations', () => {
 
         expect(shapes[3]).toMatchObject({
             type: 'polyline',
-            annotationId: `${polyLineRef.objectNumber}R${polyLineRef.generationNumber}`,
+            annotationId: formatPdfJsAnnotationRef(polyLineRef),
             pdfSubtype: 'PolyLine',
             lineStartStyle: 'openArrow',
             lineEndStyle: 'none',
@@ -299,7 +300,7 @@ describe('importEmbeddedShapeAnnotations', () => {
 
         expect(shapes[4]).toMatchObject({
             type: 'polygon',
-            annotationId: `${polygonRef.objectNumber}R${polygonRef.generationNumber}`,
+            annotationId: formatPdfJsAnnotationRef(polygonRef),
             pdfSubtype: 'Polygon',
             fillColor: '#ffe6c7',
             opacity: 0.7,
@@ -308,7 +309,7 @@ describe('importEmbeddedShapeAnnotations', () => {
 
         expect(shapes[5]).toMatchObject({
             type: 'polyline',
-            annotationId: `${inkRef.objectNumber}R${inkRef.generationNumber}`,
+            annotationId: formatPdfJsAnnotationRef(inkRef),
             pdfSubtype: 'Ink',
             color: '#f2bf0d',
             opacity: 0.9,
@@ -333,7 +334,7 @@ describe('importEmbeddedShapeAnnotations', () => {
                 opacity: 1,
                 strokeWidth: 1,
                 source: 'embedded',
-                annotationId: '20R0',
+                annotationId: '20R',
             },
             {
                 id: 'shape-local-1',
@@ -352,6 +353,6 @@ describe('importEmbeddedShapeAnnotations', () => {
             },
         ];
 
-        expect([...collectEmbeddedShapeAnnotationIds(shapes)]).toEqual(['20R0']);
+        expect([...collectEmbeddedShapeAnnotationIds(shapes)]).toEqual(['20R']);
     });
 });

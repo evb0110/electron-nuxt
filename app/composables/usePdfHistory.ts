@@ -1,11 +1,9 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/platform-api';
-import { until } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { TWorkspaceUndoSource } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';
-
-const PDF_RELOAD_TIMEOUT_MS = 8000;
+import { createPdfReloadWaiter } from '@app/composables/pdf/pdfReloadWaiter';
 
 export const usePdfHistory = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
@@ -56,47 +54,17 @@ export const usePdfHistory = (deps: {
      * the reload completes (or times out). A cancel path is exposed so
      * undo/redo no-op operations can tear the watcher down immediately.
      */
-    function createPdfReloadWaiter(pageToRestore: number) {
-        const initialDoc = pdfDocument.value;
-        const isCancelled = ref(false);
-        const scrollSnapshot = pdfViewerRef.value?.captureScrollSnapshot?.() ?? null;
-
-        const promise = until(() => ({
-            doc: pdfDocument.value,
-            cancelled: isCancelled.value,
-        }))
-            .toMatch(({
-                doc,
-                cancelled,
-            }) => cancelled || Boolean(doc && doc !== initialDoc), {timeout: PDF_RELOAD_TIMEOUT_MS})
-            .then(async ({
-                doc,
-                cancelled,
-            }) => {
-                if (cancelled || !doc || doc === initialDoc) {
-                    return;
-                }
-
-                resetSearchCache();
-                await nextTick();
-                const viewer = pdfViewerRef.value;
-                if (viewer?.restoreScrollSnapshot) {
-                    viewer.restoreScrollSnapshot(scrollSnapshot, { fallbackPage: pageToRestore });
-                    return;
-                }
-                viewer?.scrollToPage(pageToRestore);
-            });
-
-        return {
-            promise,
-            cancel: () => {
-                isCancelled.value = true;
-            },
-        };
+    function preparePdfReloadWaiter(pageToRestore: number) {
+        return createPdfReloadWaiter({
+            pdfDocument,
+            pdfViewerRef,
+            resetSearchCache,
+            pageToRestore,
+        });
     }
 
     function waitForPdfReload(pageToRestore: number) {
-        return createPdfReloadWaiter(pageToRestore).promise;
+        return preparePdfReloadWaiter(pageToRestore).promise;
     }
 
     async function handleUndo() {
@@ -121,7 +89,7 @@ export const usePdfHistory = (deps: {
             }
             const pageToRestore = currentPage.value;
             const reloadWaiter = undoSource === 'file'
-                ? createPdfReloadWaiter(pageToRestore)
+                ? preparePdfReloadWaiter(pageToRestore)
                 : null;
             const didUndo = await undoHistory();
             if (didUndo && reloadWaiter) {
@@ -156,7 +124,7 @@ export const usePdfHistory = (deps: {
             }
             const pageToRestore = currentPage.value;
             const reloadWaiter = redoSource === 'file'
-                ? createPdfReloadWaiter(pageToRestore)
+                ? preparePdfReloadWaiter(pageToRestore)
                 : null;
             const didRedo = await redoHistory();
             if (didRedo && reloadWaiter) {
@@ -170,6 +138,7 @@ export const usePdfHistory = (deps: {
     }
 
     return {
+        preparePdfReloadWaiter,
         waitForPdfReload,
         handleUndo,
         handleRedo,

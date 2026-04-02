@@ -1,6 +1,8 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { AnnotationMode } from '@app/services/pdfjs/runtime-lib';
+import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import type { PDFOperatorList } from 'pdfjs-dist/types/src/display/api';
 
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
@@ -24,10 +26,112 @@ interface ICancelableRenderTask {
 interface IRenderCanvasOptions {
     maxCanvasPixels?: number;
     onRenderTask?: (task: ICancelableRenderTask) => void;
+    hiddenAnnotationIds?: Set<string>;
 }
 
 export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
     const { outputScale } = deps;
+
+    function normalizeAnnotationIdSet(annotationIds: Set<string>) {
+        const normalizedIds = new Set<string>();
+        annotationIds.forEach((id) => {
+            const normalizedId = normalizePdfJsAnnotationId(id);
+            if (normalizedId) {
+                normalizedIds.add(normalizedId);
+            }
+        });
+        return normalizedIds;
+    }
+
+    function collectHiddenAnnotationOperatorIndices(
+        operatorList: PDFOperatorList,
+        hiddenAnnotationIds: Set<string>,
+    ) {
+        if (hiddenAnnotationIds.size === 0) {
+            return new Set<number>();
+        }
+
+        const skippedIndices = new Set<number>();
+        const annotationStack: boolean[] = [];
+        // PDF.js encodes annotation appearance sections with begin/end annotation
+        // operators in the shared operator list. These op ids are stable.
+        const beginAnnotationOp = 80;
+        const endAnnotationOp = 81;
+        let hiddenDepth = 0;
+
+        operatorList.fnArray.forEach((fn, index) => {
+            if (fn === beginAnnotationOp) {
+                const args: unknown = operatorList.argsArray[index];
+                const annotationId = Array.isArray(args) && typeof args[0] === 'string'
+                    ? normalizePdfJsAnnotationId(args[0])
+                    : null;
+                const isHidden = annotationId ? hiddenAnnotationIds.has(annotationId) : false;
+
+                if (hiddenDepth > 0 || isHidden) {
+                    skippedIndices.add(index);
+                }
+
+                annotationStack.push(isHidden);
+                if (isHidden) {
+                    hiddenDepth += 1;
+                }
+                return;
+            }
+
+            if (hiddenDepth > 0) {
+                skippedIndices.add(index);
+            }
+
+            if (fn === endAnnotationOp) {
+                const didHideCurrentAnnotation = annotationStack.pop() ?? false;
+                if (didHideCurrentAnnotation) {
+                    hiddenDepth = Math.max(0, hiddenDepth - 1);
+                }
+            }
+        });
+
+        return skippedIndices;
+    }
+
+    async function createHiddenAnnotationOperationsFilter(
+        pdfPage: PDFPageProxy,
+        annotationMode: number,
+        hiddenAnnotationIds?: Set<string>,
+    ) {
+        if (!hiddenAnnotationIds || hiddenAnnotationIds.size === 0) {
+            return undefined;
+        }
+
+        if (typeof pdfPage.getOperatorList !== 'function') {
+            return undefined;
+        }
+
+        try {
+            const normalizedHiddenAnnotationIds = normalizeAnnotationIdSet(hiddenAnnotationIds);
+            if (normalizedHiddenAnnotationIds.size === 0) {
+                return undefined;
+            }
+
+            const operatorList = await pdfPage.getOperatorList({ annotationMode });
+            const skippedIndices = collectHiddenAnnotationOperatorIndices(
+                operatorList,
+                normalizedHiddenAnnotationIds,
+            );
+
+            if (skippedIndices.size === 0) {
+                return undefined;
+            }
+
+            return (index: number) => !skippedIndices.has(index);
+        } catch (error) {
+            BrowserLogger.warn(
+                'pdf-renderer',
+                `Failed to build hidden annotation filter for page ${pdfPage.pageNumber}`,
+                error,
+            );
+            return undefined;
+        }
+    }
 
     function cleanupCanvas(canvas: HTMLCanvasElement) {
         canvas.width = 0;
@@ -109,6 +213,12 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
             0,
         ] : undefined;
         const annotationCanvasMap = new Map<string, HTMLCanvasElement>();
+        const annotationMode = AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1;
+        const operationsFilter = await createHiddenAnnotationOperationsFilter(
+            pdfPage,
+            annotationMode,
+            options?.hiddenAnnotationIds,
+        );
 
         const renderContext = {
             canvasContext: context,
@@ -118,8 +228,9 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
             // Let PDF.js prepare separate annotation canvases for appearance-backed
             // annotations (for example placed image stamps) while keeping the
             // annotation layer responsible for attaching them into the DOM.
-            annotationMode: AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1,
+            annotationMode,
             annotationCanvasMap,
+            operationsFilter,
         };
 
         const renderTask = pdfPage.render(renderContext) as ICancelableRenderTask;

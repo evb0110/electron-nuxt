@@ -49,6 +49,10 @@ export interface IFileOperationsDeps {
     consumePendingEmbeddedAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
     annotationNoteWindowsCount: Ref<number>;
     loadRecentFiles: () => void;
+    preparePostSaveReload?: () => {
+        promise: Promise<void>;
+        cancel: () => void;
+    };
 }
 
 export const useFileOperations = (deps: IFileOperationsDeps) => {
@@ -79,6 +83,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         consumePendingEmbeddedAnnotationDeletes,
         annotationNoteWindowsCount,
         loadRecentFiles,
+        preparePostSaveReload,
     } = deps;
 
     function getValidationFileName() {
@@ -96,8 +101,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         }
 
         try {
-            const modifiedIds = document.annotationStorage?.modifiedIds?.ids;
-            return typeof modifiedIds?.size === 'number' && modifiedIds.size > 0;
+            const storage = document.annotationStorage;
+            const modifiedIds = storage?.modifiedIds?.ids;
+            if (typeof modifiedIds?.size === 'number' && modifiedIds.size > 0) {
+                return true;
+            }
+
+            const serializableMap = storage?.serializable?.map;
+            return serializableMap instanceof Map && serializableMap.size > 0;
         } catch (error) {
             BrowserLogger.debug('workspace', 'Failed to inspect live PDF.js annotation dirty state', error);
             return false;
@@ -236,21 +247,40 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return getSourcePdfData();
     }
 
+    async function finalizeSaveReload(
+        reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
+        saveSucceeded: boolean,
+    ) {
+        if (!reloadWaiter) {
+            return;
+        }
+        if (!saveSucceeded) {
+            reloadWaiter.cancel();
+            return;
+        }
+        await reloadWaiter.promise.catch((error) => {
+            BrowserLogger.warn('workspace', 'Saved PDF but failed to restore the reloaded view', error);
+        });
+    }
+
     async function handleSave() {
         if (isSaving.value || isSavingAs.value) {
-            return;
+            return false;
         }
         if (annotationNoteWindowsCount.value > 0) {
             const savedNotes = await persistAllAnnotationNotes(true);
             if (!savedNotes) {
                 BrowserLogger.warn('workspace', 'Save aborted because annotation note persistence failed');
-                return;
+                return false;
             }
         }
         const pendingTexts = consumePendingEmbeddedTextUpdates();
         const pendingDeletes = consumePendingEmbeddedAnnotationDeletes();
         const hasPendingTexts = Boolean(pendingTexts && pendingTexts.size > 0);
         const hasPendingDeletes = Boolean(pendingDeletes && pendingDeletes.length > 0);
+        const reloadWaiter = preparePostSaveReload?.() ?? null;
+        let finalizedReloadWaiter = false;
+        let saveSucceeded = false;
         isSaving.value = true;
         try {
             if (workingCopyPath.value) {
@@ -265,6 +295,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                         if (saveResult) {
                             const persisted = await saveFile(saveResult.finalBytes, { saveMode: saveResult.saveMode });
                             if (finalizeSuccessfulSave(persisted)) {
+                                saveSucceeded = true;
                                 analytics.track('save_completed', {
                                     didSaveAs: persisted.didSaveAs,
                                     mode: 'save',
@@ -274,12 +305,15 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                             }
                         }
                     }
-                    return;
+                    await finalizeSaveReload(reloadWaiter, saveSucceeded);
+                    finalizedReloadWaiter = true;
+                    return saveSucceeded;
                 }
                 const saveResult = await validateWorkingCopySnapshot('rewrite');
                 if (saveResult) {
                     const persisted = await saveWorkingCopy({ saveMode: saveResult.saveMode });
                     if (finalizeSuccessfulSave(persisted, { resetAnnotationStorage: false })) {
+                        saveSucceeded = true;
                         analytics.track('save_completed', {
                             didSaveAs: persisted.didSaveAs,
                             mode: 'save',
@@ -288,7 +322,9 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                         });
                     }
                 }
-                return;
+                await finalizeSaveReload(reloadWaiter, saveSucceeded);
+                finalizedReloadWaiter = true;
+                return saveSucceeded;
             }
 
             const rawData = await saveDocumentWithRetry();
@@ -300,6 +336,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 if (saveResult) {
                     const persisted = await saveFile(saveResult.finalBytes, { saveMode: saveResult.saveMode });
                     if (finalizeSuccessfulSave(persisted)) {
+                        saveSucceeded = true;
                         analytics.track('save_completed', {
                             didSaveAs: persisted.didSaveAs,
                             mode: 'save',
@@ -309,26 +346,35 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     }
                 }
             }
+            await finalizeSaveReload(reloadWaiter, saveSucceeded);
+            finalizedReloadWaiter = true;
+            return saveSucceeded;
         } finally {
+            if (reloadWaiter && !finalizedReloadWaiter) {
+                reloadWaiter.cancel();
+            }
             isSaving.value = false;
         }
     }
 
     async function handleSaveAs() {
         if (isSaving.value || isSavingAs.value) {
-            return;
+            return false;
         }
         if (annotationNoteWindowsCount.value > 0) {
             const savedNotes = await persistAllAnnotationNotes(true);
             if (!savedNotes) {
                 BrowserLogger.warn('workspace', 'Save As aborted because annotation note persistence failed');
-                return;
+                return false;
             }
         }
         const pendingTexts = consumePendingEmbeddedTextUpdates();
         const pendingDeletes = consumePendingEmbeddedAnnotationDeletes();
         const hasPendingTexts = Boolean(pendingTexts && pendingTexts.size > 0);
         const hasPendingDeletes = Boolean(pendingDeletes && pendingDeletes.length > 0);
+        const reloadWaiter = preparePostSaveReload?.() ?? null;
+        let finalizedReloadWaiter = false;
+        let saveSucceeded = false;
         isSavingAs.value = true;
         try {
             const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
@@ -342,6 +388,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     if (saveResult) {
                         const persisted = await saveWorkingCopyAs(saveResult.finalBytes, { saveMode: saveResult.saveMode });
                         if (finalizeSuccessfulSave(persisted)) {
+                            saveSucceeded = true;
                             analytics.track('save_completed', {
                                 didSaveAs: persisted.didSaveAs,
                                 mode: 'save_as',
@@ -356,6 +403,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 if (saveResult) {
                     const persisted = await saveWorkingCopyAs(undefined, { saveMode: saveResult.saveMode });
                     if (finalizeSuccessfulSave(persisted, { resetAnnotationStorage: false })) {
+                        saveSucceeded = true;
                         analytics.track('save_completed', {
                             didSaveAs: persisted.didSaveAs,
                             mode: 'save_as',
@@ -365,7 +413,13 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     }
                 }
             }
+            await finalizeSaveReload(reloadWaiter, saveSucceeded);
+            finalizedReloadWaiter = true;
+            return saveSucceeded;
         } finally {
+            if (reloadWaiter && !finalizedReloadWaiter) {
+                reloadWaiter.cancel();
+            }
             isSavingAs.value = false;
         }
     }
