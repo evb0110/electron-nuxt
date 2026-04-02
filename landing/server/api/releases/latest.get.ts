@@ -3,6 +3,7 @@ import {
     detectPlatform,
     getAssetExtension,
     isInstallerAsset,
+    isLegacyInstallerAsset,
     normalizeInstallers,
     parseUserAgent,
     recommendInstaller,
@@ -41,6 +42,7 @@ function toInstallers(release: IGithubRelease): IReleaseInstaller[] {
             extension: getAssetExtension(asset.name),
             platform: detectPlatform(asset.name),
             arch: detectArchitecture(asset.name),
+            isLegacy: isLegacyInstallerAsset(asset.name),
         }));
 
     return normalizeInstallers(installers);

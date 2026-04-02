@@ -2,6 +2,10 @@ export default defineNuxtPlugin(() => {
     const router = useRouter();
 
     router.afterEach((to) => {
+        if (typeof fetch !== 'function') {
+            return;
+        }
+
         fetch('/api/analytics/page-view', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

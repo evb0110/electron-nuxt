@@ -53,6 +53,14 @@ export default {
             downloadSelected: 'Geselecteerd installatieprogramma downloaden',
             noArtifacts: 'Geen installatieartefacten gevonden in de laatste release.',
             recommended: 'Aanbevolen',
+            legacy: {
+                eyebrow: 'Legacy-downloads',
+                heading: 'Legacy Windows-builds',
+                description: 'Experimentele compatibiliteitsbuilds staan apart vermeld zodat de primaire aanbeveling op de huidige ondersteunde releases blijft.',
+                manualOnly: 'Alleen handmatige installatie',
+                note: 'Deze builds zijn best-effort en kunnen achterlopen op de hoofdrelease.',
+                win7Label: 'Windows 7 x64 legacy',
+            },
         },
         features: {
             pdfDjvu: {

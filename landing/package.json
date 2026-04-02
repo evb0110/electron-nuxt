@@ -23,9 +23,12 @@
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
+    "@vitejs/plugin-legacy": "7.2.1",
     "drizzle-kit": "^0.31.9",
+    "terser": "^5.46.1",
     "typescript": "^5.9.3",
-    "vue-tsc": "^3.2.4"
+    "vue-tsc": "^3.2.4",
+    "whatwg-fetch": "^3.6.20"
   },
   "packageManager": "pnpm@10.32.1"
 }

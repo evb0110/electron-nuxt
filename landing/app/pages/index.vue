@@ -258,6 +258,58 @@
           >
             <p>{{ t('home.installers.noArtifacts') }}</p>
           </div>
+
+          <div
+            v-if="legacyInstallers.length"
+            class="mt-6 rounded-2xl border border-dashed border-default bg-default/40 p-4"
+          >
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="space-y-2">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+                  {{ t('home.installers.legacy.eyebrow') }}
+                </p>
+                <h3 class="text-lg font-semibold text-highlighted">
+                  {{ t('home.installers.legacy.heading') }}
+                </h3>
+                <p class="max-w-2xl text-sm text-toned">
+                  {{ t('home.installers.legacy.description') }}
+                </p>
+              </div>
+
+              <UBadge
+                :label="t('home.installers.legacy.manualOnly')"
+                color="warning"
+                variant="subtle"
+              />
+            </div>
+
+            <div class="installer-list mt-4">
+              <button
+                v-for="installer in legacyInstallers"
+                :key="installer.id"
+                type="button"
+                class="installer-item"
+                @click="trackDownload(installer); triggerIframeDownload(installer.downloadUrl)"
+              >
+                <div class="installer-item-info">
+                  <div class="installer-item-header">
+                    <span class="installer-item-variant">{{ legacyInstallerLabel(installer) }}</span>
+                  </div>
+                  <span class="installer-item-meta">
+                    {{ installer.name }} · {{ formatFileSize(installer.size) }}
+                  </span>
+                </div>
+                <UIcon
+                  name="i-lucide-download"
+                  class="installer-item-icon"
+                />
+              </button>
+            </div>
+
+            <p class="mt-4 text-sm text-toned">
+              {{ t('home.installers.legacy.note') }}
+            </p>
+          </div>
         </div>
 
         <UCard class="release-sidebar">
@@ -565,7 +617,9 @@ const {
     status,
 } = useFetch('/api/releases/latest', { key: 'latest-release-data' });
 
-const installers = computed(() => releaseData.value?.assets || []);
+const releaseAssets = computed(() => releaseData.value?.assets || []);
+const installers = computed(() => releaseAssets.value.filter(asset => !asset.isLegacy));
+const legacyInstallers = computed(() => releaseAssets.value.filter(asset => asset.isLegacy));
 
 const selectablePlatforms = computed<TReleasePlatform[]>(() => INSTALLER_PLATFORM_ORDER.filter(
     platform => installers.value.some(asset => asset.platform === platform),
@@ -716,7 +770,19 @@ const releaseDateLabel = computed(() => {
         return '';
     }
 
-    return new Intl.DateTimeFormat(locale.value, { dateStyle: 'long' }).format(publishedDate);
+    if (typeof Intl !== 'object' || typeof Intl.DateTimeFormat !== 'function') {
+        return publishedDate.toDateString();
+    }
+
+    try {
+        return new Intl.DateTimeFormat(locale.value, { dateStyle: 'long' }).format(publishedDate);
+    } catch {
+        return new Intl.DateTimeFormat(locale.value, {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+        }).format(publishedDate);
+    }
 });
 
 const pendingDownloadIframes = new Set<HTMLIFrameElement>();
@@ -779,6 +845,10 @@ function triggerIframeDownload(url: string) {
 }
 
 function trackDownload(installer: IReleaseInstaller) {
+    if (typeof fetch !== 'function') {
+        return;
+    }
+
     fetch('/api/analytics/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -806,10 +876,19 @@ function isRecommendedInstaller(installer: IReleaseInstaller) {
 }
 
 function scrollToInstallers() {
-    document.getElementById('installers')?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-    });
+    const installersElement = document.getElementById('installers');
+    if (!installersElement) {
+        return;
+    }
+
+    try {
+        installersElement.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+        });
+    } catch {
+        installersElement.scrollIntoView();
+    }
 }
 
 function selectPlatform(platform: TReleasePlatform) {
@@ -831,5 +910,13 @@ function installerPlatformLabel(platform: TReleasePlatform): string {
     }
 
     return formatPlatform(platform);
+}
+
+function legacyInstallerLabel(installer: IReleaseInstaller): string {
+    if (installer.platform === 'windows' && installer.name.toLowerCase().includes('win7')) {
+        return t('home.installers.legacy.win7Label');
+    }
+
+    return formatInstallerLabel(installer);
 }
 </script>

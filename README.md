@@ -89,6 +89,7 @@ The GitHub release workflow builds:
 
 - macOS arm64, plus a supplemental Intel ZIP lane
 - Windows x64 and arm64
+- Experimental Windows 7 x64 legacy artifacts in a separate best-effort lane
 - Linux x64 and arm64
 
 Desktop releases bundle native tools for OCR, image export, page operations, and DjVu handling. The packaging and verification scripts live under `scripts/`, and platform resources are assembled into `resources/`.
