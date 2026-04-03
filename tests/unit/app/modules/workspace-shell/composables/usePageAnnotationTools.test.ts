@@ -24,6 +24,7 @@ function createHarness() {
         cancelCommentPlacement: vi.fn(),
         clearSelectedShape: vi.fn(),
         selectedShapeId: null as string | null,
+        getSelectedShape: vi.fn<() => {pdfSubtype?: string | null;} | null>(() => null),
         updateShape: vi.fn(),
     };
 
@@ -84,6 +85,21 @@ describe('usePageAnnotationTools', () => {
         expect(viewer.clearSelectedShape).toHaveBeenCalledOnce();
     });
 
+    it('auto-resets draw tools into select mode without clearing the new shape selection', () => {
+        const {
+            viewer,
+            tools,
+        } = createHarness();
+
+        tools.annotationKeepActive.value = false;
+        tools.annotationTool.value = 'draw';
+
+        tools.handleAnnotationToolAutoReset();
+
+        expect(tools.annotationTool.value).toBe('select');
+        expect(viewer.clearSelectedShape).not.toHaveBeenCalled();
+    });
+
     it('propagates shape setting updates to selected shape', () => {
         const {
             viewer,
@@ -121,6 +137,28 @@ describe('usePageAnnotationTools', () => {
         });
 
         expect(viewer.updateShape).toHaveBeenCalledWith('shape-public-instance', { color: '#10b981' });
+    });
+
+    it('propagates draw style updates to selected ink shapes', () => {
+        const {
+            viewer,
+            tools,
+        } = createHarness();
+
+        viewer.selectedShapeId = 'ink-shape-1';
+        viewer.getSelectedShape.mockReturnValue({ pdfSubtype: 'Ink' });
+
+        tools.handleAnnotationSettingChange({
+            key: 'inkThickness',
+            value: 6,
+        });
+        tools.handleAnnotationSettingChange({
+            key: 'inkOpacity',
+            value: 0.4,
+        });
+
+        expect(viewer.updateShape).toHaveBeenNthCalledWith(1, 'ink-shape-1', { strokeWidth: 6 });
+        expect(viewer.updateShape).toHaveBeenNthCalledWith(2, 'ink-shape-1', { opacity: 0.4 });
     });
 
     it('tracks dirty state across editor undo transitions and save/reset', () => {

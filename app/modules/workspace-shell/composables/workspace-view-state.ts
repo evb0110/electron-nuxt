@@ -49,7 +49,7 @@ export function useWorkspaceViewState(deps: IWorkspaceViewStateDeps) {
         }
 
         // In text-select mode we still want existing PDF annotations and
-        // PDF.js-backed drawings to remain interactable/selectable. Hand tool
+        // overlay-managed drawings to remain interactable/selectable. Hand tool
         // is the only state that should fully disable annotation interaction.
         return true;
     });

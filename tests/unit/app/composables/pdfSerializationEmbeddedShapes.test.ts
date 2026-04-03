@@ -284,8 +284,10 @@ describe('serializePdfEdits embedded shapes', () => {
         const result = await serializePdfEdits(data, {
             markupSubtypeOverrides: [],
             markupSubtypeHints: [],
+            rewriteShapeState: true,
             shapes,
             deletedShapeAnnotationIds: [polygonTag],
+            deletedShapeStableKeys: [],
             freeTextComments: [],
             annotationComments: [],
             pendingEmbeddedTextUpdates: [],

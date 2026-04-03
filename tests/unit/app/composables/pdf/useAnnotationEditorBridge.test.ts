@@ -16,6 +16,7 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
     IAnnotationSettings,
+    TAnnotationTool,
 } from '@app/types/annotations';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 
@@ -160,7 +161,10 @@ function createAnnotationSettings(): IAnnotationSettings {
     };
 }
 
-async function createBridgeHarness(tool: 'draw' | 'text' = 'draw') {
+async function createBridgeHarness(
+    tool: 'draw' | 'text' = 'draw',
+    options?: { autoResetTo?: TAnnotationTool | null; },
+) {
     const { useAnnotationEditorBridge } = await import('@app/composables/pdf/annotations/useAnnotationEditorBridge');
     const container = document.createElement('div');
     document.body.append(container);
@@ -171,7 +175,16 @@ async function createBridgeHarness(tool: 'draw' | 'text' = 'draw') {
     const emitAnnotationModified = vi.fn();
     const emitAnnotationState = vi.fn<(state: IAnnotationEditorState) => void>();
     const emitAnnotationOpenNote = vi.fn<(comment: IAnnotationCommentSummary) => void>();
-    const maybeAutoResetAnnotationTool = vi.fn();
+    const annotationTool = ref<TAnnotationTool>(tool);
+    const pendingAnnotationTool = ref<TAnnotationTool>(tool);
+    const maybeAutoResetAnnotationTool = vi.fn(() => {
+        if (!options?.autoResetTo) {
+            return;
+        }
+
+        annotationTool.value = options.autoResetTo;
+        pendingAnnotationTool.value = options.autoResetTo;
+    });
     const scheduleAnnotationCommentsSync = vi.fn();
 
     const bridge = useAnnotationEditorBridge({
@@ -180,7 +193,7 @@ async function createBridgeHarness(tool: 'draw' | 'text' = 'draw') {
         numPages: ref(1),
         currentPage: ref(1),
         effectiveScale: ref(1),
-        annotationTool: ref(tool),
+        annotationTool,
         annotationUiManager,
         annotationL10n,
         getIdentity: () => ({
@@ -196,7 +209,7 @@ async function createBridgeHarness(tool: 'draw' | 'text' = 'draw') {
             trackedCreatedEditors: new WeakSet<object>(),
         }),
         getToolManager: () => ({
-            pendingAnnotationTool: ref(tool),
+            pendingAnnotationTool,
             pendingAnnotationSettings: ref<IAnnotationSettings | null>(createAnnotationSettings()),
             applyAnnotationSettings: vi.fn(),
             setAnnotationTool: vi.fn(async () => {}),
@@ -310,6 +323,23 @@ describe('useAnnotationEditorBridge', () => {
 
         expect(uiManager.unselectAll).toHaveBeenCalledOnce();
         expect(uiManager.__setSelectedSpy).toHaveBeenCalledWith(null);
+    });
+
+    it('keeps a new ink editor selected after auto-resetting into selection mode', async () => {
+        const { uiManager } = await createBridgeHarness('draw', { autoResetTo: 'select' });
+        const editor = {
+            id: 'ink-2',
+            div: document.createElement('div'),
+            annotationElementId: null,
+            parentPageIndex: 0,
+            isEmpty: vi.fn(() => false),
+        };
+        editor.div.className = 'inkEditor';
+
+        uiManager.addToAnnotationStorage(editor);
+
+        expect(uiManager.unselectAll).not.toHaveBeenCalled();
+        expect(uiManager.__setSelectedSpy).not.toHaveBeenCalledWith(null);
     });
 
     it('keeps non-ink editor selection handling unchanged', async () => {

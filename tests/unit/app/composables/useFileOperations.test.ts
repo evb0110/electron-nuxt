@@ -76,6 +76,7 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
             markPageLabelsSaved: vi.fn(),
             markBookmarksSaved: vi.fn(),
             hasAnnotationChanges: vi.fn(() => false),
+            hasShapeChanges: vi.fn(() => false),
             serializePdfForSave: vi.fn(async (data: Uint8Array) => new Uint8Array([
                 ...data,
                 2,
@@ -397,6 +398,32 @@ describe('useFileOperations', () => {
         await savePromise;
 
         expect(settled).toBe(true);
+    });
+
+    it('serializes shape-only annotation saves from source bytes', async () => {
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            hasShapeChanges: vi.fn(() => true),
+            getSourcePdfData: vi.fn(async () => new Uint8Array([13])),
+            saveDocument: vi.fn(async () => new Uint8Array([99])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
+            13,
+            2,
+            3,
+            6,
+            4,
+            5,
+        ]);
     });
 
     it('cancels the pending post-save reload waiter when save does not succeed', async () => {

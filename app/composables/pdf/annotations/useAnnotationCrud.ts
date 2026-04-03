@@ -940,9 +940,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         const activeTool = annotationTool.value;
         const mode = activeTool === 'text'
             ? AnnotationEditorType.FREETEXT
-            : activeTool === 'draw'
-                ? AnnotationEditorType.INK
-                : AnnotationEditorType.POPUP;
+            : AnnotationEditorType.POPUP;
         const modeError = await getToolManager().updateModeWithRetry(uiManager, mode, match.pageIndex + 1);
         if (modeError) {
             BrowserLogger.warn('annotations', `Failed to enable editor interaction mode: ${errorToLogText(modeError)}`);

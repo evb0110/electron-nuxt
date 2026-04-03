@@ -19,7 +19,11 @@ import {
     toMarkerPointFromPdfPoint,
     toMarkerRectFromPdfRect,
 } from '@app/composables/pdf/annotationGeometry';
-import { formatPdfJsAnnotationRef } from '@app/composables/pdf/pdfSerializationRefs';
+import {
+    formatPdfJsAnnotationRef,
+    generateManagedShapeStableKey,
+    readManagedShapeStableKey,
+} from '@app/composables/pdf/pdfSerializationRefs';
 import { getAllShapePoints } from '@app/composables/pdf/pdfShapeStrokes';
 
 const IMPORTED_SHAPE_SUBTYPES = new Set<TEmbeddedPdfShapeSubtype>([
@@ -200,8 +204,12 @@ function refToAnnotationId(ref: PDFRef) {
 function createImportedShapeId(
     pageIndex: number,
     annotationId: string | null,
+    stableKey: string | null,
     subtype: TEmbeddedPdfShapeSubtype,
 ) {
+    if (stableKey) {
+        return `embedded-shape:${pageIndex}:${stableKey}`;
+    }
     if (annotationId) {
         return `embedded-shape:${pageIndex}:${annotationId}`;
     }
@@ -291,9 +299,10 @@ function importRectShape(
     }
 
     const annotationId = refToAnnotationId(ref);
+    const stableKey = readManagedShapeStableKey(dict) ?? generateManagedShapeStableKey();
     const fillColor = toHexColor(readColor(dict, INTERIOR_COLOR_NAME), '');
     return {
-        id: createImportedShapeId(pageIndex, annotationId, subtype),
+        id: createImportedShapeId(pageIndex, annotationId, stableKey, subtype),
         type: toImportedShapeType(subtype),
         pageIndex,
         x: markerRect.left,
@@ -305,6 +314,7 @@ function importRectShape(
         opacity: readOpacity(dict),
         strokeWidth: readBorderWidth(dict),
         source: 'embedded',
+        stableKey,
         annotationId,
         pdfSubtype: subtype,
     };
@@ -344,13 +354,14 @@ function importLineShape(
     }
 
     const annotationId = refToAnnotationId(ref);
+    const stableKey = readManagedShapeStableKey(dict) ?? generateManagedShapeStableKey();
     const {
         lineStartStyle,
         lineEndStyle,
     } = readLineEndingStyles(dict);
 
     return {
-        id: createImportedShapeId(pageIndex, annotationId, 'Line'),
+        id: createImportedShapeId(pageIndex, annotationId, stableKey, 'Line'),
         type: toImportedShapeType('Line', lineStartStyle, lineEndStyle),
         pageIndex,
         x: start.x,
@@ -363,6 +374,7 @@ function importLineShape(
         opacity: readOpacity(dict),
         strokeWidth: readBorderWidth(dict),
         source: 'embedded',
+        stableKey,
         annotationId,
         pdfSubtype: 'Line',
         lineStartStyle,
@@ -411,6 +423,7 @@ function importVerticesShape(
     }
 
     const annotationId = refToAnnotationId(ref);
+    const stableKey = readManagedShapeStableKey(dict) ?? generateManagedShapeStableKey();
     const {
         lineStartStyle,
         lineEndStyle,
@@ -420,7 +433,7 @@ function importVerticesShape(
         : '';
 
     return {
-        id: createImportedShapeId(pageIndex, annotationId, subtype),
+        id: createImportedShapeId(pageIndex, annotationId, stableKey, subtype),
         type: toImportedShapeType(subtype, lineStartStyle, lineEndStyle),
         pageIndex,
         x: bounds.x,
@@ -433,6 +446,7 @@ function importVerticesShape(
         strokeWidth: readBorderWidth(dict),
         points,
         source: 'embedded',
+        stableKey,
         annotationId,
         pdfSubtype: subtype,
         lineStartStyle,
@@ -496,8 +510,9 @@ function importInkShape(
     }
 
     const annotationId = refToAnnotationId(ref);
+    const stableKey = readManagedShapeStableKey(dict) ?? generateManagedShapeStableKey();
     return {
-        id: createImportedShapeId(pageIndex, annotationId, 'Ink'),
+        id: createImportedShapeId(pageIndex, annotationId, stableKey, 'Ink'),
         type: toImportedShapeType('Ink'),
         pageIndex,
         x: bounds.x,
@@ -510,6 +525,7 @@ function importInkShape(
         points,
         strokes,
         source: 'embedded',
+        stableKey,
         annotationId,
         pdfSubtype: 'Ink',
     };

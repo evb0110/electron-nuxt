@@ -1,4 +1,5 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -13,6 +14,10 @@ function cast<T>(value: unknown): T {
 }
 
 describe('savePdfDocumentWithCommittedEditors', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
     it('commits the active annotation editor before saving the document', async () => {
         const commitOrRemove = vi.fn();
         const saveDocument = vi.fn(async () => new Uint8Array([
@@ -36,6 +41,41 @@ describe('savePdfDocumentWithCommittedEditors', () => {
             2,
             3,
         ]);
+    });
+
+    it('waits for PDF.js editor commit frames before saving when requestAnimationFrame is available', async () => {
+        const commitOrRemove = vi.fn();
+        const saveDocument = vi.fn(async () => new Uint8Array([4]));
+        const frameCallbacks: FrameRequestCallback[] = [];
+
+        vi.stubGlobal('window', { requestAnimationFrame: (callback: FrameRequestCallback) => {
+            frameCallbacks.push(callback);
+            return frameCallbacks.length;
+        } });
+
+        let settled = false;
+        const savePromise = savePdfDocumentWithCommittedEditors({
+            pdfDocument: cast<PDFDocumentProxy>({ saveDocument }),
+            annotationUiManager: cast<AnnotationEditorUIManager>({ commitOrRemove }),
+        }).then(() => {
+            settled = true;
+        });
+
+        await Promise.resolve();
+        expect(commitOrRemove).toHaveBeenCalledOnce();
+        expect(saveDocument).not.toHaveBeenCalled();
+        expect(frameCallbacks).toHaveLength(1);
+
+        frameCallbacks.shift()?.(0);
+        await Promise.resolve();
+        expect(saveDocument).not.toHaveBeenCalled();
+        expect(frameCallbacks).toHaveLength(1);
+
+        frameCallbacks.shift()?.(16);
+        await savePromise;
+
+        expect(settled).toBe(true);
+        expect(saveDocument).toHaveBeenCalledOnce();
     });
 
     it('returns null when no PDF document is loaded', async () => {

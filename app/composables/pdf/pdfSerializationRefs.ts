@@ -2,6 +2,7 @@ import type {PDFDocument} from 'pdf-lib';
 import {
     PDFArray,
     PDFDict,
+    PDFHexString,
     PDFName,
     PDFNumber,
     PDFRef,
@@ -26,6 +27,8 @@ import {
 const RECT_NAME = PDFName.of('Rect');
 const CROP_BOX_NAME = PDFName.of('CropBox');
 const MEDIA_BOX_NAME = PDFName.of('MediaBox');
+const MANAGED_SHAPE_KEY_NAME = PDFName.of('EVBShapeKey');
+const MANAGED_SHAPE_STABLE_KEY_PREFIX = 'evb-shape:';
 
 function getPdfDictAuthor(dict: PDFDict | null) {
     if (!dict) {
@@ -169,6 +172,40 @@ export function normalizePdfJsAnnotationId(annotationId: string | null | undefin
 
     const trimmed = annotationId?.trim();
     return trimmed ? trimmed : null;
+}
+
+export function generateManagedShapeStableKey() {
+    return `${MANAGED_SHAPE_STABLE_KEY_PREFIX}${crypto.randomUUID()}`;
+}
+
+export function normalizeManagedShapeStableKey(stableKey: string | null | undefined) {
+    const trimmed = stableKey?.trim();
+    if (!trimmed || !trimmed.startsWith(MANAGED_SHAPE_STABLE_KEY_PREFIX)) {
+        return null;
+    }
+    return trimmed;
+}
+
+export function readManagedShapeStableKey(dict: PDFDict | null) {
+    if (!dict) {
+        return null;
+    }
+    return normalizeManagedShapeStableKey(getPdfStringValue(dict.get(MANAGED_SHAPE_KEY_NAME)));
+}
+
+export function writeManagedShapeStableKey(dict: PDFDict, stableKey: string | null | undefined) {
+    const normalizedStableKey = normalizeManagedShapeStableKey(stableKey);
+    if (!normalizedStableKey) {
+        return false;
+    }
+
+    const currentStableKey = readManagedShapeStableKey(dict);
+    if (currentStableKey === normalizedStableKey) {
+        return false;
+    }
+
+    dict.set(MANAGED_SHAPE_KEY_NAME, PDFHexString.fromText(normalizedStableKey));
+    return true;
 }
 
 function parseAnnotationRefFromStableKey(stableKey: string | null | undefined) {

@@ -95,8 +95,10 @@ describe('pdfSerializationWorkerClient', () => {
         const payload: IPdfSerializationSavePayload = {
             markupSubtypeOverrides: [],
             markupSubtypeHints: [],
+            rewriteShapeState: false,
             shapes: [],
             deletedShapeAnnotationIds: [],
+            deletedShapeStableKeys: [],
             freeTextComments: [],
             annotationComments: [],
             pendingEmbeddedTextUpdates: [],

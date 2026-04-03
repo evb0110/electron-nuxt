@@ -89,10 +89,7 @@ import {
     collectEmbeddedShapeAnnotationIds,
     importEmbeddedShapeAnnotations,
 } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
-import {
-    refreshDeletedEmbeddedShapePage,
-    rerenderRenderedManagedEmbeddedShapePages,
-} from '@app/composables/pdf/pdfEmbeddedShapeRefresh';
+import { refreshDeletedEmbeddedShapePage } from '@app/composables/pdf/pdfEmbeddedShapeRefresh';
 import {
     cloneShapePoints,
     cloneShapeStrokes,
@@ -371,6 +368,8 @@ const {
 
 const shapeComposable = useAnnotationShapes();
 let embeddedShapeImportToken = 0;
+let lastEmbeddedShapeImportPath: string | null = null;
+let hasEmbeddedShapeImportBaseline = false;
 let pageRenderStallRecoveryHandler: ((payload: IPageRenderStallPayload) => void) | null = null;
 
 const hiddenEmbeddedAnnotationIds = computed(() => {
@@ -422,24 +421,20 @@ watch(
     () => [
         sourcePdfData.value,
         workingCopyPath.value,
-        pdfDocument.value,
     ] as const,
     async ([
         data,
         path,
-        doc,
     ]) => {
         const localToken = ++embeddedShapeImportToken;
         if ((!data || data.length === 0) && !path) {
-            shapeComposable.loadShapes([]);
+            lastEmbeddedShapeImportPath = null;
+            hasEmbeddedShapeImportBaseline = false;
+            shapeComposable.replaceShapes([]);
             await nextTick();
             syncHiddenEmbeddedAnnotationDom();
             return;
         }
-        if (!doc) {
-            return;
-        }
-
         let importedShapes: IShapeAnnotation[] = [];
         let sourceData = data;
         try {
@@ -448,7 +443,9 @@ watch(
             }
 
             if (!sourceData || sourceData.length === 0) {
-                shapeComposable.loadShapes([]);
+                lastEmbeddedShapeImportPath = null;
+                hasEmbeddedShapeImportBaseline = false;
+                shapeComposable.replaceShapes([]);
                 await nextTick();
                 syncHiddenEmbeddedAnnotationDom();
                 return;
@@ -463,21 +460,21 @@ watch(
             embeddedShapeImportToken !== localToken
             || sourcePdfData.value !== data
             || workingCopyPath.value !== path
-            || pdfDocument.value !== doc
         ) {
             return;
         }
 
-        shapeComposable.loadShapes(importedShapes);
+        const shouldReconcileWithExistingShapes = hasEmbeddedShapeImportBaseline && path === lastEmbeddedShapeImportPath;
+
+        if (shouldReconcileWithExistingShapes) {
+            shapeComposable.reconcilePersistedShapes(importedShapes);
+        } else {
+            shapeComposable.replaceShapes(importedShapes);
+        }
+        hasEmbeddedShapeImportBaseline = true;
+        lastEmbeddedShapeImportPath = path ?? null;
         await nextTick();
         syncHiddenEmbeddedAnnotationDom();
-        void nextTick().then(() => {
-            rerenderRenderedManagedEmbeddedShapePages({
-                shapes: importedShapes,
-                isPageRendered,
-                renderVisiblePages,
-            });
-        });
     },
     { immediate: true },
 );
@@ -1131,6 +1128,7 @@ defineExpose({
     getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
     getAllShapes: shapeComposable.getAllShapes,
     getDeletedEmbeddedShapeAnnotationIds: shapeComposable.getDeletedEmbeddedAnnotationIds,
+    getDeletedEmbeddedShapeStableKeys: shapeComposable.getDeletedEmbeddedShapeStableKeys,
     loadShapes: shapeComposable.loadShapes,
     clearShapes: shapeComposable.clearShapes,
     clearSelectedShape,

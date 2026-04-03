@@ -19,12 +19,28 @@ interface ICreatePdfReloadWaiterOptions {
     pdfViewerRef: Ref<IPdfReloadWaiterViewer | null>;
     resetSearchCache: () => void;
     pageToRestore: number;
+    scrollSnapshot?: IScrollSnapshot | null;
+}
+
+export function capturePdfReloadSnapshot(
+    viewer: IPdfReloadWaiterViewer | null,
+    fallbackPage: number,
+) {
+    const scrollSnapshot = viewer?.captureScrollSnapshot?.() ?? null;
+    const anchorPage = typeof scrollSnapshot?.anchorPage === 'number' && Number.isFinite(scrollSnapshot.anchorPage)
+        ? Math.max(1, Math.floor(scrollSnapshot.anchorPage))
+        : null;
+
+    return {
+        scrollSnapshot,
+        pageToRestore: anchorPage ?? Math.max(1, Math.floor(fallbackPage)),
+    };
 }
 
 export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
     const initialDoc = options.pdfDocument.value;
     const isCancelled = ref(false);
-    const scrollSnapshot = options.pdfViewerRef.value?.captureScrollSnapshot?.() ?? null;
+    const scrollSnapshot = options.scrollSnapshot ?? options.pdfViewerRef.value?.captureScrollSnapshot?.() ?? null;
 
     const promise = until(() => ({
         doc: options.pdfDocument.value,

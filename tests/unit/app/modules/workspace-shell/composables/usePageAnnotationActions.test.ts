@@ -254,6 +254,59 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.updateShape).toHaveBeenCalledWith('shape-1', { strokeWidth: 7.5 });
     });
 
+    it('updates draw defaults when the selected shape is an ink drawing', () => {
+        const {
+            deps,
+            viewer,
+            selectedShape,
+            actions,
+        } = createHarness();
+
+        selectedShape.value = {
+            id: 'shape-ink',
+            type: 'polyline',
+            pageIndex: 0,
+            x: 0.2,
+            y: 0.2,
+            width: 0.2,
+            height: 0.2,
+            color: '#e11d48',
+            opacity: 0.9,
+            strokeWidth: 2,
+            source: 'embedded',
+            pdfSubtype: 'Ink',
+            points: [
+                {
+                    x: 0.2,
+                    y: 0.2,
+                },
+                {
+                    x: 0.4,
+                    y: 0.4,
+                },
+            ],
+            strokes: [[
+                {
+                    x: 0.2,
+                    y: 0.2,
+                },
+                {
+                    x: 0.4,
+                    y: 0.4,
+                },
+            ]],
+        };
+        deps.pdfViewerRef.value = {
+            ...viewer,
+            selectedShapeId: 'shape-ink',
+        };
+
+        actions.handleShapePropertyUpdate({ opacity: 0.45 });
+
+        expect(deps.annotationSettings.value.inkOpacity).toBe(0.45);
+        expect(viewer.updateShape).toHaveBeenCalledWith('shape-ink', { opacity: 0.45 });
+    });
+
     it('opens shape properties automatically for a newly selected shape', async () => {
         const {
             deps,

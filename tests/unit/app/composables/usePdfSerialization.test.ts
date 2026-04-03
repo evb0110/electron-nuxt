@@ -14,7 +14,9 @@ import {
     PDFRef,
 } from 'pdf-lib';
 import type { IShapeAnnotation } from '@app/types/annotations';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
 import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
+import { useAnnotationShapes } from '@app/composables/pdf/useAnnotationShapes';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 
 vi.mock('@app/composables/pdf/pdfAnnotationUtils', () => ({ markerRectIoU: () => 0 }));
@@ -340,6 +342,7 @@ describe('usePdfSerialization embedded shapes', () => {
         const shapes: IShapeAnnotation[] = [
             {
                 id: 'shape-rect',
+                stableKey: 'evb-shape:local-rect',
                 type: 'rectangle',
                 pageIndex: 0,
                 x: 0.1,
@@ -354,6 +357,7 @@ describe('usePdfSerialization embedded shapes', () => {
             },
             {
                 id: 'shape-arrow',
+                stableKey: 'evb-shape:local-arrow',
                 type: 'arrow',
                 pageIndex: 0,
                 x: 0.4,
@@ -388,6 +392,7 @@ describe('usePdfSerialization embedded shapes', () => {
         expect(importedShapes[0]).toMatchObject({
             type: 'rectangle',
             source: 'embedded',
+            stableKey: 'evb-shape:local-rect',
             pdfSubtype: 'Square',
             color: '#336699',
             fillColor: '#abcdef',
@@ -397,11 +402,370 @@ describe('usePdfSerialization embedded shapes', () => {
         expect(importedShapes[1]).toMatchObject({
             type: 'arrow',
             source: 'embedded',
+            stableKey: 'evb-shape:local-arrow',
             pdfSubtype: 'Line',
             color: '#000000',
             opacity: 1,
             strokeWidth: 2,
             lineEndStyle: 'openArrow',
+        });
+    });
+
+    it('preserves repeated draw-delete-redraw save cycles for ink shapes', async () => {
+        const source = await createPdfDataWithSinglePage();
+        const firstInkShape: IShapeAnnotation = {
+            id: 'shape-ink-1',
+            stableKey: 'evb-shape:ink-1',
+            type: 'polyline',
+            pageIndex: 0,
+            x: 0.1,
+            y: 0.2,
+            width: 0.25,
+            height: 0.2,
+            color: '#e11d48',
+            opacity: 0.9,
+            strokeWidth: 2,
+            source: 'local',
+            pdfSubtype: 'Ink',
+            points: [
+                {
+                    x: 0.1,
+                    y: 0.2,
+                },
+                {
+                    x: 0.2,
+                    y: 0.28,
+                },
+                {
+                    x: 0.35,
+                    y: 0.4,
+                },
+            ],
+            strokes: [[
+                {
+                    x: 0.1,
+                    y: 0.2,
+                },
+                {
+                    x: 0.2,
+                    y: 0.28,
+                },
+                {
+                    x: 0.35,
+                    y: 0.4,
+                },
+            ]],
+        };
+
+        const firstSerializer = usePdfSerialization({
+            pdfData: ref(source),
+            workingCopyPath: ref(null),
+            annotationComments: ref([]),
+            totalPages: ref(1),
+            pageLabelsDirty: ref(false),
+            pageLabelRanges: ref([]),
+            getMarkupSubtypeOverrides: () => undefined,
+            getAllShapes: () => [firstInkShape],
+            getDeletedEmbeddedShapeAnnotationIds: () => [],
+        });
+
+        const onceSaved = await firstSerializer.serializePdfForSave(source, { includeShapes: true });
+        const importedOnce = await importEmbeddedShapeAnnotations(onceSaved);
+        const deletedAnnotationId = importedOnce[0]?.annotationId ?? null;
+
+        expect(importedOnce).toHaveLength(1);
+        expect(importedOnce[0]).toMatchObject({
+            type: 'polyline',
+            stableKey: 'evb-shape:ink-1',
+            pdfSubtype: 'Ink',
+            color: '#e11d48',
+        });
+        expect(deletedAnnotationId).toBeTruthy();
+
+        const secondInkShape: IShapeAnnotation = {
+            id: 'shape-ink-2',
+            stableKey: 'evb-shape:ink-2',
+            type: 'polyline',
+            pageIndex: 0,
+            x: 0.45,
+            y: 0.3,
+            width: 0.2,
+            height: 0.18,
+            color: '#2563eb',
+            opacity: 0.55,
+            strokeWidth: 5,
+            source: 'local',
+            pdfSubtype: 'Ink',
+            points: [
+                {
+                    x: 0.45,
+                    y: 0.3,
+                },
+                {
+                    x: 0.52,
+                    y: 0.36,
+                },
+                {
+                    x: 0.65,
+                    y: 0.48,
+                },
+            ],
+            strokes: [[
+                {
+                    x: 0.45,
+                    y: 0.3,
+                },
+                {
+                    x: 0.52,
+                    y: 0.36,
+                },
+                {
+                    x: 0.65,
+                    y: 0.48,
+                },
+            ]],
+        };
+
+        const secondSerializer = usePdfSerialization({
+            pdfData: ref(onceSaved),
+            workingCopyPath: ref(null),
+            annotationComments: ref([]),
+            totalPages: ref(1),
+            pageLabelsDirty: ref(false),
+            pageLabelRanges: ref([]),
+            getMarkupSubtypeOverrides: () => undefined,
+            getAllShapes: () => [secondInkShape],
+            getDeletedEmbeddedShapeAnnotationIds: () => deletedAnnotationId ? [deletedAnnotationId] : [],
+        });
+
+        const twiceSaved = await secondSerializer.serializePdfForSave(onceSaved, { includeShapes: true });
+        const importedTwice = await importEmbeddedShapeAnnotations(twiceSaved);
+
+        expect(importedTwice).toHaveLength(1);
+        expect(importedTwice[0]).toMatchObject({
+            type: 'polyline',
+            stableKey: 'evb-shape:ink-2',
+            pdfSubtype: 'Ink',
+            color: '#2563eb',
+            opacity: 0.55,
+            strokeWidth: 5,
+        });
+        expect(importedTwice[0]?.annotationId).not.toBe(deletedAnnotationId);
+    });
+
+    it('can delete a persisted managed shape by stable key without removing unrelated managed shapes', async () => {
+        const source = await createPdfDataWithSinglePage();
+        const firstInkShape: IShapeAnnotation = {
+            id: 'shape-ink-stable-delete',
+            stableKey: 'evb-shape:stable-delete',
+            type: 'polyline',
+            pageIndex: 0,
+            x: 0.1,
+            y: 0.2,
+            width: 0.25,
+            height: 0.2,
+            color: '#e11d48',
+            opacity: 0.9,
+            strokeWidth: 2,
+            source: 'local',
+            pdfSubtype: 'Ink',
+            points: [
+                {
+                    x: 0.1,
+                    y: 0.2,
+                },
+                {
+                    x: 0.2,
+                    y: 0.28,
+                },
+                {
+                    x: 0.35,
+                    y: 0.4,
+                },
+            ],
+            strokes: [[
+                {
+                    x: 0.1,
+                    y: 0.2,
+                },
+                {
+                    x: 0.2,
+                    y: 0.28,
+                },
+                {
+                    x: 0.35,
+                    y: 0.4,
+                },
+            ]],
+        };
+        const secondInkShape: IShapeAnnotation = {
+            id: 'shape-ink-stable-keep',
+            stableKey: 'evb-shape:stable-keep',
+            type: 'polyline',
+            pageIndex: 0,
+            x: 0.45,
+            y: 0.22,
+            width: 0.2,
+            height: 0.18,
+            color: '#2563eb',
+            opacity: 0.75,
+            strokeWidth: 3,
+            source: 'local',
+            pdfSubtype: 'Ink',
+            points: [
+                {
+                    x: 0.45,
+                    y: 0.22,
+                },
+                {
+                    x: 0.56,
+                    y: 0.32,
+                },
+                {
+                    x: 0.65,
+                    y: 0.4,
+                },
+            ],
+            strokes: [[
+                {
+                    x: 0.45,
+                    y: 0.22,
+                },
+                {
+                    x: 0.56,
+                    y: 0.32,
+                },
+                {
+                    x: 0.65,
+                    y: 0.4,
+                },
+            ]],
+        };
+
+        const createSerializer = (bytes: Uint8Array, options?: {
+            shapes?: IShapeAnnotation[];
+            deletedStableKeys?: string[];
+        }) => usePdfSerialization({
+            pdfData: ref(bytes),
+            workingCopyPath: ref(null),
+            annotationComments: ref([]),
+            totalPages: ref(1),
+            pageLabelsDirty: ref(false),
+            pageLabelRanges: ref([]),
+            getMarkupSubtypeOverrides: () => undefined,
+            getAllShapes: () => options?.shapes ?? [],
+            getDeletedEmbeddedShapeAnnotationIds: () => [],
+            getDeletedEmbeddedShapeStableKeys: () => options?.deletedStableKeys ?? [],
+        });
+
+        const onceSaved = await createSerializer(source, { shapes: [
+            firstInkShape,
+            secondInkShape,
+        ] })
+            .serializePdfForSave(source, { includeShapes: true });
+        const importedOnce = await importEmbeddedShapeAnnotations(onceSaved);
+
+        expect(importedOnce).toHaveLength(2);
+        expect(importedOnce.map(shape => shape.stableKey).sort()).toEqual([
+            'evb-shape:stable-delete',
+            'evb-shape:stable-keep',
+        ]);
+
+        const afterDelete = await createSerializer(onceSaved, {deletedStableKeys: ['evb-shape:stable-delete']}).serializePdfForSave(onceSaved, { includeShapes: true });
+        const importedAfterDelete = await importEmbeddedShapeAnnotations(afterDelete);
+
+        expect(importedAfterDelete).toHaveLength(1);
+        expect(importedAfterDelete[0]).toMatchObject({
+            stableKey: 'evb-shape:stable-keep',
+            pdfSubtype: 'Ink',
+        });
+    });
+
+    it('keeps managed draw shapes stable across repeated save, delete, and redraw reconciliation cycles', async () => {
+        const shapes = useAnnotationShapes();
+
+        async function saveAndReconcile(bytes: Uint8Array<ArrayBufferLike>) {
+            const serializer = usePdfSerialization({
+                pdfData: ref(bytes),
+                workingCopyPath: ref(null),
+                annotationComments: ref([]),
+                totalPages: ref(1),
+                pageLabelsDirty: ref(false),
+                pageLabelRanges: ref([]),
+                getMarkupSubtypeOverrides: () => undefined,
+                getAllShapes: () => shapes.getAllShapes(),
+                getDeletedEmbeddedShapeAnnotationIds: () => shapes.getDeletedEmbeddedAnnotationIds(),
+                getDeletedEmbeddedShapeStableKeys: () => shapes.getDeletedEmbeddedShapeStableKeys(),
+            });
+
+            const saved = await serializer.serializePdfForSave(bytes, { includeShapes: true });
+            const imported = await importEmbeddedShapeAnnotations(saved);
+            shapes.reconcilePersistedShapes(imported);
+            return saved;
+        }
+
+        let currentBytes: Uint8Array<ArrayBufferLike> = await createPdfDataWithSinglePage();
+
+        shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+        shapes.continueDrawing(0.18, 0.28);
+        shapes.continueDrawing(0.3, 0.4);
+        const firstDraw = shapes.finishDrawing();
+
+        expect(firstDraw).not.toBeNull();
+        expect(shapes.getAllShapes()).toHaveLength(1);
+        expect(shapes.getAllShapes()[0]?.source).toBe('local');
+
+        currentBytes = await saveAndReconcile(currentBytes);
+
+        const firstPersistedShape = shapes.getShapeById(firstDraw!.id);
+        const firstPersistedAnnotationId = firstPersistedShape?.annotationId ?? null;
+
+        expect(firstPersistedShape).toMatchObject({
+            id: firstDraw!.id,
+            stableKey: firstDraw!.stableKey,
+            source: 'embedded',
+            pdfSubtype: 'Ink',
+        });
+        expect(firstPersistedAnnotationId).toBeTruthy();
+        expect(shapes.hasShapes.value).toBe(false);
+
+        shapes.deleteShape(firstDraw!.id);
+        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual([firstPersistedAnnotationId]);
+        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([firstDraw!.stableKey]);
+        expect(shapes.hasShapes.value).toBe(true);
+
+        currentBytes = await saveAndReconcile(currentBytes);
+
+        expect(shapes.getAllShapes()).toEqual([]);
+        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
+        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
+        expect(shapes.hasShapes.value).toBe(false);
+
+        shapes.startDrawing(0, 'draw', 0.45, 0.3, DEFAULT_ANNOTATION_SETTINGS);
+        shapes.continueDrawing(0.54, 0.38);
+        shapes.continueDrawing(0.65, 0.5);
+        const secondDraw = shapes.finishDrawing();
+
+        expect(secondDraw).not.toBeNull();
+
+        currentBytes = await saveAndReconcile(currentBytes);
+
+        const secondPersistedShape = shapes.getShapeById(secondDraw!.id);
+        expect(secondPersistedShape).toMatchObject({
+            id: secondDraw!.id,
+            stableKey: secondDraw!.stableKey,
+            source: 'embedded',
+            pdfSubtype: 'Ink',
+        });
+        expect(secondPersistedShape?.annotationId).toBeTruthy();
+        expect(secondPersistedShape?.annotationId).not.toBe(firstPersistedAnnotationId);
+        expect(shapes.hasShapes.value).toBe(false);
+
+        const importedFinal = await importEmbeddedShapeAnnotations(currentBytes);
+        expect(importedFinal).toHaveLength(1);
+        expect(importedFinal[0]).toMatchObject({
+            pdfSubtype: 'Ink',
+            color: DEFAULT_ANNOTATION_SETTINGS.inkColor,
         });
     });
 });

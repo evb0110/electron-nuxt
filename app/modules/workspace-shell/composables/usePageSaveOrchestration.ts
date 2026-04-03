@@ -21,7 +21,10 @@ import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import { useFileOperations } from '@app/composables/useFileOperations';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getElectronAPI } from '@app/utils/platform';
-import { createPdfReloadWaiter } from '@app/composables/pdf/pdfReloadWaiter';
+import {
+    capturePdfReloadSnapshot,
+    createPdfReloadWaiter,
+} from '@app/composables/pdf/pdfReloadWaiter';
 
 interface IPdfViewerForSave {
     scrollToPage: (pageNumber: number) => void;
@@ -34,6 +37,8 @@ interface IPdfViewerForSave {
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype> | undefined;
     getAllShapes: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
+    getDeletedEmbeddedShapeStableKeys?: () => string[];
+    hasShapes?: boolean;
 }
 
 interface IPageSaveOrchestrationDeps {
@@ -142,6 +147,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
         getAllShapes: () => pdfViewerRef.value?.getAllShapes() ?? [],
         getDeletedEmbeddedShapeAnnotationIds: () => pdfViewerRef.value?.getDeletedEmbeddedShapeAnnotationIds() ?? [],
+        getDeletedEmbeddedShapeStableKeys: () => pdfViewerRef.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
     });
 
     const {
@@ -167,18 +173,25 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         markPageLabelsSaved,
         markBookmarksSaved,
         hasAnnotationChanges,
+        hasShapeChanges: () => Boolean(pdfViewerRef.value?.hasShapes),
         serializePdfForSave,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,
         consumePendingEmbeddedAnnotationDeletes,
         annotationNoteWindowsCount,
         loadRecentFiles,
-        preparePostSaveReload: () => createPdfReloadWaiter({
-            pdfDocument,
-            pdfViewerRef,
-            resetSearchCache,
-            pageToRestore: currentPage.value,
-        }),
+        preparePostSaveReload: () => {
+            const capturedReloadState = capturePdfReloadSnapshot(pdfViewerRef.value, currentPage.value);
+            currentPage.value = capturedReloadState.pageToRestore;
+
+            return createPdfReloadWaiter({
+                pdfDocument,
+                pdfViewerRef,
+                resetSearchCache,
+                pageToRestore: capturedReloadState.pageToRestore,
+                scrollSnapshot: capturedReloadState.scrollSnapshot,
+            });
+        },
     });
 
     const isAnySaving = computed(() => isSaving.value || isSavingAs.value);

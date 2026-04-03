@@ -7,6 +7,7 @@ import {
     PDFArray,
     PDFDict,
     PDFDocument,
+    PDFHexString,
     PDFName,
     PDFNumber,
     PDFRef,
@@ -19,13 +20,16 @@ import {
     type IPdfSerializationSavePayload,
     serializePdfEdits,
 } from '@app/composables/pdf/pdfSerializationOperations';
+import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 
 function createEmptyPayload(): IPdfSerializationSavePayload {
     return {
         markupSubtypeOverrides: [],
         markupSubtypeHints: [],
+        rewriteShapeState: false,
         shapes: [],
         deletedShapeAnnotationIds: [],
+        deletedShapeStableKeys: [],
         freeTextComments: [],
         annotationComments: [],
         pendingEmbeddedTextUpdates: [],
@@ -100,6 +104,44 @@ async function createPdfWithSquareAndLineAnnotations() {
         bytes: new Uint8Array(await doc.save()),
         squareRef,
         lineRef,
+    };
+}
+
+async function createPdfWithManagedSquareAnnotation() {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([
+        600,
+        800,
+    ]);
+
+    const squareDict = doc.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Square'),
+        Rect: [
+            PDFNumber.of(60),
+            PDFNumber.of(480),
+            PDFNumber.of(180),
+            PDFNumber.of(680),
+        ],
+        C: [
+            1,
+            0,
+            0,
+        ],
+        Border: [
+            0,
+            0,
+            2,
+        ],
+        EVBShapeKey: PDFHexString.fromText('evb-shape:managed-square'),
+    });
+
+    const squareRef = doc.context.register(squareDict);
+    page.node.set(PDFName.of('Annots'), doc.context.obj([squareRef]));
+
+    return {
+        bytes: new Uint8Array(await doc.save()),
+        squareRef,
     };
 }
 
@@ -399,5 +441,59 @@ describe('serializePdfEdits embedded geometric shapes', () => {
 
         expect(annotRefs.map(ref => ref.toString())).toEqual([squareRef.toString()]);
         expect(getAnnotDict(doc, lineRef)).toBeInstanceOf(PDFDict);
+    });
+
+    it('treats managed geometric annotations as canonical overlay state on save', async () => {
+        const { bytes } = await createPdfWithManagedSquareAnnotation();
+
+        const payload = createEmptyPayload();
+        payload.rewriteShapeState = true;
+
+        const result = await serializePdfEdits(bytes, payload);
+        const importedShapes = await importEmbeddedShapeAnnotations(result);
+
+        expect(importedShapes).toEqual([]);
+    });
+
+    it('updates managed geometric annotations in place by stable key during shape rewrites', async () => {
+        const {
+            bytes,
+            squareRef,
+        } = await createPdfWithManagedSquareAnnotation();
+
+        const payload = createEmptyPayload();
+        payload.rewriteShapeState = true;
+        payload.shapes = [{
+            id: 'shape-managed-square',
+            stableKey: 'evb-shape:managed-square',
+            type: 'rectangle',
+            pageIndex: 0,
+            x: 0.24,
+            y: 0.16,
+            width: 0.18,
+            height: 0.22,
+            color: '#336699',
+            fillColor: '#abcdef',
+            opacity: 0.55,
+            strokeWidth: 5,
+            source: 'embedded',
+            pdfSubtype: 'Square',
+        } satisfies IShapeAnnotation];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const annotRefs = getPageAnnotRefs(doc);
+        const importedShapes = await importEmbeddedShapeAnnotations(result);
+
+        expect(annotRefs.map(ref => ref.toString())).toEqual([squareRef.toString()]);
+        expect(importedShapes).toHaveLength(1);
+        expect(importedShapes[0]).toMatchObject({
+            stableKey: 'evb-shape:managed-square',
+            pdfSubtype: 'Square',
+            color: '#336699',
+            fillColor: '#abcdef',
+            opacity: 0.55,
+            strokeWidth: 5,
+        });
     });
 });
