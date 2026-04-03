@@ -3,7 +3,7 @@ export type TAnnotationTool = 'none' | 'select' | 'highlight' | 'underline' | 's
 export type TMarkupSubtype = 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly';
 
 export type TShapeType = 'rectangle' | 'circle' | 'line' | 'arrow' | 'polyline' | 'polygon';
-export type TDrawableShapeType = Extract<TShapeType, 'rectangle' | 'circle' | 'line' | 'arrow'>;
+export type TDrawableShapeType = Extract<TAnnotationTool, 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow'>;
 
 export type TLineEndStyle = 'none' | 'openArrow' | 'closedArrow';
 export type TEmbeddedPdfShapeSubtype = 'Square' | 'Circle' | 'Line' | 'PolyLine' | 'Polygon' | 'Ink';

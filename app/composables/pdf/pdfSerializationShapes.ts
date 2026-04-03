@@ -11,8 +11,10 @@ function createShapeSerializationPayload(shapes: IShapeAnnotation[]): IPdfSerial
     return {
         markupSubtypeOverrides: [],
         markupSubtypeHints: [],
+        rewriteShapeState: true,
         shapes,
         deletedShapeAnnotationIds: [],
+        deletedShapeStableKeys: [],
         freeTextComments: [],
         annotationComments: [],
         pendingEmbeddedTextUpdates: [],

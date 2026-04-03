@@ -1048,6 +1048,7 @@ defineExpose<IPdfViewerExpose>({
     getMarkupSubtypeOverrides: noopMarkupOverrides,
     getAllShapes: noopShapes,
     getDeletedEmbeddedShapeAnnotationIds: () => [],
+    getDeletedEmbeddedShapeStableKeys: () => [],
     loadShapes: noop,
     clearShapes: noop,
     clearSelectedShape: noop,

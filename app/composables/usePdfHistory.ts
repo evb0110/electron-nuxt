@@ -3,7 +3,10 @@ import type { TDocumentRef } from '@contracts/platform-api';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { TWorkspaceUndoSource } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';
-import { createPdfReloadWaiter } from '@app/composables/pdf/pdfReloadWaiter';
+import {
+    capturePdfReloadSnapshot,
+    createPdfReloadWaiter,
+} from '@app/composables/pdf/pdfReloadWaiter';
 
 export const usePdfHistory = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
@@ -55,11 +58,15 @@ export const usePdfHistory = (deps: {
      * undo/redo no-op operations can tear the watcher down immediately.
      */
     function preparePdfReloadWaiter(pageToRestore: number) {
+        const capturedReloadState = capturePdfReloadSnapshot(pdfViewerRef.value, pageToRestore);
+        currentPage.value = capturedReloadState.pageToRestore;
+
         return createPdfReloadWaiter({
             pdfDocument,
             pdfViewerRef,
             resetSearchCache,
-            pageToRestore,
+            pageToRestore: capturedReloadState.pageToRestore,
+            scrollSnapshot: capturedReloadState.scrollSnapshot,
         });
     }
 

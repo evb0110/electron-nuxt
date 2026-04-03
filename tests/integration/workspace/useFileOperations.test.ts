@@ -74,6 +74,7 @@ function createDeps() {
         markPageLabelsSaved: vi.fn(),
         markBookmarksSaved: vi.fn(),
         hasAnnotationChanges: vi.fn(() => false),
+        hasShapeChanges: vi.fn(() => false),
         serializePdfForSave,
         persistAllAnnotationNotes: vi.fn(async () => true),
         consumePendingEmbeddedTextUpdates: vi.fn(() => null),

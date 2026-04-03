@@ -42,8 +42,11 @@ import {
 } from '@app/composables/pdf/pdfSerializationComments';
 import {
     formatPdfJsAnnotationRef,
+    normalizeManagedShapeStableKey,
     normalizePdfJsAnnotationId,
+    readManagedShapeStableKey,
     resolveCommentPdfRefInDocument,
+    writeManagedShapeStableKey,
 } from '@app/composables/pdf/pdfSerializationRefs';
 import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
 import {
@@ -67,8 +70,10 @@ export interface IPdfSerializedPlacedImagePayload extends Omit<IPdfPlacedImageFi
 export interface IPdfSerializationSavePayload {
     markupSubtypeOverrides: Array<readonly [string, TMarkupSubtype]>;
     markupSubtypeHints: IMarkupSubtypeHint[];
+    rewriteShapeState: boolean;
     shapes: IShapeAnnotation[];
     deletedShapeAnnotationIds: string[];
+    deletedShapeStableKeys: string[];
     freeTextComments: IAnnotationCommentSummary[];
     annotationComments: IAnnotationCommentSummary[];
     pendingEmbeddedTextUpdates: Array<readonly [string, string]>;
@@ -651,21 +656,50 @@ function applyShapeAnnotations(
     doc: PDFDocument,
     shapes: IShapeAnnotation[],
     deletedShapeAnnotationIds: string[],
+    deletedShapeStableKeys: string[],
+    rewriteShapeState: boolean,
 ) {
-    if (shapes.length === 0 && deletedShapeAnnotationIds.length === 0) {
+    if (
+        !rewriteShapeState
+        && shapes.length === 0
+        && deletedShapeAnnotationIds.length === 0
+        && deletedShapeStableKeys.length === 0
+    ) {
         return false;
     }
 
     const pages = doc.getPages();
     const shapesByAnnotationId = new Map<string, IShapeAnnotation>();
-    const pendingNewShapes: IShapeAnnotation[] = [];
+    const shapesByStableKey = new Map<string, IShapeAnnotation>();
+    const remainingShapes = shapes.slice();
+
+    function consumeShape(shape: IShapeAnnotation) {
+        const remainingIndex = remainingShapes.indexOf(shape);
+        if (remainingIndex !== -1) {
+            remainingShapes.splice(remainingIndex, 1);
+        }
+
+        const annotationId = normalizePdfJsAnnotationId(shape.annotationId);
+        if (annotationId) {
+            shapesByAnnotationId.delete(annotationId);
+        }
+
+        const stableKey = normalizeManagedShapeStableKey(shape.stableKey);
+        if (stableKey) {
+            shapesByStableKey.delete(stableKey);
+        }
+    }
+
     shapes.forEach((shape) => {
+        const stableKey = normalizeManagedShapeStableKey(shape.stableKey);
+        if (stableKey) {
+            shapesByStableKey.set(stableKey, shape);
+        }
+
         const annotationId = normalizePdfJsAnnotationId(shape.annotationId);
         if (annotationId) {
             shapesByAnnotationId.set(annotationId, shape);
-            return;
         }
-        pendingNewShapes.push(shape);
     });
 
     const refsToDeleteByTag = new Map<string, PDFRef>();
@@ -674,6 +708,13 @@ function applyShapeAnnotations(
         const normalizedId = normalizePdfJsAnnotationId(annotationId);
         if (normalizedId) {
             deletedIds.add(normalizedId);
+        }
+    });
+    const deletedStableKeys = new Set<string>();
+    deletedShapeStableKeys.forEach((stableKey) => {
+        const normalizedStableKey = normalizeManagedShapeStableKey(stableKey);
+        if (normalizedStableKey) {
+            deletedStableKeys.add(normalizedStableKey);
         }
     });
     let modified = false;
@@ -695,8 +736,18 @@ function applyShapeAnnotations(
                 continue;
             }
 
+            const annotDict = doc.context.lookupMaybe(value, PDFDict);
+            if (!annotDict) {
+                continue;
+            }
+
+            const annotationStableKey = readManagedShapeStableKey(annotDict);
             const annotationId = refToTag(value);
-            if (deletedIds.has(annotationId)) {
+            const isDeletedManagedShape = annotationStableKey
+                ? deletedStableKeys.has(annotationStableKey)
+                : false;
+
+            if (deletedIds.has(annotationId) || isDeletedManagedShape) {
                 collectAnnotationRefsToDelete(doc, value).forEach((ref) => {
                     refsToDeleteByTag.set(refToTag(ref), ref);
                 });
@@ -704,20 +755,43 @@ function applyShapeAnnotations(
                 continue;
             }
 
-            const shape = shapesByAnnotationId.get(annotationId);
-            if (!shape) {
+            if (annotationStableKey) {
+                const shape = shapesByStableKey.get(annotationStableKey) ?? null;
+                if (!shape) {
+                    if (!rewriteShapeState) {
+                        continue;
+                    }
+
+                    collectAnnotationRefsToDelete(doc, value).forEach((ref) => {
+                        refsToDeleteByTag.set(refToTag(ref), ref);
+                    });
+                    modified = true;
+                    continue;
+                }
+
+                if (updateEmbeddedShapeAnnotationDict(doc, annotDict, shape, context.pageView, context.pageRotation)) {
+                    modified = true;
+                }
+                if (writeManagedShapeStableKey(annotDict, shape.stableKey)) {
+                    modified = true;
+                }
+                consumeShape(shape);
                 continue;
             }
 
-            const annotDict = doc.context.lookupMaybe(value, PDFDict);
-            if (!annotDict) {
+            const shape = shapesByAnnotationId.get(annotationId)
+                ?? null;
+            if (!shape) {
                 continue;
             }
 
             if (updateEmbeddedShapeAnnotationDict(doc, annotDict, shape, context.pageView, context.pageRotation)) {
                 modified = true;
-                shapesByAnnotationId.delete(annotationId);
             }
+            if (writeManagedShapeStableKey(annotDict, shape.stableKey)) {
+                modified = true;
+            }
+            consumeShape(shape);
         }
     }
 
@@ -725,10 +799,7 @@ function applyShapeAnnotations(
         modified = removeAnnotationRefsFromPages(doc, [...refsToDeleteByTag.values()]) || modified;
     }
 
-    for (const shape of [
-        ...shapesByAnnotationId.values(),
-        ...pendingNewShapes,
-    ]) {
+    for (const shape of remainingShapes) {
         const page = pages[shape.pageIndex];
         if (!page) {
             continue;
@@ -744,6 +815,7 @@ function applyShapeAnnotations(
             continue;
         }
 
+        writeManagedShapeStableKey(annotDict, shape.stableKey);
         const annotRef = doc.context.register(annotDict);
         appendAnnotationRefToPage(page, doc, annotRef);
         modified = true;
@@ -1385,8 +1457,10 @@ async function applyPlacedImage(
 function hasSaveWork(payload: IPdfSerializationSavePayload) {
     return payload.markupSubtypeOverrides.length > 0
         || payload.markupSubtypeHints.length > 0
+        || payload.rewriteShapeState
         || payload.shapes.length > 0
         || payload.deletedShapeAnnotationIds.length > 0
+        || payload.deletedShapeStableKeys.length > 0
         || payload.freeTextComments.length > 0
         || payload.pendingEmbeddedTextUpdates.length > 0
         || payload.pendingEmbeddedAnnotationDeletes.length > 0
@@ -1407,7 +1481,13 @@ export async function serializePdfEdits(
     let modified = false;
 
     modified = applyMarkupSubtypeRewrites(doc, payload.markupSubtypeOverrides, payload.markupSubtypeHints) || modified;
-    modified = applyShapeAnnotations(doc, payload.shapes, payload.deletedShapeAnnotationIds) || modified;
+    modified = applyShapeAnnotations(
+        doc,
+        payload.shapes,
+        payload.deletedShapeAnnotationIds,
+        payload.deletedShapeStableKeys,
+        payload.rewriteShapeState,
+    ) || modified;
     modified = applyEmbeddedAnnotationDeletes(doc, payload.pendingEmbeddedAnnotationDeletes) || modified;
     modified = applyFreeTextNoteRects(doc, payload.freeTextComments) || modified;
     modified = applyEmbeddedNoteTextUpdates(doc, payload.annotationComments, payload.pendingEmbeddedTextUpdates) || modified;

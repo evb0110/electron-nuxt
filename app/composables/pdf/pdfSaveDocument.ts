@@ -6,6 +6,23 @@ interface ISavePdfDocumentWithCommittedEditorsOptions {
     annotationUiManager: AnnotationEditorUIManager | null;
 }
 
+async function waitForCommittedEditorsToSettle() {
+    await nextTick();
+
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+        return;
+    }
+
+    await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+                resolve();
+            });
+        });
+    });
+    await nextTick();
+}
+
 export async function savePdfDocumentWithCommittedEditors(
     options: ISavePdfDocumentWithCommittedEditorsOptions,
 ): Promise<Uint8Array | null> {
@@ -14,6 +31,6 @@ export async function savePdfDocumentWithCommittedEditors(
     }
 
     options.annotationUiManager?.commitOrRemove();
-    await nextTick();
+    await waitForCommittedEditorsToSettle();
     return options.pdfDocument.saveDocument();
 }

@@ -36,10 +36,12 @@ export interface IFileOperationsDeps {
     markPageLabelsSaved: () => void;
     markBookmarksSaved: () => void;
     hasAnnotationChanges: () => boolean;
+    hasShapeChanges?: () => boolean;
     serializePdfForSave: (
         data: Uint8Array,
         options?: {
             includeShapes?: boolean;
+            rewriteShapeState?: boolean;
             pendingTexts?: Map<string, string> | null;
             pendingDeletes?: IAnnotationCommentSummary[] | null;
         },
@@ -77,6 +79,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         markPageLabelsSaved,
         markBookmarksSaved,
         hasAnnotationChanges,
+        hasShapeChanges,
         serializePdfForSave,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,
@@ -128,11 +131,13 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         pendingDeletes: IAnnotationCommentSummary[] | null,
         opts?: {
             includeShapes?: boolean;
+            rewriteShapeState?: boolean;
             saveMode?: TPdfSaveMode;
         },
     ): Promise<IPdfSaveResult | null> {
         const data = await serializePdfForSave(rawData, {
             includeShapes: opts?.includeShapes,
+            rewriteShapeState: opts?.rewriteShapeState,
             pendingTexts,
             pendingDeletes,
         });
@@ -284,12 +289,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         isSaving.value = true;
         try {
             if (workingCopyPath.value) {
-                const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
+                const shapeStateDirty = hasShapeChanges?.() ?? false;
+                const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || shapeStateDirty || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
                 if (shouldSerialize) {
                     const rawData = await getSerializationBasePdfBytes();
                     if (rawData) {
                         const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
-                            includeShapes: true,
+                            includeShapes: shapeStateDirty,
+                            rewriteShapeState: shapeStateDirty,
                             saveMode: 'rewrite',
                         });
                         if (saveResult) {
@@ -327,10 +334,12 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 return saveSucceeded;
             }
 
+            const shapeStateDirty = hasShapeChanges?.() ?? false;
             const rawData = await saveDocumentWithRetry();
             if (rawData) {
                 const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
-                    includeShapes: false,
+                    includeShapes: shapeStateDirty,
+                    rewriteShapeState: shapeStateDirty,
                     saveMode: 'rewrite',
                 });
                 if (saveResult) {
@@ -377,12 +386,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         let saveSucceeded = false;
         isSavingAs.value = true;
         try {
-            const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
+            const shapeStateDirty = hasShapeChanges?.() ?? false;
+            const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || shapeStateDirty || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
             if (shouldSerialize) {
                 const rawData = await getSerializationBasePdfBytes();
                 if (rawData) {
                     const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
-                        includeShapes: true,
+                        includeShapes: shapeStateDirty,
+                        rewriteShapeState: shapeStateDirty,
                         saveMode: 'save_as_rewrite',
                     });
                     if (saveResult) {

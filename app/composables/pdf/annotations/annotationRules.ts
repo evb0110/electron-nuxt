@@ -79,8 +79,8 @@ export function isAuthoringAnnotationTool(tool: TAnnotationTool): boolean {
     return tool !== 'none' && tool !== 'select';
 }
 
-export function isShapeTool(tool: TAnnotationTool): tool is Extract<TAnnotationTool, 'rectangle' | 'circle' | 'line' | 'arrow'> {
-    return tool === 'rectangle' || tool === 'circle' || tool === 'line' || tool === 'arrow';
+export function isShapeTool(tool: TAnnotationTool): tool is Extract<TAnnotationTool, 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow'> {
+    return tool === 'draw' || tool === 'rectangle' || tool === 'circle' || tool === 'line' || tool === 'arrow';
 }
 
 export function shouldForceTextMarkup(tool: TAnnotationTool): boolean {

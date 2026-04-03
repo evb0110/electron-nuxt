@@ -39,10 +39,12 @@ export interface IPdfSerializationDeps {
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype> | undefined;
     getAllShapes: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
+    getDeletedEmbeddedShapeStableKeys?: () => string[];
 }
 
 interface ISerializePdfForSaveOptions {
     includeShapes?: boolean;
+    rewriteShapeState?: boolean;
     pendingTexts?: Map<string, string> | null;
     pendingDeletes?: IAnnotationCommentSummary[] | null;
     placedImage?: IPdfPlacedImageFinalizePayload | null;
@@ -62,6 +64,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         getMarkupSubtypeOverrides,
         getAllShapes,
         getDeletedEmbeddedShapeAnnotationIds,
+        getDeletedEmbeddedShapeStableKeys,
     } = deps;
 
     function toOwnedUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
@@ -206,8 +209,10 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         return {
             markupSubtypeOverrides: [],
             markupSubtypeHints: [],
+            rewriteShapeState: false,
             shapes: [],
             deletedShapeAnnotationIds: [],
+            deletedShapeStableKeys: [],
             freeTextComments: [],
             annotationComments: [],
             pendingEmbeddedTextUpdates: [],
@@ -269,8 +274,10 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         const payload = createEmptySavePayload();
         payload.markupSubtypeOverrides = Array.from(getMarkupSubtypeOverrides()?.entries() ?? []);
         payload.markupSubtypeHints = collectMarkupSubtypeHints(annotationComments.value);
+        payload.rewriteShapeState = options?.rewriteShapeState ?? false;
         payload.shapes = (options?.includeShapes ?? true) ? getAllShapes() : [];
         payload.deletedShapeAnnotationIds = getDeletedEmbeddedShapeAnnotationIds?.() ?? [];
+        payload.deletedShapeStableKeys = getDeletedEmbeddedShapeStableKeys?.() ?? [];
         payload.freeTextComments = getFreeTextNoteComments();
         payload.annotationComments = annotationComments.value;
         payload.pendingEmbeddedTextUpdates = Array.from(options?.pendingTexts?.entries() ?? []);
@@ -300,8 +307,10 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
     async function serializeShapeAnnotations(data: Uint8Array): Promise<Uint8Array> {
         const payload = createEmptySavePayload();
+        payload.rewriteShapeState = true;
         payload.shapes = getAllShapes();
         payload.deletedShapeAnnotationIds = getDeletedEmbeddedShapeAnnotationIds?.() ?? [];
+        payload.deletedShapeStableKeys = getDeletedEmbeddedShapeStableKeys?.() ?? [];
         return runSerializedEdit(data, payload);
     }
 

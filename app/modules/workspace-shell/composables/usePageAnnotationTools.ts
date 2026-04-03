@@ -6,11 +6,13 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotation-defaults';
+import { isShapeTool } from '@app/composables/pdf/annotations/annotationRules';
 
 interface IPdfViewerForAnnotationTools {
     cancelCommentPlacement: () => void;
     clearSelectedShape: () => void;
     selectedShapeId: string | null;
+    getSelectedShape: () => {pdfSubtype?: string | null;} | null;
     updateShape: (id: string, updates: Record<string, unknown>) => void;
 }
 
@@ -66,6 +68,13 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         if (annotationKeepActive.value) {
             return;
         }
+        const previousTool = annotationTool.value;
+        if (isShapeTool(previousTool)) {
+            annotationTool.value = 'select';
+            annotationPlacingPageNote.value = false;
+            closeAnnotationContextMenu();
+            return;
+        }
         annotationTool.value = 'none';
         pdfViewerRef.value?.clearSelectedShape();
         annotationPlacingPageNote.value = false;
@@ -90,6 +99,24 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
 
         const selectedShapeId = pdfViewerRef.value?.selectedShapeId;
         if (!selectedShapeId) {
+            return;
+        }
+
+        const selectedShape = pdfViewerRef.value?.getSelectedShape();
+        const isInkShape = selectedShape?.pdfSubtype === 'Ink';
+
+        if (payload.key === 'inkColor' && isInkShape) {
+            pdfViewerRef.value?.updateShape(selectedShapeId, { color: String(payload.value) });
+            return;
+        }
+
+        if (payload.key === 'inkThickness' && isInkShape) {
+            pdfViewerRef.value?.updateShape(selectedShapeId, { strokeWidth: Number(payload.value) });
+            return;
+        }
+
+        if (payload.key === 'inkOpacity' && isInkShape) {
+            pdfViewerRef.value?.updateShape(selectedShapeId, { opacity: Number(payload.value) });
             return;
         }
 

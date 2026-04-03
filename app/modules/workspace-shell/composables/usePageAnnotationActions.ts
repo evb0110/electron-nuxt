@@ -440,18 +440,32 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return;
         }
 
+        const currentSelectedShape = selectedShape.value;
+        const isInkShape = currentSelectedShape?.pdfSubtype === 'Ink';
         const nextSettings: IAnnotationSettings = { ...annotationSettings.value };
         let didUpdateDefaults = false;
         if (typeof updates.color === 'string' && updates.color.trim()) {
-            nextSettings.shapeColor = updates.color;
+            if (isInkShape) {
+                nextSettings.inkColor = updates.color;
+            } else {
+                nextSettings.shapeColor = updates.color;
+            }
             didUpdateDefaults = true;
         }
         if (typeof updates.strokeWidth === 'number' && Number.isFinite(updates.strokeWidth)) {
-            nextSettings.shapeStrokeWidth = updates.strokeWidth;
+            if (isInkShape) {
+                nextSettings.inkThickness = updates.strokeWidth;
+            } else {
+                nextSettings.shapeStrokeWidth = updates.strokeWidth;
+            }
             didUpdateDefaults = true;
         }
         if (typeof updates.opacity === 'number' && Number.isFinite(updates.opacity)) {
-            nextSettings.shapeOpacity = updates.opacity;
+            if (isInkShape) {
+                nextSettings.inkOpacity = updates.opacity;
+            } else {
+                nextSettings.shapeOpacity = updates.opacity;
+            }
             didUpdateDefaults = true;
         }
         if ('fillColor' in updates) {

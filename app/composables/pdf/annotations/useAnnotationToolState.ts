@@ -88,15 +88,14 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
             case 'text':
                 return AnnotationEditorType.FREETEXT;
             case 'draw':
-                return AnnotationEditorType.INK;
-            case 'stamp':
-                return AnnotationEditorType.STAMP;
             case 'rectangle':
             case 'circle':
             case 'line':
             case 'arrow':
             case 'select':
                 return AnnotationEditorType.NONE;
+            case 'stamp':
+                return AnnotationEditorType.STAMP;
             case 'none':
             default:
                 return AnnotationEditorType.NONE;

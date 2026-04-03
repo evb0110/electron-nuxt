@@ -464,8 +464,12 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
                 if (shouldClearSelectionAfterCreate) {
                     // Newly committed ink strokes remain selected in PDF.js, so later
                     // default style changes would rewrite the last stroke instead of
-                    // only affecting future drawings.
-                    clearSelectedEditorState(uiManager);
+                    // only affecting future drawings. When the app has already
+                    // auto-reset back to selection mode, keep the new stroke
+                    // selected so its focus frame remains visible.
+                    if (annotationTool.value === 'draw') {
+                        clearSelectedEditorState(uiManager);
+                    }
                 }
                 emitAnnotationModified();
                 commentSync.scheduleAnnotationCommentsSync();

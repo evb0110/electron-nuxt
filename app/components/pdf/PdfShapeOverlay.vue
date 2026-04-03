@@ -220,6 +220,21 @@
                 stroke-dasharray="0.01 0.005"
                 vector-effect="non-scaling-stroke"
             />
+            <template v-if="drawingShape.type === 'polyline'">
+                <polyline
+                    v-for="(points, strokeIndex) in shapeStrokePointSets(drawingShape)"
+                    :key="`drawing-stroke-${strokeIndex}`"
+                    :points="points"
+                    fill="none"
+                    :stroke="drawingShape.color"
+                    :opacity="drawingShape.opacity"
+                    :stroke-width="strokeWidthNorm(drawingShape.strokeWidth)"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-dasharray="0.01 0.005"
+                    vector-effect="non-scaling-stroke"
+                />
+            </template>
             <polygon
                 v-if="isClosedArrow(drawingShape.lineStartStyle)"
                 :points="lineArrowHeadPoints(drawingShape, 'start')"
