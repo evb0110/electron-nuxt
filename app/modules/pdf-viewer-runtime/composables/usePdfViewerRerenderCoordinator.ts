@@ -87,6 +87,7 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
     consumeZoomViewportAnchor?: () => IZoomViewportAnchor | null;
     isZoomGestureSessionLocked?: () => boolean;
     beginResizeTransition: (source: string, anchorPage: number | null) => number;
+    consumeSuppressedZoomRerender?: (nextZoom: number) => boolean;
 }
 
 export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCoordinatorOptions) {
@@ -123,6 +124,7 @@ export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCo
         consumeZoomViewportAnchor,
         isZoomGestureSessionLocked,
         beginResizeTransition,
+        consumeSuppressedZoomRerender,
     } = options;
 
     let reRenderSyncRunId = 0;
@@ -293,6 +295,9 @@ export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCo
 
     watch(zoom, (nextZoom, previousZoom) => {
         if (pdfDocument.value) {
+            if (consumeSuppressedZoomRerender?.(nextZoom)) {
+                return;
+            }
             cancelInFlightPageRenders?.();
             const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
             const zoomAnchor = buildResizeAnchorContext({

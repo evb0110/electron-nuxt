@@ -67,6 +67,7 @@ interface IUsePdfViewerCoreOptions {
     basePageWidth: Ref<number | null>;
     basePageHeight: Ref<number | null>;
     computeFitWidthScale: (container: HTMLElement | null) => boolean;
+    invalidateScaleCache: () => void;
     resetScale: () => void;
     computeSkeletonInsets: (
         pdfPage: PDFPageProxy,
@@ -127,6 +128,8 @@ interface IUsePdfViewerCoreOptions {
             reason?: string;
         },
     ) => void;
+    beginVisualReloadTransition: (reason: string) => number;
+    endVisualReloadTransition: (token: number, reason: string) => void;
     emit: {
         (e: 'update:zoom', value: number): void;
         (e: 'update:currentPage', page: number): void;
@@ -212,6 +215,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         basePageWidth,
         basePageHeight,
         computeFitWidthScale,
+        invalidateScaleCache,
         resetScale,
         computeSkeletonInsets,
         beforeInitialRender,
@@ -237,6 +241,8 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         setZoomRerenderBusy,
         setResizeTransitionVisible,
         pinCurrentPageDuringRecovery,
+        beginVisualReloadTransition,
+        endVisualReloadTransition,
         emit,
     } = options;
 
@@ -336,6 +342,23 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     const markLowResZoomRerenderUsedDelegate = createRequiredVoidDelegate<
         []
     >('pdf-viewer-mark-low-res-zoom-rerender-used');
+    let suppressedZoomRerenderTarget: number | null = null;
+
+    function suppressNextZoomRerender(targetZoom: number) {
+        suppressedZoomRerenderTarget = targetZoom;
+    }
+
+    function consumeSuppressedZoomRerender(nextZoom: number) {
+        if (
+            suppressedZoomRerenderTarget === null
+            || Math.abs(nextZoom - suppressedZoomRerenderTarget) > 0.001
+        ) {
+            return false;
+        }
+
+        suppressedZoomRerenderTarget = null;
+        return true;
+    }
 
     const {
         buildResizeAnchorContext,
@@ -389,6 +412,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         updateVisibleRange,
         scrollToPage,
         cleanupRenderedPages,
+        invalidateScaleCache,
         resetScale,
         resetInsets,
         setupPagePlaceholders,
@@ -400,6 +424,9 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         commentSync,
         editor,
         pinCurrentPageDuringRecovery,
+        suppressNextZoomRerender,
+        beginVisualReloadTransition,
+        endVisualReloadTransition,
         emit,
     });
     const {
@@ -456,6 +483,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         consumeZoomViewportAnchor,
         isZoomGestureSessionLocked,
         beginResizeTransition,
+        consumeSuppressedZoomRerender,
     });
     rerenderSyncDelegate.bind(reRenderVisiblePagesAndSyncCurrentPageFromCoordinator);
 

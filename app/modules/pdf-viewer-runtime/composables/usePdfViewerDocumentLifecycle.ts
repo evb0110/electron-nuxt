@@ -74,6 +74,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     scrollToPage: (pageNumber: number, options?: { preferExactDom?: boolean }) => void;
     cleanupRenderedPages: () => void;
+    invalidateScaleCache: () => void;
     resetScale: () => void;
     resetInsets: () => void;
     setupPagePlaceholders: () => void;
@@ -95,6 +96,9 @@ interface IUsePdfViewerDocumentLifecycleOptions {
             reason?: string;
         },
     ) => void;
+    suppressNextZoomRerender: (targetZoom: number) => void;
+    beginVisualReloadTransition: (reason: string) => number;
+    endVisualReloadTransition: (token: number, reason: string) => void;
     emit: {
         (e: 'update:totalPages', total: number): void;
         (e: 'update:currentPage', page: number): void;
@@ -176,6 +180,30 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
         });
     }
 
+    async function waitForZoomPropSync(targetZoom: number) {
+        if (Math.abs(options.zoom.value - targetZoom) <= 0.001) {
+            return true;
+        }
+
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+            await nextTick();
+            if (Math.abs(options.zoom.value - targetZoom) <= 0.001) {
+                return true;
+            }
+
+            await delay(0);
+            if (Math.abs(options.zoom.value - targetZoom) <= 0.001) {
+                return true;
+            }
+        }
+
+        BrowserLogger.warn('pdf-nav', '[load-from-source] zoom restore did not sync before render', {
+            currentZoom: options.zoom.value,
+            targetZoom,
+        });
+        return false;
+    }
+
     async function loadFromSource(isReload = false) {
         if (!options.src.value) {
             options.commentSync.incrementSyncToken();
@@ -192,7 +220,24 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
             : null;
         const pagesToInvalidate = options.consumePendingInvalidation();
         const isSelectiveReload = isReload && pagesToInvalidate !== null;
+        const shouldPreserveReloadDisplayZoom = isReload
+            && !isSelectiveReload
+            && displayZoomToRestore !== null;
         const shouldPinReloadPage = isReload && !isSelectiveReload && resolvedPageToRestore > 1;
+        const visualReloadTransitionToken = shouldPinReloadPage
+            ? options.beginVisualReloadTransition('reload-recovery')
+            : null;
+        let visualReloadTransitionHandledByWarmRender = false;
+        let visualReloadTransitionSettled = false;
+
+        const settleVisualReloadTransition = (reason: string) => {
+            if (visualReloadTransitionToken === null || visualReloadTransitionSettled) {
+                return;
+            }
+
+            visualReloadTransitionSettled = true;
+            options.endVisualReloadTransition(visualReloadTransitionToken, reason);
+        };
 
         if (shouldPinReloadPage) {
             // Geometry-changing reloads can briefly report a stale viewport page
@@ -217,7 +262,11 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
             options.invalidateRenderedPages(pagesToInvalidate);
         } else {
             options.cleanupRenderedPages();
-            options.resetScale();
+            if (shouldPreserveReloadDisplayZoom) {
+                options.invalidateScaleCache();
+            } else {
+                options.resetScale();
+            }
             options.resetInsets();
             options.currentPage.value = pageToRestore;
             options.visibleRange.value = {
@@ -232,6 +281,7 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
             isSelectiveReload ? { preservePageStructure: true } : undefined,
         );
         if (!loaded) {
+            settleVisualReloadTransition('load-aborted');
             return;
         }
 
@@ -287,8 +337,9 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
                     targetDisplayZoom: displayZoomToRestore,
                 });
                 if (nextZoom !== null && Math.abs(nextZoom - options.zoom.value) > 0.001) {
+                    options.suppressNextZoomRerender(nextZoom);
                     options.emit('update:zoom', nextZoom);
-                    await nextTick();
+                    await waitForZoomPropSync(nextZoom);
                 }
             }
             options.setupPagePlaceholders();
@@ -324,20 +375,28 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
                 await options.syncCurrentPageFromViewport({ source: 'load-from-source' });
             }
         } catch (error) {
+            settleVisualReloadTransition('initial-render-error');
             logAsyncStageError('render visible pages after source load', error);
+        }
+        if (visualReloadTransitionToken !== null) {
+            visualReloadTransitionHandledByWarmRender = true;
         }
         runGuardedTask(
             async () => {
-                await options.renderVisiblePages(options.getVisibleRange());
-                if (!shouldPinReloadPage) {
-                    return;
-                }
+                try {
+                    await options.renderVisiblePages(options.getVisibleRange());
+                    if (!shouldPinReloadPage) {
+                        return;
+                    }
 
-                options.currentPage.value = Math.min(resolvedPageToRestore, options.numPages.value);
-                options.emit('update:currentPage', options.currentPage.value);
-                options.scrollToPage(options.currentPage.value);
-                await nextTick();
-                options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+                    options.currentPage.value = Math.min(resolvedPageToRestore, options.numPages.value);
+                    options.emit('update:currentPage', options.currentPage.value);
+                    options.scrollToPage(options.currentPage.value);
+                    await nextTick();
+                    options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+                } finally {
+                    settleVisualReloadTransition('warm-render-complete');
+                }
             },
             {
                 scope: 'pdf-viewer',
@@ -347,6 +406,10 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
         options.applySearchHighlights();
         options.commentSync.scheduleAnnotationCommentsSync(true);
         scheduleRecoverInitialRender();
+
+        if (!visualReloadTransitionHandledByWarmRender) {
+            settleVisualReloadTransition('load-complete');
+        }
     }
 
     function scheduleLoadFromSource(isReload = false) {

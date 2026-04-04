@@ -106,6 +106,7 @@ import {
 } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
 import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerLoadingState';
 import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerMouseInteractions';
+import { usePdfViewerReloadTransition } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerReloadTransition';
 import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerWheelZoom';
 import { usePdfShapeContext } from '@app/composables/pdf/usePdfShapeContext';
 import { usePdfRegionSnip } from '@app/composables/pdf/usePdfRegionSnip';
@@ -419,6 +420,7 @@ const {
     scaledMargin,
     computeFitWidthScale,
     effectiveScale,
+    invalidateScaleCache,
     resetScale,
 } = usePdfScale(
     zoom,
@@ -432,10 +434,20 @@ const {
     continuousScroll,
 );
 
+const {
+    isVisualReloadTransitionActive,
+    beginVisualReloadTransition,
+    endVisualReloadTransition,
+    emitEffectiveZoom: emitEffectiveZoomThroughReloadTransition,
+} = usePdfViewerReloadTransition({
+    emitEffectiveZoom: (value) => emit('update:effectiveZoom', value),
+    summarizeViewerStateForLog,
+});
+
 watch(
     () => effectiveScale.value,
     (value) => {
-        emit('update:effectiveZoom', value);
+        emitEffectiveZoomThroughReloadTransition(value);
     },
     { immediate: true },
 );
@@ -1012,6 +1024,7 @@ const {
     basePageWidth,
     basePageHeight,
     computeFitWidthScale,
+    invalidateScaleCache,
     resetScale,
     computeSkeletonInsets,
     beforeInitialRender: () => ensureEmbeddedShapesImportedForCurrentSource(),
@@ -1041,6 +1054,8 @@ const {
     setZoomRerenderBusy,
     setResizeTransitionVisible: handleResizeTransitionSignal,
     pinCurrentPageDuringRecovery,
+    beginVisualReloadTransition,
+    endVisualReloadTransition,
     emit,
 });
 pageRenderStallRecoveryHandler = handlePageRenderStallFromCore;
@@ -1071,6 +1086,7 @@ const { isViewerLoadingOverlayVisible } = usePdfViewerLoadingState({
     src,
     isLoading,
     viewerContainer,
+    holdOverlayVisible: isVisualReloadTransitionActive,
 });
 
 const viewerClass = computed(() => ({
