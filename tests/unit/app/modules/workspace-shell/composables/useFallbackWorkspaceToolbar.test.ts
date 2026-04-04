@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    nextTick,
+    ref,
+} from 'vue';
 import { useFallbackWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useFallbackWorkspaceToolbar';
 import type {
     IWorkspaceExpose,
@@ -91,5 +94,35 @@ describe('useFallbackWorkspaceToolbar', () => {
         });
 
         expect(toolbar.fallbackToolbarSnapshot.value.isOpeningDocument).toBe(false);
+    });
+
+    it('tracks live workspace snapshot changes while the fallback toolbar is visible', async () => {
+        const snapshot = ref(createSnapshot({
+            canSave: false,
+            hasPdf: true,
+        }));
+        const activeWorkspace = ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>({
+            hasPdf: { value: true },
+            getToolbarSnapshot: () => snapshot.value,
+        }));
+
+        const toolbar = useFallbackWorkspaceToolbar({
+            activeGroupId: ref('group-1'),
+            activeTabId: ref('tab-1'),
+            activeWorkspace,
+            hasTeleportedToolbarContent: ref(false),
+            isTabTransitionBusy: ref(false),
+            getTabById: (_tabId: string) => createPlaceholderTab('tab-1'),
+        });
+
+        expect(toolbar.fallbackToolbarSnapshot.value.canSave).toBe(false);
+
+        snapshot.value = createSnapshot({
+            canSave: true,
+            hasPdf: true,
+        });
+        await nextTick();
+
+        expect(toolbar.fallbackToolbarSnapshot.value.canSave).toBe(true);
     });
 });

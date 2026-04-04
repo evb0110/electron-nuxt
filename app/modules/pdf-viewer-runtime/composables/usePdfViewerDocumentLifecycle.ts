@@ -83,10 +83,18 @@ interface IUsePdfViewerDocumentLifecycleOptions {
         renderVersion: number,
         getCurrentVersion: () => number,
     ) => Promise<void>;
+    beforeInitialRender?: () => Promise<void>;
     invalidateRenderedPages: (pages: number[]) => void;
     consumePendingInvalidation: () => number[] | null;
     commentSync: ICommentSyncLike;
     editor: IAnnotationEditorLike;
+    pinCurrentPageDuringRecovery: (
+        page: number,
+        options?: {
+            durationMs?: number;
+            reason?: string;
+        },
+    ) => void;
     emit: {
         (e: 'update:totalPages', total: number): void;
         (e: 'update:currentPage', page: number): void;
@@ -178,11 +186,22 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
         }
 
         const pageToRestore = isReload ? options.currentPage.value : 1;
+        const resolvedPageToRestore = Math.max(1, Math.floor(pageToRestore));
         const displayZoomToRestore = isReload && options.zoomMode.value === 'custom'
             ? options.effectiveScale.value
             : null;
         const pagesToInvalidate = options.consumePendingInvalidation();
         const isSelectiveReload = isReload && pagesToInvalidate !== null;
+        const shouldPinReloadPage = isReload && !isSelectiveReload && resolvedPageToRestore > 1;
+
+        if (shouldPinReloadPage) {
+            // Geometry-changing reloads can briefly report a stale viewport page
+            // while placeholders, resize observers, and buffered renders settle.
+            options.pinCurrentPageDuringRecovery(resolvedPageToRestore, {
+                durationMs: 900,
+                reason: 'reload-recovery',
+            });
+        }
 
         const savedBaseWidth = isSelectiveReload ? options.basePageWidth.value : null;
         const savedBaseHeight = isSelectiveReload ? options.basePageHeight.value : null;
@@ -228,11 +247,14 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
         options.emit('update:document', options.pdfDocument.value);
         options.editor.initAnnotationEditor();
 
-        options.currentPage.value = Math.min(pageToRestore, options.numPages.value);
+        options.currentPage.value = Math.min(resolvedPageToRestore, options.numPages.value);
         options.emit('update:totalPages', options.numPages.value);
         options.emit('update:currentPage', options.currentPage.value);
+        const metricHydrationStartPage = isReload && !isSelectiveReload && options.currentPage.value > 1
+            ? 1
+            : options.currentPage.value;
         await options.ensurePageMetricsInRange(
-            options.currentPage.value,
+            metricHydrationStartPage,
             options.currentPage.value,
         );
 
@@ -254,6 +276,7 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
         }
 
         await nextTick();
+        await options.beforeInitialRender?.();
 
         if (!isSelectiveReload) {
             options.computeFitWidthScale(options.viewerContainer.value);
@@ -285,12 +308,37 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
             } satisfies IPageRange;
 
             await options.renderVisiblePages(initialRange, { bufferOverride: 0 });
-            await options.syncCurrentPageFromViewport({ source: 'load-from-source' });
+            if (!isSelectiveReload && isReload && options.currentPage.value > 1) {
+                // Crop and other geometry-changing reloads can shift placeholder
+                // offsets enough that the pre-render jump lands on the wrong page.
+                // Re-apply the intended page target once the first real page render
+                // has stabilized layout, then sync currentPage from that viewport.
+                options.scrollToPage(options.currentPage.value);
+                await nextTick();
+                options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+            }
+            if (shouldPinReloadPage) {
+                options.currentPage.value = Math.min(resolvedPageToRestore, options.numPages.value);
+                options.emit('update:currentPage', options.currentPage.value);
+            } else {
+                await options.syncCurrentPageFromViewport({ source: 'load-from-source' });
+            }
         } catch (error) {
             logAsyncStageError('render visible pages after source load', error);
         }
         runGuardedTask(
-            () => options.renderVisiblePages(options.getVisibleRange()),
+            async () => {
+                await options.renderVisiblePages(options.getVisibleRange());
+                if (!shouldPinReloadPage) {
+                    return;
+                }
+
+                options.currentPage.value = Math.min(resolvedPageToRestore, options.numPages.value);
+                options.emit('update:currentPage', options.currentPage.value);
+                options.scrollToPage(options.currentPage.value);
+                await nextTick();
+                options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+            },
             {
                 scope: 'pdf-viewer',
                 message: 'Failed to warm buffered PDF pages after initial render',

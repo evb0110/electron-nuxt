@@ -179,6 +179,24 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     return filePath;
 }
 
+export async function createBlankFixturePdf(filename: string, pageCount = 1) {
+    ensureFixtureDir();
+    const filePath = join(FIXTURE_DIR, filename);
+
+    const doc = await PDFDocument.create();
+    for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {
+        doc.addPage([
+            612,
+            792,
+        ]);
+    }
+
+    const bytes = await doc.save();
+    writeFileSync(filePath, bytes);
+
+    return filePath;
+}
+
 export async function readPdfAnnotationSummary(filePath: string): Promise<IPdfAnnotationSummary> {
     const document = await openPdfWithLowVerbosity(filePath);
 

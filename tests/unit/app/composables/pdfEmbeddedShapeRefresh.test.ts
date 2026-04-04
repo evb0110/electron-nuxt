@@ -64,8 +64,9 @@ function createFakeViewerContainer(annotationIds: string[]): HTMLElement & IFake
 }
 
 describe('refreshDeletedEmbeddedShapePage', () => {
-    it('removes deleted embedded annotation DOM without rerendering the page', async () => {
+    it('removes deleted embedded annotation DOM and requests a repaint for the affected page', async () => {
         const syncHiddenEmbeddedAnnotationDom = vi.fn();
+        const rerenderEmbeddedShapePage = vi.fn();
         const viewerContainer = createFakeViewerContainer(['12R']);
 
         refreshDeletedEmbeddedShapePage({
@@ -76,6 +77,7 @@ describe('refreshDeletedEmbeddedShapePage', () => {
             },
             viewerContainer,
             syncHiddenEmbeddedAnnotationDom,
+            rerenderEmbeddedShapePage,
         });
 
         await Promise.resolve();
@@ -83,10 +85,12 @@ describe('refreshDeletedEmbeddedShapePage', () => {
         expect(syncHiddenEmbeddedAnnotationDom).toHaveBeenCalledOnce();
         expect(viewerContainer.elements[0]?.remove).toHaveBeenCalledOnce();
         expect(viewerContainer.popups[0]?.remove).toHaveBeenCalledOnce();
+        expect(rerenderEmbeddedShapePage).toHaveBeenCalledWith(3);
     });
 
     it('only syncs hidden annotation dom for local shapes', () => {
         const syncHiddenEmbeddedAnnotationDom = vi.fn();
+        const rerenderEmbeddedShapePage = vi.fn();
 
         refreshDeletedEmbeddedShapePage({
             shape: {
@@ -96,9 +100,11 @@ describe('refreshDeletedEmbeddedShapePage', () => {
             },
             viewerContainer: createFakeViewerContainer(['12R']),
             syncHiddenEmbeddedAnnotationDom,
+            rerenderEmbeddedShapePage,
         });
 
         expect(syncHiddenEmbeddedAnnotationDom).toHaveBeenCalledOnce();
+        expect(rerenderEmbeddedShapePage).not.toHaveBeenCalled();
     });
 });
 
@@ -119,11 +125,12 @@ describe('removeEmbeddedShapeAnnotationDom', () => {
 });
 
 describe('rerenderRenderedManagedEmbeddedShapePages', () => {
-    it('rerenders the managed embedded shape pages that are already rendered', async () => {
+    it('rerenders managed embedded shape pages that are rendered or inside the active render window', async () => {
         const renderVisiblePages = vi.fn(async () => {});
+        const invalidatePages = vi.fn();
         const isPageRendered = vi.fn((pageNumber: number) => pageNumber === 1 || pageNumber === 3);
 
-        rerenderRenderedManagedEmbeddedShapePages({
+        await rerenderRenderedManagedEmbeddedShapePages({
             shapes: [
                 {
                     annotationId: '12R0',
@@ -141,19 +148,28 @@ describe('rerenderRenderedManagedEmbeddedShapePages', () => {
                     source: 'embedded',
                 },
             ],
+            visibleRange: {
+                start: 5,
+                end: 5,
+            },
+            renderBuffer: 1,
             isPageRendered,
+            invalidatePages,
             renderVisiblePages,
         });
-
-        await Promise.resolve();
 
         expect(isPageRendered).toHaveBeenCalledWith(1);
         expect(isPageRendered).toHaveBeenCalledWith(3);
         expect(isPageRendered).toHaveBeenCalledWith(6);
+        expect(invalidatePages).toHaveBeenCalledWith([
+            1,
+            3,
+            6,
+        ]);
         expect(renderVisiblePages).toHaveBeenCalledWith(
             {
                 start: 1,
-                end: 3,
+                end: 6,
             },
             {
                 preserveRenderedPages: true,
@@ -165,6 +181,7 @@ describe('rerenderRenderedManagedEmbeddedShapePages', () => {
 
     it('skips rerender when there are no rendered managed embedded shapes', () => {
         const renderVisiblePages = vi.fn(async () => {});
+        const invalidatePages = vi.fn();
         const isPageRendered = vi.fn(() => false);
 
         rerenderRenderedManagedEmbeddedShapePages({
@@ -173,10 +190,17 @@ describe('rerenderRenderedManagedEmbeddedShapePages', () => {
                 pageIndex: 8,
                 source: 'embedded',
             }],
+            visibleRange: {
+                start: 1,
+                end: 2,
+            },
+            renderBuffer: 0,
             isPageRendered,
+            invalidatePages,
             renderVisiblePages,
         });
 
+        expect(invalidatePages).not.toHaveBeenCalled();
         expect(renderVisiblePages).not.toHaveBeenCalled();
     });
 });

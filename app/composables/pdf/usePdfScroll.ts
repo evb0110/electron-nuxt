@@ -14,6 +14,8 @@ import {
 
 type TPageLayoutMetrics = IPdfPageLayoutMetrics;
 
+interface IUsePdfScrollOptions { getPinnedMostVisiblePage?: () => number | null; }
+
 interface IViewportVisibilityCacheEntry {
     container: HTMLElement;
     totalPages: number;
@@ -85,7 +87,7 @@ function findLastVisibleLayoutPageIndex(
     return result;
 }
 
-export const usePdfScroll = () => {
+export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
     const currentPage = ref(1);
     const visibleRange = ref({
         start: 1,
@@ -197,6 +199,11 @@ export const usePdfScroll = () => {
     ): number {
         if (!container || totalPages === 0) {
             return 1;
+        }
+
+        const pinnedPage = options.getPinnedMostVisiblePage?.();
+        if (pinnedPage !== null && pinnedPage !== undefined) {
+            return clamp(pinnedPage, 1, totalPages);
         }
 
         const visibility = getViewportVisibility(container, totalPages);

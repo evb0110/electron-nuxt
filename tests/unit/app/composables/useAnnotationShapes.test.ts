@@ -103,7 +103,7 @@ describe('useAnnotationShapes', () => {
         expect(shapes.hasShapes.value).toBe(false);
     });
 
-    it('creates draw strokes as local Ink polylines before save', () => {
+    it('creates draw strokes as local Ink polylines before save without auto-selecting them', () => {
         const shapes = useAnnotationShapes();
 
         shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
@@ -123,7 +123,7 @@ describe('useAnnotationShapes', () => {
         expect(created?.stableKey).toMatch(/^evb-shape:/);
         expect(created?.strokes).toHaveLength(1);
         expect(created?.strokes?.[0]).toHaveLength(3);
-        expect(shapes.selectedShapeId.value).toBe(created?.id ?? null);
+        expect(shapes.selectedShapeId.value).toBeNull();
         expect(shapes.hasShapes.value).toBe(true);
     });
 

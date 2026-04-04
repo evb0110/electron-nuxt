@@ -16,11 +16,15 @@ interface IRefreshDeletedEmbeddedShapePageOptions {
     shape: Pick<IShapeAnnotation, 'annotationId' | 'pageIndex' | 'source'> | null;
     viewerContainer: HTMLElement | null;
     syncHiddenEmbeddedAnnotationDom: () => void;
+    rerenderEmbeddedShapePage?: (pageNumber: number) => void;
 }
 
 interface IRerenderRenderedManagedEmbeddedShapePagesOptions {
     shapes: Array<Pick<IShapeAnnotation, 'annotationId' | 'pageIndex' | 'source'>>;
+    visibleRange: IPageRange;
+    renderBuffer: number;
     isPageRendered: (pageNumber: number) => boolean;
+    invalidatePages: (pages: number[]) => void;
     renderVisiblePages: (
         visibleRange: IPageRange,
         renderOptions?: IRenderVisiblePagesOptions,
@@ -55,12 +59,14 @@ export function removeEmbeddedShapeAnnotationDom(
 }
 
 // Imported PDF drawings remain part of the PDF.js render tree until the page
-// is repainted, but once a page has been repainted with our hidden-id filter
-// applied, later deletes can stay local to the overlay/annotation DOM.
+// is repainted. Most pages are already corrected by the import-time rerender,
+// but deletes still force a targeted repaint of the affected page so any stale
+// appearance paint is cleared immediately.
 export function refreshDeletedEmbeddedShapePage({
     shape,
     viewerContainer,
     syncHiddenEmbeddedAnnotationDom,
+    rerenderEmbeddedShapePage,
 }: IRefreshDeletedEmbeddedShapePageOptions) {
     syncHiddenEmbeddedAnnotationDom();
 
@@ -74,25 +80,36 @@ export function refreshDeletedEmbeddedShapePage({
     }
 
     removeEmbeddedShapeAnnotationDom(viewerContainer, shape.annotationId);
+    rerenderEmbeddedShapePage?.(Math.max(1, Math.floor(shape.pageIndex) + 1));
 }
 
-export function rerenderRenderedManagedEmbeddedShapePages({
+export async function rerenderRenderedManagedEmbeddedShapePages({
     shapes,
+    visibleRange,
+    renderBuffer,
     isPageRendered,
+    invalidatePages,
     renderVisiblePages,
 }: IRerenderRenderedManagedEmbeddedShapePagesOptions) {
+    const renderWindowStart = Math.max(1, Math.floor(visibleRange.start) - Math.max(0, Math.floor(renderBuffer)));
+    const renderWindowEnd = Math.max(renderWindowStart, Math.floor(visibleRange.end) + Math.max(0, Math.floor(renderBuffer)));
     const renderedManagedPages = Array.from(new Set(
         shapes
             .filter(shape => shape.source === 'embedded' && !!shape.annotationId)
             .map(shape => Math.max(1, Math.floor(shape.pageIndex) + 1))
-            .filter(pageNumber => isPageRendered(pageNumber)),
+            .filter(pageNumber => (
+                isPageRendered(pageNumber)
+                || (pageNumber >= renderWindowStart && pageNumber <= renderWindowEnd)
+            )),
     )).sort((left, right) => left - right);
 
     if (renderedManagedPages.length === 0) {
         return;
     }
 
-    void renderVisiblePages(
+    invalidatePages(renderedManagedPages);
+
+    await renderVisiblePages(
         {
             start: renderedManagedPages[0]!,
             end: renderedManagedPages[renderedManagedPages.length - 1]!,

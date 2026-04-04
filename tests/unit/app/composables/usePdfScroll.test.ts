@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { usePdfScroll } from '@app/composables/pdf/usePdfScroll';
 import { buildPageLayoutMetrics } from '@app/composables/pdf/pdfPageLayout';
@@ -35,6 +36,16 @@ function createContainerStub() {
 }
 
 describe('usePdfScroll page layout fallback', () => {
+    it('prefers a pinned current page while viewport metrics are stabilizing', () => {
+        const { container } = createContainerStub();
+        const getPinnedMostVisiblePage = vi.fn(() => 3);
+        const scroll = usePdfScroll({ getPinnedMostVisiblePage });
+
+        expect(scroll.getMostVisiblePage(container, 5)).toBe(3);
+        expect(scroll.updateCurrentPage(container, 5)).toBe(3);
+        expect(scroll.currentPage.value).toBe(3);
+    });
+
     it('scrolls to hidden pages using per-page layout metrics', () => {
         const {
             container,

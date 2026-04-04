@@ -168,35 +168,45 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
         return hasDocumentMountHint(tab);
     });
 
-    const fallbackToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => ({
-        hasPdf: fallbackHasPdf.value,
-        isOpeningDocument: fallbackIsOpeningDocument.value,
-        canSave: fallbackCanSave.value,
-        canUndo: fallbackCanUndo.value,
-        canRedo: fallbackCanRedo.value,
-        canExportDocx: fallbackCanExportDocx.value,
-        isSaving: fallbackIsSaving.value,
-        isSavingAs: fallbackIsSavingAs.value,
-        isAnySaving: fallbackIsAnySaving.value,
-        isHistoryBusy: fallbackIsHistoryBusy.value,
-        isExportingDocx: fallbackIsExportingDocx.value,
-        isFitWidthActive: fallbackIsFitWidthActive.value,
-        isFitHeightActive: fallbackIsFitHeightActive.value,
-        showSidebar: fallbackShowSidebar.value,
-        dragMode: fallbackDragMode.value,
-        continuousScroll: fallbackContinuousScroll.value,
-        isDjvuMode: fallbackIsDjvuMode.value,
-        isCapturingRegion: fallbackIsCapturingRegion.value,
-        isCropSelecting: fallbackIsCropSelecting.value,
-        isPlacingPageNote: fallbackIsPlacingPageNote.value,
-        zoom: fallbackZoom.value,
-        effectiveZoom: fallbackEffectiveZoom.value,
-        zoomMode: fallbackZoomMode.value,
-        fitMode: fallbackFitMode.value,
-        viewMode: fallbackViewMode.value,
-        currentPage: fallbackCurrentPage.value,
-        totalPages: fallbackTotalPages.value,
-    }));
+    const fallbackToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => {
+        const liveSnapshot = readToolbarSnapshot(options.activeWorkspace.value);
+        if (liveSnapshot) {
+            return {
+                ...liveSnapshot,
+                hasPdf: liveSnapshot.hasPdf || fallbackHasPdf.value,
+            };
+        }
+
+        return {
+            hasPdf: fallbackHasPdf.value,
+            isOpeningDocument: fallbackIsOpeningDocument.value,
+            canSave: fallbackCanSave.value,
+            canUndo: fallbackCanUndo.value,
+            canRedo: fallbackCanRedo.value,
+            canExportDocx: fallbackCanExportDocx.value,
+            isSaving: fallbackIsSaving.value,
+            isSavingAs: fallbackIsSavingAs.value,
+            isAnySaving: fallbackIsAnySaving.value,
+            isHistoryBusy: fallbackIsHistoryBusy.value,
+            isExportingDocx: fallbackIsExportingDocx.value,
+            isFitWidthActive: fallbackIsFitWidthActive.value,
+            isFitHeightActive: fallbackIsFitHeightActive.value,
+            showSidebar: fallbackShowSidebar.value,
+            dragMode: fallbackDragMode.value,
+            continuousScroll: fallbackContinuousScroll.value,
+            isDjvuMode: fallbackIsDjvuMode.value,
+            isCapturingRegion: fallbackIsCapturingRegion.value,
+            isCropSelecting: fallbackIsCropSelecting.value,
+            isPlacingPageNote: fallbackIsPlacingPageNote.value,
+            zoom: fallbackZoom.value,
+            effectiveZoom: fallbackEffectiveZoom.value,
+            zoomMode: fallbackZoomMode.value,
+            fitMode: fallbackFitMode.value,
+            viewMode: fallbackViewMode.value,
+            currentPage: fallbackCurrentPage.value,
+            totalPages: fallbackTotalPages.value,
+        };
+    });
 
     applyFallbackToolbarSnapshot(createDefaultToolbarSnapshot());
 

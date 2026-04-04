@@ -8,6 +8,8 @@ import {
     createPdfReloadWaiter,
 } from '@app/composables/pdf/pdfReloadWaiter';
 
+type TWaitForPdfReloadOptions = { captureScrollSnapshot?: boolean; };
+
 export const usePdfHistory = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
     pdfViewerRef: Ref<{
@@ -57,8 +59,18 @@ export const usePdfHistory = (deps: {
      * the reload completes (or times out). A cancel path is exposed so
      * undo/redo no-op operations can tear the watcher down immediately.
      */
-    function preparePdfReloadWaiter(pageToRestore: number) {
-        const capturedReloadState = capturePdfReloadSnapshot(pdfViewerRef.value, pageToRestore);
+    function preparePdfReloadWaiter(
+        pageToRestore: number,
+        opts?: TWaitForPdfReloadOptions,
+    ) {
+        const shouldCaptureScrollSnapshot = opts?.captureScrollSnapshot !== false;
+        const normalizedPageToRestore = Math.max(1, Math.floor(pageToRestore));
+        const capturedReloadState = shouldCaptureScrollSnapshot
+            ? capturePdfReloadSnapshot(pdfViewerRef.value, normalizedPageToRestore)
+            : {
+                scrollSnapshot: null,
+                pageToRestore: normalizedPageToRestore,
+            };
         currentPage.value = capturedReloadState.pageToRestore;
 
         return createPdfReloadWaiter({
@@ -67,11 +79,15 @@ export const usePdfHistory = (deps: {
             resetSearchCache,
             pageToRestore: capturedReloadState.pageToRestore,
             scrollSnapshot: capturedReloadState.scrollSnapshot,
+            captureScrollSnapshot: shouldCaptureScrollSnapshot,
         });
     }
 
-    function waitForPdfReload(pageToRestore: number) {
-        return preparePdfReloadWaiter(pageToRestore).promise;
+    function waitForPdfReload(
+        pageToRestore: number,
+        opts?: TWaitForPdfReloadOptions,
+    ) {
+        return preparePdfReloadWaiter(pageToRestore, opts).promise;
     }
 
     async function handleUndo() {

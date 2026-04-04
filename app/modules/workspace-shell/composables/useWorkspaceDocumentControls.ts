@@ -16,6 +16,7 @@ interface IWorkspaceDocumentControlsOptions {
     pdfData: Ref<Uint8Array | null>;
     originalPath: Ref<TDocumentRef | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
+    currentPage: Ref<number>;
     effectiveZoom: Ref<number>;
     canSave: Ref<boolean>;
     isAnySaving: Ref<boolean>;
@@ -34,6 +35,13 @@ interface IWorkspaceDocumentControlsOptions {
     handleExportImages: (pages: number[]) => Promise<void>;
     ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
+    preparePdfReloadWaiter: (
+        pageToRestore: number,
+        opts?: { captureScrollSnapshot?: boolean },
+    ) => {
+        promise: Promise<void>;
+        cancel: () => void;
+    };
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
     isExportingDocx: Ref<boolean>;
@@ -61,6 +69,7 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
         pdfData,
         originalPath,
         workingCopyPath,
+        currentPage,
         effectiveZoom,
         canSave,
         isAnySaving,
@@ -76,6 +85,7 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
         handleExportImages,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
+        preparePdfReloadWaiter,
         clearOcrCache,
         resetSearchCache,
         isExportingDocx,
@@ -111,6 +121,7 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
 
     const pageOpsHandlers = usePageOpsHandlers({
         workingCopyPath,
+        currentPage,
         totalPages,
         selectedThumbnailPages,
         setSelectedThumbnailPages,
@@ -130,6 +141,7 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
         },
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
+        preparePdfReloadWaiter,
         clearOcrCache,
         resetSearchCache,
     });

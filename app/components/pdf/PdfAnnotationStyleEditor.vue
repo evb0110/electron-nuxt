@@ -3,12 +3,14 @@
         <template v-if="hasStyleControls">
             <div class="swatch-row">
                 <button
-                    v-for="swatch in colorSwatches"
+                    v-for="swatch in displayColorSwatches"
                     :key="swatch"
                     type="button"
                     class="swatch"
+                    :class="{ 'is-active': swatch === activeColorSwatch }"
                     :style="{ backgroundColor: swatch }"
                     :title="swatch"
+                    :aria-pressed="swatch === activeColorSwatch"
                     @click="handleColorInput(swatch)"
                 />
             </div>
@@ -191,6 +193,48 @@ const activeWidthValue = computed(() => {
     return props.settings[activeWidthControl.value.key];
 });
 
+const activeColorSwatch = computed(() => {
+    if (props.tool === 'draw') {
+        return props.settings.inkColor;
+    }
+
+    if (props.tool === 'underline') {
+        return props.settings.underlineColor;
+    }
+
+    if (props.tool === 'text') {
+        return props.settings.textColor;
+    }
+
+    if (props.tool === 'strikethrough') {
+        return props.settings.strikethroughColor;
+    }
+
+    if (isShapeTool(props.tool)) {
+        return props.settings.shapeColor;
+    }
+
+    return props.settings.highlightColor;
+});
+
+function normalizeColorValue(color: string | null | undefined) {
+    return color?.trim().toLowerCase() ?? '';
+}
+
+const displayColorSwatches = computed(() => {
+    const active = activeColorSwatch.value;
+    if (!active) {
+        return colorSwatches;
+    }
+
+    const normalizedActive = normalizeColorValue(active);
+    const hasMatchingPreset = colorSwatches.some(swatch => normalizeColorValue(swatch) === normalizedActive);
+    return hasMatchingPreset ? colorSwatches : [
+        active,
+        ...colorSwatches,
+    ];
+});
+
 const activeDrawStyle = computed<TDrawStyle>(() => {
     const thickness = props.settings.inkThickness;
     const opacity = props.settings.inkOpacity;
@@ -314,6 +358,11 @@ function applyDrawStyle(style: TDrawStyle) {
     border-radius: 0.3rem;
     height: 1.1rem;
     cursor: pointer;
+}
+
+.swatch.is-active {
+    border-color: var(--app-pdf-style-active-border);
+    box-shadow: 0 0 0 2px var(--app-pdf-style-active-bg);
 }
 
 .style-range {

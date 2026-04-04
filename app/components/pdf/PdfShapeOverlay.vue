@@ -639,6 +639,8 @@ const selectedShapeContextBounds = computed(() => {
 let pointerDrawing = false;
 let pointerDraggingShapeId: string | null = null;
 let pointerResizingShapeId: string | null = null;
+let suppressSelectionAfterDraw = false;
+let suppressSelectionResetFrame: number | null = null;
 let pendingShapeDrag: {
     shapeId: string;
     x: number;
@@ -649,6 +651,25 @@ let pendingShapeDrag: {
 
 function canCapturePointer(event: PointerEvent) {
     return typeof event.pointerId === 'number' && event.pointerId > 0;
+}
+
+function clearPostDrawSelectionSuppression() {
+    suppressSelectionAfterDraw = false;
+    if (suppressSelectionResetFrame !== null) {
+        cancelAnimationFrame(suppressSelectionResetFrame);
+        suppressSelectionResetFrame = null;
+    }
+}
+
+function suppressPostDrawSelection() {
+    suppressSelectionAfterDraw = true;
+    if (suppressSelectionResetFrame !== null) {
+        cancelAnimationFrame(suppressSelectionResetFrame);
+    }
+    suppressSelectionResetFrame = requestAnimationFrame(() => {
+        suppressSelectionAfterDraw = false;
+        suppressSelectionResetFrame = null;
+    });
 }
 
 function beginPendingShapeInteraction(shape: IShapeAnnotation, coords: {
@@ -792,11 +813,15 @@ function handlePointerUp(event?: PointerEvent) {
         return;
     }
     pointerDrawing = false;
+    suppressPostDrawSelection();
     emit('finish-drawing');
 }
 
 function handleShapeClick(id: string) {
     if (!props.selectionEnabled) {
+        return;
+    }
+    if (suppressSelectionAfterDraw) {
         return;
     }
     emit('select-shape', id);
@@ -893,6 +918,10 @@ function handleResizeHandlePointerDown(handle: TShapeResizeHandle, event: Pointe
         svgRef.value?.setPointerCapture?.(event.pointerId);
     }
 }
+
+onBeforeUnmount(() => {
+    clearPostDrawSelectionSuppression();
+});
 </script>
 
 <style scoped>

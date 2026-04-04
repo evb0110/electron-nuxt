@@ -306,6 +306,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pendingEmbeddedAnnotationDeletes.clear();
     });
 
+    const hasPendingUnsavedChanges = computed(() => (
+        annotationDirty.value
+        || isDirty.value
+        || hasAnnotationChanges()
+        || pageLabelsDirty.value
+        || bookmarksDirty.value
+    ));
+    const hasPendingTabChanges = hasPendingUnsavedChanges;
+
     const {
         handleSave,
         handleSaveAs,
@@ -342,6 +351,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         markPageLabelsSaved,
         markBookmarksSaved,
         isDirty,
+        hasPendingUnsavedChanges,
         readWorkingCopyBytes,
         validatePdfData: (data, fileName) => getElectronAPI().documents.validatePdfData(data, fileName),
         saveFile,
@@ -387,6 +397,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
 
     const {
+        preparePdfReloadWaiter,
         waitForPdfReload,
         handleUndo,
         handleRedo,
@@ -408,14 +419,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         redoHistory: workspaceUndoTimeline.redoTimeline,
     });
 
-
-    const hasPendingTabChanges = computed(() => (
-        annotationDirty.value
-        || isDirty.value
-        || hasAnnotationChanges()
-        || pageLabelsDirty.value
-        || bookmarksDirty.value
-    ));
     const hasOpenDocument = computed(() => (
         hasPdf.value
         || (isDjvuMode.value && Boolean(djvuSourcePath.value))
@@ -524,6 +527,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfSrc,
         originalPath,
         workingCopyPath,
+        currentPage,
         effectiveZoom,
         canSave,
         isAnySaving,
@@ -539,6 +543,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleExportImages,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
+        preparePdfReloadWaiter,
         clearOcrCache: (path: string) => clearOcrCache(path),
         resetSearchCache,
         isExportingDocx,
