@@ -21,9 +21,9 @@ const TOOL_LABEL_TO_ID: Record<string, string> = {
     'Arrow': 'arrow',
 };
 
-function resolveToolId(label: string): string | null {
+function resolveToolId(label: string): string {
     if (label === 'Select') {
-        return null;
+        return 'select';
     }
     return TOOL_LABEL_TO_ID[label] ?? label.toLowerCase();
 }
@@ -52,39 +52,6 @@ async function waitForActiveAnnotationTool(
         const activeBtn = host.querySelector('.notes-panel .tool-button.is-active');
         return activeBtn?.getAttribute('data-tool') === expectedToolId;
     }, {timeout: timeoutMs}, toolId);
-}
-
-async function waitForAnnotationToolCleared(
-    page: Page,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-) {
-    await page.waitForFunction(() => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
-            ?? document.querySelector<HTMLElement>('.workspace-host')
-            ?? null;
-        if (!host) {
-            return false;
-        }
-
-        const activeBtn = host.querySelector('.notes-panel .tool-button.is-active');
-        const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: {value?: {$?: {setupState?: {
-            pdfViewerRef?: {value?: {
-                $?: {setupState?: {annotationUiManager?: {value?: {getMode?: () => number;};};};};
-                annotationUiManager?: {value?: {getMode?: () => number;};};
-            };};
-            annotationUiManager?: {value?: {getMode?: () => number;};};
-        };};};};};};} | null)?.__vueParentComponent?.setupState?.workspaceRef?.value;
-        const workspaceSetupState = workspaceInstance?.$?.setupState ?? null;
-        const pdfViewerInstance = workspaceSetupState?.pdfViewerRef?.value ?? null;
-        const pdfViewerSetupState = pdfViewerInstance?.$?.setupState ?? null;
-        const uiManager = pdfViewerSetupState?.annotationUiManager?.value
-            ?? pdfViewerInstance?.annotationUiManager?.value
-            ?? workspaceSetupState?.annotationUiManager?.value
-            ?? null;
-        const mode = (uiManager as { getMode?: () => number } | null)?.getMode?.() ?? 0;
-
-        return !activeBtn && mode === 0;
-    }, { timeout: timeoutMs });
 }
 
 async function waitForAnnotationEditorLayerInteractive(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
@@ -268,45 +235,6 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
     await waitForViewerInteractive(page, timeoutMs);
 
     const toolId = resolveToolId(label);
-
-    if (toolId === null) {
-        await page.evaluate(() => {
-            const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
-            ?? null;
-            const activeBtn = host?.querySelector<HTMLButtonElement>('.notes-panel .tool-button.is-active');
-            activeBtn?.click();
-        });
-        try {
-            await waitForAnnotationToolCleared(page, Math.min(timeoutMs, 4_000));
-            return;
-        } catch {
-            const resetViaWorkspace = await page.evaluate(async () => {
-                const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
-                    ?? document.querySelector<HTMLElement>('.workspace-host')
-                    ?? null;
-                if (!host) {
-                    return false;
-                }
-
-                const workspaceInstance = (host as HTMLElement & {__vueParentComponent?: {setupState?: {workspaceRef?: {value?: {$?: {setupState?: {handleAnnotationToolChange?: (tool: 'none') => void;};};};};};};}).__vueParentComponent?.setupState?.workspaceRef?.value;
-                const handleAnnotationToolChange = workspaceInstance?.$?.setupState?.handleAnnotationToolChange;
-                if (typeof handleAnnotationToolChange !== 'function') {
-                    return false;
-                }
-
-                handleAnnotationToolChange('none');
-                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-                return true;
-            });
-
-            if (!resetViaWorkspace) {
-                throw new Error('Failed to reset annotation tool to Select mode');
-            }
-            await waitForAnnotationToolCleared(page, timeoutMs);
-        }
-        return;
-    }
 
     const selector = `.notes-panel .tool-button[data-tool="${toolId}"]`;
     const point = await findVisiblePointInActiveHost(page, selector);

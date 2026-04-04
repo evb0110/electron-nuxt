@@ -89,7 +89,10 @@ import {
     collectEmbeddedShapeAnnotationIds,
     importEmbeddedShapeAnnotations,
 } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
-import { refreshDeletedEmbeddedShapePage } from '@app/composables/pdf/pdfEmbeddedShapeRefresh';
+import {
+    refreshDeletedEmbeddedShapePage,
+    rerenderRenderedManagedEmbeddedShapePages,
+} from '@app/composables/pdf/pdfEmbeddedShapeRefresh';
 import {
     cloneShapePoints,
     cloneShapeStrokes,
@@ -141,6 +144,7 @@ import {
 import { logPdfNav } from '@app/utils/pdf-nav-log';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { readDocumentBytes } from '@app/utils/document-bytes';
+import { runGuardedTask } from '@app/utils/async-guard';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
@@ -166,6 +170,12 @@ interface IProps {
     currentSearchMatch?: IPdfSearchMatch | null;
     workingCopyPath?: string | null;
     authorName?: string | null;
+}
+
+interface IViewportPagePin {
+    page: number;
+    untilMs: number;
+    reason: string;
 }
 
 const props = defineProps<IProps>();
@@ -238,6 +248,8 @@ const pendingMarkerMoves = new Map<string, IAnnotationMarkerRect>();
 const activeCommentStableKey = ref<string | null>(null);
 const PDF_VIEWER_LOADER_ICON_SIZE_PX = 20;
 const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
+const viewportPagePin = ref<IViewportPagePin | null>(null);
+let viewportPagePinTimer: ReturnType<typeof setTimeout> | null = null;
 const regionSnip = usePdfRegionSnip({ viewerContainer });
 const cropSelection = usePdfCropSelection({ viewerContainer });
 
@@ -259,7 +271,7 @@ const {
     updateCurrentPage,
     updateVisibleRange,
     setPageLayoutMetrics,
-} = usePdfScroll();
+} = usePdfScroll({ getPinnedMostVisiblePage: () => getPinnedViewportPage() });
 
 function summarizeViewerStateForLog() {
     const container = viewerContainer.value;
@@ -274,6 +286,72 @@ function summarizeViewerStateForLog() {
         scrollWidth: Math.round(container.scrollWidth),
         scrollHeight: Math.round(container.scrollHeight),
     };
+}
+
+function clearPinnedViewportPage(reason = 'cleared') {
+    if (viewportPagePinTimer !== null) {
+        clearTimeout(viewportPagePinTimer);
+        viewportPagePinTimer = null;
+    }
+
+    const existingPin = viewportPagePin.value;
+    if (!existingPin) {
+        return;
+    }
+
+    viewportPagePin.value = null;
+    BrowserLogger.warn('pdf-nav', `[viewer-page-pin] cleared page=${existingPin.page} reason=${reason}`, {
+        page: existingPin.page,
+        pinReason: existingPin.reason,
+        clearReason: reason,
+        viewer: summarizeViewerStateForLog(),
+    });
+}
+
+function getPinnedViewportPage() {
+    const existingPin = viewportPagePin.value;
+    if (!existingPin) {
+        return null;
+    }
+
+    if (Date.now() > existingPin.untilMs) {
+        clearPinnedViewportPage('expired-read');
+        return null;
+    }
+
+    return existingPin.page;
+}
+
+function pinCurrentPageDuringRecovery(
+    page: number,
+    options?: {
+        durationMs?: number;
+        reason?: string;
+    },
+) {
+    const normalizedPage = Math.max(1, Math.floor(page));
+    const durationMs = Math.max(120, options?.durationMs ?? 900);
+    const reason = options?.reason ?? 'reload-recovery';
+
+    if (viewportPagePinTimer !== null) {
+        clearTimeout(viewportPagePinTimer);
+    }
+
+    viewportPagePin.value = {
+        page: normalizedPage,
+        untilMs: Date.now() + durationMs,
+        reason,
+    };
+    viewportPagePinTimer = setTimeout(() => {
+        clearPinnedViewportPage('expired-timer');
+    }, durationMs);
+
+    BrowserLogger.warn('pdf-nav', `[viewer-page-pin] pinned page=${normalizedPage} reason=${reason}`, {
+        page: normalizedPage,
+        durationMs,
+        reason,
+        viewer: summarizeViewerStateForLog(),
+    });
 }
 
 function handleResizeTransitionSignal(payload: {
@@ -368,9 +446,14 @@ const {
 
 const shapeComposable = useAnnotationShapes();
 let embeddedShapeImportToken = 0;
+let pendingEmbeddedShapeImportData: Uint8Array | null = null;
+let pendingEmbeddedShapeImportPath: string | null = null;
+let embeddedShapeImportPromise: Promise<void> = Promise.resolve();
 let lastEmbeddedShapeImportPath: string | null = null;
 let hasEmbeddedShapeImportBaseline = false;
 let pageRenderStallRecoveryHandler: ((payload: IPageRenderStallPayload) => void) | null = null;
+const pendingDeletedEmbeddedShapeRefreshPages = new Set<number>();
+let isDeletedEmbeddedShapeRefreshScheduled = false;
 
 const hiddenEmbeddedAnnotationIds = computed(() => {
     const ids = collectEmbeddedShapeAnnotationIds(shapeComposable.getAllShapes());
@@ -409,24 +492,21 @@ function syncHiddenEmbeddedAnnotationDom() {
     });
 }
 
-function refreshDeletedEmbeddedShape(shape: IShapeAnnotation | null) {
-    refreshDeletedEmbeddedShapePage({
-        shape,
-        viewerContainer: viewerContainer.value,
-        syncHiddenEmbeddedAnnotationDom,
-    });
+function hasRenderedViewerCanvas() {
+    return Boolean(
+        viewerContainer.value?.querySelector('.page_container--rendered .page_canvas canvas'),
+    );
 }
 
-watch(
-    () => [
-        sourcePdfData.value,
-        workingCopyPath.value,
-    ] as const,
-    async ([
-        data,
-        path,
-    ]) => {
-        const localToken = ++embeddedShapeImportToken;
+function importEmbeddedShapesForSource(
+    data: Uint8Array | null,
+    path: string | null,
+) {
+    pendingEmbeddedShapeImportData = data;
+    pendingEmbeddedShapeImportPath = path;
+    const localToken = ++embeddedShapeImportToken;
+
+    embeddedShapeImportPromise = (async () => {
         if ((!data || data.length === 0) && !path) {
             lastEmbeddedShapeImportPath = null;
             hasEmbeddedShapeImportBaseline = false;
@@ -435,6 +515,7 @@ watch(
             syncHiddenEmbeddedAnnotationDom();
             return;
         }
+
         let importedShapes: IShapeAnnotation[] = [];
         let sourceData = data;
         try {
@@ -456,6 +537,7 @@ watch(
             BrowserLogger.warn('pdf-shapes', 'Failed to import embedded PDF shapes', error);
             return;
         }
+
         if (
             embeddedShapeImportToken !== localToken
             || sourcePdfData.value !== data
@@ -471,13 +553,108 @@ watch(
         } else {
             shapeComposable.replaceShapes(importedShapes);
         }
+
         hasEmbeddedShapeImportBaseline = true;
         lastEmbeddedShapeImportPath = path ?? null;
+
         await nextTick();
         syncHiddenEmbeddedAnnotationDom();
-    },
-    { immediate: true },
-);
+
+        // If the viewer has already painted before the managed embedded shapes
+        // finished importing, do one corrective rerender. The normal path now
+        // waits for this import before the first page render, so this is a
+        // fallback rather than the primary behavior.
+        if (!hasRenderedViewerCanvas()) {
+            return;
+        }
+
+        await rerenderRenderedManagedEmbeddedShapePages({
+            shapes: shapeComposable.getAllShapes(),
+            visibleRange: visibleRange.value,
+            renderBuffer: bufferPages.value,
+            isPageRendered,
+            invalidatePages: invalidateRenderedPages,
+            renderVisiblePages,
+        });
+    })();
+
+    return embeddedShapeImportPromise;
+}
+
+function ensureEmbeddedShapesImportedForCurrentSource() {
+    const data = sourcePdfData.value;
+    const path = workingCopyPath.value;
+    if (pendingEmbeddedShapeImportData !== data || pendingEmbeddedShapeImportPath !== path) {
+        return importEmbeddedShapesForSource(data, path);
+    }
+    return embeddedShapeImportPromise;
+}
+
+async function flushDeletedEmbeddedShapePageRefresh() {
+    if (isDeletedEmbeddedShapeRefreshScheduled) {
+        return;
+    }
+
+    isDeletedEmbeddedShapeRefreshScheduled = true;
+
+    try {
+        await nextTick();
+
+        while (pendingDeletedEmbeddedShapeRefreshPages.size > 0) {
+            const pageNumbers = Array.from(pendingDeletedEmbeddedShapeRefreshPages)
+                .sort((left, right) => left - right);
+            pendingDeletedEmbeddedShapeRefreshPages.clear();
+
+            const renderedPages = pageNumbers.filter(pageNumber => isPageRendered(pageNumber));
+            if (renderedPages.length === 0) {
+                continue;
+            }
+
+            invalidateRenderedPages(renderedPages);
+            await renderVisiblePages(
+                {
+                    start: renderedPages[0]!,
+                    end: renderedPages[renderedPages.length - 1]!,
+                },
+                {
+                    preserveRenderedPages: true,
+                    forceRerender: true,
+                    bufferOverride: 0,
+                },
+            );
+        }
+    } finally {
+        isDeletedEmbeddedShapeRefreshScheduled = false;
+
+        if (pendingDeletedEmbeddedShapeRefreshPages.size > 0) {
+            runGuardedTask(() => flushDeletedEmbeddedShapePageRefresh(), {
+                scope: 'pdf-shapes',
+                message: 'Failed to refresh deleted embedded shape pages',
+            });
+        }
+    }
+}
+
+function queueDeletedEmbeddedShapePageRefresh(pageNumber: number) {
+    if (!Number.isFinite(pageNumber) || pageNumber < 1) {
+        return;
+    }
+
+    pendingDeletedEmbeddedShapeRefreshPages.add(Math.floor(pageNumber));
+    runGuardedTask(() => flushDeletedEmbeddedShapePageRefresh(), {
+        scope: 'pdf-shapes',
+        message: 'Failed to refresh deleted embedded shape pages',
+    });
+}
+
+function refreshDeletedEmbeddedShape(shape: IShapeAnnotation | null) {
+    refreshDeletedEmbeddedShapePage({
+        shape,
+        viewerContainer: viewerContainer.value,
+        syncHiddenEmbeddedAnnotationDom,
+        rerenderEmbeddedShapePage: queueDeletedEmbeddedShapePageRefresh,
+    });
+}
 
 watch(hiddenEmbeddedAnnotationIds, () => {
     void nextTick().then(() => {
@@ -535,7 +712,6 @@ function handleShapeCreated(shape: IShapeAnnotation) {
     registerShapeHistoryCommand({
         cmd: () => {
             shapeComposable.addShape(shape);
-            shapeComposable.selectShape(shape.id);
             emit('annotation-modified');
         },
         undo: () => {
@@ -607,6 +783,20 @@ const singlePageScroll = usePdfSinglePageScroll({
     visibleRange,
     emitCurrentPage: (page) => emit('update:currentPage', page),
 });
+
+watch(
+    () => [
+        sourcePdfData.value,
+        workingCopyPath.value,
+    ] as const,
+    async ([
+        data,
+        path,
+    ]) => {
+        await importEmbeddedShapesForSource(data, path);
+    },
+    { immediate: true },
+);
 
 const {
     pendingImagePlacement,
@@ -824,6 +1014,7 @@ const {
     computeFitWidthScale,
     resetScale,
     computeSkeletonInsets,
+    beforeInitialRender: () => ensureEmbeddedShapesImportedForCurrentSource(),
     resetInsets,
     setupPagePlaceholders,
     renderVisiblePages,
@@ -849,6 +1040,7 @@ const {
     isZoomGestureSessionLocked: isZoomInteractionLocked,
     setZoomRerenderBusy,
     setResizeTransitionVisible: handleResizeTransitionSignal,
+    pinCurrentPageDuringRecovery,
     emit,
 });
 pageRenderStallRecoveryHandler = handlePageRenderStallFromCore;
@@ -997,6 +1189,7 @@ watchEffect(() => {
 });
 
 onBeforeUnmount(() => {
+    clearPinnedViewportPage('before-unmount');
     clearPendingImagePlacement();
     setPageLayoutMetrics(null);
     resizeTransitionVisible.value = false;

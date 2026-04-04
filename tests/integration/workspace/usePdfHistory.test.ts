@@ -255,6 +255,38 @@ describe('usePdfHistory', () => {
         expect(scrollToPage).not.toHaveBeenCalled();
     });
 
+    it('can force page-only reload restoration without using the scroll snapshot', async () => {
+        const deps = createMockDeps();
+        const scrollToPage = vi.fn();
+        const captureScrollSnapshot = vi.fn(() => ({
+            width: 1200,
+            height: 2400,
+            centerX: 600,
+            centerY: 900,
+            anchorPage: 5,
+        }) satisfies IScrollSnapshot);
+        const restoreScrollSnapshot = vi.fn();
+        deps.pdfViewerRef.value = {
+            scrollToPage,
+            captureScrollSnapshot,
+            restoreScrollSnapshot,
+            undoAnnotation: vi.fn(),
+            redoAnnotation: vi.fn(),
+        };
+        const { waitForPdfReload } = usePdfHistory(deps);
+
+        const promise = waitForPdfReload(5, { captureScrollSnapshot: false });
+
+        deps.pdfDocument.value = { numPages: 10 } as PDFDocumentProxy;
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(32);
+        await promise;
+
+        expect(captureScrollSnapshot).not.toHaveBeenCalled();
+        expect(restoreScrollSnapshot).not.toHaveBeenCalled();
+        expect(scrollToPage).toHaveBeenCalledWith(5);
+    });
+
     it('does not call scrollToPage if doc reference stays the same', async () => {
         const doc = cast<PDFDocumentProxy>({ numPages: 3 });
         const deps = createMockDeps({ pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(doc)) });

@@ -36,9 +36,15 @@ const { usePageOpsHandlers } = await import('@app/modules/workspace-shell/compos
 function createHarness() {
     const invalidateThumbnailPages = vi.fn();
     const invalidatePages = vi.fn();
+    const reloadWaiterCancel = vi.fn();
+    const preparePdfReloadWaiter = vi.fn(() => ({
+        promise: Promise.resolve(),
+        cancel: reloadWaiterCancel,
+    }));
 
     const handlers = usePageOpsHandlers({
         workingCopyPath: ref('/tmp/work.pdf'),
+        currentPage: ref(4),
         totalPages: ref(10),
         selectedThumbnailPages: ref<number[]>([]),
         setSelectedThumbnailPages: vi.fn(),
@@ -52,6 +58,7 @@ function createHarness() {
         onExportPages: vi.fn(),
         ensureHistoryBaselineForExternalMutation: vi.fn(async () => true),
         reloadWorkingCopyIntoHistory: vi.fn(async () => true),
+        preparePdfReloadWaiter,
         clearOcrCache: vi.fn(),
         resetSearchCache: vi.fn(),
     });
@@ -60,6 +67,8 @@ function createHarness() {
         handlers,
         invalidateThumbnailPages,
         invalidatePages,
+        preparePdfReloadWaiter,
+        reloadWaiterCancel,
     };
 }
 
@@ -102,6 +111,7 @@ describe('usePageOpsHandlers crop reload strategy', () => {
             handlers,
             invalidateThumbnailPages,
             invalidatePages,
+            preparePdfReloadWaiter,
         } = createHarness();
 
         const margins: ICropMargins = {
@@ -116,7 +126,27 @@ describe('usePageOpsHandlers crop reload strategy', () => {
 
         expect(invalidateThumbnailPages).not.toHaveBeenCalled();
         expect(invalidatePages).not.toHaveBeenCalled();
+        expect(preparePdfReloadWaiter).toHaveBeenNthCalledWith(1, 4, { captureScrollSnapshot: false });
+        expect(preparePdfReloadWaiter).toHaveBeenNthCalledWith(2, 4, { captureScrollSnapshot: false });
         expect(operationMocks.cropPages).toHaveBeenCalledWith([4], margins);
         expect(operationMocks.removeCrop).toHaveBeenCalledWith([4]);
+    });
+
+    it('cancels the page-only reload waiter when crop fails', async () => {
+        const {
+            handlers,
+            reloadWaiterCancel,
+        } = createHarness();
+        operationMocks.cropPages.mockResolvedValueOnce(false);
+
+        const result = await handlers.handleCropPages([4], {
+            top: 1,
+            bottom: 2,
+            left: 3,
+            right: 4,
+        });
+
+        expect(result).toBe(false);
+        expect(reloadWaiterCancel).toHaveBeenCalledOnce();
     });
 });

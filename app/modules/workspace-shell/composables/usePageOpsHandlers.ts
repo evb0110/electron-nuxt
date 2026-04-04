@@ -7,6 +7,7 @@ interface IPdfViewerForPageOps {invalidatePages: (pages: number[]) => void;}
 
 interface IPageOpsHandlersDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
+    currentPage: Ref<number>;
     totalPages: Ref<number>;
     selectedThumbnailPages: Ref<number[]>;
     setSelectedThumbnailPages: (pages: number[]) => void;
@@ -21,6 +22,13 @@ interface IPageOpsHandlersDeps {
     onExtractedDocument?: (path: TDocumentRef) => Promise<void> | void;
     ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
+    preparePdfReloadWaiter: (
+        pageToRestore: number,
+        opts?: { captureScrollSnapshot?: boolean },
+    ) => {
+        promise: Promise<void>;
+        cancel: () => void;
+    };
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
 }
@@ -28,6 +36,7 @@ interface IPageOpsHandlersDeps {
 export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     const {
         workingCopyPath,
+        currentPage,
         totalPages,
         selectedThumbnailPages,
         setSelectedThumbnailPages,
@@ -39,6 +48,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         onExtractedDocument,
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,
+        preparePdfReloadWaiter,
         clearOcrCache,
         resetSearchCache,
     } = deps;
@@ -141,15 +151,29 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         setSelectedThumbnailPages(inverted);
     }
 
-    function handleCropPages(pages: number[], margins: ICropMargins) {
+    async function handleCropPages(pages: number[], margins: ICropMargins) {
         // Cropping changes page geometry, so forcing selective rerendering
         // reuses stale layout metrics and can visibly stretch pages.
-        return pageOpsCrop(pages, margins);
+        const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
+        const didCrop = await pageOpsCrop(pages, margins);
+        if (!didCrop) {
+            reloadWaiter.cancel();
+            return false;
+        }
+        await reloadWaiter.promise;
+        return true;
     }
 
-    function handleRemoveCrop(pages: number[]) {
+    async function handleRemoveCrop(pages: number[]) {
         // Removing crop also changes the effective viewport size.
-        return pageOpsRemoveCrop(pages);
+        const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
+        const didRemoveCrop = await pageOpsRemoveCrop(pages);
+        if (!didRemoveCrop) {
+            reloadWaiter.cancel();
+            return false;
+        }
+        await reloadWaiter.promise;
+        return true;
     }
 
     return {

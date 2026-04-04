@@ -1,4 +1,5 @@
 import type {
+    ComputedRef,
     Ref,
     ShallowRef,
 } from 'vue';
@@ -64,6 +65,7 @@ interface IPageSaveOrchestrationDeps {
     markPageLabelsSaved: () => void;
     markBookmarksSaved: () => void;
     isDirty: Ref<boolean>;
+    hasPendingUnsavedChanges?: ComputedRef<boolean>;
     readWorkingCopyBytes: () => Promise<Uint8Array | null>;
     validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfSaveResult['validation']>;
     saveFile: (data: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
@@ -109,6 +111,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         markPageLabelsSaved,
         markBookmarksSaved,
         isDirty,
+        hasPendingUnsavedChanges,
         readWorkingCopyBytes,
         validatePdfData,
         saveFile,
@@ -196,7 +199,16 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
 
     const isAnySaving = computed(() => isSaving.value || isSavingAs.value);
     const isExportingDocxState = computed(() => isExportingDocx.value);
-    const canSave = computed(() => isDirty.value || annotationDirty.value || pageLabelsDirty.value || bookmarksDirty.value);
+    const canSave = computed(() => (
+        hasPendingUnsavedChanges
+            ? hasPendingUnsavedChanges.value
+            : (
+                isDirty.value
+                || annotationDirty.value
+                || pageLabelsDirty.value
+                || bookmarksDirty.value
+            )
+    ));
 
     async function handleExportDocx(selectedLanguages?: string[]) {
         const result = await requestDocxExport(selectedLanguages);

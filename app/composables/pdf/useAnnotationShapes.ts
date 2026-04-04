@@ -605,7 +605,6 @@ export const useAnnotationShapes = () => {
         }
 
         addShape(shape);
-        selectedShapeId.value = shape.id;
         return shape;
     }
 

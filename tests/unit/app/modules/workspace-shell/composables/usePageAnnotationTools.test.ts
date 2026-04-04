@@ -85,7 +85,7 @@ describe('usePageAnnotationTools', () => {
         expect(viewer.clearSelectedShape).toHaveBeenCalledOnce();
     });
 
-    it('auto-resets draw tools into select mode without clearing the new shape selection', () => {
+    it('auto-resets draw tools into select mode without forcing a clearSelectedShape call', () => {
         const {
             viewer,
             tools,

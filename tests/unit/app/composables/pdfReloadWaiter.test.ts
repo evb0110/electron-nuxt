@@ -66,4 +66,27 @@ describe('createPdfReloadWaiter', () => {
             { fallbackPage: 5 },
         );
     });
+
+    it('uses page-only restoration when scroll snapshot capture is disabled', async () => {
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ id: 'before' }));
+        const scrollToPage = vi.fn();
+        const restoreScrollSnapshot = vi.fn();
+
+        const waiter = createPdfReloadWaiter({
+            pdfDocument,
+            pdfViewerRef: ref({
+                scrollToPage,
+                restoreScrollSnapshot,
+            }),
+            resetSearchCache: vi.fn(),
+            pageToRestore: 6,
+            captureScrollSnapshot: false,
+        });
+
+        pdfDocument.value = cast({ id: 'after' });
+        await waiter.promise;
+
+        expect(scrollToPage).toHaveBeenCalledWith(6);
+        expect(restoreScrollSnapshot).not.toHaveBeenCalled();
+    });
 });

@@ -73,6 +73,7 @@ interface IUsePdfViewerCoreOptions {
         renderVersion: number,
         getCurrentVersion: () => number,
     ) => Promise<void>;
+    beforeInitialRender?: () => Promise<void>;
     resetInsets: () => void;
     setupPagePlaceholders: () => void;
     renderVisiblePages: (
@@ -119,6 +120,13 @@ interface IUsePdfViewerCoreOptions {
     isZoomGestureSessionLocked?: () => boolean;
     setZoomRerenderBusy?: (busy: boolean) => void;
     setResizeTransitionVisible?: (payload: IResizeTransitionSignal) => void;
+    pinCurrentPageDuringRecovery: (
+        page: number,
+        options?: {
+            durationMs?: number;
+            reason?: string;
+        },
+    ) => void;
     emit: {
         (e: 'update:zoom', value: number): void;
         (e: 'update:currentPage', page: number): void;
@@ -206,6 +214,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         computeFitWidthScale,
         resetScale,
         computeSkeletonInsets,
+        beforeInitialRender,
         resetInsets,
         setupPagePlaceholders,
         renderVisiblePages,
@@ -227,6 +236,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         isZoomGestureSessionLocked,
         setZoomRerenderBusy,
         setResizeTransitionVisible,
+        pinCurrentPageDuringRecovery,
         emit,
     } = options;
 
@@ -384,10 +394,12 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         setupPagePlaceholders,
         computeFitWidthScale,
         computeSkeletonInsets,
+        beforeInitialRender,
         invalidateRenderedPages,
         consumePendingInvalidation,
         commentSync,
         editor,
+        pinCurrentPageDuringRecovery,
         emit,
     });
     const {

@@ -20,6 +20,7 @@ interface ICreatePdfReloadWaiterOptions {
     resetSearchCache: () => void;
     pageToRestore: number;
     scrollSnapshot?: IScrollSnapshot | null;
+    captureScrollSnapshot?: boolean;
 }
 
 export function capturePdfReloadSnapshot(
@@ -40,7 +41,10 @@ export function capturePdfReloadSnapshot(
 export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
     const initialDoc = options.pdfDocument.value;
     const isCancelled = ref(false);
-    const scrollSnapshot = options.scrollSnapshot ?? options.pdfViewerRef.value?.captureScrollSnapshot?.() ?? null;
+    const captureScrollSnapshot = options.captureScrollSnapshot !== false;
+    const scrollSnapshot = captureScrollSnapshot
+        ? options.scrollSnapshot ?? options.pdfViewerRef.value?.captureScrollSnapshot?.() ?? null
+        : null;
 
     const promise = until(() => ({
         doc: options.pdfDocument.value,
@@ -61,6 +65,10 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
             options.resetSearchCache();
             await nextTick();
             const viewer = options.pdfViewerRef.value;
+            if (!captureScrollSnapshot) {
+                viewer?.scrollToPage(options.pageToRestore);
+                return;
+            }
             if (viewer?.restoreScrollSnapshot) {
                 viewer.restoreScrollSnapshot(scrollSnapshot, { fallbackPage: options.pageToRestore });
                 return;
