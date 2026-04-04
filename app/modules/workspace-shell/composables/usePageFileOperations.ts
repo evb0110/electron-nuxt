@@ -36,7 +36,7 @@ interface IPageFileOperationsDeps {
     openFileDirectBatch: (paths: TDocumentRef[]) => Promise<void>;
     closeFile: () => void | Promise<void>;
     closeAllDropdowns: () => void;
-    emitOpenInNewTab: (result: TOpenFileResult) => void;
+    emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => void;
 }
 
 export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {

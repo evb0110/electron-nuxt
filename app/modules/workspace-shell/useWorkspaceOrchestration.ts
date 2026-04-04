@@ -13,7 +13,10 @@ import { useWorkspaceInteractionControls } from '@app/modules/workspace-shell/co
 import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/workspace-file-lifecycle-controller';
 import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-shell/composables/workspace-sidebar-search-sync-controller';
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
-import type { TOpenFileResult } from '@contracts/platform-api';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platform-api';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TTabUpdate } from '@app/types/tabs';
 import { getElectronAPI } from '@app/utils/platform';
@@ -26,7 +29,7 @@ interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
     emit: {
         (e: 'update-tab', updates: TTabUpdate): void;
-        (e: 'open-in-new-tab', result: TOpenFileResult): void;
+        (e: 'open-in-new-tab', result: TDocumentRef | TOpenFileResult): void;
         (e: 'request-close-tab'): void;
         (e: 'open-settings'): void;
     };
@@ -561,7 +564,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openFileDirectBatchWithDjvuCleanup,
         closeFileWithDjvuCleanup,
         closeAllDropdowns,
-        emitOpenInNewTab: (result: TOpenFileResult) => emit('open-in-new-tab', result),
+        emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => emit('open-in-new-tab', pathOrResult),
     });
 
     const {

@@ -199,7 +199,7 @@ interface IWorkspaceFileOperationControllerDeps {
     openFileDirectBatchWithDjvuCleanup: (paths: TDocumentRef[]) => Promise<void>;
     closeFileWithDjvuCleanup: () => Promise<void>;
     closeAllDropdowns: () => void;
-    emitOpenInNewTab: (result: TOpenFileResult) => void;
+    emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => void;
 }
 
 export const useWorkspaceFileOperationController = (deps: IWorkspaceFileOperationControllerDeps) => {
