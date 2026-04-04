@@ -59,7 +59,7 @@ interface IWorkspaceDocumentControlsOptions {
     openFileDirectBatchWithDjvuCleanup: (paths: TDocumentRef[]) => Promise<void>;
     closeFileWithDjvuCleanup: () => Promise<void>;
     closeAllDropdowns: () => void;
-    emitOpenInNewTab: (result: TOpenFileResult) => void;
+    emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => void;
 }
 
 export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControlsOptions) {
@@ -133,11 +133,7 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
             void handleExportImages(pages);
         },
         onExtractedDocument: (path: TDocumentRef) => {
-            emitOpenInNewTab({
-                kind: 'pdf',
-                workingPath: path,
-                originalPath: path,
-            });
+            emitOpenInNewTab(path);
         },
         ensureHistoryBaselineForExternalMutation,
         reloadWorkingCopyIntoHistory,

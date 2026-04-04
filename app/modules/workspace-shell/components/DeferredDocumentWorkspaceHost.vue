@@ -99,7 +99,7 @@ const { t } = useTypedI18n();
 
 const emit = defineEmits<{
     'update-tab': [updates: TTabUpdate];
-    'open-in-new-tab': [result: TOpenFileResult];
+    'open-in-new-tab': [result: string | TOpenFileResult];
     'request-close-tab': [];
     'open-settings': [];
 }>();
