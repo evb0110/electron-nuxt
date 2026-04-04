@@ -8,6 +8,7 @@ interface IUsePdfViewerLoadingStateOptions {
     src: ComputedRef<TPdfSource | null>;
     isLoading: Ref<boolean>;
     viewerContainer: Ref<HTMLElement | null>;
+    holdOverlayVisible?: Ref<boolean>;
 }
 
 export function usePdfViewerLoadingState(options: IUsePdfViewerLoadingStateOptions) {
@@ -15,6 +16,7 @@ export function usePdfViewerLoadingState(options: IUsePdfViewerLoadingStateOptio
         src,
         isLoading,
         viewerContainer,
+        holdOverlayVisible,
     } = options;
 
     const hasCompletedInitialRenderForCurrentSource = ref(false);
@@ -106,6 +108,7 @@ export function usePdfViewerLoadingState(options: IUsePdfViewerLoadingStateOptio
         Boolean(src.value) && (
             isLoading.value
             || !hasCompletedInitialRenderForCurrentSource.value
+            || holdOverlayVisible?.value === true
         )
     ));
 

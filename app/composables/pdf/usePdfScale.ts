@@ -158,10 +158,14 @@ export const usePdfScale = (
         return true;
     }
 
-    function resetScale() {
-        fitWidthScale.value = 1;
+    function invalidateScaleCache() {
         lastContainerSize.value = null;
         lastBaseDimension.value = null;
+    }
+
+    function resetScale() {
+        fitWidthScale.value = 1;
+        invalidateScaleCache();
     }
 
     return {
@@ -170,6 +174,7 @@ export const usePdfScale = (
         containerStyle,
         scaledMargin,
         computeFitWidthScale,
+        invalidateScaleCache,
         resetScale,
     };
 };
