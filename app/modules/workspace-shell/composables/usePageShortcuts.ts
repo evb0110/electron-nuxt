@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import {
     useMagicKeys,
-    useEventListener,
+    tryOnScopeDispose,
     whenever,
 } from '@vueuse/core';
 import { hasElectronAPI } from '@app/utils/platform';
@@ -192,5 +192,10 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         }
     }
 
-    useEventListener(typeof window !== 'undefined' ? window : undefined, 'pointerdown', handleGlobalPointerDown);
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('pointerdown', handleGlobalPointerDown);
+        tryOnScopeDispose(() => {
+            window.removeEventListener('pointerdown', handleGlobalPointerDown);
+        });
+    }
 };
