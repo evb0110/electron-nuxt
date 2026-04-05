@@ -48,9 +48,37 @@ type TPendingWorkerRequest = {
 };
 
 const pendingWorkerRequests = new Map<number, TPendingWorkerRequest>();
+const SERIALIZATION_WORKER_IDLE_TTL_MS = 15_000;
 
 let serializationWorker: Worker | null = null;
 let nextRequestId = 1;
+let idleTerminateTimer: ReturnType<typeof setTimeout> | null = null;
+let cleanupListenersRegistered = false;
+
+function clearIdleTerminateTimer() {
+    if (!idleTerminateTimer) {
+        return;
+    }
+
+    clearTimeout(idleTerminateTimer);
+    idleTerminateTimer = null;
+}
+
+function scheduleIdleWorkerTermination() {
+    clearIdleTerminateTimer();
+    if (!serializationWorker || pendingWorkerRequests.size > 0) {
+        return;
+    }
+
+    idleTerminateTimer = setTimeout(() => {
+        idleTerminateTimer = null;
+        if (!serializationWorker || pendingWorkerRequests.size > 0) {
+            return;
+        }
+
+        resetWorker();
+    }, SERIALIZATION_WORKER_IDLE_TTL_MS);
+}
 
 function toTransferableUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
     // Never transfer the caller's live buffer into the worker. The save path
@@ -116,6 +144,7 @@ function buildWorkerRequestWithTransfers(
 function resetWorker(error?: Error) {
     const pending = Array.from(pendingWorkerRequests.values());
     pendingWorkerRequests.clear();
+    clearIdleTerminateTimer();
 
     if (serializationWorker) {
         serializationWorker.removeEventListener('message', handleWorkerMessage);
@@ -141,10 +170,12 @@ function handleWorkerMessage(
     pendingWorkerRequests.delete(result.id);
     if (result.ok) {
         pending.resolve(result.data);
+        scheduleIdleWorkerTermination();
         return;
     }
 
     pending.reject(new Error(result.error));
+    scheduleIdleWorkerTermination();
 }
 
 function handleWorkerError(event: ErrorEvent) {
@@ -155,8 +186,24 @@ function canUseSerializationWorker() {
     return typeof window !== 'undefined' && typeof Worker !== 'undefined';
 }
 
+function registerCleanupListeners() {
+    if (
+        cleanupListenersRegistered
+        || typeof window === 'undefined'
+        || typeof window.addEventListener !== 'function'
+    ) {
+        return;
+    }
+
+    cleanupListenersRegistered = true;
+    window.addEventListener('beforeunload', () => {
+        resetWorker();
+    });
+}
+
 function getSerializationWorker() {
     if (serializationWorker) {
+        clearIdleTerminateTimer();
         return serializationWorker;
     }
 
@@ -166,6 +213,7 @@ function getSerializationWorker() {
     );
     worker.addEventListener('message', handleWorkerMessage);
     worker.addEventListener('error', handleWorkerError);
+    registerCleanupListeners();
     serializationWorker = worker;
     return worker;
 }
@@ -218,6 +266,7 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
     }
 
     return new Promise<Uint8Array | null>((resolve, reject) => {
+        clearIdleTerminateTimer();
         pendingWorkerRequests.set(request.id, {
             resolve,
             reject,

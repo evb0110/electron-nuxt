@@ -12,6 +12,7 @@ import {
     serializeRecentFilesCookiePayload,
     serializeRecentFilesPayload,
 } from '@app/utils/recent-files-persistence';
+import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 
 const BROWSER_REF_PREFIX = 'browser://documents/';
 const DB_NAME = 'evb-viewer-browser-documents';
@@ -20,6 +21,7 @@ const DOCUMENTS_STORE = 'documents';
 const DOCUMENT_CHUNKS_STORE = 'document-chunks';
 export const BROWSER_DOCUMENT_CHUNK_SIZE = 4 * 1024 * 1024;
 const BROWSER_INLINE_FILE_THRESHOLD_BYTES = 16 * 1024 * 1024;
+const BROWSER_CHUNK_WRITE_YIELD_EVERY = 2;
 
 type TBrowserDocumentStorageMode =
     | 'inline'
@@ -1130,6 +1132,9 @@ export class BrowserDocumentStore {
                     entry.chunkCount = chunkIndex;
                     entry.updatedAt = Date.now();
                     await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+                    if (chunkIndex % BROWSER_CHUNK_WRITE_YIELD_EVERY === 0) {
+                        await yieldToBrowser();
+                    }
                 }
 
                 entry.fileSize = file.size;
@@ -1174,6 +1179,9 @@ export class BrowserDocumentStore {
                 data: cloneBytes(chunk),
             });
             chunkIndex += 1;
+            if (chunkIndex % BROWSER_CHUNK_WRITE_YIELD_EVERY === 0) {
+                await yieldToBrowser();
+            }
         }
 
         entry.chunkCount = chunkIndex;

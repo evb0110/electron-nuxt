@@ -163,6 +163,65 @@ describe('createBrowserPageOps', () => {
         expect(clearSearchCaches).toHaveBeenCalledTimes(1);
     });
 
+    it('uses the worker for delete and reorder mutations when available', async () => {
+        const pdfBytes = new Uint8Array([
+            1,
+            2,
+            3,
+        ]);
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
+        browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
+        browserPageOpsWorkerMock.canUse.mockReturnValue(true);
+        browserPageOpsWorkerMock.run
+            .mockResolvedValueOnce({
+                data: new Uint8Array([4]),
+                pageCount: 2,
+            })
+            .mockResolvedValueOnce({
+                data: new Uint8Array([5]),
+                pageCount: 2,
+            });
+
+        const clearSearchCaches = vi.fn();
+        const { createBrowserPageOps } = await import('@app/platform/browser-api/documents-page-ops');
+        const pageOps = createBrowserPageOps({
+            clearSearchCaches,
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
+            saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
+        });
+
+        await expect(pageOps.delete('/tmp/work.pdf', [2], 3)).resolves.toEqual({
+            success: true,
+            pageCount: 2,
+        });
+        await expect(pageOps.reorder('/tmp/work.pdf', [
+            2,
+            1,
+        ])).resolves.toEqual({
+            success: true,
+            pageCount: 2,
+        });
+
+        expect(browserPageOpsWorkerMock.run).toHaveBeenNthCalledWith(1, 'deletePages', {
+            data: pdfBytes,
+            pages: [2],
+        });
+        expect(browserPageOpsWorkerMock.run).toHaveBeenNthCalledWith(2, 'reorderPages', {
+            data: pdfBytes,
+            newOrder: [
+                2,
+                1,
+            ],
+        });
+        expect(browserDocumentStoreMock.write).toHaveBeenCalledTimes(2);
+        expect(clearSearchCaches).toHaveBeenCalledTimes(2);
+    });
+
     it('uses the worker for geometry inspection above the direct browser budget', async () => {
         const pdfBytes = new Uint8Array([
             7,
@@ -323,7 +382,84 @@ describe('createBrowserPageOps', () => {
         expect(extractedPdf.getPageCount()).toBe(2);
     });
 
-    it('allows inserting image-backed pages into larger browser PDFs within the mutation budget', async () => {
+    it('uses the worker for extract and insert when available', async () => {
+        const pdfBytes = new Uint8Array([
+            9,
+            8,
+            7,
+        ]);
+        const insertionBytes = new Uint8Array([
+            6,
+            5,
+            4,
+        ]);
+        browserDocumentStoreMock.stat.mockImplementation(async (path: string) => {
+            if (path === '/tmp/work.pdf') {
+                return { size: pdfBytes.byteLength };
+            }
+
+            return { size: insertionBytes.byteLength };
+        });
+        browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
+        browserDocumentStoreMock.createStoredDocument.mockResolvedValue(
+            'browser://documents/extract/work-extract.pdf',
+        );
+        browserPageOpsWorkerMock.canUse.mockReturnValue(true);
+        browserPageOpsWorkerMock.run
+            .mockResolvedValueOnce({
+                data: insertionBytes,
+                pageCount: 1,
+            })
+            .mockResolvedValueOnce({
+                data: new Uint8Array([
+                    3,
+                    2,
+                    1,
+                ]),
+                pageCount: 2,
+            });
+
+        const pickSaveTarget = vi.fn(async () => ({
+            canceled: false,
+            fileName: 'work-extract.pdf',
+            handle: null,
+        }));
+        const saveBytesToPickerOrDownload = vi.fn(async () => ({
+            canceled: false,
+            fileName: 'work-extract.pdf',
+            handle: null,
+        }));
+        const createCombinedPdfFromPaths = vi.fn(async () => insertionBytes);
+
+        const { createBrowserPageOps } = await import('@app/platform/browser-api/documents-page-ops');
+        const pageOps = createBrowserPageOps({
+            clearSearchCaches: vi.fn(),
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths,
+            pickSaveTarget,
+            saveBytesToPickerOrDownload,
+            writeBytesToHandle: vi.fn(),
+        });
+
+        await pageOps.extract('/tmp/work.pdf', [1]);
+        await pageOps.insertFile('/tmp/work.pdf', 1, 1, ['browser://documents/picked/image.png']);
+
+        expect(browserPageOpsWorkerMock.run).toHaveBeenNthCalledWith(1, 'extractPages', {
+            data: pdfBytes,
+            pages: [1],
+        });
+        expect(browserPageOpsWorkerMock.run).toHaveBeenNthCalledWith(2, 'insertPages', {
+            data: pdfBytes,
+            insertionData: insertionBytes,
+            afterPage: 1,
+        });
+        expect(createCombinedPdfFromPaths).toHaveBeenCalledWith(['browser://documents/picked/image.png']);
+        expect(saveBytesToPickerOrDownload).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects large browser insert jobs when the worker path is unavailable', async () => {
         const destinationPdf = await PDFDocument.create();
         destinationPdf.addPage([
             300,
@@ -347,11 +483,10 @@ describe('createBrowserPageOps', () => {
         });
         browserDocumentStoreMock.read.mockResolvedValue(destinationBytes);
 
-        const clearSearchCaches = vi.fn();
         const createCombinedPdfFromPaths = vi.fn(async () => insertionBytes);
         const { createBrowserPageOps } = await import('@app/platform/browser-api/documents-page-ops');
         const pageOps = createBrowserPageOps({
-            clearSearchCaches,
+            clearSearchCaches: vi.fn(),
             openInputAccept: 'application/pdf',
             pickFiles: vi.fn(),
             buildOpenPdfPickerTypes: vi.fn(),
@@ -361,16 +496,16 @@ describe('createBrowserPageOps', () => {
             writeBytesToHandle: vi.fn(),
         });
 
-        const result = await pageOps.insertFile(
+        await expect(pageOps.insertFile(
             '/tmp/work.pdf',
             1,
             1,
             ['browser://documents/picked/image.png'],
+        )).rejects.toThrow(
+            'Inserting pages is unavailable in the browser for PDFs larger than 48MB',
         );
-
-        expect(result.success).toBe(true);
-        expect(createCombinedPdfFromPaths).toHaveBeenCalledWith(['browser://documents/picked/image.png']);
-        expect(browserDocumentStoreMock.write).toHaveBeenCalledTimes(1);
-        expect(clearSearchCaches).toHaveBeenCalledTimes(1);
+        expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
+        expect(createCombinedPdfFromPaths).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
     });
 });

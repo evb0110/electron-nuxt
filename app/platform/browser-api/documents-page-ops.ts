@@ -1,4 +1,3 @@
-import { PDFDocument } from 'pdf-lib';
 import type { IPageOpsCapability } from '@contracts/platform-api';
 import type { IPageGeometry } from '@contracts/shared';
 import {
@@ -22,8 +21,12 @@ import type {
 } from '@app/platform/browser-api/browser-page-ops-worker.types';
 import {
     cropPdfBytes,
+    deletePdfPages,
+    extractPdfPages,
     getPageGeometryFromPdfBytes,
+    insertPdfPages,
     removeCropPdfBytes,
+    reorderPdfPages,
     rotatePdfBytes,
 } from '@app/platform/browser-api/browser-page-ops-core';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
@@ -128,8 +131,19 @@ export function createBrowserPageOps(
         );
 
         const { size } = await browserDocumentStore.stat(options.path);
+        const workerAvailable = canUseBrowserPageOpsWorker();
+        if (
+            !workerAvailable
+            && size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES
+        ) {
+            throw buildBrowserPageOpLimitError(
+                options.label,
+                BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
+            );
+        }
+
         const data = await readWorkingCopyBytes(options.path);
-        if (canUseBrowserPageOpsWorker()) {
+        if (workerAvailable) {
             try {
                 return await runBrowserPageOpsWorkerRequest(
                     options.type,
@@ -154,28 +168,25 @@ export function createBrowserPageOps(
 
     const pageOps: IPageOpsCapability['pageOps'] = {
         async delete(workingCopyPath, pages) {
-            await ensurePdfWithinBudget(workingCopyPath, 'Deleting pages');
-            await yieldToBrowser();
-            const sourcePdf = await PDFDocument.load(
-                await browserDocumentStore.read(workingCopyPath),
-            );
-            const removeIndexes = new Set(pages.map((page) => page - 1));
-            const nextPdf = await PDFDocument.create();
-            const keptIndexes = sourcePdf
-                .getPageIndices()
-                .filter((index) => !removeIndexes.has(index));
-            await yieldToBrowser();
-            const keptPages = await nextPdf.copyPages(sourcePdf, keptIndexes);
-            keptPages.forEach((page) => nextPdf.addPage(page));
-            await yieldToBrowser();
+            const result = await runWorkerBackedPdfOperation({
+                path: workingCopyPath,
+                label: 'Deleting pages',
+                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
+                type: 'deletePages',
+                createPayload: (data) => ({
+                    data,
+                    pages,
+                }),
+                runDirect: (data) => deletePdfPages(data, pages),
+            });
             await browserDocumentStore.write(
                 workingCopyPath,
-                new Uint8Array(await nextPdf.save()),
+                result.data,
             );
             options.clearSearchCaches();
             return {
                 success: true,
-                pageCount: keptPages.length,
+                pageCount: result.pageCount,
             };
         },
         async extract(workingCopyPath, pages) {
@@ -194,20 +205,18 @@ export function createBrowserPageOps(
                 };
             }
 
-            await ensurePdfWithinBudget(workingCopyPath, 'Extracting pages');
-            await yieldToBrowser();
-            const sourcePdf = await PDFDocument.load(
-                await browserDocumentStore.read(workingCopyPath),
-            );
-            const nextPdf = await PDFDocument.create();
-            const selectedIndexes = pages
-                .map((page) => page - 1)
-                .filter((index) => index >= 0 && index < sourcePdf.getPageCount());
-            await yieldToBrowser();
-            const copiedPages = await nextPdf.copyPages(sourcePdf, selectedIndexes);
-            copiedPages.forEach((page) => nextPdf.addPage(page));
-            await yieldToBrowser();
-            const outputBytes = new Uint8Array(await nextPdf.save());
+            const result = await runWorkerBackedPdfOperation({
+                path: workingCopyPath,
+                label: 'Extracting pages',
+                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
+                type: 'extractPages',
+                createPayload: (data) => ({
+                    data,
+                    pages,
+                }),
+                runDirect: (data) => extractPdfPages(data, pages),
+            });
+            const outputBytes = result.data;
 
             if (saveTarget.handle) {
                 await options.writeBytesToHandle(saveTarget.handle, outputBytes);
@@ -242,27 +251,25 @@ export function createBrowserPageOps(
             };
         },
         async reorder(workingCopyPath, newOrder) {
-            await ensurePdfWithinBudget(workingCopyPath, 'Reordering pages');
-            await yieldToBrowser();
-            const sourcePdf = await PDFDocument.load(
-                await browserDocumentStore.read(workingCopyPath),
-            );
-            const nextPdf = await PDFDocument.create();
-            await yieldToBrowser();
-            const copiedPages = await nextPdf.copyPages(
-                sourcePdf,
-                newOrder.map((page) => page - 1),
-            );
-            copiedPages.forEach((page) => nextPdf.addPage(page));
-            await yieldToBrowser();
+            const result = await runWorkerBackedPdfOperation({
+                path: workingCopyPath,
+                label: 'Reordering pages',
+                maxBytes: BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES,
+                type: 'reorderPages',
+                createPayload: (data) => ({
+                    data,
+                    newOrder,
+                }),
+                runDirect: (data) => reorderPdfPages(data, newOrder),
+            });
             await browserDocumentStore.write(
                 workingCopyPath,
-                new Uint8Array(await nextPdf.save()),
+                result.data,
             );
             options.clearSearchCaches();
             return {
                 success: true,
-                pageCount: copiedPages.length,
+                pageCount: result.pageCount,
             };
         },
         async insert(workingCopyPath, _totalPages, afterPage) {
@@ -311,42 +318,59 @@ export function createBrowserPageOps(
                 BROWSER_PAGE_OP_INSERT_MAX_BYTES,
             );
             await ensureCombinedInputsWithinBudget(sourcePaths, 'Inserting pages');
-            await yieldToBrowser();
-            const destinationPdf = await PDFDocument.load(
-                await browserDocumentStore.read(workingCopyPath),
-            );
-            const insertionPdf = await PDFDocument.load(
-                await options.createCombinedPdfFromPaths(sourcePaths),
-            );
-            const nextPdf = await PDFDocument.create();
-            const beforeIndexes = destinationPdf
-                .getPageIndices()
-                .filter((index) => index < afterPage);
-            const afterIndexes = destinationPdf
-                .getPageIndices()
-                .filter((index) => index >= afterPage);
-            await yieldToBrowser();
-            const beforePages = await nextPdf.copyPages(
-                destinationPdf,
-                beforeIndexes,
-            );
-            const insertedPages = await nextPdf.copyPages(
-                insertionPdf,
-                insertionPdf.getPageIndices(),
-            );
-            const afterPages = await nextPdf.copyPages(destinationPdf, afterIndexes);
-            beforePages.forEach((page) => nextPdf.addPage(page));
-            insertedPages.forEach((page) => nextPdf.addPage(page));
-            afterPages.forEach((page) => nextPdf.addPage(page));
-            await yieldToBrowser();
+            const { size } = await browserDocumentStore.stat(workingCopyPath);
+            const workerAvailable = canUseBrowserPageOpsWorker();
+            if (
+                !workerAvailable
+                && size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES
+            ) {
+                throw buildBrowserPageOpLimitError(
+                    'Inserting pages',
+                    BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
+                );
+            }
+            const destinationData = await readWorkingCopyBytes(workingCopyPath);
+            const insertionData = await options.createCombinedPdfFromPaths(sourcePaths);
+
+            let result: IBrowserPageOpsWorkerResultMap['insertPages'];
+            if (workerAvailable) {
+                try {
+                    result = await runBrowserPageOpsWorkerRequest('insertPages', {
+                        data: destinationData,
+                        insertionData,
+                        afterPage,
+                    });
+                } catch (error) {
+                    if (!(error instanceof BrowserPageOpsWorkerUnavailableError)) {
+                        throw error;
+                    }
+                    if (size > BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES) {
+                        throw buildBrowserPageOpLimitError(
+                            'Inserting pages',
+                            BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
+                        );
+                    }
+                    result = await insertPdfPages(
+                        destinationData,
+                        insertionData,
+                        afterPage,
+                    );
+                }
+            } else {
+                result = await insertPdfPages(
+                    destinationData,
+                    insertionData,
+                    afterPage,
+                );
+            }
             await browserDocumentStore.write(
                 workingCopyPath,
-                new Uint8Array(await nextPdf.save()),
+                result.data,
             );
             options.clearSearchCaches();
             return {
                 success: true,
-                pageCount: nextPdf.getPageCount(),
+                pageCount: result.pageCount,
             };
         },
         async rotate(workingCopyPath, pages, angle) {

@@ -9,6 +9,23 @@ interface IPageMutationWorkerResult {
 }
 
 interface IBrowserPageOpsWorkerRequestMap {
+    deletePages: {
+        data: Uint8Array;
+        pages: number[];
+    };
+    extractPages: {
+        data: Uint8Array;
+        pages: number[];
+    };
+    reorderPages: {
+        data: Uint8Array;
+        newOrder: number[];
+    };
+    insertPages: {
+        data: Uint8Array;
+        insertionData: Uint8Array;
+        afterPage: number;
+    };
     rotate: {
         data: Uint8Array;
         pages: number[];
@@ -30,6 +47,10 @@ interface IBrowserPageOpsWorkerRequestMap {
 }
 
 interface IBrowserPageOpsWorkerResultMap {
+    deletePages: IPageMutationWorkerResult;
+    extractPages: IPageMutationWorkerResult;
+    reorderPages: IPageMutationWorkerResult;
+    insertPages: IPageMutationWorkerResult;
     rotate: IPageMutationWorkerResult;
     crop: IPageMutationWorkerResult;
     removeCrop: IPageMutationWorkerResult;

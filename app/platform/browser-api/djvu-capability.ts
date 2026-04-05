@@ -645,6 +645,7 @@ async function getDjvuInfo(djvuPath: TDocumentRef): Promise<IDjvuInfo> {
                 hasText = true;
                 break;
             }
+            await yieldToBrowser();
         }
 
         return {
@@ -683,12 +684,15 @@ async function estimateDjvuSizes(
                             subsample,
                         );
                         sampleBytes += renderedPage.bytes.byteLength;
+                        await yieldToBrowser();
                     }
 
                     estimatedBytes = Math.round(
                         (sampleBytes / samplePages.length) * pageCount,
                     );
                 }
+
+                await yieldToBrowser();
 
                 return {
                     subsample,

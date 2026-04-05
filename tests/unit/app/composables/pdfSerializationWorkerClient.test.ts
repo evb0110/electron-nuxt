@@ -7,6 +7,12 @@ import {
 } from 'vitest';
 import type { IPdfSerializationSavePayload } from '@app/composables/pdf/pdfSerializationOperations';
 
+const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
+
+vi.mock('@app/platform/browser-api/browser-yield', () => ({
+    yieldToBrowser: yieldToBrowserMock,
+}));
+
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
 
@@ -79,7 +85,10 @@ describe('pdfSerializationWorkerClient', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.unstubAllGlobals();
+        vi.useRealTimers();
         FakeWorker.lastInstance = null;
+        yieldToBrowserMock.mockReset();
+        yieldToBrowserMock.mockResolvedValue(undefined);
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
     });
@@ -130,5 +139,74 @@ describe('pdfSerializationWorkerClient', () => {
             2,
             3,
         ]);
+    });
+
+    it('terminates the idle worker after the TTL elapses', async () => {
+        vi.useFakeTimers();
+        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
+        const { serializePdfEditsOffThread } = await import('@app/composables/pdf/pdfSerializationWorkerClient');
+
+        const data = new Uint8Array([
+            1,
+            2,
+            3,
+        ]);
+        const payload: IPdfSerializationSavePayload = {
+            markupSubtypeOverrides: [],
+            markupSubtypeHints: [],
+            rewriteShapeState: false,
+            shapes: [],
+            deletedShapeAnnotationIds: [],
+            deletedShapeStableKeys: [],
+            freeTextComments: [],
+            annotationComments: [],
+            pendingEmbeddedTextUpdates: [],
+            pendingEmbeddedAnnotationDeletes: [],
+            pageLabelsDirty: false,
+            pageLabelRanges: [],
+            totalPages: 0,
+            bookmarksDirty: false,
+            bookmarkItems: [],
+            untitledBookmarkLabel: '',
+            placedImage: null,
+        };
+
+        await serializePdfEditsOffThread(data, payload);
+        await vi.runAllTicks();
+        expect(terminateSpy).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(terminateSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('yields around direct fallback work when workers are unavailable', async () => {
+        vi.unstubAllGlobals();
+        vi.stubGlobal('window', {});
+
+        const { serializePdfEditsOffThread } = await import('@app/composables/pdf/pdfSerializationWorkerClient');
+
+        const payload: IPdfSerializationSavePayload = {
+            markupSubtypeOverrides: [],
+            markupSubtypeHints: [],
+            rewriteShapeState: false,
+            shapes: [],
+            deletedShapeAnnotationIds: [],
+            deletedShapeStableKeys: [],
+            freeTextComments: [],
+            annotationComments: [],
+            pendingEmbeddedTextUpdates: [],
+            pendingEmbeddedAnnotationDeletes: [],
+            pageLabelsDirty: false,
+            pageLabelRanges: [],
+            totalPages: 0,
+            bookmarksDirty: false,
+            bookmarkItems: [],
+            untitledBookmarkLabel: '',
+            placedImage: null,
+        };
+
+        await serializePdfEditsOffThread(new Uint8Array([1]), payload);
+
+        expect(yieldToBrowserMock).toHaveBeenCalledTimes(2);
     });
 });
