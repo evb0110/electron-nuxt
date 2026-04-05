@@ -388,6 +388,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     });
 
     const {
+        isLoadFromSourceActive,
         scheduleRecoverInitialRender,
         scheduleLoadFromSource,
     } = usePdfViewerDocumentLifecycle({
@@ -618,8 +619,10 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         isEffectivelyLoading,
         async (value, oldValue) => {
             if (oldValue === true && value === false) {
-                await nextTick();
-                scheduleRecoverInitialRender();
+                if (!isLoadFromSourceActive.value) {
+                    await nextTick();
+                    scheduleRecoverInitialRender();
+                }
             }
             emit('update:loading', value);
             emit('loading', value);

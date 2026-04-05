@@ -114,6 +114,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
 
 export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLifecycleOptions) {
     let documentLoadToken = 0;
+    const isLoadFromSourceActive = ref(false);
 
     function hasRenderedPageCanvas() {
         const container = options.viewerContainer.value;
@@ -154,6 +155,7 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
             return;
         }
 
+        options.computeFitWidthScale(options.viewerContainer.value);
         options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
         try {
             await options.reRenderVisiblePagesAndSyncCurrentPage();
@@ -170,6 +172,7 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
             return;
         }
 
+        options.computeFitWidthScale(options.viewerContainer.value);
         options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
         try {
             await options.renderVisiblePages(options.getVisibleRange());
@@ -219,6 +222,7 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
             return;
         }
 
+        isLoadFromSourceActive.value = true;
         const activeLoadToken = ++documentLoadToken;
         options.onDocumentLoadStateChange?.({
             token: activeLoadToken,
@@ -424,6 +428,7 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
                 settleVisualReloadTransition('load-complete');
             }
         } finally {
+            isLoadFromSourceActive.value = false;
             options.onDocumentLoadStateChange?.({
                 token: activeLoadToken,
                 phase: 'settled',
@@ -439,6 +444,7 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
     }
 
     return {
+        isLoadFromSourceActive: readonly(isLoadFromSourceActive),
         scheduleRecoverInitialRender,
         scheduleLoadFromSource,
     };
