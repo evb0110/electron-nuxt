@@ -106,29 +106,25 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
             });
     }
 
-    const stopDragOver = typeof window !== 'undefined'
-        ? useEventListener(window, 'dragover', (event) => {
-            if (!shouldHandleDropEvent(event)) {
-                return;
-            }
+    const stopDragOver = useEventListener(typeof window !== 'undefined' ? window : undefined, 'dragover', (event: DragEvent) => {
+        if (!shouldHandleDropEvent(event)) {
+            return;
+        }
 
-            event.preventDefault();
-            if (event.dataTransfer) {
-                event.dataTransfer.dropEffect = 'copy';
-            }
-        }, { capture: true })
-        : null;
+        event.preventDefault();
+        if (event.dataTransfer) {
+            event.dataTransfer.dropEffect = 'copy';
+        }
+    }, { capture: true });
 
-    const stopDrop = typeof window !== 'undefined'
-        ? useEventListener(window, 'drop', (event) => {
-            if (!shouldHandleDropEvent(event)) {
-                return;
-            }
+    const stopDrop = useEventListener(typeof window !== 'undefined' ? window : undefined, 'drop', (event: DragEvent) => {
+        if (!shouldHandleDropEvent(event)) {
+            return;
+        }
 
-            event.preventDefault();
-            enqueueDroppedPaths(getDroppedDocumentPaths(event.dataTransfer));
-        }, { capture: true })
-        : null;
+        event.preventDefault();
+        enqueueDroppedPaths(getDroppedDocumentPaths(event.dataTransfer));
+    }, { capture: true });
 
     function cleanup() {
         if (disposed) {

@@ -1,5 +1,4 @@
 import type { Ref } from 'vue';
-import { useEventListener } from '@vueuse/core';
 import type { ICropSelectionResult } from '@app/types/crop';
 import type {
     IClientRect,
@@ -35,7 +34,7 @@ export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
         clientY: number;
     } | null = null;
     let pendingResolver: ((result: ICropSelectionResult | null) => void) | null = null;
-    let cleanupEscapeListener: (() => void) | null = null;
+    let escapeKeyListener: ((event: KeyboardEvent) => void) | null = null;
     let activePageTarget: IPageTarget | null = null;
 
     function toClientRect(rect: DOMRect): IClientRect {
@@ -89,8 +88,10 @@ export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
     }
 
     function detachEscapeListener() {
-        cleanupEscapeListener?.();
-        cleanupEscapeListener = null;
+        if (typeof window !== 'undefined' && escapeKeyListener) {
+            window.removeEventListener('keydown', escapeKeyListener, true);
+        }
+        escapeKeyListener = null;
     }
 
     function resolveSession(result: ICropSelectionResult | null) {
@@ -120,15 +121,19 @@ export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
     }
 
     function attachEscapeCancel() {
-        const onKeyDown = (event: KeyboardEvent) => {
+        if (typeof window === 'undefined') {
+            return;
+        }
+
+        detachEscapeListener();
+        escapeKeyListener = (event: KeyboardEvent) => {
             if (event.key !== 'Escape') {
                 return;
             }
             event.preventDefault();
             cancelSelection();
         };
-
-        cleanupEscapeListener = useEventListener(window, 'keydown', onKeyDown, { capture: true });
+        window.addEventListener('keydown', escapeKeyListener, true);
     }
 
     function updateSelectionFromPointer(

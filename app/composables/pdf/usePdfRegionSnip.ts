@@ -1,8 +1,5 @@
 import type { Ref } from 'vue';
-import {
-    useEventListener,
-    useTimeoutFn,
-} from '@vueuse/core';
+import { useTimeoutFn } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { clamp } from 'es-toolkit/math';
 
@@ -282,7 +279,7 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
         clientY: number 
     } | null = null;
     let pendingResolver: ((result: boolean) => void) | null = null;
-    let cleanupEscapeListener: (() => void) | null = null;
+    let escapeKeyListener: ((event: KeyboardEvent) => void) | null = null;
     const {
         start: startSuccessTimer,
         stop: stopSuccessTimer,
@@ -296,8 +293,10 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
     }
 
     function detachEscapeListener() {
-        cleanupEscapeListener?.();
-        cleanupEscapeListener = null;
+        if (typeof window !== 'undefined' && escapeKeyListener) {
+            window.removeEventListener('keydown', escapeKeyListener, true);
+        }
+        escapeKeyListener = null;
     }
 
     function resolveSession(result: boolean) {
@@ -336,15 +335,19 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
     }
 
     function attachEscapeCancel() {
-        const onKeyDown = (event: KeyboardEvent) => {
+        if (typeof window === 'undefined') {
+            return;
+        }
+
+        detachEscapeListener();
+        escapeKeyListener = (event: KeyboardEvent) => {
             if (event.key !== 'Escape') {
                 return;
             }
             event.preventDefault();
             cancelCapture();
         };
-
-        cleanupEscapeListener = useEventListener(window, 'keydown', onKeyDown, { capture: true });
+        window.addEventListener('keydown', escapeKeyListener, true);
     }
 
     function updateSelectionFromPointer(

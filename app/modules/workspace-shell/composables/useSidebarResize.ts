@@ -1,5 +1,4 @@
 import type { Ref } from 'vue';
-import { useEventListener } from '@vueuse/core';
 import { SIDEBAR } from '@app/constants/pdf-layout';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -28,6 +27,14 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         stopResizeUpListener = null;
         stopResizeCancelListener?.();
         stopResizeCancelListener = null;
+    }
+
+    function addWindowPointerListener(
+        type: 'pointermove' | 'pointerup' | 'pointercancel',
+        listener: (event: PointerEvent) => void,
+    ) {
+        window.addEventListener(type, listener);
+        return () => window.removeEventListener(type, listener);
     }
 
     function handleSidebarResize(event: PointerEvent) {
@@ -76,9 +83,9 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         });
 
         cleanupSidebarResizeListeners();
-        stopResizeMoveListener = useEventListener(window, 'pointermove', handleSidebarResize);
-        stopResizeUpListener = useEventListener(window, 'pointerup', stopSidebarResize);
-        stopResizeCancelListener = useEventListener(window, 'pointercancel', stopSidebarResize);
+        stopResizeMoveListener = addWindowPointerListener('pointermove', handleSidebarResize);
+        stopResizeUpListener = addWindowPointerListener('pointerup', stopSidebarResize);
+        stopResizeCancelListener = addWindowPointerListener('pointercancel', stopSidebarResize);
     }
 
     watch(showSidebar, (isOpen) => {

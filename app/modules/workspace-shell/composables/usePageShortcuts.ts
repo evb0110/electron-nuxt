@@ -192,7 +192,5 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         }
     }
 
-    if (typeof window !== 'undefined') {
-        useEventListener(window, 'pointerdown', handleGlobalPointerDown);
-    }
+    useEventListener(typeof window !== 'undefined' ? window : undefined, 'pointerdown', handleGlobalPointerDown);
 };

@@ -59,7 +59,6 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
     } = options;
 
     const menuCleanups: Array<() => void> = [];
-    const windowListenerCleanups: Array<() => void> = [];
     const debugHandleSave = () => activeWorkspace.value?.handleSave() ?? Promise.resolve();
 
     function cycleTab(direction: number) {
@@ -108,13 +107,19 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
         }
     }
 
+    const stopTabKeyboardShortcutListener = useEventListener(
+        typeof window !== 'undefined' ? window : undefined,
+        'keydown',
+        handleTabKeyboardShortcut,
+        {capture: true},
+    );
+
     onMounted(() => {
         const onMountedStart = performance.now();
         const electronApi = getElectronAPI();
         traceRendererStartup('tabs shell onMounted start');
         ensureAtLeastOneTab();
         traceRendererStartup('tabs shell ensured at least one tab', {tabCount: tabs.value.length});
-        windowListenerCleanups.push(useEventListener(window, 'keydown', handleTabKeyboardShortcut, {capture: true}));
 
         if (typeof window !== 'undefined') {
             (window as Window & { __openFileDirect?: (path: TDocumentRef) => Promise<void> }).__openFileDirect = openPathInAppropriateTab;
@@ -158,6 +163,6 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
             delete (window as Window & { __handleSave?: () => Promise<void> }).__handleSave;
         }
         menuCleanups.forEach(cleanup => cleanup());
-        windowListenerCleanups.forEach(cleanup => cleanup());
+        stopTabKeyboardShortcutListener();
     });
 }

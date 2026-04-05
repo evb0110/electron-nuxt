@@ -1,8 +1,5 @@
 import type { Ref } from 'vue';
-import {
-    until,
-    useDebounceFn,
-} from '@vueuse/core';
+import { until } from '@vueuse/core';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { ANNOTATION_NOTE_SAVE_DEBOUNCE_MS } from '@app/constants/timeouts';
 import {
@@ -39,12 +36,45 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     const annotationNotePositions = shallowRef<
         Record<string, IAnnotationNotePosition>
     >({});
-    const annotationNoteDebouncers = new Map<
-        string,
-        ReturnType<typeof useDebounceFn>
-    >();
+    interface IAnnotationNoteDebounceTimer {
+        stableKey: string;
+        timerId: ReturnType<typeof setTimeout>;
+    }
+    const annotationNoteDebounceTimers = new Map<string, IAnnotationNoteDebounceTimer>();
     const pendingEmbeddedTextUpdates = new Map<string, string>();
     let annotationNoteOrderCounter = 0;
+
+    onScopeDispose(() => {
+        annotationNoteDebounceTimers.forEach(({ timerId }) => {
+            clearTimeout(timerId);
+        });
+        annotationNoteDebounceTimers.clear();
+    });
+
+    function clearAnnotationNoteDebouncedSaver(stableKey: string) {
+        const entry = annotationNoteDebounceTimers.get(stableKey);
+        if (!entry) {
+            return;
+        }
+        clearTimeout(entry.timerId);
+        annotationNoteDebounceTimers.delete(stableKey);
+    }
+
+    function schedulePersistAnnotationNote(stableKey: string) {
+        clearAnnotationNoteDebouncedSaver(stableKey);
+
+        const entry: IAnnotationNoteDebounceTimer = {
+            stableKey,
+            timerId: setTimeout(() => {
+                annotationNoteDebounceTimers.delete(entry.stableKey);
+                runGuardedTask(() => Promise.resolve(persistAnnotationNote(entry.stableKey, false)), {
+                    scope: 'annotations',
+                    message: `Failed to persist annotation note for ${entry.stableKey}`,
+                });
+            }, ANNOTATION_NOTE_SAVE_DEBOUNCE_MS),
+        };
+        annotationNoteDebounceTimers.set(stableKey, entry);
+    }
 
     const sortedAnnotationNoteWindows = computed(() =>
         [...annotationNoteWindows.value].sort(
@@ -129,13 +159,14 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             annotationNotePositions.value = remainingPositions;
         }
 
-        const previousDebouncer = annotationNoteDebouncers.get(previousKey);
-        if (previousDebouncer && !annotationNoteDebouncers.has(nextKey)) {
-            annotationNoteDebouncers.set(nextKey, previousDebouncer);
+        const previousDebouncer = annotationNoteDebounceTimers.get(previousKey);
+        if (previousDebouncer && !annotationNoteDebounceTimers.has(nextKey)) {
+            annotationNoteDebounceTimers.delete(previousKey);
+            previousDebouncer.stableKey = nextKey;
+            annotationNoteDebounceTimers.set(nextKey, previousDebouncer);
+            return;
         }
-        if (annotationNoteDebouncers.has(previousKey)) {
-            annotationNoteDebouncers.delete(previousKey);
-        }
+        clearAnnotationNoteDebouncedSaver(previousKey);
     }
 
     function bringAnnotationNoteToFront(stableKey: string) {
@@ -253,11 +284,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             (note) => note.comment.stableKey !== stableKey,
         );
         if (annotationNoteWindows.value.length !== before) {
-            const debounced = annotationNoteDebouncers.get(stableKey) as
-        | ({ cancel?: () => void } & (() => void))
-        | undefined;
-            debounced?.cancel?.();
-            annotationNoteDebouncers.delete(stableKey);
+            clearAnnotationNoteDebouncedSaver(stableKey);
         }
     }
 
@@ -270,25 +297,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             return;
         }
         note.error = message;
-    }
-
-    function getAnnotationNoteDebouncedSaver(stableKey: string) {
-        const existing = annotationNoteDebouncers.get(stableKey);
-        if (existing) {
-            return existing;
-        }
-        const saver = useDebounceFn(() => {
-            runGuardedTask(() => Promise.resolve(persistAnnotationNote(stableKey, false)), {
-                scope: 'annotations',
-                message: `Failed to persist annotation note for ${stableKey}`,
-            });
-        }, ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
-        annotationNoteDebouncers.set(stableKey, saver);
-        return saver;
-    }
-
-    function schedulePersistAnnotationNote(stableKey: string) {
-        void getAnnotationNoteDebouncedSaver(stableKey)();
     }
 
     function updateAnnotationNoteText(stableKey: string, text: string) {
@@ -489,11 +497,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
 
         annotationNoteWindows.value.forEach((note) => {
-            const debounced = annotationNoteDebouncers.get(note.comment.stableKey) as
-        | ({ cancel?: () => void } & (() => void))
-        | undefined;
-            debounced?.cancel?.();
-            annotationNoteDebouncers.delete(note.comment.stableKey);
+            clearAnnotationNoteDebouncedSaver(note.comment.stableKey);
         });
         annotationNoteWindows.value = [];
         return true;

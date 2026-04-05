@@ -1,9 +1,6 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/platform-api';
-import {
-    useEventListener,
-    useIntervalFn,
-} from '@vueuse/core';
+import { useIntervalFn } from '@vueuse/core';
 import {getElectronAPI} from '@app/utils/platform';
 
 interface IPageDragDropDeps {
@@ -43,8 +40,8 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     let startY = 0;
     let startPage = 0;
     let clickSkip = false;
-    let stopMouseMoveListener: (() => void) | null = null;
-    let stopMouseUpListener: (() => void) | null = null;
+    let mouseMoveListener: ((event: MouseEvent) => void) | null = null;
+    let mouseUpListener: (() => void) | null = null;
     let dragReorderContext: IDragReorderContext | null = null;
     const autoScrollContainer = ref<HTMLElement | null>(null);
     const autoScrollStep = ref(0);
@@ -230,10 +227,14 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     }
 
     function cleanupWindowDragListeners() {
-        stopMouseMoveListener?.();
-        stopMouseMoveListener = null;
-        stopMouseUpListener?.();
-        stopMouseUpListener = null;
+        if (typeof window !== 'undefined' && mouseMoveListener) {
+            window.removeEventListener('mousemove', mouseMoveListener);
+        }
+        if (typeof window !== 'undefined' && mouseUpListener) {
+            window.removeEventListener('mouseup', mouseUpListener);
+        }
+        mouseMoveListener = null;
+        mouseUpListener = null;
     }
 
     function onMove(e: MouseEvent) {
@@ -293,8 +294,13 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         startPage = page;
         dragReorderContext = null;
         cleanupWindowDragListeners();
-        stopMouseMoveListener = useEventListener(window, 'mousemove', onMove);
-        stopMouseUpListener = useEventListener(window, 'mouseup', onUp);
+        if (typeof window === 'undefined') {
+            return;
+        }
+        mouseMoveListener = onMove;
+        mouseUpListener = onUp;
+        window.addEventListener('mousemove', mouseMoveListener);
+        window.addEventListener('mouseup', mouseUpListener);
     }
 
     function consumeClickSkip() {
