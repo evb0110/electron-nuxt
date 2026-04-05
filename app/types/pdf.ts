@@ -92,6 +92,7 @@ export interface IPdfPageMatches {
     pageIndex: number;
     pageText: string; // Full page text for reference
     searchQuery: string; // The query that generated these matches
+    signatureToken?: string;
     searchOptions?: {
         matchCase?: boolean;
         wholeWord?: boolean;

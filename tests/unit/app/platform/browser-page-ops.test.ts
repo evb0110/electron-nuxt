@@ -16,6 +16,7 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
     stat: vi.fn(),
     write: vi.fn(async () => {}),
     createStoredDocument: vi.fn(),
+    replaceWithHandleBackedDocument: vi.fn(async () => {}),
     touchRecentFile: vi.fn(async () => {}),
 }));
 const BrowserPageOpsWorkerUnavailableError = vi.hoisted(() => class extends Error {});
@@ -44,6 +45,8 @@ describe('createBrowserPageOps', () => {
         browserDocumentStoreMock.write.mockReset();
         browserDocumentStoreMock.write.mockResolvedValue(undefined);
         browserDocumentStoreMock.createStoredDocument.mockReset();
+        browserDocumentStoreMock.replaceWithHandleBackedDocument.mockReset();
+        browserDocumentStoreMock.replaceWithHandleBackedDocument.mockResolvedValue(undefined);
         browserDocumentStoreMock.touchRecentFile.mockReset();
         browserDocumentStoreMock.touchRecentFile.mockResolvedValue(undefined);
         browserPageOpsWorkerMock.canUse.mockReset();
@@ -365,6 +368,15 @@ describe('createBrowserPageOps', () => {
                 saveKind: 'pdf',
                 kind: 'source',
                 saveHandle: expect.objectContaining({ name: 'work-extract.pdf' }),
+                storageMode: 'handle',
+            }),
+        );
+        expect(browserDocumentStoreMock.replaceWithHandleBackedDocument).toHaveBeenCalledWith(
+            'browser://documents/extract/work-extract.pdf',
+            expect.objectContaining({
+                fileSize: expect.any(Number),
+                saveHandle: expect.objectContaining({ name: 'work-extract.pdf' }),
+                saveName: 'work-extract.pdf',
             }),
         );
         expect(browserDocumentStoreMock.touchRecentFile).toHaveBeenCalledWith(
@@ -502,10 +514,99 @@ describe('createBrowserPageOps', () => {
             1,
             ['browser://documents/picked/image.png'],
         )).rejects.toThrow(
-            'Inserting pages is unavailable in the browser for PDFs larger than 48MB',
+            'Inserting pages is unavailable in the browser for jobs larger than 96MB',
         );
         expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
         expect(createCombinedPdfFromPaths).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
+    });
+
+    it('rejects browser insert jobs whose working set would exceed the safety budget', async () => {
+        browserDocumentStoreMock.stat.mockImplementation(async (path: string) => {
+            if (path === '/tmp/work.pdf') {
+                return { size: 64 * 1024 * 1024 };
+            }
+
+            return { size: 40 * 1024 * 1024 };
+        });
+
+        const createCombinedPdfFromPaths = vi.fn(async () => new Uint8Array([1]));
+        const { createBrowserPageOps } = await import('@app/platform/browser-api/documents-page-ops');
+        const pageOps = createBrowserPageOps({
+            clearSearchCaches: vi.fn(),
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths,
+            pickSaveTarget: vi.fn(),
+            saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
+        });
+
+        await expect(pageOps.insertFile(
+            '/tmp/work.pdf',
+            1,
+            1,
+            ['browser://documents/picked/insert.pdf'],
+        )).rejects.toThrow(
+            'Inserting pages is unavailable in the browser for jobs larger than 96MB',
+        );
+
+        expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
+        expect(createCombinedPdfFromPaths).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
+    });
+
+    it('bypasses browser combine when inserting a single PDF source', async () => {
+        const destinationPdf = await PDFDocument.create();
+        destinationPdf.addPage([
+            300,
+            500,
+        ]);
+        const destinationBytes = new Uint8Array(await destinationPdf.save());
+
+        const insertionPdf = await PDFDocument.create();
+        insertionPdf.addPage([
+            200,
+            200,
+        ]);
+        const insertionBytes = new Uint8Array(await insertionPdf.save());
+
+        browserDocumentStoreMock.stat.mockImplementation(async (path: string) => {
+            if (path === '/tmp/work.pdf') {
+                return { size: destinationBytes.byteLength };
+            }
+
+            return { size: insertionBytes.byteLength };
+        });
+        browserDocumentStoreMock.read.mockImplementation(async (path: string) => (
+            path === '/tmp/work.pdf' ? destinationBytes : insertionBytes
+        ));
+
+        const createCombinedPdfFromPaths = vi.fn(async () => new Uint8Array([9]));
+        const { createBrowserPageOps } = await import('@app/platform/browser-api/documents-page-ops');
+        const pageOps = createBrowserPageOps({
+            clearSearchCaches: vi.fn(),
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths,
+            pickSaveTarget: vi.fn(),
+            saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
+        });
+
+        const result = await pageOps.insertFile(
+            '/tmp/work.pdf',
+            1,
+            1,
+            ['browser://documents/picked/insert.pdf'],
+        );
+
+        expect(result.success).toBe(true);
+        expect(createCombinedPdfFromPaths).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.read).toHaveBeenNthCalledWith(1, '/tmp/work.pdf');
+        expect(browserDocumentStoreMock.read).toHaveBeenNthCalledWith(2, 'browser://documents/picked/insert.pdf');
+        expect(browserDocumentStoreMock.write).toHaveBeenCalledTimes(1);
     });
 });

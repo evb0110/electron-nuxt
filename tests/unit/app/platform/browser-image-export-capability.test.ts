@@ -25,6 +25,7 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
     replaceWithHandleBackedDocument: vi.fn(),
     touchRecentFile: vi.fn(async () => {}),
 }));
+const saveBlobToPickerOrDownloadMock = vi.hoisted(() => vi.fn());
 const saveBytesToPickerOrDownloadMock = vi.hoisted(() => vi.fn());
 const getDocumentMock = vi.hoisted(() => vi.fn());
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
@@ -36,7 +37,10 @@ vi.mock('@app/platform/browser-document-store', () => ({
 
 vi.mock('@app/platform/browser-api/browser-yield', () => ({ yieldToBrowser: yieldToBrowserMock }));
 
-vi.mock('@app/platform/browser-api/documents-file-capability', () => ({ saveBytesToPickerOrDownload: (...args: unknown[]) => saveBytesToPickerOrDownloadMock(...args) }));
+vi.mock('@app/platform/browser-api/documents-file-capability', () => ({
+    saveBlobToPickerOrDownload: (...args: unknown[]) => saveBlobToPickerOrDownloadMock(...args),
+    saveBytesToPickerOrDownload: (...args: unknown[]) => saveBytesToPickerOrDownloadMock(...args),
+}));
 
 vi.mock('@app/platform/browser-api/common', () => ({
     EXPORT_RENDER_SCALE: 1,
@@ -127,6 +131,11 @@ describe('createBrowserImageExportCapability', () => {
             'browser://documents/output/sample.tiff',
         );
         browserDocumentStoreMock.replaceWithHandleBackedDocument.mockResolvedValue(undefined);
+        saveBlobToPickerOrDownloadMock.mockResolvedValue({
+            canceled: false,
+            fileName: 'page-1.png',
+            handle: null,
+        });
         saveBytesToPickerOrDownloadMock.mockResolvedValue({
             canceled: false,
             fileName: 'sample.tiff',
@@ -184,5 +193,57 @@ describe('createBrowserImageExportCapability', () => {
             0,
             255,
         ]);
+    });
+
+    it('stores PNG exports as handle-backed outputs when the browser picker returns a file handle', async () => {
+        const fakePdfDocument = createFakePdfDocument(1);
+        getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });
+        saveBytesToPickerOrDownloadMock.mockResolvedValue({
+            canceled: false,
+            fileName: 'page-1.png',
+            handle: { name: 'page-1.png' } as FileSystemFileHandle,
+        });
+        saveBlobToPickerOrDownloadMock.mockResolvedValue({
+            canceled: false,
+            fileName: 'page-1.png',
+            handle: { name: 'page-1.png' } as FileSystemFileHandle,
+        });
+        browserDocumentStoreMock.createStoredDocument.mockResolvedValue(
+            'browser://documents/output/page-1.png',
+        );
+
+        const { createBrowserImageExportCapability } = await import(
+            '@app/platform/browser-api/documents-image-export-capability'
+        );
+        const capability = createBrowserImageExportCapability();
+
+        const result = await capability.exportPdfToImages(
+            'browser://documents/work/sample.pdf',
+            [1],
+        );
+
+        expect(result).toEqual({
+            success: true,
+            outputPaths: ['browser://documents/output/page-1.png'],
+        });
+        expect(browserDocumentStoreMock.createStoredDocument).toHaveBeenCalledWith(
+            'page-1.png',
+            expect.objectContaining({ byteLength: 0 }),
+            expect.objectContaining({
+                mimeType: 'image/png',
+                saveHandle: expect.objectContaining({ name: 'page-1.png' }),
+                storageMode: 'handle',
+            }),
+        );
+        expect(saveBlobToPickerOrDownloadMock).toHaveBeenCalledTimes(1);
+        expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.replaceWithHandleBackedDocument).toHaveBeenCalledWith(
+            'browser://documents/output/page-1.png',
+            expect.objectContaining({
+                fileSize: 1,
+                saveHandle: expect.objectContaining({ name: 'page-1.png' }),
+                saveName: 'page-1.png',
+            }),
+        );
     });
 });

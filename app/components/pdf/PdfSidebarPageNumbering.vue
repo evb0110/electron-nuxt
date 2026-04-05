@@ -200,12 +200,12 @@ const normalizedPageLabelRanges = computed(() => normalizePageLabelRanges(
     props.totalPages,
 ));
 
-const effectivePageLabels = computed(() => {
+function buildEffectivePageLabels() {
     if (props.pageLabels && props.pageLabels.length === props.totalPages) {
         return props.pageLabels;
     }
     return buildPageLabelsFromRanges(props.totalPages, normalizedPageLabelRanges.value);
-});
+}
 
 const manualRange = computed(() => parsePageRangeInput(pageRangeInput.value, props.totalPages));
 
@@ -355,7 +355,7 @@ function applyPageLabelsToRange(range: IPdfPageRange) {
         return;
     }
 
-    const nextLabels = [...effectivePageLabels.value];
+    const nextLabels = [...buildEffectivePageLabels()];
     if (nextLabels.length !== props.totalPages) {
         return;
     }

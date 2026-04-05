@@ -11,14 +11,14 @@ import type {
 } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { guardAsync } from '@app/utils/async-guard';
-import { resolveDocumentBaseMetric } from '@app/composables/pdf/pdfPageLayout';
-
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
 
 type TPdfDataRangeTransportCtor = new (
     length: number,
     initialData: Uint8Array,
 ) => PDFDataRangeTransport;
+
+export const MAX_CACHED_PDF_PAGES = 48;
 
 function destroyPdfDocumentDeferred(
     document: PDFDocumentProxy,
@@ -60,6 +60,22 @@ export const usePdfDocument = () => {
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
     let rangeTransport: PDFDataRangeTransport | null = null;
 
+    function touchCachedPage(pageNumber: number, page: PDFPageProxy) {
+        pdfPageCache.delete(pageNumber);
+        pdfPageCache.set(pageNumber, page);
+    }
+
+    function rememberCachedPage(pageNumber: number, page: PDFPageProxy) {
+        touchCachedPage(pageNumber, page);
+        while (pdfPageCache.size > MAX_CACHED_PDF_PAGES) {
+            const oldestPageNumber = pdfPageCache.keys().next().value;
+            if (typeof oldestPageNumber !== 'number') {
+                break;
+            }
+            pdfPageCache.delete(oldestPageNumber);
+        }
+    }
+
     function isValidPageMetric(
         metric: IPdfPageMetric | null | undefined,
     ): metric is IPdfPageMetric {
@@ -80,9 +96,9 @@ export const usePdfDocument = () => {
         return ++renderVersion;
     }
 
-    function syncBaseMetrics(metrics: IPdfPageMetric[]) {
-        basePageWidth.value = resolveDocumentBaseMetric(metrics, 'width');
-        basePageHeight.value = resolveDocumentBaseMetric(metrics, 'height');
+    function updateBaseMetrics(metric: IPdfPageMetric) {
+        basePageWidth.value = Math.max(basePageWidth.value ?? 0, metric.width);
+        basePageHeight.value = Math.max(basePageHeight.value ?? 0, metric.height);
     }
 
     async function loadPageMetric(
@@ -122,7 +138,7 @@ export const usePdfDocument = () => {
                 }
 
                 pageMetrics.value[pageNumber - 1] = metric;
-                syncBaseMetrics(pageMetrics.value);
+                updateBaseMetrics(metric);
                 return metric;
             } finally {
                 if (typeof page.cleanup === 'function') {
@@ -205,7 +221,6 @@ export const usePdfDocument = () => {
             return;
         }
 
-        syncBaseMetrics(pageMetrics.value);
     }
 
     async function loadPdf(
@@ -445,7 +460,9 @@ export const usePdfDocument = () => {
         let page = pdfPageCache.get(pageNumber);
         if (!page) {
             page = await pdfDocument.value.getPage(pageNumber);
-            pdfPageCache.set(pageNumber, page);
+            rememberCachedPage(pageNumber, page);
+        } else {
+            touchCachedPage(pageNumber, page);
         }
         return page;
     }

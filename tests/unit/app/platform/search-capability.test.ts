@@ -33,12 +33,11 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReset();
     });
 
-    it('yields while iterating pages and reuses bounded page text cache', async () => {
-        const pageTexts = [
-            'alpha foo',
-            'beta foo',
-            'gamma foo',
-        ];
+    it('reuses cached browser page text across repeated searches when the extracted text stays within budget', async () => {
+        const pageTexts = Array.from(
+            { length: 30 },
+            (_value, index) => `page ${index + 1} foo`,
+        );
         const cleanup = vi.fn(async () => {});
         const getPage = vi.fn(async (pageNumber: number) => ({
             getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
@@ -65,14 +64,25 @@ describe('createBrowserSearchCapability', () => {
         const firstRun = await capability.run('/tmp/test.pdf', 'foo');
         const secondRun = await capability.run('/tmp/test.pdf', 'foo');
 
-        expect(firstRun.results).toHaveLength(3);
-        expect(secondRun.results).toHaveLength(3);
-        expect(browserDocumentStoreMock.stat).toHaveBeenCalledTimes(1);
+        expect(firstRun.results).toHaveLength(30);
+        expect(secondRun.results).toHaveLength(30);
+        expect(browserDocumentStoreMock.stat).toHaveBeenCalledTimes(3);
         expect(browserDocumentStoreMock.readRange).toHaveBeenCalledTimes(1);
         expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(1);
         expect(yieldToBrowserMock.mock.calls.length).toBeGreaterThanOrEqual(2);
-        expect(getPage).toHaveBeenCalledTimes(3);
+        expect(getPage).toHaveBeenCalledTimes(30);
         expect(destroy).toHaveBeenCalledTimes(1);
-        expect(cleanup).toHaveBeenCalledTimes(3);
+        expect(cleanup).toHaveBeenCalledTimes(30);
+    });
+
+    it('rejects browser search for oversized documents before loading PDF.js', async () => {
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: (64 * 1024 * 1024) + 1 });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/search-capability');
+        const { capability } = createBrowserSearchCapability();
+
+        await expect(capability.run('/tmp/huge.pdf', 'foo')).rejects.toThrow('ERR_BROWSER_SEARCH_TOO_LARGE');
+        expect(browserDocumentStoreMock.readRange).not.toHaveBeenCalled();
+        expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
     });
 });

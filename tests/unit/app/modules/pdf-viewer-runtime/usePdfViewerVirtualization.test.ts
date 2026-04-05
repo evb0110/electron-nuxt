@@ -81,6 +81,40 @@ function createVirtualizationHarness(viewMode: TPdfViewMode) {
     });
 }
 
+function createPagedHarness(options?: {
+    viewMode?: TPdfViewMode;
+    continuousScroll?: boolean;
+    visibleRange?: {
+        start: number;
+        end: number;
+    };
+}) {
+    const numPages = ref(20);
+    const pageMetrics = ref(Array.from({ length: 20 }, () => ({
+        width: 300,
+        height: 100,
+    })));
+
+    return usePdfViewerVirtualization({
+        bufferPages: computed(() => 0),
+        continuousScroll: computed(() => options?.continuousScroll ?? true),
+        viewMode: computed(() => options?.viewMode ?? 'single'),
+        numPages,
+        basePageWidth: ref(300),
+        basePageHeight: ref(100),
+        pageMetrics,
+        effectiveScale: ref(1),
+        scaledMargin: ref(20),
+        visibleRange: ref(options?.visibleRange ?? {
+            start: 9,
+            end: 10,
+        }),
+        searchNavigationTargetPage: ref(null),
+        resizeTransitionAnchorPage: ref(null),
+        zoomVirtualizationFreeze: ref(null),
+    });
+}
+
 describe('usePdfViewerVirtualization', () => {
     it('keeps virtualization enabled for facing spread modes and aligns render rows', () => {
         const virtualization = createVirtualizationHarness('facing');
@@ -106,5 +140,22 @@ describe('usePdfViewerVirtualization', () => {
         ]);
         expect(virtualization.topVirtualSpacerStyle.value).toEqual({ height: '100px' });
         expect(virtualization.bottomVirtualSpacerStyle.value).toEqual({ height: '220px' });
+    });
+
+    it('renders only the visible spread when continuous scrolling is disabled', () => {
+        const virtualization = createPagedHarness({
+            viewMode: 'facing',
+            continuousScroll: false,
+            visibleRange: {
+                start: 9,
+                end: 10,
+            },
+        });
+
+        expect(virtualization.virtualizedContinuousMode.value).toBe(false);
+        expect(virtualization.pagesToRender.value).toEqual([
+            9,
+            10,
+        ]);
     });
 });

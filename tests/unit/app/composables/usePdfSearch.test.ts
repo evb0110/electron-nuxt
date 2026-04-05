@@ -22,6 +22,7 @@ vi.mock('@app/utils/platform', () => ({
     getElectronAPI: () => mockElectronAPI,
     hasElectronAPI: () => hasElectronApiMock(),
 }));
+vi.mock('#imports', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
 
 describe('usePdfSearch', () => {
     beforeEach(() => {
@@ -185,5 +186,21 @@ describe('usePdfSearch', () => {
 
         search.resetSearchCache();
         expect(mockSearch.resetCache).toHaveBeenCalledOnce();
+    });
+
+    it('surfaces a localized search error when backend search fails', async () => {
+        mockSearch.run.mockRejectedValue(new Error('ERR_BROWSER_SEARCH_TOO_LARGE'));
+
+        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
+        const search = usePdfSearch();
+
+        const promise = search.search('alpha', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        const applied = await promise;
+
+        expect(applied).toBe(false);
+        expect(search.searchError.value).toBe('errors.search.browserTooLarge');
+        expect(search.results.value).toEqual([]);
+        expect(search.isSearching.value).toBe(false);
     });
 });

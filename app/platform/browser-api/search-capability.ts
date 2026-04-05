@@ -12,10 +12,13 @@ import {
     getPdfjsLib,
 } from '@app/platform/browser-api/common';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
+import { browserDocumentStore } from '@app/platform/browser-document-store';
 
 interface IPreparedSearchDocumentCache {
     pageCount: number | null;
     pageTexts: Map<number, string>;
+    pageTextBytes: number;
+    canCacheWholeDocumentText: boolean;
 }
 
 interface ICreateBrowserSearchCapabilityResult {
@@ -28,6 +31,12 @@ type TSearchListener = (progress: IPdfSearchProgress) => void;
 const SEARCH_PAGE_CACHE_LIMIT = 24;
 const SEARCH_DOCUMENT_CACHE_LIMIT = 4;
 const SEARCH_YIELD_INTERVAL = 1;
+const BROWSER_SEARCH_MAX_BYTES = 64 * 1024 * 1024;
+const SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES = 16 * 1024 * 1024;
+
+function createBrowserSearchTooLargeError() {
+    return new Error('ERR_BROWSER_SEARCH_TOO_LARGE');
+}
 
 function escapeRegex(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -80,6 +89,7 @@ function buildSearchExcerpt(
 function isRecordCacheReady(cache: IPreparedSearchDocumentCache) {
     return typeof cache.pageCount === 'number'
         && cache.pageCount > 0
+        && cache.canCacheWholeDocumentText
         && cache.pageTexts.size >= cache.pageCount;
 }
 
@@ -87,6 +97,8 @@ function createDocumentCache(): IPreparedSearchDocumentCache {
     return {
         pageCount: null,
         pageTexts: new Map<number, string>(),
+        pageTextBytes: 0,
+        canCacheWholeDocumentText: true,
     };
 }
 
@@ -99,15 +111,30 @@ function rememberPageText(
     pageNumber: number,
     text: string,
 ) {
-    if (cache.pageTexts.has(pageNumber)) {
+    const existing = cache.pageTexts.get(pageNumber);
+    if (typeof existing === 'string') {
+        cache.pageTextBytes -= existing.length * 2;
         cache.pageTexts.delete(pageNumber);
     }
     cache.pageTexts.set(pageNumber, text);
+    cache.pageTextBytes += text.length * 2;
 
+    if (
+        cache.canCacheWholeDocumentText
+        && cache.pageTextBytes <= SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES
+    ) {
+        return;
+    }
+
+    cache.canCacheWholeDocumentText = false;
     while (cache.pageTexts.size > SEARCH_PAGE_CACHE_LIMIT) {
         const oldestPage = cache.pageTexts.keys().next().value;
         if (typeof oldestPage !== 'number') {
             break;
+        }
+        const oldestText = cache.pageTexts.get(oldestPage);
+        if (typeof oldestText === 'string') {
+            cache.pageTextBytes -= oldestText.length * 2;
         }
         cache.pageTexts.delete(oldestPage);
     }
@@ -132,11 +159,26 @@ async function extractPageText(page: {
     cleanup?: PDFPageProxy['cleanup'];
 }) {
     const content = await page.getTextContent();
-    const text = content.items
-        .map((item) => ('str' in item ? String(item.str ?? '') : ''))
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+    const textChunks: string[] = [];
+
+    for (let index = 0; index < content.items.length; index += 128) {
+        const chunk = content.items.slice(index, index + 128);
+        const normalizedChunk = chunk
+            .map((item) => ('str' in item ? String(item.str ?? '') : ''))
+            .join(' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        if (normalizedChunk) {
+            textChunks.push(normalizedChunk);
+        }
+
+        if (index + 128 < content.items.length) {
+            await yieldToBrowser();
+        }
+    }
+
+    const text = textChunks.join(' ').trim();
 
     try {
         await Promise.resolve(page.cleanup?.());
@@ -170,6 +212,13 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
     function clearSearchCaches() {
         searchDocumentCache.clear();
+    }
+
+    async function assertSearchWithinBrowserBudget(pdfPath: string) {
+        const { size } = await browserDocumentStore.stat(pdfPath);
+        if (size > BROWSER_SEARCH_MAX_BYTES) {
+            throw createBrowserSearchTooLargeError();
+        }
     }
 
     async function loadSearchDocument(pdfPath: string) {
@@ -258,6 +307,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
     const capability: ISearchCapability = {
         async run(pdfPath, query, options = {}) {
+            await assertSearchWithinBrowserBudget(pdfPath);
             const requestId = options.requestId ?? crypto.randomUUID();
             const results: IPdfSearchResult[] = [];
             const matcher = buildSearchRegex(query, {
@@ -332,6 +382,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             } satisfies IPdfSearchResponse;
         },
         async warmIndex(pdfPath) {
+            await assertSearchWithinBrowserBudget(pdfPath);
             await iterateSearchPages(pdfPath, {onPage: async () => {
                 await yieldToBrowser();
             }});

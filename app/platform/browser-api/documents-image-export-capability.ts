@@ -14,15 +14,23 @@ import {
     toUint8Array,
 } from '@app/platform/browser-api/common';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
-import { saveBytesToPickerOrDownload } from '@app/platform/browser-api/documents-file-capability';
+import {
+    saveBlobToPickerOrDownload,
+    saveBytesToPickerOrDownload,
+} from '@app/platform/browser-api/documents-file-capability';
 
 interface IRenderedPdfPage {
     pageNumber: number;
     fileName: string;
-    pngBytes: Uint8Array;
     rgba: Uint8Array;
     width: number;
     height: number;
+}
+
+interface IRenderedPngPage {
+    pageNumber: number;
+    fileName: string;
+    pngBlob: Blob;
 }
 
 interface ITiffPageDescriptor {
@@ -138,6 +146,41 @@ async function renderPdfPage(
     }).promise;
 
     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    try {
+        await Promise.resolve(page.cleanup?.());
+    } catch {
+        // Cleanup is best effort.
+    }
+
+    return {
+        pageNumber,
+        fileName: `page-${String(pageNumber).padStart(3, '0')}.png`,
+        rgba: new Uint8Array(imageData.data),
+        width: canvas.width,
+        height: canvas.height,
+    };
+}
+
+async function renderPdfPageToPng(
+    pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
+    pageNumber: number,
+): Promise<IRenderedPngPage> {
+    const page = await pdfDocument.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: EXPORT_RENDER_SCALE });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const context = canvas.getContext('2d');
+    if (!context) {
+        throw new Error('Canvas 2D context is unavailable');
+    }
+
+    await page.render({
+        canvas,
+        canvasContext: context,
+        viewport,
+    }).promise;
+
     const pngBlob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob((blob) => {
             if (!blob) {
@@ -158,10 +201,7 @@ async function renderPdfPage(
     return {
         pageNumber,
         fileName: `page-${String(pageNumber).padStart(3, '0')}.png`,
-        pngBytes: new Uint8Array(await pngBlob.arrayBuffer()),
-        rgba: new Uint8Array(imageData.data),
-        width: canvas.width,
-        height: canvas.height,
+        pngBlob,
     };
 }
 
@@ -416,15 +456,15 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
             try {
                 for (let index = 0; index < targetPages.length; index += 1) {
                     const pageNumber = targetPages[index]!;
-                    const page = await renderPdfPage(pdfDocument.pdfDocument, pageNumber);
-                    const saveResult = await saveBytesToPickerOrDownload(page.pngBytes, {
-                        suggestedName: page.fileName,
-                        mimeType: 'image/png',
-                        pickerTypes: [{
+                    const page = await renderPdfPageToPng(pdfDocument.pdfDocument, pageNumber);
+                    const saveResult = await saveBlobToPickerOrDownload(
+                        page.pngBlob,
+                        page.fileName,
+                        [{
                             description: 'PNG Images',
                             accept: { 'image/png': ['.png'] },
                         }],
-                    });
+                    );
                     if (saveResult.canceled) {
                         await Promise.allSettled(
                             outputRefs.map(async (outputRef) => {
@@ -437,18 +477,28 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                         };
                     }
 
+                    const pageBytes = saveResult.handle
+                        ? new Uint8Array()
+                        : new Uint8Array(await page.pngBlob.arrayBuffer());
                     const outputRef = await browserDocumentStore.createStoredDocument(
                         saveResult.fileName,
-                        page.pngBytes,
+                        pageBytes,
                         {
                             mimeType: 'image/png',
                             saveKind: 'generic',
                             kind: 'output',
                             retention: 'transient',
                             saveHandle: saveResult.handle ?? null,
-                            storageMode: saveResult.handle ? 'handle' : 'inline',
+                            storageMode: saveResult.handle ? 'handle' : undefined,
                         },
                     );
+                    if (saveResult.handle) {
+                        await browserDocumentStore.replaceWithHandleBackedDocument(outputRef, {
+                            fileSize: page.pngBlob.size,
+                            saveHandle: saveResult.handle,
+                            saveName: saveResult.fileName,
+                        });
+                    }
                     await browserDocumentStore.touchRecentFile(outputRef);
                     outputRefs.push(outputRef);
 

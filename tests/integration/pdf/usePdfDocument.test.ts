@@ -56,7 +56,10 @@ const electronApi = {documents: {readFileRange: vi.fn()}};
 
 vi.mock('@app/utils/platform', () => ({getElectronAPI: () => electronApi}));
 
-const { usePdfDocument } = await import('@app/composables/pdf/usePdfDocument');
+const {
+    MAX_CACHED_PDF_PAGES,
+    usePdfDocument,
+} = await import('@app/composables/pdf/usePdfDocument');
 
 describe('usePdfDocument range loading', () => {
     beforeEach(() => {
@@ -335,5 +338,53 @@ describe('usePdfDocument range loading', () => {
             'Failed to load PDF',
             expect.any(Error),
         );
+    });
+
+    it('bounds the cached PDF pages with an LRU policy', async () => {
+        const getPage = vi.fn(async (pageNumber: number) => ({
+            getViewport: vi.fn(() => ({
+                width: 200,
+                height: 400,
+            })),
+            cleanup: vi.fn(),
+            pageNumber,
+        }));
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: MAX_CACHED_PDF_PAGES + 5,
+                getPage,
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        } as ILoadingTask);
+        electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = usePdfDocument();
+        await documentState.loadPdf({
+            kind: 'path',
+            path: '/tmp/cache-lru.pdf',
+            size: 2048,
+        });
+
+        expect(getPage).toHaveBeenCalledTimes(1);
+
+        for (let pageNumber = 2; pageNumber <= MAX_CACHED_PDF_PAGES + 1; pageNumber += 1) {
+            await documentState.getPage(pageNumber);
+        }
+
+        expect(getPage).toHaveBeenCalledTimes(MAX_CACHED_PDF_PAGES + 1);
+
+        await documentState.getPage(1);
+
+        expect(getPage).toHaveBeenCalledTimes(MAX_CACHED_PDF_PAGES + 2);
+
+        await documentState.getPage(MAX_CACHED_PDF_PAGES + 1);
+
+        expect(getPage).toHaveBeenCalledTimes(MAX_CACHED_PDF_PAGES + 2);
     });
 });

@@ -90,10 +90,10 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
 
     const pageHeightEstimate = computed(() => {
         const layout = pageLayout.value;
-        if (!layout || layout.pageHeights.length === 0) {
+        if (!layout) {
             return 0;
         }
-        return Math.max(...layout.pageHeights);
+        return layout.maxPageHeight;
     });
 
     const normalizedPageMetrics = computed(() =>
@@ -288,7 +288,18 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
         }
 
         if (!virtualizedContinuousMode.value) {
-            return range(1, numPages.value + 1);
+            const layout = pageLayout.value;
+            const baseStart = Math.max(1, Math.min(numPages.value, visibleRange.value.start));
+            const baseEnd = Math.max(baseStart, Math.min(numPages.value, visibleRange.value.end));
+            if (!layout) {
+                return range(baseStart, baseEnd + 1);
+            }
+            const startBounds = getPageRowBounds(layout, baseStart);
+            const endBounds = getPageRowBounds(layout, baseEnd);
+            return range(
+                startBounds?.start ?? baseStart,
+                (endBounds?.end ?? baseEnd) + 1,
+            );
         }
 
         const layout = pageLayout.value;

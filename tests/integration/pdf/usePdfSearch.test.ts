@@ -50,6 +50,7 @@ vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {
     warn: vi.fn(),
     warnThrottled: vi.fn(),
 }}));
+vi.mock('#imports', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
 
 describe('usePdfSearch', () => {
     beforeEach(() => {
@@ -150,5 +151,19 @@ describe('usePdfSearch', () => {
         search.resetSearchCache();
         expect(search.results.value).toEqual([]);
         expect(mocks.api.search.resetCache).toHaveBeenCalledOnce();
+    });
+
+    it('stores a user-facing search error when backend search is unavailable', async () => {
+        mocks.api.search.run.mockRejectedValue(new Error('ERR_BROWSER_SEARCH_TOO_LARGE'));
+        const search = usePdfSearch();
+
+        const promise = search.search('term', '/tmp/doc.pdf', 20);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        const applied = await promise;
+
+        expect(applied).toBe(false);
+        expect(search.searchError.value).toBe('errors.search.browserTooLarge');
+        expect(search.results.value).toEqual([]);
+        expect(search.isSearching.value).toBe(false);
     });
 });

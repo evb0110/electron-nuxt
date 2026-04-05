@@ -120,33 +120,7 @@ export const usePdfTextLayerRenderer = (deps: {
                 : 'empty';
         }
 
-        const parts: string[] = [
-            pageMatchData.searchQuery,
-            pageMatchData.searchOptions?.matchCase ? '1' : '0',
-            pageMatchData.searchOptions?.wholeWord ? '1' : '0',
-            pageMatchData.searchOptions?.useRegex ? '1' : '0',
-            `count=${pageMatchData.matches.length}`,
-        ];
-
-        for (const match of pageMatchData.matches) {
-            parts.push(
-                [
-                    match.matchIndex,
-                    match.start,
-                    match.end,
-                    match.pageWidth ?? '',
-                    match.pageHeight ?? '',
-                ].join(':'),
-            );
-
-            if (match.words && match.words.length > 0) {
-                parts.push(
-                    match.words
-                        .map(word => `${word.text}@${word.x},${word.y},${word.width},${word.height}`)
-                        .join(';'),
-                );
-            }
-        }
+        const parts: string[] = [pageMatchData.signatureToken ?? `${pageMatchData.pageIndex}:${pageMatchData.matches.length}`];
 
         if (currentMatchValue && currentMatchValue.pageIndex === pageMatchData.pageIndex) {
             parts.push(
@@ -156,16 +130,9 @@ export const usePdfTextLayerRenderer = (deps: {
                     currentMatchValue.pageMatchIndex ?? -1,
                     currentMatchValue.startOffset,
                     currentMatchValue.endOffset,
+                    currentMatchValue.words?.length ?? 0,
                 ].join(':'),
             );
-
-            if (currentMatchValue.words && currentMatchValue.words.length > 0) {
-                parts.push(
-                    currentMatchValue.words
-                        .map(word => `${word.text}@${word.x},${word.y},${word.width},${word.height}`)
-                        .join(';'),
-                );
-            }
         }
 
         return parts.join('|');

@@ -12,6 +12,8 @@ import type {
 } from '@contracts/platform-api';
 import type { IRecentFile } from '@contracts/shared';
 import {
+    BROWSER_DOCUMENT_CHUNK_SIZE,
+    BROWSER_MAX_FULL_READ_BYTES,
     browserDocumentStore,
     getBrowserDocumentFileName,
     isBrowserDocumentRef,
@@ -52,6 +54,8 @@ const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
 const BROWSER_EAGER_DECRYPT_BYTES = 64 * 1024 * 1024;
 const BROWSER_FULL_CONFORMANCE_ANALYSIS_BYTES = 64 * 1024 * 1024;
 const BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES = 64 * 1024 * 1024;
+const BROWSER_COMBINED_PDF_REWRITE_MAX_BYTES = 32 * 1024 * 1024;
+const BROWSER_LARGE_SAVE_HANDLE_HINT = 'Use a browser with local file system access enabled to save large documents.';
 
 function toOwnedArrayBuffer(bytes: Uint8Array) {
     if (
@@ -153,9 +157,14 @@ function buildBrowserSaveRestrictions(profile: Omit<IPdfConformanceProfile, 'sav
     return restrictions;
 }
 
-function buildBrowserLargeJobError(label: string, maxBytes: number) {
+function buildBrowserLargeJobError(
+    label: string,
+    maxBytes: number,
+    hint?: string,
+) {
     return new Error(
-        `${label} is unavailable in the browser for inputs larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`,
+        `${label} is unavailable in the browser for inputs larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`
+        + (hint ? ` ${hint}` : ''),
     );
 }
 
@@ -175,6 +184,36 @@ async function ensureBrowserCombinedPdfInputBudget(paths: string[]) {
                 BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES,
             );
         }
+    }
+}
+
+async function ensureBrowserCombinedPdfRewriteBudget(paths: string[]) {
+    let totalBytes = 0;
+
+    for (let index = 0; index < paths.length; index += 1) {
+        if (index > 0) {
+            await yieldToBrowser();
+        }
+
+        const { size } = await browserDocumentStore.stat(paths[index]!);
+        totalBytes += size;
+        if (totalBytes > BROWSER_COMBINED_PDF_REWRITE_MAX_BYTES) {
+            throw buildBrowserLargeJobError(
+                'Combining documents',
+                BROWSER_COMBINED_PDF_REWRITE_MAX_BYTES,
+            );
+        }
+    }
+}
+
+async function assertBrowserPathWithinFullReadBudget(
+    path: string,
+    label: string,
+    hint?: string,
+) {
+    const { size } = await browserDocumentStore.stat(path);
+    if (size > BROWSER_MAX_FULL_READ_BYTES) {
+        throw buildBrowserLargeJobError(label, BROWSER_MAX_FULL_READ_BYTES, hint);
     }
 }
 
@@ -371,7 +410,7 @@ async function pickSingleFile(options: {
     return files[0] ?? null;
 }
 
-async function saveBlobToPickerOrDownload(
+export async function saveBlobToPickerOrDownload(
     blob: Blob,
     suggestedName: string,
     pickerTypes: IFilePickerAcceptType[],
@@ -492,6 +531,30 @@ export async function writeBytesToHandle(
     await writable.close();
 }
 
+async function writeDocumentRefToHandle(
+    handle: FileSystemFileHandle,
+    ref: TDocumentRef,
+) {
+    const writable = await handle.createWritable();
+
+    try {
+        const { size } = await browserDocumentStore.stat(ref);
+        for (let offset = 0; offset < size; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
+            const chunk = await browserDocumentStore.readRange(
+                ref,
+                offset,
+                Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, size - offset),
+            );
+            await writable.write(toOwnedArrayBuffer(chunk));
+            if (offset > 0) {
+                await yieldToBrowser();
+            }
+        }
+    } finally {
+        await writable.close();
+    }
+}
+
 async function normalizeImageBytesToPng(fileName: string, bytes: Uint8Array) {
     const extension = getExtension(fileName);
     if (extension === '.png') {
@@ -579,6 +642,7 @@ async function embedImagePage(
 
 export async function createCombinedPdfFromPaths(paths: string[]) {
     await ensureBrowserCombinedPdfInputBudget(paths);
+    await ensureBrowserCombinedPdfRewriteBudget(paths);
     const pdfDocument = await PDFDocument.create();
 
     for (let index = 0; index < paths.length; index += 1) {
@@ -631,6 +695,13 @@ async function decryptBrowserWorkingCopy(workingPath: string): Promise<void> {
                     return;
                 }
             }
+        }
+
+        if (size > BROWSER_MAX_FULL_READ_BYTES) {
+            throw buildBrowserLargeJobError(
+                'Opening encrypted documents',
+                BROWSER_MAX_FULL_READ_BYTES,
+            );
         }
 
         const bytes = await browserDocumentStore.read(workingPath);
@@ -695,7 +766,10 @@ async function openDocumentPaths(paths: string[]) {
 
     if (normalizedPaths.length === 1 && isPdfFileName(firstFileName)) {
         const sourcePath = normalizedPaths[0]!;
-        await browserDocumentStore.ensureByteBackedSource(sourcePath);
+        const { size } = await browserDocumentStore.stat(sourcePath);
+        if (size <= BROWSER_MAX_FULL_READ_BYTES) {
+            await browserDocumentStore.ensureByteBackedSource(sourcePath);
+        }
         const workingPath =
             await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
         await decryptBrowserWorkingCopy(workingPath);
@@ -743,13 +817,17 @@ async function openDocumentPaths(paths: string[]) {
 }
 
 async function saveWorkingBytesToSource(workingCopyPath: TDocumentRef) {
-    const bytes = await browserDocumentStore.read(workingCopyPath);
     const sourceRef = await browserDocumentStore.getSourceRef(workingCopyPath);
-    await browserDocumentStore.write(sourceRef, bytes);
     const saveTarget = await browserDocumentStore.getSaveTarget(sourceRef);
 
     if (saveTarget.saveHandle) {
-        await writeBytesToHandle(saveTarget.saveHandle, bytes);
+        await writeDocumentRefToHandle(saveTarget.saveHandle, workingCopyPath);
+        const { size } = await browserDocumentStore.stat(workingCopyPath);
+        await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
+            fileSize: size,
+            saveHandle: saveTarget.saveHandle,
+            saveName: saveTarget.saveName,
+        });
         await browserDocumentStore.assignSaveTarget(
             sourceRef,
             saveTarget.saveName,
@@ -757,6 +835,13 @@ async function saveWorkingBytesToSource(workingCopyPath: TDocumentRef) {
             saveTarget.saveHandle,
         );
     } else {
+        await assertBrowserPathWithinFullReadBudget(
+            workingCopyPath,
+            'Saving documents',
+            BROWSER_LARGE_SAVE_HANDLE_HINT,
+        );
+        const bytes = await browserDocumentStore.read(workingCopyPath);
+        await browserDocumentStore.write(sourceRef, bytes);
         const saveResult = await saveBytesToPickerOrDownload(bytes, {
             suggestedName: ensurePdfExtension(saveTarget.saveName),
             mimeType: 'application/pdf',
@@ -854,15 +939,13 @@ export function createBrowserDocumentsFileCapability(
             return openDocumentPaths(paths);
         },
         async savePdfAs(workingCopyPath) {
-            const bytes = await browserDocumentStore.read(workingCopyPath);
             const saveTarget =
                 await browserDocumentStore.getSaveTarget(workingCopyPath);
             const previousSourceRef =
                 await browserDocumentStore.getSourceRef(workingCopyPath);
             const suggestedName = ensurePdfExtension(saveTarget.saveName);
-            const saveResult = await saveBytesToPickerOrDownload(bytes, {
+            const saveResult = await pickSaveTarget({
                 suggestedName,
-                mimeType: 'application/pdf',
                 pickerTypes: buildPdfSaveTypes(),
             });
 
@@ -870,20 +953,60 @@ export function createBrowserDocumentsFileCapability(
                 return null;
             }
 
-            const sourceRef = await browserDocumentStore.createStoredDocument(
-                ensurePdfExtension(saveResult.fileName),
-                bytes,
-                {
-                    mimeType: 'application/pdf',
-                    saveKind: 'pdf',
-                    kind: 'source',
+            const normalizedFileName = ensurePdfExtension(saveResult.fileName);
+            let sourceRef: string;
+
+            if (saveResult.handle) {
+                await writeDocumentRefToHandle(saveResult.handle, workingCopyPath);
+                const { size } = await browserDocumentStore.stat(workingCopyPath);
+                sourceRef = await browserDocumentStore.createStoredDocument(
+                    normalizedFileName,
+                    new Uint8Array(),
+                    {
+                        mimeType: 'application/pdf',
+                        saveKind: 'pdf',
+                        kind: 'source',
+                        saveHandle: saveResult.handle,
+                        storageMode: 'handle',
+                    },
+                );
+                await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
+                    fileSize: size,
                     saveHandle: saveResult.handle,
-                },
-            );
+                    saveName: normalizedFileName,
+                });
+            } else {
+                await assertBrowserPathWithinFullReadBudget(
+                    workingCopyPath,
+                    'Saving documents',
+                    BROWSER_LARGE_SAVE_HANDLE_HINT,
+                );
+                const bytes = await browserDocumentStore.read(workingCopyPath);
+                const downloadResult = await saveBytesToPickerOrDownload(bytes, {
+                    suggestedName,
+                    mimeType: 'application/pdf',
+                    pickerTypes: buildPdfSaveTypes(),
+                });
+
+                if (downloadResult.canceled) {
+                    return null;
+                }
+
+                sourceRef = await browserDocumentStore.createStoredDocument(
+                    ensurePdfExtension(downloadResult.fileName),
+                    bytes,
+                    {
+                        mimeType: 'application/pdf',
+                        saveKind: 'pdf',
+                        kind: 'source',
+                        saveHandle: downloadResult.handle,
+                    },
+                );
+            }
             await browserDocumentStore.replaceWorkingCopySource(
                 workingCopyPath,
                 sourceRef,
-                ensurePdfExtension(saveResult.fileName),
+                normalizedFileName,
                 saveResult.handle,
             );
             await browserDocumentStore.cleanupDetachedDocument(previousSourceRef);
@@ -1016,16 +1139,21 @@ export function createBrowserDocumentsFileCapability(
                 return workingPath;
             }
 
-            const sourceBytes = await browserDocumentStore.read(sourcePath);
-            const workingPath = await createBrowserWorkingCopyFromBytes({
-                fileName: sourceEntry.fileName,
-                data: sourceBytes,
-                mimeType: sourceEntry.mimeType,
-                sourceRef:
-                    sourceRef && isBrowserDocumentRef(sourceRef)
-                        ? sourceRef
-                        : undefined,
-            });
+            const workingPath = await browserDocumentStore.cloneStoredDocument(
+                sourceEntry.ref,
+                {
+                    fileName: sourceEntry.fileName,
+                    kind: 'working',
+                    retention: 'transient',
+                    sourceRef:
+                        sourceRef && isBrowserDocumentRef(sourceRef)
+                            ? sourceRef
+                            : undefined,
+                    saveKind: 'pdf',
+                    saveHandle: null,
+                },
+            );
+            await decryptBrowserWorkingCopy(workingPath);
 
             if (sourceEntry.kind !== 'working') {
                 browserDocumentStore.unload(sourcePath);

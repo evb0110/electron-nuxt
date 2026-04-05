@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { BrowserDocumentStore } from '@app/platform/browser-document-store';
+import {
+    BROWSER_MAX_FULL_READ_BYTES,
+    BrowserDocumentStore,
+} from '@app/platform/browser-document-store';
 
 function cast<T>(value: unknown): T {
     return value as T;
@@ -447,6 +450,56 @@ describe('BrowserDocumentStore', () => {
         ]));
     });
 
+    it('clones chunked documents without materializing them into inline storage', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'chunked.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+                saveKind: 'pdf',
+            },
+        );
+
+        await store.prepareChunkedDocument(ref, { chunkSize: 4 });
+        await store.writeChunk(ref, 0, new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+        await store.writeChunk(ref, 1, new Uint8Array([
+            5,
+            6,
+            7,
+            8,
+        ]));
+        await store.finalizeChunkedDocument(ref, {
+            fileSize: 8,
+            chunkCount: 2,
+            chunkSize: 4,
+        });
+
+        const cloneRef = await store.cloneStoredDocument(ref, {
+            fileName: 'clone.pdf',
+            kind: 'working',
+            retention: 'transient',
+            saveKind: 'pdf',
+        });
+        const cloneEntry = await store.requireEntry(cloneRef);
+
+        expect(cloneEntry.storageMode).toBe('chunked');
+        expect(cloneEntry.chunkCount).toBe(2);
+        await expect(store.readRange(cloneRef, 2, 4)).resolves.toEqual(new Uint8Array([
+            3,
+            4,
+            5,
+            6,
+        ]));
+    });
+
     it('reads handle-backed documents lazily', async () => {
         const bytes = new Uint8Array([
             9,
@@ -606,6 +659,50 @@ describe('BrowserDocumentStore', () => {
         expect(entry.data.byteLength).toBe(0);
         await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([4]));
         await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([9]));
+    });
+
+    it('keeps large writes chunked instead of collapsing back to inline storage', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'rewrite.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'working',
+                saveKind: 'pdf',
+            },
+        );
+        const largeBytes = new Uint8Array((16 * 1024 * 1024) + 1);
+        largeBytes[0] = 3;
+        largeBytes[largeBytes.byteLength - 1] = 7;
+
+        await store.write(ref, largeBytes);
+
+        const entry = await store.requireEntry(ref);
+        expect(entry.storageMode).toBe('chunked');
+        expect(entry.data.byteLength).toBe(0);
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([3]));
+        await expect(store.readRange(ref, largeBytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([7]));
+    });
+
+    it('rejects full reads for browser documents above the in-memory safety limit', async () => {
+        const bytes = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
+        bytes[0] = 5;
+        bytes[bytes.byteLength - 1] = 8;
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'huge.pdf',
+            bytes,
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+
+        await expect(store.read(ref)).rejects.toThrow('Browser document is too large to load fully into memory');
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(new Uint8Array([5]));
+        await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(new Uint8Array([8]));
     });
 
     it('clears partial chunk records when chunked output is aborted', async () => {

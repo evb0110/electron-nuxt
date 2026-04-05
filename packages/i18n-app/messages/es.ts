@@ -410,6 +410,7 @@ export default {
         }),
         'noResults': 'No se encontraron resultados',
         'noResultsHint': 'Pruebe con otro término o ajuste las opciones de búsqueda.',
+        'unavailable': 'Búsqueda no disponible',
         'resultCount': plural({
             one: '{count} resultado',
             other: '{count} resultados',
@@ -675,6 +676,10 @@ export default {
             'open': 'No se pudo abrir el archivo',
             'invalid': 'Archivo no válido o inexistente',
             'save': 'No se pudo guardar el archivo',
+        },
+        'search': {
+            'browserTooLarge': 'La búsqueda no está disponible en el navegador para documentos muy grandes.',
+            'unavailable': 'La búsqueda no está disponible actualmente para este documento.',
         },
         'ocr': {
             'loadLanguages': 'No se pudieron cargar los idiomas',
