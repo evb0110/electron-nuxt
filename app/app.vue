@@ -118,11 +118,10 @@ async function preloadStartupContent() {
     const warmupStartedAt = performance.now();
     BrowserLogger.debug('loader', 'Startup content warmup started', { hasElectronApi: hasElectronAPI() });
 
-    const warmupTasks: Array<Promise<unknown>> = [import('@app/modules/workspace-shell/components/DocumentWorkspace.vue')];
-
-    if (hasElectronAPI()) {
-        warmupTasks.push(loadRecentFiles());
-    }
+    const warmupTasks: Array<Promise<unknown>> = [
+        import('@app/modules/workspace-shell/components/DocumentWorkspace.vue'),
+        loadRecentFiles(),
+    ];
 
     const results = await Promise.allSettled(warmupTasks);
     BrowserLogger.debug('loader', 'Startup content warmup settled', {

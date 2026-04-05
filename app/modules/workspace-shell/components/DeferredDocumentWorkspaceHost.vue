@@ -74,10 +74,7 @@ import type {
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import {
-    getPlatformAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+import { getPlatformAPI } from '@app/utils/platform';
 import {
     getAsyncChunkLoadErrorMessage,
     shouldRetryAsyncChunkLoad,
@@ -568,10 +565,6 @@ async function handleOpenFileFromUi() {
 onMounted(() => {
     isHostUnmounted = false;
     void preloadWorkspaceComponent('workspace-host-mounted');
-
-    if (!hasElectronAPI()) {
-        return;
-    }
 
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace host mounted; loading recent files', {tabId: props.tabId});
     void loadRecentFiles().finally(() => {
