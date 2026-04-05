@@ -204,11 +204,11 @@ describe('createBrowserSearchCapability', () => {
             getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
             cleanup: vi.fn(async () => {}),
         }));
-        pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: pageTexts.length,
             getPage,
             destroy: vi.fn(async () => {}),
-        })});
+        }) });
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
             1,
