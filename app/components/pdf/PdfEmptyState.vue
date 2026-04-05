@@ -65,7 +65,6 @@
                             variant="ghost"
                             size="xs"
                             color="neutral"
-                            class="text-[var(--ui-text-dimmed)] hover:text-[var(--ui-text-muted)]"
                             :aria-label="t('emptyState.clearRecentFiles')"
                             @click="emit('clear-recent')"
                         />
@@ -282,7 +281,7 @@ function formatEtaDuration(etaMs: number | null) {
 
 .recent-files-header {
     margin-bottom: 0.5rem;
-    padding: 0 0.5rem;
+    padding: 0 0.75rem;
 }
 
 .recent-files-list {
