@@ -116,6 +116,15 @@ export function createBrowserPageOps(
         return browserDocumentStore.read(path);
     }
 
+    async function runDirectPdfOperation<T>(
+        run: () => Promise<T>,
+    ) {
+        await yieldToBrowser();
+        const result = await run();
+        await yieldToBrowser();
+        return result;
+    }
+
     async function runWorkerBackedPdfOperation<K extends TBrowserPageOpsWorkerRequestType>(options: {
         path: string;
         label: string;
@@ -163,7 +172,7 @@ export function createBrowserPageOps(
             );
         }
 
-        return options.runDirect(data);
+        return runDirectPdfOperation(() => options.runDirect(data));
     }
 
     const pageOps: IPageOpsCapability['pageOps'] = {
@@ -350,18 +359,18 @@ export function createBrowserPageOps(
                             BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES,
                         );
                     }
-                    result = await insertPdfPages(
+                    result = await runDirectPdfOperation(() => insertPdfPages(
                         destinationData,
                         insertionData,
                         afterPage,
-                    );
+                    ));
                 }
             } else {
-                result = await insertPdfPages(
+                result = await runDirectPdfOperation(() => insertPdfPages(
                     destinationData,
                     insertionData,
                     afterPage,
-                );
+                ));
             }
             await browserDocumentStore.write(
                 workingCopyPath,
