@@ -30,6 +30,7 @@ interface IUsePdfViewerVirtualizationOptions {
     basePageWidth: Ref<number | null>;
     basePageHeight: Ref<number | null>;
     pageMetrics: Ref<IPdfPageMetric[]>;
+    pageMetricsVersion: Ref<number>;
     effectiveScale: Ref<number>;
     scaledMargin: Ref<number>;
     visibleRange: Ref<{
@@ -80,6 +81,7 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
         basePageWidth,
         basePageHeight,
         pageMetrics,
+        pageMetricsVersion,
         effectiveScale,
         scaledMargin,
         visibleRange,
@@ -96,17 +98,49 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
         return layout.maxPageHeight;
     });
 
-    const normalizedPageMetrics = computed(() =>
-        normalizePageMetrics({
+    let normalizedMetricsCacheKey = '';
+    let normalizedMetricsCacheValue: IPdfPageMetric[] = [];
+    const normalizedPageMetrics = computed(() => {
+        const cacheKey = [
+            pageMetricsVersion.value,
+            numPages.value,
+            basePageWidth.value ?? 'null',
+            basePageHeight.value ?? 'null',
+        ].join('|');
+
+        if (cacheKey === normalizedMetricsCacheKey) {
+            return normalizedMetricsCacheValue;
+        }
+
+        normalizedMetricsCacheKey = cacheKey;
+        normalizedMetricsCacheValue = normalizePageMetrics({
             pageMetrics: pageMetrics.value,
             totalPages: numPages.value,
             fallbackWidth: basePageWidth.value,
             fallbackHeight: basePageHeight.value,
-        }),
-    );
+        });
+        return normalizedMetricsCacheValue;
+    });
 
-    const pageLayout = computed(() =>
-        buildPageLayoutMetrics({
+    let pageLayoutCacheKey = '';
+    let pageLayoutCacheValue: ReturnType<typeof buildPageLayoutMetrics> = null;
+    const pageLayout = computed(() => {
+        const cacheKey = [
+            pageMetricsVersion.value,
+            numPages.value,
+            viewMode.value,
+            effectiveScale.value,
+            scaledMargin.value,
+            basePageWidth.value ?? 'null',
+            basePageHeight.value ?? 'null',
+        ].join('|');
+
+        if (cacheKey === pageLayoutCacheKey) {
+            return pageLayoutCacheValue;
+        }
+
+        pageLayoutCacheKey = cacheKey;
+        pageLayoutCacheValue = buildPageLayoutMetrics({
             pageMetrics: normalizedPageMetrics.value,
             totalPages: numPages.value,
             viewMode: viewMode.value,
@@ -116,8 +150,9 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
             paddingBottom: scaledMargin.value,
             fallbackWidth: basePageWidth.value,
             fallbackHeight: basePageHeight.value,
-        }),
-    );
+        });
+        return pageLayoutCacheValue;
+    });
 
     function getPagePlaceholderStyle(pageNumber: number): Record<string, string> | null {
         const metric = normalizedPageMetrics.value[pageNumber - 1];
