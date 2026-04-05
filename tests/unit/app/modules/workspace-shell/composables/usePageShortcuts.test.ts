@@ -63,10 +63,11 @@ describe('usePageShortcuts', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
-        vi.stubGlobal('window', {
+        const windowMock = {
             addEventListener: vi.fn(),
             removeEventListener: vi.fn(),
-        } as Window);
+        };
+        vi.stubGlobal('window', windowMock);
         mocks.hasElectronAPI.mockReturnValue(true);
 
         mocks.useMagicKeys.mockImplementation((opts?: { onEventFired?: (e: unknown) => void }) => {

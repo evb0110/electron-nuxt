@@ -5,6 +5,7 @@ import {
     serializePdfEdits,
     updateEmbeddedAnnotationText,
 } from '@app/composables/pdf/pdfSerializationOperations';
+import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 
 interface ISerializationWorkerRequestMap {
     save: {
@@ -243,6 +244,15 @@ async function runDirect(
     }
 }
 
+async function runDirectWithYield(
+    request: TSerializationWorkerRequest,
+) {
+    await yieldToBrowser();
+    const result = await runDirect(request);
+    await yieldToBrowser();
+    return result;
+}
+
 async function runSerializationWorkerRequest<K extends TSerializationWorkerRequestType>(
     type: K,
     payload: ISerializationWorkerRequestMap[K],
@@ -255,14 +265,14 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
     nextRequestId += 1;
 
     if (!canUseSerializationWorker()) {
-        return runDirect(request);
+        return runDirectWithYield(request);
     }
 
     let worker: Worker;
     try {
         worker = getSerializationWorker();
     } catch {
-        return runDirect(request);
+        return runDirectWithYield(request);
     }
 
     return new Promise<Uint8Array | null>((resolve, reject) => {
@@ -283,7 +293,7 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
         if (serializationWorker === worker) {
             resetWorker();
         }
-        return runDirect(request).catch(() => {
+        return runDirectWithYield(request).catch(() => {
             throw error;
         });
     });
