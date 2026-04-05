@@ -123,4 +123,53 @@ describe('usePdfCanvasRenderer', () => {
         expect(renderContext.operationsFilter(4)).toBe(true);
         expect(renderContext.operationsFilter(5)).toBe(true);
     });
+
+    it('reuses the hidden annotation operations filter for repeated renders of the same page state', async () => {
+        const canvas = {
+            width: 0,
+            height: 0,
+            style: {} as CSSStyleDeclaration,
+            getContext: vi.fn(() => ({})),
+            remove: vi.fn(),
+        };
+        (globalThis as Record<string, unknown>).document = { createElement: vi.fn(() => canvas) };
+
+        const renderTask = {
+            cancel: vi.fn(),
+            promise: Promise.resolve(),
+        };
+        const pdfPage = {
+            pageNumber: 2,
+            getViewport: vi.fn(() => ({
+                width: 200,
+                height: 100,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 200,
+                    pageHeight: 100,
+                },
+            })),
+            getOperatorList: vi.fn(async () => ({
+                fnArray: [
+                    80,
+                    999,
+                    81,
+                ],
+                argsArray: [
+                    ['12R'],
+                    [],
+                    [],
+                ],
+            })),
+            render: vi.fn(() => renderTask),
+        } as const;
+
+        const renderer = usePdfCanvasRenderer({ outputScale: 1 });
+
+        await renderer.renderCanvas(pdfPage as never, 1, { hiddenAnnotationIds: new Set(['12R0']) });
+        await renderer.renderCanvas(pdfPage as never, 1, { hiddenAnnotationIds: new Set(['12R']) });
+
+        expect(pdfPage.getOperatorList).toHaveBeenCalledTimes(1);
+        expect(pdfPage.render).toHaveBeenCalledTimes(2);
+    });
 });

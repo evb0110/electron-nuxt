@@ -19,6 +19,14 @@ interface IRefreshDeletedEmbeddedShapePageOptions {
     rerenderEmbeddedShapePage?: (pageNumber: number) => void;
 }
 
+interface IShouldRefreshManagedShapePageOptions {
+    pageNumber: number;
+    visibleRange: IPageRange;
+    renderBuffer: number;
+    isPageRendered: (pageNumber: number) => boolean;
+    hasRenderedCanvasDom?: (pageNumber: number) => boolean;
+}
+
 interface IRerenderRenderedManagedEmbeddedShapePagesOptions {
     shapes: Array<Pick<IShapeAnnotation, 'annotationId' | 'pageIndex' | 'source'>>;
     visibleRange: IPageRange;
@@ -83,6 +91,31 @@ export function refreshDeletedEmbeddedShapePage({
     rerenderEmbeddedShapePage?.(Math.max(1, Math.floor(shape.pageIndex) + 1));
 }
 
+export function shouldRefreshManagedShapePage({
+    pageNumber,
+    visibleRange,
+    renderBuffer,
+    isPageRendered,
+    hasRenderedCanvasDom,
+}: IShouldRefreshManagedShapePageOptions) {
+    const normalizedPageNumber = Math.max(1, Math.floor(pageNumber));
+    const normalizedBuffer = Math.max(0, Math.floor(renderBuffer));
+    const renderWindowStart = Math.max(1, Math.floor(visibleRange.start) - normalizedBuffer);
+    const renderWindowEnd = Math.max(
+        renderWindowStart,
+        Math.floor(visibleRange.end) + normalizedBuffer,
+    );
+
+    return (
+        isPageRendered(normalizedPageNumber)
+        || hasRenderedCanvasDom?.(normalizedPageNumber) === true
+        || (
+            normalizedPageNumber >= renderWindowStart
+            && normalizedPageNumber <= renderWindowEnd
+        )
+    );
+}
+
 export async function rerenderRenderedManagedEmbeddedShapePages({
     shapes,
     visibleRange,
@@ -91,16 +124,16 @@ export async function rerenderRenderedManagedEmbeddedShapePages({
     invalidatePages,
     renderVisiblePages,
 }: IRerenderRenderedManagedEmbeddedShapePagesOptions) {
-    const renderWindowStart = Math.max(1, Math.floor(visibleRange.start) - Math.max(0, Math.floor(renderBuffer)));
-    const renderWindowEnd = Math.max(renderWindowStart, Math.floor(visibleRange.end) + Math.max(0, Math.floor(renderBuffer)));
     const renderedManagedPages = Array.from(new Set(
         shapes
             .filter(shape => shape.source === 'embedded' && !!shape.annotationId)
             .map(shape => Math.max(1, Math.floor(shape.pageIndex) + 1))
-            .filter(pageNumber => (
-                isPageRendered(pageNumber)
-                || (pageNumber >= renderWindowStart && pageNumber <= renderWindowEnd)
-            )),
+            .filter(pageNumber => shouldRefreshManagedShapePage({
+                pageNumber,
+                visibleRange,
+                renderBuffer,
+                isPageRendered,
+            })),
     )).sort((left, right) => left - right);
 
     if (renderedManagedPages.length === 0) {

@@ -142,6 +142,7 @@ export function setupWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
                 djvuSourcePath: deps.djvuSourcePath.value,
             }));
         },
+        { immediate: true },
     );
 
     watch(deps.showSettings, (value) => {

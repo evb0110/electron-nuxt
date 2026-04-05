@@ -23,6 +23,8 @@ interface ICancelableRenderTask {
     promise: Promise<unknown>;
 }
 
+interface IPreparedCanvasRender extends ICanvasRenderResult { startRender: () => ICancelableRenderTask; }
+
 interface IRenderCanvasOptions {
     maxCanvasPixels?: number;
     onRenderTask?: (task: ICancelableRenderTask) => void;
@@ -31,6 +33,10 @@ interface IRenderCanvasOptions {
 
 export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
     const { outputScale } = deps;
+    const hiddenAnnotationOperationsFilterCache = new WeakMap<
+        PDFPageProxy,
+        Map<string, ((index: number) => boolean) | null>
+    >();
 
     function normalizeAnnotationIdSet(annotationIds: Set<string>) {
         const normalizedIds = new Set<string>();
@@ -93,6 +99,13 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
         return skippedIndices;
     }
 
+    function getHiddenAnnotationFilterCacheKey(
+        annotationMode: number,
+        normalizedHiddenAnnotationIds: Set<string>,
+    ) {
+        return `${annotationMode}:${[...normalizedHiddenAnnotationIds].sort((left, right) => left.localeCompare(right)).join('\u0000')}`;
+    }
+
     async function createHiddenAnnotationOperationsFilter(
         pdfPage: PDFPageProxy,
         annotationMode: number,
@@ -112,6 +125,15 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
                 return undefined;
             }
 
+            const cacheKey = getHiddenAnnotationFilterCacheKey(
+                annotationMode,
+                normalizedHiddenAnnotationIds,
+            );
+            const cachedFilters = hiddenAnnotationOperationsFilterCache.get(pdfPage);
+            if (cachedFilters?.has(cacheKey)) {
+                return cachedFilters.get(cacheKey) ?? undefined;
+            }
+
             const operatorList = await pdfPage.getOperatorList({ annotationMode });
             const skippedIndices = collectHiddenAnnotationOperatorIndices(
                 operatorList,
@@ -119,10 +141,17 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
             );
 
             if (skippedIndices.size === 0) {
+                const nextCachedFilters = cachedFilters ?? new Map<string, ((index: number) => boolean) | null>();
+                nextCachedFilters.set(cacheKey, null);
+                hiddenAnnotationOperationsFilterCache.set(pdfPage, nextCachedFilters);
                 return undefined;
             }
 
-            return (index: number) => !skippedIndices.has(index);
+            const operationsFilter = (index: number) => !skippedIndices.has(index);
+            const nextCachedFilters = cachedFilters ?? new Map<string, ((index: number) => boolean) | null>();
+            nextCachedFilters.set(cacheKey, operationsFilter);
+            hiddenAnnotationOperationsFilterCache.set(pdfPage, nextCachedFilters);
+            return operationsFilter;
         } catch (error) {
             BrowserLogger.warn(
                 'pdf-renderer',
@@ -139,11 +168,11 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
         canvas.remove();
     }
 
-    async function renderCanvas(
+    async function prepareCanvasRender(
         pdfPage: PDFPageProxy,
         scale: number,
         options?: IRenderCanvasOptions,
-    ): Promise<ICanvasRenderResult | null> {
+    ): Promise<IPreparedCanvasRender | null> {
         const viewport = pdfPage.getViewport({ scale });
         const userUnit = viewport.userUnit ?? 1;
         const totalScaleFactor = scale * userUnit;
@@ -233,10 +262,6 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
             operationsFilter,
         };
 
-        const renderTask = pdfPage.render(renderContext) as ICancelableRenderTask;
-        options?.onRenderTask?.(renderTask);
-        await renderTask.promise;
-
         return {
             canvas,
             viewport,
@@ -246,7 +271,28 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
             rawDims,
             userUnit,
             totalScaleFactor,
+            startRender: () => (pdfPage.render(renderContext) as ICancelableRenderTask),
         };
+    }
+
+    async function renderCanvas(
+        pdfPage: PDFPageProxy,
+        scale: number,
+        options?: IRenderCanvasOptions,
+    ): Promise<ICanvasRenderResult | null> {
+        const preparedRender = await prepareCanvasRender(pdfPage, scale, options);
+        if (!preparedRender) {
+            return null;
+        }
+
+        const {
+            startRender,
+            ...renderResult
+        } = preparedRender;
+        const renderTask = startRender();
+        options?.onRenderTask?.(renderTask);
+        await renderTask.promise;
+        return renderResult;
     }
 
     function applyContainerDimensions(
@@ -284,6 +330,7 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
 
     return {
         cleanupCanvas,
+        prepareCanvasRender,
         renderCanvas,
         applyContainerDimensions,
         mountCanvas,

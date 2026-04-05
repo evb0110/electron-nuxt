@@ -33,11 +33,34 @@ const annotationEditorLayerCtor = vi.fn();
 const editorLayerInstances: MockAnnotationEditorLayer[] = [];
 const drawLayerInstances: MockDrawLayer[] = [];
 
+function createEditableAnnotation(id: string) {
+    return {
+        data: { id },
+        hide: vi.fn(),
+        show: vi.fn(),
+        updateEdited: vi.fn(),
+    };
+}
+
 class MockAnnotationLayer {
+    public editableAnnotations: Array<ReturnType<typeof createEditableAnnotation>> = [];
+    public togglePointerEvents = vi.fn();
+    public updateFakeAnnotations = vi.fn();
+
+    getEditableAnnotations() {
+        return this.editableAnnotations;
+    }
+
+    getEditableAnnotation(id: string) {
+        return this.editableAnnotations.find(annotation => annotation.data.id === id) ?? null;
+    }
+
     async render(params?: {
         div?: HTMLDivElement;
         annotations?: Array<{ id?: string | null }>;
     }) {
+        this.editableAnnotations = (params?.annotations ?? [])
+            .flatMap(annotation => annotation.id ? [createEditableAnnotation(annotation.id)] : []);
         params?.annotations?.forEach((annotation) => {
             if (!params.div || !annotation.id) {
                 return;
@@ -224,6 +247,9 @@ function createUiManager(enabled = false) {
             layer.disable();
         }),
         removeLayer: vi.fn(),
+        getEditors: vi.fn<() => unknown[]>(() => []),
+        getActive: vi.fn<() => unknown | null>(() => null),
+        setActiveEditor: vi.fn(),
     };
 }
 
@@ -368,5 +394,189 @@ describe('usePdfAnnotationLayerRenderer', () => {
 
         const hiddenElement = annotationLayerDiv.querySelectorAll('[data-annotation-id="12R"]')[0] as IFakeAnnotationElement | undefined;
         expect(hiddenElement).toBeUndefined();
+    });
+
+    it('suppresses hidden managed annotations from the PDF.js editor hydration source', async () => {
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(1),
+            currentPage: ref(1),
+            pdfDocument: ref(null),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds: ref(new Set([
+                '12R0',
+                '12R',
+            ])),
+            annotationUiManager: mockUiManagerRef(createUiManager(false)),
+            annotationL10n: ref(null),
+        });
+
+        const annotationLayerDiv = createAnnotationLayerDiv();
+        const pdfPage = cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => [
+            { id: '12R' },
+            { id: '42R' },
+        ]) });
+
+        const annotationLayer = await renderer.renderAnnotationLayer(
+            pdfPage,
+            annotationLayerDiv,
+            createViewport(),
+            1,
+        ) as {
+            getEditableAnnotations?: () => Array<{ data: { id: string; }; }>;
+            getEditableAnnotation?: (id: string) => unknown;
+        } | null;
+
+        expect(annotationLayer?.getEditableAnnotations?.().map(annotation => annotation.data.id)).toEqual(['42R']);
+        expect(annotationLayer?.getEditableAnnotation?.('12R')).toBeNull();
+        expect(annotationLayer?.getEditableAnnotation?.('42R')).not.toBeNull();
+    });
+
+    it('rebuilds the editor layer when managed hidden annotation ids change', () => {
+        const hiddenAnnotationIds = ref<Set<string>>(new Set());
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(1),
+            currentPage: ref(1),
+            pdfDocument: ref(null),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds,
+            annotationUiManager: mockUiManagerRef(createUiManager(false)),
+            annotationL10n: ref(null),
+        });
+
+        const pageCanvas = createDiv();
+        const container = createContainer(pageCanvas);
+        const annotationEditorLayerDiv = createDiv();
+        const textLayerDiv = createDiv();
+
+        const firstResult = renderer.renderAnnotationEditorLayer(
+            container,
+            annotationEditorLayerDiv,
+            textLayerDiv,
+            createViewport(),
+            1,
+            null,
+        );
+
+        expect(firstResult).toBe(true);
+        expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
+
+        hiddenAnnotationIds.value = new Set(['12R0']);
+
+        const secondResult = renderer.renderAnnotationEditorLayer(
+            container,
+            annotationEditorLayerDiv,
+            textLayerDiv,
+            createViewport(),
+            1,
+            null,
+        );
+
+        expect(secondResult).toBe(true);
+        expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(2);
+        expect(drawLayerInstances[0]?.destroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('rebuilds the editor layer when managed annotation ownership changes even if hidden ids stay the same', () => {
+        const hiddenAnnotationIds = ref<Set<string>>(new Set([
+            '12R',
+            '42R',
+        ]));
+        const managedAnnotationIds = ref<Set<string>>(new Set(['12R']));
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(1),
+            currentPage: ref(1),
+            pdfDocument: ref(null),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds,
+            managedAnnotationIds,
+            annotationUiManager: mockUiManagerRef(createUiManager(false)),
+            annotationL10n: ref(null),
+        });
+
+        const pageCanvas = createDiv();
+        const container = createContainer(pageCanvas);
+        const annotationEditorLayerDiv = createDiv();
+        const textLayerDiv = createDiv();
+
+        const firstResult = renderer.renderAnnotationEditorLayer(
+            container,
+            annotationEditorLayerDiv,
+            textLayerDiv,
+            createViewport(),
+            1,
+            null,
+        );
+
+        expect(firstResult).toBe(true);
+        expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(1);
+
+        managedAnnotationIds.value = new Set(['42R']);
+
+        const secondResult = renderer.renderAnnotationEditorLayer(
+            container,
+            annotationEditorLayerDiv,
+            textLayerDiv,
+            createViewport(),
+            1,
+            null,
+        );
+
+        expect(secondResult).toBe(true);
+        expect(annotationEditorLayerCtor).toHaveBeenCalledTimes(2);
+        expect(drawLayerInstances[0]?.destroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('hides already-hydrated hidden managed editors and clears their editable annotation visuals', () => {
+        const hiddenEditable = createEditableAnnotation('12R');
+        const visibleEditable = createEditableAnnotation('42R');
+        const hiddenEditor = {
+            annotationElementId: '12R0',
+            pageIndex: 0,
+            show: vi.fn(),
+            disableEditing: vi.fn(),
+            parent: {getEditableAnnotation: vi.fn((annotationId: string) => (
+                annotationId === '12R'
+                    ? hiddenEditable
+                    : null
+            ))},
+        };
+        const visibleEditor = {
+            annotationElementId: '42R',
+            pageIndex: 0,
+            show: vi.fn(),
+            disableEditing: vi.fn(),
+            parent: {getEditableAnnotation: vi.fn((annotationId: string) => (
+                annotationId === '42R'
+                    ? visibleEditable
+                    : null
+            ))},
+        };
+        const uiManager = createUiManager(false);
+        uiManager.getEditors.mockReturnValue([
+            hiddenEditor,
+            visibleEditor,
+        ]);
+        uiManager.getActive.mockReturnValue(hiddenEditor);
+
+        const renderer = usePdfAnnotationLayerRenderer({
+            numPages: ref(1),
+            currentPage: ref(1),
+            pdfDocument: ref(null),
+            showAnnotations: ref(true),
+            hiddenAnnotationIds: ref(new Set(['12R'])),
+            annotationUiManager: mockUiManagerRef(uiManager),
+            annotationL10n: ref(null),
+        });
+
+        renderer.hideHiddenManagedEditors(1);
+
+        expect(hiddenEditor.show).toHaveBeenCalledWith(false);
+        expect(hiddenEditor.disableEditing).toHaveBeenCalledTimes(1);
+        expect(hiddenEditable.hide).toHaveBeenCalledTimes(1);
+        expect(uiManager.setActiveEditor).toHaveBeenCalledWith(null);
+
+        expect(visibleEditor.show).not.toHaveBeenCalled();
+        expect(visibleEditor.disableEditing).not.toHaveBeenCalled();
+        expect(visibleEditable.hide).not.toHaveBeenCalled();
     });
 });

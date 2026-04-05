@@ -12,6 +12,7 @@ interface IPdfReloadWaiterViewer {
         snapshot: IScrollSnapshot | null,
         options?: { fallbackPage?: number | null; },
     ) => void;
+    waitForViewerLoadSettled?: () => Promise<void>;
 }
 
 interface ICreatePdfReloadWaiterOptions {
@@ -62,9 +63,23 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
                 return;
             }
 
+            const viewer = options.pdfViewerRef.value;
+            if (viewer?.waitForViewerLoadSettled) {
+                await Promise.race([
+                    viewer.waitForViewerLoadSettled(),
+                    new Promise<never>((_resolve, reject) => {
+                        setTimeout(() => {
+                            reject(new Error('Timed out waiting for viewer load to settle after PDF reload'));
+                        }, PDF_RELOAD_TIMEOUT_MS);
+                    }),
+                ]);
+            }
+            if (isCancelled.value) {
+                return;
+            }
+
             options.resetSearchCache();
             await nextTick();
-            const viewer = options.pdfViewerRef.value;
             if (!captureScrollSnapshot) {
                 viewer?.scrollToPage(options.pageToRestore);
                 return;

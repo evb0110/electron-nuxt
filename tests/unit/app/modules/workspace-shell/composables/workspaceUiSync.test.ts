@@ -158,6 +158,24 @@ function createWatcherDeps(overrides: Partial<IWorkspaceUiSyncTestDeps> = {}): I
 }
 
 describe('setupWorkspaceUiSyncWatchers', () => {
+    it('emits the current tab state immediately on mount', async () => {
+        const deps = createWatcherDeps({
+            fileName: ref('paper.pdf'),
+            originalPath: ref('/docs/paper.pdf'),
+            isDirty: ref(false),
+        });
+
+        setupWorkspaceUiSyncWatchers(deps);
+        await nextTick();
+
+        expect(deps.emitUpdateTab).toHaveBeenCalledWith({
+            fileName: 'paper.pdf',
+            originalPath: '/docs/paper.pdf',
+            isDirty: false,
+            isDjvu: false,
+        });
+    });
+
     it('opens pending DjVu paths and clears pending state', async () => {
         const deps = createWatcherDeps();
         setupWorkspaceUiSyncWatchers(deps);

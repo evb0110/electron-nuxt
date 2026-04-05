@@ -90,6 +90,11 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
             consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
             annotationNoteWindowsCount: ref(0),
             loadRecentFiles: vi.fn(),
+            markShapeStateSaved: vi.fn(),
+            preparePersistedShapeStateForSave: vi.fn(async () => null),
+            restorePreparedPersistedShapeState: vi.fn(async () => undefined),
+            adoptPersistedShapeStateForNextReload: vi.fn(),
+            clearPendingPersistedShapeStateForNextReload: vi.fn(),
             ...overrides,
         }),
         resetModified,
@@ -126,6 +131,7 @@ describe('useFileOperations', () => {
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
         expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
         expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
+        expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
         expect(deps.isSaving.value).toBe(false);
         expect(deps.validatePdfData).toHaveBeenCalledOnce();
     });
@@ -143,6 +149,7 @@ describe('useFileOperations', () => {
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
         expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
         expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
+        expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
     });
 
@@ -169,6 +176,7 @@ describe('useFileOperations', () => {
             5,
         ]);
         expect(resetModified).toHaveBeenCalledOnce();
+        expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();
         expect(deps.isSavingAs.value).toBe(false);
         expect(deps.validatePdfData).toHaveBeenCalledOnce();
@@ -205,6 +213,7 @@ describe('useFileOperations', () => {
 
         expect(deps.saveFile).not.toHaveBeenCalled();
         expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+        expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
     });
 
     it('uses PDF.js saveDocument when live annotation storage has modified ids', async () => {
@@ -376,6 +385,7 @@ describe('useFileOperations', () => {
         const cancel = vi.fn();
         const { deps } = createDeps({
             annotationDirty: ref(true),
+            hasShapeChanges: vi.fn(() => true),
             preparePostSaveReload: () => ({
                 promise: deferredReload.promise,
                 cancel,
@@ -393,11 +403,114 @@ describe('useFileOperations', () => {
         });
         expect(settled).toBe(false);
         expect(cancel).not.toHaveBeenCalled();
+        expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
+        const adoptPersistedShapeStateForNextReload = vi.mocked(
+            deps.adoptPersistedShapeStateForNextReload!,
+        );
+        const saveFile = vi.mocked(deps.saveFile);
+        expect(adoptPersistedShapeStateForNextReload).toHaveBeenCalledOnce();
+        expect(
+            adoptPersistedShapeStateForNextReload.mock.invocationCallOrder[0],
+        ).toBeLessThan(saveFile.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
 
         deferredReload.resolve(undefined);
         await savePromise;
 
         expect(settled).toBe(true);
+        expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
+    });
+
+    it('arms persisted shape adoption before the save mutates the working copy bytes', async () => {
+        const saveOrder: string[] = [];
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            hasShapeChanges: vi.fn(() => true),
+            adoptPersistedShapeStateForNextReload: vi.fn(() => {
+                saveOrder.push('adopt');
+            }),
+            saveFile: vi.fn(async () => {
+                saveOrder.push('save-file');
+                return {
+                    success: true,
+                    outPath: '/tmp/work.pdf',
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                };
+            }),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(saveOrder.slice(0, 2)).toEqual([
+            'adopt',
+            'save-file',
+        ]);
+    });
+
+    it('prepares persisted managed shape state from the saved bytes before save mutates the working copy', async () => {
+        const saveOrder: string[] = [];
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            hasShapeChanges: vi.fn(() => true),
+            preparePersistedShapeStateForSave: vi.fn(async () => {
+                saveOrder.push('prepare');
+                return { snapshot: true };
+            }),
+            adoptPersistedShapeStateForNextReload: vi.fn(() => {
+                saveOrder.push('adopt');
+            }),
+            saveFile: vi.fn(async () => {
+                saveOrder.push('save-file');
+                return {
+                    success: true,
+                    outPath: '/tmp/work.pdf',
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                };
+            }),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(saveOrder.slice(0, 3)).toEqual([
+            'prepare',
+            'adopt',
+            'save-file',
+        ]);
+        const preparePersistedShapeStateForSave = deps.preparePersistedShapeStateForSave!;
+        expect(preparePersistedShapeStateForSave).toHaveBeenCalledOnce();
+        const preparedBytes = vi.mocked(preparePersistedShapeStateForSave).mock.calls[0]![0];
+        expect(Array.from(preparedBytes)).toEqual([
+            1,
+            2,
+            3,
+            6,
+            4,
+            5,
+        ]);
+        expect(deps.restorePreparedPersistedShapeState).not.toHaveBeenCalled();
+    });
+
+    it('does not mark shape state saved when the post-save reload fails to restore', async () => {
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            hasShapeChanges: vi.fn(() => true),
+            preparePostSaveReload: () => ({
+                promise: Promise.reject(new Error('reload failed')),
+                cancel: vi.fn(),
+            }),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
+        expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
+        expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
+        expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
+        expect(deps.adoptPersistedShapeStateForNextReload).toHaveBeenCalledOnce();
     });
 
     it('serializes shape-only annotation saves from source bytes', async () => {
@@ -447,6 +560,31 @@ describe('useFileOperations', () => {
         await handleSave();
 
         expect(cancel).toHaveBeenCalledOnce();
+        expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
+        expect(deps.clearPendingPersistedShapeStateForNextReload).toHaveBeenCalledOnce();
+    });
+
+    it('restores the prepared managed shape state when persistence fails after priming saved bytes', async () => {
+        const snapshot = { snapshot: 'prepared' };
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            hasShapeChanges: vi.fn(() => true),
+            preparePersistedShapeStateForSave: vi.fn(async () => snapshot),
+            saveFile: vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            })),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(deps.preparePersistedShapeStateForSave).toHaveBeenCalledOnce();
+        expect(deps.restorePreparedPersistedShapeState).toHaveBeenCalledOnce();
+        expect(deps.restorePreparedPersistedShapeState).toHaveBeenCalledWith(snapshot);
+        expect(deps.clearPendingPersistedShapeStateForNextReload).toHaveBeenCalledOnce();
     });
 
     it('cancels the pending post-save reload waiter when Save As is canceled without dirty changes', async () => {
@@ -469,6 +607,8 @@ describe('useFileOperations', () => {
         await handleSaveAs();
 
         expect(cancel).toHaveBeenCalledOnce();
+        expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
+        expect(deps.clearPendingPersistedShapeStateForNextReload).toHaveBeenCalledOnce();
     });
 
     it('stops the saving state when PDF.js saveDocument stalls', async () => {

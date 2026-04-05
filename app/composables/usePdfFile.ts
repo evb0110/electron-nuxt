@@ -551,6 +551,13 @@ export const usePdfFile = () => {
     }
 
     function markCurrentHistoryEntryClean(snapshot: Uint8Array | null) {
+        BrowserLogger.debug('workspace', 'Marking file history clean', () => ({
+            hasSnapshot: Boolean(snapshot),
+            historyLength: history.value.length,
+            historyIndex: historyIndex.value,
+            historyCleanIndex: historyCleanIndex.value,
+            isDirty: isDirty.value,
+        }));
         if (!snapshot) {
             if (history.value.length === 0) {
                 resetHistory(null);
@@ -572,6 +579,12 @@ export const usePdfFile = () => {
         historyCleanIndex.value = historyIndex.value;
         syncDirtyFromHistory();
         isDirty.value = false;
+        BrowserLogger.debug('workspace', 'File history marked clean', () => ({
+            historyLength: history.value.length,
+            historyIndex: historyIndex.value,
+            historyCleanIndex: historyCleanIndex.value,
+            isDirty: isDirty.value,
+        }));
     }
 
     async function commitPersistedPdfState(snapshotHint?: Uint8Array | null) {
@@ -579,6 +592,16 @@ export const usePdfFile = () => {
         if (!path) {
             return false;
         }
+
+        BrowserLogger.debug('workspace', 'Committing persisted PDF state', () => ({
+            path,
+            hasSnapshotHint: Boolean(snapshotHint),
+            snapshotHintBytes: snapshotHint?.byteLength ?? 0,
+            isDirty: isDirty.value,
+            historyLength: history.value.length,
+            historyIndex: historyIndex.value,
+            historyCleanIndex: historyCleanIndex.value,
+        }));
 
         if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
             const snapshot = snapshotHint.slice();
@@ -593,6 +616,13 @@ export const usePdfFile = () => {
         }
 
         await refreshPdfConformanceProfile(path);
+        BrowserLogger.debug('workspace', 'Committed persisted PDF state', () => ({
+            path,
+            isDirty: isDirty.value,
+            historyLength: history.value.length,
+            historyIndex: historyIndex.value,
+            historyCleanIndex: historyCleanIndex.value,
+        }));
         return true;
     }
 
@@ -966,6 +996,13 @@ export const usePdfFile = () => {
     }
 
     function markDirty() {
+        BrowserLogger.debug('workspace', 'File dirty flag set', () => ({
+            isDirty: isDirty.value,
+            historyLength: history.value.length,
+            historyIndex: historyIndex.value,
+            historyCleanIndex: historyCleanIndex.value,
+            stack: new Error().stack?.split('\n').slice(1, 6),
+        }));
         isDirty.value = true;
     }
 
