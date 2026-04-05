@@ -321,6 +321,7 @@ const {
     basePageWidth,
     basePageHeight,
     pageMetrics,
+    pageMetricsVersion,
 } = pdfDocumentResult;
 
 const {
@@ -487,6 +488,7 @@ const {
     viewMode,
     numPages,
     pageMetrics,
+    pageMetricsVersion,
     basePageWidth,
     basePageHeight,
     currentPage,
@@ -1106,6 +1108,7 @@ const {
     basePageWidth,
     basePageHeight,
     pageMetrics,
+    pageMetricsVersion,
     effectiveScale,
     scaledMargin,
     visibleRange,

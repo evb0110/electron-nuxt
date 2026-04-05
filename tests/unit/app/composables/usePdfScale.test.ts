@@ -38,6 +38,7 @@ function createScaleComposable(options: {
         width: options.width,
         height: options.height,
     }]);
+    const pageMetricsVersion = ref(0);
     const numPages = ref(pageMetrics.value.length);
     const baseWidth = ref(options.width);
     const baseHeight = ref(options.height);
@@ -56,6 +57,7 @@ function createScaleComposable(options: {
             viewMode,
             numPages,
             pageMetrics,
+            pageMetricsVersion,
             baseWidth,
             baseHeight,
             currentPage,
