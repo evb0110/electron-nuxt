@@ -106,7 +106,6 @@
 
 <script setup lang="ts">
 
-import { useEventListener } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import type {
     ITab,
@@ -234,6 +233,14 @@ let stopMoveListener: (() => void) | null = null;
 let stopUpListener: (() => void) | null = null;
 let stopCancelListener: (() => void) | null = null;
 
+function registerWindowPointerListener(
+    type: 'pointermove' | 'pointerup' | 'pointercancel',
+    listener: (event: PointerEvent) => void,
+) {
+    window.addEventListener(type, listener);
+    return () => window.removeEventListener(type, listener);
+}
+
 function clearResizeListeners() {
     stopMoveListener?.();
     stopMoveListener = null;
@@ -268,9 +275,9 @@ function startResize(event: PointerEvent, splitId: string, orientation: TGroupOr
         clearResizeListeners();
     };
 
-    stopMoveListener = useEventListener(window, 'pointermove', moveListener);
-    stopUpListener = useEventListener(window, 'pointerup', upListener);
-    stopCancelListener = useEventListener(window, 'pointercancel', upListener);
+    stopMoveListener = registerWindowPointerListener('pointermove', moveListener);
+    stopUpListener = registerWindowPointerListener('pointerup', upListener);
+    stopCancelListener = registerWindowPointerListener('pointercancel', upListener);
 
     const sash = event.currentTarget;
     if (sash instanceof Element && 'setPointerCapture' in sash) {

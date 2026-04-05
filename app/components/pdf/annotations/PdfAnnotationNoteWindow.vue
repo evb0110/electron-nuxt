@@ -54,10 +54,7 @@
 
 <script setup lang="ts">
 
-import {
-    useEventListener,
-    useResizeObserver,
-} from '@vueuse/core';
+import { useResizeObserver } from '@vueuse/core';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { NOTE_WINDOW } from '@app/constants/pdf-layout';
 import { clamp } from 'es-toolkit/math';
@@ -110,8 +107,8 @@ const frameStartY = ref(0);
 const isDragging = ref(false);
 let focusGuardTimer: ReturnType<typeof setTimeout> | null = null;
 let focusGuardToken = 0;
-let stopDragMoveListener: (() => void) | null = null;
-let stopDragUpListener: (() => void) | null = null;
+let dragMoveListener: ((event: MouseEvent) => void) | null = null;
+let dragUpListener: (() => void) | null = null;
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
@@ -314,16 +311,24 @@ function handlePointerMove(event: MouseEvent) {
     emitPositionUpdate();
 }
 
+function cleanupDragListeners() {
+    if (typeof window !== 'undefined' && dragMoveListener) {
+        window.removeEventListener('mousemove', dragMoveListener);
+    }
+    if (typeof window !== 'undefined' && dragUpListener) {
+        window.removeEventListener('mouseup', dragUpListener);
+    }
+    dragMoveListener = null;
+    dragUpListener = null;
+}
+
 function stopDrag() {
     if (!isDragging.value) {
         return;
     }
 
     isDragging.value = false;
-    stopDragMoveListener?.();
-    stopDragMoveListener = null;
-    stopDragUpListener?.();
-    stopDragUpListener = null;
+    cleanupDragListeners();
     emitPositionUpdate();
 }
 
@@ -335,10 +340,15 @@ function startDrag(event: MouseEvent) {
     frameStartX.value = offsetX.value;
     frameStartY.value = offsetY.value;
 
-    stopDragMoveListener?.();
-    stopDragUpListener?.();
-    stopDragMoveListener = useEventListener(window, 'mousemove', handlePointerMove);
-    stopDragUpListener = useEventListener(window, 'mouseup', stopDrag);
+    cleanupDragListeners();
+    isDragging.value = true;
+    if (typeof window === 'undefined') {
+        return;
+    }
+    dragMoveListener = handlePointerMove;
+    dragUpListener = stopDrag;
+    window.addEventListener('mousemove', dragMoveListener);
+    window.addEventListener('mouseup', dragUpListener);
 }
 
 function handleViewportResize() {
@@ -369,7 +379,9 @@ function measureObservedWindowSize(entry: ResizeObserverEntry) {
     };
 }
 
-useEventListener(typeof window !== 'undefined' ? window : undefined, 'resize', handleViewportResize);
+if (typeof window !== 'undefined') {
+    window.addEventListener('resize', handleViewportResize);
+}
 
 useResizeObserver(noteWindowRef, (entries) => {
     const entry = entries[0];
@@ -399,6 +411,9 @@ onBeforeUnmount(() => {
     clearFocusGuard();
     focusGuardToken += 1;
     stopDrag();
+    if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', handleViewportResize);
+    }
 });
 
 watch(

@@ -4,10 +4,7 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import {
-    useTimeoutFn,
-    tryOnScopeDispose,
-} from '@vueuse/core';
+import { tryOnScopeDispose } from '@vueuse/core';
 import { delay } from 'es-toolkit/promise';
 import type {
     IAnnotationCommentSummary,
@@ -131,13 +128,21 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
 
     let cachedSelectionRange: Range | null = null;
     let cachedSelectionTimestamp = 0;
-
-    const { stop: stopSubtypeRetry } = useTimeoutFn(() => {}, 0, { immediate: false });
+    const subtypeRetryTimers = new Set<ReturnType<typeof setTimeout>>();
 
     tryOnScopeDispose(() => {
-        stopSubtypeRetry();
+        subtypeRetryTimers.forEach(timer => clearTimeout(timer));
+        subtypeRetryTimers.clear();
         cachedSelectionRange = null;
     });
+
+    function scheduleSubtypeRetry(run: () => void, delayMs: number) {
+        const timer = setTimeout(() => {
+            subtypeRetryTimers.delete(timer);
+            run();
+        }, delayMs);
+        subtypeRetryTimers.add(timer);
+    }
 
     function cacheCurrentTextSelection() {
         const container = viewerContainer.value;
@@ -403,12 +408,10 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                     }
                     attempts += 1;
                     if (attempts < 12) {
-                        const { start } = useTimeoutFn(applySubtypeLater, 80, { immediate: false });
-                        start();
+                        scheduleSubtypeRetry(applySubtypeLater, 80);
                     }
                 };
-                const { start } = useTimeoutFn(applySubtypeLater, 80, { immediate: false });
-                start();
+                scheduleSubtypeRetry(applySubtypeLater, 80);
             }
 
             if (withComment) {
@@ -423,8 +426,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                         if (!lateEditor) {
                             attempts += 1;
                             if (attempts < 12) {
-                                const { start } = useTimeoutFn(tryEmitLater, 80, { immediate: false });
-                                start();
+                                scheduleSubtypeRetry(tryEmitLater, 80);
                             }
                             return;
                         }
@@ -436,8 +438,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                             emitAnnotationOpenNote(summary);
                         });
                     };
-                    const { start } = useTimeoutFn(tryEmitLater, 80, { immediate: false });
-                    start();
+                    scheduleSubtypeRetry(tryEmitLater, 80);
                 }
             }
         } catch (error) {

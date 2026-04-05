@@ -4,10 +4,7 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import {
-    useTimeoutFn,
-    tryOnScopeDispose,
-} from '@vueuse/core';
+import { tryOnScopeDispose } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import type {
     IAnnotationCommentSummary,
@@ -178,11 +175,11 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         emitAnnotationToolCancel,
     } = options;
 
-    const focusPulseTimers: Array<ReturnType<typeof useTimeoutFn>> = [];
+    const focusPulseTimers = new Set<ReturnType<typeof setTimeout>>();
 
     tryOnScopeDispose(() => {
-        focusPulseTimers.forEach(t => t.stop());
-        focusPulseTimers.length = 0;
+        focusPulseTimers.forEach(timer => clearTimeout(timer));
+        focusPulseTimers.clear();
     });
 
     function logCrudDebug(message: string, error: unknown) {
@@ -549,14 +546,11 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         }
 
         target.classList.add('annotation-focus-pulse');
-        const timer = useTimeoutFn(() => {
+        const timer = setTimeout(() => {
             target.classList.remove('annotation-focus-pulse');
-            const index = focusPulseTimers.indexOf(timer);
-            if (index !== -1) {
-                focusPulseTimers.splice(index, 1);
-            }
+            focusPulseTimers.delete(timer);
         }, FOCUS_PULSE_MS);
-        focusPulseTimers.push(timer);
+        focusPulseTimers.add(timer);
     }
 
     function updateAnnotationComment(comment: IAnnotationCommentSummary, text: string) {

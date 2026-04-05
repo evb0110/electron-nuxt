@@ -7,10 +7,7 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import {
-    useTimeoutFn,
-    tryOnScopeDispose,
-} from '@vueuse/core';
+import { tryOnScopeDispose } from '@vueuse/core';
 import type {
     IAnnotationSettings,
     TAnnotationTool,
@@ -72,12 +69,20 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
     const editorMarkupSubtypeOverrides = new Map<string, TMarkupSubtype>();
     let editorObjectMarkupSubtypeOverrides = new WeakMap<IPdfjsEditor, TMarkupSubtype>();
     let editorDrawLayerHighlightRefs = new WeakMap<IPdfjsEditor, SVGElement>();
-
-    const { stop: stopRetryTimeout } = useTimeoutFn(() => {}, 0, { immediate: false });
+    const markupSubtypeRetryTimers = new Set<ReturnType<typeof setTimeout>>();
 
     tryOnScopeDispose(() => {
-        stopRetryTimeout();
+        markupSubtypeRetryTimers.forEach(timer => clearTimeout(timer));
+        markupSubtypeRetryTimers.clear();
     });
+
+    function scheduleMarkupSubtypeRetry(run: () => void, delayMs: number) {
+        const timer = setTimeout(() => {
+            markupSubtypeRetryTimers.delete(timer);
+            run();
+        }, delayMs);
+        markupSubtypeRetryTimers.add(timer);
+    }
 
     function getAnnotationMode(tool: TAnnotationTool) {
         switch (tool) {
@@ -360,10 +365,9 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
         const highlightSvg = resolveEditorDrawLayerHighlight(editor);
         if (!highlightSvg) {
             if (attempt < 18 && editor.div?.isConnected) {
-                const { start } = useTimeoutFn(() => {
+                scheduleMarkupSubtypeRetry(() => {
                     applyMarkupSubtypeDrawLayerClass(editor, subtype, attempt + 1);
-                }, 50, { immediate: false });
-                start();
+                }, 50);
             }
             return;
         }
