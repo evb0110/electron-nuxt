@@ -69,6 +69,7 @@ function createVirtualizationHarness(viewMode: TPdfViewMode) {
         basePageWidth: ref(300),
         basePageHeight: ref(100),
         pageMetrics,
+        pageMetricsVersion: ref(0),
         effectiveScale: ref(1),
         scaledMargin: ref(20),
         visibleRange: ref({
@@ -103,6 +104,7 @@ function createPagedHarness(options?: {
         basePageWidth: ref(300),
         basePageHeight: ref(100),
         pageMetrics,
+        pageMetricsVersion: ref(0),
         effectiveScale: ref(1),
         scaledMargin: ref(20),
         visibleRange: ref(options?.visibleRange ?? {

@@ -20,6 +20,7 @@ export const usePdfScale = (
     viewMode: MaybeRefOrGetter<TPdfViewMode>,
     numPages: MaybeRefOrGetter<number>,
     pageMetrics: MaybeRefOrGetter<IPdfPageMetric[]>,
+    pageMetricsVersion: MaybeRefOrGetter<number>,
     basePageWidth: MaybeRefOrGetter<number | null>,
     basePageHeight: MaybeRefOrGetter<number | null>,
     currentPage: MaybeRefOrGetter<number>,
@@ -40,20 +41,44 @@ export const usePdfScale = (
 
     const scaledMargin = computed(() => BASE_MARGIN);
 
-    function computeFitWidthScale(container: HTMLElement | null): boolean {
+    let normalizedMetricsCacheKey = '';
+    let normalizedMetricsCacheValue: IPdfPageMetric[] = [];
+
+    function getNormalizedPageMetrics() {
+        const totalPages = toValue(numPages);
         const fallbackWidth = toValue(basePageWidth);
         const fallbackHeight = toValue(basePageHeight);
-        const normalizedPageMetrics = normalizePageMetrics({
+        const cacheKey = [
+            toValue(pageMetricsVersion),
+            totalPages,
+            fallbackWidth ?? 'null',
+            fallbackHeight ?? 'null',
+        ].join('|');
+
+        if (cacheKey === normalizedMetricsCacheKey) {
+            return normalizedMetricsCacheValue;
+        }
+
+        normalizedMetricsCacheKey = cacheKey;
+        normalizedMetricsCacheValue = normalizePageMetrics({
             pageMetrics: toValue(pageMetrics),
-            totalPages: toValue(numPages),
+            totalPages,
             fallbackWidth,
             fallbackHeight,
         });
+        return normalizedMetricsCacheValue;
+    }
+
+    function computeFitWidthScale(container: HTMLElement | null): boolean {
+        const fallbackWidth = toValue(basePageWidth);
+        const fallbackHeight = toValue(basePageHeight);
+        const totalPages = toValue(numPages);
+        const normalizedPageMetrics = getNormalizedPageMetrics();
         const height = resolveDocumentBaseMetric(normalizedPageMetrics, 'height');
         const width = resolveSpreadBaseWidth(
             normalizedPageMetrics,
             toValue(viewMode),
-            toValue(numPages),
+            totalPages,
         );
 
         if (!container || !width || !height) {
@@ -150,7 +175,7 @@ export const usePdfScale = (
             documentBaseHeight: height,
             zoom: toValue(zoom),
             viewMode: toValue(viewMode),
-            numPages: toValue(numPages),
+            numPages: totalPages,
             previousScale: fitWidthScale.value,
             nextScale: newScale,
         });
