@@ -26,7 +26,7 @@ export const useRecentFiles = () => {
     const error = useState<string | null>('recent-files:error', () => null);
     const isResolved = useState(
         'recent-files:is-resolved',
-        () => (!isDesktopRuntime.value || hasRecentFilesCookie),
+        () => isDesktopRuntime.value && hasRecentFilesCookie,
     );
 
     async function syncCookieFromRuntime() {
