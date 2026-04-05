@@ -26,6 +26,7 @@ import {
     capturePdfReloadSnapshot,
     createPdfReloadWaiter,
 } from '@app/composables/pdf/pdfReloadWaiter';
+import { hasViewerShapeChanges } from '@app/modules/workspace-shell/composables/workspace-annotation-utils';
 
 interface IPdfViewerForSave {
     scrollToPage: (pageNumber: number) => void;
@@ -34,12 +35,17 @@ interface IPdfViewerForSave {
         snapshot: IScrollSnapshot | null,
         options?: { fallbackPage?: number | null; },
     ) => void;
+    preparePersistedManagedShapesForSave?: (data: Uint8Array) => Promise<unknown>;
+    restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
     saveDocument: () => Promise<Uint8Array | null>;
+    adoptPersistedManagedShapesOnNextImport?: () => void;
+    clearPendingManagedShapeImportAdoption?: () => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype> | undefined;
     getAllShapes: () => IShapeAnnotation[];
+    markSavedShapeState?: () => void;
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
-    hasShapes?: boolean;
+    hasShapes?: boolean | Ref<boolean>;
 }
 
 interface IPageSaveOrchestrationDeps {
@@ -176,7 +182,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         markPageLabelsSaved,
         markBookmarksSaved,
         hasAnnotationChanges,
-        hasShapeChanges: () => Boolean(pdfViewerRef.value?.hasShapes),
+        hasShapeChanges: () => hasViewerShapeChanges(pdfViewerRef.value),
         serializePdfForSave,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,
@@ -195,6 +201,15 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 scrollSnapshot: capturedReloadState.scrollSnapshot,
             });
         },
+        markShapeStateSaved: () => pdfViewerRef.value?.markSavedShapeState?.(),
+        preparePersistedShapeStateForSave: (data: Uint8Array) => (
+            pdfViewerRef.value?.preparePersistedManagedShapesForSave?.(data) ?? Promise.resolve(null)
+        ),
+        restorePreparedPersistedShapeState: (snapshot: unknown) => (
+            pdfViewerRef.value?.restorePreparedManagedShapesAfterFailedSave?.(snapshot) ?? Promise.resolve()
+        ),
+        adoptPersistedShapeStateForNextReload: () => pdfViewerRef.value?.adoptPersistedManagedShapesOnNextImport?.(),
+        clearPendingPersistedShapeStateForNextReload: () => pdfViewerRef.value?.clearPendingManagedShapeImportAdoption?.(),
     });
 
     const isAnySaving = computed(() => isSaving.value || isSavingAs.value);

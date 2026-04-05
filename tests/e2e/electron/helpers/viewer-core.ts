@@ -14,6 +14,14 @@ const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
         '.i-lucide-panel-left',
         '.iconify.i-lucide-panel-left',
     ],
+    'Save': [
+        '.i-lucide-save',
+        '.iconify.i-lucide-save',
+    ],
+    'Save As': [
+        '.i-lucide-save-all',
+        '.iconify.i-lucide-save-all',
+    ],
     'Undo': [
         '.i-lucide-undo-2',
         '.iconify.i-lucide-undo-2',

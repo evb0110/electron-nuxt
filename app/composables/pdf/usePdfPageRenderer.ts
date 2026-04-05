@@ -55,6 +55,7 @@ interface IUsePdfPageRendererOptions {
     bufferPages?: MaybeRefOrGetter<number>;
     showAnnotations?: MaybeRefOrGetter<boolean>;
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
+    managedAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     scrollToPage?: (
         pageNumber: number,
         options?: { preferExactDom?: boolean; },
@@ -72,6 +73,7 @@ interface IUsePdfPageRendererOptions {
 
     workingCopyPath?: MaybeRefOrGetter<TDocumentRef | null>;
     onRenderStall?: (payload: IPageRenderStallPayload) => void;
+    onPageRendered?: (pageNumber: number) => void;
 }
 
 interface ICancelableRenderTask {
@@ -161,6 +163,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         pdfDocument,
         showAnnotations,
         hiddenAnnotationIds: options.hiddenAnnotationIds ?? new Set<string>(),
+        managedAnnotationIds: options.managedAnnotationIds ?? new Set<string>(),
         annotationUiManager: options.annotationUiManager ?? null,
         annotationL10n: options.annotationL10n ?? null,
         scrollToPage: options.scrollToPage,
@@ -545,33 +548,54 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             return;
                         }
 
+                        const preparedCanvasRender = await canvasRenderer.prepareCanvasRender(
+                            pdfPage,
+                            scale,
+                            {
+                                hiddenAnnotationIds: toValue(options.hiddenAnnotationIds) ?? undefined,
+                                maxCanvasPixels: renderOptions?.maxCanvasPixelsOverride,
+                            },
+                        );
+                        if (!preparedCanvasRender) {
+                            return;
+                        }
+
+                        if (renderVersion !== version) {
+                            canvasRenderer.cleanupCanvas(preparedCanvasRender.canvas);
+                            return;
+                        }
+
+                        const {
+                            startRender,
+                            ...preparedRenderResult
+                        } = preparedCanvasRender;
                         const renderResult = await withPageStageTimeout(
-                            canvasRenderer.renderCanvas(
-                                pdfPage,
-                                scale,
-                                {
-                                    hiddenAnnotationIds: toValue(options.hiddenAnnotationIds) ?? undefined,
-                                    maxCanvasPixels: renderOptions?.maxCanvasPixelsOverride,
-                                    onRenderTask: (task) => {
-                                        if (renderVersion !== version) {
-                                            try {
-                                                task.cancel();
-                                            } catch {
-                                                // Ignore cancellation failures.
-                                            }
-                                            return;
-                                        }
-                                        const previousTask = activeRenderTasks.get(pageNumber);
-                                        if (previousTask && previousTask.task !== task) {
-                                            cancelActiveRenderTask(pageNumber);
-                                        }
-                                        activeRenderTasks.set(pageNumber, {
-                                            version,
-                                            task,
-                                        });
-                                    },
-                                },
-                            ),
+                            new Promise<typeof preparedRenderResult>((resolve, reject) => {
+                                const renderTask = startRender();
+                                if (renderVersion !== version) {
+                                    try {
+                                        renderTask.cancel();
+                                    } catch {
+                                        // Ignore cancellation failures.
+                                    }
+                                    reject(new Error(`Rendering cancelled before canvas paint for page ${pageNumber}`));
+                                    return;
+                                }
+
+                                const previousTask = activeRenderTasks.get(pageNumber);
+                                if (previousTask && previousTask.task !== renderTask) {
+                                    cancelActiveRenderTask(pageNumber);
+                                }
+                                activeRenderTasks.set(pageNumber, {
+                                    version,
+                                    task: renderTask,
+                                });
+
+                                renderTask.promise.then(
+                                    () => resolve(preparedRenderResult),
+                                    reject,
+                                );
+                            }),
                             {
                                 pageNumber,
                                 stage: 'canvas-render',
@@ -792,6 +816,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             releasePageResources(pageNumber, pdfPage);
                             renderedPages.add(pageNumber);
                             staleRenderedPages.delete(pageNumber);
+                            options.onPageRendered?.(pageNumber);
                         }
                     } catch (error) {
                         if (isRenderingCancelledError(error)) {
@@ -1209,6 +1234,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         cleanupAllPages,
         invalidatePages,
         applySearchHighlights,
+        hideManagedAnnotationEditors: (pageNumber?: number) => {
+            annotationLayerRenderer.hideHiddenManagedEditors(pageNumber);
+        },
         isPageRendered: (pageNumber: number) => renderedPages.has(pageNumber),
         requestScrollToCurrentResult,
         cancelPendingSearchScroll: searchMatchScroller.invalidatePendingRequests,

@@ -21,6 +21,7 @@ import {
     cloneShapeStrokes,
     getAllShapePoints,
 } from '@app/composables/pdf/pdfShapeStrokes';
+import { BrowserLogger } from '@app/utils/browser-logger';
 
 function generateShapeId() {
     return `shape-${crypto.randomUUID()}`;
@@ -78,6 +79,14 @@ export interface IShapeContextProvide {
     }) => void;
 }
 
+export interface IShapeStateSnapshot {
+    shapes: IShapeAnnotation[];
+    deletedAnnotationIds: string[];
+    deletedStableKeys: string[];
+    baselineSignature: string;
+    selectedShapeId: string | null;
+}
+
 export const useAnnotationShapes = () => {
     const shapes = ref<Map<number, IShapeAnnotation[]>>(new Map());
     const selectedShapeId = ref<string | null>(null);
@@ -115,12 +124,24 @@ export const useAnnotationShapes = () => {
             deletedIds?: Set<string>;
             deletedStableKeys?: Set<string>;
             baselineShapes?: IShapeAnnotation[];
+            baselineSignatureValue?: string;
         },
     ) {
         shapes.value = groupShapesByPage(nextShapes);
         deletedEmbeddedAnnotationIds.value = new Set(options?.deletedIds ?? []);
         deletedEmbeddedShapeStableKeys.value = new Set(options?.deletedStableKeys ?? []);
-        baselineSignature.value = toShapesSignature(options?.baselineShapes ?? nextShapes);
+        baselineSignature.value = options?.baselineSignatureValue
+            ?? toShapesSignature(options?.baselineShapes ?? nextShapes);
+
+        BrowserLogger.debug('pdf-shapes', 'Replaced shape state', () => ({
+            shapeCount: nextShapes.length,
+            embeddedCount: nextShapes.filter(shape => shape.source === 'embedded').length,
+            localCount: nextShapes.filter(shape => shape.source !== 'embedded').length,
+            deletedAnnotationIds: [...deletedEmbeddedAnnotationIds.value],
+            deletedStableKeys: [...deletedEmbeddedShapeStableKeys.value],
+            baselineShapeCount: options?.baselineShapes?.length ?? nextShapes.length,
+            usedExplicitBaselineSignature: typeof options?.baselineSignatureValue === 'string',
+        }));
 
         if (selectedShapeId.value && !nextShapes.some(shape => shape.id === selectedShapeId.value)) {
             selectedShapeId.value = null;
@@ -259,6 +280,24 @@ export const useAnnotationShapes = () => {
         };
     }
 
+    function matchesDeletedImportedShape(
+        shape: IShapeAnnotation,
+        deletedAnnotationIds: Set<string>,
+        deletedStableKeys: Set<string>,
+    ) {
+        const annotationId = normalizePdfJsAnnotationId(shape.annotationId);
+        if (annotationId && deletedAnnotationIds.has(annotationId)) {
+            return true;
+        }
+
+        const stableKey = normalizeManagedShapeStableKey(shape.stableKey);
+        if (stableKey && deletedStableKeys.has(stableKey)) {
+            return true;
+        }
+
+        return false;
+    }
+
     function toShapesSignature(input: IShapeAnnotation[]) {
         const comparable = input
             .map(shape => toComparableShape(shape))
@@ -356,6 +395,16 @@ export const useAnnotationShapes = () => {
             const index = pageShapes.findIndex(s => s.id === id);
             if (index !== -1) {
                 const deletedShape = pageShapes[index]!;
+                BrowserLogger.debug('pdf-shapes', 'Deleting shape', () => ({
+                    id,
+                    source: deletedShape.source,
+                    annotationId: deletedShape.annotationId ?? null,
+                    stableKey: deletedShape.stableKey ?? null,
+                    pageIndex: deletedShape.pageIndex,
+                    color: deletedShape.color,
+                    deletedAnnotationIdsBefore: [...deletedEmbeddedAnnotationIds.value],
+                    deletedStableKeysBefore: [...deletedEmbeddedShapeStableKeys.value],
+                }));
                 pageShapes.splice(index, 1);
                 shapes.value.set(pageIndex, [...pageShapes]);
                 shapes.value = new Map(shapes.value);
@@ -372,6 +421,12 @@ export const useAnnotationShapes = () => {
                 if (selectedShapeId.value === id) {
                     selectedShapeId.value = null;
                 }
+                BrowserLogger.debug('pdf-shapes', 'Deleted shape', () => ({
+                    id,
+                    remainingShapeCount: getAllShapes().length,
+                    deletedAnnotationIdsAfter: [...deletedEmbeddedAnnotationIds.value],
+                    deletedStableKeysAfter: [...deletedEmbeddedShapeStableKeys.value],
+                }));
                 return;
             }
         }
@@ -415,6 +470,15 @@ export const useAnnotationShapes = () => {
         const currentDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
         const nextShapes: IShapeAnnotation[] = [];
 
+        BrowserLogger.debug('pdf-shapes', 'Reconciling persisted shapes', () => ({
+            currentShapeCount: currentShapes.length,
+            loadedShapeCount: loaded.length,
+            currentEmbeddedCount: currentShapes.filter(shape => shape.source === 'embedded').length,
+            loadedEmbeddedCount: loaded.filter(shape => shape.source === 'embedded').length,
+            currentDeletedIds: [...currentDeletedIds],
+            currentDeletedStableKeys: [...currentDeletedStableKeys],
+        }));
+
         for (const currentShape of currentShapes) {
             const currentStableKey = normalizeManagedShapeStableKey(currentShape.stableKey);
             const importedIndexByStableKey = currentStableKey
@@ -453,7 +517,13 @@ export const useAnnotationShapes = () => {
             }
         }
 
-        nextShapes.push(...remainingImportedShapes);
+        nextShapes.push(
+            ...remainingImportedShapes.filter(shape => !matchesDeletedImportedShape(
+                shape,
+                currentDeletedIds,
+                currentDeletedStableKeys,
+            )),
+        );
 
         const nextDeletedIds = new Set<string>();
         const nextDeletedStableKeys = new Set<string>();
@@ -481,12 +551,145 @@ export const useAnnotationShapes = () => {
         replaceShapeState(nextShapes, {
             deletedIds: nextDeletedIds,
             deletedStableKeys: nextDeletedStableKeys,
-            baselineShapes: nextShapes,
+            baselineShapes: loaded,
         });
+
+        BrowserLogger.debug('pdf-shapes', 'Reconciled persisted shapes', () => ({
+            nextShapeCount: nextShapes.length,
+            nextEmbeddedCount: nextShapes.filter(shape => shape.source === 'embedded').length,
+            nextLocalCount: nextShapes.filter(shape => shape.source !== 'embedded').length,
+            nextDeletedIds: [...nextDeletedIds],
+            nextDeletedStableKeys: [...nextDeletedStableKeys],
+        }));
+    }
+
+    function primePersistedShapes(loaded: IShapeAnnotation[]) {
+        const currentShapes = getAllShapes().map(shape => cloneShape(shape));
+        const currentDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
+        const currentDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
+        const preservedBaselineSignature = baselineSignature.value;
+        const remainingImportedShapes = loaded.map(shape => cloneShape(shape));
+        const nextShapes: IShapeAnnotation[] = [];
+
+        BrowserLogger.debug('pdf-shapes', 'Priming persisted shapes before save', () => ({
+            currentShapeCount: currentShapes.length,
+            loadedShapeCount: loaded.length,
+            currentEmbeddedCount: currentShapes.filter(shape => shape.source === 'embedded').length,
+            loadedEmbeddedCount: loaded.filter(shape => shape.source === 'embedded').length,
+            currentDeletedIds: [...currentDeletedIds],
+            currentDeletedStableKeys: [...currentDeletedStableKeys],
+        }));
+
+        for (const currentShape of currentShapes) {
+            const currentStableKey = normalizeManagedShapeStableKey(currentShape.stableKey);
+            const importedIndexByStableKey = currentStableKey
+                ? remainingImportedShapes.findIndex(shape => normalizeManagedShapeStableKey(shape.stableKey) === currentStableKey)
+                : -1;
+
+            if (importedIndexByStableKey !== -1) {
+                const importedShape = remainingImportedShapes.splice(importedIndexByStableKey, 1)[0]!;
+                nextShapes.push(mergeImportedShape(currentShape, importedShape));
+                continue;
+            }
+
+            const currentAnnotationId = normalizePdfJsAnnotationId(currentShape.annotationId);
+            const importedIndexByAnnotationId = currentAnnotationId
+                ? remainingImportedShapes.findIndex(shape => normalizePdfJsAnnotationId(shape.annotationId) === currentAnnotationId)
+                : -1;
+
+            if (importedIndexByAnnotationId !== -1) {
+                const importedShape = remainingImportedShapes.splice(importedIndexByAnnotationId, 1)[0]!;
+                nextShapes.push(mergeImportedShape(currentShape, importedShape));
+                continue;
+            }
+
+            const currentShapeKey = toReconciliationKey(currentShape);
+            const importedIndexByShapeKey = remainingImportedShapes.findIndex(
+                shape => toReconciliationKey(shape) === currentShapeKey,
+            );
+            if (importedIndexByShapeKey !== -1) {
+                const importedShape = remainingImportedShapes.splice(importedIndexByShapeKey, 1)[0]!;
+                nextShapes.push(mergeImportedShape(currentShape, importedShape));
+                continue;
+            }
+
+            if (currentShape.source !== 'embedded') {
+                nextShapes.push(currentShape);
+            }
+        }
+
+        nextShapes.push(
+            ...remainingImportedShapes.filter(shape => !matchesDeletedImportedShape(
+                shape,
+                currentDeletedIds,
+                currentDeletedStableKeys,
+            )),
+        );
+
+        replaceShapeState(nextShapes, {
+            deletedIds: currentDeletedIds,
+            deletedStableKeys: currentDeletedStableKeys,
+            baselineSignatureValue: preservedBaselineSignature,
+        });
+
+        BrowserLogger.debug('pdf-shapes', 'Primed persisted shapes before save', () => ({
+            nextShapeCount: nextShapes.length,
+            nextEmbeddedCount: nextShapes.filter(shape => shape.source === 'embedded').length,
+            nextLocalCount: nextShapes.filter(shape => shape.source !== 'embedded').length,
+            preservedDirtyState: true,
+            deletedIds: [...currentDeletedIds],
+            deletedStableKeys: [...currentDeletedStableKeys],
+        }));
     }
 
     function loadShapes(loaded: IShapeAnnotation[]) {
         replaceShapes(loaded);
+    }
+
+    function markSavedShapeState() {
+        const currentShapes = getAllShapes().map(shape => cloneShape(shape));
+        replaceShapeState(currentShapes, {
+            deletedIds: new Set(),
+            deletedStableKeys: new Set(),
+            baselineShapes: currentShapes,
+        });
+
+        BrowserLogger.debug('pdf-shapes', 'Marked current shape state as saved', () => ({
+            shapeCount: currentShapes.length,
+            embeddedCount: currentShapes.filter(shape => shape.source === 'embedded').length,
+            localCount: currentShapes.filter(shape => shape.source !== 'embedded').length,
+        }));
+    }
+
+    function captureShapeStateSnapshot(): IShapeStateSnapshot {
+        return {
+            shapes: getAllShapes().map(shape => cloneShape(shape)),
+            deletedAnnotationIds: [...deletedEmbeddedAnnotationIds.value],
+            deletedStableKeys: [...deletedEmbeddedShapeStableKeys.value],
+            baselineSignature: baselineSignature.value,
+            selectedShapeId: selectedShapeId.value,
+        };
+    }
+
+    function restoreShapeStateSnapshot(snapshot: IShapeStateSnapshot) {
+        replaceShapeState(snapshot.shapes.map(shape => cloneShape(shape)), {
+            deletedIds: new Set(snapshot.deletedAnnotationIds),
+            deletedStableKeys: new Set(snapshot.deletedStableKeys),
+            baselineSignatureValue: snapshot.baselineSignature,
+        });
+
+        if (snapshot.selectedShapeId && getShapeById(snapshot.selectedShapeId)) {
+            selectedShapeId.value = snapshot.selectedShapeId;
+        } else {
+            selectedShapeId.value = null;
+        }
+
+        BrowserLogger.debug('pdf-shapes', 'Restored shape state snapshot', () => ({
+            shapeCount: snapshot.shapes.length,
+            deletedAnnotationIds: snapshot.deletedAnnotationIds,
+            deletedStableKeys: snapshot.deletedStableKeys,
+            selectedShapeId: selectedShapeId.value,
+        }));
     }
 
     function startDrawing(
@@ -644,6 +847,10 @@ export const useAnnotationShapes = () => {
         loadShapes,
         replaceShapes,
         reconcilePersistedShapes,
+        primePersistedShapes,
+        markSavedShapeState,
+        captureShapeStateSnapshot,
+        restoreShapeStateSnapshot,
         startDrawing,
         continueDrawing,
         finishDrawing,

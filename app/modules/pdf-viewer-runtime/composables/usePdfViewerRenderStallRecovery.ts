@@ -10,6 +10,7 @@ import type { IPageRenderStallPayload } from '@app/composables/pdf/usePdfPageRen
 interface IUsePdfViewerRenderStallRecoveryOptions {
     src: ComputedRef<TPdfSource | null>;
     isLoading: Ref<boolean>;
+    isAnySaving?: Ref<boolean>;
     numPages: Ref<number>;
     currentPage: Ref<number>;
     visibleRange: Ref<{
@@ -26,6 +27,7 @@ export function usePdfViewerRenderStallRecovery(options: IUsePdfViewerRenderStal
     const {
         src,
         isLoading,
+        isAnySaving,
         numPages,
         currentPage,
         visibleRange,
@@ -66,7 +68,7 @@ export function usePdfViewerRenderStallRecovery(options: IUsePdfViewerRenderStal
     }
 
     function handlePageRenderStall(payload: IPageRenderStallPayload) {
-        if (!src.value || isLoading.value) {
+        if (!src.value || isLoading.value || isAnySaving?.value) {
             return;
         }
 

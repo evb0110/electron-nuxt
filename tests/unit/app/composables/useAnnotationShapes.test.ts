@@ -162,6 +162,42 @@ describe('useAnnotationShapes', () => {
         expect(shapes.hasShapes.value).toBe(false);
     });
 
+    it('primes a freshly saved local draw stroke onto the imported embedded shape while preserving dirty state until save completes', () => {
+        const shapes = useAnnotationShapes();
+
+        shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+        shapes.continueDrawing(0.15, 0.25);
+        shapes.continueDrawing(0.25, 0.35);
+
+        const created = shapes.finishDrawing();
+        expect(created).not.toBeNull();
+        expect(shapes.hasShapes.value).toBe(true);
+
+        const importedEmbeddedInkShape = createEmbeddedInkShape({
+            stableKey: created!.stableKey,
+            x: created!.x,
+            y: created!.y,
+            width: created!.width,
+            height: created!.height,
+            color: created!.color,
+            opacity: created!.opacity,
+            strokeWidth: created!.strokeWidth,
+            points: created!.points,
+            strokes: created!.strokes,
+        });
+
+        shapes.primePersistedShapes([importedEmbeddedInkShape]);
+
+        expect(shapes.getShapeById(created!.id)).toMatchObject({
+            id: created!.id,
+            source: 'embedded',
+            annotationId: '21R',
+            stableKey: created!.stableKey,
+            pdfSubtype: 'Ink',
+        });
+        expect(shapes.hasShapes.value).toBe(true);
+    });
+
     it('reconciles a persisted drawing by stable key when the saved annotation ref changes', () => {
         const shapes = useAnnotationShapes();
 
@@ -201,7 +237,165 @@ describe('useAnnotationShapes', () => {
             stableKey: created!.stableKey,
             pdfSubtype: 'Ink',
         });
+        expect(shapes.getShapeById(created!.id)?.points).toEqual(importedEmbeddedInkShape.points);
+        expect(shapes.getShapeById(created!.id)?.strokes).toEqual(importedEmbeddedInkShape.strokes);
+        expect(shapes.getShapeById(created!.id)?.x).toBe(importedEmbeddedInkShape.x);
+        expect(shapes.getShapeById(created!.id)?.y).toBe(importedEmbeddedInkShape.y);
         expect(shapes.hasShapes.value).toBe(false);
+    });
+
+    it('uses the imported managed shape geometry as the saved baseline after same-file reconciliation', () => {
+        const shapes = useAnnotationShapes();
+        const embeddedInkShape = createEmbeddedInkShape({
+            id: 'shape-current-ink',
+            stableKey: 'evb-shape:current-ink',
+            annotationId: '21R',
+            x: 0.18,
+            y: 0.24,
+            width: 0.19,
+            height: 0.11,
+            points: [
+                {
+                    x: 0.18,
+                    y: 0.24,
+                },
+                {
+                    x: 0.25,
+                    y: 0.28,
+                },
+                {
+                    x: 0.31,
+                    y: 0.33,
+                },
+                {
+                    x: 0.37,
+                    y: 0.35,
+                },
+            ],
+            strokes: [[
+                {
+                    x: 0.18,
+                    y: 0.24,
+                },
+                {
+                    x: 0.25,
+                    y: 0.28,
+                },
+                {
+                    x: 0.31,
+                    y: 0.33,
+                },
+                {
+                    x: 0.37,
+                    y: 0.35,
+                },
+            ]],
+        });
+
+        shapes.loadShapes([embeddedInkShape]);
+
+        const importedEmbeddedInkShape = createEmbeddedInkShape({
+            id: 'shape-imported-ink',
+            stableKey: embeddedInkShape.stableKey,
+            annotationId: '44R',
+            x: embeddedInkShape.x + 0.012,
+            y: embeddedInkShape.y + 0.015,
+            width: embeddedInkShape.width - 0.01,
+            height: embeddedInkShape.height + 0.012,
+            points: embeddedInkShape.points?.map(point => ({
+                x: point.x + 0.012,
+                y: point.y + 0.015,
+            })),
+            strokes: embeddedInkShape.strokes?.map(stroke => stroke.map(point => ({
+                x: point.x + 0.012,
+                y: point.y + 0.015,
+            }))),
+            strokeWidth: embeddedInkShape.strokeWidth + 2,
+            opacity: 0.5,
+        });
+
+        shapes.reconcilePersistedShapes([importedEmbeddedInkShape]);
+
+        expect(shapes.getShapeById(embeddedInkShape.id)).toEqual({
+            ...importedEmbeddedInkShape,
+            id: embeddedInkShape.id,
+            source: 'embedded',
+            annotationId: '44R',
+            stableKey: embeddedInkShape.stableKey,
+            pdfSubtype: 'Ink',
+        });
+        expect(shapes.hasShapes.value).toBe(false);
+    });
+
+    it('keeps unmatched local shapes dirty when a late same-file import reconciles saved embedded shapes', () => {
+        const shapes = useAnnotationShapes();
+        const embeddedInkShape = createEmbeddedInkShape({
+            id: 'shape-saved-ink',
+            stableKey: 'evb-shape:saved-ink',
+            annotationId: '41R',
+        });
+        const localInkShape = {...createEmbeddedInkShape({
+            id: 'shape-local-ink',
+            stableKey: 'evb-shape:local-ink',
+            annotationId: undefined,
+            source: 'local',
+            x: 0.42,
+            y: 0.18,
+            width: 0.16,
+            height: 0.15,
+            color: '#22c55e',
+            points: [
+                {
+                    x: 0.42,
+                    y: 0.18,
+                },
+                {
+                    x: 0.48,
+                    y: 0.24,
+                },
+                {
+                    x: 0.58,
+                    y: 0.33,
+                },
+            ],
+            strokes: [[
+                {
+                    x: 0.42,
+                    y: 0.18,
+                },
+                {
+                    x: 0.48,
+                    y: 0.24,
+                },
+                {
+                    x: 0.58,
+                    y: 0.33,
+                },
+            ]],
+        })} satisfies IShapeAnnotation;
+
+        shapes.loadShapes([embeddedInkShape]);
+        shapes.addShape(localInkShape);
+
+        shapes.reconcilePersistedShapes([createEmbeddedInkShape({
+            ...embeddedInkShape,
+            annotationId: '52R',
+            x: embeddedInkShape.x + 0.01,
+            y: embeddedInkShape.y + 0.01,
+        })]);
+
+        expect(shapes.getShapeById(embeddedInkShape.id)).toMatchObject({
+            id: embeddedInkShape.id,
+            source: 'embedded',
+            annotationId: '52R',
+            stableKey: embeddedInkShape.stableKey,
+        });
+        expect(shapes.getShapeById(localInkShape.id)).toMatchObject({
+            id: localInkShape.id,
+            source: 'local',
+            stableKey: localInkShape.stableKey,
+        });
+        expect(shapes.hasShapes.value).toBe(true);
     });
 
     it('keeps deleted embedded shape tombstones until the imported document no longer contains the deleted annotation', () => {
@@ -223,6 +417,167 @@ describe('useAnnotationShapes', () => {
 
         shapes.reconcilePersistedShapes([]);
 
+        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
+        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
+        expect(shapes.hasShapes.value).toBe(false);
+    });
+
+    it('does not resurrect a just-deleted embedded shape when a stale import finishes after the delete', () => {
+        const shapes = useAnnotationShapes();
+        const firstEmbeddedInkShape = createEmbeddedInkShape();
+        const secondEmbeddedInkShape = createEmbeddedInkShape({
+            id: 'embedded-ink-2',
+            annotationId: '22R',
+            stableKey: 'evb-shape:embedded-ink-2',
+            color: '#22c55e',
+            x: 0.4,
+            y: 0.28,
+            width: 0.2,
+            height: 0.16,
+            points: [
+                {
+                    x: 0.4,
+                    y: 0.28,
+                },
+                {
+                    x: 0.5,
+                    y: 0.34,
+                },
+                {
+                    x: 0.6,
+                    y: 0.44,
+                },
+            ],
+            strokes: [[
+                {
+                    x: 0.4,
+                    y: 0.28,
+                },
+                {
+                    x: 0.5,
+                    y: 0.34,
+                },
+                {
+                    x: 0.6,
+                    y: 0.44,
+                },
+            ]],
+        });
+
+        shapes.loadShapes([
+            firstEmbeddedInkShape,
+            secondEmbeddedInkShape,
+        ]);
+        shapes.deleteShape(secondEmbeddedInkShape.id);
+
+        shapes.reconcilePersistedShapes([
+            firstEmbeddedInkShape,
+            secondEmbeddedInkShape,
+        ]);
+
+        expect(shapes.getAllShapes()).toHaveLength(1);
+        expect(shapes.getAllShapes()[0]).toMatchObject({
+            id: firstEmbeddedInkShape.id,
+            stableKey: firstEmbeddedInkShape.stableKey,
+            annotationId: firstEmbeddedInkShape.annotationId,
+        });
+        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['22R']);
+        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual(['evb-shape:embedded-ink-2']);
+        expect(shapes.hasShapes.value).toBe(true);
+    });
+
+    it('restores a captured shape-state snapshot after a failed primed save attempt', () => {
+        const shapes = useAnnotationShapes();
+
+        shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+        shapes.continueDrawing(0.15, 0.25);
+        shapes.continueDrawing(0.25, 0.35);
+
+        const created = shapes.finishDrawing();
+        expect(created).not.toBeNull();
+
+        const snapshot = shapes.captureShapeStateSnapshot();
+        const importedEmbeddedInkShape = createEmbeddedInkShape({
+            stableKey: created!.stableKey,
+            x: created!.x,
+            y: created!.y,
+            width: created!.width,
+            height: created!.height,
+            color: created!.color,
+            opacity: created!.opacity,
+            strokeWidth: created!.strokeWidth,
+            points: created!.points,
+            strokes: created!.strokes,
+        });
+
+        shapes.primePersistedShapes([importedEmbeddedInkShape]);
+        expect(shapes.getShapeById(created!.id)?.source).toBe('embedded');
+
+        shapes.restoreShapeStateSnapshot(snapshot);
+
+        expect(shapes.getShapeById(created!.id)).toMatchObject({
+            id: created!.id,
+            source: 'local',
+            stableKey: created!.stableKey,
+        });
+        expect(shapes.hasShapes.value).toBe(true);
+    });
+
+    it('marks the current shapes as the saved baseline and clears deleted embedded tombstones', () => {
+        const shapes = useAnnotationShapes();
+        const firstEmbeddedInkShape = createEmbeddedInkShape();
+        const secondEmbeddedInkShape = createEmbeddedInkShape({
+            id: 'embedded-ink-2',
+            annotationId: '22R',
+            stableKey: 'evb-shape:embedded-ink-2',
+            color: '#22c55e',
+            x: 0.4,
+            y: 0.28,
+            width: 0.2,
+            height: 0.16,
+            points: [
+                {
+                    x: 0.4,
+                    y: 0.28,
+                },
+                {
+                    x: 0.5,
+                    y: 0.34,
+                },
+                {
+                    x: 0.6,
+                    y: 0.44,
+                },
+            ],
+            strokes: [[
+                {
+                    x: 0.4,
+                    y: 0.28,
+                },
+                {
+                    x: 0.5,
+                    y: 0.34,
+                },
+                {
+                    x: 0.6,
+                    y: 0.44,
+                },
+            ]],
+        });
+
+        shapes.loadShapes([
+            firstEmbeddedInkShape,
+            secondEmbeddedInkShape,
+        ]);
+        shapes.deleteShape(firstEmbeddedInkShape.id);
+
+        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
+        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual(['evb-shape:embedded-ink-1']);
+        expect(shapes.hasShapes.value).toBe(true);
+
+        shapes.markSavedShapeState();
+
+        expect(shapes.getAllShapes()).toEqual([secondEmbeddedInkShape]);
         expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
         expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
         expect(shapes.hasShapes.value).toBe(false);

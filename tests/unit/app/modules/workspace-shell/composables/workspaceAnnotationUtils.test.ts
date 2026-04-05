@@ -12,20 +12,47 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import {
     createSerializeCurrentPdfForEmbeddedFallback,
     hasAnnotationChanges,
+    hasViewerShapeChanges,
 } from '@app/modules/workspace-shell/composables/workspace-annotation-utils';
 
+describe('hasViewerShapeChanges', () => {
+    it('unwraps ref-backed viewer shape state', () => {
+        expect(hasViewerShapeChanges({ hasShapes: ref(true) })).toBe(true);
+        expect(hasViewerShapeChanges({ hasShapes: ref(false) })).toBe(false);
+    });
+
+    it('falls back to plain booleans and null viewers', () => {
+        expect(hasViewerShapeChanges({ hasShapes: true })).toBe(true);
+        expect(hasViewerShapeChanges({ hasShapes: false })).toBe(false);
+        expect(hasViewerShapeChanges(null)).toBe(false);
+    });
+});
+
 describe('hasAnnotationChanges', () => {
-    it('returns true when viewer reports shapes', () => {
+    it('returns true when viewer reports shape changes through a ref', () => {
         const result = hasAnnotationChanges({
             pdfViewerRef: ref({
                 saveDocument: async () => new Uint8Array([]),
-                hasShapes: true,
+                hasShapes: ref(true),
                 getAllShapes: () => [],
             }),
             pdfDocument: shallowRef(null),
         });
 
         expect(result).toBe(true);
+    });
+
+    it('returns false when viewer shape ref is false', () => {
+        const result = hasAnnotationChanges({
+            pdfViewerRef: ref({
+                saveDocument: async () => new Uint8Array([]),
+                hasShapes: ref(false),
+                getAllShapes: () => [],
+            }),
+            pdfDocument: shallowRef(null),
+        });
+
+        expect(result).toBe(false);
     });
 
     it('returns true when annotation storage has modified ids', () => {

@@ -8,6 +8,7 @@ import {
     refreshDeletedEmbeddedShapePage,
     removeEmbeddedShapeAnnotationDom,
     rerenderRenderedManagedEmbeddedShapePages,
+    shouldRefreshManagedShapePage,
 } from '@app/composables/pdf/pdfEmbeddedShapeRefresh';
 
 interface IFakeAnnotationElement {
@@ -121,6 +122,33 @@ describe('removeEmbeddedShapeAnnotationDom', () => {
         expect(viewerContainer.popups[0]?.remove).toHaveBeenCalledOnce();
         expect(viewerContainer.elements[1]?.remove).not.toHaveBeenCalled();
         expect(viewerContainer.popups[1]?.remove).not.toHaveBeenCalled();
+    });
+});
+
+describe('shouldRefreshManagedShapePage', () => {
+    it('refreshes pages in the active render window even when render bookkeeping is stale', () => {
+        expect(shouldRefreshManagedShapePage({
+            pageNumber: 6,
+            visibleRange: {
+                start: 5,
+                end: 5,
+            },
+            renderBuffer: 1,
+            isPageRendered: () => false,
+        })).toBe(true);
+    });
+
+    it('refreshes pages with mounted canvas dom even when they are not marked rendered', () => {
+        expect(shouldRefreshManagedShapePage({
+            pageNumber: 9,
+            visibleRange: {
+                start: 1,
+                end: 1,
+            },
+            renderBuffer: 0,
+            isPageRendered: () => false,
+            hasRenderedCanvasDom: (pageNumber) => pageNumber === 9,
+        })).toBe(true);
     });
 });
 

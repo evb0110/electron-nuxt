@@ -9,7 +9,7 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 
 interface IWorkspacePdfViewerForAnnotationUtils {
     saveDocument: () => Promise<Uint8Array | null>;
-    hasShapes?: boolean;
+    hasShapes?: boolean | Ref<boolean>;
     getAllShapes: () => IShapeAnnotation[];
 }
 
@@ -30,6 +30,12 @@ interface ISerializeEmbeddedFallbackDeps {
 interface IHasAnnotationChangesDeps {
     pdfViewerRef: Ref<IWorkspacePdfViewerForAnnotationUtils | null>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
+}
+
+export function hasViewerShapeChanges(
+    viewer: Pick<IWorkspacePdfViewerForAnnotationUtils, 'hasShapes'> | null | undefined,
+) {
+    return Boolean(unref(viewer?.hasShapes ?? false));
 }
 
 export function createSerializeCurrentPdfForEmbeddedFallback(deps: ISerializeEmbeddedFallbackDeps) {
@@ -55,7 +61,7 @@ export function createSerializeCurrentPdfForEmbeddedFallback(deps: ISerializeEmb
 }
 
 export function hasAnnotationChanges(deps: IHasAnnotationChangesDeps) {
-    if (deps.pdfViewerRef.value?.hasShapes) {
+    if (hasViewerShapeChanges(deps.pdfViewerRef.value)) {
         return true;
     }
 

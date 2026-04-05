@@ -44,6 +44,7 @@ interface IPageRange {
 interface IUsePdfViewerCoreOptions {
     viewerContainer: Ref<HTMLElement | null>;
     src: ComputedRef<TPdfSource | null>;
+    isAnySaving?: ComputedRef<boolean>;
     zoom: ComputedRef<number>;
     zoomMode: ComputedRef<TZoomMode>;
     fitMode: ComputedRef<TFitMode>;
@@ -121,6 +122,10 @@ interface IUsePdfViewerCoreOptions {
     isZoomGestureSessionLocked?: () => boolean;
     setZoomRerenderBusy?: (busy: boolean) => void;
     setResizeTransitionVisible?: (payload: IResizeTransitionSignal) => void;
+    onDocumentLoadStateChange?: (payload: {
+        token: number;
+        phase: 'started' | 'settled';
+    }) => void;
     pinCurrentPageDuringRecovery: (
         page: number,
         options?: {
@@ -290,6 +295,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
     } = usePdfViewerRenderStallRecovery({
         src,
         isLoading,
+        isAnySaving: options.isAnySaving,
         numPages,
         currentPage,
         visibleRange,
@@ -427,6 +433,7 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         suppressNextZoomRerender,
         beginVisualReloadTransition,
         endVisualReloadTransition,
+        onDocumentLoadStateChange: options.onDocumentLoadStateChange,
         emit,
     });
     const {

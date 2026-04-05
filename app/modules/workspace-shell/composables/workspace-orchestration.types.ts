@@ -3,6 +3,10 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import type {
+    ComputedRef,
+    Ref,
+} from 'vue';
 import type { ICropSelectionResult } from '@app/types/crop';
 import type { IScrollSnapshot } from '@app/types/pdf';
 
@@ -21,6 +25,8 @@ export interface IPdfViewerExpose {
     startCropSelection: () => Promise<ICropSelectionResult | null>;
     cancelCropSelection: () => void;
     isCropSelecting: boolean;
+    preparePersistedManagedShapesForSave?: (data: Uint8Array) => Promise<unknown>;
+    restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
     saveDocument: () => Promise<Uint8Array | null>;
     highlightSelection: () => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
@@ -43,13 +49,14 @@ export interface IPdfViewerExpose {
     removeAnnotationFromInternalCache: (stableKey: string) => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
     getAllShapes: () => IShapeAnnotation[];
+    markSavedShapeState?: () => void;
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
     loadShapes: (shapes: IShapeAnnotation[]) => void;
     clearShapes: () => void;
     clearSelectedShape: () => void;
     deleteSelectedShape: () => void;
-    hasShapes: boolean;
+    hasShapes: boolean | Ref<boolean> | ComputedRef<boolean>;
     selectedShapeId: string | null;
     updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
     getSelectedShape: () => IShapeAnnotation | null;

@@ -261,8 +261,23 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
     const activeTool = await getActiveToolLabel(page);
 
     const updated = await page.evaluate((targetColor: string) => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
-            ?? null;
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 100
+                && rect.height > 100
+            );
+        };
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter(isVisibleHost);
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && visibleHosts.includes(activeHost))
+            ? activeHost
+            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
         const swatches = Array.from(host?.querySelectorAll<HTMLButtonElement>('.notes-panel .swatch') ?? []);
         const normalise = (c: string) => c.toLowerCase().trim();
         const swatch = swatches.find((btn) => normalise(btn.title) === normalise(targetColor));
@@ -289,8 +304,23 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
 
 export async function getActiveToolLabel(page: Page) {
     return page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host')
-            ?? null;
+        const isVisibleHost = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return (
+                style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 100
+                && rect.height > 100
+            );
+        };
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
+            .filter(isVisibleHost);
+        const activeHost = document.querySelector<HTMLElement>('.editor-group-pane.is-active .workspace-host');
+        const host = (activeHost && visibleHosts.includes(activeHost))
+            ? activeHost
+            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
         return host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null;
     });
 }
