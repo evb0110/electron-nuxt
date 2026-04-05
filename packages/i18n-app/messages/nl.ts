@@ -410,6 +410,7 @@ export default {
         }),
         'noResults': 'Geen resultaten gevonden',
         'noResultsHint': 'Probeer een andere term of pas de zoekopties aan.',
+        'unavailable': 'Zoeken niet beschikbaar',
         'resultCount': plural({
             one: '{count} resultaat',
             other: '{count} resultaten',
@@ -675,6 +676,10 @@ export default {
             'open': 'Kan bestand niet openen',
             'invalid': 'Ongeldig of niet-bestaand bestand',
             'save': 'Kan bestand niet opslaan',
+        },
+        'search': {
+            'browserTooLarge': 'Zoeken is in de browser niet beschikbaar voor zeer grote documenten.',
+            'unavailable': 'Zoeken is momenteel niet beschikbaar voor dit document.',
         },
         'ocr': {
             'loadLanguages': 'Kan talen niet laden',

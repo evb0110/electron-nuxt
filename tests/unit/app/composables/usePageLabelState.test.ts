@@ -73,6 +73,30 @@ describe('usePageLabelState', () => {
         expect(state.pageLabelsDirty.value).toBe(false);
     });
 
+    it('collapses implicit default labels to null when the document exposes numeric labels', async () => {
+        const markDirty = vi.fn();
+        const pdfDocument = createPdfDocumentRef(3, async () => [
+            '1',
+            '2',
+            '3',
+        ]);
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(3),
+            markDirty,
+        });
+
+        await state.syncPageLabelsFromDocument(pdfDocument.value);
+
+        expect(state.pageLabels.value).toBeNull();
+        expect(state.pageLabelRanges.value).toEqual([{
+            startPage: 1,
+            style: 'D',
+            prefix: '',
+            startNumber: 1,
+        }]);
+    });
+
     it('marks dirty only when label ranges actually change', () => {
         const markDirty = vi.fn();
         const onPageLabelsDirty = vi.fn();
@@ -100,6 +124,24 @@ describe('usePageLabelState', () => {
         state.handlePageLabelRangesUpdate(ranges);
         expect(markDirty).not.toHaveBeenCalled();
         expect(onPageLabelsDirty).not.toHaveBeenCalled();
+    });
+
+    it('collapses default numbering edits back to null labels', () => {
+        const state = usePageLabelState({
+            pdfDocument: cast<Ref<PDFDocumentProxy | null>>(ref(null)),
+            totalPages: ref(4),
+            markDirty: vi.fn(),
+        });
+
+        state.handlePageLabelRangesUpdate([{
+            startPage: 1,
+            style: 'D',
+            prefix: '',
+            startNumber: 1,
+        }]);
+
+        expect(state.pageLabels.value).toBeNull();
+        expect(state.pageLabelsDirty.value).toBe(false);
     });
 
     it('invokes sync and save callbacks when labels rebaseline', async () => {

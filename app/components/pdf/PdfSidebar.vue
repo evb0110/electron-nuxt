@@ -130,6 +130,7 @@
                         :search-options="searchOptions"
                         :page-labels="pageLabels"
                         :is-searching="isSearching"
+                        :search-error="props.searchError"
                         :search-progress="props.searchProgress"
                         :is-truncated="props.isTruncated"
                         :min-query-length="props.minQueryLength"
@@ -177,6 +178,7 @@ interface IProps {
     searchOptions: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>;
     totalMatches: number;
     isSearching: boolean;
+    searchError?: string | null;
     searchProgress?: {
         processed: number;
         total: number;

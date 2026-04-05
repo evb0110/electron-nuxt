@@ -5,6 +5,7 @@ import type { IPdfPageLabelRange } from '@app/types/pdf';
 import {
     buildPageLabelsFromRanges,
     derivePageLabelRangesFromLabels,
+    isImplicitDefaultPageLabels,
     normalizePageLabelRanges,
 } from '@app/utils/pdf-page-labels';
 import { BrowserLogger } from '@app/utils/browser-logger';
@@ -31,6 +32,22 @@ export const usePageLabelState = (deps: {
     const pageLabelRanges = ref<IPdfPageLabelRange[]>([]);
     const pageLabelsDirty = ref(false);
 
+    function materializePageLabels(
+        totalPagesValue: number,
+        ranges: IPdfPageLabelRange[],
+        labels: string[] | null = null,
+    ) {
+        if (totalPagesValue <= 0 || isImplicitDefaultPageLabels(ranges, totalPagesValue)) {
+            return null;
+        }
+
+        if (labels && labels.length === totalPagesValue) {
+            return labels;
+        }
+
+        return buildPageLabelsFromRanges(totalPagesValue, ranges);
+    }
+
     async function syncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
         if (!doc) {
             pageLabels.value = null;
@@ -53,11 +70,12 @@ export const usePageLabelState = (deps: {
             labels = null;
         }
 
-        pageLabels.value = labels;
-        pageLabelRanges.value = derivePageLabelRangesFromLabels(
+        const nextRanges = derivePageLabelRangesFromLabels(
             labels,
             doc.numPages,
         );
+        pageLabelRanges.value = nextRanges;
+        pageLabels.value = materializePageLabels(doc.numPages, nextRanges, labels);
         pageLabelsDirty.value = false;
         onPageLabelsSynchronized?.();
     }
@@ -82,7 +100,7 @@ export const usePageLabelState = (deps: {
             return;
         }
         pageLabelRanges.value = normalized;
-        pageLabels.value = buildPageLabelsFromRanges(totalPages.value, normalized);
+        pageLabels.value = materializePageLabels(totalPages.value, normalized);
         pageLabelsDirty.value = true;
         markDirty();
         onPageLabelsDirty?.();

@@ -29,6 +29,7 @@ export type {
 };
 
 export const usePdfSearch = () => {
+    const { t } = useTypedI18n();
     const analytics = useAnalytics();
     const searchQuery = ref('');
     const searchOptions = ref<Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>>({
@@ -40,6 +41,7 @@ export const usePdfSearch = () => {
     const pageMatches = ref<Map<number, IPdfPageMatches>>(new Map());
     const currentResultIndex = ref(-1);
     const isSearching = ref(false);
+    const searchError = ref<string | null>(null);
     const searchProgress = ref<{
         processed: number;
         total: number 
@@ -61,12 +63,45 @@ export const usePdfSearch = () => {
         return null;
     });
 
+    function buildPageMatchSignatureToken(pageMatchData: IPdfPageMatches) {
+        let hash = 2166136261;
+        const mix = (value: number) => {
+            hash ^= value >>> 0;
+            hash = Math.imul(hash, 16777619);
+        };
+
+        mix(pageMatchData.pageIndex);
+        mix(pageMatchData.searchQuery.length);
+        mix(pageMatchData.searchOptions?.matchCase ? 1 : 0);
+        mix(pageMatchData.searchOptions?.wholeWord ? 1 : 0);
+        mix(pageMatchData.searchOptions?.useRegex ? 1 : 0);
+        mix(pageMatchData.matches.length);
+
+        pageMatchData.matches.forEach((match) => {
+            mix(match.matchIndex);
+            mix(match.start);
+            mix(match.end);
+            mix(Math.round(match.pageWidth ?? 0));
+            mix(Math.round(match.pageHeight ?? 0));
+            mix(match.words?.length ?? 0);
+        });
+
+        return `${pageMatchData.pageIndex}:${pageMatchData.matches.length}:${hash >>> 0}`;
+    }
+
     function cleanupProgressListener() {
         if (progressCleanup) {
             progressCleanup();
             progressCleanup = null;
         }
         searchProgress.value = undefined;
+    }
+
+    function normalizeSearchError(error: unknown) {
+        if (error instanceof Error && error.message === 'ERR_BROWSER_SEARCH_TOO_LARGE') {
+            return t('errors.search.browserTooLarge');
+        }
+        return t('errors.search.unavailable');
     }
 
     const debouncedPerformSearch = useDebounceFn(async (payload: {
@@ -90,12 +125,19 @@ export const usePdfSearch = () => {
                 payload.requestedAt,
             );
         } catch (error) {
+            if (payload.runId === searchRunId) {
+                searchError.value = normalizeSearchError(error);
+                results.value = [];
+                pageMatches.value = new Map();
+                currentResultIndex.value = -1;
+                isTruncated.value = false;
+            }
             BrowserLogger.warn('pdf-search', 'Search failed', {
                 query: payload.query,
                 error,
             });
         } finally {
-            resolver?.(payload.runId === searchRunId);
+            resolver?.(payload.runId === searchRunId && !searchError.value);
         }
     }, SEARCH_DEBOUNCE_MS);
 
@@ -145,6 +187,7 @@ export const usePdfSearch = () => {
         try {
             isSearching.value = true;
             isTruncated.value = false;
+            searchError.value = null;
             results.value = [];
             pageMatches.value = new Map();
             currentResultIndex.value = -1;
@@ -252,6 +295,10 @@ export const usePdfSearch = () => {
                 ),
             );
 
+            matchesMap.forEach((pageMatchData) => {
+                pageMatchData.signatureToken = buildPageMatchSignatureToken(pageMatchData);
+            });
+
             results.value = mergedResults;
             pageMatches.value = matchesMap;
             isTruncated.value = response.truncated;
@@ -314,6 +361,7 @@ export const usePdfSearch = () => {
         if (trimmedQuery.length < MIN_QUERY_LENGTH) {
             isSearching.value = false;
             isTruncated.value = false;
+            searchError.value = null;
             results.value = [];
             pageMatches.value = new Map();
             currentResultIndex.value = -1;
@@ -324,6 +372,7 @@ export const usePdfSearch = () => {
         // waiting for the debounce window / backend response.
         isSearching.value = true;
         isTruncated.value = false;
+        searchError.value = null;
 
         return new Promise<boolean>((resolve) => {
             scheduledResolve = resolve;
@@ -375,6 +424,7 @@ export const usePdfSearch = () => {
         cleanupProgressListener();
         isSearching.value = false;
         searchQuery.value = '';
+        searchError.value = null;
         results.value = [];
         pageMatches.value = new Map();
         currentResultIndex.value = -1;
@@ -415,6 +465,7 @@ export const usePdfSearch = () => {
         currentResultIndex,
         currentResult,
         isSearching,
+        searchError,
         searchProgress,
         totalMatches,
         currentMatch,

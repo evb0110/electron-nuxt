@@ -209,6 +209,7 @@
                     :current-result-index="currentResultIndex"
                     :total-matches="totalMatches"
                     :is-searching="isSearching"
+                    :search-error="searchError"
                     :search-progress="searchProgress"
                     :is-truncated="isTruncated"
                     :min-query-length="minQueryLength"
@@ -641,6 +642,7 @@ const {
     currentResultIndex,
     currentResult,
     isSearching,
+    searchError,
     totalMatches,
     searchProgress,
     isTruncated,

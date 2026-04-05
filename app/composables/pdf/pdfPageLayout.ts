@@ -8,13 +8,16 @@ export interface IPdfPageLayoutMetrics {
     gap: number;
     paddingTop: number;
     paddingBottom: number;
+    maxPageHeight: number;
     pageWidths: number[];
     pageHeights: number[];
+    pageHeightPrefixSums: number[];
     pageTops: number[];
     pageRowIndices: number[];
     rowStartPages: number[];
     rowEndPages: number[];
     rowHeights: number[];
+    rowHeightPrefixSums: number[];
     contentHeight: number;
 }
 
@@ -171,24 +174,37 @@ export function buildPageLayoutMetrics(options: {
         : safePaddingTop;
     const pageWidths = metrics.map(metric => metric.width * scale);
     const pageHeights = metrics.map(metric => metric.height * scale);
+    const pageHeightPrefixSums: number[] = Array.from({ length: totalPages }, () => 0);
     const pageTops: number[] = [];
     const pageRowIndices: number[] = Array.from({ length: totalPages }, () => 0);
     const rowStartPages: number[] = [];
     const rowEndPages: number[] = [];
     const rowHeights: number[] = [];
+    const rowHeightPrefixSums: number[] = [];
+    let maxPageHeight = 0;
+
+    for (let index = 0; index < pageHeights.length; index += 1) {
+        const height = pageHeights[index] ?? 0;
+        pageHeightPrefixSums[index] = height + (pageHeightPrefixSums[index - 1] ?? 0);
+        maxPageHeight = Math.max(maxPageHeight, height);
+    }
 
     let offset = safePaddingTop;
     let rowIndex = 0;
     for (let pageNumber = 1; pageNumber <= totalPages;) {
         const rowStartPage = pageNumber;
         const rowPages = getSpreadRowPages(pageNumber, viewMode, totalPages);
-        const rowHeight = Math.max(
-            ...rowPages.map((rowPage) => pageHeights[rowPage - 1] ?? 0),
-        );
+        let rowHeight = 0;
+        for (const rowPage of rowPages) {
+            rowHeight = Math.max(rowHeight, pageHeights[rowPage - 1] ?? 0);
+        }
 
         rowStartPages.push(rowStartPage);
         rowEndPages.push(rowPages[rowPages.length - 1] ?? rowStartPage);
         rowHeights.push(rowHeight);
+        rowHeightPrefixSums.push(
+            rowHeight + (rowHeightPrefixSums[rowHeightPrefixSums.length - 1] ?? 0),
+        );
 
         for (const rowPage of rowPages) {
             pageTops[rowPage - 1] = offset;
@@ -211,13 +227,16 @@ export function buildPageLayoutMetrics(options: {
         gap: safeGap,
         paddingTop: safePaddingTop,
         paddingBottom: safePaddingBottom,
+        maxPageHeight,
         pageWidths,
         pageHeights,
+        pageHeightPrefixSums,
         pageTops,
         pageRowIndices,
         rowStartPages,
         rowEndPages,
         rowHeights,
+        rowHeightPrefixSums,
         contentHeight: offset,
     };
 }
@@ -239,9 +258,7 @@ export function getLeadingSpacerHeight(
         return 0;
     }
 
-    return layout.pageHeights
-        .slice(0, clampedHiddenPages)
-        .reduce((sum, height) => sum + height, 0)
+    return (layout.pageHeightPrefixSums[clampedHiddenPages - 1] ?? 0)
         + Math.max(0, clampedHiddenPages - 1) * layout.gap;
 }
 
@@ -259,9 +276,7 @@ export function getLeadingSpacerHeightForPage(
         return 0;
     }
 
-    return layout.rowHeights
-        .slice(0, rowIndex)
-        .reduce((sum, height) => sum + height, 0)
+    return (layout.rowHeightPrefixSums[rowIndex - 1] ?? 0)
         + Math.max(0, rowIndex - 1) * layout.gap;
 }
 
@@ -274,9 +289,10 @@ export function getTrailingSpacerHeight(
         return 0;
     }
 
-    return layout.pageHeights
-        .slice(layout.totalPages - clampedHiddenPages)
-        .reduce((sum, height) => sum + height, 0)
+    return (
+        (layout.pageHeightPrefixSums[layout.totalPages - 1] ?? 0)
+        - (layout.pageHeightPrefixSums[layout.totalPages - clampedHiddenPages - 1] ?? 0)
+    )
         + Math.max(0, clampedHiddenPages - 1) * layout.gap;
 }
 
@@ -295,9 +311,10 @@ export function getTrailingSpacerHeightForPage(
     }
 
     const hiddenRows = Math.max(0, layout.rowHeights.length - rowIndex - 1);
-    return layout.rowHeights
-        .slice(rowIndex + 1)
-        .reduce((sum, height) => sum + height, 0)
+    return (
+        (layout.rowHeightPrefixSums[layout.rowHeightPrefixSums.length - 1] ?? 0)
+        - (layout.rowHeightPrefixSums[rowIndex] ?? 0)
+    )
         + Math.max(0, hiddenRows - 1) * layout.gap;
 }
 

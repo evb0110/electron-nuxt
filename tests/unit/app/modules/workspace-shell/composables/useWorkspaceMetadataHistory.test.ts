@@ -4,7 +4,10 @@ import {
     it,
 } from 'vitest';
 import { ref } from 'vue';
-import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
+import {
+    MAX_WORKSPACE_METADATA_HISTORY_ENTRIES,
+    useWorkspaceMetadataHistory,
+} from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
@@ -21,6 +24,7 @@ function createHistory() {
         startNumber: 1,
     }]);
     const pageLabelsDirty = ref(false);
+    const totalPages = ref(1);
 
     return {
         bookmarkItems,
@@ -28,12 +32,14 @@ function createHistory() {
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
+        totalPages,
         history: useWorkspaceMetadataHistory({
             bookmarkItems,
             bookmarksDirty,
             pageLabels,
             pageLabelRanges,
             pageLabelsDirty,
+            totalPages,
         }),
     };
 }
@@ -82,6 +88,7 @@ describe('useWorkspaceMetadataHistory', () => {
             prefix: '',
             startNumber: 1,
         }]);
+        expect(pageLabels.value).toBeNull();
         expect(bookmarkItems.value).toEqual([{
             title: 'Chapter 1',
             pageIndex: 0,
@@ -108,5 +115,38 @@ describe('useWorkspaceMetadataHistory', () => {
             color: null,
             items: [],
         }]);
+    });
+
+    it('caps metadata history while preserving the baseline snapshot', () => {
+        const {
+            bookmarkItems,
+            bookmarksDirty,
+            history,
+        } = createHistory();
+
+        history.resetToCurrentState();
+
+        for (let index = 0; index < MAX_WORKSPACE_METADATA_HISTORY_ENTRIES + 10; index += 1) {
+            bookmarkItems.value = [{
+                title: `Bookmark ${index + 1}`,
+                pageIndex: index,
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            }];
+            history.recordCurrentState();
+        }
+
+        let undoCount = 0;
+        while (history.undoMetadata()) {
+            undoCount += 1;
+        }
+
+        expect(undoCount).toBe(MAX_WORKSPACE_METADATA_HISTORY_ENTRIES - 1);
+        expect(bookmarkItems.value).toEqual([]);
+        expect(bookmarksDirty.value).toBe(false);
+        expect(history.canUndoMetadata.value).toBe(false);
     });
 });

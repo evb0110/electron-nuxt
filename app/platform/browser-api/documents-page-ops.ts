@@ -76,10 +76,17 @@ const BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES = 128 * 1024 * 1024;
 const BROWSER_PAGE_OP_INSERT_MAX_BYTES = BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES;
 const BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES = 128 * 1024 * 1024;
 const BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES = 64 * 1024 * 1024;
+const BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES = 96 * 1024 * 1024;
 
 function buildBrowserPageOpLimitError(label: string, maxBytes: number) {
     return new Error(
         `${label} is unavailable in the browser for PDFs larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`,
+    );
+}
+
+function buildBrowserPageOpJobLimitError(label: string, maxBytes: number) {
+    return new Error(
+        `${label} is unavailable in the browser for jobs larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`,
     );
 }
 
@@ -109,6 +116,18 @@ export function createBrowserPageOps(
                 throw buildBrowserPageOpLimitError(label, BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES);
             }
         }
+    }
+
+    async function getCombinedInputBytes(paths: string[]) {
+        let totalBytes = 0;
+        for (let index = 0; index < paths.length; index += 1) {
+            if (index > 0) {
+                await yieldToBrowser();
+            }
+            const { size } = await browserDocumentStore.stat(paths[index]!);
+            totalBytes += size;
+        }
+        return totalBytes;
     }
 
     async function readWorkingCopyBytes(path: string) {
@@ -243,16 +262,25 @@ export function createBrowserPageOps(
                 }
             }
 
+            const normalizedFileName = ensurePdfExtension(saveTarget.fileName);
             const destPath = await browserDocumentStore.createStoredDocument(
-                ensurePdfExtension(saveTarget.fileName),
-                outputBytes,
+                normalizedFileName,
+                saveTarget.handle ? new Uint8Array() : outputBytes,
                 {
                     mimeType: 'application/pdf',
                     saveKind: 'pdf',
                     kind: 'source',
                     saveHandle: saveTarget.handle,
+                    storageMode: saveTarget.handle ? 'handle' : undefined,
                 },
             );
+            if (saveTarget.handle) {
+                await browserDocumentStore.replaceWithHandleBackedDocument(destPath, {
+                    fileSize: outputBytes.byteLength,
+                    saveHandle: saveTarget.handle,
+                    saveName: normalizedFileName,
+                });
+            }
             await browserDocumentStore.touchRecentFile(destPath);
             return {
                 success: true,
@@ -327,7 +355,19 @@ export function createBrowserPageOps(
                 BROWSER_PAGE_OP_INSERT_MAX_BYTES,
             );
             await ensureCombinedInputsWithinBudget(sourcePaths, 'Inserting pages');
-            const { size } = await browserDocumentStore.stat(workingCopyPath);
+            const [
+                { size },
+                totalInputBytes,
+            ] = await Promise.all([
+                browserDocumentStore.stat(workingCopyPath),
+                getCombinedInputBytes(sourcePaths),
+            ]);
+            if (size + totalInputBytes > BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES) {
+                throw buildBrowserPageOpJobLimitError(
+                    'Inserting pages',
+                    BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES,
+                );
+            }
             const workerAvailable = canUseBrowserPageOpsWorker();
             if (
                 !workerAvailable
@@ -339,7 +379,10 @@ export function createBrowserPageOps(
                 );
             }
             const destinationData = await readWorkingCopyBytes(workingCopyPath);
-            const insertionData = await options.createCombinedPdfFromPaths(sourcePaths);
+            const insertionData = sourcePaths.length === 1
+                && /\.pdf$/iu.test(getBrowserDocumentFileName(sourcePaths[0]!))
+                ? await browserDocumentStore.read(sourcePaths[0]!)
+                : await options.createCombinedPdfFromPaths(sourcePaths);
 
             let result: IBrowserPageOpsWorkerResultMap['insertPages'];
             if (workerAvailable) {

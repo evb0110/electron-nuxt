@@ -21,6 +21,7 @@ const DOCUMENTS_STORE = 'documents';
 const DOCUMENT_CHUNKS_STORE = 'document-chunks';
 export const BROWSER_DOCUMENT_CHUNK_SIZE = 4 * 1024 * 1024;
 const BROWSER_INLINE_FILE_THRESHOLD_BYTES = 16 * 1024 * 1024;
+export const BROWSER_MAX_FULL_READ_BYTES = 64 * 1024 * 1024;
 const BROWSER_CHUNK_WRITE_YIELD_EVERY = 2;
 
 type TBrowserDocumentStorageMode =
@@ -219,6 +220,14 @@ function toPersistedDocumentRecord(
 
 function cloneBytes(data: Uint8Array) {
     return data.slice();
+}
+
+function buildBrowserDocumentFullReadError(fileName: string, fileSize: number) {
+    return new Error(
+        `Browser document is too large to load fully into memory (${fileName}: `
+        + `${Math.floor(fileSize / (1024 * 1024))}MB > `
+        + `${Math.floor(BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024))}MB limit)`,
+    );
 }
 
 function normalizePersistedWriteBytes(
@@ -515,14 +524,19 @@ export class BrowserDocumentStore {
     ): Promise<string> {
         await this.ensureMaintenance();
         const sourceBytes = toUint8Array(data);
-        const requestedStorageMode = options.storageMode ?? 'inline';
-        const storageMode = (
-            options.kind === 'source'
-            && requestedStorageMode === 'handle'
-            && sourceBytes.byteLength > 0
-        )
-            ? resolveByteBackedStorageMode(sourceBytes.byteLength)
-            : requestedStorageMode;
+        const requestedStorageMode =
+            options.storageMode ?? resolveByteBackedStorageMode(sourceBytes.byteLength);
+        const storageMode = requestedStorageMode === 'source-proxy'
+            ? 'source-proxy'
+            : requestedStorageMode === 'handle'
+                ? (
+                    sourceBytes.byteLength > 0
+                        ? resolveByteBackedStorageMode(sourceBytes.byteLength)
+                        : 'handle'
+                )
+                : requestedStorageMode === 'inline'
+                    ? resolveByteBackedStorageMode(sourceBytes.byteLength)
+                    : requestedStorageMode;
         const bytes = storageMode === 'inline'
             ? cloneBytes(sourceBytes)
             : new Uint8Array();
@@ -565,6 +579,82 @@ export class BrowserDocumentStore {
             sourceRef,
             saveKind: 'pdf',
             storageMode: 'source-proxy',
+        });
+    }
+
+    public async cloneStoredDocument(
+        sourceRef: string,
+        options: {
+            fileName?: string;
+            kind?: IBrowserDocumentEntry['kind'];
+            retention?: IBrowserDocumentEntry['retention'];
+            sourceRef?: string;
+            saveKind?: IBrowserDocumentEntry['saveKind'];
+            saveHandle?: FileSystemFileHandle | null;
+        } = {},
+    ): Promise<string> {
+        const sourceEntry = await this.requireEntry(sourceRef);
+        const nextName = options.fileName ?? sourceEntry.fileName;
+        const nextKind = options.kind ?? sourceEntry.kind;
+        const nextRetention = options.retention ?? defaultRetentionForKind(nextKind);
+        const nextSaveKind = options.saveKind ?? sourceEntry.saveKind;
+        const nextSaveHandle = options.saveHandle ?? null;
+        const nextSourceRef = options.sourceRef;
+
+        if (sourceEntry.storageMode === 'chunked') {
+            const ref = createBrowserDocumentRef(nextName);
+            const entry: IBrowserDocumentEntry = {
+                ref,
+                fileName: nextName,
+                mimeType: sourceEntry.mimeType,
+                kind: nextKind,
+                retention: nextRetention,
+                sourceRef: nextSourceRef,
+                data: new Uint8Array(),
+                fileSize: sourceEntry.fileSize,
+                updatedAt: Date.now(),
+                pendingLoad: null,
+                saveName: nextName,
+                saveKind: nextSaveKind,
+                saveHandle: nextSaveHandle,
+                storageMode: 'chunked',
+                chunkCount: 0,
+                chunkSize: sourceEntry.chunkSize,
+            };
+
+            this.entries.set(ref, entry);
+            await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+
+            for (let index = 0; index < sourceEntry.chunkCount; index += 1) {
+                const chunk = await this.loadChunk(sourceEntry.ref, index);
+                if (!chunk) {
+                    throw new Error(`Browser document chunk missing: ${sourceEntry.ref}#${index}`);
+                }
+                await persistChunkRecord({
+                    key: createChunkKey(ref, index),
+                    ref,
+                    index,
+                    data: cloneBytes(chunk),
+                });
+                entry.chunkCount = index + 1;
+                entry.updatedAt = Date.now();
+                await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+                if (entry.chunkCount % BROWSER_CHUNK_WRITE_YIELD_EVERY === 0) {
+                    await yieldToBrowser();
+                }
+            }
+
+            return ref;
+        }
+
+        const bytes = await this.readEntryBytes(sourceEntry);
+        return this.createStoredDocument(nextName, bytes, {
+            mimeType: sourceEntry.mimeType,
+            kind: nextKind,
+            retention: nextRetention,
+            sourceRef: nextSourceRef,
+            saveKind: nextSaveKind,
+            saveHandle: nextSaveHandle,
         });
     }
 
@@ -617,6 +707,9 @@ export class BrowserDocumentStore {
 
     public async read(ref: string): Promise<Uint8Array> {
         const entry = await this.requireEntry(ref);
+        if (entry.fileSize > BROWSER_MAX_FULL_READ_BYTES) {
+            throw buildBrowserDocumentFullReadError(entry.fileName, entry.fileSize);
+        }
         return this.readEntryBytes(entry);
     }
 
@@ -656,20 +749,27 @@ export class BrowserDocumentStore {
         const bytes = options.unloadAfterPersist
             ? normalizePersistedWriteBytes(data, false)
             : normalizePersistedWriteBytes(data);
+        const nextStorageMode = resolveByteBackedStorageMode(bytes.byteLength);
         await this.clearExternalStorage(entry);
-        entry.storageMode = 'inline';
+        entry.storageMode = nextStorageMode;
         entry.chunkCount = 0;
         entry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
         entry.fileSize = bytes.byteLength;
         entry.updatedAt = Date.now();
-        await persistRecord(this.toPersistedRecord(entry, bytes, false));
+
+        if (nextStorageMode === 'chunked') {
+            entry.data = new Uint8Array();
+            await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+            await this.consumeBytesIntoChunkedEntry(entry, bytes);
+        } else {
+            await persistRecord(this.toPersistedRecord(entry, bytes, false));
+            entry.data = bytes;
+        }
 
         if (options.unloadAfterPersist) {
             this.entries.delete(ref);
             return true;
         }
-
-        entry.data = bytes;
         return true;
     }
 

@@ -410,6 +410,7 @@ export default {
         }),
         'noResults': 'No results found',
         'noResultsHint': 'Try a different term or adjust the search options.',
+        'unavailable': 'Search unavailable',
         'resultCount': plural({
             one: '{count} result',
             other: '{count} results',
@@ -675,6 +676,10 @@ export default {
             'open': 'Failed to open file',
             'invalid': 'Invalid or non-existent file',
             'save': 'Failed to save file',
+        },
+        'search': {
+            'browserTooLarge': 'Search is unavailable in the browser for very large documents.',
+            'unavailable': 'Search is currently unavailable for this document.',
         },
         'ocr': {
             'loadLanguages': 'Failed to load languages',

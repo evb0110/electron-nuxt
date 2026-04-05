@@ -25,6 +25,12 @@
             :description="t('searchResults.enterSearchHint')"
         />
         <PdfPanelEmptyState
+            v-else-if="!isSearching && searchError"
+            icon="i-lucide-triangle-alert"
+            :title="t('searchResults.unavailable')"
+            :description="searchError"
+        />
+        <PdfPanelEmptyState
             v-else-if="!isSearching && results.length === 0"
             icon="i-lucide-search-x"
             :title="t('searchResults.noResults')"
@@ -106,6 +112,7 @@ interface IProps {
     };
     pageLabels?: string[] | null;
     isSearching?: boolean;
+    searchError?: string | null;
     searchProgress?: {
         processed: number;
         total: number;

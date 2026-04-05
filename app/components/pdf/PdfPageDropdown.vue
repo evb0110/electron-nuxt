@@ -149,16 +149,14 @@ const showStepButtons = computed(() => effectiveCompactLevel.value < 3);
 const showTotalInDisplay = computed(() => effectiveCompactLevel.value < 2);
 const hasPages = computed(() => totalPages > 0);
 
-const effectivePageLabels = computed(() => {
-    if (pageLabels && pageLabels.length === totalPages) {
-        return pageLabels;
-    }
-
-    return Array.from({ length: totalPages }, (_, index) => String(index + 1));
-});
+const effectivePageLabels = computed(() =>
+    pageLabels && pageLabels.length === totalPages
+        ? pageLabels
+        : null,
+);
 
 function getCurrentInputLabel() {
-    const label = effectivePageLabels.value[currentPage - 1] ?? '';
+    const label = effectivePageLabels.value?.[currentPage - 1] ?? '';
     return label.trim() || currentPage.toString();
 }
 
@@ -177,7 +175,7 @@ const pageIndicatorParts = computed(() => {
         };
     }
 
-    const logical = effectivePageLabels.value[currentPage - 1]?.trim() ?? '';
+    const logical = effectivePageLabels.value?.[currentPage - 1]?.trim() ?? '';
     if (!logical || logical === String(currentPage)) {
         return {
             primary: String(currentPage),

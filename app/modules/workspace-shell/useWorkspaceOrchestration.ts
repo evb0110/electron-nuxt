@@ -131,6 +131,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         currentResultIndex,
         currentResult,
         isSearching,
+        searchError,
         totalMatches,
         searchProgress,
         isTruncated,
@@ -190,6 +191,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
+        totalPages,
     });
     metadataHistory.resetToCurrentState();
 
@@ -782,6 +784,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         currentResultIndex,
         currentResult,
         isSearching,
+        searchError,
         totalMatches,
         searchProgress,
         isTruncated,
