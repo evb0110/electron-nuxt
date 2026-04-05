@@ -7,6 +7,7 @@ import type { IPdfPageMetric } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
 import {
     buildPageLayoutMetrics,
+    getPageRowBoundsForViewMode,
     getLeadingSpacerHeightForPage,
     getPageRowBounds,
     getTrailingSpacerHeightForPage,
@@ -90,14 +91,6 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
         zoomVirtualizationFreeze,
     } = options;
 
-    const pageHeightEstimate = computed(() => {
-        const layout = pageLayout.value;
-        if (!layout) {
-            return 0;
-        }
-        return layout.maxPageHeight;
-    });
-
     let normalizedMetricsCacheKey = '';
     let normalizedMetricsCacheValue: IPdfPageMetric[] = [];
     const normalizedPageMetrics = computed(() => {
@@ -122,9 +115,23 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
         return normalizedMetricsCacheValue;
     });
 
+    const pageHeightEstimate = computed(() => {
+        let maxHeight = 0;
+        for (const metric of normalizedPageMetrics.value) {
+            maxHeight = Math.max(maxHeight, metric.height * effectiveScale.value);
+        }
+        return maxHeight;
+    });
+
     let pageLayoutCacheKey = '';
     let pageLayoutCacheValue: ReturnType<typeof buildPageLayoutMetrics> = null;
     const pageLayout = computed(() => {
+        if (!continuousScroll.value || numPages.value <= 0 || pageHeightEstimate.value <= 0) {
+            pageLayoutCacheKey = '';
+            pageLayoutCacheValue = null;
+            return null;
+        }
+
         const cacheKey = [
             pageMetricsVersion.value,
             numPages.value,
@@ -323,17 +330,21 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
         }
 
         if (!virtualizedContinuousMode.value) {
-            const layout = pageLayout.value;
             const baseStart = Math.max(1, Math.min(numPages.value, visibleRange.value.start));
             const baseEnd = Math.max(baseStart, Math.min(numPages.value, visibleRange.value.end));
-            if (!layout) {
-                return range(baseStart, baseEnd + 1);
-            }
-            const startBounds = getPageRowBounds(layout, baseStart);
-            const endBounds = getPageRowBounds(layout, baseEnd);
+            const startBounds = getPageRowBoundsForViewMode({
+                pageNumber: baseStart,
+                viewMode: viewMode.value,
+                totalPages: numPages.value,
+            });
+            const endBounds = getPageRowBoundsForViewMode({
+                pageNumber: baseEnd,
+                viewMode: viewMode.value,
+                totalPages: numPages.value,
+            });
             return range(
-                startBounds?.start ?? baseStart,
-                (endBounds?.end ?? baseEnd) + 1,
+                startBounds.start,
+                endBounds.end + 1,
             );
         }
 

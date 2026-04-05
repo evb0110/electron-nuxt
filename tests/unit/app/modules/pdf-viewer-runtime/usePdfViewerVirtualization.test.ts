@@ -12,6 +12,7 @@ import {
     expandVirtualWindowForAnchor,
     usePdfViewerVirtualization,
 } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
+import { getPageRowBoundsForViewMode } from '@app/composables/pdf/pdfPageLayout';
 
 describe('expandVirtualWindowForAnchor', () => {
     it('keeps the existing window when no anchor page is provided', () => {
@@ -50,6 +51,30 @@ describe('expandVirtualWindowForAnchor', () => {
         })).toEqual({
             start: 1,
             end: 10,
+        });
+    });
+});
+
+describe('getPageRowBoundsForViewMode', () => {
+    it('returns the current spread bounds without building full layout metrics', () => {
+        expect(getPageRowBoundsForViewMode({
+            pageNumber: 9,
+            viewMode: 'facing',
+            totalPages: 20,
+        })).toEqual({
+            start: 9,
+            end: 10,
+        });
+    });
+
+    it('keeps the first page single in facing-first-single mode', () => {
+        expect(getPageRowBoundsForViewMode({
+            pageNumber: 1,
+            viewMode: 'facing-first-single',
+            totalPages: 20,
+        })).toEqual({
+            start: 1,
+            end: 1,
         });
     });
 });

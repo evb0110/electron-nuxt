@@ -130,6 +130,12 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
     stat: vi.fn(),
     readRange: vi.fn(),
 }));
+const browserSearchWorkerClientMock = vi.hoisted(() => ({
+    canUseBrowserSearchWorker: vi.fn(() => false),
+    createBrowserSearchWorkerRequest: vi.fn(),
+    cancelBrowserSearchWorkerRequest: vi.fn(async () => {}),
+    BrowserSearchWorkerUnavailableError: class BrowserSearchWorkerUnavailableError extends Error {},
+}));
 const pdfjsModule = vi.hoisted(() => ({
     GlobalWorkerOptions: { workerSrc: undefined as string | undefined },
     VerbosityLevel: {ERRORS: 3},
@@ -137,6 +143,23 @@ const pdfjsModule = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/platform/browser-api/browser-yield', () => ({yieldToBrowser: () => yieldToBrowserMock()}));
+vi.mock('@app/platform/browser-api/browser-search-worker-client', () => ({
+    canUseBrowserSearchWorker: () => browserSearchWorkerClientMock.canUseBrowserSearchWorker(),
+    createBrowserSearchWorkerRequest: (type: unknown, payload: unknown) =>
+        (
+            browserSearchWorkerClientMock.createBrowserSearchWorkerRequest as (
+                nextType: unknown,
+                nextPayload: unknown,
+            ) => unknown
+        )(type, payload),
+    cancelBrowserSearchWorkerRequest: (requestId: unknown) =>
+        (
+            browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest as (
+                nextRequestId: unknown,
+            ) => unknown
+        )(requestId),
+    BrowserSearchWorkerUnavailableError: browserSearchWorkerClientMock.BrowserSearchWorkerUnavailableError,
+}));
 vi.mock('@app/platform/browser-document-store', () => ({
     BROWSER_DOCUMENT_CHUNK_SIZE: 4 * 1024 * 1024,
     browserDocumentStore: browserDocumentStoreMock,
@@ -150,6 +173,11 @@ describe('createBrowserSearchCapability', () => {
         yieldToBrowserMock.mockClear();
         browserDocumentStoreMock.stat.mockReset();
         browserDocumentStoreMock.readRange.mockReset();
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReset();
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(false);
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockReset();
+        browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest.mockReset();
+        browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest.mockResolvedValue(undefined);
         pdfjsModule.getDocument.mockReset();
     });
 
@@ -236,5 +264,65 @@ describe('createBrowserSearchCapability', () => {
         await expect(capability.run('/tmp/huge.pdf', 'foo')).rejects.toThrow('ERR_BROWSER_SEARCH_TOO_LARGE');
         expect(browserDocumentStoreMock.readRange).not.toHaveBeenCalled();
         expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
+    });
+
+    it('offloads uncached extraction to the browser search worker when available', async () => {
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockReturnValue({
+            requestId: 7,
+            promise: Promise.resolve({
+                pageCount: 2,
+                pageTexts: [
+                    'alpha foo',
+                    'beta',
+                ],
+            }),
+        });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/search-capability');
+        const { capability } = createBrowserSearchCapability();
+        const result = await capability.run('/tmp/test.pdf', 'foo', { requestId: 'worker-search' });
+
+        expect(result.results).toEqual([expect.objectContaining({
+            pageNumber: 1,
+            pageMatchIndex: 0,
+        })]);
+        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).toHaveBeenCalledWith(
+            'extractDocumentText',
+            { pdfPath: '/tmp/test.pdf' },
+        );
+        expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
+    });
+
+    it('cancels active browser-worker extraction when search is canceled', async () => {
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
+        let rejectWorkerRequest: (error: Error) => void = () => {};
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockReturnValue({
+            requestId: 19,
+            promise: new Promise<{
+                pageCount: number;
+                pageTexts: string[];
+            }>((_resolve, reject) => {
+                rejectWorkerRequest = reject;
+            }),
+        });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/search-capability');
+        const { capability } = createBrowserSearchCapability();
+        const runPromise = capability.run('/tmp/test.pdf', 'foo', { requestId: 'cancel-me' });
+
+        await vi.waitFor(() => {
+            expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).toHaveBeenCalledOnce();
+        });
+        await capability.cancel('cancel-me');
+        rejectWorkerRequest(new Error('ERR_BROWSER_SEARCH_CANCELED'));
+
+        await expect(runPromise).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+        expect(browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest).toHaveBeenCalledWith(19);
     });
 });
