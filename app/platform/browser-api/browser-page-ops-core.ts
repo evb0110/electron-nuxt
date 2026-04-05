@@ -18,6 +18,112 @@ function toSavedPdfResult(
     }));
 }
 
+function getNormalizedPageIndexes(pageCount: number, pages: number[]) {
+    return pages
+        .map((page) => page - 1)
+        .filter((index) => index >= 0 && index < pageCount);
+}
+
+async function copySelectedPages(options: {
+    sourcePdf: PDFDocument;
+    targetPdf?: PDFDocument;
+    pageIndexes: number[];
+}) {
+    const {
+        sourcePdf,
+        pageIndexes,
+    } = options;
+    const targetPdf = options.targetPdf ?? await PDFDocument.create();
+    const copiedPages = await targetPdf.copyPages(sourcePdf, pageIndexes);
+    copiedPages.forEach((page) => targetPdf.addPage(page));
+    return {
+        copiedPages,
+        targetPdf,
+    };
+}
+
+export async function deletePdfPages(
+    data: Uint8Array,
+    pages: number[],
+): Promise<IPageMutationWorkerResult> {
+    const sourcePdf = await PDFDocument.load(data);
+    const removeIndexes = new Set(getNormalizedPageIndexes(sourcePdf.getPageCount(), pages));
+    const keptIndexes = sourcePdf
+        .getPageIndices()
+        .filter((index) => !removeIndexes.has(index));
+    const { targetPdf } = await copySelectedPages({
+        sourcePdf,
+        pageIndexes: keptIndexes,
+    });
+    return toSavedPdfResult(targetPdf);
+}
+
+export async function extractPdfPages(
+    data: Uint8Array,
+    pages: number[],
+): Promise<IPageMutationWorkerResult> {
+    const sourcePdf = await PDFDocument.load(data);
+    const selectedIndexes = getNormalizedPageIndexes(
+        sourcePdf.getPageCount(),
+        pages,
+    );
+    const { targetPdf } = await copySelectedPages({
+        sourcePdf,
+        pageIndexes: selectedIndexes,
+    });
+    return toSavedPdfResult(targetPdf);
+}
+
+export async function reorderPdfPages(
+    data: Uint8Array,
+    newOrder: number[],
+): Promise<IPageMutationWorkerResult> {
+    const sourcePdf = await PDFDocument.load(data);
+    const selectedIndexes = getNormalizedPageIndexes(
+        sourcePdf.getPageCount(),
+        newOrder,
+    );
+    const { targetPdf } = await copySelectedPages({
+        sourcePdf,
+        pageIndexes: selectedIndexes,
+    });
+    return toSavedPdfResult(targetPdf);
+}
+
+export async function insertPdfPages(
+    data: Uint8Array,
+    insertionData: Uint8Array,
+    afterPage: number,
+): Promise<IPageMutationWorkerResult> {
+    const destinationPdf = await PDFDocument.load(data);
+    const insertionPdf = await PDFDocument.load(insertionData);
+    const nextPdf = await PDFDocument.create();
+    const beforeIndexes = destinationPdf
+        .getPageIndices()
+        .filter((index) => index < afterPage);
+    const afterIndexes = destinationPdf
+        .getPageIndices()
+        .filter((index) => index >= afterPage);
+
+    await copySelectedPages({
+        sourcePdf: destinationPdf,
+        targetPdf: nextPdf,
+        pageIndexes: beforeIndexes,
+    });
+    await copySelectedPages({
+        sourcePdf: insertionPdf,
+        targetPdf: nextPdf,
+        pageIndexes: insertionPdf.getPageIndices(),
+    });
+    await copySelectedPages({
+        sourcePdf: destinationPdf,
+        targetPdf: nextPdf,
+        pageIndexes: afterIndexes,
+    });
+
+    return toSavedPdfResult(nextPdf);
+}
+
 export async function rotatePdfBytes(
     data: Uint8Array,
     pages: number[],

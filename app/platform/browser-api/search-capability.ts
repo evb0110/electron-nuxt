@@ -27,7 +27,7 @@ type TSearchListener = (progress: IPdfSearchProgress) => void;
 
 const SEARCH_PAGE_CACHE_LIMIT = 24;
 const SEARCH_DOCUMENT_CACHE_LIMIT = 4;
-const SEARCH_YIELD_INTERVAL = 2;
+const SEARCH_YIELD_INTERVAL = 1;
 
 function escapeRegex(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

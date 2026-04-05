@@ -1,7 +1,11 @@
 import {
     cropPdfBytes,
+    deletePdfPages,
+    extractPdfPages,
     getPageGeometryFromPdfBytes,
+    insertPdfPages,
     removeCropPdfBytes,
+    reorderPdfPages,
     rotatePdfBytes,
 } from '@app/platform/browser-api/browser-page-ops-core';
 import type {
@@ -19,6 +23,43 @@ function toTransferableUint8Array(data: Uint8Array) {
     }
 
     return data.slice();
+}
+
+async function handleDeleteRequest(
+    request: TBrowserPageOpsWorkerRequest<'deletePages'>,
+) {
+    return deletePdfPages(
+        request.payload.data,
+        request.payload.pages,
+    );
+}
+
+async function handleExtractRequest(
+    request: TBrowserPageOpsWorkerRequest<'extractPages'>,
+) {
+    return extractPdfPages(
+        request.payload.data,
+        request.payload.pages,
+    );
+}
+
+async function handleReorderRequest(
+    request: TBrowserPageOpsWorkerRequest<'reorderPages'>,
+) {
+    return reorderPdfPages(
+        request.payload.data,
+        request.payload.newOrder,
+    );
+}
+
+async function handleInsertRequest(
+    request: TBrowserPageOpsWorkerRequest<'insertPages'>,
+) {
+    return insertPdfPages(
+        request.payload.data,
+        request.payload.insertionData,
+        request.payload.afterPage,
+    );
 }
 
 async function handleRotateRequest(
@@ -63,6 +104,14 @@ async function handleRequest(
     request: TBrowserPageOpsWorkerRequest,
 ) {
     switch (request.type) {
+        case 'deletePages':
+            return handleDeleteRequest(request as TBrowserPageOpsWorkerRequest<'deletePages'>);
+        case 'extractPages':
+            return handleExtractRequest(request as TBrowserPageOpsWorkerRequest<'extractPages'>);
+        case 'reorderPages':
+            return handleReorderRequest(request as TBrowserPageOpsWorkerRequest<'reorderPages'>);
+        case 'insertPages':
+            return handleInsertRequest(request as TBrowserPageOpsWorkerRequest<'insertPages'>);
         case 'rotate':
             return handleRotateRequest(request as TBrowserPageOpsWorkerRequest<'rotate'>);
         case 'crop':
