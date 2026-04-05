@@ -54,6 +54,57 @@ function getSpreadRowPages(
     ];
 }
 
+export function getPageRowBoundsForViewMode(options: {
+    pageNumber: number;
+    viewMode: TPdfViewMode;
+    totalPages: number;
+}) {
+    const clampedPageNumber = Math.max(
+        1,
+        Math.min(options.totalPages, Math.floor(options.pageNumber)),
+    );
+    if (options.viewMode === 'single' || options.totalPages <= 1) {
+        return {
+            start: clampedPageNumber,
+            end: clampedPageNumber,
+        };
+    }
+
+    if (options.viewMode === 'facing') {
+        const rowStart = clampedPageNumber % 2 === 0
+            ? clampedPageNumber - 1
+            : clampedPageNumber;
+        const rowEnd = Math.min(options.totalPages, rowStart + 1);
+        return {
+            start: rowStart,
+            end: rowStart === options.totalPages ? rowStart : rowEnd,
+        };
+    }
+
+    if (clampedPageNumber === 1) {
+        return {
+            start: 1,
+            end: 1,
+        };
+    }
+
+    if (clampedPageNumber === options.totalPages && options.totalPages % 2 === 0) {
+        return {
+            start: clampedPageNumber,
+            end: clampedPageNumber,
+        };
+    }
+
+    const rowStart = clampedPageNumber % 2 === 0
+        ? clampedPageNumber
+        : clampedPageNumber - 1;
+
+    return {
+        start: rowStart,
+        end: Math.min(options.totalPages, rowStart + 1),
+    };
+}
+
 export function normalizePageMetrics(options: {
     pageMetrics: IPdfPageMetric[];
     totalPages: number;

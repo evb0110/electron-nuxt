@@ -39,6 +39,12 @@ import {
     toArrayBuffer,
 } from '@app/platform/browser-api/common';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/common';
+import {
+    BrowserPdfCombineWorkerUnavailableError,
+    canUseBrowserPdfCombineWorker,
+    cloneCombineWorkerInput,
+    runBrowserPdfCombineWorkerRequest,
+} from '@app/platform/browser-api/browser-pdf-combine-worker-client';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import { stripPdfEncryption } from '@app/utils/pdf-decrypt';
 
@@ -56,6 +62,17 @@ const BROWSER_FULL_CONFORMANCE_ANALYSIS_BYTES = 64 * 1024 * 1024;
 const BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_COMBINED_PDF_REWRITE_MAX_BYTES = 32 * 1024 * 1024;
 const BROWSER_LARGE_SAVE_HANDLE_HINT = 'Use a browser with local file system access enabled to save large documents.';
+const BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
+const WORKER_IMAGE_COMBINE_EXTENSIONS = new Set([
+    '.apng',
+    '.avif',
+    '.bmp',
+    '.gif',
+    '.jpeg',
+    '.jpg',
+    '.png',
+    '.webp',
+]);
 
 function toOwnedArrayBuffer(bytes: Uint8Array) {
     if (
@@ -168,6 +185,13 @@ function buildBrowserLargeJobError(
     );
 }
 
+function buildBrowserLargeDownloadFallbackError(
+    label: string,
+    maxBytes: number,
+) {
+    return buildBrowserLargeJobError(label, maxBytes, BROWSER_LARGE_SAVE_HANDLE_HINT);
+}
+
 async function ensureBrowserCombinedPdfInputBudget(paths: string[]) {
     let totalBytes = 0;
 
@@ -204,6 +228,13 @@ async function ensureBrowserCombinedPdfRewriteBudget(paths: string[]) {
             );
         }
     }
+}
+
+function canCombineBrowserPathsOffThread(paths: string[]) {
+    return paths.length > 0 && paths.every((path) => {
+        const fileName = getBrowserDocumentFileName(path);
+        return isPdfFileName(fileName) || WORKER_IMAGE_COMBINE_EXTENSIONS.has(getExtension(fileName));
+    });
 }
 
 async function assertBrowserPathWithinFullReadBudget(
@@ -414,6 +445,11 @@ export async function saveBlobToPickerOrDownload(
     blob: Blob,
     suggestedName: string,
     pickerTypes: IFilePickerAcceptType[],
+    options: {
+        downloadFallbackLabel?: string;
+        downloadFallbackMaxBytes?: number;
+        canDownloadWithoutHandle?: boolean;
+    } = {},
 ) {
     const pickerWindow = getWindowWithPickers();
     if (pickerWindow?.showSaveFilePicker) {
@@ -450,6 +486,17 @@ export async function saveBlobToPickerOrDownload(
             fileName: suggestedName,
             handle: null,
         };
+    }
+
+    const maxDownloadBytes = options.downloadFallbackMaxBytes ?? BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES;
+    if (
+        options.canDownloadWithoutHandle === false
+        || blob.size > maxDownloadBytes
+    ) {
+        throw buildBrowserLargeDownloadFallbackError(
+            options.downloadFallbackLabel ?? 'Saving documents',
+            maxDownloadBytes,
+        );
     }
 
     const href = URL.createObjectURL(blob);
@@ -513,12 +560,20 @@ export async function saveBytesToPickerOrDownload(
         suggestedName: string;
         mimeType: string;
         pickerTypes: IFilePickerAcceptType[];
+        downloadFallbackLabel?: string;
+        downloadFallbackMaxBytes?: number;
+        canDownloadWithoutHandle?: boolean;
     },
 ) {
     return saveBlobToPickerOrDownload(
         new Blob([toOwnedArrayBuffer(bytes)], { type: options.mimeType }),
         options.suggestedName,
         options.pickerTypes,
+        {
+            downloadFallbackLabel: options.downloadFallbackLabel,
+            downloadFallbackMaxBytes: options.downloadFallbackMaxBytes,
+            canDownloadWithoutHandle: options.canDownloadWithoutHandle,
+        },
     );
 }
 
@@ -643,6 +698,42 @@ async function embedImagePage(
 export async function createCombinedPdfFromPaths(paths: string[]) {
     await ensureBrowserCombinedPdfInputBudget(paths);
     await ensureBrowserCombinedPdfRewriteBudget(paths);
+
+    if (canCombineBrowserPathsOffThread(paths) && canUseBrowserPdfCombineWorker()) {
+        const inputs = [];
+
+        for (let index = 0; index < paths.length; index += 1) {
+            if (index > 0) {
+                await yieldToBrowser();
+            }
+
+            const path = paths[index]!;
+            const data = await browserDocumentStore.read(path);
+            inputs.push(cloneCombineWorkerInput(
+                getBrowserDocumentFileName(path),
+                data,
+            ));
+        }
+
+        try {
+            const result = await runBrowserPdfCombineWorkerRequest('combinePdfs', { inputs });
+            return result.data;
+        } catch (error) {
+            if (
+                !(error instanceof BrowserPdfCombineWorkerUnavailableError)
+                && !(
+                    error instanceof Error
+                    && (
+                        error.message === 'ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_IMAGE_RUNTIME'
+                        || error.message.startsWith('ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT:')
+                    )
+                )
+            ) {
+                throw error;
+            }
+        }
+    }
+
     const pdfDocument = await PDFDocument.create();
 
     for (let index = 0; index < paths.length; index += 1) {
@@ -846,6 +937,7 @@ async function saveWorkingBytesToSource(workingCopyPath: TDocumentRef) {
             suggestedName: ensurePdfExtension(saveTarget.saveName),
             mimeType: 'application/pdf',
             pickerTypes: buildPdfSaveTypes(),
+            downloadFallbackLabel: 'Saving documents',
         });
 
         if (saveResult.canceled) {
@@ -986,6 +1078,7 @@ export function createBrowserDocumentsFileCapability(
                     suggestedName,
                     mimeType: 'application/pdf',
                     pickerTypes: buildPdfSaveTypes(),
+                    downloadFallbackLabel: 'Saving documents',
                 });
 
                 if (downloadResult.canceled) {
@@ -1099,6 +1192,7 @@ export function createBrowserDocumentsFileCapability(
                     mimeType:
                         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                     pickerTypes: buildDocxSaveTypes(),
+                    downloadFallbackLabel: 'Saving documents',
                 });
             }
 

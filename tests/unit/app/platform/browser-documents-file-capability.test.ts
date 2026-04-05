@@ -7,6 +7,24 @@ import {
 } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 
+const browserPdfCombineWorkerMock = vi.hoisted(() => ({
+    canUse: vi.fn(() => false),
+    cloneInput: vi.fn((fileName: string, data: Uint8Array) => ({
+        fileName,
+        data, 
+    })),
+    run: vi.fn(),
+}));
+
+vi.mock('@app/platform/browser-api/browser-pdf-combine-worker-client', () => ({
+    BrowserPdfCombineWorkerUnavailableError: class BrowserPdfCombineWorkerUnavailableError extends Error {},
+    canUseBrowserPdfCombineWorker: () => browserPdfCombineWorkerMock.canUse(),
+    cloneCombineWorkerInput: (fileName: string, data: Uint8Array) =>
+        browserPdfCombineWorkerMock.cloneInput(fileName, data),
+    runBrowserPdfCombineWorkerRequest: (type: string, payload: unknown) =>
+        browserPdfCombineWorkerMock.run(type, payload),
+}));
+
 function cast<T>(value: unknown): T {
     return value as T;
 }
@@ -246,6 +264,10 @@ async function loadBrowserDocumentsFileCapability(options?: ILoadBrowserDocument
 describe('createBrowserDocumentsFileCapability', () => {
     beforeEach(() => {
         vi.unstubAllGlobals();
+        browserPdfCombineWorkerMock.canUse.mockReset();
+        browserPdfCombineWorkerMock.canUse.mockReturnValue(false);
+        browserPdfCombineWorkerMock.cloneInput.mockClear();
+        browserPdfCombineWorkerMock.run.mockReset();
     });
 
     it('cleans up transient source refs via cleanupFile', async () => {
@@ -320,6 +342,163 @@ describe('createBrowserDocumentsFileCapability', () => {
         expect(readSpy).not.toHaveBeenCalled();
         statSpy.mockRestore();
         readSpy.mockRestore();
+    });
+
+    it('offloads all-PDF combine jobs to the browser worker when available', async () => {
+        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documents-file-capability');
+        const firstRef = await browserDocumentStore.createStoredDocument(
+            'first.pdf',
+            new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const secondRef = await browserDocumentStore.createStoredDocument(
+            'second.pdf',
+            new Uint8Array([
+                4,
+                5,
+                6,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
+        browserPdfCombineWorkerMock.run.mockResolvedValue({data: new Uint8Array([
+            9,
+            8,
+            7,
+        ])});
+
+        const result = await createCombinedPdfFromPaths([
+            firstRef,
+            secondRef,
+        ]);
+
+        expect(result).toEqual(new Uint8Array([
+            9,
+            8,
+            7,
+        ]));
+        expect(browserPdfCombineWorkerMock.cloneInput).toHaveBeenCalledTimes(2);
+        expect(browserPdfCombineWorkerMock.run).toHaveBeenCalledWith('combinePdfs', {inputs: [
+            {
+                fileName: 'first.pdf',
+                data: new Uint8Array([
+                    1,
+                    2,
+                    3,
+                ]), 
+            },
+            {
+                fileName: 'second.pdf',
+                data: new Uint8Array([
+                    4,
+                    5,
+                    6,
+                ]), 
+            },
+        ]});
+    });
+
+    it('offloads supported mixed PDF and raster-image combine jobs to the browser worker', async () => {
+        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documents-file-capability');
+        const pdfRef = await browserDocumentStore.createStoredDocument(
+            'first.pdf',
+            new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const imageRef = await browserDocumentStore.createStoredDocument(
+            'photo.png',
+            new Uint8Array([
+                4,
+                5,
+                6,
+            ]),
+            {
+                mimeType: 'image/png',
+                kind: 'source',
+                saveKind: 'generic',
+            },
+        );
+        browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
+        browserPdfCombineWorkerMock.run.mockResolvedValue({data: new Uint8Array([
+            7,
+            8,
+            9,
+        ])});
+
+        const result = await createCombinedPdfFromPaths([
+            pdfRef,
+            imageRef,
+        ]);
+
+        expect(result).toEqual(new Uint8Array([
+            7,
+            8,
+            9,
+        ]));
+        expect(browserPdfCombineWorkerMock.run).toHaveBeenCalledWith('combinePdfs', {inputs: [
+            {
+                fileName: 'first.pdf',
+                data: new Uint8Array([
+                    1,
+                    2,
+                    3,
+                ]),
+            },
+            {
+                fileName: 'photo.png',
+                data: new Uint8Array([
+                    4,
+                    5,
+                    6,
+                ]),
+            },
+        ]});
+    });
+
+    it('keeps unsupported image combine formats on the direct fallback path', async () => {
+        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documents-file-capability');
+        const svgRef = await browserDocumentStore.createStoredDocument(
+            'vector.svg',
+            new Uint8Array([
+                60,
+                115,
+                118,
+                103,
+                62,
+            ]),
+            {
+                mimeType: 'image/svg+xml',
+                kind: 'source',
+                saveKind: 'generic',
+            },
+        );
+        browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
+
+        await expect(createCombinedPdfFromPaths([svgRef])).rejects.toThrow();
+        expect(browserPdfCombineWorkerMock.run).not.toHaveBeenCalled();
     });
 
     it('creates transient working copies from raw browser data without durable recents', async () => {
@@ -631,6 +810,32 @@ describe('createBrowserDocumentsFileCapability', () => {
 
         await expect(capability.savePdfAs(workingRef)).rejects.toThrow(
             'Saving documents is unavailable in the browser for inputs larger than 64MB',
+        );
+    });
+
+    it('fails early for oversized browser download fallback saves without a handle', async () => {
+        const {
+            BROWSER_MAX_FULL_READ_BYTES,
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'source.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        await browserDocumentStore.write(
+            workingRef,
+            new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1),
+        );
+
+        await expect(capability.savePdfAs(workingRef)).rejects.toThrow(
+            'Saving documents is unavailable in the browser for inputs larger than 64MB Use a browser with local file system access enabled to save large documents.',
         );
     });
 });
