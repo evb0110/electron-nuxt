@@ -434,7 +434,6 @@ export default {
         'recentFiles': 'Fichiers récents',
         'clearRecentFiles': 'Effacer les fichiers récents',
         'removeFromRecent': 'Retirer des fichiers récents',
-        'browserStorage': 'Stockage du navigateur',
         'openAnother': 'Ouvrir un autre fichier...',
         'openPdf': 'Ouvrir un fichier',
         'openBrowser': 'Ouvrir un PDF, un DjVu ou une image',

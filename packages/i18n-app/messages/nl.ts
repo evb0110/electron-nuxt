@@ -428,7 +428,6 @@ export default {
         'recentFiles': 'Recente bestanden',
         'clearRecentFiles': 'Recente bestanden wissen',
         'removeFromRecent': 'Uit recente bestanden verwijderen',
-        'browserStorage': 'Browseropslag',
         'openAnother': 'Een ander bestand openen...',
         'openPdf': 'Een bestand openen',
         'openBrowser': 'Open een PDF, DjVu of afbeelding',

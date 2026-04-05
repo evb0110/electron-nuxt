@@ -440,7 +440,6 @@ export default {
         'recentFiles': 'Недавние файлы',
         'clearRecentFiles': 'Очистить список',
         'removeFromRecent': 'Удалить из недавних',
-        'browserStorage': 'Хранилище браузера',
         'openAnother': 'Открыть другой файл...',
         'openPdf': 'Откройте файл',
         'openBrowser': 'Откройте PDF, DjVu или изображение',

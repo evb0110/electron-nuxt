@@ -84,7 +84,7 @@
                         />
                         <div class="flex-1 min-w-0 flex flex-col gap-0.5">
                             <span class="recent-file-name">{{ file.fileName }}</span>
-                            <span class="recent-file-path">{{ getParentFolder(file.originalPath) }}</span>
+                            <span v-if="!isBrowserDocumentRef(file.originalPath)" class="recent-file-path">{{ getParentFolder(file.originalPath) }}</span>
                         </div>
                         <span class="recent-file-time">{{ formatRelativeTimeLocalized(file.timestamp) }}</span>
                         <UTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
@@ -177,9 +177,6 @@ function formatRelativeTimeLocalized(timestamp: number) {
 }
 
 function getParentFolder(filePath: string) {
-    if (isBrowserDocumentRef(filePath)) {
-        return t('emptyState.browserStorage');
-    }
     const parts = filePath.split(/[\\/]/);
     parts.pop();
     const folderParts = parts.slice(-2);
@@ -296,7 +293,7 @@ function formatEtaDuration(etaMs: number | null) {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.625rem 0.75rem;
+    padding: 0.875rem 0.75rem;
     border-radius: 0.375rem;
     cursor: pointer;
     transition: background-color $ease-standard;
