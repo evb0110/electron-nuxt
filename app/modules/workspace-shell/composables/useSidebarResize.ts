@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { useEventListener } from '@vueuse/core';
 import { SIDEBAR } from '@app/constants/pdf-layout';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -11,33 +12,21 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
 
     let resizeStartX = 0;
     let resizeStartWidth = 0;
-    let stopResizeMoveListener: (() => void) | null = null;
-    let stopResizeUpListener: (() => void) | null = null;
-    let stopResizeCancelListener: (() => void) | null = null;
-
     const sidebarWrapperStyle = computed(() => ({
         width: `${sidebarWidth.value + SIDEBAR.RESIZER_WIDTH}px`,
         minWidth: `${sidebarWidth.value + SIDEBAR.RESIZER_WIDTH}px`,
     }));
 
     function cleanupSidebarResizeListeners() {
-        stopResizeMoveListener?.();
-        stopResizeMoveListener = null;
-        stopResizeUpListener?.();
-        stopResizeUpListener = null;
-        stopResizeCancelListener?.();
-        stopResizeCancelListener = null;
-    }
-
-    function addWindowPointerListener(
-        type: 'pointermove' | 'pointerup' | 'pointercancel',
-        listener: (event: PointerEvent) => void,
-    ) {
-        window.addEventListener(type, listener);
-        return () => window.removeEventListener(type, listener);
+        // Pointer listeners are registered for the composable lifetime and gate
+        // themselves on `isResizingSidebar`, so there is nothing transient to
+        // tear down between resize sessions.
     }
 
     function handleSidebarResize(event: PointerEvent) {
+        if (!isResizingSidebar.value) {
+            return;
+        }
         const deltaX = event.clientX - resizeStartX;
         const nextWidth = resizeStartWidth + deltaX;
 
@@ -83,10 +72,23 @@ export const useSidebarResize = (deps: {showSidebar: Ref<boolean>;}) => {
         });
 
         cleanupSidebarResizeListeners();
-        stopResizeMoveListener = addWindowPointerListener('pointermove', handleSidebarResize);
-        stopResizeUpListener = addWindowPointerListener('pointerup', stopSidebarResize);
-        stopResizeCancelListener = addWindowPointerListener('pointercancel', stopSidebarResize);
     }
+
+    useEventListener(
+        typeof window !== 'undefined' ? window : undefined,
+        'pointermove',
+        handleSidebarResize,
+    );
+    useEventListener(
+        typeof window !== 'undefined' ? window : undefined,
+        'pointerup',
+        stopSidebarResize,
+    );
+    useEventListener(
+        typeof window !== 'undefined' ? window : undefined,
+        'pointercancel',
+        stopSidebarResize,
+    );
 
     watch(showSidebar, (isOpen) => {
         BrowserLogger.warn('pdf-nav', `[sidebar-state] open=${isOpen}`, {

@@ -12,6 +12,7 @@ import type { TPdfSource } from '@app/types/pdf';
 const mocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),
     useMagicKeys: vi.fn(),
+    tryOnScopeDispose: vi.fn(),
     whenever: vi.fn(),
     hasElectronAPI: vi.fn(),
 }));
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@vueuse/core', () => ({
     useEventListener: mocks.useEventListener,
     useMagicKeys: mocks.useMagicKeys,
+    tryOnScopeDispose: mocks.tryOnScopeDispose,
     whenever: mocks.whenever,
 }));
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: mocks.hasElectronAPI}));
@@ -61,7 +63,10 @@ describe('usePageShortcuts', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
-        vi.stubGlobal('window', {} as Window);
+        vi.stubGlobal('window', {
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        } as Window);
         mocks.hasElectronAPI.mockReturnValue(true);
 
         mocks.useMagicKeys.mockImplementation((opts?: { onEventFired?: (e: unknown) => void }) => {
@@ -74,8 +79,8 @@ describe('usePageShortcuts', () => {
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
         usePageShortcuts(createDeps());
 
-        expect(mocks.useEventListener).toHaveBeenCalledWith(
-            expect.anything(), 'pointerdown', expect.any(Function),
+        expect(window.addEventListener).toHaveBeenCalledWith(
+            'pointerdown', expect.any(Function),
         );
     });
 

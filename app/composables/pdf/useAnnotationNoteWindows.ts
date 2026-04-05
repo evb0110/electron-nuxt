@@ -1,5 +1,8 @@
 import type { Ref } from 'vue';
-import { until } from '@vueuse/core';
+import {
+    tryOnScopeDispose,
+    until,
+} from '@vueuse/core';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { ANNOTATION_NOTE_SAVE_DEBOUNCE_MS } from '@app/constants/timeouts';
 import {
@@ -44,7 +47,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     const pendingEmbeddedTextUpdates = new Map<string, string>();
     let annotationNoteOrderCounter = 0;
 
-    onScopeDispose(() => {
+    tryOnScopeDispose(() => {
         annotationNoteDebounceTimers.forEach(({ timerId }) => {
             clearTimeout(timerId);
         });
