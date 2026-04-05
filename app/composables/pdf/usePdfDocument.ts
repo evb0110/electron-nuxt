@@ -52,6 +52,7 @@ export const usePdfDocument = () => {
     const basePageWidth = ref<number | null>(null);
     const basePageHeight = ref<number | null>(null);
     const pageMetrics = ref<IPdfPageMetric[]>([]);
+    const pageMetricsVersion = ref(0);
 
     let renderVersion = 0;
     const pdfPageCache = new Map<number, PDFPageProxy>();
@@ -94,6 +95,10 @@ export const usePdfDocument = () => {
     function incrementRenderVersion() {
         pageMetricLoads.clear();
         return ++renderVersion;
+    }
+
+    function bumpPageMetricsVersion() {
+        pageMetricsVersion.value += 1;
     }
 
     function updateBaseMetrics(metric: IPdfPageMetric) {
@@ -139,6 +144,7 @@ export const usePdfDocument = () => {
 
                 pageMetrics.value[pageNumber - 1] = metric;
                 updateBaseMetrics(metric);
+                bumpPageMetricsVersion();
                 return metric;
             } finally {
                 if (typeof page.cleanup === 'function') {
@@ -205,6 +211,7 @@ export const usePdfDocument = () => {
             pageMetrics.value = [];
             basePageWidth.value = null;
             basePageHeight.value = null;
+            bumpPageMetricsVersion();
             return;
         }
 
@@ -218,6 +225,7 @@ export const usePdfDocument = () => {
             pageMetrics.value = [];
             basePageWidth.value = null;
             basePageHeight.value = null;
+            bumpPageMetricsVersion();
             return;
         }
 
@@ -246,6 +254,7 @@ export const usePdfDocument = () => {
             basePageWidth.value = savedBaseWidth;
             basePageHeight.value = savedBaseHeight;
             pageMetrics.value = savedPageMetrics;
+            bumpPageMetricsVersion();
         }
 
         const version = incrementRenderVersion();
@@ -254,6 +263,7 @@ export const usePdfDocument = () => {
             basePageWidth.value = null;
             basePageHeight.value = null;
             pageMetrics.value = [];
+            bumpPageMetricsVersion();
         }
 
         try {
@@ -548,6 +558,7 @@ export const usePdfDocument = () => {
         basePageWidth.value = null;
         basePageHeight.value = null;
         pageMetrics.value = [];
+        bumpPageMetricsVersion();
     }
 
     return {
@@ -557,6 +568,7 @@ export const usePdfDocument = () => {
         basePageWidth,
         basePageHeight,
         pageMetrics,
+        pageMetricsVersion,
         getRenderVersion,
         incrementRenderVersion,
         loadPdf,
