@@ -674,6 +674,7 @@ export default {
         'file': {
             'open': 'Impossibile aprire il file',
             'invalid': 'File non valido o inesistente',
+            'emptyPdf': 'Il file PDF è vuoto (0 byte)',
             'save': 'Impossibile salvare il file',
         },
         'search': {

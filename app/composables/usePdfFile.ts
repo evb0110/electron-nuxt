@@ -82,6 +82,14 @@ export const usePdfFile = () => {
     const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
     let latestLoadRequestId = 0;
 
+    function assertPdfHasBytes(size: number) {
+        if (size > 0) {
+            return;
+        }
+
+        throw new Error(t('errors.file.emptyPdf'));
+    }
+
     function toPdfBlob(snapshot: Uint8Array) {
         const ownedSnapshot = (
             snapshot.buffer instanceof ArrayBuffer
@@ -528,6 +536,7 @@ export const usePdfFile = () => {
     async function readPdfStateFromPath(path: TDocumentRef) {
         const api = getElectronAPI();
         const { size } = await api.documents.statFile(path);
+        assertPdfHasBytes(size);
 
         if (size > MAX_IN_MEMORY_PDF_BYTES) {
             return {
@@ -787,6 +796,7 @@ export const usePdfFile = () => {
         },
     ) {
         const snapshot = data.slice();
+        assertPdfHasBytes(snapshot.byteLength);
         await applySnapshot(snapshot, opts?.persistWorkingCopy ?? false);
 
         if (opts?.pushHistory !== false) {

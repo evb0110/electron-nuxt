@@ -3,10 +3,12 @@ import type {
     Ref,
 } from 'vue';
 import type { TPdfSource } from '@app/types/pdf';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 
 interface IUsePdfViewerLoadingStateOptions {
     src: ComputedRef<TPdfSource | null>;
     isLoading: Ref<boolean>;
+    pdfDocument: Ref<PDFDocumentProxy | null>;
     viewerContainer: Ref<HTMLElement | null>;
     holdOverlayVisible?: Ref<boolean>;
 }
@@ -15,6 +17,7 @@ export function usePdfViewerLoadingState(options: IUsePdfViewerLoadingStateOptio
     const {
         src,
         isLoading,
+        pdfDocument,
         viewerContainer,
         holdOverlayVisible,
     } = options;
@@ -70,12 +73,14 @@ export function usePdfViewerLoadingState(options: IUsePdfViewerLoadingStateOptio
         [
             () => src.value,
             isLoading,
+            pdfDocument,
         ],
         async ([
             hasSrc,
             loading,
+            document,
         ]) => {
-            if (!hasSrc || loading) {
+            if (!hasSrc || loading || !document) {
                 hasCompletedInitialRenderForCurrentSource.value = false;
                 stopInitialRenderObserver();
                 return;
@@ -90,7 +95,12 @@ export function usePdfViewerLoadingState(options: IUsePdfViewerLoadingStateOptio
     );
 
     watch(viewerContainer, () => {
-        if (!src.value || isLoading.value || hasCompletedInitialRenderForCurrentSource.value) {
+        if (
+            !src.value
+            || isLoading.value
+            || !pdfDocument.value
+            || hasCompletedInitialRenderForCurrentSource.value
+        ) {
             stopInitialRenderObserver();
             return;
         }
@@ -107,7 +117,10 @@ export function usePdfViewerLoadingState(options: IUsePdfViewerLoadingStateOptio
     const isViewerLoadingOverlayVisible = computed(() => (
         Boolean(src.value) && (
             isLoading.value
-            || !hasCompletedInitialRenderForCurrentSource.value
+            || (
+                Boolean(pdfDocument.value)
+                && !hasCompletedInitialRenderForCurrentSource.value
+            )
             || holdOverlayVisible?.value === true
         )
     ));
