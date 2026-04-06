@@ -292,7 +292,8 @@ export const useDjvu = () => {
 
             if (!result.success || !result.pdfPath) {
                 BrowserLogger.error('djvu', 'Conversion failed', result.error);
-                throw new Error(result.error ?? t('errors.djvu.convert'));
+                viewingError.value = result.error ?? t('errors.djvu.convert');
+                return;
             }
             activeConvertJobId.value = result.jobId ?? null;
             shouldCleanupSavePath = false;
@@ -317,6 +318,15 @@ export const useDjvu = () => {
             if (openResult && openResult.kind === 'pdf') {
                 await loadPdfFromPath(openResult.workingPath);
             }
+        } catch (error) {
+            const message = error instanceof Error && error.message.trim().length > 0
+                ? error.message
+                : t('errors.djvu.convert');
+            BrowserLogger.error('djvu', 'Conversion crashed', {
+                path: djvuSourcePath.value,
+                error,
+            });
+            viewingError.value = message;
         } finally {
             activeConvertJobId.value = null;
             pendingConvertCancel.value = false;

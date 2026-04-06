@@ -6,6 +6,7 @@ import {
     rename,
     rm,
     stat,
+    unlink,
 } from 'fs/promises';
 import {
     dirname,
@@ -200,6 +201,20 @@ function clearActivePdfWorker(jobId: string, worker: Worker) {
     }
 }
 
+async function replaceFileAtomically(sourcePath: string, targetPath: string) {
+    try {
+        await rename(sourcePath, targetPath);
+    } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (err.code !== 'EEXIST' && err.code !== 'EPERM') {
+            throw error;
+        }
+
+        await unlink(targetPath);
+        await rename(sourcePath, targetPath);
+    }
+}
+
 async function embedPdfBookmarks(
     jobId: string,
     inputPdfPath: string,
@@ -339,7 +354,7 @@ export async function handleDjvuConvertToPdf(
             }
 
             throwIfCanceled(jobId);
-            await rename(
+            await replaceFileAtomically(
                 bookmarks.length > 0 ? tempBookmarkedPdfPath : tempPdfPath,
                 normalizedOutputPath,
             );

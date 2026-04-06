@@ -393,7 +393,7 @@ export async function handleOpenImageDialog(): Promise<string | null> {
 }
 
 export async function handleSavePdfAs(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     workingPath: string,
 ): Promise<string | null> {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
@@ -415,14 +415,18 @@ export async function handleSavePdfAs(
         ? basename(originalPath)
         : basename(normalizedWorkingPath);
 
-    const result = await dialog.showSaveDialog({
+    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    const dialogOptions = {
         title: te('dialogs.savePdfAs'),
         defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
         filters: [{
             name: te('dialogs.pdfFiles'),
             extensions: ['pdf'],
         }],
-    });
+    };
+    const result = parentWindow
+        ? await dialog.showSaveDialog(parentWindow, dialogOptions)
+        : await dialog.showSaveDialog(dialogOptions);
 
     if (result.canceled || !result.filePath) {
         return null;
@@ -449,14 +453,18 @@ export async function handleSavePdfDialog(
     const normalizedSuggestedName = typeof suggestedName === 'string' && suggestedName.trim().length > 0
         ? suggestedName.trim()
         : 'document.pdf';
-    const result = await dialog.showSaveDialog({
+    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    const dialogOptions = {
         title: te('dialogs.savePdf'),
         defaultPath: normalizedSuggestedName.endsWith('.pdf') ? normalizedSuggestedName : `${normalizedSuggestedName}.pdf`,
         filters: [{
             name: te('dialogs.pdfFiles'),
             extensions: ['pdf'],
         }],
-    });
+    };
+    const result = parentWindow
+        ? await dialog.showSaveDialog(parentWindow, dialogOptions)
+        : await dialog.showSaveDialog(dialogOptions);
 
     if (result.canceled || !result.filePath) {
         return null;
