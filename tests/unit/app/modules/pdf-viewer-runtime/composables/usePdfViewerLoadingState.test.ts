@@ -22,6 +22,7 @@ describe('usePdfViewerLoadingState', () => {
             observe() {}
             disconnect() {}
         });
+        vi.stubGlobal('document', { createElement: () => ({ querySelector: () => null }) });
     });
 
     it('hides the loading overlay after a failed load leaves no document to render', async () => {
@@ -33,7 +34,7 @@ describe('usePdfViewerLoadingState', () => {
                 );
                 const isLoading = ref(false);
                 const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
-                const viewerContainer = ref<HTMLElement | null>({ querySelector: () => null } as unknown as HTMLElement);
+                const viewerContainer = ref<HTMLElement | null>(document.createElement('div'));
 
                 return usePdfViewerLoadingState({
                     src,
@@ -61,7 +62,7 @@ describe('usePdfViewerLoadingState', () => {
                 );
                 const isLoading = ref(false);
                 const pdfDocument = shallowRef<PDFDocumentProxy | null>({} as PDFDocumentProxy);
-                const viewerContainer = ref<HTMLElement | null>({ querySelector: () => null } as unknown as HTMLElement);
+                const viewerContainer = ref<HTMLElement | null>(document.createElement('div'));
 
                 return usePdfViewerLoadingState({
                     src,

@@ -98,6 +98,7 @@ import {
     cloneShapePoints,
     cloneShapeStrokes,
 } from '@app/composables/pdf/pdfShapeStrokes';
+import { resolveEmbeddedShapeImportLoadPolicy } from '@app/composables/pdf/pdfEmbeddedShapeImportPolicy';
 import { usePdfSinglePageScroll } from '@app/composables/pdf/usePdfSinglePageScroll';
 import { useAnnotationOrchestrator } from '@app/composables/pdf/annotations/useAnnotationOrchestrator';
 import { usePdfViewerCore } from '@app/modules/pdf-viewer-runtime/usePdfViewerCore';
@@ -299,6 +300,23 @@ function waitForViewerLoadSettled() {
 }
 
 function settleViewerLoadSettledWithManagedShapes(token: number) {
+    const loadPolicy = resolveEmbeddedShapeImportLoadPolicy(
+        sourcePdfData.value,
+        workingCopyPath.value,
+    );
+    if (loadPolicy.deferUntilAfterInitialRender) {
+        BrowserLogger.debug('pdf-shapes', 'Deferring managed shape import until after initial PDF render', {
+            token,
+            path: workingCopyPath.value,
+        });
+        runGuardedTask(() => ensureEmbeddedShapesImportedForCurrentSource(), {
+            scope: 'pdf-shapes',
+            message: 'Failed to import managed shapes after initial PDF render',
+        });
+        settleViewerLoadSettle(token);
+        return;
+    }
+
     runGuardedTask(async () => {
         try {
             await ensureEmbeddedShapesImportedForCurrentSource();
@@ -706,6 +724,15 @@ function ensureEmbeddedShapesImportedForCurrentSource() {
     return embeddedShapeImportPromise;
 }
 
+async function clearManagedShapesForDeferredImport() {
+    shouldReplaceManagedShapesOnNextImport = false;
+    lastEmbeddedShapeImportPath = null;
+    hasEmbeddedShapeImportBaseline = false;
+    shapeComposable.replaceShapes([]);
+    await nextTick();
+    syncHiddenEmbeddedAnnotationDom();
+}
+
 async function preparePersistedManagedShapesForSave(data: Uint8Array) {
     const snapshot = shapeComposable.captureShapeStateSnapshot();
 
@@ -962,6 +989,19 @@ watch(
         data,
         path,
     ]) => {
+        const loadPolicy = resolveEmbeddedShapeImportLoadPolicy(data, path);
+        if (loadPolicy.deferUntilAfterInitialRender) {
+            BrowserLogger.debug('pdf-shapes', 'Queued managed shape import for deferred path-backed source', {
+                path,
+                lastImportedPath: lastEmbeddedShapeImportPath,
+                hasBaseline: hasEmbeddedShapeImportBaseline,
+            });
+            if (path !== lastEmbeddedShapeImportPath || !hasEmbeddedShapeImportBaseline) {
+                await clearManagedShapesForDeferredImport();
+            }
+            return;
+        }
+
         await importEmbeddedShapesForSource(data, path);
     },
     { immediate: true },
@@ -1186,7 +1226,21 @@ const {
     invalidateScaleCache,
     resetScale,
     computeSkeletonInsets,
-    beforeInitialRender: () => ensureEmbeddedShapesImportedForCurrentSource(),
+    beforeInitialRender: () => {
+        const loadPolicy = resolveEmbeddedShapeImportLoadPolicy(
+            sourcePdfData.value,
+            workingCopyPath.value,
+        );
+        if (!loadPolicy.awaitBeforeInitialRender) {
+            return Promise.resolve();
+        }
+
+        // Path-backed large PDFs can spend seconds re-reading and re-parsing
+        // the whole file for embedded managed shapes. Defer that work until
+        // after the first page paints so open latency stays dominated by the
+        // actual document load instead of a secondary pdf-lib scan.
+        return ensureEmbeddedShapesImportedForCurrentSource();
+    },
     resetInsets,
     setupPagePlaceholders,
     renderVisiblePages,
