@@ -35,6 +35,7 @@ const mockElectronAPI = {
         setWindowTitle: vi.fn(),
         savePdfDialog: vi.fn(),
         openPdfDirect: vi.fn(),
+        cleanupFile: vi.fn(),
     },
 };
 
@@ -77,6 +78,7 @@ describe('useDjvu', () => {
         vi.clearAllMocks();
         mockElectronAPI.djvu.onProgress.mockReturnValue(vi.fn());
         mockElectronAPI.djvu.onViewingReady.mockReturnValue(vi.fn());
+        mockElectronAPI.documents.cleanupFile.mockResolvedValue(undefined);
         viewingErrorCallback = null;
         mockElectronAPI.djvu.onViewingError.mockImplementation((callback: (data: IViewingErrorData) => void) => {
             viewingErrorCallback = callback;
@@ -255,6 +257,29 @@ describe('useDjvu', () => {
 
             djvu.dismissBanner();
             expect(djvu.showBanner.value).toBe(false);
+        });
+    });
+
+    describe('convertToPdf', () => {
+        it('shows a conversion error instead of failing silently', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockElectronAPI.documents.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockElectronAPI.djvu.convertToPdf.mockResolvedValue({
+                success: false,
+                error: 'Windows converter failed',
+            });
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu', vi.fn(async () => {}));
+            await djvu.convertToPdf(1, true, vi.fn(async () => {}));
+
+            expect(djvu.viewingError.value).toBe('Windows converter failed');
+            expect(djvu.conversionState.value.isConverting).toBe(false);
+            expect(mockElectronAPI.documents.cleanupFile).toHaveBeenCalledWith('/tmp/out.pdf');
         });
     });
 

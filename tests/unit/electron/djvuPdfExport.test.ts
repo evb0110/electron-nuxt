@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => {
         rename: vi.fn(),
         rm: vi.fn(),
         stat: vi.fn(),
+        unlink: vi.fn(),
         getDjvuPageCount: vi.fn(),
         getDjvuOutline: vi.fn(),
         parseDjvuOutline: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock('fs/promises', () => ({
     rename: mocks.rename,
     rm: mocks.rm,
     stat: mocks.stat,
+    unlink: mocks.unlink,
 }));
 
 vi.mock('@electron/features/djvu/main/ddjvu-conversion', () => ({
@@ -98,6 +100,7 @@ describe('handleDjvuConvertToPdf', () => {
         mocks.rename.mockResolvedValue(undefined);
         mocks.rm.mockResolvedValue(undefined);
         mocks.stat.mockResolvedValue({size: 8 * 1024 * 1024});
+        mocks.unlink.mockResolvedValue(undefined);
         mocks.getDjvuPageCount.mockResolvedValue(2);
         mocks.getDjvuOutline.mockResolvedValue('(bookmarks)');
         mocks.parseDjvuOutline.mockReturnValue([{
@@ -206,5 +209,26 @@ describe('handleDjvuConvertToPdf', () => {
             jobId: 'djvu-convert-convert-123',
             error: 'DjVu conversion canceled',
         });
+    });
+
+    it('replaces an existing output file when Windows rename refuses overwrite', async () => {
+        mocks.rename
+            .mockRejectedValueOnce(Object.assign(new Error('target exists'), { code: 'EEXIST' }))
+            .mockResolvedValue(undefined);
+
+        const result = await handleDjvuConvertToPdf(
+            {sender: {id: 7}} as never,
+            '/tmp/input.djvu',
+            '/tmp/output.pdf',
+            {preserveBookmarks: false},
+        );
+
+        expect(result).toEqual({
+            success: true,
+            pdfPath: '/tmp/output.pdf',
+            jobId: 'djvu-convert-convert-123',
+        });
+        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/output.pdf');
+        expect(mocks.rename).toHaveBeenCalledTimes(2);
     });
 });
