@@ -136,6 +136,26 @@ describe('usePdfFile', () => {
             expect(file.pdfSrc.value).toBeInstanceOf(Blob);
         });
 
+        it('rejects zero-byte PDFs before committing viewer state', async () => {
+            mockDocuments.openPdfDialog.mockResolvedValue({
+                kind: 'pdf',
+                originalPath: '/docs/empty.pdf',
+                workingPath: '/tmp/work/empty.pdf',
+            });
+            mockDocuments.statFile.mockResolvedValue({ size: 0 });
+
+            const file = usePdfFile();
+            await file.openFile();
+
+            expect(file.error.value).toBe('errors.file.emptyPdf');
+            expect(file.workingCopyPath.value).toBeNull();
+            expect(file.originalPath.value).toBeNull();
+            expect(file.pdfData.value).toBeNull();
+            expect(file.pdfSrc.value).toBeNull();
+            expect(mockDocuments.readFile).not.toHaveBeenCalled();
+            expect(mockDocuments.readFileRange).not.toHaveBeenCalled();
+        });
+
         it('reads large PDF files in chunks when loading from a path', async () => {
             const firstChunk = new Uint8Array(4 * 1024 * 1024).fill(1);
             const secondChunk = Uint8Array.from([

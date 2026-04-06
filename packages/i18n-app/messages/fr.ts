@@ -686,6 +686,7 @@ export default {
         'file': {
             'open': 'Échec de l’ouverture du fichier',
             'invalid': 'Fichier invalide ou inexistant',
+            'emptyPdf': 'Le fichier PDF est vide (0 octet)',
             'save': 'Échec de l’enregistrement du fichier',
         },
         'search': {

@@ -1251,6 +1251,7 @@ const {
 const { isViewerLoadingOverlayVisible } = usePdfViewerLoadingState({
     src,
     isLoading,
+    pdfDocument,
     viewerContainer,
     holdOverlayVisible: isVisualReloadTransitionActive,
 });
