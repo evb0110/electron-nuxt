@@ -22,6 +22,8 @@ const DOCUMENT_CHUNKS_STORE = 'document-chunks';
 export const BROWSER_DOCUMENT_CHUNK_SIZE = 4 * 1024 * 1024;
 const BROWSER_INLINE_FILE_THRESHOLD_BYTES = 16 * 1024 * 1024;
 export const BROWSER_MAX_FULL_READ_BYTES = 64 * 1024 * 1024;
+const BROWSER_MAX_RECENT_FILES = 30;
+export const BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES = 512 * 1024 * 1024;
 const BROWSER_CHUNK_WRITE_YIELD_EVERY = 2;
 
 type TBrowserDocumentStorageMode =
@@ -422,6 +424,43 @@ function writeRecentFilesToStorage(recentFiles: IRecentFile[]) {
     writeRecentFilesToCookie(recentFiles);
 }
 
+function normalizeRecentFileSize(fileSize: number | undefined) {
+    if (typeof fileSize !== 'number' || !Number.isFinite(fileSize) || fileSize < 0) {
+        return 0;
+    }
+
+    return Math.floor(fileSize);
+}
+
+function pruneRecentFiles(recentFiles: IRecentFile[]) {
+    const keptRecentFiles: IRecentFile[] = [];
+    const evictedRefs = new Set<string>();
+    let totalBytes = 0;
+
+    for (const recentFile of recentFiles) {
+        const fileSize = normalizeRecentFileSize(recentFile.fileSize);
+        const exceedsCountLimit = keptRecentFiles.length >= BROWSER_MAX_RECENT_FILES;
+        const exceedsByteLimit = keptRecentFiles.length > 0
+            && (totalBytes + fileSize) > BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES;
+
+        if (exceedsCountLimit || exceedsByteLimit) {
+            evictedRefs.add(recentFile.originalPath);
+            continue;
+        }
+
+        keptRecentFiles.push({
+            ...recentFile,
+            fileSize,
+        });
+        totalBytes += fileSize;
+    }
+
+    return {
+        recentFiles: keptRecentFiles,
+        evictedRefs: Array.from(evictedRefs),
+    };
+}
+
 function parseChunkKey(key: string): IChunkKeyRecord | null {
     const separatorIndex = key.lastIndexOf('::');
     if (separatorIndex <= 0) {
@@ -790,7 +829,7 @@ export class BrowserDocumentStore {
         }
         this.entries.delete(ref);
         await deleteRecord(ref);
-        this.removeRecentFile(ref);
+        await this.removeRecentFile(ref);
     }
 
     public unload(ref: string) {
@@ -798,6 +837,13 @@ export class BrowserDocumentStore {
     }
 
     public async cleanupDetachedDocument(ref: string): Promise<boolean> {
+        return this.cleanupDetachedPersistedRecord(ref, { allowDurable: true });
+    }
+
+    private async cleanupDetachedPersistedRecord(
+        ref: string,
+        options?: { allowDurable?: boolean },
+    ): Promise<boolean> {
         await this.ensureMaintenance();
         const entry = await this.ensureEntry(ref);
         if (!entry) {
@@ -809,7 +855,7 @@ export class BrowserDocumentStore {
             return true;
         }
 
-        if (entry.retention !== 'transient' || this.isRecentFileRef(ref)) {
+        if (this.isRecentFileRef(ref)) {
             return false;
         }
 
@@ -819,6 +865,10 @@ export class BrowserDocumentStore {
             && record.sourceRef === ref
         ));
         if (hasDependents) {
+            return false;
+        }
+
+        if (entry.retention !== 'transient' && options?.allowDurable !== true) {
             return false;
         }
 
@@ -1020,21 +1070,26 @@ export class BrowserDocumentStore {
     public async touchRecentFile(ref: string) {
         const entry = await this.requireEntry(ref);
         if (entry.retention === 'transient') {
-            this.removeRecentFile(ref);
+            await this.removeRecentFile(ref);
             return;
         }
-        const recentFiles = readRecentFilesFromStorage().filter(
+        const nextRecentFiles = readRecentFilesFromStorage().filter(
             (candidate) => candidate.originalPath !== ref,
         );
 
-        recentFiles.unshift({
+        nextRecentFiles.unshift({
             originalPath: ref,
             fileName: entry.saveName ?? entry.fileName,
             timestamp: Date.now(),
             fileSize: entry.fileSize,
         });
 
-        writeRecentFilesToStorage(recentFiles.slice(0, 30));
+        const {
+            recentFiles,
+            evictedRefs,
+        } = pruneRecentFiles(nextRecentFiles);
+        writeRecentFilesToStorage(recentFiles);
+        await this.cleanupEvictedRecentRefs(evictedRefs);
     }
 
     public getRecentFiles() {
@@ -1043,16 +1098,24 @@ export class BrowserDocumentStore {
         return recentFiles;
     }
 
-    public removeRecentFile(ref: string) {
-        const nextRecentFiles = readRecentFilesFromStorage().filter(
+    public async removeRecentFile(ref: string) {
+        const currentRecentFiles = readRecentFilesFromStorage();
+        const nextRecentFiles = currentRecentFiles.filter(
             (candidate) => candidate.originalPath !== ref,
         );
 
         writeRecentFilesToStorage(nextRecentFiles);
+        if (nextRecentFiles.length !== currentRecentFiles.length) {
+            await this.cleanupEvictedRecentRefs([ref]);
+        }
     }
 
-    public clearRecentFiles() {
+    public async clearRecentFiles() {
+        const evictedRefs = readRecentFilesFromStorage().map(
+            (candidate) => candidate.originalPath,
+        );
         writeRecentFilesToStorage([]);
+        await this.cleanupEvictedRecentRefs(evictedRefs);
     }
 
     public static getFileNameFromRef(ref: string) {
@@ -1098,9 +1161,18 @@ export class BrowserDocumentStore {
             return;
         }
 
-        const recentRefs = new Set(
-            readRecentFilesFromStorage().map((file) => file.originalPath),
-        );
+        const currentRecentFiles = readRecentFilesFromStorage();
+        const {
+            recentFiles,
+            evictedRefs,
+        } = pruneRecentFiles(currentRecentFiles);
+        if (
+            evictedRefs.length > 0
+            || recentFiles.length !== currentRecentFiles.length
+        ) {
+            writeRecentFilesToStorage(recentFiles);
+        }
+        const recentRefs = new Set(recentFiles.map((file) => file.originalPath));
         const nonWorkingDependentCounts = new Map<string, number>();
 
         for (const record of records) {
@@ -1118,8 +1190,6 @@ export class BrowserDocumentStore {
             .filter((record) => (
                 record.kind === 'working'
                 || (
-                    record.retention === 'transient'
-                    && 
                     !recentRefs.has(record.ref)
                     && (nonWorkingDependentCounts.get(record.ref) ?? 0) === 0
                 )
@@ -1190,7 +1260,6 @@ export class BrowserDocumentStore {
 
         refsToRemoveSet.forEach((ref) => {
             this.entries.delete(ref);
-            this.removeRecentFile(ref);
         });
         await Promise.all([
             ...chunkDeletes,
@@ -1198,6 +1267,27 @@ export class BrowserDocumentStore {
                 await deleteRecord(ref);
             }),
         ]);
+        if (refsToRemoveSet.size > 0) {
+            const remainingRecentFiles = readRecentFilesFromStorage().filter(
+                (candidate) => !refsToRemoveSet.has(candidate.originalPath),
+            );
+            writeRecentFilesToStorage(remainingRecentFiles);
+        }
+    }
+
+    private async cleanupEvictedRecentRefs(refs: string[]) {
+        const uniqueRefs = Array.from(new Set(
+            refs.filter((ref) => typeof ref === 'string' && ref.length > 0),
+        ));
+        if (uniqueRefs.length === 0) {
+            return;
+        }
+
+        await Promise.allSettled(
+            uniqueRefs.map(async (ref) => {
+                await this.cleanupDetachedPersistedRecord(ref, { allowDurable: true });
+            }),
+        );
     }
 
     private async consumeFileIntoEntry(
