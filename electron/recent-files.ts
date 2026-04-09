@@ -19,6 +19,13 @@ import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('recent-files');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+const BOOTSTRAP_DEV_PROFILE_ENABLED = process.env.EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE === '1';
+const BOOTSTRAP_RECENT_FILES_DIR_NAMES = [
+    'EVB Viewer Dev',
+    'EVB Viewer',
+    'EVB-Viewer',
+    'Electron',
+] as const;
 
 // In-memory cache for synchronous access (needed for menu building)
 let recentFilesCache: IRecentFile[] = [];
@@ -38,6 +45,18 @@ interface IFilteredRecentFiles {
 
 function getStoragePath(): string {
     return join(app.getPath('userData'), 'recent-files.json');
+}
+
+function getBootstrapStoragePaths() {
+    if (!BOOTSTRAP_DEV_PROFILE_ENABLED) {
+        return [];
+    }
+
+    const appDataPath = app.getPath('appData');
+    const currentStoragePath = getStoragePath();
+    return Array.from(new Set(BOOTSTRAP_RECENT_FILES_DIR_NAMES
+        .map(dirName => join(appDataPath, dirName, 'recent-files.json'))
+        .filter(candidatePath => candidatePath !== currentStoragePath)));
 }
 
 function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
@@ -112,6 +131,39 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
         return normalizeRecentFilesData(JSON.parse(content));
     } catch (err) {
         if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+            for (const bootstrapPath of getBootstrapStoragePaths()) {
+                try {
+                    const content = await readFile(bootstrapPath, 'utf-8');
+                    const bootstrapData = normalizeRecentFilesData(JSON.parse(content));
+                    const filtered = filterExistingFiles(bootstrapData.files);
+                    if (filtered.files.length === 0) {
+                        continue;
+                    }
+
+                    const migratedData = {
+                        ...bootstrapData,
+                        files: filtered.files,
+                    };
+                    await saveRecentFilesData(migratedData);
+                    if (STARTUP_TRACE_ENABLED) {
+                        logger.info(
+                            `[startup] recent-files bootstrap (${filtered.files.length} file(s) from ${bootstrapPath}, `
+                            + `removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount})`,
+                        );
+                    }
+                    return migratedData;
+                } catch (bootstrapError) {
+                    if ((bootstrapError as NodeJS.ErrnoException)?.code === 'ENOENT') {
+                        continue;
+                    }
+                    logger.warn(
+                        `Failed to bootstrap recent files from ${bootstrapPath}: ${
+                            bootstrapError instanceof Error ? bootstrapError.message : String(bootstrapError)
+                        }`,
+                    );
+                }
+            }
+
             return {
                 version: 1,
                 files: [],

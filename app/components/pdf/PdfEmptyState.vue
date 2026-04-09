@@ -337,12 +337,17 @@ function formatEtaDuration(etaMs: number | null) {
 }
 
 .recent-file-remove {
+    visibility: hidden;
     opacity: 0;
+    pointer-events: none;
     transition: opacity $ease-standard;
 }
 
-.recent-file-item:hover .recent-file-remove {
+.recent-file-item:hover .recent-file-remove,
+.recent-file-item:focus-within .recent-file-remove {
+    visibility: visible;
     opacity: 1;
+    pointer-events: auto;
 }
 
 /* Open-file row integrated into the list */
