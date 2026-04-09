@@ -8,8 +8,63 @@ import {
 export const RECENT_FILES_COOKIE_KEY = 'evb_viewer_recent_files';
 export const RECENT_FILES_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180;
 export const RECENT_FILES_LIMIT = 30;
-export const RECENT_FILES_COOKIE_SSR_LIMIT = 8;
 export const RECENT_FILES_COOKIE_MAX_ENCODED_LENGTH = 3000;
+
+interface IRecentFilesCookieSnapshot {
+    recentFiles: IRecentFile[];
+    hasSnapshot: boolean;
+    truncated: boolean;
+}
+
+function normalizeRecentFileTuple(value: unknown): IRecentFile | null {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+
+    const tuple = value as unknown[];
+    const originalPath = tuple[0];
+    const fileName = tuple[1];
+    const timestamp = tuple[2];
+    const fileSize = tuple[3];
+    if (
+        typeof originalPath !== 'string'
+        || typeof fileName !== 'string'
+        || typeof timestamp !== 'number'
+    ) {
+        return null;
+    }
+
+    return {
+        originalPath,
+        fileName,
+        timestamp,
+        fileSize: typeof fileSize === 'number' ? fileSize : undefined,
+    };
+}
+
+function normalizeRecentFilesCollection(value: unknown) {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    return value
+        .map(candidate => normalizeRecentFile(candidate) ?? normalizeRecentFileTuple(candidate))
+        .filter((entry): entry is IRecentFile => entry !== null)
+        .slice(0, RECENT_FILES_LIMIT);
+}
+
+function buildRecentFilesCookiePayload(recentFiles: IRecentFile[], truncated: boolean) {
+    return {
+        v: 1,
+        t: truncated,
+        f: recentFiles.map(file => [
+            file.originalPath,
+            file.fileName,
+            file.timestamp,
+            file.fileSize ?? null,
+        ]),
+    };
+}
 
 export function normalizeRecentFile(value: unknown): IRecentFile | null {
     if (!isRecord(value)) {
@@ -39,16 +94,66 @@ export function parseRecentFilesPayload(raw: string | null | undefined) {
 
     try {
         const parsed: unknown = JSON.parse(raw);
-        if (!Array.isArray(parsed)) {
+        if (Array.isArray(parsed)) {
+            return normalizeRecentFilesCollection(parsed);
+        }
+
+        if (!isRecord(parsed)) {
             return [];
         }
 
-        return parsed
-            .map(normalizeRecentFile)
-            .filter((entry): entry is IRecentFile => entry !== null)
-            .slice(0, RECENT_FILES_LIMIT);
+        return normalizeRecentFilesCollection(
+            Array.isArray(parsed.f)
+                ? parsed.f
+                : parsed.files,
+        );
     } catch {
         return [];
+    }
+}
+
+export function parseRecentFilesCookieSnapshot(raw: string | null | undefined): IRecentFilesCookieSnapshot {
+    if (!raw) {
+        return {
+            recentFiles: [],
+            hasSnapshot: false,
+            truncated: false,
+        };
+    }
+
+    try {
+        const parsed: unknown = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+            return {
+                recentFiles: normalizeRecentFilesCollection(parsed),
+                hasSnapshot: true,
+                truncated: false,
+            };
+        }
+
+        if (!isRecord(parsed)) {
+            return {
+                recentFiles: [],
+                hasSnapshot: false,
+                truncated: false,
+            };
+        }
+
+        return {
+            recentFiles: normalizeRecentFilesCollection(
+                Array.isArray(parsed.f)
+                    ? parsed.f
+                    : parsed.files,
+            ),
+            hasSnapshot: true,
+            truncated: parsed.t === true || parsed.truncated === true,
+        };
+    } catch {
+        return {
+            recentFiles: [],
+            hasSnapshot: false,
+            truncated: false,
+        };
     }
 }
 
@@ -58,6 +163,7 @@ export function serializeRecentFilesPayload(recentFiles: IRecentFile[]) {
 
 export function trimRecentFilesForCookie(recentFiles: IRecentFile[]) {
     const trimmed: IRecentFile[] = [];
+    let truncated = false;
 
     for (const candidateValue of recentFiles) {
         const candidate = normalizeRecentFile(candidateValue);
@@ -69,20 +175,26 @@ export function trimRecentFilesForCookie(recentFiles: IRecentFile[]) {
             ...trimmed,
             candidate,
         ];
-        const encodedPayload = encodeURIComponent(JSON.stringify(nextTrimmed));
+        const encodedPayload = encodeURIComponent(JSON.stringify(buildRecentFilesCookiePayload(nextTrimmed, false)));
         if (encodedPayload.length > RECENT_FILES_COOKIE_MAX_ENCODED_LENGTH) {
+            truncated = true;
             break;
         }
 
         trimmed.push(candidate);
-        if (trimmed.length >= RECENT_FILES_COOKIE_SSR_LIMIT) {
-            break;
-        }
     }
 
-    return trimmed;
+    return {
+        recentFiles: trimmed,
+        truncated,
+    };
 }
 
 export function serializeRecentFilesCookiePayload(recentFiles: IRecentFile[]) {
-    return JSON.stringify(trimRecentFilesForCookie(recentFiles));
+    const {
+        recentFiles: trimmed,
+        truncated,
+    } = trimRecentFilesForCookie(recentFiles);
+
+    return JSON.stringify(buildRecentFilesCookiePayload(trimmed, truncated));
 }

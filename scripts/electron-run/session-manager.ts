@@ -171,6 +171,22 @@ export function shouldUseMacOSHiddenAppLauncher(
         && (env.EVB_AUTOMATION_HIDE_WINDOW === '1' || env.EVB_AUTOMATION_NO_FOCUS === '1');
 }
 
+export function shouldBootstrapInteractiveDevProfile(options: {
+    env?: NodeJS.ProcessEnv;
+    sessionName?: string;
+    automationWindowEnv?: ReturnType<typeof resolveAutomationWindowEnv>;
+    isTTY?: boolean;
+}) {
+    const env = options.env ?? process.env;
+    const sessionName = options.sessionName ?? getCurrentSessionName();
+    const automationWindowEnv = options.automationWindowEnv ?? resolveAutomationWindowEnv(env, { isTTY: options.isTTY });
+
+    return env.CI !== 'true'
+        && sessionName === 'default'
+        && automationWindowEnv.EVB_AUTOMATION_NO_FOCUS === '0'
+        && automationWindowEnv.EVB_AUTOMATION_HIDE_WINDOW === '0';
+}
+
 export function buildMacOSHiddenAppBundlePaths(options: {
     sourceAppPath: string;
     destinationRoot: string;
@@ -630,6 +646,11 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
 
     const automationUserDataDir = electronUserDataPath();
     const automationWindowEnv = resolveAutomationWindowEnv(process.env);
+    const shouldBootstrapDevProfile = shouldBootstrapInteractiveDevProfile({
+        env: process.env,
+        sessionName: getCurrentSessionName(),
+        automationWindowEnv,
+    });
     const electronRuntimeEnv = {
         ...process.env,
         EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
@@ -638,6 +659,7 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
         ...automationWindowEnv,
         EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
         EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),
+        EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE: shouldBootstrapDevProfile ? '1' : '0',
         ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
         ELECTRON_ENABLE_STACK_DUMPING: process.env.ELECTRON_ENABLE_STACK_DUMPING ?? '1',
     } satisfies NodeJS.ProcessEnv;

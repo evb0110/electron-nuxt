@@ -9,6 +9,7 @@ import {
     buildMacOSHiddenAppBundlePaths,
     buildElectronAutomationArgs,
     resolveAutomationWindowEnv,
+    shouldBootstrapInteractiveDevProfile,
     shouldUseMacOSHiddenAppLauncher,
     shouldDisableAutomationSandbox,
 } from '../../../scripts/electron-run/session-manager';
@@ -93,6 +94,44 @@ describe('session-manager automation launch args', () => {
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_NO_FOCUS: '1',
         }, 'linux')).toBe(false);
+    });
+
+    it('bootstraps canonical dev recents only for the visible default session', () => {
+        expect(shouldBootstrapInteractiveDevProfile({
+            env: {},
+            sessionName: 'default',
+            automationWindowEnv: {
+                EVB_AUTOMATION_NO_FOCUS: '0',
+                EVB_AUTOMATION_HIDE_WINDOW: '0',
+            },
+        })).toBe(true);
+
+        expect(shouldBootstrapInteractiveDevProfile({
+            env: { CI: 'true' },
+            sessionName: 'default',
+            automationWindowEnv: {
+                EVB_AUTOMATION_NO_FOCUS: '0',
+                EVB_AUTOMATION_HIDE_WINDOW: '0',
+            },
+        })).toBe(false);
+
+        expect(shouldBootstrapInteractiveDevProfile({
+            env: {},
+            sessionName: 'smoke-test',
+            automationWindowEnv: {
+                EVB_AUTOMATION_NO_FOCUS: '0',
+                EVB_AUTOMATION_HIDE_WINDOW: '0',
+            },
+        })).toBe(false);
+
+        expect(shouldBootstrapInteractiveDevProfile({
+            env: {},
+            sessionName: 'default',
+            automationWindowEnv: {
+                EVB_AUTOMATION_NO_FOCUS: '1',
+                EVB_AUTOMATION_HIDE_WINDOW: '1',
+            },
+        })).toBe(false);
     });
 
     it('builds hidden macOS app bundle paths inside a dedicated automation directory', () => {
