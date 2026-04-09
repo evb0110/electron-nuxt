@@ -1175,6 +1175,18 @@ export function createBrowserDocumentsFileCapability(
         async validatePdfData(data) {
             return validateBrowserPdfData(data);
         },
+        printPdfData() {
+            return Promise.resolve({
+                success: false,
+                error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+            });
+        },
+        printPdfPath() {
+            return Promise.resolve({
+                success: false,
+                error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+            });
+        },
         async writeFile(path, data) {
             clearSearchCaches();
             return browserDocumentStore.write(path, data);
@@ -1296,7 +1308,7 @@ export function createBrowserDocumentsFileCapability(
                         continue;
                     }
 
-                    browserDocumentStore.removeRecentFile(file.originalPath);
+                    await browserDocumentStore.removeRecentFile(file.originalPath);
                 }
 
                 return validatedFiles;
@@ -1304,13 +1316,11 @@ export function createBrowserDocumentsFileCapability(
             async add(path) {
                 await browserDocumentStore.touchRecentFile(path);
             },
-            remove(path) {
-                browserDocumentStore.removeRecentFile(path);
-                return Promise.resolve();
+            async remove(path) {
+                await browserDocumentStore.removeRecentFile(path);
             },
-            clear() {
-                browserDocumentStore.clearRecentFiles();
-                return Promise.resolve();
+            async clear() {
+                await browserDocumentStore.clearRecentFiles();
             },
         },
         getPathForFile(file) {

@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES,
     BROWSER_MAX_FULL_READ_BYTES,
     BrowserDocumentStore,
 } from '@app/platform/browser-document-store';
@@ -335,6 +336,111 @@ describe('BrowserDocumentStore', () => {
         await expect(rehydratedStore.exists(orphanOutputRef)).resolves.toBe(false);
     });
 
+    it('sweeps durable non-recent source blobs on the next session', async () => {
+        const store = new BrowserDocumentStore();
+        const recentSourceRef = await store.createStoredDocument(
+            'recent.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const staleDurableRef = await store.createStoredDocument(
+            'stale.pdf',
+            new Uint8Array([2]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+
+        await store.touchRecentFile(recentSourceRef);
+
+        const rehydratedStore = new BrowserDocumentStore();
+
+        await expect(rehydratedStore.exists(recentSourceRef)).resolves.toBe(true);
+        await expect(rehydratedStore.exists(staleDurableRef)).resolves.toBe(false);
+    });
+
+    it('evicts old recent blobs once the persisted recent-file budget is exceeded', async () => {
+        const firstHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'first.pdf',
+        });
+        const secondHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'second.pdf',
+        });
+        const thirdHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'third.pdf',
+        });
+        const fileSize = Math.floor(BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES / 2) + 1;
+        const store = new BrowserDocumentStore();
+
+        const firstRef = await store.createStoredDocument(
+            'first.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: firstHandle,
+                storageMode: 'handle',
+            },
+        );
+        await store.replaceWithHandleBackedDocument(firstRef, {
+            fileSize,
+            saveHandle: firstHandle,
+            saveName: 'first.pdf',
+        });
+        await store.touchRecentFile(firstRef);
+
+        const secondRef = await store.createStoredDocument(
+            'second.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: secondHandle,
+                storageMode: 'handle',
+            },
+        );
+        await store.replaceWithHandleBackedDocument(secondRef, {
+            fileSize,
+            saveHandle: secondHandle,
+            saveName: 'second.pdf',
+        });
+        await store.touchRecentFile(secondRef);
+
+        const thirdRef = await store.createStoredDocument(
+            'third.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: thirdHandle,
+                storageMode: 'handle',
+            },
+        );
+        await store.replaceWithHandleBackedDocument(thirdRef, {
+            fileSize,
+            saveHandle: thirdHandle,
+            saveName: 'third.pdf',
+        });
+        await store.touchRecentFile(thirdRef);
+
+        expect(store.getRecentFiles().map((file) => file.originalPath)).toEqual([thirdRef]);
+        await expect(store.exists(firstRef)).resolves.toBe(false);
+        await expect(store.exists(secondRef)).resolves.toBe(false);
+        await expect(store.exists(thirdRef)).resolves.toBe(true);
+    });
+
     it('removes a detached generated source after its working copy is cleaned up', async () => {
         const store = new BrowserDocumentStore();
         const generatedSourceRef = await store.createStoredDocument(
@@ -355,6 +461,30 @@ describe('BrowserDocumentStore', () => {
         await store.remove(workingRef);
         await expect(store.cleanupDetachedDocument(generatedSourceRef)).resolves.toBe(true);
         await expect(store.exists(generatedSourceRef)).resolves.toBe(false);
+    });
+
+    it('removes a durable source after it falls out of recents and loses its working copy', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.createStoredDocument(
+            'saved.pdf',
+            new Uint8Array([
+                7,
+                8,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+
+        await store.touchRecentFile(sourceRef);
+        await store.removeRecentFile(sourceRef);
+        await store.remove(workingRef);
+
+        await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(true);
+        await expect(store.exists(sourceRef)).resolves.toBe(false);
     });
 
     it('keeps a source while a working copy still depends on it', async () => {

@@ -521,7 +521,7 @@ describe('createBrowserDocumentsFileCapability', () => {
         await expect(browserDocumentStore.exists(workingRef)).resolves.toBe(false);
     });
 
-    it('keeps the original source when cloning a working copy snapshot', async () => {
+    it('cleans up the original source when cloned working copy snapshots are removed', async () => {
         const {
             capability,
             browserDocumentStore,
@@ -549,7 +549,7 @@ describe('createBrowserDocumentsFileCapability', () => {
         await capability.cleanupFile(snapshotRef);
         await capability.cleanupFile(workingRef);
 
-        await expect(browserDocumentStore.exists(sourceRef)).resolves.toBe(true);
+        await expect(browserDocumentStore.exists(sourceRef)).resolves.toBe(false);
     });
 
     it('clones chunked working-copy snapshots without forcing a full read', async () => {
