@@ -3,6 +3,7 @@ import {
     mkdirSync,
     readdirSync,
     readFileSync,
+    rmSync,
     statSync,
     writeFileSync,
 } from 'node:fs';
@@ -19,8 +20,9 @@ import {
     rgb,
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getCurrentSessionName } from '../../../../scripts/electron-run/shared';
 
-const FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
+const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
 const TRACKED_PROJECT_FIXTURE_DIR = resolve(process.cwd(), 'tests', 'fixtures', 'electron');
 const LEGACY_PROJECT_FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'test-pdfs');
 const PROJECT_ROOT_FIXTURE_DIR = resolve(process.cwd(), '.devkit');
@@ -46,19 +48,31 @@ export interface IDjvuFixtureResolution {
     reason: string;
 }
 
-function ensureFixtureDir() {
-    mkdirSync(FIXTURE_DIR, { recursive: true });
+function getFixtureDir(sessionName = getCurrentSessionName()) {
+    const safeSessionName = sessionName.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
+    return join(FIXTURE_ROOT_DIR, safeSessionName);
+}
+
+function ensureFixtureDir(sessionName = getCurrentSessionName()) {
+    mkdirSync(getFixtureDir(sessionName), { recursive: true });
+}
+
+export function cleanupSessionFixtures(sessionName = getCurrentSessionName()) {
+    rmSync(getFixtureDir(sessionName), {
+        recursive: true,
+        force: true,
+    });
 }
 
 export function createFixturePath(filename: string) {
     ensureFixtureDir();
-    return join(FIXTURE_DIR, filename);
+    return join(getFixtureDir(), filename);
 }
 
 export function copyProjectFixture(sourceFilename: string, targetFilename?: string) {
     ensureFixtureDir();
     const sourcePath = resolveProjectFixturePath(sourceFilename);
-    const targetPath = join(FIXTURE_DIR, targetFilename ?? sourceFilename);
+    const targetPath = join(getFixtureDir(), targetFilename ?? sourceFilename);
     writeFileSync(targetPath, readFileSync(sourcePath));
     return targetPath;
 }
@@ -83,14 +97,14 @@ export function copyDevkitFixture(sourceRelativePath: string, targetFilename?: s
     if (!existsSync(sourcePath)) {
         throw new Error(`Fixture does not exist: ${sourcePath}`);
     }
-    const targetPath = join(FIXTURE_DIR, targetFilename ?? basename(sourcePath));
+    const targetPath = join(getFixtureDir(), targetFilename ?? basename(sourcePath));
     writeFileSync(targetPath, readFileSync(sourcePath));
     return targetPath;
 }
 
 export async function createLinkOverlayFixturePdf(filename: string, url: string) {
     ensureFixtureDir();
-    const filePath = join(FIXTURE_DIR, filename);
+    const filePath = join(getFixtureDir(), filename);
 
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -147,7 +161,7 @@ export async function createLinkOverlayFixturePdf(filename: string, url: string)
 
 export async function createMultiPageTextFixturePdf(filename: string, pageCount = 3) {
     ensureFixtureDir();
-    const filePath = join(FIXTURE_DIR, filename);
+    const filePath = join(getFixtureDir(), filename);
 
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -181,7 +195,7 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
 
 export async function createBlankFixturePdf(filename: string, pageCount = 1) {
     ensureFixtureDir();
-    const filePath = join(FIXTURE_DIR, filename);
+    const filePath = join(getFixtureDir(), filename);
 
     const doc = await PDFDocument.create();
     for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {

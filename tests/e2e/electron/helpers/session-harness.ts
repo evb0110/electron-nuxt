@@ -17,10 +17,12 @@ import {
     stopSingleSession,
     waitForSessionReady,
 } from '../../../../scripts/electron-run/session-manager';
+import { cleanupSessionFixtures } from './fixtures';
 import { waitForFunctionInPage } from './page-runtime';
 
 const SESSION_READY_TIMEOUT_MS = 120_000;
 const RENDERER_READY_TIMEOUT_MS = 30_000;
+const PRESERVE_E2E_ARTIFACTS_ENV = 'EVB_E2E_PRESERVE_ARTIFACTS';
 
 export interface IElectronE2ESession {
     name: string;
@@ -28,6 +30,19 @@ export interface IElectronE2ESession {
     page: Page;
     command: <T = unknown>(command: TElectronRunCommand, args?: unknown[], timeoutMs?: number) => Promise<T>;
     stop: () => Promise<void>;
+}
+
+function shouldPreserveE2EArtifacts(env: NodeJS.ProcessEnv = process.env) {
+    const value = env[PRESERVE_E2E_ARTIFACTS_ENV]?.trim().toLowerCase();
+    return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+}
+
+function cleanupSessionArtifacts(sessionName: string) {
+    cleanupSessionFixtures(sessionName);
+    rmSync(sessionDir(sessionName), {
+        recursive: true,
+        force: true,
+    });
 }
 
 async function waitForRendererReady(page: Page, timeoutMs = RENDERER_READY_TIMEOUT_MS) {
@@ -136,10 +151,7 @@ export async function startElectronE2ESession(sessionName: string, options?: {cl
 
     await stopSingleSession(sessionName);
     if (clean) {
-        rmSync(sessionDir(sessionName), {
-            recursive: true,
-            force: true,
-        });
+        cleanupSessionArtifacts(sessionName);
     }
 
     setCurrentSessionName(sessionName);
@@ -172,6 +184,9 @@ export async function startElectronE2ESession(sessionName: string, options?: {cl
             // Disconnect best-effort for cleanup.
         }
         await stopSingleSession(sessionName);
+        if (!shouldPreserveE2EArtifacts()) {
+            cleanupSessionArtifacts(sessionName);
+        }
     };
 
     return {
