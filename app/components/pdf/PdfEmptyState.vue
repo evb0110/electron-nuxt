@@ -72,7 +72,7 @@
                 </div>
                 <ul class="recent-files-list flex flex-col gap-0.5">
                     <li
-                        v-for="file in recentFiles"
+                        v-for="file in visibleRecentFiles"
                         :key="file.originalPath"
                         class="recent-file-item"
                         :class="{ 'is-disabled': openInProgress }"
@@ -161,8 +161,10 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 const { isBrowserRuntime } = useRuntimeEnvironment();
+const MAX_VISIBLE_RECENT_FILES = 6;
 
 const batchEtaText = computed(() => formatEtaDuration(openBatchProgress?.estimatedRemainingMs ?? null));
+const visibleRecentFiles = computed(() => recentFiles.slice(0, MAX_VISIBLE_RECENT_FILES));
 
 function formatRelativeTimeLocalized(timestamp: number) {
     return formatRelativeTime(timestamp, {
