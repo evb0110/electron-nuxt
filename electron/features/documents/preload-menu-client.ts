@@ -35,6 +35,8 @@ export function createDocumentsPreloadMenuClient(
             eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuSave, callback),
         onMenuSaveAs: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
             eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuSaveAs, callback),
+        onMenuPrint: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
+            eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuPrint, callback),
         onMenuExportDocx: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>
             eventSubscriber.onNoArg(DOCUMENTS_EVENT_CHANNELS.menuExportDocx, callback),
         onMenuExportImages: (callback: IMenuEventCallback): IMenuEventUnsubscribe =>

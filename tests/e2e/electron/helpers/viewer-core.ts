@@ -22,6 +22,10 @@ const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
         '.i-lucide-save-all',
         '.iconify.i-lucide-save-all',
     ],
+    'Print': [
+        '.i-lucide-printer',
+        '.iconify.i-lucide-printer',
+    ],
     'Undo': [
         '.i-lucide-undo-2',
         '.iconify.i-lucide-undo-2',

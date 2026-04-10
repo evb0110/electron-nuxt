@@ -25,6 +25,10 @@ export const SHORTCUTS = {
             'shift',
         ], 
     },
+    print: {
+        key: 'P',
+        modifiers: ['mod'],
+    },
     toggleSidebar: {
         key: 'B',
         modifiers: ['mod'], 

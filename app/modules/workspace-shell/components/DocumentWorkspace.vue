@@ -13,6 +13,7 @@
                 :is-history-busy="isHistoryBusy"
                 :is-exporting-docx="isExportingDocx"
                 :is-opening-document="pendingDocumentOpen"
+                :is-preparing-print="isPreparingPrint"
                 :is-fit-width-active="isFitWidthActive"
                 :is-fit-height-active="isFitHeightActive"
                 :show-sidebar="toolbarShowSidebar"
@@ -27,6 +28,7 @@
                 @open-settings="emit('open-settings')"
                 @save="handleToolbarSave"
                 @save-as="handleToolbarSaveAs"
+                @print="handlePrint"
                 @export-docx="handleToolbarExportDocx"
                 @undo="handleToolbarUndo"
                 @redo="handleToolbarRedo"
@@ -51,12 +53,14 @@
                         :is-any-saving="isAnySaving"
                         :is-history-busy="isHistoryBusy"
                         :is-exporting-docx="isExportingDocx"
+                        :is-preparing-print="isPreparingPrint"
                         :is-djvu-mode="isDjvuMode"
                         :can-use-djvu="canUseDjvu"
                         @update:open="handleDropdownOpen('appMenu', $event)"
                         @open-file="handleOpenFileFromUi"
                         @save="handleToolbarSave"
                         @save-as="handleToolbarSaveAs"
+                        @print="handlePrint"
                         @combine-images="handleCombineImages"
                         @export-docx="handleToolbarExportDocx"
                         @export-images="handleExportImages()"
@@ -653,6 +657,7 @@ const {
     handleGoToResult,
     handleSave,
     handleSaveAs,
+    handlePrint,
     handleExportDocx,
     handleExportImages,
     handleExportMultiPageTiff,
@@ -662,6 +667,7 @@ const {
     docxExportError,
     isAnySaving,
     isExportingDocx,
+    isPreparingPrint,
     canSave,
     isFitWidthActive,
     isFitHeightActive,
@@ -974,6 +980,7 @@ const {
 const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleSave,
     handleSaveAs,
+    handlePrint,
     handleUndo: () => {
         void handleUndo();
     },
@@ -991,6 +998,7 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleExportMultiPageTiff,
     hasPdf,
     isOpeningDocument: computed(() => pendingDocumentOpen.value || isRestoringSplitPayload.value),
+    isPreparingPrint,
     canSave,
     canUndo,
     canRedo,

@@ -11,6 +11,7 @@
         :is-history-busy="snapshot.isHistoryBusy"
         :is-exporting-docx="snapshot.isExportingDocx"
         :is-opening-document="snapshot.isOpeningDocument"
+        :is-preparing-print="snapshot.isPreparingPrint"
         :is-fit-width-active="snapshot.isFitWidthActive"
         :is-fit-height-active="snapshot.isFitHeightActive"
         :show-sidebar="snapshot.showSidebar"
@@ -24,6 +25,7 @@
         @open-settings="emit('open-settings')"
         @save="emit('save')"
         @save-as="emit('save-as')"
+        @print="emit('print')"
         @export-docx="emit('export-docx')"
         @undo="emit('undo')"
         @redo="emit('redo')"
@@ -48,12 +50,14 @@
                 :is-any-saving="snapshot.isAnySaving"
                 :is-history-busy="snapshot.isHistoryBusy"
                 :is-exporting-docx="snapshot.isExportingDocx"
+                :is-preparing-print="snapshot.isPreparingPrint"
                 :is-djvu-mode="snapshot.isDjvuMode"
                 :can-use-djvu="canUseDjvu"
                 @update:open="emit('update:appMenuOpen', $event)"
                 @open-file="emit('open-file')"
                 @save="emit('save')"
                 @save-as="emit('save-as')"
+                @print="emit('print')"
                 @combine-images="emit('combine-images')"
                 @export-docx="emit('export-docx')"
                 @export-images="emit('export-images')"
@@ -196,6 +200,7 @@ const emit = defineEmits<{
     'open-settings': [];
     'save': [];
     'save-as': [];
+    'print': [];
     'combine-images': [];
     'export-docx': [];
     'export-images': [];

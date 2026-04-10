@@ -274,6 +274,7 @@ export interface IDocumentsMenuCapability {
     onMenuPasteImageFromClipboard: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuPrint: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuExportDocx: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuExportImages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuExportMultiPageTiff: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
@@ -314,6 +315,16 @@ export interface IDocumentsFileCapability {
     fileExists: (path: TDocumentRef) => Promise<boolean>;
     analyzePdfConformance: (path: TDocumentRef) => Promise<IPdfConformanceProfile>;
     validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
+    printPdfData: (data: Uint8Array, fileName?: string) => Promise<{
+        success: boolean;
+        canceled?: boolean;
+        error?: string;
+    }>;
+    printPdfPath: (path: TDocumentRef, fileName?: string) => Promise<{
+        success: boolean;
+        canceled?: boolean;
+        error?: string;
+    }>;
     writeFile: (path: TDocumentRef, data: Uint8Array) => Promise<boolean>;
     writeDocxFile: (path: TDocumentRef, data: Uint8Array) => Promise<boolean>;
     createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef) => Promise<TDocumentRef>;

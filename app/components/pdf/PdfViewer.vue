@@ -1558,6 +1558,8 @@ defineExpose({
     },
     captureScrollSnapshot: captureViewerScrollSnapshot,
     restoreScrollSnapshot: restoreViewerScrollSnapshot,
+    ensurePageMetricsInRange: pdfDocumentResult.ensurePageMetricsInRange,
+    getPageMetricsSnapshot: () => pageMetrics.value.map(metric => ({ ...metric })),
     waitForViewerLoadSettled,
     adoptPersistedManagedShapesOnNextImport,
     clearPendingManagedShapeImportAdoption,

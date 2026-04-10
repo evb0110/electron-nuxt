@@ -8,7 +8,10 @@ import type {
     Ref,
 } from 'vue';
 import type { ICropSelectionResult } from '@app/types/crop';
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type {
+    IPdfPageMetric,
+    IScrollSnapshot,
+} from '@app/types/pdf';
 
 export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
@@ -20,6 +23,8 @@ export interface IPdfViewerExpose {
         snapshot: IScrollSnapshot | null,
         options?: { fallbackPage?: number | null; },
     ) => void;
+    ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
+    getPageMetricsSnapshot?: () => IPdfPageMetric[];
     captureRegionToClipboard: () => Promise<boolean>;
     isCapturingRegion: boolean;
     startCropSelection: () => Promise<ICropSelectionResult | null>;

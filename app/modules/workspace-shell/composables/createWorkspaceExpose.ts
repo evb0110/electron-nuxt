@@ -18,6 +18,7 @@ import type {
 interface ICreateWorkspaceExposeDeps {
     handleSave: () => Promise<void>;
     handleSaveAs: () => Promise<void>;
+    handlePrint: () => void | Promise<void>;
     handleUndo: () => void;
     handleRedo: () => void;
     handleOpenFileFromUi: () => Promise<void>;
@@ -31,6 +32,7 @@ interface ICreateWorkspaceExposeDeps {
     handleExportMultiPageTiff: () => Promise<void>;
     hasPdf: Ref<boolean>;
     isOpeningDocument: Ref<boolean>;
+    isPreparingPrint: Ref<boolean>;
     canSave: Ref<boolean>;
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
@@ -112,6 +114,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         return {
             hasPdf: deps.hasPdf.value,
             isOpeningDocument: deps.isOpeningDocument.value,
+            isPreparingPrint: deps.isPreparingPrint.value,
             canSave: deps.canSave.value,
             canUndo: deps.canUndo.value,
             canRedo: deps.canRedo.value,
@@ -171,6 +174,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     return {
         handleSave: deps.handleSave,
         handleSaveAs: deps.handleSaveAs,
+        handlePrint: deps.handlePrint,
         handleUndo: deps.handleUndo,
         handleRedo: deps.handleRedo,
         handleOpenFileFromUi: deps.handleOpenFileFromUi,

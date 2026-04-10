@@ -3,6 +3,7 @@ import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import { usePageContextMenu } from '@app/composables/pdf/usePageContextMenu';
 import { usePageLabelState } from '@app/composables/pdf/usePageLabelState';
 import { useBookmarkState } from '@app/composables/pdf/useBookmarkState';
+import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import { usePdfHistory } from '@app/composables/usePdfHistory';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
@@ -24,6 +25,7 @@ import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
 import { useWorkspaceUndoTimeline } from '@app/modules/workspace-shell/composables/useWorkspaceUndoTimeline';
+import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 
 interface IWorkspaceOrchestrationDeps {
     isActive: Ref<boolean>;
@@ -311,6 +313,22 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pendingEmbeddedAnnotationDeletes.clear();
     });
 
+    const { serializePdfForSave } = usePdfSerialization({
+        pdfData,
+        workingCopyPath,
+        annotationComments,
+        totalPages,
+        pageLabelsDirty,
+        pageLabelRanges,
+        bookmarksDirty,
+        bookmarkItems,
+        untitledBookmarkLabel: t('bookmarks.untitled'),
+        getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
+        getAllShapes: () => pdfViewerRef.value?.getAllShapes() ?? [],
+        getDeletedEmbeddedShapeAnnotationIds: () => pdfViewerRef.value?.getDeletedEmbeddedShapeAnnotationIds() ?? [],
+        getDeletedEmbeddedShapeStableKeys: () => pdfViewerRef.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
+    });
+
     const hasPendingUnsavedChanges = computed(() => (
         annotationDirty.value
         || isDirty.value
@@ -569,6 +587,82 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => emit('open-in-new-tab', pathOrResult),
     });
 
+    async function getPrintableSourceData() {
+        if (!hasPendingUnsavedChanges.value) {
+            return pdfData.value ?? readWorkingCopyBytes();
+        }
+
+        await persistAllAnnotationNotes(true);
+
+        const rawData = await pdfViewerRef.value?.saveDocument?.()
+            ?? pdfData.value
+            ?? await readWorkingCopyBytes();
+        if (!rawData) {
+            return null;
+        }
+
+        return serializePdfForSave(rawData, {
+            includeShapes: true,
+            rewriteShapeState: true,
+        });
+    }
+
+    async function getQuickPrintPageMetrics() {
+        const viewer = pdfViewerRef.value;
+        const total = totalPages.value;
+        if (!viewer || total <= 0) {
+            return null;
+        }
+
+        const samplePages = Array.from(new Set([
+            1,
+            Math.min(total, Math.max(1, currentPage.value)),
+            Math.max(1, Math.ceil(total / 2)),
+            total,
+        ])).sort((left, right) => left - right);
+
+        for (const pageNumber of samplePages) {
+            const ensured = await viewer.ensurePageMetricsInRange?.(pageNumber, pageNumber);
+            if (ensured === false) {
+                return null;
+            }
+        }
+
+        const metrics = viewer.getPageMetricsSnapshot?.() ?? [];
+        const sampledMetrics = samplePages
+            .map(pageNumber => metrics[pageNumber - 1] ?? null)
+            .filter((metric): metric is NonNullable<typeof metric> => (
+                typeof metric?.width === 'number'
+                && Number.isFinite(metric.width)
+                && metric.width > 0
+                && typeof metric.height === 'number'
+                && Number.isFinite(metric.height)
+                && metric.height > 0
+            ));
+
+        return sampledMetrics.length > 0 ? sampledMetrics : null;
+    }
+
+    const workspacePrint = useWorkspacePrint({
+        totalPages,
+        selectedPages: selectedThumbnailPages,
+        sourcePdf: pdfSrc,
+        workingCopyPath,
+        fileName,
+        hasPendingUnsavedChanges,
+        getQuickPrintPageMetrics,
+        getPrintableSourceData,
+    });
+
+    const {
+        handleQuickPrint,
+        isPreparingPrint,
+    } = workspacePrint;
+
+    function handlePrint() {
+        void handleQuickPrint();
+    }
+
     const {
         isCapturingRegion,
         handleCaptureRegion,
@@ -609,6 +703,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openAnnotations,
         handleAnnotationToolChange,
         handleSave,
+        handlePrint,
         handleToggleSidebar: () => {
             showSidebar.value = !showSidebar.value;
         },
@@ -796,6 +891,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
         handleSave,
         handleSaveAs,
+        handlePrint,
         handleExportDocx,
         handleExportImages,
         handleExportMultiPageTiff,
@@ -805,6 +901,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         docxExportError,
         isAnySaving,
         isExportingDocx,
+        isPreparingPrint,
         canSave,
 
         isFitWidthActive,

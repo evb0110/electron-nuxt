@@ -63,6 +63,16 @@ export function registerDocumentsIpcAdapter(
         (event: IpcMainInvokeEvent, data: Uint8Array, fileName?: string) =>
             service.validatePdfData(event, data, fileName),
     );
+    registrar.handle(
+        DOCUMENTS_CHANNELS.pdfPrintData,
+        (event: IpcMainInvokeEvent, data: Uint8Array, fileName?: string) =>
+            service.printPdfData(event, data, fileName),
+    );
+    registrar.handle(
+        DOCUMENTS_CHANNELS.pdfPrintPath,
+        (event: IpcMainInvokeEvent, filePath: string, fileName?: string) =>
+            service.printPdfPath(event, filePath, fileName),
+    );
     registrar.handle(DOCUMENTS_CHANNELS.fileWrite, (event: IpcMainInvokeEvent, filePath: string, data: Uint8Array) =>
         service.writeFile(event, filePath, data),
     );

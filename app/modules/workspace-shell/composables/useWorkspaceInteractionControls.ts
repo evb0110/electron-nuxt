@@ -49,6 +49,7 @@ interface IWorkspaceInteractionControlsOptions {
     openAnnotations: () => void;
     handleAnnotationToolChange: (tool: TAnnotationTool) => void;
     handleSave: () => Promise<void>;
+    handlePrint: () => void | Promise<void>;
     handleToggleSidebar: () => void;
     handleDropdownOpenChange: (
         dropdown: 'zoom' | 'page' | 'ocr' | 'overflow' | 'appMenu',
@@ -153,6 +154,9 @@ export function useWorkspaceInteractionControls(options: IWorkspaceInteractionCo
         },
         handleSave: () => {
             void handleSave();
+        },
+        handlePrint: () => {
+            void options.handlePrint();
         },
         handleToggleSidebar: options.handleToggleSidebar,
     });

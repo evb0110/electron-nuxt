@@ -9,6 +9,7 @@ export const browserDocumentsMenuCapability: IDocumentsMenuCapability = {
     onMenuPasteImageFromClipboard: noopUnsubscribe,
     onMenuSave: noopUnsubscribe,
     onMenuSaveAs: noopUnsubscribe,
+    onMenuPrint: noopUnsubscribe,
     onMenuExportDocx: noopUnsubscribe,
     onMenuExportImages: noopUnsubscribe,
     onMenuExportMultiPageTiff: noopUnsubscribe,

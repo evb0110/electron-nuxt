@@ -45,6 +45,14 @@
                     :loading="isSavingAs"
                     @click="emit('save-as')"
                 />
+                <ToolbarButton
+                    icon="lucide:printer"
+                    :tooltip="t('toolbar.print')"
+                    :shortcut="shortcutLabels.print"
+                    :disabled="!hasPdf || isAnySaving || isHistoryBusy || isDjvuMode"
+                    :loading="isPreparingPrint"
+                    @click="emit('print')"
+                />
             </template>
 
             <div class="toolbar-separator" />
@@ -250,6 +258,7 @@ defineProps<{
     isHistoryBusy: boolean;
     isExportingDocx: boolean;
     isOpeningDocument?: boolean;
+    isPreparingPrint?: boolean;
     isFitWidthActive: boolean;
     isFitHeightActive: boolean;
     showSidebar: boolean;
@@ -266,6 +275,7 @@ const emit = defineEmits<{
     'open-settings': [];
     'save': [];
     'save-as': [];
+    'print': [];
     'export-docx': [];
     'undo': [];
     'redo': [];

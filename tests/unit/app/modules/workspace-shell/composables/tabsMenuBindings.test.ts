@@ -7,6 +7,7 @@ import {
 import { delay } from 'es-toolkit/promise';
 import { ref } from 'vue';
 import type { IElectronAPI } from '@contracts/electron-api';
+import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/composables/tabs-menu-bindings';
 
 function cast<T>(value: unknown): T {
@@ -55,6 +56,7 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
 
 function createElectronApi() {
     let onMenuOpenPdf: (() => void) | null = null;
+    let onMenuPrint: (() => void) | null = null;
     let onMenuOpenExternalPaths: ((paths: string[]) => void) | null = null;
     let onMenuOpenRecentFile: ((path: string) => void) | null = null;
 
@@ -63,6 +65,12 @@ function createElectronApi() {
             onMenuOpenPdf = callback;
             return () => {
                 onMenuOpenPdf = null;
+            };
+        }),
+        onMenuPrint: vi.fn((callback: () => void) => {
+            onMenuPrint = callback;
+            return () => {
+                onMenuPrint = null;
             };
         }),
         onMenuOpenExternalPaths: vi.fn((callback: (paths: string[]) => void) => {
@@ -84,6 +92,9 @@ function createElectronApi() {
         emitOpenPdf() {
             onMenuOpenPdf?.();
         },
+        emitPrint() {
+            onMenuPrint?.();
+        },
         emitExternalPaths(paths: string[]) {
             onMenuOpenExternalPaths?.(paths);
         },
@@ -104,6 +115,18 @@ describe('registerTabsMenuBindings', () => {
         await flushMicrotasks();
 
         expect(handleFallbackToolbarOpenFile).toHaveBeenCalledTimes(1);
+    });
+
+    it('routes the menu print command to the active workspace', async () => {
+        const handlePrint = vi.fn(async () => {});
+        const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>({handlePrint}))});
+        const electronApi = createElectronApi();
+
+        registerTabsMenuBindings(electronApi.api, deps);
+        electronApi.emitPrint();
+        await flushMicrotasks();
+
+        expect(handlePrint).toHaveBeenCalledTimes(1);
     });
 
     it('serializes external open requests so later launches wait for the first one', async () => {

@@ -33,6 +33,7 @@ interface IPageShortcutsDeps {
     handleZoomOut: () => void;
     handleActualSize: () => void;
     handleSave: () => void;
+    handlePrint: () => void;
     handleToggleSidebar: () => void;
 }
 
@@ -134,6 +135,11 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
             }
             if (key === 's' && !e.shiftKey && !hasElectronAPI()) {
                 e.preventDefault();
+            }
+            if (key === 'p' && !e.shiftKey && !hasElectronAPI()) {
+                e.preventDefault();
+                deps.handlePrint();
+                return;
             }
 
             // Zoom — fully imperative (special key chars not compatible with reactive combos)

@@ -12,6 +12,7 @@ import type {
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
     isOpeningDocument: boolean;
+    isPreparingPrint: boolean;
     canSave: boolean;
     canUndo: boolean;
     canRedo: boolean;
@@ -44,6 +45,7 @@ export interface ICloseFileFromUiOptions {persist?: boolean;}
 export interface IWorkspaceFilePort {
     handleSave: () => Promise<void>;
     handleSaveAs: () => Promise<void>;
+    handlePrint: () => void | Promise<void>;
     handleUndo: () => void;
     handleRedo: () => void;
     handleOpenFileFromUi: () => Promise<void>;
