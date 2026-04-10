@@ -34,8 +34,18 @@ const mockElectronAPI = { documents: mockDocuments };
 const mockHasElectronAPI = vi.fn(() => true);
 
 vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => mockElectronAPI,
     getElectronAPI: () => mockElectronAPI,
     hasElectronAPI: () => mockHasElectronAPI(),
+    isDesktopPlatformActive: () => mockHasElectronAPI(),
+    isBrowserPlatformActive: () => !mockHasElectronAPI(),
+    isElectronRoutePath: (path: string | null | undefined) => path === '/electron' || path?.startsWith('/electron/') === true,
+    resolveInitialDesktopRuntime: (_routePath: string | null | undefined) => mockHasElectronAPI(),
+    shouldPreferDesktopPlatform: (
+        routePath: string | null | undefined,
+        desktopRuntime = false,
+        electronApiAvailable = mockHasElectronAPI(),
+    ) => electronApiAvailable || desktopRuntime || routePath === '/electron' || routePath?.startsWith('/electron/') === true,
 }));
 
 vi.mock('@app/composables/pdf/useOcrTextContent', () => ({useOcrTextContent: () => ({clearCache: vi.fn()})}));

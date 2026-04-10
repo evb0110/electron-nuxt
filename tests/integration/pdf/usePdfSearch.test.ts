@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => mocks.api,
     hasElectronAPI: () => mocks.hasElectronAPI(),
     getElectronAPI: () => mocks.api,
 }));

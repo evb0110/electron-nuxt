@@ -3,12 +3,28 @@ import {
     resolveInitialDesktopRuntime,
 } from '@app/utils/platform';
 
+function getCurrentRoutePath() {
+    try {
+        return useRoute()?.path ?? null;
+    } catch {
+        return null;
+    }
+}
+
+function getDesktopRuntimeState(routePath: string | null) {
+    try {
+        return useState(
+            'runtime:is-desktop',
+            () => resolveInitialDesktopRuntime(routePath),
+        );
+    } catch {
+        return ref(resolveInitialDesktopRuntime(routePath));
+    }
+}
+
 export function useRuntimeEnvironment() {
-    const route = useRoute();
-    const isDesktopRuntime = useState(
-        'runtime:is-desktop',
-        () => resolveInitialDesktopRuntime(route.path),
-    );
+    const routePath = getCurrentRoutePath();
+    const isDesktopRuntime = getDesktopRuntimeState(routePath);
 
     if (import.meta.client) {
         onMounted(() => {
