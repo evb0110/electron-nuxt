@@ -39,7 +39,10 @@ const mockElectronAPI = {
     },
 };
 
-vi.mock('@app/utils/platform', () => ({getElectronAPI: () => mockElectronAPI}));
+vi.mock('@app/utils/platform', () => ({
+    getPlatformAPI: () => mockElectronAPI,
+    getElectronAPI: () => mockElectronAPI,
+}));
 
 vi.mock('@app/composables/useDjvuMode', () => {
     const isDjvuMode = ref(false);
