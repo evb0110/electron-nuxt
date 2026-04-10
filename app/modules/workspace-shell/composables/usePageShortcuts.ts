@@ -4,9 +4,9 @@ import {
     tryOnScopeDispose,
     whenever,
 } from '@vueuse/core';
-import { hasElectronAPI } from '@app/utils/platform';
 import type { TAnnotationTool } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdf';
+import { shouldHandleRendererMenuAccelerators } from '@app/utils/platform-shortcuts';
 
 interface IPdfViewerForShortcuts {
     cancelCommentPlacement: () => void;
@@ -128,22 +128,23 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
             }
 
             const key = e.key.toLowerCase();
+            const shouldHandleRendererAccelerators = shouldHandleRendererMenuAccelerators();
 
             // preventDefault for reactive letter shortcuts
             if (key === 'b' || key === 'f') {
                 e.preventDefault();
             }
-            if (key === 's' && !e.shiftKey && !hasElectronAPI()) {
+            if (key === 's' && !e.shiftKey && shouldHandleRendererAccelerators) {
                 e.preventDefault();
             }
-            if (key === 'p' && !e.shiftKey && !hasElectronAPI()) {
+            if (key === 'p' && !e.shiftKey && shouldHandleRendererAccelerators) {
                 e.preventDefault();
                 deps.handlePrint();
                 return;
             }
 
             // Zoom — fully imperative (special key chars not compatible with reactive combos)
-            if (!hasElectronAPI()) {
+            if (shouldHandleRendererAccelerators) {
                 if (isZoomInKey(e)) {
                     e.preventDefault();
                     deps.handleZoomIn();
@@ -173,7 +174,10 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     whenever(() => modReady.value && (keys.b?.value ?? false), () => deps.handleToggleSidebar());
     whenever(() => modReady.value && (keys.f?.value ?? false), () => openSearch());
     whenever(
-        () => modReady.value && (keys.s?.value ?? false) && !(keys.shift?.value ?? false) && !hasElectronAPI(),
+        () => modReady.value
+            && (keys.s?.value ?? false)
+            && !(keys.shift?.value ?? false)
+            && shouldHandleRendererMenuAccelerators(),
         () => deps.handleSave(),
     );
 

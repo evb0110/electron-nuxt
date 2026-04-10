@@ -6,9 +6,9 @@ import type {
 import type { TSplitPayload } from '@contracts/window-tabs';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { readDocumentBytes } from '@app/utils/document-bytes';
-import { getElectronAPI } from '@app/utils/platform';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
 import type { TPdfSource } from '@app/types/pdf';
+import { getDocumentsCapability } from '@app/utils/platform-documents';
 
 interface IUseWorkspaceSplitPayloadOptions {
     pdfSrc: Ref<TPdfSource | null>;
@@ -58,12 +58,12 @@ export function useWorkspaceSplitPayload(options: IUseWorkspaceSplitPayloadOptio
         }
 
         const normalizedCurrentPage = normalizeSplitPayloadPage(options.currentPage.value) ?? 1;
-        const api = getElectronAPI();
+        const documents = getDocumentsCapability();
         const normalizedFileName = options.fileName.value ?? 'document.pdf';
 
         if (options.workingCopyPath.value && !options.hasPendingTabChanges.value) {
             try {
-                const snapshotPath = await api.documents.createWorkingCopyFromPath(
+                const snapshotPath = await documents.createWorkingCopyFromPath(
                     options.workingCopyPath.value,
                     options.originalPath.value ?? undefined,
                 );
@@ -104,7 +104,7 @@ export function useWorkspaceSplitPayload(options: IUseWorkspaceSplitPayloadOptio
             return { kind: 'empty' };
         }
 
-        const snapshotPath = await api.documents.createWorkingCopyFromData(
+        const snapshotPath = await documents.createWorkingCopyFromData(
             normalizedFileName,
             snapshot,
             options.originalPath.value ?? undefined,

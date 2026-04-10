@@ -1,10 +1,7 @@
 import type { Ref } from 'vue';
 import type { IWindowTabIncomingTransfer } from '@contracts/window-tabs';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
 import { traceRendererStartup } from '@app/utils/startup-trace';
+import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
 
 interface IUseAppShellLifecycleOptions {
     dirtyTabCloseDialogOpen: Ref<boolean>;
@@ -43,11 +40,9 @@ export function useAppShellLifecycle(options: IUseAppShellLifecycleOptions) {
 
         observeToolbarHost();
         cleanupEmptyGroups();
-        if (hasElectronAPI()) {
-            void ensureUpdatesInitialized();
-        }
+        void ensureUpdatesInitialized();
 
-        incomingTabTransferCleanup = getElectronAPI().windowTabs.onIncomingTransfer((transfer) => {
+        incomingTabTransferCleanup = getWindowTabsCapability().onIncomingTransfer((transfer) => {
             void handleIncomingTabTransfer(transfer);
         });
         traceRendererStartup('index.vue onMounted finished', {durationMs: Math.round(performance.now() - start)});

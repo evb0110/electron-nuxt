@@ -21,7 +21,7 @@ import type { TDocumentRef } from '@contracts/platform-api';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import { useFileOperations } from '@app/composables/useFileOperations';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/platform';
+import { getSearchCapability } from '@app/utils/platform-search';
 import {
     capturePdfReloadSnapshot,
     createPdfReloadWaiter,
@@ -261,10 +261,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             });
 
             if (warmupWorkingPath) {
-                const api = getElectronAPI();
                 // Prewarm search index and worker caches after OCR persistence so
                 // first user search does not pay the indexing setup cost.
-                void api.search.warmIndex(warmupWorkingPath, {pageCount: warmupPageCountHint}).catch((error) => {
+                void getSearchCapability().warmIndex(warmupWorkingPath, {pageCount: warmupPageCountHint}).catch((error) => {
                     const warmIndexError: unknown = error;
                     BrowserLogger.debug('pdf-search', 'Failed to prewarm search index after OCR', {
                         path: warmupWorkingPath,

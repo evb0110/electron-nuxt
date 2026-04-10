@@ -2,8 +2,8 @@ import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/platform';
 import { useAnalytics } from '@app/composables/useAnalytics';
+import { getDocumentsCapability } from '@app/utils/platform-documents';
 
 type TExportDialogMode = 'images' | 'multipage-tiff';
 type TExportOverlayKind = 'images' | 'multipage-tiff';
@@ -129,9 +129,9 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         isExportInProgress.value = true;
         showExportRunning('images', selectedPageCount);
         try {
-            const api = getElectronAPI();
+            const documents = getDocumentsCapability();
             const startedAt = Date.now();
-            const result = await api.documents.exportPdfToImages(workingCopyPath.value, pageNumbers);
+            const result = await documents.exportPdfToImages(workingCopyPath.value, pageNumbers);
             if (result.success || result.canceled) {
                 analytics.track('export_completed', {
                     durationMs: Math.max(0, Date.now() - startedAt),
@@ -144,7 +144,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             if (result.success && result.outputPaths) {
                 await Promise.allSettled(
                     result.outputPaths.map(async (path) => {
-                        await api.documents.cleanupFile(path);
+                        await documents.cleanupFile(path);
                     }),
                 );
                 showExportSuccess('images', result.outputPaths.length || selectedPageCount);
@@ -170,9 +170,9 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         isExportInProgress.value = true;
         showExportRunning('multipage-tiff', selectedPageCount);
         try {
-            const api = getElectronAPI();
+            const documents = getDocumentsCapability();
             const startedAt = Date.now();
-            const result = await api.documents.exportPdfToMultiPageTiff(workingCopyPath.value, pageNumbers);
+            const result = await documents.exportPdfToMultiPageTiff(workingCopyPath.value, pageNumbers);
             if (result.success || result.canceled) {
                 analytics.track('export_completed', {
                     durationMs: Math.max(0, Date.now() - startedAt),
@@ -182,7 +182,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                 });
             }
             if (result.success && result.outputPath) {
-                await api.documents.cleanupFile(result.outputPath).catch(() => {});
+                await documents.cleanupFile(result.outputPath).catch(() => {});
                 showExportSuccess('multipage-tiff', selectedPageCount);
             } else {
                 setExportOverlay(null);

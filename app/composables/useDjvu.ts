@@ -1,8 +1,9 @@
 import type { TDocumentRef } from '@contracts/platform-api';
-import { getElectronAPI } from '@app/utils/platform';
 import { useDjvuMode } from '@app/composables/useDjvuMode';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getDocumentRefBaseName } from '@app/utils/document-ref';
+import { getDjvuCapability } from '@app/utils/platform-djvu';
+import { getDocumentsCapability } from '@app/utils/platform-documents';
 
 interface IDjvuConversionState {
     isConverting: boolean;
@@ -79,8 +80,8 @@ export const useDjvu = () => {
         }
 
         try {
-            const api = getElectronAPI();
-            unsubProgress = api.djvu.onProgress((progress) => {
+            const djvu = getDjvuCapability();
+            unsubProgress = djvu.onProgress((progress) => {
                 if (progress.phase === 'loading') {
                     if (activeViewingJobId.value && progress.jobId !== activeViewingJobId.value) {
                         return;
@@ -111,7 +112,7 @@ export const useDjvu = () => {
                     if (pendingConvertCancel.value) {
                         activeConvertJobId.value = progress.jobId;
                         pendingConvertCancel.value = false;
-                        void api.djvu.cancel(progress.jobId).catch((cancelError: unknown) => {
+                        void djvu.cancel(progress.jobId).catch((cancelError: unknown) => {
                             logSuppressedError('Failed to cancel DjVu conversion job', cancelError);
                         });
                     }
@@ -142,8 +143,7 @@ export const useDjvu = () => {
         }
 
         try {
-            const api = getElectronAPI();
-            unsubViewingReady = api.djvu.onViewingReady((event) => {
+            unsubViewingReady = getDjvuCapability().onViewingReady((event) => {
                 if (activeViewingJobId.value && event.jobId && event.jobId !== activeViewingJobId.value) {
                     return;
                 }
@@ -166,8 +166,7 @@ export const useDjvu = () => {
         }
 
         try {
-            const api = getElectronAPI();
-            unsubViewingError = api.djvu.onViewingError((event) => {
+            unsubViewingError = getDjvuCapability().onViewingError((event) => {
                 if (activeViewingJobId.value && event.jobId && event.jobId !== activeViewingJobId.value) {
                     return;
                 }
@@ -218,7 +217,7 @@ export const useDjvu = () => {
         setOriginalPath?: (path: TDocumentRef | null) => void,
         closeActivePdf?: () => void | Promise<void>,
     ) {
-        const api = getElectronAPI();
+        const djvu = getDjvuCapability();
         showBanner.value = true;
         clearViewingError();
         openingPath.value = djvuPath;
@@ -226,7 +225,7 @@ export const useDjvu = () => {
         pendingConvertCancel.value = false;
 
         try {
-            const result = await api.djvu.openForViewing(djvuPath);
+            const result = await djvu.openForViewing(djvuPath);
             if (!result.success) {
                 BrowserLogger.error('djvu', 'Open failed', result.error);
                 throw new Error(result.error ?? t('errors.djvu.open'));
@@ -256,11 +255,12 @@ export const useDjvu = () => {
             return;
         }
 
-        const api = getElectronAPI();
+        const djvu = getDjvuCapability();
+        const documents = getDocumentsCapability();
 
         const suggestedName = (getDocumentRefBaseName(djvuSourcePath.value) ?? t('djvu.documentFallback'))
             .replace(/\.djvu?$/i, '.pdf');
-        const savePath = await api.documents.savePdfDialog(suggestedName);
+        const savePath = await documents.savePdfDialog(suggestedName);
         if (!savePath) {
             return;
         }
@@ -281,7 +281,7 @@ export const useDjvu = () => {
 
         try {
             clearViewingError();
-            const result = await api.djvu.convertToPdf(
+            const result = await djvu.convertToPdf(
                 djvuSourcePath.value,
                 savePath,
                 {
@@ -308,13 +308,13 @@ export const useDjvu = () => {
 
             if (tempPath) {
                 try {
-                    await api.djvu.cleanupTemp(tempPath);
+                    await djvu.cleanupTemp(tempPath);
                 } catch (cleanupError) {
                     logSuppressedError('Failed to cleanup DjVu temp PDF after conversion', cleanupError);
                 }
             }
 
-            const openResult = await api.documents.openPdfDirect(result.pdfPath);
+            const openResult = await documents.openPdfDirect(result.pdfPath);
             if (openResult && openResult.kind === 'pdf') {
                 await loadPdfFromPath(openResult.workingPath);
             }
@@ -336,7 +336,7 @@ export const useDjvu = () => {
                 percent: 0,
             };
             if (shouldCleanupSavePath) {
-                await api.documents.cleanupFile(savePath).catch((cleanupError: unknown) => {
+                await documents.cleanupFile(savePath).catch((cleanupError: unknown) => {
                     logSuppressedError('Failed to cleanup DjVu browser output ref', cleanupError);
                 });
             }
@@ -361,10 +361,9 @@ export const useDjvu = () => {
         }
 
         try {
-            const api = getElectronAPI();
             await Promise.all(Array.from(ids, async (jobId) => {
                 try {
-                    await api.djvu.cancel(jobId);
+                    await getDjvuCapability().cancel(jobId);
                 } catch (cancelError) {
                     logSuppressedError(`Failed to cancel DjVu job ${jobId}`, cancelError);
                 }
@@ -396,8 +395,7 @@ export const useDjvu = () => {
         }
 
         try {
-            const api = getElectronAPI();
-            await api.djvu.cleanupTemp(djvuTempPdfPath.value);
+            await getDjvuCapability().cleanupTemp(djvuTempPdfPath.value);
         } catch (cleanupError) {
             logSuppressedError('Failed to cleanup DjVu temp PDF', cleanupError);
         }

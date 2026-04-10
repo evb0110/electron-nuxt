@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
     useMagicKeys: vi.fn(),
     tryOnScopeDispose: vi.fn(),
     whenever: vi.fn(),
-    hasElectronAPI: vi.fn(),
+    shouldHandleRendererMenuAccelerators: vi.fn(),
 }));
 
 vi.mock('@vueuse/core', () => ({
@@ -23,7 +23,7 @@ vi.mock('@vueuse/core', () => ({
     tryOnScopeDispose: mocks.tryOnScopeDispose,
     whenever: mocks.whenever,
 }));
-vi.mock('@app/utils/platform', () => ({hasElectronAPI: mocks.hasElectronAPI}));
+vi.mock('@app/utils/platform-shortcuts', () => ({ shouldHandleRendererMenuAccelerators: mocks.shouldHandleRendererMenuAccelerators }));
 
 function cast<T>(obj: unknown): T {
     return obj as T;
@@ -69,7 +69,7 @@ describe('usePageShortcuts', () => {
             removeEventListener: vi.fn(),
         };
         vi.stubGlobal('window', windowMock);
-        mocks.hasElectronAPI.mockReturnValue(true);
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(false);
 
         mocks.useMagicKeys.mockImplementation((opts?: { onEventFired?: (e: unknown) => void }) => {
             capturedOnEventFired = opts?.onEventFired;
@@ -95,7 +95,7 @@ describe('usePageShortcuts', () => {
     });
 
     it('handles zoom shortcuts via onEventFired when not Electron', async () => {
-        mocks.hasElectronAPI.mockReturnValue(false);
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
         const deps = createDeps();
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
         usePageShortcuts(deps);
@@ -144,7 +144,7 @@ describe('usePageShortcuts', () => {
     });
 
     it('intercepts Cmd/Ctrl+P in the web app and routes it to print', async () => {
-        mocks.hasElectronAPI.mockReturnValue(false);
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
         const deps = createDeps();
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
         usePageShortcuts(deps);

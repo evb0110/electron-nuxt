@@ -9,7 +9,7 @@ import type { TPdfSource } from '@app/types/pdf';
 import type { IRecentFile } from '@contracts/shared';
 import { waitUntilIdle } from '@app/utils/async-helpers';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/platform';
+import { getDocumentsCapability } from '@app/utils/platform-documents';
 
 const DJVU_PATH_REGEX = /\.djvu?$/i;
 const OPEN_SETTLE_DELAY_MS = 25;
@@ -190,8 +190,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function pickCombineFiles() {
-        const api = getElectronAPI();
-        return api.documents.openCombineDialog();
+        return getDocumentsCapability().openCombineDialog();
     }
 
     async function handleCombineImages() {

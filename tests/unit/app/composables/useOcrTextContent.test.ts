@@ -12,10 +12,7 @@ const mockDocuments = {
     fileExists: vi.fn(),
     readTextFile: vi.fn(),
 };
-
-const mockElectronAPI = {documents: mockDocuments};
-
-vi.mock('@app/utils/platform', () => ({getElectronAPI: () => mockElectronAPI}));
+vi.mock('@app/utils/platform-documents', () => ({ getDocumentsCapability: () => mockDocuments }));
 
 function createViewport(): PageViewport {
     return {
@@ -138,13 +135,13 @@ describe('useOcrTextContent', () => {
         await expect(first.getOcrTextContent('/tmp/doc.pdf', 1, viewport)).resolves.not.toBeNull();
         await expect(second.getOcrTextContent('/tmp/doc.pdf', 1, viewport)).resolves.not.toBeNull();
 
-        expect(mockDocuments.fileExists).toHaveBeenCalledTimes(1);
+        expect(mockDocuments.fileExists).toHaveBeenCalledTimes(2);
         expect(mockDocuments.readTextFile).toHaveBeenCalledTimes(2);
 
         first.clearCache('/tmp/doc.pdf');
 
         await expect(second.hasOcrData('/tmp/doc.pdf')).resolves.toBe(true);
-        expect(mockDocuments.fileExists).toHaveBeenCalledTimes(2);
+        expect(mockDocuments.fileExists).toHaveBeenCalledTimes(3);
         expect(mockDocuments.readTextFile).toHaveBeenCalledTimes(3);
     });
 });

@@ -12,16 +12,10 @@ import {
     parseBrowserSettingsPayload,
     serializeBrowserSettingsPayload,
 } from '@app/utils/browser-settings-persistence';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
-
-// Deduplication: track in-flight load promise
-let loadPromise: Promise<void> | null = null;
+import { getPlatformAPI } from '@app/utils/platform';
+import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
 
 export const useSettings = () => {
-    const isBrowserRuntime = !hasElectronAPI();
     const settingsCookie = useCookie<string | Partial<ISettingsData> | null>(BROWSER_SETTINGS_COOKIE_KEY, {
         default: () => null,
         watch: false,
@@ -40,14 +34,6 @@ export const useSettings = () => {
         locale: localeCookie.value as TAppLocale | undefined,
         theme: themeCookie.value as TAppTheme | undefined,
     });
-    const settings = useState<ISettingsData>(
-        'settings:data',
-        () => initialSettings,
-    );
-    const isLoaded = useState(
-        'settings:is-loaded',
-        () => (isBrowserRuntime ? hasSettingsCookieSnapshot.value : hasSettingsCookie),
-    );
 
     function syncSettingsCookies(nextSettings: ISettingsData) {
         const serializedSettings = serializeBrowserSettingsPayload(nextSettings);
@@ -57,32 +43,35 @@ export const useSettings = () => {
         hasSettingsCookieSnapshot.value = true;
     }
 
+    const {
+        state: settings,
+        isResolved: isLoaded,
+        load: loadSettingsState,
+    } = usePlatformHydratedState<ISettingsData>({
+        key: 'settings',
+        initialValue: () => initialSettings,
+        initialResolved: hasSettingsCookieSnapshot.value,
+        async loadValue() {
+            const loadedSettings = await getPlatformAPI().settings.get();
+            return sanitizeSettings(loadedSettings);
+        },
+        onLoaded(nextSettings) {
+            syncSettingsCookies(nextSettings);
+        },
+        onError(loadError) {
+            BrowserLogger.error('settings', 'Failed to load settings', loadError);
+        },
+    });
+
     async function load() {
-        // Deduplicate: if already loading, return existing promise
-        if (loadPromise) {
-            return loadPromise;
-        }
-
-        loadPromise = (async () => {
-            try {
-                const loadedSettings = await getElectronAPI().settings.get();
-                settings.value = sanitizeSettings(loadedSettings);
-                syncSettingsCookies(settings.value);
-                isLoaded.value = true;
-            } catch (e) {
-                BrowserLogger.error('settings', 'Failed to load settings', e);
-            } finally {
-                loadPromise = null;
-            }
-        })();
-
-        return loadPromise;
+        await loadSettingsState();
     }
 
     async function save() {
         try {
             const payload = sanitizeSettings(toRaw(settings.value));
-            await getElectronAPI().settings.save(payload);
+            await getPlatformAPI().settings.save(payload);
+            settings.value = payload;
             syncSettingsCookies(payload);
         } catch (e) {
             BrowserLogger.error('settings', 'Failed to save settings', e);

@@ -16,7 +16,10 @@ const mockDocuments = {
     readFileRange: vi.fn(),
 };
 
-vi.mock('@app/utils/platform', () => ({ getElectronAPI: () => ({ documents: mockDocuments }) }));
+vi.mock('@app/utils/platform-documents', () => ({
+    getDocumentsCapability: () => mockDocuments,
+    readDocumentRange: (path: string, offset: number, length: number) => mockDocuments.readFileRange(path, offset, length),
+}));
 
 describe('document-bytes', () => {
     beforeEach(() => {

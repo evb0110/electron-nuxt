@@ -20,7 +20,7 @@ import type {
 } from '@contracts/platform-api';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TTabUpdate } from '@app/types/tabs';
-import { getElectronAPI } from '@app/utils/platform';
+import { getDocumentsCapability } from '@app/utils/platform-documents';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/workspace-view-state';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
@@ -376,7 +376,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isDirty,
         hasPendingUnsavedChanges,
         readWorkingCopyBytes,
-        validatePdfData: (data, fileName) => getElectronAPI().documents.validatePdfData(data, fileName),
+        validatePdfData: (data, fileName) => getDocumentsCapability().validatePdfData(data, fileName),
         saveFile,
         saveWorkingCopy,
         saveWorkingCopyAs,

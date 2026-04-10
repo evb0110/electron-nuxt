@@ -8,6 +8,7 @@ import {
     ref,
 } from 'vue';
 import { useFallbackWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useFallbackWorkspaceToolbar';
+import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import type {
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,
@@ -69,6 +70,14 @@ function createPlaceholderTab(tabId: string): ITab {
     };
 }
 
+function createShellState(activeWorkspace: ReturnType<typeof ref<IWorkspaceExpose | null>>, activeTabId = 'tab-1') {
+    return useWorkspaceShellState({
+        activeWorkspace,
+        activeTabId: ref<string | null>(activeTabId),
+        tabs: ref([createPlaceholderTab(activeTabId)]),
+    });
+}
+
 describe('useFallbackWorkspaceToolbar', () => {
     it('preserves isOpeningDocument from the active workspace snapshot', () => {
         const activeWorkspace = ref<IWorkspaceExpose | null>(createWorkspace(createSnapshot({ isOpeningDocument: true })));
@@ -78,20 +87,21 @@ describe('useFallbackWorkspaceToolbar', () => {
             activeWorkspace,
             hasTeleportedToolbarContent: ref(false),
             isTabTransitionBusy: ref(false),
-            getTabById: (_tabId: string) => createPlaceholderTab('tab-1'),
+            shellState: createShellState(activeWorkspace),
         });
 
         expect(toolbar.fallbackToolbarSnapshot.value.isOpeningDocument).toBe(true);
     });
 
     it('defaults isOpeningDocument to false without an active workspace', () => {
+        const activeWorkspace = ref<IWorkspaceExpose | null>(null);
         const toolbar = useFallbackWorkspaceToolbar({
             activeGroupId: ref('group-1'),
             activeTabId: ref('tab-1'),
-            activeWorkspace: ref<IWorkspaceExpose | null>(null),
+            activeWorkspace,
             hasTeleportedToolbarContent: ref(false),
             isTabTransitionBusy: ref(false),
-            getTabById: (_tabId: string) => createPlaceholderTab('tab-1'),
+            shellState: createShellState(activeWorkspace),
         });
 
         expect(toolbar.fallbackToolbarSnapshot.value.isOpeningDocument).toBe(false);
@@ -113,7 +123,7 @@ describe('useFallbackWorkspaceToolbar', () => {
             activeWorkspace,
             hasTeleportedToolbarContent: ref(false),
             isTabTransitionBusy: ref(false),
-            getTabById: (_tabId: string) => createPlaceholderTab('tab-1'),
+            shellState: createShellState(activeWorkspace),
         });
 
         expect(toolbar.fallbackToolbarSnapshot.value.canSave).toBe(false);

@@ -1,8 +1,6 @@
 import type { PageViewport } from 'pdfjs-dist';
-import { safeDestr } from 'destr';
 import type { TDocumentRef } from '@contracts/platform-api';
 import type { IPdfRawDims } from '@app/types/pdf';
-import { getElectronAPI } from '@app/utils/platform';
 import type { IOcrWord } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
@@ -10,6 +8,7 @@ import {
     type IOcrManifest,
     type IOcrPageData,
 } from '@app/composables/pdf/ocrTextContentCache';
+import { readOptionalOcrArtifactJson } from '@app/utils/platform-ocr-artifacts';
 
 const RTL_OCR_LANGUAGES: ReadonlySet<string> = new Set([
     'heb',
@@ -18,9 +17,6 @@ const RTL_OCR_LANGUAGES: ReadonlySet<string> = new Set([
 type TOcrTextDirection = 'ltr' | 'rtl';
 const SERVER_ASCENT_RATIO_FALLBACK = 0.8;
 
-/**
- * PDF.js TextItem interface for TextLayer rendering
- */
 interface ITextItem {
     str: string;
     dir: TOcrTextDirection;
@@ -43,14 +39,6 @@ interface ITextContent {
         vertical: boolean;
     }>;
     lang: string | null;
-}
-
-function parseJsonAs<T>(json: string) {
-    try {
-        return safeDestr<T>(json);
-    } catch {
-        return null;
-    }
 }
 
 /**
@@ -100,20 +88,11 @@ export const useOcrTextContent = () => {
             return cachedManifest;
         }
 
-        const api = getElectronAPI();
-        const manifestPath = `${workingCopyPath}.ocr/manifest.json`;
-
         try {
-            const exists = await api.documents.fileExists(manifestPath);
-            if (!exists) {
+            const manifest = await readOptionalOcrArtifactJson<IOcrManifest>(workingCopyPath, 'manifest.json');
+            if (!manifest) {
                 sharedOcrTextContentCache.setManifest(workingCopyPath, null);
                 return null;
-            }
-
-            const json = await api.documents.readTextFile(manifestPath);
-            const manifest = parseJsonAs<IOcrManifest>(json);
-            if (!manifest) {
-                throw new Error('Invalid OCR manifest payload');
             }
             sharedOcrTextContentCache.setManifest(workingCopyPath, manifest);
             return manifest;
@@ -142,12 +121,8 @@ export const useOcrTextContent = () => {
             return null;
         }
 
-        const api = getElectronAPI();
-        const pagePath = `${workingCopyPath}.ocr/${pageMapping.path}`;
-
         try {
-            const json = await api.documents.readTextFile(pagePath);
-            const pageData = parseJsonAs<IOcrPageData>(json);
+            const pageData = await readOptionalOcrArtifactJson<IOcrPageData>(workingCopyPath, pageMapping.path);
             if (!pageData) {
                 throw new Error(`Invalid OCR page payload for page ${pageNumber}`);
             }

@@ -15,18 +15,15 @@ import {
 } from '@app/modules/workspace-shell/composables/useMenuSync';
 
 const mocks = vi.hoisted(() => ({
-    hasElectronAPI: vi.fn(() => true),
     setMenuDocumentState: vi.fn(async () => {}),
     setMenuTabCount: vi.fn(async () => {}),
 }));
+const mockPlatformApi = { documents: {
+    setMenuDocumentState: mocks.setMenuDocumentState,
+    setMenuTabCount: mocks.setMenuTabCount,
+} };
 
-vi.mock('@app/utils/platform', () => ({
-    hasElectronAPI: () => mocks.hasElectronAPI(),
-    getElectronAPI: () => ({documents: {
-        setMenuDocumentState: mocks.setMenuDocumentState,
-        setMenuTabCount: mocks.setMenuTabCount,
-    }}),
-}));
+vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
 
 describe('useMenuSync', () => {
     beforeEach(() => {

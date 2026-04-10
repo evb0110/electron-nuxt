@@ -16,12 +16,13 @@ const trackMock = vi.hoisted(() => vi.fn());
 const exportImagesMock = vi.hoisted(() => vi.fn());
 const exportTiffMock = vi.hoisted(() => vi.fn());
 const cleanupFileMock = vi.hoisted(() => vi.fn(async () => {}));
-
-vi.mock('@app/utils/platform', () => ({getElectronAPI: () => ({documents: {
+const mockDocumentsCapability = {
     exportPdfToImages: exportImagesMock,
     exportPdfToMultiPageTiff: exportTiffMock,
     cleanupFile: cleanupFileMock,
-}})}));
+};
+
+vi.mock('@app/utils/platform-documents', () => ({ getDocumentsCapability: () => mockDocumentsCapability }));
 vi.mock('@app/composables/useAnalytics', () => ({useAnalytics: () => ({track: trackMock})}));
 
 function createComposable() {

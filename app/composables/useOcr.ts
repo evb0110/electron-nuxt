@@ -3,7 +3,6 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@contracts/shared';
 import type { TDocumentRef } from '@contracts/platform-api';
-import { getElectronAPI } from '@app/utils/platform';
 import { createDocxFromText } from '@app/utils/docx';
 import { getDocumentRefBaseName } from '@app/utils/document-ref';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
@@ -20,6 +19,8 @@ import {
     extractPdfText,
 } from '@app/composables/ocrProcessing';
 import { createOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
+import { getDocumentsCapability } from '@app/utils/platform-documents';
+import { getOcrCapability } from '@app/utils/platform-ocr';
 
 const RTL_OCR_LANGUAGES = new Set([
     'heb',
@@ -85,8 +86,7 @@ export const useOcr = () => {
 
     async function loadLanguages() {
         try {
-            const api = getElectronAPI();
-            availableLanguages.value = await api.ocr.getLanguages();
+            availableLanguages.value = await getOcrCapability().getLanguages();
         } catch (e) {
             error.value = localizeOcrError(e, 'errors.ocr.loadLanguages');
         }
@@ -171,9 +171,10 @@ export const useOcr = () => {
         });
 
         try {
-            const api = getElectronAPI();
+            const ocr = getOcrCapability();
+            const documents = getDocumentsCapability();
 
-            progressCleanup = api.ocr.onProgress((p) => {
+            progressCleanup = ocr.onProgress((p) => {
                 if (activeRunToken !== runToken) {
                     return;
                 }
@@ -210,7 +211,7 @@ export const useOcr = () => {
                 let didResolve = false;
                 pendingOcrReject = reject;
 
-                completeCleanup = api.ocr.onComplete((result) => {
+                completeCleanup = ocr.onComplete((result) => {
                     BrowserLogger.debug('ocr', 'Complete event received', {
                         requestId,
                         resultRequestId: result.requestId,
@@ -242,7 +243,7 @@ export const useOcr = () => {
             });
 
             ensureRunActive();
-            const startResult = await api.ocr.createSearchablePdf(
+            const startResult = await ocr.createSearchablePdf(
                 workingCopyPath,
                 pageRequests,
                 requestId,
@@ -291,7 +292,7 @@ export const useOcr = () => {
                 let didCleanupViaAck = false;
 
                 try {
-                    const fileData = await api.documents.readFile(response.pdfPath);
+                    const fileData = await documents.readFile(response.pdfPath);
                     pdfBytes = new Uint8Array(fileData);
                     BrowserLogger.debug('ocr', 'Loaded OCR PDF', {
                         requestId,
@@ -301,7 +302,7 @@ export const useOcr = () => {
                 } finally {
                     if (response.requiresCleanupAck) {
                         try {
-                            const ackResult = await api.ocr.acknowledgeResultFile(requestId, response.pdfPath);
+                            const ackResult = await ocr.acknowledgeResultFile(requestId, response.pdfPath);
                             didCleanupViaAck = ackResult.cleaned;
                             if (!ackResult.cleaned && ackResult.error) {
                                 BrowserLogger.warn('ocr', 'OCR cleanup acknowledgement was rejected', {
@@ -321,7 +322,7 @@ export const useOcr = () => {
 
                     if (!didCleanupViaAck) {
                         try {
-                            await api.documents.cleanupOcrTemp(response.pdfPath);
+                            await documents.cleanupOcrTemp(response.pdfPath);
                         } catch (cleanupErr) {
                             BrowserLogger.warn('ocr', 'Failed to cleanup temp file', {
                                 requestId,
@@ -379,8 +380,7 @@ export const useOcr = () => {
         const requestIdToCancel = activeRequestId.value;
         if (requestIdToCancel) {
             BrowserLogger.info('ocr', 'Cancelling OCR', { requestId: requestIdToCancel });
-            const api = getElectronAPI();
-            void api.ocr.cancel(requestIdToCancel).catch((cancelError) => {
+            void getOcrCapability().cancel(requestIdToCancel).catch((cancelError) => {
                 const normalizedCancelError: unknown = cancelError;
                 BrowserLogger.debug('ocr', 'OCR cancel request failed', {
                     requestId: requestIdToCancel,
@@ -457,8 +457,8 @@ export const useOcr = () => {
         error.value = null;
 
         try {
-            const api = getElectronAPI();
-            const outPath = await api.documents.saveDocxAs(workingPath);
+            const documents = getDocumentsCapability();
+            const outPath = await documents.saveDocxAs(workingPath);
             if (!outPath) {
                 return false;
             }
@@ -475,7 +475,7 @@ export const useOcr = () => {
 
                 const hasRtl = settings.value.selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
                 const docxBytes = createDocxFromText(text, hasRtl);
-                await api.documents.writeDocxFile(outPath, docxBytes);
+                await documents.writeDocxFile(outPath, docxBytes);
                 toast.add({
                     color: 'success',
                     title: t('notifications.docxSavedTitle'),
@@ -483,7 +483,7 @@ export const useOcr = () => {
                 });
                 return true;
             } finally {
-                await api.documents.cleanupFile(outPath).catch(() => {});
+                await documents.cleanupFile(outPath).catch(() => {});
             }
         } catch (e) {
             error.value = localizeOcrError(e, 'errors.ocr.exportDocx');

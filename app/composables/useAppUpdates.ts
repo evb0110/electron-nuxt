@@ -5,9 +5,9 @@ import type {
 } from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+    getUpdatesCapability,
+    isUpdatesCapabilitySupported,
+} from '@app/utils/platform-updates';
 
 type TStatusDialogPhase = Exclude<TAppUpdatePhase, 'idle' | 'downloaded'>;
 
@@ -99,33 +99,25 @@ async function ensureInitialized() {
     }
 
     initialized.value = true;
-    if (!hasElectronAPI()) {
-        status.value = { ...browserUnsupportedStatus() };
-        return;
-    }
-
-    const electronApi = getElectronAPI();
+    const updates = getUpdatesCapability();
 
     try {
-        const currentState = await electronApi.updates.getState();
+        const currentState = await updates.getState();
         applyStatus(currentState);
     } catch (error) {
         BrowserLogger.error('updates', 'Failed to load update status', error);
+        status.value = { ...browserUnsupportedStatus() };
     }
 
-    statusUnsubscribe = electronApi.updates.onStatus((nextStatus) => {
+    statusUnsubscribe = updates.onStatus((nextStatus) => {
         applyStatus(nextStatus);
     });
 }
 
 async function checkForUpdates() {
-    if (!hasElectronAPI()) {
-        return;
-    }
-
     try {
         await ensureInitialized();
-        await getElectronAPI().updates.check();
+        await getUpdatesCapability().check();
     } catch (error) {
         const message = toErrorMessage(error);
         BrowserLogger.error('updates', 'Failed to check for updates', error);
@@ -140,13 +132,9 @@ async function checkForUpdates() {
 }
 
 async function installUpdateNow() {
-    if (!hasElectronAPI()) {
-        return;
-    }
-
     try {
         closeDialog();
-        await getElectronAPI().updates.install();
+        await getUpdatesCapability().install();
     } catch (error) {
         const message = toErrorMessage(error);
         BrowserLogger.error('updates', 'Failed to install update', error);
@@ -161,13 +149,9 @@ async function installUpdateNow() {
 }
 
 async function deferUpdate() {
-    if (!hasElectronAPI()) {
-        return;
-    }
-
     try {
         closeDialog();
-        await getElectronAPI().updates.defer();
+        await getUpdatesCapability().defer();
     } catch (error) {
         const message = toErrorMessage(error);
         BrowserLogger.error('updates', 'Failed to defer update', error);
@@ -182,11 +166,6 @@ async function deferUpdate() {
 }
 
 async function skipUpdateVersion() {
-    if (!hasElectronAPI()) {
-        closeDialog();
-        return;
-    }
-
     const version = dialog.value.version || status.value.version;
     if (!version) {
         closeDialog();
@@ -195,7 +174,7 @@ async function skipUpdateVersion() {
 
     try {
         closeDialog();
-        await getElectronAPI().updates.skipVersion(version);
+        await getUpdatesCapability().skipVersion(version);
     } catch (error) {
         const message = toErrorMessage(error);
         BrowserLogger.error('updates', 'Failed to skip update version', error);
@@ -214,7 +193,7 @@ const isCheckInProgress = computed(() => {
 });
 
 const isUpdateSupported = computed(() => {
-    return hasElectronAPI() && status.value.phase !== 'unsupported';
+    return isUpdatesCapabilitySupported(status.value);
 });
 
 const dialogVersion = computed(() => dialog.value.version || status.value.version);

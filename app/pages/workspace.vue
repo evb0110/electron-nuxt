@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { hasElectronAPI } from '@app/utils/platform';
+import { resolveInitialDesktopRuntime } from '@app/utils/platform';
 
 useServerSeoMeta({ robots: 'noindex, nofollow' });
 
-if (import.meta.client && hasElectronAPI()) {
+if (import.meta.client && resolveInitialDesktopRuntime(useRoute().path)) {
     await navigateTo('/electron', { replace: true });
 } else {
     await navigateTo('/', { replace: true });

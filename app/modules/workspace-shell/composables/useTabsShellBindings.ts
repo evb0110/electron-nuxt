@@ -4,12 +4,11 @@ import type { TGroupDirection } from '@app/types/editor-groups';
 import type { TWindowTabsAction } from '@contracts/window-tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import type { TDocumentRef } from '@contracts/platform-api';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+import { getPlatformAPI } from '@app/utils/platform';
 import { traceRendererStartup } from '@app/utils/startup-trace';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/composables/tabs-menu-bindings';
+import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
+import { shouldHandleRendererMenuAccelerators } from '@app/utils/platform-shortcuts';
 
 interface IUseTabsShellBindingsOptions {
     tabs: Ref<Array<{ id: string }>>;
@@ -78,16 +77,17 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
 
     function handleTabKeyboardShortcut(event: KeyboardEvent) {
         const mod = event.metaKey || event.ctrlKey;
+        const shouldHandleRendererAccelerators = shouldHandleRendererMenuAccelerators();
 
         // In Electron these accelerators are handled by the app menu.
         // Keep renderer-level handlers only as a non-Electron fallback.
-        if (!hasElectronAPI() && mod && event.key.toLowerCase() === 't' && !event.shiftKey) {
+        if (shouldHandleRendererAccelerators && mod && event.key.toLowerCase() === 't' && !event.shiftKey) {
             event.preventDefault();
             createTab();
             return;
         }
 
-        if (!hasElectronAPI() && mod && event.key.toLowerCase() === 'w' && !event.shiftKey) {
+        if (shouldHandleRendererAccelerators && mod && event.key.toLowerCase() === 'w' && !event.shiftKey) {
             event.preventDefault();
             if (activeTabId.value) {
                 void handleCloseTab(activeTabId.value);
@@ -116,7 +116,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
 
     onMounted(() => {
         const onMountedStart = performance.now();
-        const electronApi = getElectronAPI();
+        const platformApi = getPlatformAPI();
         traceRendererStartup('tabs shell onMounted start');
         ensureAtLeastOneTab();
         traceRendererStartup('tabs shell ensured at least one tab', {tabCount: tabs.value.length});
@@ -126,7 +126,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
             (window as Window & { __handleSave?: () => Promise<void> }).__handleSave = debugHandleSave;
         }
 
-        menuCleanups.push(...registerTabsMenuBindings(electronApi, {
+        menuCleanups.push(...registerTabsMenuBindings(platformApi, {
             activeWorkspace,
             activeTabId,
             createTab,
@@ -148,7 +148,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
         traceRendererStartup('tabs shell menu bindings registered');
         void nextTick(() => {
             traceRendererStartup('tabs shell dispatching app:rendererReady');
-            electronApi.windowTabs.notifyRendererReady();
+            getWindowTabsCapability().notifyRendererReady();
         });
 
         traceRendererStartup('tabs shell onMounted finished', {durationMs: Math.round(performance.now() - onMountedStart)});

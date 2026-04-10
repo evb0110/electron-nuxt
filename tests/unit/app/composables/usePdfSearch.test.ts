@@ -14,21 +14,13 @@ const mockSearch = {
     cancel: vi.fn(),
     resetCache: vi.fn(),
 };
-const mockElectronAPI = { search: mockSearch };
-
-const hasElectronApiMock = vi.fn(() => true);
-
-vi.mock('@app/utils/platform', () => ({
-    getElectronAPI: () => mockElectronAPI,
-    hasElectronAPI: () => hasElectronApiMock(),
-}));
+vi.mock('@app/utils/platform-search', () => ({ getSearchCapability: () => mockSearch }));
 vi.mock('#imports', () => ({ useTypedI18n: () => ({ t: (key: string) => key }) }));
 
 describe('usePdfSearch', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         vi.clearAllMocks();
-        hasElectronApiMock.mockReturnValue(true);
         mockSearch.onProgress.mockReturnValue(vi.fn());
         mockSearch.run.mockResolvedValue({
             results: [],

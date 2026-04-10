@@ -146,7 +146,8 @@ import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/compos
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
 import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 import { useFallbackWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useFallbackWorkspaceToolbar';
-import {useMenuSync} from '@app/modules/workspace-shell/composables/useMenuSync';
+import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
+import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import { useToolbarTeleportBridge } from '@app/modules/workspace-shell/composables/useToolbarTeleportBridge';
 import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
 import { useWorkspaceRefRegistry } from '@app/modules/workspace-shell/composables/useWorkspaceRefRegistry';
@@ -242,6 +243,11 @@ const activeTab = computed(() => (
         ? getTabById(activeTabId.value)
         : null
 ));
+const shellState = useWorkspaceShellState({
+    activeWorkspace,
+    activeTabId,
+    tabs,
+});
 const hasTeleportedToolbarContentState = shallowRef(false);
 const {
     isTabTransitionBusy,
@@ -324,7 +330,7 @@ const {
     activeWorkspace,
     hasTeleportedToolbarContent,
     isTabTransitionBusy,
-    getTabById,
+    shellState,
 });
 
 function handleFallbackOverflowSetViewMode(mode: TPdfViewMode) {
@@ -335,6 +341,7 @@ useMenuSync({
     activeWorkspace,
     activeTabId,
     tabs,
+    shellState,
 });
 
 const {

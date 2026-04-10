@@ -24,7 +24,7 @@ import { defaultDocument } from '@vueuse/core';
 import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/platform';
+import { getShellCapability } from '@app/utils/platform-shell';
 
 interface IAnnotationEditorLayerProto {
     disable?: (...args: unknown[]) => unknown;
@@ -541,7 +541,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 link.rel = 'noopener noreferrer';
                 link.addEventListener('click', (event) => {
                     event.preventDefault();
-                    void getElectronAPI().shell.openExternal(url).catch((error) => {
+                    void getShellCapability().openExternal(url).catch((error) => {
                         BrowserLogger.warn(
                             'pdf-annotation-layer',
                             `Failed to open annotation link: ${url}`,

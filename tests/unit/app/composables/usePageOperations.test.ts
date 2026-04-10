@@ -21,7 +21,7 @@ const pageOpsApi = {
 
 const loggerError = vi.fn();
 
-vi.mock('@app/utils/platform', () => ({getElectronAPI: () => ({ documents: { pageOps: pageOpsApi } })}));
+vi.mock('@app/utils/platform-documents', () => ({ getPageOpsCapability: () => pageOpsApi }));
 
 vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {error: (...args: unknown[]) => loggerError(...args)}}));
 
