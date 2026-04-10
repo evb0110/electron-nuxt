@@ -92,7 +92,7 @@ import type {
     TTabContextCommand,
 } from '@app/types/tab-context-menu';
 import type { IWindowTabTargetWindow } from '@contracts/window-tabs';
-import { getElectronAPI } from '@app/utils/platform';
+import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
 
 const { t } = useTypedI18n();
 const { clampToViewport } = useContextMenuPosition();
@@ -413,7 +413,7 @@ function positionContextMenu(x: number, y: number) {
 
 async function loadWindowTransferTargets() {
     try {
-        windowTransferTargets.value = await getElectronAPI().windowTabs.listTargetWindows();
+        windowTransferTargets.value = await getWindowTabsCapability().listTargetWindows();
     } catch {
         windowTransferTargets.value = [];
     }

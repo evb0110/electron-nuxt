@@ -2,9 +2,9 @@ import type { Ref } from 'vue';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/platform-api';
 import type { TTranslationKey } from '@i18n-app';
-import { getElectronAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { useAnalytics } from '@app/composables/useAnalytics';
+import { getPageOpsCapability } from '@app/utils/platform-documents';
 
 type TPageOpsRotation = 90 | 180 | 270;
 type TPageOpsResult = { success: boolean };
@@ -112,10 +112,7 @@ export const usePageOperations = (deps: {
             operationName: 'deletePages',
             errorKey: 'errors.pageOps.delete',
             shouldReload: true,
-            run: async (path) => {
-                const api = getElectronAPI();
-                return api.documents.pageOps.delete(path, [...pages], totalPages);
-            },
+            run: (path) => getPageOpsCapability().delete(path, [...pages], totalPages),
         });
         if (didSucceed) {
             analytics.track('page_operation_completed', {
@@ -137,10 +134,7 @@ export const usePageOperations = (deps: {
         const didSucceed = await runOperation({
             operationName: 'extractPages',
             errorKey: 'errors.pageOps.extract',
-            run: async (path) => {
-                const api = getElectronAPI();
-                return api.documents.pageOps.extract(path, [...pages]);
-            },
+            run: (path) => getPageOpsCapability().extract(path, [...pages]),
             isSuccessful: result => result.success && !result.canceled,
             onSuccess: async (result) => {
                 if (result.destPath) {
@@ -168,10 +162,7 @@ export const usePageOperations = (deps: {
             operationName: 'rotatePages',
             errorKey: 'errors.pageOps.rotate',
             shouldReload: true,
-            run: async (path) => {
-                const api = getElectronAPI();
-                return api.documents.pageOps.rotate(path, [...pages], angle);
-            },
+            run: (path) => getPageOpsCapability().rotate(path, [...pages], angle),
         });
         if (didSucceed) {
             analytics.track('page_operation_completed', {
@@ -190,10 +181,7 @@ export const usePageOperations = (deps: {
             operationName: 'insertPages',
             errorKey: 'errors.pageOps.insert',
             shouldReload: true,
-            run: async (path) => {
-                const api = getElectronAPI();
-                return api.documents.pageOps.insert(path, totalPages, afterPage);
-            },
+            run: (path) => getPageOpsCapability().insert(path, totalPages, afterPage),
         });
         if (didSucceed) {
             analytics.track('page_operation_completed', {
@@ -211,10 +199,7 @@ export const usePageOperations = (deps: {
             operationName: 'insertFile',
             errorKey: 'errors.pageOps.insertFile',
             shouldReload: true,
-            run: async (path) => {
-                const api = getElectronAPI();
-                return api.documents.pageOps.insertFile(path, totalPages, afterPage, sourcePaths);
-            },
+            run: (path) => getPageOpsCapability().insertFile(path, totalPages, afterPage, sourcePaths),
         });
         if (didSucceed) {
             analytics.track('page_operation_completed', {
@@ -237,10 +222,7 @@ export const usePageOperations = (deps: {
             operationName: 'reorderPages',
             errorKey: 'errors.pageOps.reorder',
             shouldReload: true,
-            run: async (path) => {
-                const api = getElectronAPI();
-                return api.documents.pageOps.reorder(path, [...newOrder]);
-            },
+            run: (path) => getPageOpsCapability().reorder(path, [...newOrder]),
         });
         if (didSucceed) {
             analytics.track('page_operation_completed', {
@@ -261,10 +243,7 @@ export const usePageOperations = (deps: {
             operationName: 'cropPages',
             errorKey: 'errors.pageOps.crop',
             shouldReload: true,
-            run: async (path) => {
-                const api = getElectronAPI();
-                return api.documents.pageOps.crop(path, [...pages], margins);
-            },
+            run: (path) => getPageOpsCapability().crop(path, [...pages], margins),
         });
         if (didSucceed) {
             analytics.track('page_operation_completed', {
@@ -285,10 +264,7 @@ export const usePageOperations = (deps: {
             operationName: 'removeCrop',
             errorKey: 'errors.pageOps.removeCrop',
             shouldReload: true,
-            run: async (path) => {
-                const api = getElectronAPI();
-                return api.documents.pageOps.removeCrop(path, [...pages]);
-            },
+            run: (path) => getPageOpsCapability().removeCrop(path, [...pages]),
         });
         if (didSucceed) {
             analytics.track('page_operation_completed', {

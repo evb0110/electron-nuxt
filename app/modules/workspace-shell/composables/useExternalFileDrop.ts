@@ -1,6 +1,6 @@
 import { useEventListener } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/platform-api';
-import { getElectronAPI } from '@app/utils/platform';
+import { getDocumentPathForFile } from '@app/utils/platform-documents';
 
 interface IUseExternalFileDropOptions {openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;}
 
@@ -27,7 +27,6 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
         return [];
     }
 
-    const electronApi = getElectronAPI();
     const paths: TDocumentRef[] = [];
     const seen = new Set<TDocumentRef>();
 
@@ -37,7 +36,7 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
             continue;
         }
 
-        const path = electronApi.documents.getPathForFile(file);
+        const path = getDocumentPathForFile(file);
         if (!path || seen.has(path)) {
             continue;
         }

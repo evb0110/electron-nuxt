@@ -1,8 +1,6 @@
-import type {Ref} from 'vue';
+import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
-import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
-import type { ITab } from '@app/types/tabs';
+import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import type {
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,
@@ -12,6 +10,7 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@contracts/shared';
+import type { IWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 
 interface IUseFallbackWorkspaceToolbarOptions {
     activeGroupId: Ref<string | null>;
@@ -19,7 +18,7 @@ interface IUseFallbackWorkspaceToolbarOptions {
     activeWorkspace: Ref<IWorkspaceExpose | null>;
     hasTeleportedToolbarContent: Ref<boolean>;
     isTabTransitionBusy: Ref<boolean>;
-    getTabById: (tabId: string) => ITab | null | undefined;
+    shellState: IWorkspaceShellState;
 }
 
 export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolbarOptions) {
@@ -154,21 +153,7 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
     }
 
     const fallbackHasPdf = computed(() => {
-        if (workspaceHasPdf(options.activeWorkspace.value)) {
-            return true;
-        }
-
-        const tabId = options.activeTabId.value;
-        if (!tabId) {
-            return false;
-        }
-
-        const tab = options.getTabById(tabId);
-        if (!tab) {
-            return false;
-        }
-
-        return hasDocumentMountHint(tab);
+        return options.shellState.hasDocument.value;
     });
 
     const fallbackToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => {
@@ -231,10 +216,7 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
             if (workspaceHasPdf(options.activeWorkspace.value)) {
                 return;
             }
-
-            const tabId = options.activeTabId.value;
-            const tab = tabId ? options.getTabById(tabId) : null;
-            if (tab && hasDocumentMountHint(tab)) {
+            if (options.shellState.activeTabHasDocumentHint.value) {
                 return;
             }
 

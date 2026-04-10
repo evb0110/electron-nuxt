@@ -5,7 +5,7 @@ import type {
     TAnalyticsPayloadValue,
     TAnalyticsScreenCategory,
 } from '@app/types/analytics';
-import { hasElectronAPI } from '@app/utils/platform';
+import { isBrowserPlatformActive } from '@app/utils/platform';
 
 const ANALYTICS_SESSION_STORAGE_KEY = 'evb-viewer:analytics-session-id';
 const MAX_BATCH_SIZE = 20;
@@ -142,7 +142,7 @@ function getScreenCategory(width: number): TAnalyticsScreenCategory {
 
 function isClientAnalyticsEnabled(enabledFlag: unknown) {
     return import.meta.client
-        && !hasElectronAPI()
+        && isBrowserPlatformActive()
         && isTruthyFlag(enabledFlag);
 }
 

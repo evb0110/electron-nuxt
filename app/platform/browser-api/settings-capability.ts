@@ -12,7 +12,10 @@ import type {
     TAppLocale,
     TAppTheme,
 } from '@contracts/shared';
-import { safeSetLocalStorageItem } from '@app/utils/local-storage';
+import {
+    safeGetLocalStorageItem,
+    safeSetLocalStorageItem,
+} from '@app/utils/local-storage';
 import {
     BROWSER_LOCALE_COOKIE_KEY,
     BROWSER_SETTINGS_COOKIE_KEY,
@@ -57,6 +60,19 @@ function readBrowserSettingsFromCookie() {
     );
 }
 
+function readBrowserSettingsFromStorage() {
+    const rawSettings = safeGetLocalStorageItem(SETTINGS_STORAGE_KEY);
+    if (!rawSettings) {
+        return null;
+    }
+
+    try {
+        return sanitizeSettings(JSON.parse(rawSettings) as Partial<ISettingsData>);
+    } catch {
+        return null;
+    }
+}
+
 function writeBrowserSettingsToCookie(nextSettings: ISettingsData) {
     if (typeof document === 'undefined') {
         return;
@@ -72,6 +88,7 @@ export const browserSettingsCapability: ISettingsCapability = {
     get() {
         if (!browserSettingsLoaded) {
             settingsState.value = readBrowserSettingsFromCookie()
+                ?? readBrowserSettingsFromStorage()
                 ?? { ...DEFAULT_SETTINGS };
             browserSettingsLoaded = true;
         }

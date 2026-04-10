@@ -1,6 +1,6 @@
 import type { TSplitPayload } from '@contracts/window-tabs';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/platform';
+import { getDocumentsCapability } from '@app/utils/platform-documents';
 
 export async function cleanupSplitPayloadSnapshot(
     payload: TSplitPayload | null | undefined,
@@ -15,7 +15,7 @@ export async function cleanupSplitPayloadSnapshot(
     }
 
     try {
-        await getElectronAPI().documents.cleanupFile(payload.snapshotPath);
+        await getDocumentsCapability().cleanupFile(payload.snapshotPath);
         return true;
     } catch (error) {
         BrowserLogger.warn(

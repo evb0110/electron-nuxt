@@ -180,10 +180,9 @@ import type {
     TPdfViewMode,
 } from '@contracts/shared';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdf-colors';
-import { hasElectronAPI } from '@app/utils/platform';
 
 const open = defineModel<boolean>('open', { required: true });
-const isDesktopRuntime = hasElectronAPI();
+const { isDesktopRuntime } = useRuntimeEnvironment();
 
 const {
     t,

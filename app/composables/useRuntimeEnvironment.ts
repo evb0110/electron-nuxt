@@ -1,5 +1,5 @@
 import {
-    hasElectronAPI,
+    isDesktopPlatformActive,
     resolveInitialDesktopRuntime,
 } from '@app/utils/platform';
 
@@ -12,7 +12,7 @@ export function useRuntimeEnvironment() {
 
     if (import.meta.client) {
         onMounted(() => {
-            isDesktopRuntime.value = hasElectronAPI();
+            isDesktopRuntime.value = isDesktopPlatformActive();
         });
     }
 

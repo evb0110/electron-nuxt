@@ -268,7 +268,7 @@ import type { TDocumentRef } from '@contracts/platform-api';
 import type { TTranslationKey } from '@i18n-app';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/platform';
+import { getSettingsCapability } from '@app/utils/platform-settings';
 
 const { t } = useTypedI18n();
 type TOcrLanguageTranslationKey = Extract<TTranslationKey, `ocr.languageName.${string}`>;
@@ -393,8 +393,7 @@ async function handleCopyLogs() {
     copyLogsState.value = 'idle';
 
     try {
-        const api = getElectronAPI();
-        const debugLogs = await api.settings.getDebugLogs();
+        const debugLogs = await getSettingsCapability().getDebugLogs();
         const selectedLanguages = settings.value.selectedLanguages.length > 0
             ? settings.value.selectedLanguages.join(',')
             : '-';

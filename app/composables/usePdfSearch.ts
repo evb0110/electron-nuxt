@@ -14,13 +14,13 @@ import {
     useDebounceFn,
 } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/platform';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import {
     bucketPageCount,
     bucketQueryLength,
 } from '@app/utils/analytics';
+import { getSearchCapability } from '@app/utils/platform-search';
 
 export type {
     IPdfPageMatches,
@@ -157,7 +157,7 @@ export const usePdfSearch = () => {
         activeRequestId = null;
 
         try {
-            await getElectronAPI().search.cancel(requestIdToCancel);
+            await getSearchCapability().cancel(requestIdToCancel);
         } catch (error) {
             BrowserLogger.debug('pdf-search', 'Failed to cancel active search', {
                 requestId: requestIdToCancel,
@@ -194,11 +194,11 @@ export const usePdfSearch = () => {
             cleanupProgressListener();
 
             // Call backend search API
-            const api = getElectronAPI();
+            const api = getSearchCapability();
             const searchId = requestId;
             activeRequestId = requestId;
 
-            progressCleanup = api.search.onProgress((progress: IPdfSearchProgress) => {
+            progressCleanup = api.onProgress((progress: IPdfSearchProgress) => {
                 if (runId !== searchRunId) {
                     return;
                 }
@@ -211,7 +211,7 @@ export const usePdfSearch = () => {
                 };
             });
 
-            const response: IPdfSearchResponse = await api.search.run(pdfPath, query, {
+            const response: IPdfSearchResponse = await api.run(pdfPath, query, {
                 requestId,
                 pageCount,
                 ...options,
@@ -437,8 +437,7 @@ export const usePdfSearch = () => {
 
     function resetSearchCache() {
         clearSearch();
-        const api = getElectronAPI();
-        void Promise.resolve(api.search.resetCache()).catch((error) => {
+        void Promise.resolve(getSearchCapability().resetCache()).catch((error) => {
             BrowserLogger.debug(
                 'pdf-search',
                 'Failed to reset search cache',

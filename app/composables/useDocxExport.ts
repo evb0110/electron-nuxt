@@ -1,6 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/platform-api';
-import { getElectronAPI } from '@app/utils/platform';
 import { createDocxFromTextAsync } from '@app/utils/docx';
 import {
     loadOcrText,
@@ -9,6 +8,7 @@ import {
 import { createOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { getDocumentRefBaseName } from '@app/utils/document-ref';
+import { getDocumentsCapability } from '@app/utils/platform-documents';
 
 const RTL_OCR_LANGUAGES = new Set([
     'heb',
@@ -39,8 +39,8 @@ export const useDocxExport = () => {
         docxExportError.value = null;
 
         try {
-            const api = getElectronAPI();
-            const outPath = await api.documents.saveDocxAs(workingPath);
+            const documents = getDocumentsCapability();
+            const outPath = await documents.saveDocxAs(workingPath);
             if (!outPath) {
                 return false;
             }
@@ -57,7 +57,7 @@ export const useDocxExport = () => {
 
                 const hasRtl = selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
                 const docxBytes = await createDocxFromTextAsync(text, hasRtl);
-                await api.documents.writeDocxFile(outPath, docxBytes);
+                await documents.writeDocxFile(outPath, docxBytes);
                 analytics.track('export_completed', {
                     format: 'docx',
                     hasRtl,
@@ -71,7 +71,7 @@ export const useDocxExport = () => {
                 });
                 return true;
             } finally {
-                await api.documents.cleanupFile(outPath).catch(() => {});
+                await documents.cleanupFile(outPath).catch(() => {});
             }
         } catch (error) {
             docxExportError.value = localizeOcrError(error, 'errors.ocr.exportDocx');

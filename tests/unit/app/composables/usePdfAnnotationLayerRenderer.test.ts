@@ -29,7 +29,7 @@ vi.mock('@app/services/pdfjs/runtime-lib', () => ({
     },
 }));
 
-vi.mock('@app/utils/platform', () => ({getElectronAPI: () => ({ shell: {openExternal: vi.fn(async () => {})} })}));
+vi.mock('@app/utils/platform-shell', () => ({ getShellCapability: () => ({ openExternal: vi.fn(async () => {}) }) }));
 
 describe('usePdfAnnotationLayerRenderer', () => {
     it('passes the shared annotation canvas map to PDF.js so stamp appearances can render after reload', async () => {

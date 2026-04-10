@@ -27,12 +27,10 @@ const buildPrintablePdfDataMock = vi.hoisted(() => vi.fn());
 const shouldPrintPageMetricsDirectlyMock = vi.hoisted(() => vi.fn<TShouldPrintPageMetricsDirectly>(() => null));
 const shouldPrintSourcePdfDirectlyMock = vi.hoisted(() => vi.fn(async () => true));
 const waitForPrintPaintMock = vi.hoisted(() => vi.fn(async () => {}));
-const hasElectronAPIMock = vi.hoisted(() => vi.fn(() => false));
-const electronDocumentsMock = vi.hoisted(() => ({
+const documentsCapabilityMock = vi.hoisted(() => ({
     printPdfData: vi.fn(),
     printPdfPath: vi.fn(),
 }));
-const getElectronAPIMock = vi.hoisted(() => vi.fn(() => ({ documents: electronDocumentsMock })));
 const toastAddMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@app/utils/pdf-print', () => ({
@@ -51,9 +49,17 @@ vi.mock('@app/utils/pdf-print', () => ({
     waitForPrintPaint: waitForPrintPaintMock,
 }));
 
-vi.mock('@app/utils/platform', () => ({
-    getElectronAPI: getElectronAPIMock,
-    hasElectronAPI: hasElectronAPIMock,
+vi.mock('@app/utils/platform-documents', () => ({
+    getDocumentsCapability: () => documentsCapabilityMock,
+    isNativePrintCapabilityUnavailable: (result: {
+        success: boolean;
+        canceled?: boolean;
+        error?: string;
+    }) => (
+        result.success !== true
+        && result.canceled !== true
+        && result.error === 'Printing via the native desktop dialog is unavailable in the browser capability'
+    ),
 }));
 
 interface IFakeFrameWindow {
@@ -164,7 +170,14 @@ describe('useWorkspacePrint', () => {
         vi.clearAllMocks();
         shouldPrintPageMetricsDirectlyMock.mockReturnValue(null);
         shouldPrintSourcePdfDirectlyMock.mockResolvedValue(true);
-        hasElectronAPIMock.mockReturnValue(false);
+        documentsCapabilityMock.printPdfData.mockResolvedValue({
+            success: false,
+            error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+        });
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({
+            success: false,
+            error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+        });
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string, params?: Record<string, unknown>) => {
             if (key === 'print.failedWithReason' && params?.reason) {
                 return `print.failedWithReason:${String(params.reason)}`;
@@ -199,8 +212,7 @@ describe('useWorkspacePrint', () => {
     });
 
     it('quick-prints through the default single-page native flow', async () => {
-        hasElectronAPIMock.mockReturnValue(true);
-        electronDocumentsMock.printPdfPath.mockResolvedValue({ success: true });
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({ success: true });
         const {
             getQuickPrintPageMetrics,
             getPrintableSourceData,
@@ -220,7 +232,7 @@ describe('useWorkspacePrint', () => {
         try {
             await state.handleQuickPrint();
 
-            expect(electronDocumentsMock.printPdfPath).toHaveBeenCalledWith(
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
                 '/tmp/quick-print.pdf',
                 'quick-print.pdf',
             );
@@ -261,7 +273,7 @@ describe('useWorkspacePrint', () => {
 
         try {
             const printPromise = state.handleQuickPrint();
-            await flushMicrotasks();
+            await flushMicrotasks(12);
 
             expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
             expect(getQuickPrintPageMetrics).toHaveBeenCalledTimes(1);
@@ -274,6 +286,62 @@ describe('useWorkspacePrint', () => {
 
             expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
             expect(state.isPreparingPrint.value).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('falls back to browser printing when native path printing is unavailable', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({
+            success: false,
+            error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+        });
+        const appFrame = createFakeFrame();
+        vi.stubGlobal('document', {
+            body: { append: vi.fn() },
+            createElement: vi.fn((tag: string) => {
+                if (tag !== 'iframe') {
+                    throw new Error(`Unexpected element: ${tag}`);
+                }
+                return appFrame.frame;
+            }),
+        });
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: new Blob([Uint8Array.of(1, 2, 3)], { type: 'application/pdf' }),
+            workingCopyPath: '/tmp/fallback.pdf',
+            fileName: 'fallback.pdf',
+        });
+
+        try {
+            state.handlePrint();
+
+            const submitPromise = state.handlePrintDialogSubmit({
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            await flushMicrotasks();
+
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/tmp/fallback.pdf',
+                'fallback.pdf',
+            );
+            expect(documentsCapabilityMock.printPdfData).toHaveBeenCalledWith(
+                Uint8Array.of(1, 2, 3),
+                'fallback.pdf',
+            );
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
+
+            appFrame.frame.trigger('load');
+            await submitPromise;
+
+            expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
+            expect(state.printDialogOpen.value).toBe(false);
+            expect(state.printError.value).toBeNull();
         } finally {
             scope.stop();
         }
@@ -332,8 +400,7 @@ describe('useWorkspacePrint', () => {
     });
 
     it('prints the working-copy path directly in Electron for the default flow', async () => {
-        hasElectronAPIMock.mockReturnValue(true);
-        electronDocumentsMock.printPdfPath.mockResolvedValue({ success: true });
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({ success: true });
         const {
             getPrintableSourceData,
             scope,
@@ -352,11 +419,11 @@ describe('useWorkspacePrint', () => {
                 orientation: 'auto',
             });
 
-            expect(electronDocumentsMock.printPdfPath).toHaveBeenCalledWith(
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
                 '/tmp/working-copy.pdf',
                 'working-copy.pdf',
             );
-            expect(electronDocumentsMock.printPdfData).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfData).not.toHaveBeenCalled();
             expect(getPrintableSourceData).not.toHaveBeenCalled();
             expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
             expect(shouldPrintSourcePdfDirectlyMock).not.toHaveBeenCalled();
@@ -423,8 +490,7 @@ describe('useWorkspacePrint', () => {
     });
 
     it('builds a transformed PDF and sends it to the Electron native print dialog', async () => {
-        hasElectronAPIMock.mockReturnValue(true);
-        electronDocumentsMock.printPdfData.mockResolvedValue({ success: true });
+        documentsCapabilityMock.printPdfData.mockResolvedValue({ success: true });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
         const {
             getPrintableSourceData,
@@ -450,10 +516,68 @@ describe('useWorkspacePrint', () => {
                     orientation: 'portrait',
                 },
             );
-            expect(electronDocumentsMock.printPdfData).toHaveBeenCalledWith(
+            expect(documentsCapabilityMock.printPdfData).toHaveBeenCalledWith(
                 Uint8Array.of(7, 8, 9),
                 'document.pdf',
             );
+            expect(state.printDialogOpen.value).toBe(false);
+            expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('falls back to browser printing when native data printing is unavailable', async () => {
+        documentsCapabilityMock.printPdfData.mockResolvedValue({
+            success: false,
+            error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+        });
+        buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
+        const appFrame = createFakeFrame();
+        vi.stubGlobal('document', {
+            body: { append: vi.fn() },
+            createElement: vi.fn((tag: string) => {
+                if (tag !== 'iframe') {
+                    throw new Error(`Unexpected element: ${tag}`);
+                }
+                return appFrame.frame;
+            }),
+        });
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({ hasPendingUnsavedChanges: true });
+
+        try {
+            state.handlePrint();
+
+            const submitPromise = state.handlePrintDialogSubmit({
+                pageNumbers: [2],
+                viewMode: 'facing',
+                orientation: 'portrait',
+            });
+            await flushMicrotasks();
+
+            expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
+            expect(buildPrintablePdfDataMock).toHaveBeenCalledWith(
+                Uint8Array.of(9, 8, 7),
+                {
+                    pageNumbers: [2],
+                    viewMode: 'facing',
+                    orientation: 'portrait',
+                },
+            );
+            expect(documentsCapabilityMock.printPdfData).toHaveBeenCalledWith(
+                Uint8Array.of(7, 8, 9),
+                'document.pdf',
+            );
+            expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
+
+            appFrame.frame.trigger('load');
+            await submitPromise;
+
+            expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
             expect(state.printDialogOpen.value).toBe(false);
             expect(state.printError.value).toBeNull();
         } finally {

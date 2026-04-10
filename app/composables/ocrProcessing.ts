@@ -1,8 +1,10 @@
-import { safeDestr } from 'destr';
 import type { TDocumentRef } from '@contracts/platform-api';
-import { getElectronAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
+import {
+    readOptionalAdjacentJsonArtifact,
+    readOptionalOcrArtifactJson,
+} from '@app/utils/platform-ocr-artifacts';
 
 interface IOcrManifestIndex {pages: Record<number, { path: string }>;}
 
@@ -24,12 +26,8 @@ interface IPdfTextDocumentLike {
 
 export async function loadOcrText(workingCopyPath: TDocumentRef): Promise<string | null> {
     try {
-        const api = getElectronAPI();
-        const manifestPath = `${workingCopyPath}.ocr/manifest.json`;
-        const exists = await api.documents.fileExists(manifestPath);
-        if (exists) {
-            const manifestJson = await api.documents.readTextFile(manifestPath);
-            const manifest = safeDestr<IOcrManifestIndex>(manifestJson);
+        const manifest = await readOptionalOcrArtifactJson<IOcrManifestIndex>(workingCopyPath, 'manifest.json');
+        if (manifest) {
 
             const pageEntries = Object.entries(manifest.pages ?? {})
                 .map(([
@@ -46,9 +44,7 @@ export async function loadOcrText(workingCopyPath: TDocumentRef): Promise<string
 
             for (let index = 0; index < pageEntries.length; index += 1) {
                 const entry = pageEntries[index]!;
-                const pagePath = `${workingCopyPath}.ocr/${entry.path}`;
-                const pageJson = await api.documents.readTextFile(pagePath);
-                const pageData = safeDestr<IOcrPageTextEntry>(pageJson);
+                const pageData = await readOptionalOcrArtifactJson<IOcrPageTextEntry>(workingCopyPath, entry.path);
                 if (pageData?.text) {
                     texts.push(pageData.text.trim());
                 }
@@ -62,14 +58,10 @@ export async function loadOcrText(workingCopyPath: TDocumentRef): Promise<string
             return merged.length > 0 ? merged : null;
         }
 
-        const legacyIndexPath = `${workingCopyPath}.index.json`;
-        const legacyExists = await api.documents.fileExists(legacyIndexPath);
-        if (!legacyExists) {
+        const index = await readOptionalAdjacentJsonArtifact<ILegacyOcrIndex>(workingCopyPath, '.index.json');
+        if (!index) {
             return null;
         }
-
-        const indexJson = await api.documents.readTextFile(legacyIndexPath);
-        const index = safeDestr<ILegacyOcrIndex>(indexJson);
 
         const legacyTexts = (index.pages ?? [])
             .map((page) => page?.text?.trim())

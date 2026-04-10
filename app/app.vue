@@ -50,7 +50,6 @@ import {
     BROWSER_LOCALE_COOKIE_KEY,
     BROWSER_THEME_COOKIE_KEY,
 } from '@app/utils/browser-settings-persistence';
-import { hasElectronAPI } from '@app/utils/platform';
 import { waitForVisualFrames } from '@app/utils/async-helpers';
 
 const {
@@ -61,6 +60,10 @@ const {
     loadRecentFiles,
     syncCookieFromRuntime: syncRecentFilesCookieFromRuntime,
 } = useRecentFiles();
+const {
+    isBrowserRuntime,
+    isDesktopRuntime,
+} = useRuntimeEnvironment();
 const {
     locale,
     t,
@@ -116,7 +119,7 @@ async function preloadStartupContent() {
     }
 
     const warmupStartedAt = performance.now();
-    BrowserLogger.debug('loader', 'Startup content warmup started', { hasElectronApi: hasElectronAPI() });
+    BrowserLogger.debug('loader', 'Startup content warmup started', { isDesktopRuntime: isDesktopRuntime.value });
 
     const warmupTasks: Array<Promise<unknown>> = [
         import('@app/modules/workspace-shell/components/DocumentWorkspace.vue'),
@@ -178,18 +181,16 @@ onMounted(async () => {
     const mountTime = Date.now();
     try {
         clearFatalRuntimeError();
-        if (hasElectronAPI()) {
-            await loadSettings();
-            localeCookie.value = settings.value.locale;
-            themeCookie.value = settings.value.theme;
-            if (locale.value !== settings.value.locale) {
-                await setLocale(settings.value.locale);
-            }
-            colorMode.preference = settings.value.theme;
+        await loadSettings();
+        localeCookie.value = settings.value.locale;
+        themeCookie.value = settings.value.theme;
+        if (locale.value !== settings.value.locale) {
+            await setLocale(settings.value.locale);
         }
+        colorMode.preference = settings.value.theme;
 
         await preloadStartupContent();
-        if (!hasElectronAPI()) {
+        if (isBrowserRuntime.value) {
             void syncRecentFilesCookieFromRuntime();
         }
         await nextTick();

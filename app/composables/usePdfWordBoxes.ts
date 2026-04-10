@@ -1,8 +1,6 @@
 import type { PageViewport } from 'pdfjs-dist';
-import { safeDestr } from 'destr';
 import type { TDocumentRef } from '@contracts/platform-api';
 import type { IOcrWord } from '@app/types/pdf';
-import { getElectronAPI } from '@app/utils/platform';
 import {
     isOcrDebugEnabled,
     transformWordBox,
@@ -11,6 +9,7 @@ import {
     type IOcrIndexV2Page,
 } from '@app/composables/pdfWordBoxGeometry';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { readOptionalOcrArtifactJson } from '@app/utils/platform-ocr-artifacts';
 
 export const usePdfWordBoxes = () => {
     function clearWordBoxes(container: HTMLElement) {
@@ -97,17 +96,8 @@ export const usePdfWordBoxes = () => {
         pageNumber: number,
     ): Promise<IOcrIndexV2Page | null> {
         try {
-            const api = getElectronAPI();
             const pageFile = `page-${String(pageNumber).padStart(4, '0')}.json`;
-            const pagePath = `${workingCopyPath}.ocr/${pageFile}`;
-
-            const exists = await api.documents.fileExists(pagePath);
-            if (!exists) {
-                return null;
-            }
-
-            const content = await api.documents.readTextFile(pagePath);
-            return safeDestr<IOcrIndexV2Page>(content);
+            return readOptionalOcrArtifactJson<IOcrIndexV2Page>(workingCopyPath, pageFile);
         } catch (error) {
             BrowserLogger.warn('ocr-debug', 'Failed to load OCR page data', error);
             return null;

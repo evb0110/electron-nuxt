@@ -9,13 +9,13 @@ import type { TEditorLayoutNode } from '@app/types/editor-groups';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/platform';
 import {
     collectMergeTabOrder,
     shouldCloseSourceWindowAfterTransfer,
 } from '@app/modules/workspace-shell/composables/window-tab-transfer-orchestration';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspace-split-payload-cleanup';
+import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
 
 interface IGroupLike {
     id: string;
@@ -207,7 +207,7 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
         }
 
         if (shouldCloseSourceWindowAfterTransfer(options.tabs.value.length, true)) {
-            const closed = await getElectronAPI().windowTabs.closeCurrentWindow();
+            const closed = await getWindowTabsCapability().closeCurrentWindow();
             if (closed) {
                 return 'window-closed';
             }
@@ -230,7 +230,7 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
             return 'failed';
         }
 
-        const transferResult = await getElectronAPI().windowTabs.transfer({
+        const transferResult = await getWindowTabsCapability().transfer({
             target,
             tab: buildTransferredTabState(tab),
             payload,
@@ -295,7 +295,7 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
 
     async function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
         const ackFailure = async (error: string) => {
-            await getElectronAPI().windowTabs.transferAck({
+            await getWindowTabsCapability().transferAck({
                 transferId: transfer.transferId,
                 success: false,
                 error,
@@ -331,7 +331,7 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
             options.activateGroup(targetGroup.id);
             options.activateTab(targetGroup.id, targetTab.tabId);
 
-            await getElectronAPI().windowTabs.transferAck({
+            await getWindowTabsCapability().transferAck({
                 transferId: transfer.transferId,
                 success: true,
             });
@@ -341,7 +341,7 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
                 error,
             });
 
-            await getElectronAPI().windowTabs.transferAck({
+            await getWindowTabsCapability().transferAck({
                 transferId: transfer.transferId,
                 success: false,
                 error: error instanceof Error ? error.message : String(error),

@@ -1,0 +1,59 @@
+import type {
+    ComputedRef,
+    Ref,
+} from 'vue';
+import type { ITab } from '@app/types/tabs';
+import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
+
+interface IWorkspaceHasPdfState {hasPdf: boolean | { value: boolean };}
+
+export interface IWorkspaceShellState {
+    activeTab: ComputedRef<ITab | null>;
+    activeWorkspaceHasDocument: ComputedRef<boolean>;
+    activeTabHasDocumentHint: ComputedRef<boolean>;
+    hasDocument: ComputedRef<boolean>;
+    tabCount: ComputedRef<number>;
+}
+
+export interface IUseWorkspaceShellStateOptions {
+    activeWorkspace: Readonly<Ref<IWorkspaceHasPdfState | null | undefined>>;
+    activeTabId: Ref<string | null>;
+    tabs: Ref<ITab[]>;
+}
+
+export function workspaceHasPdf(workspace: IWorkspaceHasPdfState | null | undefined) {
+    if (!workspace) {
+        return false;
+    }
+    return typeof workspace.hasPdf === 'boolean' ? workspace.hasPdf : workspace.hasPdf.value;
+}
+
+export function useWorkspaceShellState(options: IUseWorkspaceShellStateOptions): IWorkspaceShellState {
+    const activeTab = computed(() => {
+        const tabId = options.activeTabId.value;
+        if (!tabId) {
+            return null;
+        }
+
+        return options.tabs.value.find(candidate => candidate.id === tabId) ?? null;
+    });
+    const activeWorkspaceHasDocument = computed(() => workspaceHasPdf(options.activeWorkspace.value));
+    const activeTabHasDocumentHint = computed(() => {
+        const tab = activeTab.value;
+        if (!tab) {
+            return false;
+        }
+
+        return hasDocumentMountHint(tab);
+    });
+    const hasDocument = computed(() => activeWorkspaceHasDocument.value || activeTabHasDocumentHint.value);
+    const tabCount = computed(() => options.tabs.value.length);
+
+    return {
+        activeTab,
+        activeWorkspaceHasDocument,
+        activeTabHasDocumentHint,
+        hasDocument,
+        tabCount,
+    };
+}

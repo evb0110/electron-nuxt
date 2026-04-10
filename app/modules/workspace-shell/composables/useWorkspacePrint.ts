@@ -13,9 +13,9 @@ import {
     waitForPrintPaint,
 } from '@app/utils/pdf-print';
 import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
+    getDocumentsCapability,
+    isNativePrintCapabilityUnavailable,
+} from '@app/utils/platform-documents';
 
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
@@ -261,29 +261,16 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         }
     }
 
-    async function openElectronPrintDialogForPdfData(printablePdfData: Uint8Array) {
-        printDialogOpen.value = false;
-        const result = await getElectronAPI().documents.printPdfData(
+    async function tryOpenNativePrintDialogForPdfData(printablePdfData: Uint8Array) {
+        const result = await getDocumentsCapability().printPdfData(
             printablePdfData,
             deps.fileName.value ?? undefined,
         );
-        if (result.success || result.canceled) {
-            return;
-        }
-
-        throw new Error(result.error || 'Failed to open the native print dialog');
-    }
-
-    async function openElectronPrintDialogForResolvedPath(path: string | null | undefined) {
-        if (!path) {
+        if (isNativePrintCapabilityUnavailable(result)) {
             return false;
         }
 
         printDialogOpen.value = false;
-        const result = await getElectronAPI().documents.printPdfPath(
-            path,
-            deps.fileName.value ?? undefined,
-        );
         if (result.success || result.canceled) {
             return true;
         }
@@ -291,8 +278,29 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         throw new Error(result.error || 'Failed to open the native print dialog');
     }
 
-    async function openElectronPrintDialogForPath() {
-        return openElectronPrintDialogForResolvedPath(deps.workingCopyPath.value);
+    async function tryOpenNativePrintDialogForResolvedPath(path: string | null | undefined) {
+        if (!path) {
+            return false;
+        }
+
+        const result = await getDocumentsCapability().printPdfPath(
+            path,
+            deps.fileName.value ?? undefined,
+        );
+        if (isNativePrintCapabilityUnavailable(result)) {
+            return false;
+        }
+
+        printDialogOpen.value = false;
+        if (result.success || result.canceled) {
+            return true;
+        }
+
+        throw new Error(result.error || 'Failed to open the native print dialog');
+    }
+
+    async function tryOpenNativePrintDialogForPath() {
+        return tryOpenNativePrintDialogForResolvedPath(deps.workingCopyPath.value);
     }
 
     async function tryOpenDirectPrintFromCurrentSource(payload: IPrintDialogSubmitPayload) {
@@ -300,26 +308,20 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
             return false;
         }
 
-        if (hasElectronAPI()) {
-            if (await openElectronPrintDialogForPath()) {
-                return true;
-            }
-
-            const sourcePdf = deps.sourcePdf.value;
-            if (isPathPdfSource(sourcePdf)) {
-                return openElectronPrintDialogForResolvedPath(sourcePdf.path);
-            }
-
-            if (sourcePdf instanceof Blob) {
-                await openElectronPrintDialogForPdfData(new Uint8Array(await sourcePdf.arrayBuffer()));
-                return true;
-            }
-
-            return false;
+        if (await tryOpenNativePrintDialogForPath()) {
+            return true;
         }
 
         const sourcePdf = deps.sourcePdf.value;
+        if (isPathPdfSource(sourcePdf)) {
+            return tryOpenNativePrintDialogForResolvedPath(sourcePdf.path);
+        }
+
         if (sourcePdf instanceof Blob) {
+            if (await tryOpenNativePrintDialogForPdfData(new Uint8Array(await sourcePdf.arrayBuffer()))) {
+                return true;
+            }
+
             await printPdfInHiddenFrame(sourcePdf);
             return true;
         }
@@ -339,8 +341,8 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
             return false;
         }
 
-        if (hasElectronAPI()) {
-            return openElectronPrintDialogForPath();
+        if (await tryOpenNativePrintDialogForPath()) {
+            return true;
         }
 
         const sourcePdf = deps.sourcePdf.value;
@@ -381,9 +383,7 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
                 throw new Error('Failed to prepare printable PDF data');
             }
 
-            if (hasElectronAPI()) {
-                await openElectronPrintDialogForPdfData(printablePdfData);
-            } else {
+            if (!(await tryOpenNativePrintDialogForPdfData(printablePdfData))) {
                 await printPdfInHiddenFrame(printablePdfData);
             }
         } catch (error) {

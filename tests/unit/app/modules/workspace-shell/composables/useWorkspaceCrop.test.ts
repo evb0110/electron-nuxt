@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
     warn: vi.fn(),
 }));
 
-vi.mock('@app/utils/platform', () => ({ getElectronAPI: () => ({ documents: { pageOps: { getPageGeometry: (...args: unknown[]) => mocks.getPageGeometry(...args) } } }) }));
+vi.mock('@app/utils/platform-documents', () => ({ getPageOpsCapability: () => ({ getPageGeometry: (...args: unknown[]) => mocks.getPageGeometry(...args) }) }));
 vi.mock('@app/utils/browser-logger', () => ({ BrowserLogger: { warn: (...args: unknown[]) => mocks.warn(...args) } }));
 
 describe('useWorkspaceCrop', () => {

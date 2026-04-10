@@ -12,6 +12,12 @@ const mockGet = vi.fn<() => Promise<ISettingsData>>();
 const mockSave = vi.fn<(settings: ISettingsData) => Promise<void>>();
 const cookieStore = new Map<string, ReturnType<typeof ref>>();
 const stateStore = new Map<string, ReturnType<typeof ref>>();
+const mockPlatformApi = { settings: {
+    get: mockGet,
+    save: mockSave,
+} };
+
+vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
 
 function installNuxtStateStubs() {
     vi.stubGlobal('useCookie', <T>(key: string, options?: { default?: () => T; }) => {
@@ -39,23 +45,12 @@ function installNuxtStateStubs() {
     vi.stubGlobal('toRaw', <T>(value: T) => value);
 }
 
-function stubWindow() {
-    vi.stubGlobal('window', {
-        ...globalThis,
-        electronAPI: { settings: {
-            get: mockGet,
-            save: mockSave,
-        } },
-    });
-}
-
 describe('useSettings', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
         cookieStore.clear();
         stateStore.clear();
-        stubWindow();
         installNuxtStateStubs();
     });
 
@@ -106,5 +101,35 @@ describe('useSettings', () => {
         await load();
 
         expect(settings.value.locale).toBe('en');
+    });
+
+    it('starts unresolved without a snapshot and resolves after the authoritative load', async () => {
+        mockGet.mockResolvedValue({
+            version: 1,
+            authorName: 'Browser Tester',
+            theme: 'dark',
+            locale: 'fr',
+            defaultZoomPreset: 'fit-width',
+            defaultViewMode: 'single',
+            defaultContinuousScroll: true,
+            defaultAnnotationColor: '#ffd400',
+            suppressDefaultViewerPrompt: false,
+            skippedUpdateVersion: undefined,
+        });
+
+        const { useSettings } = await import('@app/composables/useSettings');
+        const {
+            settings,
+            isLoaded,
+            load,
+        } = useSettings();
+
+        expect(isLoaded.value).toBe(false);
+
+        await load();
+
+        expect(isLoaded.value).toBe(true);
+        expect(settings.value.theme).toBe('dark');
+        expect(settings.value.locale).toBe('fr');
     });
 });

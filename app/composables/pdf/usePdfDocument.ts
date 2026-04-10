@@ -4,13 +4,13 @@ import type {
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
-import { getElectronAPI } from '@app/utils/platform';
 import type {
     IPdfPageMetric,
     TPdfSource,
 } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { guardAsync } from '@app/utils/async-guard';
+import { readDocumentRange } from '@app/utils/platform-documents';
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
 
 type TPdfDataRangeTransportCtor = new (
@@ -281,7 +281,6 @@ export const usePdfDocument = () => {
                 });
             } else {
                 // Large PDFs: avoid reading the full file into renderer memory. Use range reads via IPC.
-                const api = getElectronAPI();
                 const length = src.size;
                 const CHUNK = 1024 * 1024;
                 const initialLen = Math.min(CHUNK, length);
@@ -294,9 +293,9 @@ export const usePdfDocument = () => {
                     initialData,
                     tailData,
                 ] = await Promise.all([
-                    api.documents.readFileRange(src.path, 0, initialLen),
+                    readDocumentRange(src.path, 0, initialLen),
                     needsTail
-                        ? api.documents.readFileRange(src.path, tailStart, length - tailStart)
+                        ? readDocumentRange(src.path, tailStart, length - tailStart)
                         : Promise.resolve(null),
                 ]);
 
@@ -353,7 +352,7 @@ export const usePdfDocument = () => {
                             if (version !== renderVersion) {
                                 return;
                             }
-                            const chunk = await api.documents.readFileRange(src.path, begin, end - begin);
+                            const chunk = await readDocumentRange(src.path, begin, end - begin);
                             activeRangeTransport.onDataRange(begin, chunk);
                         } catch (error) {
                             if (version !== renderVersion) {

@@ -1,18 +1,16 @@
 import type { IRecentFile } from '@contracts/shared';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import {
-    getElectronAPI,
-    hasElectronAPI,
-    isElectronRoutePath,
+    shouldPreferDesktopPlatform,
+    waitForDesktopPlatformBridge,
 } from '@app/utils/platform';
 import {
     parseRecentFilesCookieSnapshot,
     RECENT_FILES_COOKIE_KEY,
 } from '@app/utils/recent-files-persistence';
+import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
+import { getDocumentsCapability as getPlatformDocumentsCapability } from '@app/utils/platform-documents';
 
-// Deduplication: track in-flight load promise
-let loadPromise: Promise<void> | null = null;
-let retryTimer: ReturnType<typeof setTimeout> | null = null;
 const ELECTRON_BRIDGE_RETRY_DELAY_MS = 25;
 const ELECTRON_BRIDGE_RETRY_ATTEMPTS = 20;
 const ELECTRON_RECENT_FILES_RETRY_DELAY_MS = 750;
@@ -28,68 +26,54 @@ export const useRecentFiles = () => {
     });
     const initialCookieSnapshot = parseRecentFilesCookieSnapshot(recentFilesCookie.value);
     const hasResolvedCookieSnapshot = initialCookieSnapshot.hasSnapshot && !initialCookieSnapshot.truncated;
-    const recentFiles = useState<IRecentFile[]>(
-        'recent-files:list',
-        () => initialCookieSnapshot.recentFiles,
-    );
-    const isLoading = useState('recent-files:is-loading', () => false);
-    const error = useState<string | null>('recent-files:error', () => null);
-    const isResolved = useState(
-        'recent-files:is-resolved',
-        () => !isDesktopRuntime.value && hasResolvedCookieSnapshot,
-    );
     const shouldPreferElectronRuntime = computed(() => (
-        hasElectronAPI()
-        || isDesktopRuntime.value
-        || isElectronRoutePath(route.path)
+        shouldPreferDesktopPlatform(route.path, isDesktopRuntime.value)
     ));
 
-    function clearRetryTimer() {
-        if (retryTimer) {
-            clearTimeout(retryTimer);
-            retryTimer = null;
-        }
-    }
-
-    function scheduleRetry() {
-        if (retryTimer) {
-            return;
-        }
-
-        retryTimer = setTimeout(() => {
-            retryTimer = null;
-            void loadRecentFiles();
-        }, ELECTRON_RECENT_FILES_RETRY_DELAY_MS);
-    }
-
-    async function waitForElectronBridge() {
-        if (!shouldPreferElectronRuntime.value || hasElectronAPI()) {
-            return;
-        }
-
-        for (let attempt = 0; attempt < ELECTRON_BRIDGE_RETRY_ATTEMPTS; attempt += 1) {
-            await new Promise<void>((resolve) => {
-                setTimeout(resolve, ELECTRON_BRIDGE_RETRY_DELAY_MS);
+    async function getDocumentsCapability() {
+        if (shouldPreferElectronRuntime.value) {
+            const bridgeReady = await waitForDesktopPlatformBridge({
+                shouldWait: shouldPreferElectronRuntime.value,
+                attempts: ELECTRON_BRIDGE_RETRY_ATTEMPTS,
+                retryDelayMs: ELECTRON_BRIDGE_RETRY_DELAY_MS,
             });
 
-            if (hasElectronAPI()) {
-                return;
+            if (!bridgeReady) {
+                throw new Error('Electron API unavailable');
             }
         }
+
+        return getPlatformDocumentsCapability();
     }
 
-    async function getDocumentsCapability() {
-        if (!shouldPreferElectronRuntime.value) {
-            return getElectronAPI().documents;
-        }
+    const {
+        state: recentFiles,
+        isLoading,
+        isResolved,
+        error,
+        load: loadRecentFilesState,
+        clearRetryTimer,
+    } = usePlatformHydratedState<IRecentFile[]>({
+        key: 'recent-files',
+        initialValue: () => initialCookieSnapshot.recentFiles,
+        initialResolved: !isDesktopRuntime.value && hasResolvedCookieSnapshot,
+        async loadValue() {
+            return (await getDocumentsCapability()).recentFiles.get();
+        },
+        getErrorMessage(loadError) {
+            return loadError instanceof Error ? loadError.message : t('errors.recent.load');
+        },
+        shouldRetry() {
+            return shouldPreferElectronRuntime.value;
+        },
+        retryDelayMs: ELECTRON_RECENT_FILES_RETRY_DELAY_MS,
+        markResolvedOnError() {
+            return !shouldPreferElectronRuntime.value;
+        },
+    });
 
-        await waitForElectronBridge();
-
-        if (!hasElectronAPI()) {
-            throw new Error('Electron API unavailable');
-        }
-
-        return getElectronAPI().documents;
+    async function loadRecentFiles() {
+        await loadRecentFilesState();
     }
 
     async function syncCookieFromRuntime() {
@@ -98,48 +82,10 @@ export const useRecentFiles = () => {
         }
 
         try {
-            await getElectronAPI().documents.recentFiles.get();
+            await (await getDocumentsCapability()).recentFiles.get();
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.recent.load');
         }
-    }
-
-    async function loadRecentFiles() {
-        // Deduplicate: if already loading, return existing promise
-        if (loadPromise) {
-            return loadPromise;
-        }
-
-        loadPromise = (async () => {
-            isLoading.value = true;
-            error.value = null;
-            let loadedSuccessfully = false;
-            let shouldRetryAfterFailure = false;
-            try {
-                recentFiles.value = await (await getDocumentsCapability()).recentFiles.get();
-                loadedSuccessfully = true;
-                isResolved.value = true;
-                clearRetryTimer();
-            } catch (e) {
-                error.value = e instanceof Error ? e.message : t('errors.recent.load');
-                if (shouldPreferElectronRuntime.value) {
-                    shouldRetryAfterFailure = true;
-                } else {
-                    isResolved.value = true;
-                }
-            } finally {
-                if (loadedSuccessfully) {
-                    isResolved.value = true;
-                }
-                isLoading.value = false;
-                loadPromise = null;
-                if (shouldRetryAfterFailure) {
-                    scheduleRetry();
-                }
-            }
-        })();
-
-        return loadPromise;
     }
 
     async function openRecentFile(file: IRecentFile) {
@@ -167,6 +113,7 @@ export const useRecentFiles = () => {
             await (await getDocumentsCapability()).recentFiles.clear();
             recentFiles.value = [];
             isResolved.value = true;
+            clearRetryTimer();
         } catch (e) {
             error.value = e instanceof Error ? e.message : t('errors.recent.clear');
         }

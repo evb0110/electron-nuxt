@@ -2,11 +2,11 @@ import type { Ref } from 'vue';
 import type { TPdfSource } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/platform-api';
 import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
-import { getDocumentRefDisplayLabel } from '@app/utils/document-ref';
+    getDocumentRefDisplayLabel,
+    isBrowserDocumentRef,
+} from '@app/utils/document-ref';
 import { formatBytes } from '@app/utils/formatters';
+import { getDocumentsCapability } from '@app/utils/platform-documents';
 
 type TSaveDotState = 'idle' | 'saving' | 'dirty' | 'clean';
 
@@ -122,7 +122,10 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
         return t('status.noFileOpen');
     });
-    const statusCanShowInFolder = computed(() => hasElectronAPI() && statusShowInFolderPath.value !== null);
+    const statusCanShowInFolder = computed(() => {
+        const path = statusShowInFolderPath.value;
+        return path !== null && !isBrowserDocumentRef(path);
+    });
     const statusShowInFolderTooltip = computed(() => statusCanShowInFolder.value
         ? t('status.showInFolder')
         : t('status.noFileOpen'));
@@ -144,7 +147,7 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
 
         try {
-            await getElectronAPI().documents.showItemInFolder(path);
+            await getDocumentsCapability().showItemInFolder(path);
         } catch {
             // Ignore failures; status bar action is best-effort.
         }

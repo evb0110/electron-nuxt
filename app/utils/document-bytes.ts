@@ -1,5 +1,8 @@
 import type { TDocumentRef } from '@contracts/platform-api';
-import { getElectronAPI } from '@app/utils/platform';
+import {
+    getDocumentsCapability,
+    readDocumentRange,
+} from '@app/utils/platform-documents';
 
 const DEFAULT_DOCUMENT_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
@@ -21,10 +24,10 @@ export async function readDocumentBytes(
     path: TDocumentRef,
     options: IReadDocumentBytesOptions = {},
 ): Promise<Uint8Array> {
-    const api = getElectronAPI();
+    const documents = getDocumentsCapability();
     const size = typeof options.knownSize === 'number' && Number.isFinite(options.knownSize)
         ? Math.max(0, Math.floor(options.knownSize))
-        : (await api.documents.statFile(path)).size;
+        : (await documents.statFile(path)).size;
 
     if (typeof options.maxBytes === 'number' && size > options.maxBytes) {
         throw new Error(`Document exceeds in-memory read limit (${options.maxBytes} bytes)`);
@@ -36,7 +39,7 @@ export async function readDocumentBytes(
 
     const chunkSize = normalizeChunkSize(options.chunkSize);
     if (size <= chunkSize) {
-        const data = await api.documents.readFile(path);
+        const data = await documents.readFile(path);
         return data instanceof Uint8Array ? data : new Uint8Array(data);
     }
 
@@ -45,11 +48,7 @@ export async function readDocumentBytes(
 
     while (offset < size) {
         const nextChunkLength = Math.min(chunkSize, size - offset);
-        const chunk = await api.documents.readFileRange(
-            path,
-            offset,
-            nextChunkLength,
-        );
+        const chunk = await readDocumentRange(path, offset, nextChunkLength);
         output.set(chunk, offset);
         offset += chunk.byteLength;
 
@@ -70,10 +69,10 @@ export async function readDocumentBytesIfBelowLimit(
     maxBytes: number,
     options: Omit<IReadDocumentBytesOptions, 'maxBytes'> = {},
 ): Promise<Uint8Array | null> {
-    const api = getElectronAPI();
+    const documents = getDocumentsCapability();
     const size = typeof options.knownSize === 'number' && Number.isFinite(options.knownSize)
         ? Math.max(0, Math.floor(options.knownSize))
-        : (await api.documents.statFile(path)).size;
+        : (await documents.statFile(path)).size;
     if (size > maxBytes) {
         return null;
     }

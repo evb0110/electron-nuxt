@@ -1,8 +1,4 @@
 import { clamp } from 'es-toolkit/math';
-import {
-    getElectronAPI,
-    hasElectronAPI,
-} from '@app/utils/platform';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { getDocumentRefBaseName } from '@app/utils/document-ref';
 import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
@@ -23,6 +19,10 @@ import {
     getLowercaseExtension,
 } from '@app/utils/analytics';
 import { readDocumentBytes } from '@app/utils/document-bytes';
+import {
+    getDocumentsCapability,
+    shouldRefreshWorkingCopyAfterSaveAs,
+} from '@app/utils/platform-documents';
 
 interface IOpenBatchProgressState {
     processed: number;
@@ -71,12 +71,14 @@ export const usePdfFile = () => {
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
+    const { isDesktopRuntime } = useRuntimeEnvironment();
+
     const fileName = computed(
         () =>
             getDocumentRefBaseName(workingCopyPath.value) ??
       getDocumentRefBaseName(originalPath.value),
     );
-    const isElectron = computed(() => hasElectronAPI());
+    const isElectron = computed(() => isDesktopRuntime.value);
 
     const pendingDjvu = ref<TDocumentRef | null>(null);
     const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
@@ -107,8 +109,7 @@ export const usePdfFile = () => {
     }
 
     async function pickFileToOpen() {
-        const api = getElectronAPI();
-        return api.documents.openPdfDialog();
+        return getDocumentsCapability().openPdfDialog();
     }
 
     async function trackOpenedDocument(
@@ -119,7 +120,7 @@ export const usePdfFile = () => {
         let fileSizeBucket: string | null = null;
 
         try {
-            const { size } = await getElectronAPI().documents.statFile(result.originalPath);
+            const { size } = await getDocumentsCapability().statFile(result.originalPath);
             fileSizeBucket = bucketFileSize(size);
         } catch {
             fileSizeBucket = null;
@@ -175,8 +176,7 @@ export const usePdfFile = () => {
         openBatchProgress.value = null;
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect started', {path});
         try {
-            const api = getElectronAPI();
-            const result = await api.documents.openPdfDirect(path);
+            const result = await getDocumentsCapability().openPdfDirect(path);
             if (!result) {
                 error.value = t('errors.file.invalid');
                 BrowserLogger.warn(
@@ -256,7 +256,7 @@ export const usePdfFile = () => {
         pendingDjvu.value = null;
         openBatchProgress.value = null;
         try {
-            const api = getElectronAPI();
+            const documents = getDocumentsCapability();
             const normalizedPaths = paths
                 .map((path) => path.trim())
                 .filter((path) => path.length > 0);
@@ -275,7 +275,7 @@ export const usePdfFile = () => {
                 estimatedRemainingMs: null,
             };
 
-            const stopProgress = api.documents.onOpenPdfDirectBatchProgress(
+            const stopProgress = documents.onOpenPdfDirectBatchProgress(
                 (progress) => {
                     if (progress.requestId !== requestId) {
                         return;
@@ -296,7 +296,7 @@ export const usePdfFile = () => {
 
             let result: TOpenFileResult | null = null;
             try {
-                result = await api.documents.openPdfDirectBatch(
+                result = await documents.openPdfDirectBatch(
                     normalizedPaths,
                     requestId,
                 );
@@ -360,9 +360,8 @@ export const usePdfFile = () => {
             return;
         }
 
-        const api = getElectronAPI();
         for (const snapshotPath of snapshotPaths) {
-            api.documents.cleanupFile(snapshotPath).catch((cleanupError: unknown) => {
+            getDocumentsCapability().cleanupFile(snapshotPath).catch((cleanupError: unknown) => {
                 BrowserLogger.warn(
                     'pdf-file',
                     'Failed to cleanup history snapshot',
@@ -432,7 +431,7 @@ export const usePdfFile = () => {
 
         clearOcrCache(path);
         try {
-            await getElectronAPI().documents.cleanupFile(path);
+            await getDocumentsCapability().cleanupFile(path);
         } catch (cleanupError) {
             BrowserLogger.warn(
                 'pdf-file',
@@ -497,8 +496,7 @@ export const usePdfFile = () => {
         path: TDocumentRef,
         size: number,
     ): Promise<IPathHistoryEntry> {
-        const api = getElectronAPI();
-        const snapshotPath = await api.documents.createWorkingCopyFromPath(
+        const snapshotPath = await getDocumentsCapability().createWorkingCopyFromPath(
             path,
             originalPath.value ?? undefined,
         );
@@ -512,7 +510,7 @@ export const usePdfFile = () => {
 
     async function readPdfConformanceProfile(path: TDocumentRef) {
         try {
-            return await getElectronAPI().documents.analyzePdfConformance(path);
+            return await getDocumentsCapability().analyzePdfConformance(path);
         } catch (conformanceError) {
             BrowserLogger.warn('pdf-file', 'Failed to analyze PDF conformance profile', {
                 path,
@@ -534,8 +532,7 @@ export const usePdfFile = () => {
     }
 
     async function readPdfStateFromPath(path: TDocumentRef) {
-        const api = getElectronAPI();
-        const { size } = await api.documents.statFile(path);
+        const { size } = await getDocumentsCapability().statFile(path);
         assertPdfHasBytes(size);
 
         if (size > MAX_IN_MEMORY_PDF_BYTES) {
@@ -783,8 +780,7 @@ export const usePdfFile = () => {
         pdfSrc.value = toPdfBlob(snapshot);
 
         if (persist && workingCopyPath.value) {
-            const api = getElectronAPI();
-            await api.documents.writeFile(workingCopyPath.value, snapshot);
+            await getDocumentsCapability().writeFile(workingCopyPath.value, snapshot);
         }
     }
 
@@ -817,8 +813,7 @@ export const usePdfFile = () => {
         pushHistorySnapshot(snapshot, { reuseSnapshot: true });
 
         if (workingCopyPath.value) {
-            const api = getElectronAPI();
-            await api.documents.writeFile(workingCopyPath.value, snapshot);
+            await getDocumentsCapability().writeFile(workingCopyPath.value, snapshot);
             await refreshPdfConformanceProfile(workingCopyPath.value);
         }
     }
@@ -855,11 +850,10 @@ export const usePdfFile = () => {
                 return await saveWorkingCopyAs(data, { saveMode: 'save_as_rewrite' });
             }
 
-            const api = getElectronAPI();
             // First update the working copy with latest data
-            await api.documents.writeFile(workingCopyPath.value, data);
+            await getDocumentsCapability().writeFile(workingCopyPath.value, data);
             // Then save working copy back to original location
-            await api.documents.saveFile(workingCopyPath.value);
+            await getDocumentsCapability().saveFile(workingCopyPath.value);
             await commitPersistedPdfState(data);
             lastSaveMode.value = requestedSaveMode;
             return {
@@ -896,8 +890,7 @@ export const usePdfFile = () => {
                 return await saveWorkingCopyAs(undefined, { saveMode: 'save_as_rewrite' });
             }
 
-            const api = getElectronAPI();
-            await api.documents.saveFile(workingCopyPath.value);
+            await getDocumentsCapability().saveFile(workingCopyPath.value);
             await commitPersistedPdfState();
             lastSaveMode.value = requestedSaveMode;
             return {
@@ -931,19 +924,18 @@ export const usePdfFile = () => {
             };
         }
         try {
-            const api = getElectronAPI();
             const previousWorkingPath = workingCopyPath.value;
             if (data) {
-                await api.documents.writeFile(workingCopyPath.value, data);
+                await getDocumentsCapability().writeFile(workingCopyPath.value, data);
             }
-            const savedPath = await api.documents.savePdfAs(workingCopyPath.value);
+            const savedPath = await getDocumentsCapability().savePdfAs(workingCopyPath.value);
             if (savedPath) {
-                if (!hasElectronAPI()) {
+                if (shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
                     const nextWorkingPath =
-                        await api.documents.createWorkingCopyFromPath(savedPath);
+                        await getDocumentsCapability().createWorkingCopyFromPath(savedPath);
                     workingCopyPath.value = nextWorkingPath;
                     if (previousWorkingPath !== nextWorkingPath) {
-                        await api.documents.cleanupFile(previousWorkingPath);
+                        await getDocumentsCapability().cleanupFile(previousWorkingPath);
                     }
                 }
                 originalPath.value = savedPath;
@@ -991,8 +983,7 @@ export const usePdfFile = () => {
         fileHistorySessionVersion.value += 1;
         resetHistory(null);
         if (pathToCleanup) {
-            const api = getElectronAPI();
-            api.documents.cleanupFile(pathToCleanup).catch((cleanupError: unknown) => {
+            getDocumentsCapability().cleanupFile(pathToCleanup).catch((cleanupError: unknown) => {
                 BrowserLogger.warn(
                     'pdf-file',
                     'Failed to cleanup closed working copy',
@@ -1033,7 +1024,7 @@ export const usePdfFile = () => {
         if (entry?.kind === 'bytes') {
             await applySnapshot(entry.snapshot, true);
         } else if (entry?.kind === 'path') {
-            const nextWorkingPath = await getElectronAPI().documents.createWorkingCopyFromPath(
+            const nextWorkingPath = await getDocumentsCapability().createWorkingCopyFromPath(
                 entry.path,
                 originalPath.value ?? entry.originalPath ?? undefined,
             );
@@ -1057,7 +1048,7 @@ export const usePdfFile = () => {
         if (entry?.kind === 'bytes') {
             await applySnapshot(entry.snapshot, true);
         } else if (entry?.kind === 'path') {
-            const nextWorkingPath = await getElectronAPI().documents.createWorkingCopyFromPath(
+            const nextWorkingPath = await getDocumentsCapability().createWorkingCopyFromPath(
                 entry.path,
                 originalPath.value ?? entry.originalPath ?? undefined,
             );

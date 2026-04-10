@@ -505,7 +505,6 @@ import type {
 import type { TTabUpdate } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { hasElectronAPI } from '@app/utils/platform';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));
@@ -528,7 +527,8 @@ const canTeleportStatus = computed(() => (
     import.meta.client
     && Boolean(document.getElementById('editor-global-status-host'))
 ));
-const hasDesktopRuntime = hasElectronAPI();
+const { isDesktopRuntime } = useRuntimeEnvironment();
+const hasDesktopRuntime = computed(() => isDesktopRuntime.value);
 const canUseOcr = hasDesktopRuntime;
 const canUseDjvu = true;
 

@@ -22,7 +22,7 @@
 <script setup lang="ts">
 import type { ILinkAnnotation } from '@app/types/annotations';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/platform';
+import { getShellCapability } from '@app/utils/platform-shell';
 
 defineProps<{links: ILinkAnnotation[];}>();
 
@@ -49,7 +49,7 @@ function handleClick(event: MouseEvent, link: ILinkAnnotation) {
         }
     }
     pointerDownPos = null;
-    void getElectronAPI().shell.openExternal(link.url).catch((error) => {
+    void getShellCapability().openExternal(link.url).catch((error) => {
         BrowserLogger.warn(
             'pdf-link-overlay',
             `Failed to open external link: ${link.url}`,

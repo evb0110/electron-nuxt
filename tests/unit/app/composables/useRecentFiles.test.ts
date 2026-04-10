@@ -20,6 +20,24 @@ const electronOpenPdfDirect = vi.fn<(path: string) => Promise<void>>();
 const browserRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
 
 vi.mock('@app/utils/platform', () => ({
+    isDesktopPlatformActive: (electronApiAvailable = electronBridgeReady.value) => electronApiAvailable,
+    getPlatformAPI: () => electronBridgeReady.value
+        ? {documents: {
+            recentFiles: {
+                get: electronRecentFilesGet,
+                remove: electronRecentFilesRemove,
+                clear: electronRecentFilesClear,
+            },
+            openPdfDirect: electronOpenPdfDirect,
+        }}
+        : {documents: {
+            recentFiles: {
+                get: browserRecentFilesGet,
+                remove: vi.fn(),
+                clear: vi.fn(),
+            },
+            openPdfDirect: vi.fn(),
+        }},
     getElectronAPI: () => electronBridgeReady.value
         ? {documents: {
             recentFiles: {
@@ -39,8 +57,38 @@ vi.mock('@app/utils/platform', () => ({
         }},
     hasElectronAPI: () => electronBridgeReady.value,
     isElectronRoutePath: (path: string | null | undefined) => path === '/electron' || path?.startsWith('/electron/') === true,
+    shouldPreferDesktopPlatform: (
+        currentRoutePath: string | null | undefined,
+        desktopRuntime = false,
+        electronApiAvailable = electronBridgeReady.value,
+    ) => electronApiAvailable || desktopRuntime || currentRoutePath === '/electron' || currentRoutePath?.startsWith('/electron/') === true,
     resolveInitialDesktopRuntime: (routePath: string | null | undefined, electronApiAvailable = electronBridgeReady.value) =>
         electronApiAvailable || routePath === '/electron' || routePath?.startsWith('/electron/') === true,
+    waitForDesktopPlatformBridge: async ({
+        shouldWait = true,
+        retryDelayMs = 25,
+        attempts = 20,
+    }: {
+        shouldWait?: boolean;
+        retryDelayMs?: number;
+        attempts?: number;
+    } = {}) => {
+        if (!shouldWait || electronBridgeReady.value) {
+            return electronBridgeReady.value;
+        }
+
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+            await new Promise<void>((resolve) => {
+                setTimeout(resolve, retryDelayMs);
+            });
+
+            if (electronBridgeReady.value) {
+                return true;
+            }
+        }
+
+        return electronBridgeReady.value;
+    },
 }));
 
 function installNuxtStateStubs() {

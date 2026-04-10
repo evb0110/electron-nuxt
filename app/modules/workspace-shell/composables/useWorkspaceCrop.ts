@@ -6,8 +6,8 @@ import type {
 import type { TDocumentRef } from '@contracts/platform-api';
 import { screenRectToMargins } from '@app/utils/pdf-crop-coordinates';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import { getElectronAPI } from '@app/utils/platform';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
+import { getPageOpsCapability } from '@app/utils/platform-documents';
 
 interface IUseWorkspaceCropOptions {
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
@@ -60,9 +60,8 @@ export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
         cropDialogLoading.value = true;
 
         let geometry: IPageGeometry | null = null;
-        const api = getElectronAPI();
         try {
-            geometry = await api.documents.pageOps.getPageGeometry(
+            geometry = await getPageOpsCapability().getPageGeometry(
                 options.workingCopyPath.value,
                 result.pageNumber,
             );

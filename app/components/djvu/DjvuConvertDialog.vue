@@ -110,9 +110,9 @@
 <script setup lang="ts">
 
 import type { TDocumentRef } from '@contracts/platform-api';
-import { getElectronAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getDocumentRefBaseName } from '@app/utils/document-ref';
+import { getDjvuCapability } from '@app/utils/platform-djvu';
 
 const { t } = useTypedI18n();
 
@@ -221,14 +221,13 @@ watch(open, async (isOpen) => {
     estimates.value = [];
 
     try {
-        const api = getElectronAPI();
-
-        const djvuInfo = await api.djvu.getInfo(props.djvuPath);
+        const djvu = getDjvuCapability();
+        const djvuInfo = await djvu.getInfo(props.djvuPath);
         info.value = djvuInfo;
         selectedSubsample.value = resolveDefaultSubsample(djvuInfo.pageCount);
 
         estimatesLoading.value = true;
-        const sizeEstimates = await api.djvu.estimateSizes(props.djvuPath);
+        const sizeEstimates = await djvu.estimateSizes(props.djvuPath);
         estimates.value = sizeEstimates;
     } catch (error) {
         BrowserLogger.warn('djvu-convert-dialog', 'Failed to load DjVu conversion estimates', {

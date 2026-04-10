@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { useIntervalFn } from '@vueuse/core';
-import {getElectronAPI} from '@app/utils/platform';
+import { getDocumentPathForFile } from '@app/utils/platform-documents';
 
 interface IPageDragDropDeps {
     containerRef: Ref<HTMLElement | null>;
@@ -386,7 +386,6 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             return;
         }
 
-        const electronApi = getElectronAPI();
         const files = e.dataTransfer.files;
         const droppedPaths: string[] = [];
         const seen = new Set<string>();
@@ -397,7 +396,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
                 continue;
             }
 
-            const filePath = electronApi.documents.getPathForFile(file);
+            const filePath = getDocumentPathForFile(file);
             if (!filePath || seen.has(filePath) || !isSupportedFilePath(filePath)) {
                 continue;
             }
