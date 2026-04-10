@@ -245,6 +245,12 @@ function getFileMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                 enabled: documentActionsEnabled,
                 channel: 'menu:saveAs',
             }),
+            createWindowMenuAction({
+                label: te('menu.print'),
+                accelerator: 'CmdOrCtrl+P',
+                enabled: documentActionsEnabled,
+                channel: 'menu:print',
+            }),
             {
                 label: te('menu.export'),
                 enabled: documentActionsEnabled,

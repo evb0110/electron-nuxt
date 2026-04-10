@@ -553,6 +553,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
             'lucide:pen-tool',
             'lucide:plus',
             'lucide:pencil',
+            'lucide:printer',
             'lucide:square-pen',
             'lucide:grip-vertical',
             'lucide:refresh-cw',

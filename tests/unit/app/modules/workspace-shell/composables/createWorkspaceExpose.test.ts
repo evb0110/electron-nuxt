@@ -15,8 +15,10 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
     return cast<Parameters<typeof createWorkspaceExpose>[0]>({
         handleSave: vi.fn(async () => {}),
         handleSaveAs: vi.fn(async () => {}),
+        handlePrint: vi.fn(async () => {}),
         handleUndo: vi.fn(),
         handleRedo: vi.fn(),
+        handleCombineImages: vi.fn(async () => {}),
         handleOpenFileFromUi: vi.fn(async () => {}),
         handleOpenFileDirectWithPersist: vi.fn(async (_path: string) => {}),
         handleOpenFileDirectBatchWithPersist: vi.fn(async (_paths: string[]) => {}),
@@ -27,6 +29,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         handleExportMultiPageTiff: vi.fn(async () => {}),
         hasPdf: ref(false),
         isOpeningDocument: ref(false),
+        isPreparingPrint: ref(false),
         canSave: ref(false),
         canUndo: ref(false),
         canRedo: ref(false),
@@ -170,5 +173,21 @@ describe('createWorkspaceExpose', () => {
         deps.isDjvuMode.value = false;
         exposed.handleConvertToPdf();
         expect(deps.handleOpenFileFromUi).toHaveBeenCalledOnce();
+    });
+
+    it('delegates print through the exposed workspace command surface', async () => {
+        const deps = createDeps();
+        const exposed = createWorkspaceExpose(deps);
+
+        await exposed.handlePrint();
+
+        expect(deps.handlePrint).toHaveBeenCalledOnce();
+    });
+
+    it('includes print preparation state in the toolbar snapshot', () => {
+        const deps = createDeps({ isPreparingPrint: ref(true) });
+        const exposed = createWorkspaceExpose(deps);
+
+        expect(exposed.getToolbarSnapshot().isPreparingPrint).toBe(true);
     });
 });

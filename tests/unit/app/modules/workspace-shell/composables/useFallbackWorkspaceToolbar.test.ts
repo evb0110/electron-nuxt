@@ -22,6 +22,7 @@ function createSnapshot(overrides: Partial<IWorkspaceToolbarSnapshot> = {}): IWo
     return {
         hasPdf: false,
         isOpeningDocument: false,
+        isPreparingPrint: false,
         canSave: false,
         canUndo: false,
         canRedo: false,

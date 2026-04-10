@@ -23,6 +23,8 @@ type IDocumentsEventMap = {
 } & {
     [K in TDocumentsEventChannels['menuSaveAs']]: undefined;
 } & {
+    [K in TDocumentsEventChannels['menuPrint']]: undefined;
+} & {
     [K in TDocumentsEventChannels['menuExportDocx']]: undefined;
 } & {
     [K in TDocumentsEventChannels['menuExportImages']]: undefined;

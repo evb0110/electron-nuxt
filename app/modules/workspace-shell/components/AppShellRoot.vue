@@ -48,6 +48,7 @@
                 @open-settings="showSettings = true"
                 @save="runFallbackWorkspaceAction((workspace) => workspace.handleSave())"
                 @save-as="runFallbackWorkspaceAction((workspace) => workspace.handleSaveAs())"
+                @print="runFallbackWorkspaceAction((workspace) => workspace.handlePrint())"
                 @combine-images="runFallbackWorkspaceAction((workspace) => workspace.handleCombineImages())"
                 @export-docx="runFallbackWorkspaceAction((workspace) => workspace.handleExportDocx())"
                 @export-images="runFallbackWorkspaceAction((workspace) => workspace.handleExportImages())"

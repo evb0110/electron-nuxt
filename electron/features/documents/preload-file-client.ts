@@ -55,6 +55,22 @@ export function createDocumentsPreloadFileClient(
                     ? assertNonEmptyString(fileName, 'validatePdfData.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
             ),
+        printPdfData: (data: Uint8Array, fileName?: string) =>
+            invoke(
+                DOCUMENTS_CHANNELS.pdfPrintData,
+                assertWriteData(data, 'printPdfData.data'),
+                typeof fileName === 'string'
+                    ? assertNonEmptyString(fileName, 'printPdfData.fileName', MAX_IPC_FILE_NAME_LENGTH)
+                    : undefined,
+            ),
+        printPdfPath: (path: string, fileName?: string) =>
+            invoke(
+                DOCUMENTS_CHANNELS.pdfPrintPath,
+                assertAbsolutePath(path, 'printPdfPath.path'),
+                typeof fileName === 'string'
+                    ? assertNonEmptyString(fileName, 'printPdfPath.fileName', MAX_IPC_FILE_NAME_LENGTH)
+                    : undefined,
+            ),
         writeFile: (path: string, data: Uint8Array) =>
             invoke(
                 DOCUMENTS_CHANNELS.fileWrite,

@@ -40,6 +40,18 @@
                         <span class="app-menu-label">{{ t('menu.saveAs') }}</span>
                         <span class="app-menu-shortcut">{{ shortcutLabels.saveAs }}</span>
                     </button>
+                    <button
+                        class="app-menu-item"
+                        :disabled="!hasPdf || isPreparingPrint"
+                        @click="emit('print'); close()"
+                    >
+                        <UIcon
+                            :name="isPreparingPrint ? 'i-lucide-loader-circle' : 'i-lucide-printer'"
+                            :class="['app-menu-icon', { 'animate-spin': isPreparingPrint }]"
+                        />
+                        <span class="app-menu-label">{{ t('menu.print') }}</span>
+                        <span class="app-menu-shortcut">{{ shortcutLabels.print }}</span>
+                    </button>
                     <div class="app-menu-divider" />
                     <button
                         class="app-menu-item"
@@ -194,6 +206,7 @@ interface IProps {
     isAnySaving: boolean
     isHistoryBusy: boolean
     isExportingDocx: boolean
+    isPreparingPrint: boolean
     isDjvuMode: boolean
     canUseDjvu: boolean
 }
@@ -205,6 +218,7 @@ const emit = defineEmits<{
     (e: 'open-file'): void
     (e: 'save'): void
     (e: 'save-as'): void
+    (e: 'print'): void
     (e: 'combine-images'): void
     (e: 'export-docx'): void
     (e: 'export-images'): void

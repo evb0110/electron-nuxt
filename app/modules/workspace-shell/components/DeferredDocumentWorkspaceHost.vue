@@ -183,6 +183,7 @@ function createEmptyToolbarSnapshot(): IWorkspaceToolbarSnapshot {
     return {
         hasPdf: false,
         isOpeningDocument: false,
+        isPreparingPrint: false,
         canSave: false,
         canUndo: false,
         canRedo: false,
@@ -591,6 +592,9 @@ const workspaceExpose: IWorkspaceExpose = {
     },
     handleSaveAs: async () => {
         await withLoadedWorkspace('handleSaveAs', workspace => workspace.handleSaveAs());
+    },
+    handlePrint: async () => {
+        await withLoadedWorkspace('handlePrint', workspace => workspace.handlePrint());
     },
     handleUndo: () => {
         void withLoadedWorkspace('handleUndo', workspace => workspace.handleUndo());

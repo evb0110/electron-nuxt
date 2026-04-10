@@ -26,6 +26,10 @@ import {
     handleFileWriteDocx,
 } from '@electron/features/documents/main/file-ops';
 import {
+    handlePrintPdfData,
+    handlePrintPdfPath,
+} from '@electron/features/documents/main/print';
+import {
     cleanupWorkingCopy,
     handleFileSave,
 } from '@electron/ipc/workingCopy';
@@ -67,6 +71,8 @@ export function createDocumentsService(): IDocumentsService {
         fileExists: (event, filePath) => handleFileExists(event, filePath),
         analyzePdfConformance: (event, filePath) => handleAnalyzePdfConformance(event, filePath),
         validatePdfData: (event, data, fileName) => handleValidatePdfData(event, data, fileName),
+        printPdfData: (event, data, fileName) => handlePrintPdfData(event, data, fileName),
+        printPdfPath: (event, filePath, fileName) => handlePrintPdfPath(event, filePath, fileName),
         writeFile: (event, filePath, data) => handleFileWrite(event, filePath, data),
         writeDocxFile: (event, filePath, data) => handleFileWriteDocx(event, filePath, data),
         saveFile: (event, workingPath) => handleFileSave(event, workingPath),

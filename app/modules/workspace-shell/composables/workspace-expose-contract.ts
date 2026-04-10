@@ -11,6 +11,7 @@ import type {
 const FILE_PORT_METHODS = [
     'handleSave',
     'handleSaveAs',
+    'handlePrint',
     'handleUndo',
     'handleRedo',
     'handleOpenFileFromUi',

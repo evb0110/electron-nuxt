@@ -95,6 +95,9 @@ export function registerTabsMenuBindings(
         api.documents?.onMenuSaveAs?.(() => {
             runMenuAction('save-as', () => deps.activeWorkspace.value?.handleSaveAs());
         }),
+        api.documents?.onMenuPrint?.(() => {
+            runMenuAction('print', () => deps.activeWorkspace.value?.handlePrint());
+        }),
         api.documents?.onMenuExportDocx?.(() => {
             runMenuAction('export-docx', () => deps.activeWorkspace.value?.handleExportDocx());
         }),

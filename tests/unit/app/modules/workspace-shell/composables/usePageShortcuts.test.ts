@@ -53,6 +53,7 @@ function createDeps() {
         handleZoomOut: vi.fn(),
         handleActualSize: vi.fn(),
         handleSave: vi.fn(),
+        handlePrint: vi.fn(),
         handleToggleSidebar: vi.fn(),
     };
 }
@@ -140,6 +141,29 @@ describe('usePageShortcuts', () => {
         }));
         expect(preventActualSize).toHaveBeenCalledOnce();
         expect(deps.handleActualSize).toHaveBeenCalledOnce();
+    });
+
+    it('intercepts Cmd/Ctrl+P in the web app and routes it to print', async () => {
+        mocks.hasElectronAPI.mockReturnValue(false);
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 'p',
+            code: 'KeyP',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: null,
+            preventDefault,
+        }));
+
+        expect(preventDefault).toHaveBeenCalledOnce();
+        expect(deps.handlePrint).toHaveBeenCalledOnce();
     });
 
     it('prevents default for Ctrl+B when active with PDF', async () => {

@@ -33,6 +33,16 @@ export interface IDocumentsService {
     fileExists: (event: IpcMainInvokeEvent, filePath: string) => boolean;
     analyzePdfConformance: (event: IpcMainInvokeEvent, filePath: string) => Promise<IPdfConformanceProfile>;
     validatePdfData: (event: IpcMainInvokeEvent, data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
+    printPdfData: (event: IpcMainInvokeEvent, data: Uint8Array, fileName?: string) => Promise<{
+        success: boolean;
+        canceled?: boolean;
+        error?: string;
+    }>;
+    printPdfPath: (event: IpcMainInvokeEvent, filePath: string, fileName?: string) => Promise<{
+        success: boolean;
+        canceled?: boolean;
+        error?: string;
+    }>;
     writeFile: (event: IpcMainInvokeEvent, filePath: string, data: Uint8Array) => Promise<boolean>;
     writeDocxFile: (event: IpcMainInvokeEvent, filePath: string, data: Uint8Array) => Promise<boolean>;
     saveFile: (event: IpcMainInvokeEvent, workingPath: string) => Promise<boolean>;
