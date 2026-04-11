@@ -24,6 +24,16 @@ const BROWSER_PRINT_LOAD_SETTLE_DELAY_MS = 300;
 const BROWSER_PRINT_FRAME_MIN_WIDTH_PX = 1280;
 const BROWSER_PRINT_FRAME_MIN_HEIGHT_PX = 1600;
 
+function isCrossOriginFrameAccessError(error: unknown) {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+
+    return error.name === 'SecurityError'
+        || error.message.includes('cross-origin frame')
+        || error.message.includes('Blocked a frame with origin');
+}
+
 function isPathPdfSource(value: TPdfSource | null): value is Extract<TPdfSource, { kind: 'path'; }> {
     return typeof value === 'object'
         && value !== null
@@ -210,7 +220,13 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
     }
 
     async function waitForPrintFrameReady(targetWindow: Window) {
-        await waitForPrintPaint(targetWindow);
+        try {
+            await waitForPrintPaint(targetWindow);
+        } catch (error) {
+            if (!isCrossOriginFrameAccessError(error)) {
+                throw error;
+            }
+        }
 
         if (typeof window === 'undefined') {
             return;
@@ -248,11 +264,21 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
             cleanupPrintFrame();
         };
         window.addEventListener('afterprint', afterPrint, { once: true });
-        frameWindow.addEventListener('afterprint', afterPrint, { once: true });
         removeAfterPrintListener = () => {
             window.removeEventListener('afterprint', afterPrint);
-            frameWindow.removeEventListener('afterprint', afterPrint);
         };
+        try {
+            frameWindow.addEventListener('afterprint', afterPrint, { once: true });
+            removeAfterPrintListener = () => {
+                window.removeEventListener('afterprint', afterPrint);
+                frameWindow.removeEventListener('afterprint', afterPrint);
+            };
+        } catch (error) {
+            if (!isCrossOriginFrameAccessError(error)) {
+                cleanupPrintFrame();
+                throw error;
+            }
+        }
         browserPrintCleanupTimer = window.setTimeout(afterPrint, BROWSER_PRINT_CLEANUP_TIMEOUT_MS);
 
         try {
