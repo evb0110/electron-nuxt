@@ -77,6 +77,7 @@ interface IFakeFrame {
     style: Record<string, string>;
     tabIndex: number;
     src: string;
+    srcdoc: string;
     setAttribute: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
     addEventListener: ReturnType<typeof vi.fn>;
@@ -101,6 +102,7 @@ function createFakeFrame() {
         style: {},
         tabIndex: 0,
         src: '',
+        srcdoc: '',
         setAttribute: vi.fn(),
         remove: vi.fn(),
         addEventListener: vi.fn((eventName: string, listener: EventListener) => {
@@ -432,7 +434,8 @@ describe('useWorkspacePrint', () => {
             await flushMicrotasks();
             expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
             expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
-            expect(appFrame.frame.src).toBe('blob:print-document');
+            expect(appFrame.frame.src).toBe('');
+            expect(appFrame.frame.srcdoc).toContain('<embed src="blob:print-document" type="application/pdf">');
 
             appFrame.frame.trigger('load');
             await submitPromise;

@@ -24,6 +24,35 @@ const BROWSER_PRINT_LOAD_SETTLE_DELAY_MS = 300;
 const BROWSER_PRINT_FRAME_MIN_WIDTH_PX = 1280;
 const BROWSER_PRINT_FRAME_MIN_HEIGHT_PX = 1600;
 
+function buildPrintableFrameMarkup(pdfUrl: string) {
+    return `<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Printable PDF</title>
+    <style>
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #ffffff;
+        }
+
+        embed {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border: 0;
+        }
+    </style>
+</head>
+<body>
+    <embed src="${pdfUrl}" type="application/pdf">
+</body>
+</html>`;
+}
+
 function isCrossOriginFrameAccessError(error: unknown) {
     if (!(error instanceof Error)) {
         return false;
@@ -251,7 +280,7 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         const objectUrl = createPrintablePdfObjectUrl(printablePdf);
         const frameLoad = waitForPrintFrameLoad(frame);
 
-        frame.src = objectUrl;
+        frame.srcdoc = buildPrintableFrameMarkup(objectUrl);
         await frameLoad;
 
         const frameWindow = frame.contentWindow;
