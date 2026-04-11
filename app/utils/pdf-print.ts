@@ -102,7 +102,10 @@ export function buildBrowserPrintFrameMarkup() {
         .browser-print-page {
             break-after: page;
             page-break-after: always;
+            break-inside: avoid;
+            page-break-inside: avoid;
             display: block;
+            box-sizing: border-box;
             background: #ffffff;
             overflow: hidden;
         }
@@ -115,8 +118,21 @@ export function buildBrowserPrintFrameMarkup() {
         .browser-print-page canvas {
             display: block;
             margin: 0 auto;
+            max-width: none;
+            max-height: none;
             break-inside: avoid;
             page-break-inside: avoid;
+        }
+
+        @media print {
+            html, body {
+                min-height: 0;
+                height: auto;
+            }
+
+            ${BROWSER_PRINT_ROOT_SELECTOR} {
+                display: block;
+            }
         }
     </style>
 </head>
