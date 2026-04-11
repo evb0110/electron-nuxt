@@ -18,6 +18,7 @@ import {
     getDocumentsCapability,
     isNativePrintCapabilityUnavailable,
 } from '@app/utils/platform-documents';
+import { isDesktopPlatformActive } from '@app/utils/platform';
 
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
@@ -85,7 +86,9 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
     let browserPrintCleanupTimer: number | null = null;
 
     function shouldBypassNativePrintDialog() {
-        return false;
+        // Electron's native print hook still prints the viewer window like a web page.
+        // Prefer the browser-rendered per-page document on desktop so page ranges/page counts stay accurate.
+        return isDesktopPlatformActive();
     }
 
     function resetPrintError() {
@@ -279,8 +282,11 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         }
     }
 
-    async function tryOpenNativePrintDialogForPdfData(printablePdfData: Uint8Array) {
-        if (shouldBypassNativePrintDialog()) {
+    async function tryOpenNativePrintDialogForPdfData(
+        printablePdfData: Uint8Array,
+        options: { force?: boolean; } = {},
+    ) {
+        if (shouldBypassNativePrintDialog() && options.force !== true) {
             return false;
         }
 
@@ -300,12 +306,15 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         throw new Error(result.error || 'Failed to open the native print dialog');
     }
 
-    async function tryOpenNativePrintDialogForResolvedPath(path: string | null | undefined) {
+    async function tryOpenNativePrintDialogForResolvedPath(
+        path: string | null | undefined,
+        options: { force?: boolean; } = {},
+    ) {
         if (!path) {
             return false;
         }
 
-        if (shouldBypassNativePrintDialog()) {
+        if (shouldBypassNativePrintDialog() && options.force !== true) {
             return false;
         }
 
@@ -325,8 +334,24 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         throw new Error(result.error || 'Failed to open the native print dialog');
     }
 
-    async function tryOpenNativePrintDialogForPath() {
-        return tryOpenNativePrintDialogForResolvedPath(deps.workingCopyPath.value);
+    async function tryOpenNativePrintDialogForPath(options: { force?: boolean; } = {}) {
+        return tryOpenNativePrintDialogForResolvedPath(deps.workingCopyPath.value, options);
+    }
+
+    async function tryPrintInBrowserWithNativeFallback(
+        printablePdf: Blob | Uint8Array,
+        nativeFallback: () => Promise<boolean>,
+    ) {
+        try {
+            await printPdfInHiddenFrame(printablePdf);
+            return true;
+        } catch (browserError) {
+            if (await nativeFallback()) {
+                return true;
+            }
+
+            throw browserError;
+        }
     }
 
     async function tryOpenDirectPrintFromCurrentSource(payload: IPrintDialogSubmitPayload) {
@@ -344,11 +369,16 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         }
 
         if (sourcePdf instanceof Blob) {
-            if (await tryOpenNativePrintDialogForPdfData(new Uint8Array(await sourcePdf.arrayBuffer()))) {
+            const sourcePdfBytes = new Uint8Array(await sourcePdf.arrayBuffer());
+
+            if (await tryOpenNativePrintDialogForPdfData(sourcePdfBytes)) {
                 return true;
             }
 
-            await printPdfInHiddenFrame(sourcePdf);
+            await tryPrintInBrowserWithNativeFallback(
+                sourcePdf,
+                () => tryOpenNativePrintDialogForPdfData(sourcePdfBytes, { force: true }),
+            );
             return true;
         }
 
@@ -372,10 +402,21 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         }
 
         const sourcePdf = deps.sourcePdf.value;
-        await printPdfInHiddenFrame(
+        await tryPrintInBrowserWithNativeFallback(
             sourcePdf instanceof Blob
                 ? sourcePdf
                 : sourceData,
+            async () => {
+                if (await tryOpenNativePrintDialogForPath({ force: true })) {
+                    return true;
+                }
+
+                if (isPathPdfSource(sourcePdf)) {
+                    return tryOpenNativePrintDialogForResolvedPath(sourcePdf.path, { force: true });
+                }
+
+                return tryOpenNativePrintDialogForPdfData(sourceData, { force: true });
+            },
         );
         return true;
     }
@@ -410,7 +451,10 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
             }
 
             if (!(await tryOpenNativePrintDialogForPdfData(printablePdfData))) {
-                await printPdfInHiddenFrame(printablePdfData);
+                await tryPrintInBrowserWithNativeFallback(
+                    printablePdfData,
+                    () => tryOpenNativePrintDialogForPdfData(printablePdfData, { force: true }),
+                );
             }
         } catch (error) {
             const localizedError = error instanceof Error && error.message
