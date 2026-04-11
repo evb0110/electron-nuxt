@@ -18,7 +18,7 @@ import {
     loadOcrText,
     extractPdfText,
 } from '@app/composables/ocrProcessing';
-import { createOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
+import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
 import { getOcrCapability } from '@app/utils/platform-ocr';
 
@@ -37,7 +37,7 @@ class OcrCanceledError extends Error {
 export const useOcr = () => {
     const { t } = useTypedI18n();
     const toast = useToast();
-    const { localizeOcrError } = createOcrErrorLocalizer(t);
+    const { localizeOcrError } = useOcrErrorLocalizer();
 
     const availableLanguages = ref<IOcrLanguage[]>([]);
     const settings = ref<IOcrSettings>({

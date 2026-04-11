@@ -357,7 +357,6 @@ const {
     deferUpdate,
     skipUpdateVersion,
     installUpdateNow,
-    t: (key, params) => (params ? t(key as never, params as never) : t(key as never)),
 });
 
 const {
@@ -384,7 +383,6 @@ const {
     workspaceRefs,
     waitForWorkspace,
     workspaceRestoreTracker,
-    t: (key) => t(key as never),
     handleCloseTab,
     handoffActiveTabBeforeClose,
 });

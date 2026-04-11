@@ -286,16 +286,9 @@ function ensureAnalyticsLifecycle(enabledFlag: unknown) {
     });
 }
 
-function getAnalyticsEnabledFlag() {
-    try {
-        return useRuntimeConfig().public?.analyticsEnabled ?? false;
-    } catch {
-        return false;
-    }
-}
-
 export function useAnalytics() {
-    const enabledFlag = getAnalyticsEnabledFlag();
+    const runtimeConfig = useRuntimeConfig();
+    const enabledFlag = runtimeConfig.public?.analyticsEnabled ?? false;
 
     function mergeDocumentContext(nextContext: Partial<IAnalyticsDocumentContext>) {
         if (!isClientAnalyticsEnabled(enabledFlag)) {

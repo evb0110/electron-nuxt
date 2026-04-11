@@ -1,8 +1,5 @@
 import { PDFDateString } from '@app/services/pdfjs/runtime-lib';
-import type {
-    TTranslateFn,
-    TTranslationKey,
-} from '@i18n-app';
+import type { TTranslationKey } from '@i18n-app';
 
 export function parsePdfDateTimestamp(value: string | null | undefined) {
     if (!value) {
@@ -54,7 +51,6 @@ export function getAnnotationAuthor(annotation: {
     return direct || null;
 }
 
-type TTranslateLabel = TTranslateFn;
 type TAnnotationLabelKey = Extract<TTranslationKey,
     | 'annotations.annotationLabel'
     | 'annotations.highlightLabel'
@@ -72,52 +68,60 @@ type TAnnotationLabelKey = Extract<TTranslationKey,
     | 'annotations.imageLabel'
 >;
 
+export interface IAnnotationKindLabelDescriptor {
+    key: TAnnotationLabelKey;
+    fallback: string;
+}
+
+function createAnnotationKindLabelDescriptor(
+    key: TAnnotationLabelKey,
+    fallback: string,
+): IAnnotationKindLabelDescriptor {
+    return {
+        key,
+        fallback,
+    };
+}
+
 export function annotationKindLabelFromSubtype(
     subtype: string | null | undefined,
-    translate?: TTranslateLabel,
-) {
-    const label = (key: TAnnotationLabelKey, fallback: string) => (
-        typeof translate === 'function'
-            ? translate(key, undefined)
-            : fallback
-    );
-
+): IAnnotationKindLabelDescriptor {
     const normalized = (subtype ?? '').trim().toLowerCase();
     switch (normalized) {
         case 'highlight':
-            return label('annotations.highlightLabel', 'Highlight');
+            return createAnnotationKindLabelDescriptor('annotations.highlightLabel', 'Highlight');
         case 'underline':
-            return label('annotations.underlineLabel', 'Underline');
+            return createAnnotationKindLabelDescriptor('annotations.underlineLabel', 'Underline');
         case 'squiggly':
-            return label('annotations.squiggleLabel', 'Squiggle');
+            return createAnnotationKindLabelDescriptor('annotations.squiggleLabel', 'Squiggle');
         case 'strikeout':
-            return label('annotations.strikeOutLabel', 'Strike Out');
+            return createAnnotationKindLabelDescriptor('annotations.strikeOutLabel', 'Strike Out');
         case 'text':
         case 'note-linked':
-            return label('annotations.popUpNoteLabel', 'Pop-up Note');
+            return createAnnotationKindLabelDescriptor('annotations.popUpNoteLabel', 'Pop-up Note');
         case 'freetext':
         case 'typewriter':
         case 'note-inline':
-            return label('annotations.inlineNoteLabel', 'Inline Note');
+            return createAnnotationKindLabelDescriptor('annotations.inlineNoteLabel', 'Inline Note');
         case 'ink':
-            return label('annotations.freehandLineLabel', 'Freehand Line');
+            return createAnnotationKindLabelDescriptor('annotations.freehandLineLabel', 'Freehand Line');
         case 'line':
         case 'straight-line':
-            return label('annotations.lineLabel', 'Line');
+            return createAnnotationKindLabelDescriptor('annotations.lineLabel', 'Line');
         case 'square':
         case 'geomsquare':
         case 'rectangle':
-            return label('annotations.rectangleLabel', 'Rectangle');
+            return createAnnotationKindLabelDescriptor('annotations.rectangleLabel', 'Rectangle');
         case 'circle':
         case 'geomcircle':
         case 'ellipse':
-            return label('annotations.circleLabel', 'Circle');
+            return createAnnotationKindLabelDescriptor('annotations.circleLabel', 'Circle');
         case 'polygon':
-            return label('annotations.polygonLabel', 'Polygon');
+            return createAnnotationKindLabelDescriptor('annotations.polygonLabel', 'Polygon');
         case 'stamp':
-            return label('annotations.imageLabel', 'Image');
+            return createAnnotationKindLabelDescriptor('annotations.imageLabel', 'Image');
         default:
-            return label('annotations.annotationLabel', 'Annotation');
+            return createAnnotationKindLabelDescriptor('annotations.annotationLabel', 'Annotation');
     }
 }
 

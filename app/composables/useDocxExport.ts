@@ -5,7 +5,7 @@ import {
     loadOcrText,
     extractPdfText,
 } from '@app/composables/ocrProcessing';
-import { createOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
+import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { getDocumentRefBaseName } from '@app/utils/document-ref';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
@@ -19,7 +19,7 @@ export const useDocxExport = () => {
     const analytics = useAnalytics();
     const { t } = useTypedI18n();
     const toast = useToast();
-    const { localizeOcrError } = createOcrErrorLocalizer(t);
+    const { localizeOcrError } = useOcrErrorLocalizer();
 
     const isExportingDocx = ref(false);
     const docxExportError = ref<string | null>(null);

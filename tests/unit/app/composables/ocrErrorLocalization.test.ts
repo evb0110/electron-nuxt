@@ -2,8 +2,9 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
-import { createOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
+import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 
 const dictionary: Record<string, string> = {
     'errors.file.invalid': 'Invalid file',
@@ -17,11 +18,11 @@ const dictionary: Record<string, string> = {
     'errors.ocr.exportDocx': 'DOCX export failed',
 };
 
-const t = (key: string) => dictionary[key] ?? key;
+vi.mock('@app/composables/useTypedI18n', () => ({ useTypedI18n: () => ({ t: (key: string) => dictionary[key] ?? key }) }));
 
-describe('createOcrErrorLocalizer', () => {
+describe('useOcrErrorLocalizer', () => {
     it('maps known invalid file errors to localized invalid file message', () => {
-        const { localizeOcrError } = createOcrErrorLocalizer(t);
+        const { localizeOcrError } = useOcrErrorLocalizer();
 
         const result = localizeOcrError(
             'Error invoking remote method \'file:read\': Invalid file path',
@@ -32,7 +33,7 @@ describe('createOcrErrorLocalizer', () => {
     });
 
     it('prepends localized fallback for unknown errors', () => {
-        const { localizeOcrError } = createOcrErrorLocalizer(t);
+        const { localizeOcrError } = useOcrErrorLocalizer();
 
         const result = localizeOcrError('boom', 'errors.ocr.exportDocx');
 

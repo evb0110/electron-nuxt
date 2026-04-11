@@ -143,6 +143,11 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         pdfAnnotationSnapshotPromise = null;
     }
 
+    function resolveAnnotationKindLabel(subtype: string | null | undefined) {
+        const { key } = annotationKindLabelFromSubtype(subtype);
+        return t(key);
+    }
+
     function suppressAnnotationId(id: string) {
         suppressedAnnotationIds.add(id);
     }
@@ -273,7 +278,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
             pageIndex,
             pageNumber: pageIndex + 1,
             text,
-            kindLabel: annotationKindLabelFromSubtype(resolvedSubtype, t),
+            kindLabel: resolveAnnotationKindLabel(resolvedSubtype),
             subtype: resolvedSubtype,
             author: authorName.value?.trim() || null,
             modifiedAt: parsePdfDateTimestamp(data.modificationDate)
@@ -408,7 +413,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                     pageIndex: pageNumber - 1,
                     pageNumber,
                     text,
-                    kindLabel: annotationKindLabelFromSubtype(subtype, t),
+                    kindLabel: resolveAnnotationKindLabel(subtype),
                     subtype,
                     author: getAnnotationAuthor(annotation)
                         ?? (popupAnnotation ? getAnnotationAuthor(popupAnnotation) : null),
@@ -562,7 +567,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
             const summaryWithSortIndex: IAnnotationCommentSummary = {
                 ...summary,
                 sortIndex: sourceOrder,
-                kindLabel: annotationKindLabelFromSubtype(summary.subtype, t),
+                kindLabel: resolveAnnotationKindLabel(summary.subtype),
             };
             sourceOrder += 1;
 

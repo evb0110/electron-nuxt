@@ -7,9 +7,11 @@ import AppShellRoot from '@app/modules/workspace-shell/components/AppShellRoot.v
 import { resolveInitialDesktopRuntime } from '@app/utils/platform';
 import { useWebSeo } from '@app/composables/useWebSeo';
 
+const route = useRoute();
+
 useWebSeo();
 
-if (import.meta.client && resolveInitialDesktopRuntime(useRoute().path)) {
+if (import.meta.client && resolveInitialDesktopRuntime(route.path)) {
     await navigateTo('/electron', { replace: true });
 }
 </script>
