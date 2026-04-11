@@ -61,6 +61,8 @@ function createPrintWindow(ownerWindow?: BrowserWindow) {
             sandbox: false,
             contextIsolation: true,
             nodeIntegration: false,
+            plugins: true,
+            backgroundThrottling: false,
         },
     });
 }

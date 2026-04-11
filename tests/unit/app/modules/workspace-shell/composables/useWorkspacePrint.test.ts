@@ -29,7 +29,6 @@ const renderPdfPagesForBrowserPrintMock = vi.hoisted(() => vi.fn(async () => {})
 const shouldPrintPageMetricsDirectlyMock = vi.hoisted(() => vi.fn<TShouldPrintPageMetricsDirectly>(() => null));
 const shouldPrintSourcePdfDirectlyMock = vi.hoisted(() => vi.fn(async () => true));
 const waitForPrintPaintMock = vi.hoisted(() => vi.fn(async () => {}));
-const isDesktopPlatformActiveMock = vi.hoisted(() => vi.fn(() => false));
 const documentsCapabilityMock = vi.hoisted(() => ({
     printPdfData: vi.fn(),
     printPdfPath: vi.fn(),
@@ -66,8 +65,6 @@ vi.mock('@app/utils/platform-documents', () => ({
         && result.error === 'Printing via the native desktop dialog is unavailable in the browser capability'
     ),
 }));
-
-vi.mock('@app/utils/platform', () => ({ isDesktopPlatformActive: isDesktopPlatformActiveMock }));
 
 interface IFakeFrameWindow {
     addEventListener: ReturnType<typeof vi.fn>;
@@ -183,7 +180,6 @@ function createState(options?: {
 describe('useWorkspacePrint', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        isDesktopPlatformActiveMock.mockReturnValue(false);
         buildBrowserPrintFrameMarkupMock.mockReturnValue('<html><body><main data-browser-print-root></main></body></html>');
         shouldPrintPageMetricsDirectlyMock.mockReturnValue(null);
         shouldPrintSourcePdfDirectlyMock.mockResolvedValue(true);
@@ -259,18 +255,8 @@ describe('useWorkspacePrint', () => {
         }
     });
 
-    it('bypasses the desktop native dialog and prints through the embedded frame', async () => {
-        isDesktopPlatformActiveMock.mockReturnValue(true);
-        const appFrame = createFakeFrame();
-        vi.stubGlobal('document', {
-            body: { append: vi.fn() },
-            createElement: vi.fn((tag: string) => {
-                if (tag !== 'iframe') {
-                    throw new Error(`Unexpected element: ${tag}`);
-                }
-                return appFrame.frame;
-            }),
-        });
+    it('uses the native print dialog on desktop for the default flow', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({ success: true });
         const {
             getPrintableSourceData,
             scope,
@@ -290,27 +276,14 @@ describe('useWorkspacePrint', () => {
             });
             await flushMicrotasks(12);
 
-            expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith('/tmp/desktop.pdf', 'desktop.pdf');
             expect(documentsCapabilityMock.printPdfData).not.toHaveBeenCalled();
-            expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
-            expect(shouldPrintSourcePdfDirectlyMock).toHaveBeenCalledWith(
-                Uint8Array.of(9, 8, 7),
-                {
-                    viewMode: 'single',
-                    orientation: 'auto',
-                },
-            );
-            expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
-            expect(buildBrowserPrintFrameMarkupMock).toHaveBeenCalledTimes(1);
-
-            appFrame.frame.trigger('load');
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(shouldPrintSourcePdfDirectlyMock).not.toHaveBeenCalled();
             await submitPromise;
 
-            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalledWith(
-                appFrame.frameWindow.document,
-                Uint8Array.of(9, 8, 7),
-            );
-            expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
+            expect(buildBrowserPrintFrameMarkupMock).not.toHaveBeenCalled();
+            expect(renderPdfPagesForBrowserPrintMock).not.toHaveBeenCalled();
             expect(state.printDialogOpen.value).toBe(false);
             expect(state.printError.value).toBeNull();
         } finally {
@@ -677,7 +650,6 @@ describe('useWorkspacePrint', () => {
     });
 
     it('prints even when the PDF frame blocks child-window event access', async () => {
-        isDesktopPlatformActiveMock.mockReturnValue(true);
         waitForPrintPaintMock.mockRejectedValueOnce(
             new Error(
                 'Blocked a frame with origin "http://127.0.0.1:3235" from accessing a cross-origin frame.',

@@ -94,24 +94,17 @@ export function buildBrowserPrintFrameMarkup() {
             background: #ffffff;
         }
 
-        body {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
         ${BROWSER_PRINT_ROOT_SELECTOR} {
+            display: block;
             width: 100%;
         }
 
         .browser-print-page {
             break-after: page;
             page-break-after: always;
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            width: 100%;
+            display: block;
             background: #ffffff;
+            overflow: hidden;
         }
 
         .browser-print-page:last-child {
@@ -121,6 +114,9 @@ export function buildBrowserPrintFrameMarkup() {
 
         .browser-print-page canvas {
             display: block;
+            margin: 0 auto;
+            break-inside: avoid;
+            page-break-inside: avoid;
         }
     </style>
 </head>
@@ -192,7 +188,7 @@ export async function renderPdfPagesForBrowserPrint(
                 const pageContainer = createBrowserPrintPageContainer(targetDocument);
                 pageContainer.className = 'browser-print-page';
                 pageContainer.style.width = `${displayViewport.width}px`;
-                pageContainer.style.minHeight = `${displayViewport.height}px`;
+                pageContainer.style.height = `${displayViewport.height}px`;
 
                 const canvas = createBrowserPrintCanvas(targetDocument);
                 canvas.width = Math.max(1, Math.ceil(renderViewport.width));

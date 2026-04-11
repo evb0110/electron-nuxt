@@ -18,7 +18,6 @@ import {
     getDocumentsCapability,
     isNativePrintCapabilityUnavailable,
 } from '@app/utils/platform-documents';
-import { isDesktopPlatformActive } from '@app/utils/platform';
 
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
@@ -86,7 +85,7 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
     let browserPrintCleanupTimer: number | null = null;
 
     function shouldBypassNativePrintDialog() {
-        return isDesktopPlatformActive();
+        return false;
     }
 
     function resetPrintError() {
