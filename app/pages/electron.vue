@@ -7,11 +7,12 @@ import AppShellRoot from '@app/modules/workspace-shell/components/AppShellRoot.v
 import { resolveInitialDesktopRuntime } from '@app/utils/platform';
 
 const { t } = useTypedI18n();
+const route = useRoute();
 
 useServerSeoMeta({ robots: 'noindex, nofollow' });
 useHead(() => ({ title: t('app.title') }));
 
-if (import.meta.client && !resolveInitialDesktopRuntime(useRoute().path)) {
+if (import.meta.client && !resolveInitialDesktopRuntime(route.path)) {
     await navigateTo('/', { replace: true });
 }
 </script>

@@ -19,56 +19,57 @@ interface IUseAppShellUpdatesDialogOptions {
     deferUpdate: () => Promise<void>;
     skipUpdateVersion: () => Promise<void>;
     installUpdateNow: () => Promise<void>;
-    t: (key: string, params?: Record<string, unknown>) => string;
 }
 
 export function useAppShellUpdatesDialog(options: IUseAppShellUpdatesDialogOptions) {
+    const { t } = useTypedI18n();
+
     const updatesDialogTitle = computed(() => {
         if (options.updatesDialog.value.kind === 'ready') {
-            return options.t('updates.readyTitle');
+            return t('updates.readyTitle');
         }
 
         switch (options.updatesDialog.value.phase) {
             case 'checking':
-                return options.t('updates.checkingTitle');
+                return t('updates.checkingTitle');
             case 'downloading':
-                return options.t('updates.downloadingTitle');
+                return t('updates.downloadingTitle');
             case 'no-update':
-                return options.t('updates.upToDateTitle');
+                return t('updates.upToDateTitle');
             case 'error':
-                return options.t('updates.errorTitle');
+                return t('updates.errorTitle');
             case 'unsupported':
-                return options.t('updates.unsupportedTitle');
+                return t('updates.unsupportedTitle');
             default:
-                return options.t('updates.checkingTitle');
+                return t('updates.checkingTitle');
         }
     });
 
     const updatesDialogDescription = computed(() => {
-        const version = options.updatesDialogVersion.value ?? options.t('updates.unknownVersion');
+        const version = options.updatesDialogVersion.value ?? t('updates.unknownVersion');
 
         if (options.updatesDialog.value.kind === 'ready') {
-            return options.t('updates.readyDescription', { version });
+            return t('updates.readyDescription', { version });
         }
 
         switch (options.updatesDialog.value.phase) {
             case 'checking':
-                return options.t('updates.checkingDescription');
+                return t('updates.checkingDescription');
             case 'downloading': {
                 const percent = Math.max(0, Math.round(options.updatesDialog.value.percent ?? 0));
-                return options.t('updates.downloadingDescription', {
+                return t('updates.downloadingDescription', {
                     version,
                     percent,
                 });
             }
             case 'no-update':
-                return options.t('updates.upToDateDescription', { version });
+                return t('updates.upToDateDescription', { version });
             case 'error':
-                return options.t('updates.errorDescription', { message: options.updatesDialog.value.message ?? options.t('updates.unknownError') });
+                return t('updates.errorDescription', { message: options.updatesDialog.value.message ?? t('updates.unknownError') });
             case 'unsupported':
-                return options.t('updates.unsupportedDescription');
+                return t('updates.unsupportedDescription');
             default:
-                return options.t('updates.checkingDescription');
+                return t('updates.checkingDescription');
         }
     });
 

@@ -49,7 +49,6 @@ interface IUseWindowTabTransfersOptions {
         start: (tabId: string) => void;
         finish: (tabId: string) => void;
     };
-    t: (key: string) => string;
     handleCloseTab: (groupId: string, tabId: string) => Promise<void>;
     handoffActiveTabBeforeClose: (groupId: string, tabId: string) => Promise<void>;
 }
@@ -71,6 +70,8 @@ function isPlaceholderTab(tab: ITab) {
 }
 
 export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
+    const { t } = useTypedI18n();
+
     function resolveIncomingTransferTargetTab(
         targetGroupId: string,
     ): {
@@ -305,13 +306,13 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
         try {
             const targetGroup = options.getGroupById(options.activeGroupId.value) ?? options.groups.value[0] ?? null;
             if (!targetGroup) {
-                await ackFailure(options.t('tabs.transferErrors.noTargetGroup'));
+                await ackFailure(t('tabs.transferErrors.noTargetGroup'));
                 return;
             }
 
             const targetTab = resolveIncomingTransferTargetTab(targetGroup.id);
             if (!targetTab) {
-                await ackFailure(options.t('tabs.transferErrors.noTargetTab'));
+                await ackFailure(t('tabs.transferErrors.noTargetTab'));
                 return;
             }
 
@@ -320,7 +321,7 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
                 if (targetTab.created) {
                     options.removeTabFromState(targetTab.tabId);
                 }
-                await ackFailure(options.t('tabs.transferErrors.restoreFailed'));
+                await ackFailure(t('tabs.transferErrors.restoreFailed'));
                 return;
             }
 

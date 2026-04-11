@@ -12,10 +12,10 @@ import {
 import {
     resolveWorkspaceTabUpdate,
     resolveWorkspaceWindowTitle,
-    setupWorkspaceUiSyncWatchers,
+    useWorkspaceUiSyncWatchers,
 } from '@app/modules/workspace-shell/composables/workspace-ui-sync';
 
-type TWorkspaceUiSyncDeps = Parameters<typeof setupWorkspaceUiSyncWatchers>[0];
+type TWorkspaceUiSyncDeps = Parameters<typeof useWorkspaceUiSyncWatchers>[0];
 
 describe('resolveWorkspaceWindowTitle', () => {
     it('prefers DjVu source filename when in DjVu mode', () => {
@@ -157,7 +157,7 @@ function createWatcherDeps(overrides: Partial<IWorkspaceUiSyncTestDeps> = {}): I
     };
 }
 
-describe('setupWorkspaceUiSyncWatchers', () => {
+describe('useWorkspaceUiSyncWatchers', () => {
     it('emits the current tab state immediately on mount', async () => {
         const deps = createWatcherDeps({
             fileName: ref('paper.pdf'),
@@ -165,7 +165,7 @@ describe('setupWorkspaceUiSyncWatchers', () => {
             isDirty: ref(false),
         });
 
-        setupWorkspaceUiSyncWatchers(deps);
+        useWorkspaceUiSyncWatchers(deps);
         await nextTick();
 
         expect(deps.emitUpdateTab).toHaveBeenCalledWith({
@@ -178,7 +178,7 @@ describe('setupWorkspaceUiSyncWatchers', () => {
 
     it('opens pending DjVu paths and clears pending state', async () => {
         const deps = createWatcherDeps();
-        setupWorkspaceUiSyncWatchers(deps);
+        useWorkspaceUiSyncWatchers(deps);
 
         deps.pendingDjvu.value = '/docs/test.djvu';
         await nextTick();
@@ -201,7 +201,7 @@ describe('setupWorkspaceUiSyncWatchers', () => {
         const deps = createWatcherDeps({openDjvuFile: vi.fn(async () => {
             throw openError;
         })});
-        setupWorkspaceUiSyncWatchers(deps);
+        useWorkspaceUiSyncWatchers(deps);
 
         deps.pendingDjvu.value = '/docs/broken.djvu';
         await nextTick();

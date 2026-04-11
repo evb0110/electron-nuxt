@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
 import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
-import { setupWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/workspace-ui-sync';
+import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/workspace-ui-sync';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
@@ -119,7 +119,7 @@ export function useWorkspaceDocumentLifecycleEffects(options: IWorkspaceDocument
         loadRecentFiles,
     } = options;
 
-    setupWorkspaceUiSyncWatchers({
+    useWorkspaceUiSyncWatchers({
         pendingDjvu,
         openDjvuFile,
         loadPdfFromPath,
