@@ -642,4 +642,54 @@ describe('useWorkspacePrint', () => {
             scope.stop();
         }
     });
+
+    it('prints even when the PDF frame blocks child-window event access', async () => {
+        isDesktopPlatformActiveMock.mockReturnValue(true);
+        waitForPrintPaintMock.mockRejectedValueOnce(
+            new Error(
+                'Blocked a frame with origin "http://127.0.0.1:3235" from accessing a cross-origin frame.',
+            ),
+        );
+        const appFrame = createFakeFrame();
+        appFrame.frameWindow.addEventListener.mockImplementation(() => {
+            throw new Error(
+                'Blocked a frame with origin "http://127.0.0.1:3235" from accessing a cross-origin frame.',
+            );
+        });
+        appFrame.frameWindow.removeEventListener.mockImplementation(() => {
+            throw new Error('removeEventListener should not run for blocked cross-origin frames');
+        });
+        vi.stubGlobal('document', {
+            body: { append: vi.fn() },
+            createElement: vi.fn((tag: string) => {
+                if (tag !== 'iframe') {
+                    throw new Error(`Unexpected element: ${tag}`);
+                }
+                return appFrame.frame;
+            }),
+        });
+        const {
+            scope,
+            state,
+        } = createState({ sourcePdf: new Blob([Uint8Array.of(1, 2, 3)], { type: 'application/pdf' }) });
+
+        try {
+            state.handlePrint();
+
+            const submitPromise = state.handlePrintDialogSubmit({
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            await flushMicrotasks(12);
+
+            appFrame.frame.trigger('load');
+            await submitPromise;
+
+            expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
+            expect(state.printDialogOpen.value).toBe(false);
+            expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
 });
