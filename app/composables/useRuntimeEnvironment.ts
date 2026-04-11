@@ -3,12 +3,20 @@ import {
     resolveInitialDesktopRuntime,
 } from '@app/utils/platform';
 
+function getRuntimeRoutePath() {
+    if (typeof useRoute !== 'function') {
+        return null;
+    }
+
+    return useRoute().path;
+}
+
 export function useRuntimeEnvironment() {
-    const route = useRoute();
-    const isDesktopRuntime = useState(
-        'runtime:is-desktop',
-        () => resolveInitialDesktopRuntime(route.path),
-    );
+    const routePath = getRuntimeRoutePath();
+    const initialDesktopRuntime = resolveInitialDesktopRuntime(routePath);
+    const isDesktopRuntime = typeof useState === 'function'
+        ? useState('runtime:is-desktop', () => initialDesktopRuntime)
+        : ref(initialDesktopRuntime);
 
     if (import.meta.client) {
         onMounted(() => {
