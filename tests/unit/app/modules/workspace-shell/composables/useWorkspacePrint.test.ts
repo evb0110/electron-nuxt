@@ -27,6 +27,7 @@ const buildPrintablePdfDataMock = vi.hoisted(() => vi.fn());
 const shouldPrintPageMetricsDirectlyMock = vi.hoisted(() => vi.fn<TShouldPrintPageMetricsDirectly>(() => null));
 const shouldPrintSourcePdfDirectlyMock = vi.hoisted(() => vi.fn(async () => true));
 const waitForPrintPaintMock = vi.hoisted(() => vi.fn(async () => {}));
+const isDesktopPlatformActiveMock = vi.hoisted(() => vi.fn(() => false));
 const documentsCapabilityMock = vi.hoisted(() => ({
     printPdfData: vi.fn(),
     printPdfPath: vi.fn(),
@@ -61,6 +62,8 @@ vi.mock('@app/utils/platform-documents', () => ({
         && result.error === 'Printing via the native desktop dialog is unavailable in the browser capability'
     ),
 }));
+
+vi.mock('@app/utils/platform', () => ({ isDesktopPlatformActive: isDesktopPlatformActiveMock }));
 
 interface IFakeFrameWindow {
     addEventListener: ReturnType<typeof vi.fn>;
@@ -168,6 +171,7 @@ function createState(options?: {
 describe('useWorkspacePrint', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        isDesktopPlatformActiveMock.mockReturnValue(false);
         shouldPrintPageMetricsDirectlyMock.mockReturnValue(null);
         shouldPrintSourcePdfDirectlyMock.mockResolvedValue(true);
         documentsCapabilityMock.printPdfData.mockResolvedValue({
@@ -241,6 +245,60 @@ describe('useWorkspacePrint', () => {
             expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
             expect(shouldPrintSourcePdfDirectlyMock).not.toHaveBeenCalled();
             expect(state.isPreparingPrint.value).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('bypasses the desktop native dialog and prints through the embedded frame', async () => {
+        isDesktopPlatformActiveMock.mockReturnValue(true);
+        const appFrame = createFakeFrame();
+        vi.stubGlobal('document', {
+            body: { append: vi.fn() },
+            createElement: vi.fn((tag: string) => {
+                if (tag !== 'iframe') {
+                    throw new Error(`Unexpected element: ${tag}`);
+                }
+                return appFrame.frame;
+            }),
+        });
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: null,
+            workingCopyPath: '/tmp/desktop.pdf',
+            fileName: 'desktop.pdf',
+        });
+
+        try {
+            state.handlePrint();
+
+            const submitPromise = state.handlePrintDialogSubmit({
+                viewMode: 'single',
+                orientation: 'auto',
+            });
+            await flushMicrotasks(12);
+
+            expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfData).not.toHaveBeenCalled();
+            expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
+            expect(shouldPrintSourcePdfDirectlyMock).toHaveBeenCalledWith(
+                Uint8Array.of(9, 8, 7),
+                {
+                    viewMode: 'single',
+                    orientation: 'auto',
+                },
+            );
+            expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
+
+            appFrame.frame.trigger('load');
+            await submitPromise;
+
+            expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
+            expect(state.printDialogOpen.value).toBe(false);
+            expect(state.printError.value).toBeNull();
         } finally {
             scope.stop();
         }

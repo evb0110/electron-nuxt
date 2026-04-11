@@ -16,6 +16,7 @@ import {
     getDocumentsCapability,
     isNativePrintCapabilityUnavailable,
 } from '@app/utils/platform-documents';
+import { isDesktopPlatformActive } from '@app/utils/platform';
 
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
@@ -72,6 +73,10 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
     const printStatus = computed(() => isPreparingPrint.value ? t('print.preparing') : null);
     let removeAfterPrintListener: (() => void) | null = null;
     let browserPrintCleanupTimer: number | null = null;
+
+    function shouldBypassNativePrintDialog() {
+        return isDesktopPlatformActive();
+    }
 
     function resetPrintError() {
         printError.value = null;
@@ -262,6 +267,10 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
     }
 
     async function tryOpenNativePrintDialogForPdfData(printablePdfData: Uint8Array) {
+        if (shouldBypassNativePrintDialog()) {
+            return false;
+        }
+
         const result = await getDocumentsCapability().printPdfData(
             printablePdfData,
             deps.fileName.value ?? undefined,
@@ -280,6 +289,10 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
 
     async function tryOpenNativePrintDialogForResolvedPath(path: string | null | undefined) {
         if (!path) {
+            return false;
+        }
+
+        if (shouldBypassNativePrintDialog()) {
             return false;
         }
 
