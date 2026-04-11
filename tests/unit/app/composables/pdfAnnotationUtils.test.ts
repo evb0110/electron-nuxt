@@ -93,6 +93,9 @@ describe('detectEditorSubtype', () => {
 
 describe('annotationKindLabelFromSubtype', () => {
     it('labels stamp annotations as images for the UI', () => {
-        expect(annotationKindLabelFromSubtype('stamp')).toBe('Image');
+        expect(annotationKindLabelFromSubtype('stamp')).toEqual({
+            key: 'annotations.imageLabel',
+            fallback: 'Image',
+        });
     });
 });

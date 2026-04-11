@@ -286,9 +286,16 @@ function ensureAnalyticsLifecycle(enabledFlag: unknown) {
     });
 }
 
+function getAnalyticsEnabledFlagFromRuntimeConfig() {
+    if (typeof useRuntimeConfig !== 'function') {
+        return false;
+    }
+
+    return useRuntimeConfig().public?.analyticsEnabled ?? false;
+}
+
 export function useAnalytics() {
-    const runtimeConfig = useRuntimeConfig();
-    const enabledFlag = runtimeConfig.public?.analyticsEnabled ?? false;
+    const enabledFlag = getAnalyticsEnabledFlagFromRuntimeConfig();
 
     function mergeDocumentContext(nextContext: Partial<IAnalyticsDocumentContext>) {
         if (!isClientAnalyticsEnabled(enabledFlag)) {
