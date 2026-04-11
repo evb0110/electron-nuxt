@@ -21,38 +21,35 @@
 
     <div class="header-actions">
       <UButton
-        :label="t('home.hero.openLatestRelease')"
-        :to="latestReleaseUrl"
+        v-if="webAppUrl"
+        :label="t('home.hero.openInBrowser')"
+        :to="webAppUrl"
         target="_blank"
-        icon="i-lucide-download"
+        rel="noreferrer"
+        icon="i-lucide-globe"
         color="primary"
         variant="soft"
         class="header-download"
       />
 
       <UButton
-        :to="repositoryUrl"
-        target="_blank"
-        icon="i-simple-icons-github"
+        :label="t('home.hero.browseInstallers')"
+        :to="installersUrl"
         color="neutral"
-        variant="ghost"
+        variant="outline"
       />
 
-      <ClientOnly>
-        <LanguageSwitcher />
-      </ClientOnly>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
-import LanguageSwitcher from '~/components/LanguageSwitcher.vue';
-
 const { t } = useTypedI18n();
-const route = useRoute();
 const localePath = useLocalePath();
-const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
-const latestReleaseUrl = 'https://github.com/evb0110/evb-viewer/releases/latest';
+const route = useRoute();
+const runtimeConfig = useRuntimeConfig();
+const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
+const installersUrl = computed(() => `${localePath('/')}#installers`);
 
 const navItems = computed(() => [
     {

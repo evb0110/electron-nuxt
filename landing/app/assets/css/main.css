@@ -998,6 +998,11 @@ a {
   margin-top: 0.35rem;
 }
 
+.entry-point-list {
+  flex: 1;
+  margin-top: 0;
+}
+
 .docs-code {
   margin: 0.62rem 0 0;
   border-radius: 0.82rem;

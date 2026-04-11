@@ -8,22 +8,21 @@
 
     <div class="footer-links">
       <UButton
-        :label="t('home.hero.openLatestRelease')"
-        :to="latestReleaseUrl"
-        target="_blank"
-        color="primary"
-        variant="soft"
-        icon="i-lucide-download"
-      />
-      <UButton
         v-if="webAppUrl"
         :label="t('home.hero.openInBrowser')"
         :to="webAppUrl"
         target="_blank"
         rel="noreferrer"
+        color="primary"
+        variant="soft"
+        icon="i-lucide-globe"
+      />
+      <UButton
+        :label="t('home.hero.browseInstallers')"
+        :to="installersUrl"
         color="neutral"
         variant="outline"
-        icon="i-lucide-globe"
+        icon="i-lucide-download"
       />
       <UButton
         :label="t('footer.docs')"
@@ -53,7 +52,7 @@
 const { t } = useTypedI18n();
 const localePath = useLocalePath();
 const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
-const latestReleaseUrl = 'https://github.com/evb0110/evb-viewer/releases/latest';
 const runtimeConfig = useRuntimeConfig();
 const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
+const installersUrl = computed(() => `${localePath('/')}#installers`);
 </script>

@@ -15,6 +15,54 @@
       <p class="page-subtitle">
         {{ t('features.hero.subtitle') }}
       </p>
+
+      <div class="section-actions">
+        <UButton
+          v-if="webAppUrl"
+          :label="t('home.hero.openInBrowser')"
+          :to="webAppUrl"
+          target="_blank"
+          rel="noreferrer"
+          icon="i-lucide-globe"
+        />
+        <UButton
+          :label="t('home.hero.browseInstallers')"
+          :to="`${localePath('/')}#installers`"
+          color="neutral"
+          variant="outline"
+          trailing-icon="i-lucide-arrow-right"
+        />
+      </div>
+    </section>
+
+    <section class="content-section section-reveal section-delay-1">
+      <div class="section-head">
+        <h2>{{ t('home.entryPoints.heading') }}</h2>
+        <p>{{ t('home.entryPoints.description') }}</p>
+      </div>
+
+      <div class="docs-grid">
+        <UCard
+          v-for="entry in entryPointCards"
+          :key="entry.title"
+          class="doc-card"
+        >
+          <UIcon
+            :name="entry.icon"
+            class="doc-icon"
+          />
+          <h3>{{ entry.title }}</h3>
+          <p>{{ entry.description }}</p>
+          <ul class="docs-list entry-point-list">
+            <li
+              v-for="point in entry.points"
+              :key="point"
+            >
+              {{ point }}
+            </li>
+          </ul>
+        </UCard>
+      </div>
     </section>
 
     <section class="content-section section-reveal section-delay-1">
@@ -108,12 +156,37 @@ import {
 
 const { t } = useTypedI18n();
 const route = useRoute();
+const localePath = useLocalePath();
 const runtimeConfig = useRuntimeConfig();
 
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
+const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
 const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
 const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, SEO_IMAGE_PATH));
 const pageDescription = computed(() => t('features.seo.ogDescription'));
+
+const entryPointCards = computed(() => [
+    {
+        icon: 'i-lucide-globe',
+        title: t('home.entryPoints.web.title'),
+        description: t('home.entryPoints.web.description'),
+        points: [
+            t('home.entryPoints.web.point1'),
+            t('home.entryPoints.web.point2'),
+            t('home.entryPoints.web.point3'),
+        ],
+    },
+    {
+        icon: 'i-lucide-download',
+        title: t('home.entryPoints.desktop.title'),
+        description: t('home.entryPoints.desktop.description'),
+        points: [
+            t('home.entryPoints.desktop.point1'),
+            t('home.entryPoints.desktop.point2'),
+            t('home.entryPoints.desktop.point3'),
+        ],
+    },
+]);
 
 const featureCards = computed(() => [
     {
@@ -168,6 +241,11 @@ const workflowSteps = computed(() => [
 ]);
 
 const platformRows = computed(() => [
+    {
+        os: t('features.platforms.web'),
+        architectures: t('features.platforms.webArch'),
+        installerTypes: t('features.platforms.webInstallers'),
+    },
     {
         os: t('features.platforms.macOs'),
         architectures: t('features.platforms.macArch'),
