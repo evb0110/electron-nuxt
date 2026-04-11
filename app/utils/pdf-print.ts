@@ -33,6 +33,8 @@ interface IConservativeSinglePagePrintArea {
 const SAFE_DIRECT_PRINT_FIT_SCALE_THRESHOLD = 0.97;
 const SAFE_DIRECT_PRINT_ASPECT_DELTA_THRESHOLD = 0.1;
 const SINGLE_PAGE_PRINT_SAFE_MARGIN_PT = 18;
+const BROWSER_PRINT_RENDER_SCALE = 2;
+const PDFJS_PRINT_WORKER_SRC = '/pdf/pdf.worker.min.mjs';
 const STANDARD_SINGLE_PAGE_PRINT_SHEETS = [
     {
         key: 'a4' as const,
@@ -45,6 +47,183 @@ const STANDARD_SINGLE_PAGE_PRINT_SHEETS = [
         height: 792,
     },
 ] as const;
+
+export const BROWSER_PRINT_ROOT_SELECTOR = '[data-browser-print-root]';
+
+interface IBrowserPrintRoot {
+    append: (...nodes: unknown[]) => unknown;
+    replaceChildren: (...nodes: unknown[]) => unknown;
+}
+
+interface IBrowserPrintPageContainer {
+    append: (...nodes: unknown[]) => unknown;
+    className: string;
+    style: Record<string, string>;
+}
+
+interface IBrowserPrintCanvas {
+    getContext: (
+        contextId: '2d',
+        options?: CanvasRenderingContext2DSettings,
+    ) => CanvasRenderingContext2D | null;
+    height: number;
+    style: Record<string, string>;
+    width: number;
+}
+
+export interface IBrowserPrintDocument {
+    querySelector(selector: string): IBrowserPrintRoot | null;
+    createElement(tag: 'section' | 'canvas'): IBrowserPrintPageContainer | IBrowserPrintCanvas;
+}
+
+export function buildBrowserPrintFrameMarkup() {
+    return `<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Printable PDF</title>
+    <style>
+        @page {
+            margin: 0;
+        }
+
+        html, body {
+            margin: 0;
+            width: 100%;
+            min-height: 100%;
+            background: #ffffff;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        ${BROWSER_PRINT_ROOT_SELECTOR} {
+            width: 100%;
+        }
+
+        .browser-print-page {
+            break-after: page;
+            page-break-after: always;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            width: 100%;
+            background: #ffffff;
+        }
+
+        .browser-print-page:last-child {
+            break-after: auto;
+            page-break-after: auto;
+        }
+
+        .browser-print-page canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <main data-browser-print-root></main>
+</body>
+</html>`;
+}
+
+async function getPdfjsPrintLib() {
+    const pdfjsLib = await import('pdfjs-dist');
+    const globalWorkerOptions = pdfjsLib.GlobalWorkerOptions as { workerSrc?: string };
+
+    if (globalWorkerOptions.workerSrc !== PDFJS_PRINT_WORKER_SRC) {
+        globalWorkerOptions.workerSrc = PDFJS_PRINT_WORKER_SRC;
+    }
+
+    return pdfjsLib;
+}
+
+function clonePdfBytes(data: Uint8Array | ArrayBufferLike) {
+    const source = data instanceof Uint8Array ? data : new Uint8Array(data);
+    const copy = new Uint8Array(source.byteLength);
+    copy.set(source);
+    return copy;
+}
+
+function getBrowserPrintRoot(targetDocument: IBrowserPrintDocument) {
+    const root = targetDocument.querySelector(BROWSER_PRINT_ROOT_SELECTOR);
+    if (root && typeof root.append === 'function' && typeof root.replaceChildren === 'function') {
+        return root;
+    }
+
+    throw new Error('Missing browser print root');
+}
+
+function createBrowserPrintPageContainer(targetDocument: IBrowserPrintDocument) {
+    return targetDocument.createElement('section') as IBrowserPrintPageContainer;
+}
+
+function createBrowserPrintCanvas(targetDocument: IBrowserPrintDocument) {
+    return targetDocument.createElement('canvas') as IBrowserPrintCanvas;
+}
+
+export async function renderPdfPagesForBrowserPrint(
+    targetDocument: IBrowserPrintDocument,
+    printablePdf: Blob | Uint8Array,
+) {
+    const root = getBrowserPrintRoot(targetDocument);
+    root.replaceChildren();
+
+    const pdfjsLib = await getPdfjsPrintLib();
+    const pdfData = printablePdf instanceof Blob
+        ? clonePdfBytes(new Uint8Array(await printablePdf.arrayBuffer()))
+        : clonePdfBytes(printablePdf);
+    const loadingTask = pdfjsLib.getDocument({
+        data: pdfData,
+        verbosity: pdfjsLib.VerbosityLevel.ERRORS,
+    });
+    const pdfDocument = await loadingTask.promise;
+
+    try {
+        for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+            const page = await pdfDocument.getPage(pageNumber);
+
+            try {
+                const displayViewport = page.getViewport({ scale: 1 });
+                const renderViewport = page.getViewport({ scale: BROWSER_PRINT_RENDER_SCALE });
+                const pageContainer = createBrowserPrintPageContainer(targetDocument);
+                pageContainer.className = 'browser-print-page';
+                pageContainer.style.width = `${displayViewport.width}px`;
+                pageContainer.style.minHeight = `${displayViewport.height}px`;
+
+                const canvas = createBrowserPrintCanvas(targetDocument);
+                canvas.width = Math.max(1, Math.ceil(renderViewport.width));
+                canvas.height = Math.max(1, Math.ceil(renderViewport.height));
+                canvas.style.width = `${displayViewport.width}px`;
+                canvas.style.height = `${displayViewport.height}px`;
+
+                const context = canvas.getContext('2d', { alpha: false });
+                if (!context) {
+                    throw new Error('Failed to create browser print canvas');
+                }
+
+                await page.render({
+                    canvas: context.canvas,
+                    canvasContext: context,
+                    viewport: renderViewport,
+                }).promise;
+
+                pageContainer.append(canvas);
+                root.append(pageContainer);
+            } finally {
+                if (typeof page.cleanup === 'function') {
+                    page.cleanup();
+                }
+            }
+        }
+    } finally {
+        await pdfDocument.destroy();
+        await loadingTask.destroy();
+    }
+}
 
 function normalizeTotalPages(value: number) {
     if (!Number.isFinite(value) || value <= 0) {

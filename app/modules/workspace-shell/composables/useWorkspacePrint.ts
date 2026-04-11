@@ -5,8 +5,10 @@ import type {
     TPdfSource,
 } from '@app/types/pdf';
 import {
+    buildBrowserPrintFrameMarkup,
     buildPrintablePdfData,
     canPrintSourcePdfDirectly,
+    renderPdfPagesForBrowserPrint,
     shouldPrintPageMetricsDirectly,
     shouldPrintSourcePdfDirectly,
     type TPrintOrientation,
@@ -23,35 +25,6 @@ const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
 const BROWSER_PRINT_LOAD_SETTLE_DELAY_MS = 300;
 const BROWSER_PRINT_FRAME_MIN_WIDTH_PX = 1280;
 const BROWSER_PRINT_FRAME_MIN_HEIGHT_PX = 1600;
-
-function buildPrintableFrameMarkup(pdfUrl: string) {
-    return `<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>Printable PDF</title>
-    <style>
-        html, body {
-            margin: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background: #ffffff;
-        }
-
-        embed {
-            display: block;
-            width: 100%;
-            height: 100%;
-            border: 0;
-        }
-    </style>
-</head>
-<body>
-    <embed src="${pdfUrl}" type="application/pdf">
-</body>
-</html>`;
-}
 
 function isCrossOriginFrameAccessError(error: unknown) {
     if (!(error instanceof Error)) {
@@ -108,7 +81,6 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
     const isPreparingPrint = ref(false);
     const printError = ref<string | null>(null);
     const activePrintFrame = ref<HTMLIFrameElement | null>(null);
-    const activePrintObjectUrl = ref<string | null>(null);
     const printStatus = computed(() => isPreparingPrint.value ? t('print.preparing') : null);
     let removeAfterPrintListener: (() => void) | null = null;
     let browserPrintCleanupTimer: number | null = null;
@@ -143,11 +115,6 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         if (activePrintFrame.value) {
             activePrintFrame.value.remove();
             activePrintFrame.value = null;
-        }
-
-        if (activePrintObjectUrl.value && typeof URL !== 'undefined') {
-            URL.revokeObjectURL(activePrintObjectUrl.value);
-            activePrintObjectUrl.value = null;
         }
     }
 
@@ -266,21 +233,11 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         });
     }
 
-    function createPrintablePdfObjectUrl(printablePdf: Blob | Uint8Array) {
-        const blob = printablePdf instanceof Blob
-            ? printablePdf
-            : new Blob([new Uint8Array(printablePdf)], { type: 'application/pdf' });
-        const objectUrl = URL.createObjectURL(blob);
-        activePrintObjectUrl.value = objectUrl;
-        return objectUrl;
-    }
-
     async function printPdfInHiddenFrame(printablePdf: Blob | Uint8Array) {
         const frame = createHiddenPrintFrame();
-        const objectUrl = createPrintablePdfObjectUrl(printablePdf);
         const frameLoad = waitForPrintFrameLoad(frame);
 
-        frame.srcdoc = buildPrintableFrameMarkup(objectUrl);
+        frame.srcdoc = buildBrowserPrintFrameMarkup();
         await frameLoad;
 
         const frameWindow = frame.contentWindow;
@@ -288,6 +245,8 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
             cleanupPrintFrame();
             throw new Error('Missing print frame window');
         }
+
+        await renderPdfPagesForBrowserPrint(frameWindow.document, printablePdf);
 
         const afterPrint = () => {
             cleanupPrintFrame();

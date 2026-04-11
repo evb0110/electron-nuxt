@@ -1,17 +1,30 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import {
+    type IBrowserPrintDocument,
+    buildBrowserPrintFrameMarkup,
     buildPrintablePdfData,
     buildPrintSpreadGroups,
     canPrintSourcePdfDirectly,
     parsePrintPageRangeInput,
+    renderPdfPagesForBrowserPrint,
     shouldPrintPageMetricsDirectly,
     shouldPrintSourcePdfDirectly,
 } from '@app/utils/pdf-print';
+
+const pdfjsModule = vi.hoisted(() => ({
+    GlobalWorkerOptions: {} as { workerSrc?: string },
+    VerbosityLevel: { ERRORS: 0 },
+    getDocument: vi.fn(),
+}));
+
+vi.mock('pdfjs-dist', () => pdfjsModule);
 
 async function createSourcePdf(pageSizes: Array<[number, number]>) {
     const pdf = await PDFDocument.create();
@@ -30,6 +43,11 @@ async function createSourcePdf(pageSizes: Array<[number, number]>) {
 }
 
 describe('pdf-print', () => {
+    beforeEach(() => {
+        pdfjsModule.GlobalWorkerOptions.workerSrc = undefined;
+        pdfjsModule.getDocument.mockReset();
+    });
+
     it('parses comma-separated page ranges into unique sorted page numbers', () => {
         expect(parsePrintPageRangeInput('1-3, 7, 10-12, 3', 12)).toEqual([
             1,
@@ -290,5 +308,133 @@ describe('pdf-print', () => {
             width: 612,
             height: 792,
         });
+    });
+
+    it('renders one browser-print page per PDF page into the print document', async () => {
+        const root = {
+            append: vi.fn(),
+            replaceChildren: vi.fn(),
+        };
+        const firstCanvas = {
+            height: 0,
+            width: 0,
+            style: {},
+            getContext: vi.fn(),
+        };
+        const secondCanvas = {
+            height: 0,
+            width: 0,
+            style: {},
+            getContext: vi.fn(),
+        };
+        firstCanvas.getContext.mockReturnValue({ canvas: firstCanvas });
+        secondCanvas.getContext.mockReturnValue({ canvas: secondCanvas });
+        const createdSections: Array<{
+            append: ReturnType<typeof vi.fn>;
+            className: string;
+            style: Record<string, string>;
+        }> = [];
+        const createdCanvases = [
+            firstCanvas,
+            secondCanvas,
+        ];
+        function createElement(tag: 'canvas' | 'section') {
+            if (tag === 'section') {
+                const section = {
+                    append: vi.fn(),
+                    className: '',
+                    style: {},
+                };
+                createdSections.push(section);
+                return section;
+            }
+
+            const canvas = createdCanvases.shift();
+            if (!canvas) {
+                throw new Error('Unexpected extra canvas');
+            }
+            return canvas;
+        }
+
+        const targetDocument: IBrowserPrintDocument = {
+            createElement,
+            querySelector: () => root,
+        };
+        const firstPage = {
+            cleanup: vi.fn(),
+            getViewport: vi.fn(({ scale }: { scale: number }) => scale === 1
+                ? {
+                    width: 100,
+                    height: 200,
+                }
+                : {
+                    width: 200,
+                    height: 400,
+                }),
+            render: vi.fn(() => ({ promise: Promise.resolve() })),
+        };
+        const secondPage = {
+            cleanup: vi.fn(),
+            getViewport: vi.fn(({ scale }: { scale: number }) => scale === 1
+                ? {
+                    width: 120,
+                    height: 180,
+                }
+                : {
+                    width: 240,
+                    height: 360,
+                }),
+            render: vi.fn(() => ({ promise: Promise.resolve() })),
+        };
+        const loadingTaskDestroy = vi.fn(async () => {});
+        const pdfDocumentDestroy = vi.fn(async () => {});
+        const getPage = vi.fn(async (pageNumber: number) => pageNumber === 1 ? firstPage : secondPage);
+        pdfjsModule.getDocument.mockReturnValue({
+            destroy: loadingTaskDestroy,
+            promise: Promise.resolve({
+                destroy: pdfDocumentDestroy,
+                getPage,
+                numPages: 2,
+            }),
+        });
+
+        await renderPdfPagesForBrowserPrint(targetDocument, Uint8Array.of(1, 2, 3));
+
+        expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe('/pdf/pdf.worker.min.mjs');
+        expect(root.replaceChildren).toHaveBeenCalledTimes(1);
+        expect(root.append).toHaveBeenCalledTimes(2);
+        expect(firstPage.render).toHaveBeenCalledWith(expect.objectContaining({
+            canvas: firstCanvas,
+            canvasContext: expect.any(Object),
+            viewport: {
+                width: 200,
+                height: 400,
+            },
+        }));
+        expect(secondPage.render).toHaveBeenCalledWith(expect.objectContaining({
+            canvas: secondCanvas,
+            canvasContext: expect.any(Object),
+            viewport: {
+                width: 240,
+                height: 360,
+            },
+        }));
+        expect(firstCanvas.style).toEqual({
+            height: '200px',
+            width: '100px',
+        });
+        expect(secondCanvas.style).toEqual({
+            height: '180px',
+            width: '120px',
+        });
+        expect(firstPage.cleanup).toHaveBeenCalledTimes(1);
+        expect(secondPage.cleanup).toHaveBeenCalledTimes(1);
+        expect(pdfDocumentDestroy).toHaveBeenCalledTimes(1);
+        expect(loadingTaskDestroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('builds a browser-print frame shell with a dedicated print root', () => {
+        expect(buildBrowserPrintFrameMarkup()).toContain('data-browser-print-root');
+        expect(buildBrowserPrintFrameMarkup()).toContain('.browser-print-page');
     });
 });

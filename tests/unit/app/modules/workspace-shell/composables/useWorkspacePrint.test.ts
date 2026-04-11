@@ -23,7 +23,9 @@ type TShouldPrintPageMetricsDirectly = (
     },
 ) => boolean | null;
 
+const buildBrowserPrintFrameMarkupMock = vi.hoisted(() => vi.fn(() => '<html><body><main data-browser-print-root></main></body></html>'));
 const buildPrintablePdfDataMock = vi.hoisted(() => vi.fn());
+const renderPdfPagesForBrowserPrintMock = vi.hoisted(() => vi.fn(async () => {}));
 const shouldPrintPageMetricsDirectlyMock = vi.hoisted(() => vi.fn<TShouldPrintPageMetricsDirectly>(() => null));
 const shouldPrintSourcePdfDirectlyMock = vi.hoisted(() => vi.fn(async () => true));
 const waitForPrintPaintMock = vi.hoisted(() => vi.fn(async () => {}));
@@ -35,6 +37,7 @@ const documentsCapabilityMock = vi.hoisted(() => ({
 const toastAddMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@app/utils/pdf-print', () => ({
+    buildBrowserPrintFrameMarkup: buildBrowserPrintFrameMarkupMock,
     buildPrintablePdfData: buildPrintablePdfDataMock,
     canPrintSourcePdfDirectly: (options: {
         pageNumbers?: number[];
@@ -45,6 +48,7 @@ vi.mock('@app/utils/pdf-print', () => ({
         && options.orientation === 'auto'
         && (!options.pageNumbers || options.pageNumbers.length === 0)
     ),
+    renderPdfPagesForBrowserPrint: renderPdfPagesForBrowserPrintMock,
     shouldPrintPageMetricsDirectly: shouldPrintPageMetricsDirectlyMock,
     shouldPrintSourcePdfDirectly: shouldPrintSourcePdfDirectlyMock,
     waitForPrintPaint: waitForPrintPaintMock,
@@ -67,6 +71,7 @@ vi.mock('@app/utils/platform', () => ({ isDesktopPlatformActive: isDesktopPlatfo
 
 interface IFakeFrameWindow {
     addEventListener: ReturnType<typeof vi.fn>;
+    document: { querySelector: ReturnType<typeof vi.fn>; };
     removeEventListener: ReturnType<typeof vi.fn>;
     focus: ReturnType<typeof vi.fn>;
     print: ReturnType<typeof vi.fn>;
@@ -88,8 +93,13 @@ interface IFakeFrame {
 
 function createFakeFrame() {
     const listeners = new Map<string, EventListener>();
+    const frameDocument = { querySelector: vi.fn(() => ({
+        replaceChildren: vi.fn(),
+        append: vi.fn(),
+    })) };
     const frameWindow: IFakeFrameWindow = {
         addEventListener: vi.fn(),
+        document: frameDocument,
         removeEventListener: vi.fn(),
         focus: vi.fn(),
         print: vi.fn(),
@@ -174,6 +184,7 @@ describe('useWorkspacePrint', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         isDesktopPlatformActiveMock.mockReturnValue(false);
+        buildBrowserPrintFrameMarkupMock.mockReturnValue('<html><body><main data-browser-print-root></main></body></html>');
         shouldPrintPageMetricsDirectlyMock.mockReturnValue(null);
         shouldPrintSourcePdfDirectlyMock.mockResolvedValue(true);
         documentsCapabilityMock.printPdfData.mockResolvedValue({
@@ -210,10 +221,6 @@ describe('useWorkspacePrint', () => {
                 callback(0);
                 return 1;
             },
-        });
-        vi.stubGlobal('URL', {
-            createObjectURL: vi.fn(() => 'blob:print-document'),
-            revokeObjectURL: vi.fn(),
         });
     });
 
@@ -294,10 +301,15 @@ describe('useWorkspacePrint', () => {
                 },
             );
             expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
+            expect(buildBrowserPrintFrameMarkupMock).toHaveBeenCalledTimes(1);
 
             appFrame.frame.trigger('load');
             await submitPromise;
 
+            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalledWith(
+                appFrame.frameWindow.document,
+                Uint8Array.of(9, 8, 7),
+            );
             expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
             expect(state.printDialogOpen.value).toBe(false);
             expect(state.printError.value).toBeNull();
@@ -344,6 +356,10 @@ describe('useWorkspacePrint', () => {
             appFrame.frame.trigger('load');
             await printPromise;
 
+            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalledWith(
+                appFrame.frameWindow.document,
+                expect.any(Blob),
+            );
             expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
             expect(state.isPreparingPrint.value).toBe(false);
         } finally {
@@ -399,6 +415,10 @@ describe('useWorkspacePrint', () => {
             appFrame.frame.trigger('load');
             await submitPromise;
 
+            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalledWith(
+                appFrame.frameWindow.document,
+                expect.any(Blob),
+            );
             expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
             expect(state.printDialogOpen.value).toBe(false);
             expect(state.printError.value).toBeNull();
@@ -433,9 +453,8 @@ describe('useWorkspacePrint', () => {
             });
             await flushMicrotasks();
             expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
-            expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
             expect(appFrame.frame.src).toBe('');
-            expect(appFrame.frame.srcdoc).toContain('<embed src="blob:print-document" type="application/pdf">');
+            expect(appFrame.frame.srcdoc).toBe('<html><body><main data-browser-print-root></main></body></html>');
 
             appFrame.frame.trigger('load');
             await submitPromise;
@@ -443,6 +462,10 @@ describe('useWorkspacePrint', () => {
             expect(getPrintableSourceData).not.toHaveBeenCalled();
             expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
             expect(shouldPrintSourcePdfDirectlyMock).not.toHaveBeenCalled();
+            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalledWith(
+                appFrame.frameWindow.document,
+                expect.any(Blob),
+            );
             expect(waitForPrintPaintMock).toHaveBeenCalledWith(appFrame.frameWindow);
             expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
             expect(state.printDialogOpen.value).toBe(false);
@@ -454,7 +477,6 @@ describe('useWorkspacePrint', () => {
             afterPrintHandler?.();
 
             expect(appFrame.frame.remove).toHaveBeenCalledTimes(1);
-            expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:print-document');
         } finally {
             scope.stop();
         }
@@ -543,6 +565,10 @@ describe('useWorkspacePrint', () => {
             appFrame.frame.trigger('load');
             await submitPromise;
 
+            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalledWith(
+                appFrame.frameWindow.document,
+                Uint8Array.of(7, 8, 9),
+            );
             expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
             expect(state.printDialogOpen.value).toBe(false);
         } finally {
@@ -638,6 +664,10 @@ describe('useWorkspacePrint', () => {
             appFrame.frame.trigger('load');
             await submitPromise;
 
+            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalledWith(
+                appFrame.frameWindow.document,
+                Uint8Array.of(7, 8, 9),
+            );
             expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
             expect(state.printDialogOpen.value).toBe(false);
             expect(state.printError.value).toBeNull();
@@ -688,6 +718,10 @@ describe('useWorkspacePrint', () => {
             appFrame.frame.trigger('load');
             await submitPromise;
 
+            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalledWith(
+                appFrame.frameWindow.document,
+                expect.any(Blob),
+            );
             expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
             expect(state.printDialogOpen.value).toBe(false);
             expect(state.printError.value).toBeNull();
