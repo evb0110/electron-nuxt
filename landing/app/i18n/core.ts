@@ -1,12 +1,5 @@
 export const LOCALE_CODES = [
     'en',
-    'ru',
-    'fr',
-    'de',
-    'es',
-    'it',
-    'pt',
-    'nl',
 ] as const;
 
 export type TLocale = typeof LOCALE_CODES[number];
@@ -26,48 +19,6 @@ export const LOCALE_DEFINITIONS = [
         file: 'en.ts',
         language: 'en-US',
         name: 'English',
-    },
-    {
-        code: 'ru',
-        file: 'ru.ts',
-        language: 'ru-RU',
-        name: 'Русский',
-    },
-    {
-        code: 'fr',
-        file: 'fr.ts',
-        language: 'fr-FR',
-        name: 'Français',
-    },
-    {
-        code: 'de',
-        file: 'de.ts',
-        language: 'de-DE',
-        name: 'Deutsch',
-    },
-    {
-        code: 'es',
-        file: 'es.ts',
-        language: 'es-ES',
-        name: 'Español',
-    },
-    {
-        code: 'it',
-        file: 'it.ts',
-        language: 'it-IT',
-        name: 'Italiano',
-    },
-    {
-        code: 'pt',
-        file: 'pt.ts',
-        language: 'pt-PT',
-        name: 'Português',
-    },
-    {
-        code: 'nl',
-        file: 'nl.ts',
-        language: 'nl-NL',
-        name: 'Nederlands',
     },
 ] as const satisfies ReadonlyArray<ILocaleDefinition<TLocale>>;
 

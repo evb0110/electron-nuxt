@@ -1,16 +1,14 @@
 <template>
-  <UApp>
-    <div class="landing-root">
-      <div class="landing-ambient landing-ambient-left" />
-      <div class="landing-ambient landing-ambient-right" />
+  <div class="landing-root">
+    <div class="landing-ambient landing-ambient-left" />
+    <div class="landing-ambient landing-ambient-right" />
 
-      <UContainer class="landing-container">
-        <SiteHeader />
-        <NuxtPage />
-        <SiteFooter />
-      </UContainer>
-    </div>
-  </UApp>
+    <UContainer class="landing-container">
+      <SiteHeader />
+      <NuxtPage />
+      <SiteFooter />
+    </UContainer>
+  </div>
 </template>
 
 <script setup lang="ts">

@@ -10,24 +10,24 @@
         id="docs-title"
         class="page-title"
       >
-        {{ t('docs.seo.title') }}
+        {{ t('docs.hero.title') }}
       </h1>
       <p class="page-subtitle">
-        {{ t('docs.seo.ogDescription') }}
+        {{ t('docs.hero.subtitle') }}
       </p>
 
       <div class="section-actions">
         <UButton
-          :label="t('home.hero.openLatestRelease')"
-          :to="latestReleaseUrl"
+          v-if="webAppUrl"
+          :label="t('home.hero.openInBrowser')"
+          :to="webAppUrl"
           target="_blank"
-          icon="i-lucide-download"
-          color="neutral"
-          variant="outline"
+          rel="noreferrer"
+          icon="i-lucide-globe"
         />
         <UButton
-          :label="t('home.explore.featuresPage')"
-          :to="localePath('/features')"
+          :label="t('home.hero.browseInstallers')"
+          :to="`${localePath('/')}#installers`"
           color="neutral"
           variant="outline"
           trailing-icon="i-lucide-arrow-right"
@@ -54,7 +54,7 @@
           <h3>{{ entry.title }}</h3>
           <p>{{ entry.description }}</p>
           <UButton
-            :label="t('home.explore.docsPage')"
+            :label="t('docs.guideCardAction')"
             color="neutral"
             variant="outline"
             trailing-icon="i-lucide-arrow-right"
@@ -81,18 +81,24 @@
               {{ entry.title }}
             </button>
           </nav>
-          <UButton
-            :label="t('docs.bookmarks.repository')"
-            :to="repositoryUrl"
-            target="_blank"
-            icon="i-simple-icons-github"
-            color="neutral"
-            variant="outline"
-          />
         </UCard>
       </aside>
 
-      <main class="docs-main">
+      <div class="docs-main">
+        <section
+          id="browser-quickstart"
+          class="docs-section"
+        >
+          <h2>{{ t('docs.browserQuickstart.heading') }}</h2>
+          <p>{{ t('docs.browserQuickstart.intro') }}</p>
+          <ul class="docs-list">
+            <li>{{ t('docs.browserQuickstart.li1') }}</li>
+            <li>{{ t('docs.browserQuickstart.li2') }}</li>
+            <li>{{ t('docs.browserQuickstart.li3') }}</li>
+            <li>{{ t('docs.browserQuickstart.li4') }}</li>
+          </ul>
+        </section>
+
         <section
           id="workspace-overview"
           class="docs-section"
@@ -203,14 +209,14 @@
             >
               <template #openRecent><code>Open Recent</code></template>
             </i18n-t>
+            <i18n-t
+              keypath="docs.openCombine.convertIntro"
+              tag="li"
+              scope="global"
+            >
+              <template #menuPath><code>File > Convert to PDF...</code></template>
+            </i18n-t>
           </ul>
-          <i18n-t
-            keypath="docs.openCombine.convertIntro"
-            tag="p"
-            scope="global"
-          >
-            <template #menuPath><code>File > Convert to PDF...</code></template>
-          </i18n-t>
         </section>
 
         <section
@@ -250,63 +256,6 @@
         </section>
 
         <section
-          id="window-management"
-          class="docs-section"
-        >
-          <h2>{{ t('docs.windowMgmt.heading') }}</h2>
-          <p>
-            {{ t('docs.windowMgmt.intro') }}
-          </p>
-          <ul class="docs-list">
-            <i18n-t
-              keypath="docs.windowMgmt.li1"
-              tag="li"
-              scope="global"
-            >
-              <template #menuPath><code>Window > Move Active Tab to New Window</code></template>
-            </i18n-t>
-            <i18n-t
-              keypath="docs.windowMgmt.li2"
-              tag="li"
-              scope="global"
-            >
-              <template #menuPath><code>Window > Move Active Tab to Window</code></template>
-            </i18n-t>
-            <i18n-t
-              keypath="docs.windowMgmt.li3"
-              tag="li"
-              scope="global"
-            >
-              <template #menuPath><code>Window > Merge This Window Into</code></template>
-            </i18n-t>
-            <li>{{ t('docs.windowMgmt.li4') }}</li>
-            <li>{{ t('docs.windowMgmt.li5') }}</li>
-          </ul>
-        </section>
-
-        <section
-          id="pages-panel"
-          class="docs-section"
-        >
-          <h2>{{ t('docs.pagesPanel.heading') }}</h2>
-          <ul class="docs-list">
-            <li>{{ t('docs.pagesPanel.li1') }}</li>
-            <i18n-t
-              keypath="docs.pagesPanel.li2"
-              tag="li"
-              scope="global"
-            >
-              <template #shift><code>Shift</code></template>
-              <template #cmdCtrl><code>Cmd/Ctrl</code></template>
-            </i18n-t>
-            <li>{{ t('docs.pagesPanel.li3') }}</li>
-            <li>{{ t('docs.pagesPanel.li4') }}</li>
-            <li>{{ t('docs.pagesPanel.li5') }}</li>
-            <li>{{ t('docs.pagesPanel.li6') }}</li>
-          </ul>
-        </section>
-
-        <section
           id="annotations-notes"
           class="docs-section"
         >
@@ -320,47 +269,6 @@
             <li>{{ t('docs.annotations.li3') }}</li>
             <li>{{ t('docs.annotations.li4') }}</li>
             <li>{{ t('docs.annotations.li5') }}</li>
-          </ul>
-        </section>
-
-        <section
-          id="bookmarks-panel"
-          class="docs-section"
-        >
-          <h2>{{ t('docs.bookmarksPanelSection.heading') }}</h2>
-          <ul class="docs-list">
-            <li>{{ t('docs.bookmarksPanelSection.li1') }}</li>
-            <li>{{ t('docs.bookmarksPanelSection.li2') }}</li>
-            <li>{{ t('docs.bookmarksPanelSection.li3') }}</li>
-            <li>{{ t('docs.bookmarksPanelSection.li4') }}</li>
-            <li>{{ t('docs.bookmarksPanelSection.li5') }}</li>
-          </ul>
-        </section>
-
-        <section
-          id="search-navigation"
-          class="docs-section"
-        >
-          <h2>{{ t('docs.search.heading') }}</h2>
-          <ul class="docs-list">
-            <i18n-t
-              keypath="docs.search.li1"
-              tag="li"
-              scope="global"
-            >
-              <template #shortcut><code>Cmd/Ctrl + F</code></template>
-            </i18n-t>
-            <li>{{ t('docs.search.li2') }}</li>
-            <i18n-t
-              keypath="docs.search.li3"
-              tag="li"
-              scope="global"
-            >
-              <template #enter><code>Enter</code></template>
-              <template #shiftEnter><code>Shift + Enter</code></template>
-            </i18n-t>
-            <li>{{ t('docs.search.li4') }}</li>
-            <li>{{ t('docs.search.li5') }}</li>
           </ul>
         </section>
 
@@ -473,7 +381,7 @@
           <h2>{{ t('docs.license.heading') }}</h2>
           <p>{{ t('docs.license.text') }}</p>
         </section>
-      </main>
+      </div>
     </div>
   </main>
 </template>
@@ -490,14 +398,17 @@ const route = useRoute();
 const localePath = useLocalePath();
 const runtimeConfig = useRuntimeConfig();
 
-const repositoryUrl = 'https://github.com/evb0110/evb-viewer';
-const latestReleaseUrl = 'https://github.com/evb0110/evb-viewer/releases/latest';
 const siteUrl = computed(() => normalizeSiteUrl(runtimeConfig.public.siteUrl));
+const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
 const canonicalUrl = computed(() => buildAbsoluteUrl(siteUrl.value, route.path));
 const ogImage = computed(() => buildAbsoluteUrl(siteUrl.value, SEO_IMAGE_PATH));
 const pageDescription = computed(() => t('docs.seo.ogDescription'));
 
 const bookmarks = computed(() => [
+    {
+        id: 'browser-quickstart',
+        title: t('docs.bookmarks.browserQuickstart'),
+    },
     {
         id: 'workspace-overview',
         title: t('docs.bookmarks.workspaceOverview'),
@@ -515,24 +426,8 @@ const bookmarks = computed(() => [
         title: t('docs.bookmarks.tabsAndSplits'),
     },
     {
-        id: 'window-management',
-        title: t('docs.bookmarks.windowManagement'),
-    },
-    {
-        id: 'pages-panel',
-        title: t('docs.bookmarks.pagesPanel'),
-    },
-    {
         id: 'annotations-notes',
         title: t('docs.bookmarks.annotationsNotes'),
-    },
-    {
-        id: 'bookmarks-panel',
-        title: t('docs.bookmarks.bookmarksPanel'),
-    },
-    {
-        id: 'search-navigation',
-        title: t('docs.bookmarks.searchNavigation'),
     },
     {
         id: 'ocr-export',
@@ -550,22 +445,16 @@ const bookmarks = computed(() => [
 
 const guideCards = computed(() => [
     {
+        id: 'browser-quickstart',
+        icon: 'i-lucide-globe',
+        title: t('docs.bookmarks.browserQuickstart'),
+        description: t('docs.browserQuickstart.intro'),
+    },
+    {
         id: 'workspace-overview',
         icon: 'i-lucide-layout-panel-left',
         title: t('docs.bookmarks.workspaceOverview'),
         description: t('docs.workspace.intro'),
-    },
-    {
-        id: 'open-and-combine',
-        icon: 'i-lucide-file-stack',
-        title: t('docs.bookmarks.openAndCombine'),
-        description: t('docs.openCombine.li2'),
-    },
-    {
-        id: 'annotations-notes',
-        icon: 'i-lucide-pen-tool',
-        title: t('docs.bookmarks.annotationsNotes'),
-        description: t('docs.annotations.intro'),
     },
     {
         id: 'ocr-export',
@@ -682,10 +571,18 @@ useSeoMeta({
 });
 
 function scrollToBookmark(id: string) {
-    document.getElementById(id)?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-    });
-    window.history.replaceState(null, '', `#${id}`);
+    const target = document.getElementById(id);
+    if (!target) {
+        return;
+    }
+
+    try {
+        target.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+        });
+    } catch {
+        target.scrollIntoView();
+    }
 }
 </script>

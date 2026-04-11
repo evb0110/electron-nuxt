@@ -1,14 +1,15 @@
 # EVB Viewer Landing
 
-Nuxt landing site for EVB Viewer desktop releases.
+Nuxt marketing and download site for EVB Viewer web and desktop entry points.
 
 ## What it does
 
-- Fetches latest release assets from GitHub at `/api/releases/latest`
+- Presents EVB Viewer as both a browser app and a desktop app
+- Fetches latest desktop release assets from GitHub at `/api/releases/latest`
 - Detects user platform and architecture from browser user agent
-- Suggests the best installer automatically
-- Lets users pick any other installer manually
-- Includes feature overview and documentation/source links
+- Suggests the most likely desktop installer automatically
+- Lets users pick any other desktop build manually
+- Includes feature overview and end-user documentation
 
 ## Configuration
 

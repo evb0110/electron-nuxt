@@ -22,33 +22,31 @@
 
         <div class="hero-cta">
           <UButton
+            v-if="webAppUrl"
+            :label="t('home.hero.openInBrowser')"
+            :to="webAppUrl"
+            target="_blank"
+            rel="noreferrer"
+            size="xl"
+            icon="i-lucide-globe"
+          />
+
+          <UButton
             :label="downloadPrimaryLabel"
             icon="i-lucide-download"
             size="xl"
-            class="ring ring-inset ring-primary"
+            color="neutral"
+            variant="outline"
             @click="downloadActiveInstaller"
           />
 
           <UButton
             :label="t('home.hero.browseInstallers')"
             color="neutral"
-            variant="outline"
+            variant="ghost"
             size="xl"
             icon="i-lucide-list"
             @click="scrollToInstallers"
-          />
-
-          <UButton
-            v-if="webAppUrl"
-            :label="t('home.hero.openInBrowser')"
-            :to="webAppUrl"
-            target="_blank"
-            rel="noreferrer"
-            color="neutral"
-            variant="link"
-            size="xl"
-            icon="i-lucide-globe"
-            class="hero-web-app-link"
           />
         </div>
 
@@ -101,50 +99,69 @@
 
         <UCard class="hero-side-card">
           <div class="hero-side-head">
-            <p
-              v-if="releaseData"
-              class="hero-side-eyebrow"
-            >
-              {{ releaseData.release.tag }}
+            <p class="hero-side-eyebrow">
+              {{ t('home.entryPoints.heading') }}
             </p>
             <h2 class="hero-side-title">
-              {{ downloadPrimaryLabel }}
+              {{ t('home.entryPoints.description') }}
             </h2>
             <p class="hero-side-copy">
               {{ recommendationHint }}
             </p>
           </div>
 
-          <div class="hero-side-actions">
-            <UButton
-              :label="t('home.hero.openLatestRelease')"
-              :to="fallbackReleaseUrl"
-              target="_blank"
-              icon="i-lucide-download"
-              color="primary"
-            />
-            <UButton
-              :label="t('home.explore.docsPage')"
-              :to="localePath('/docs')"
-              color="neutral"
-              variant="outline"
-              trailing-icon="i-lucide-arrow-right"
-            />
-          </div>
-
           <div class="hero-side-platforms">
             <div
-              v-for="row in platformRows"
-              :key="row.os"
+              v-for="entry in entryPointRows"
+              :key="entry.title"
               class="hero-platform-row"
             >
               <div>
-                <p class="hero-platform-name">{{ row.os }}</p>
-                <p class="hero-platform-meta">{{ row.architectures }}</p>
+                <p class="hero-platform-name">{{ entry.title }}</p>
+                <p class="hero-platform-meta">{{ entry.description }}</p>
               </div>
-              <span class="hero-platform-installers">{{ row.installerTypes }}</span>
+              <span class="hero-platform-installers">{{ entry.label }}</span>
             </div>
           </div>
+        </UCard>
+      </div>
+    </section>
+
+    <section class="content-section section-reveal section-delay-1">
+      <div class="section-head">
+        <h2>{{ t('home.entryPoints.heading') }}</h2>
+        <p>{{ t('home.entryPoints.description') }}</p>
+      </div>
+
+      <div class="docs-grid">
+        <UCard
+          v-for="entry in entryPointCards"
+          :key="entry.title"
+          class="doc-card"
+        >
+          <UIcon
+            :name="entry.icon"
+            class="doc-icon"
+          />
+          <h3>{{ entry.title }}</h3>
+          <p>{{ entry.description }}</p>
+          <ul class="docs-list entry-point-list">
+            <li
+              v-for="point in entry.points"
+              :key="point"
+            >
+              {{ point }}
+            </li>
+          </ul>
+          <UButton
+            :label="entry.action"
+            :to="entry.to"
+            :target="entry.external ? '_blank' : undefined"
+            :rel="entry.external ? 'noreferrer' : undefined"
+            color="neutral"
+            variant="outline"
+            trailing-icon="i-lucide-arrow-right"
+          />
         </UCard>
       </div>
     </section>
@@ -200,7 +217,7 @@
               :label="t('home.installers.retry')"
               color="neutral"
               variant="outline"
-              @click="() => refresh()"
+              @click="refreshReleaseData"
             />
           </div>
 
@@ -235,7 +252,7 @@
               >
                 <div class="installer-item-info">
                   <div class="installer-item-header">
-                    <span class="installer-item-variant">{{ formatInstallerVariantLabel(installer) }}</span>
+                    <span class="installer-item-variant">{{ formatInstallerLabel(installer) }}</span>
                     <span
                       v-if="isRecommendedInstaller(installer)"
                       class="installer-badge"
@@ -253,29 +270,28 @@
                 />
               </button>
             </div>
+
             <div
               v-else
               class="space-y-4"
             >
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div class="space-y-2">
-                  <p class="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
-                    {{ t('home.installers.legacy.eyebrow') }}
-                  </p>
-                  <h3 class="text-lg font-semibold text-highlighted">
-                    {{ t('home.installers.legacy.heading') }}
-                  </h3>
-                  <p class="max-w-2xl text-sm text-toned">
-                    {{ t('home.installers.legacy.description') }}
-                  </p>
-                </div>
-
-                <UBadge
-                  :label="t('home.installers.legacy.manualOnly')"
-                  color="warning"
-                  variant="subtle"
-                />
+              <div class="space-y-2">
+                <p class="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+                  {{ t('home.installers.legacy.eyebrow') }}
+                </p>
+                <h3 class="text-lg font-semibold text-highlighted">
+                  {{ t('home.installers.legacy.heading') }}
+                </h3>
+                <p class="max-w-2xl text-sm text-toned">
+                  {{ t('home.installers.legacy.description') }}
+                </p>
               </div>
+
+              <UBadge
+                :label="t('home.installers.legacy.manualOnly')"
+                color="warning"
+                variant="subtle"
+              />
 
               <div class="installer-list">
                 <button
@@ -342,11 +358,10 @@
 
           <div class="release-sidebar-actions">
             <UButton
-              :label="t('home.hero.openLatestRelease')"
-              :to="fallbackReleaseUrl"
-              target="_blank"
+              :label="downloadPrimaryLabel"
               icon="i-lucide-download"
               color="primary"
+              @click="downloadActiveInstaller"
             />
             <UButton
               v-if="webAppUrl"
@@ -441,10 +456,8 @@ import {
 } from '~~/shared/seo';
 import {
     compareInstallersForSelect,
-    formatArch,
     formatFileSize,
     formatInstallerLabel,
-    formatInstallerVariantLabel,
     formatPlatform,
     INSTALLER_PLATFORM_ORDER,
     parseArchitectureHint,
@@ -461,6 +474,16 @@ import {
 interface INavigatorUADataLike {
     platform?: string
     getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }>
+}
+
+interface IEntryPointCard {
+    icon: string;
+    title: string;
+    description: string;
+    points: string[];
+    action: string;
+    to: string;
+    external: boolean;
 }
 
 const { t, locale } = useTypedI18n();
@@ -490,6 +513,35 @@ const featureHighlights = computed(() => [
         icon: 'i-lucide-pen-tool',
         title: t('home.features.annotations.title'),
         description: t('home.features.annotations.description'),
+    },
+]);
+
+const entryPointCards = computed<IEntryPointCard[]>(() => [
+    {
+        icon: 'i-lucide-globe',
+        title: t('home.entryPoints.web.title'),
+        description: t('home.entryPoints.web.description'),
+        points: [
+            t('home.entryPoints.web.point1'),
+            t('home.entryPoints.web.point2'),
+            t('home.entryPoints.web.point3'),
+        ],
+        action: t('home.entryPoints.web.action'),
+        to: webAppUrl.value || `${localePath('/')}#installers`,
+        external: Boolean(webAppUrl.value),
+    },
+    {
+        icon: 'i-lucide-download',
+        title: t('home.entryPoints.desktop.title'),
+        description: t('home.entryPoints.desktop.description'),
+        points: [
+            t('home.entryPoints.desktop.point1'),
+            t('home.entryPoints.desktop.point2'),
+            t('home.entryPoints.desktop.point3'),
+        ],
+        action: t('home.entryPoints.desktop.action'),
+        to: `${localePath('/')}#installers`,
+        external: false,
     },
 ]);
 
@@ -547,6 +599,11 @@ const workflowSteps = computed(() => [
 
 const platformRows = computed(() => [
     {
+        os: t('features.platforms.web'),
+        architectures: t('features.platforms.webArch'),
+        installerTypes: t('features.platforms.webInstallers'),
+    },
+    {
         os: t('features.platforms.macOs'),
         architectures: t('features.platforms.macArch'),
         installerTypes: t('features.platforms.macInstallers'),
@@ -563,27 +620,33 @@ const platformRows = computed(() => [
     },
 ]);
 
+const entryPointRows = computed(() => [
+    {
+        title: t('home.entryPoints.web.title'),
+        description: t('home.entryPoints.web.description'),
+        label: t('features.platforms.webInstallers'),
+    },
+    {
+        title: t('home.entryPoints.desktop.title'),
+        description: t('home.entryPoints.desktop.description'),
+        label: `${t('features.platforms.macOs')} / ${t('features.platforms.windows')} / ${t('features.platforms.linux')}`,
+    },
+]);
+
 const docEntryCards = computed(() => [
+    {
+        icon: 'i-lucide-globe',
+        title: t('docs.bookmarks.browserQuickstart'),
+        description: t('docs.browserQuickstart.intro'),
+        action: t('home.explore.docsPage'),
+        to: `${localePath('/docs')}#browser-quickstart`,
+    },
     {
         icon: 'i-lucide-layout-panel-left',
         title: t('docs.bookmarks.workspaceOverview'),
         description: t('docs.workspace.intro'),
         action: t('home.explore.docsPage'),
         to: `${localePath('/docs')}#workspace-overview`,
-    },
-    {
-        icon: 'i-lucide-file-stack',
-        title: t('docs.bookmarks.openAndCombine'),
-        description: t('docs.openCombine.li2'),
-        action: t('home.explore.docsPage'),
-        to: `${localePath('/docs')}#open-and-combine`,
-    },
-    {
-        icon: 'i-lucide-pen-tool',
-        title: t('docs.bookmarks.annotationsNotes'),
-        description: t('docs.annotations.intro'),
-        action: t('home.explore.docsPage'),
-        to: `${localePath('/docs')}#annotations-notes`,
     },
     {
         icon: 'i-lucide-folder-output',
@@ -736,7 +799,7 @@ const softwareApplicationSchema = computed(() => {
         '@type': 'SoftwareApplication',
         name: t('app.title'),
         applicationCategory: 'UtilitiesApplication',
-        operatingSystem: 'macOS, Windows, Linux',
+        operatingSystem: 'Web, macOS, Windows, Linux',
         description: pageDescription.value,
         url: canonicalUrl.value,
         image: ogImage.value,
@@ -762,21 +825,12 @@ useHead(() => ({ script: [{
 }] }));
 
 const downloadPrimaryLabel = computed(() => {
-    const installer = recommendedInstaller.value;
+    const installer = activeDownload.value || recommendedInstaller.value;
     if (!installer) {
-        return t('home.hero.openLatestRelease');
+        return t('home.hero.browseInstallers');
     }
 
-    const platform = formatPlatform(installer.platform);
-    const arch = formatArch(installer.arch);
-    if (arch) {
-        return t('home.hero.downloadForArch', {
-            platform,
-            arch,
-        });
-    }
-
-    return t('home.hero.downloadFor', { platform });
+    return t('home.hero.downloadInstaller', { installerLabel: formatInstallerLabel(installer) });
 });
 
 const recommendationHint = computed(() => {
@@ -895,9 +949,10 @@ function downloadActiveInstaller() {
     if (installer) {
         trackDownload(installer);
         triggerIframeDownload(installer.downloadUrl);
-    } else {
-        window.open(fallbackReleaseUrl.value, '_blank');
+        return;
     }
+
+    window.open(fallbackReleaseUrl.value, '_blank', 'noopener,noreferrer');
 }
 
 function isRecommendedInstaller(installer: IReleaseInstaller) {
@@ -955,5 +1010,9 @@ function legacyInstallerLabel(installer: IReleaseInstaller): string {
     }
 
     return formatInstallerLabel(installer);
+}
+
+async function refreshReleaseData() {
+    await refresh();
 }
 </script>
