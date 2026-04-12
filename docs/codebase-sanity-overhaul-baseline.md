@@ -21,7 +21,7 @@
 Executed for traceability at overhaul start/end phase boundaries:
 
 ```bash
-pnpm run lint:check
+pnpm lint
 pnpm run typecheck
 pnpm test
 pnpm run build:electron
