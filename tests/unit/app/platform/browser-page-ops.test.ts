@@ -89,7 +89,7 @@ describe('createBrowserPageOps', () => {
     });
 
     it('rejects large browser page-ops jobs before reading the full PDF', async () => {
-        browserDocumentStoreMock.stat.mockResolvedValue({ size: 64 * 1024 * 1024 });
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: (64 * 1024 * 1024) + 1 });
 
         const { createBrowserPageOps } = await import('@app/platform/browser-api/documents-page-ops');
         const pageOps = createBrowserPageOps({
@@ -104,9 +104,92 @@ describe('createBrowserPageOps', () => {
         });
 
         await expect(pageOps.delete('/tmp/work.pdf', [1], 1)).rejects.toThrow(
-            'Deleting pages is unavailable in the browser for PDFs larger than 48MB',
+            'Deleting pages is unavailable in the browser for PDFs larger than 64MB',
         );
         expect(browserDocumentStoreMock.read).not.toHaveBeenCalled();
+        expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
+    });
+
+    it('rejects duplicate page selections instead of silently normalizing them', async () => {
+        const pdfDocument = await PDFDocument.create();
+        pdfDocument.addPage();
+        pdfDocument.addPage();
+        pdfDocument.addPage();
+        const pdfBytes = new Uint8Array(await pdfDocument.save());
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
+        browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
+
+        const { createBrowserPageOps } = await import('@app/platform/browser-api/documents-page-ops');
+        const pageOps = createBrowserPageOps({
+            clearSearchCaches: vi.fn(),
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
+            saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
+        });
+
+        await expect(pageOps.delete('/tmp/work.pdf', [
+            2,
+            2,
+        ], 3)).rejects.toThrow('deletePages: duplicate page number 2');
+        expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
+    });
+
+    it('rejects out-of-range page mutations instead of silently dropping them', async () => {
+        const pdfDocument = await PDFDocument.create();
+        pdfDocument.addPage();
+        pdfDocument.addPage();
+        pdfDocument.addPage();
+        const pdfBytes = new Uint8Array(await pdfDocument.save());
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
+        browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
+
+        const { createBrowserPageOps } = await import('@app/platform/browser-api/documents-page-ops');
+        const pageOps = createBrowserPageOps({
+            clearSearchCaches: vi.fn(),
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
+            saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
+        });
+
+        await expect(pageOps.rotate('/tmp/work.pdf', [4], 90)).rejects.toThrow(
+            'rotatePages: page number 4 is out of range 1-3',
+        );
+        expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
+    });
+
+    it('rejects non-permutation reorder payloads instead of partially reordering pages', async () => {
+        const pdfDocument = await PDFDocument.create();
+        pdfDocument.addPage();
+        pdfDocument.addPage();
+        pdfDocument.addPage();
+        const pdfBytes = new Uint8Array(await pdfDocument.save());
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: pdfBytes.byteLength });
+        browserDocumentStoreMock.read.mockResolvedValue(pdfBytes);
+
+        const { createBrowserPageOps } = await import('@app/platform/browser-api/documents-page-ops');
+        const pageOps = createBrowserPageOps({
+            clearSearchCaches: vi.fn(),
+            openInputAccept: 'application/pdf',
+            pickFiles: vi.fn(),
+            buildOpenPdfPickerTypes: vi.fn(),
+            createCombinedPdfFromPaths: vi.fn(),
+            pickSaveTarget: vi.fn(),
+            saveBytesToPickerOrDownload: vi.fn(),
+            writeBytesToHandle: vi.fn(),
+        });
+
+        await expect(pageOps.reorder('/tmp/work.pdf', [
+            3,
+            1,
+        ])).rejects.toThrow('reorderPages: missing page 2 in reorder payload');
         expect(browserDocumentStoreMock.write).not.toHaveBeenCalled();
     });
 
@@ -467,7 +550,10 @@ describe('createBrowserPageOps', () => {
             insertionData: insertionBytes,
             afterPage: 1,
         });
-        expect(createCombinedPdfFromPaths).toHaveBeenCalledWith(['browser://documents/picked/image.png']);
+        expect(createCombinedPdfFromPaths).toHaveBeenCalledWith(
+            ['browser://documents/picked/image.png'],
+            expect.objectContaining({requestId: expect.stringMatching(/^browser-page-op-insert-/u)}),
+        );
         expect(saveBytesToPickerOrDownload).toHaveBeenCalledTimes(1);
     });
 

@@ -42,6 +42,8 @@ interface ISaveBytesResult {
     handle?: FileSystemFileHandle | null;
 }
 
+interface IBrowserPageOpProgressOptions {requestId?: string;}
+
 interface ICreateBrowserPageOpsOptions {
     clearSearchCaches: () => void;
     openInputAccept: string;
@@ -51,7 +53,10 @@ interface ICreateBrowserPageOpsOptions {
         pickerTypes?: IFilePickerAcceptType[];
     }) => Promise<IPickedBrowserFile[]>;
     buildOpenPdfPickerTypes: () => IFilePickerAcceptType[];
-    createCombinedPdfFromPaths: (paths: string[]) => Promise<Uint8Array>;
+    createCombinedPdfFromPaths: (
+        paths: string[],
+        progressOptions?: IBrowserPageOpProgressOptions,
+    ) => Promise<Uint8Array>;
     pickSaveTarget: (options: {
         suggestedName: string;
         pickerTypes: IFilePickerAcceptType[];
@@ -70,8 +75,8 @@ interface ICreateBrowserPageOpsOptions {
     ) => Promise<void>;
 }
 
-const BROWSER_PAGE_OP_PDF_MAX_BYTES = 48 * 1024 * 1024;
-const BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES = 48 * 1024 * 1024;
+const BROWSER_PAGE_OP_PDF_MAX_BYTES = 64 * 1024 * 1024;
+const BROWSER_PAGE_OP_DIRECT_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES = 128 * 1024 * 1024;
 const BROWSER_PAGE_OP_INSERT_MAX_BYTES = BROWSER_PAGE_OP_IN_PLACE_MUTATION_MAX_BYTES;
 const BROWSER_PAGE_OP_GEOMETRY_MAX_BYTES = 128 * 1024 * 1024;
@@ -382,7 +387,7 @@ export function createBrowserPageOps(
             const insertionData = sourcePaths.length === 1
                 && /\.pdf$/iu.test(getBrowserDocumentFileName(sourcePaths[0]!))
                 ? await browserDocumentStore.read(sourcePaths[0]!)
-                : await options.createCombinedPdfFromPaths(sourcePaths);
+                : await options.createCombinedPdfFromPaths(sourcePaths, {requestId: `browser-page-op-insert-${crypto.randomUUID()}`});
 
             let result: IBrowserPageOpsWorkerResultMap['insertPages'];
             if (workerAvailable) {

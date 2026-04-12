@@ -18,10 +18,44 @@ function toSavedPdfResult(
     }));
 }
 
-function getNormalizedPageIndexes(pageCount: number, pages: number[]) {
-    return pages
-        .map((page) => page - 1)
-        .filter((index) => index >= 0 && index < pageCount);
+function getNormalizedPageIndexes(pages: number[]) {
+    return pages.map((page) => page - 1);
+}
+
+function validatePageNumbers(
+    pages: number[],
+    label: string,
+    options: {
+        pageCount: number;
+        requireUnique?: boolean;
+        requirePermutation?: boolean;
+    },
+) {
+    if (!Array.isArray(pages) || pages.length === 0) {
+        throw new Error(`${label}: must be a non-empty array of page numbers`);
+    }
+
+    const pageSet = new Set<number>();
+    for (const page of pages) {
+        if (!Number.isInteger(page) || page < 1) {
+            throw new Error(`${label}: invalid page number ${page}`);
+        }
+        if (page > options.pageCount) {
+            throw new Error(`${label}: page number ${page} is out of range 1-${options.pageCount}`);
+        }
+        if (options.requireUnique && pageSet.has(page)) {
+            throw new Error(`${label}: duplicate page number ${page}`);
+        }
+        pageSet.add(page);
+    }
+
+    if (options.requirePermutation) {
+        for (let pageNumber = 1; pageNumber <= options.pageCount; pageNumber += 1) {
+            if (!pageSet.has(pageNumber)) {
+                throw new Error(`${label}: missing page ${pageNumber} in reorder payload`);
+            }
+        }
+    }
 }
 
 async function copySelectedPages(options: {
@@ -47,7 +81,11 @@ export async function deletePdfPages(
     pages: number[],
 ): Promise<IPageMutationWorkerResult> {
     const sourcePdf = await PDFDocument.load(data);
-    const removeIndexes = new Set(getNormalizedPageIndexes(sourcePdf.getPageCount(), pages));
+    validatePageNumbers(pages, 'deletePages', {
+        pageCount: sourcePdf.getPageCount(),
+        requireUnique: true,
+    });
+    const removeIndexes = new Set(getNormalizedPageIndexes(pages));
     const keptIndexes = sourcePdf
         .getPageIndices()
         .filter((index) => !removeIndexes.has(index));
@@ -63,10 +101,11 @@ export async function extractPdfPages(
     pages: number[],
 ): Promise<IPageMutationWorkerResult> {
     const sourcePdf = await PDFDocument.load(data);
-    const selectedIndexes = getNormalizedPageIndexes(
-        sourcePdf.getPageCount(),
-        pages,
-    );
+    validatePageNumbers(pages, 'extractPages', {
+        pageCount: sourcePdf.getPageCount(),
+        requireUnique: true,
+    });
+    const selectedIndexes = getNormalizedPageIndexes(pages);
     const { targetPdf } = await copySelectedPages({
         sourcePdf,
         pageIndexes: selectedIndexes,
@@ -79,10 +118,12 @@ export async function reorderPdfPages(
     newOrder: number[],
 ): Promise<IPageMutationWorkerResult> {
     const sourcePdf = await PDFDocument.load(data);
-    const selectedIndexes = getNormalizedPageIndexes(
-        sourcePdf.getPageCount(),
-        newOrder,
-    );
+    validatePageNumbers(newOrder, 'reorderPages', {
+        pageCount: sourcePdf.getPageCount(),
+        requireUnique: true,
+        requirePermutation: true,
+    });
+    const selectedIndexes = getNormalizedPageIndexes(newOrder);
     const { targetPdf } = await copySelectedPages({
         sourcePdf,
         pageIndexes: selectedIndexes,
@@ -97,6 +138,9 @@ export async function insertPdfPages(
 ): Promise<IPageMutationWorkerResult> {
     const destinationPdf = await PDFDocument.load(data);
     const insertionPdf = await PDFDocument.load(insertionData);
+    if (!Number.isInteger(afterPage) || afterPage < 0 || afterPage > destinationPdf.getPageCount()) {
+        throw new Error('Invalid afterPage');
+    }
     const nextPdf = await PDFDocument.create();
     const beforeIndexes = destinationPdf
         .getPageIndices()
@@ -130,6 +174,10 @@ export async function rotatePdfBytes(
     angle: 90 | 180 | 270,
 ): Promise<IPageMutationWorkerResult> {
     const pdfDocument = await PDFDocument.load(data);
+    validatePageNumbers(pages, 'rotatePages', {
+        pageCount: pdfDocument.getPageCount(),
+        requireUnique: true,
+    });
     for (const pageNumber of pages) {
         const page = pdfDocument.getPage(pageNumber - 1);
         if (!page) {
@@ -151,6 +199,10 @@ export async function cropPdfBytes(
     margins: ICropMargins,
 ): Promise<IPageMutationWorkerResult> {
     const pdfDocument = await PDFDocument.load(data);
+    validatePageNumbers(pages, 'cropPages', {
+        pageCount: pdfDocument.getPageCount(),
+        requireUnique: true,
+    });
     for (const pageNumber of pages) {
         const page = pdfDocument.getPage(pageNumber - 1);
         if (!page) {
@@ -177,6 +229,10 @@ export async function removeCropPdfBytes(
     pages: number[],
 ): Promise<IPageMutationWorkerResult> {
     const pdfDocument = await PDFDocument.load(data);
+    validatePageNumbers(pages, 'removeCrop', {
+        pageCount: pdfDocument.getPageCount(),
+        requireUnique: true,
+    });
     for (const pageNumber of pages) {
         const page = pdfDocument.getPage(pageNumber - 1);
         if (!page) {
