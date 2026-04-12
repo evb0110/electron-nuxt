@@ -3,6 +3,7 @@ import {
     PDFDocument,
     PDFName,
 } from 'pdf-lib';
+import UTIF from 'utif';
 import type {
     IDocumentsFileCapability,
     IPdfConformanceProfile,
@@ -54,6 +55,18 @@ interface IPickedBrowserFile {
     handle?: FileSystemFileHandle | null;
 }
 
+interface IUtifFrame {
+    width?: number;
+    height?: number;
+    [key: string]: unknown;
+}
+
+interface IUtifModule {
+    decode(data: Uint8Array | ArrayBufferLike): IUtifFrame[];
+    decodeImage(data: Uint8Array | ArrayBufferLike, ifd: IUtifFrame): void;
+    toRGBA8(ifd: IUtifFrame): Uint8Array;
+}
+
 interface ICreateBrowserDocumentsFileCapabilityOptions {clearSearchCaches: () => void;}
 interface IBrowserBatchOpenProgressOptions {requestId?: string;}
 
@@ -73,8 +86,11 @@ const WORKER_IMAGE_COMBINE_EXTENSIONS = new Set([
     '.jpeg',
     '.jpg',
     '.png',
+    '.tif',
+    '.tiff',
     '.webp',
 ]);
+const UTIF_MODULE = UTIF as IUtifModule;
 
 function toOwnedArrayBuffer(bytes: Uint8Array) {
     if (
@@ -698,12 +714,101 @@ async function normalizeImageBytesToPng(fileName: string, bytes: Uint8Array) {
     }
 }
 
+function createClampedImageData(rgba: Uint8Array, width: number, height: number) {
+    if (typeof ImageData === 'undefined') {
+        throw new Error('ImageData is unavailable in the current browser runtime');
+    }
+
+    const clamped = new Uint8ClampedArray(rgba.byteLength);
+    clamped.set(rgba);
+    return new ImageData(clamped, width, height);
+}
+
+async function encodeRgbaToPngBytes(
+    width: number,
+    height: number,
+    rgba: Uint8Array,
+) {
+    if (typeof document === 'undefined') {
+        throw new Error('Canvas 2D context is unavailable');
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) {
+        throw new Error('Canvas 2D context is unavailable');
+    }
+
+    context.putImageData(createClampedImageData(rgba, width, height), 0, 0);
+    const pngBlob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((nextBlob) => {
+            if (!nextBlob) {
+                reject(new Error('Failed to convert image to PNG'));
+                return;
+            }
+
+            resolve(nextBlob);
+        }, 'image/png');
+    });
+
+    return new Uint8Array(await pngBlob.arrayBuffer());
+}
+
+async function embedTiffPages(
+    pdfDocument: PDFDocument,
+    fileName: string,
+    bytes: Uint8Array,
+) {
+    const ifds = UTIF_MODULE.decode(bytes);
+    let addedPages = 0;
+
+    for (const ifd of ifds) {
+        UTIF_MODULE.decodeImage(bytes, ifd);
+
+        const width = typeof ifd.width === 'number' ? ifd.width : 0;
+        const height = typeof ifd.height === 'number' ? ifd.height : 0;
+        if (width <= 0 || height <= 0) {
+            continue;
+        }
+
+        const rgba = UTIF_MODULE.toRGBA8(ifd);
+        if (!rgba || rgba.byteLength === 0) {
+            continue;
+        }
+
+        const pngBytes = await encodeRgbaToPngBytes(width, height, rgba);
+        const image = await pdfDocument.embedPng(pngBytes);
+        const page = pdfDocument.addPage([
+            image.width,
+            image.height,
+        ]);
+        page.drawImage(image, {
+            x: 0,
+            y: 0,
+            width: image.width,
+            height: image.height,
+        });
+        addedPages += 1;
+    }
+
+    if (addedPages === 0) {
+        throw new Error(`Failed to decode TIFF image: ${fileName}`);
+    }
+}
+
 async function embedImagePage(
     pdfDocument: PDFDocument,
     fileName: string,
     bytes: Uint8Array,
 ) {
     const extension = getExtension(fileName);
+    if (extension === '.tif' || extension === '.tiff') {
+        await embedTiffPages(pdfDocument, fileName, bytes);
+        return;
+    }
+
     if (extension === '.jpg' || extension === '.jpeg') {
         const image = await pdfDocument.embedJpg(bytes);
         const page = pdfDocument.addPage([

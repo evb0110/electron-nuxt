@@ -15,6 +15,11 @@ const browserPdfCombineWorkerMock = vi.hoisted(() => ({
     })),
     run: vi.fn(),
 }));
+const utifMock = vi.hoisted(() => ({
+    decode: vi.fn(() => []),
+    decodeImage: vi.fn(),
+    toRGBA8: vi.fn(() => new Uint8Array()),
+}));
 
 vi.mock('@app/platform/browser-api/browser-pdf-combine-worker-client', () => ({
     BrowserPdfCombineWorkerUnavailableError: class BrowserPdfCombineWorkerUnavailableError extends Error {},
@@ -24,6 +29,11 @@ vi.mock('@app/platform/browser-api/browser-pdf-combine-worker-client', () => ({
     runBrowserPdfCombineWorkerRequest: (type: string, payload: unknown) =>
         browserPdfCombineWorkerMock.run(type, payload),
 }));
+vi.mock('utif', () => ({default: {
+    decode: (...args: Parameters<typeof utifMock.decode>) => utifMock.decode(...args),
+    decodeImage: (...args: Parameters<typeof utifMock.decodeImage>) => utifMock.decodeImage(...args),
+    toRGBA8: (...args: Parameters<typeof utifMock.toRGBA8>) => utifMock.toRGBA8(...args), 
+}}));
 
 function cast<T>(value: unknown): T {
     return value as T;
@@ -268,6 +278,11 @@ describe('createBrowserDocumentsFileCapability', () => {
         browserPdfCombineWorkerMock.canUse.mockReturnValue(false);
         browserPdfCombineWorkerMock.cloneInput.mockClear();
         browserPdfCombineWorkerMock.run.mockReset();
+        utifMock.decode.mockReset();
+        utifMock.decode.mockReturnValue([]);
+        utifMock.decodeImage.mockReset();
+        utifMock.toRGBA8.mockReset();
+        utifMock.toRGBA8.mockReturnValue(new Uint8Array());
     });
 
     it('cleans up transient source refs via cleanupFile', async () => {
@@ -553,9 +568,49 @@ describe('createBrowserDocumentsFileCapability', () => {
                     4,
                     5,
                     6,
-                ]),
+                ]), 
             },
         ]});
+    });
+
+    it('offloads TIFF combine jobs to the browser worker when available', async () => {
+        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documents-file-capability');
+        const tiffRef = await browserDocumentStore.createStoredDocument(
+            'scan.tiff',
+            new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            {
+                mimeType: 'image/tiff',
+                kind: 'source',
+                saveKind: 'generic',
+            },
+        );
+        browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
+        browserPdfCombineWorkerMock.run.mockResolvedValue({data: new Uint8Array([
+            7,
+            8,
+            9,
+        ])});
+
+        const result = await createCombinedPdfFromPaths([tiffRef]);
+
+        expect(result).toEqual(new Uint8Array([
+            7,
+            8,
+            9,
+        ]));
+        expect(browserPdfCombineWorkerMock.run).toHaveBeenCalledWith('combinePdfs', {inputs: [{
+            fileName: 'scan.tiff',
+            data: new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+        }]});
     });
 
     it('keeps unsupported image combine formats on the direct fallback path', async () => {
@@ -579,6 +634,162 @@ describe('createBrowserDocumentsFileCapability', () => {
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
 
         await expect(createCombinedPdfFromPaths([svgRef])).rejects.toThrow();
+        expect(browserPdfCombineWorkerMock.run).not.toHaveBeenCalled();
+    });
+
+    it('creates one PDF page per TIFF frame on the direct browser fallback path', async () => {
+        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documents-file-capability');
+        const tinyPngBytes = new Uint8Array([
+            137,
+            80,
+            78,
+            71,
+            13,
+            10,
+            26,
+            10,
+            0,
+            0,
+            0,
+            13,
+            73,
+            72,
+            68,
+            82,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            1,
+            8,
+            6,
+            0,
+            0,
+            0,
+            31,
+            21,
+            196,
+            137,
+            0,
+            0,
+            0,
+            13,
+            73,
+            68,
+            65,
+            84,
+            120,
+            156,
+            99,
+            248,
+            15,
+            4,
+            0,
+            9,
+            251,
+            3,
+            253,
+            160,
+            90,
+            111,
+            167,
+            0,
+            0,
+            0,
+            0,
+            73,
+            69,
+            78,
+            68,
+            174,
+            66,
+            96,
+            130,
+        ]);
+        const tiffRef = await browserDocumentStore.createStoredDocument(
+            'scan.tif',
+            new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            {
+                mimeType: 'image/tiff',
+                kind: 'source',
+                saveKind: 'generic',
+            },
+        );
+
+        utifMock.decode.mockReturnValue([
+            {
+                width: 2,
+                height: 2,
+            },
+            {
+                width: 1,
+                height: 3,
+            },
+        ] as never);
+        utifMock.toRGBA8
+            .mockReturnValueOnce(new Uint8Array(2 * 2 * 4).fill(255))
+            .mockReturnValueOnce(new Uint8Array(1 * 3 * 4).fill(128));
+
+        const putImageData = vi.fn();
+        vi.stubGlobal('ImageData', class {
+            public constructor(
+                public readonly data: Uint8ClampedArray,
+                public readonly width: number,
+                public readonly height: number,
+            ) {}
+        });
+        vi.stubGlobal('document', {
+            cookie: '',
+            body: {
+                append() {},
+                appendChild() {},
+                removeChild() {},
+            },
+            createElement(tagName: string) {
+                if (tagName === 'canvas') {
+                    return {
+                        width: 0,
+                        height: 0,
+                        getContext() {
+                            return { putImageData };
+                        },
+                        toBlob(callback: (blob: Blob | null) => void) {
+                            callback(new Blob([tinyPngBytes], { type: 'image/png' }));
+                        },
+                    };
+                }
+
+                return createMockElement(tagName);
+            },
+            createElementNS(_namespace: string, tagName: string) {
+                return createMockElement(tagName);
+            },
+            createTextNode(text: string) {
+                return { nodeValue: text };
+            },
+            createComment(text: string) {
+                return { nodeValue: text };
+            },
+            querySelector() {
+                return null;
+            },
+        });
+
+        const result = await createCombinedPdfFromPaths([tiffRef]);
+        const document = await PDFDocument.load(result);
+
+        expect(document.getPageCount()).toBe(2);
+        expect(utifMock.decode).toHaveBeenCalledTimes(1);
+        expect(utifMock.decodeImage).toHaveBeenCalledTimes(2);
+        expect(putImageData).toHaveBeenCalledTimes(2);
         expect(browserPdfCombineWorkerMock.run).not.toHaveBeenCalled();
     });
 
