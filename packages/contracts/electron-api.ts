@@ -123,7 +123,13 @@ interface IPageOpsAPI {
     extract: (workingCopyPath: TDocumentRef, pages: number[]) => Promise<IPageOpsExtractResult>;
     reorder: (workingCopyPath: TDocumentRef, newOrder: number[]) => Promise<IPageOpsResult>;
     insert: (workingCopyPath: TDocumentRef, totalPages: number, afterPage: number) => Promise<IPageOpsInsertResult>;
-    insertFile: (workingCopyPath: TDocumentRef, totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) => Promise<IPageOpsResult>;
+    insertFile: (
+        workingCopyPath: TDocumentRef,
+        totalPages: number,
+        afterPage: number,
+        sourcePaths: TDocumentRef[],
+        requestId?: string,
+    ) => Promise<IPageOpsResult>;
     rotate: (workingCopyPath: TDocumentRef, pages: number[], angle: TPageOpsRotationAngle) => Promise<IPageOpsResult>;
     crop: (workingCopyPath: TDocumentRef, pages: number[], margins: ICropMargins) => Promise<IPageOpsResult>;
     removeCrop: (workingCopyPath: TDocumentRef, pages: number[]) => Promise<IPageOpsResult>;

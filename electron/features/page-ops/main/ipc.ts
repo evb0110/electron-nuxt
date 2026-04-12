@@ -429,6 +429,7 @@ async function handlePageOpsInsertFile(
     totalPages: number,
     afterPage: number,
     sourcePaths: string[],
+    _requestId?: string,
 ) {
     const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
 

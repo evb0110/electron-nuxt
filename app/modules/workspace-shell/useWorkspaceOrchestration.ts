@@ -520,6 +520,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleStatusSaveClick,
         handleStatusShowInFolderClick,
         isPageOperationInProgress,
+        pageOpBatchProgress,
         pageOpsDelete,
         pageOpsExtract,
         pageOpsInsert,
@@ -976,6 +977,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         handleStatusShowInFolderClick,
 
         isPageOperationInProgress,
+        pageOpBatchProgress,
         pageOpsDelete,
         pageOpsExtract,
         pageOpsInsert,

@@ -19,9 +19,28 @@ const pageOpsApi = {
     removeCrop: vi.fn(),
 };
 
+type TBatchProgressListener = (progress: {
+    requestId: string;
+    processed: number;
+    total: number;
+    percent: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number | null;
+}) => void;
+
+const progressListeners = new Set<TBatchProgressListener>();
+
 const loggerError = vi.fn();
 
-vi.mock('@app/utils/platform-documents', () => ({ getPageOpsCapability: () => pageOpsApi }));
+vi.mock('@app/utils/platform-documents', () => ({
+    getPageOpsCapability: () => pageOpsApi,
+    getDocumentsCapability: () => ({onOpenPdfDirectBatchProgress: (callback: TBatchProgressListener) => {
+        progressListeners.add(callback);
+        return () => {
+            progressListeners.delete(callback);
+        };
+    }}),
+}));
 
 vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {error: (...args: unknown[]) => loggerError(...args)}}));
 
@@ -71,6 +90,7 @@ function createHarness(path: string | null = '/tmp/work.pdf') {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    progressListeners.clear();
 });
 
 describe('usePageOperations', () => {
@@ -186,5 +206,67 @@ describe('usePageOperations', () => {
 
         expect(pageOpsApi.reorder).not.toHaveBeenCalled();
         expect(pageOps.isOperationInProgress.value).toBe(false);
+    });
+
+    it('tracks browser combine progress during multi-file insert jobs', async () => {
+        const { pageOps } = createHarness();
+        const pendingInsert = deferred<{ success: boolean }>();
+        pageOpsApi.insertFile.mockImplementationOnce(
+            async (
+                _path: string,
+                _totalPages: number,
+                _afterPage: number,
+                _sourcePaths: string[],
+                requestId?: string,
+            ) => {
+                if (!requestId) {
+                    throw new Error('Expected requestId for multi-file insert');
+                }
+
+                progressListeners.forEach((listener) => {
+                    listener({
+                        requestId,
+                        processed: 2,
+                        total: 3,
+                        percent: 66,
+                        elapsedMs: 1200,
+                        estimatedRemainingMs: 600,
+                    });
+                });
+
+                return pendingInsert.promise;
+            },
+        );
+
+        const insertPromise = pageOps.insertFile(5, 2, [
+            'browser://documents/a.pdf',
+            'browser://documents/b.png',
+            'browser://documents/c.pdf',
+        ]);
+        await Promise.resolve();
+
+        expect(pageOps.batchProgress.value).toEqual({
+            processed: 2,
+            total: 3,
+            percent: 66,
+            elapsedMs: 1200,
+            estimatedRemainingMs: 600,
+        });
+
+        pendingInsert.resolve({ success: true });
+        await expect(insertPromise).resolves.toBe(true);
+
+        expect(pageOpsApi.insertFile).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            5,
+            2,
+            [
+                'browser://documents/a.pdf',
+                'browser://documents/b.png',
+                'browser://documents/c.pdf',
+            ],
+            expect.stringMatching(/^browser-page-op-insert-/u),
+        );
+        expect(pageOps.batchProgress.value).toBeNull();
     });
 });
