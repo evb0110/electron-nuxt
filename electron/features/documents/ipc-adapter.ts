@@ -64,6 +64,16 @@ export function registerDocumentsIpcAdapter(
             service.validatePdfData(event, data, fileName),
     );
     registrar.handle(
+        DOCUMENTS_CHANNELS.pdfOpenInDefaultAppData,
+        (event: IpcMainInvokeEvent, data: Uint8Array, fileName?: string) =>
+            service.openPdfInDefaultAppData(event, data, fileName),
+    );
+    registrar.handle(
+        DOCUMENTS_CHANNELS.pdfOpenInDefaultAppPath,
+        (event: IpcMainInvokeEvent, filePath: string, fileName?: string) =>
+            service.openPdfInDefaultAppPath(event, filePath, fileName),
+    );
+    registrar.handle(
         DOCUMENTS_CHANNELS.pdfPrintData,
         (event: IpcMainInvokeEvent, data: Uint8Array, fileName?: string) =>
             service.printPdfData(event, data, fileName),

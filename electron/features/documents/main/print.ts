@@ -1,6 +1,7 @@
 import {
     app,
     BrowserWindow,
+    shell,
 } from 'electron';
 import {
     unlink,
@@ -26,6 +27,11 @@ interface IPrintPdfResult {
     error?: string;
 }
 
+interface IOpenPdfInDefaultAppResult {
+    success: boolean;
+    error?: string;
+}
+
 function normalizePrintableFileName(fileName?: string) {
     const trimmed = typeof fileName === 'string' ? fileName.trim() : '';
     const safeBaseName = Array.from(basename(trimmed || 'document.pdf'))
@@ -46,6 +52,26 @@ function normalizePrintableFileName(fileName?: string) {
 
 function toOwnedBuffer(data: Uint8Array) {
     return Buffer.from(data);
+}
+
+async function openPdfInDefaultApp(path: string): Promise<IOpenPdfInDefaultAppResult> {
+    try {
+        const result = await shell.openPath(path);
+        if (!result) {
+            return { success: true };
+        }
+
+        return {
+            success: false,
+            error: result,
+        };
+    } catch (error) {
+        logger.warn(`Failed to open PDF in the default app: ${error instanceof Error ? error.message : String(error)}`);
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to open the default PDF app',
+        };
+    }
 }
 
 function createPrintWindow(ownerWindow?: BrowserWindow) {
@@ -142,6 +168,29 @@ export async function handlePrintPdfData(
     } finally {
         await unlink(tempPath).catch(() => undefined);
     }
+}
+
+export async function handleOpenPdfInDefaultAppData(
+    _event: Electron.IpcMainInvokeEvent,
+    data: Uint8Array,
+    fileName?: string,
+): Promise<IOpenPdfInDefaultAppResult> {
+    if (!(data instanceof Uint8Array) || data.byteLength === 0) {
+        throw new Error('Invalid PDF handoff payload');
+    }
+
+    const tempFileName = `${randomUUID()}-${normalizePrintableFileName(fileName)}`;
+    const tempPath = join(app.getPath('temp'), tempFileName);
+    await writeFile(tempPath, toOwnedBuffer(data));
+    return openPdfInDefaultApp(tempPath);
+}
+
+export function handleOpenPdfInDefaultAppPath(
+    _event: Electron.IpcMainInvokeEvent,
+    filePath: string,
+    _fileName?: string,
+): Promise<IOpenPdfInDefaultAppResult> {
+    return openPdfInDefaultApp(filePath);
 }
 
 export function handlePrintPdfPath(

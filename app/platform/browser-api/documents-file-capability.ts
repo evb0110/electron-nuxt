@@ -1175,6 +1175,18 @@ export function createBrowserDocumentsFileCapability(
         async validatePdfData(data) {
             return validateBrowserPdfData(data);
         },
+        openPdfInDefaultAppData() {
+            return Promise.resolve({
+                success: false,
+                error: 'Opening via the default desktop PDF app is unavailable in the browser capability',
+            });
+        },
+        openPdfInDefaultAppPath() {
+            return Promise.resolve({
+                success: false,
+                error: 'Opening via the default desktop PDF app is unavailable in the browser capability',
+            });
+        },
         printPdfData() {
             return Promise.resolve({
                 success: false,
