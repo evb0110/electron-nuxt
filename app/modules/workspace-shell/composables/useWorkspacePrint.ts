@@ -18,7 +18,6 @@ import {
     getDocumentsCapability,
     isNativePrintCapabilityUnavailable,
 } from '@app/utils/platform-documents';
-import { isDesktopPlatformActive } from '@app/utils/platform';
 
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
@@ -84,10 +83,6 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
     const printStatus = computed(() => isPreparingPrint.value ? t('print.preparing') : null);
     let removeAfterPrintListener: (() => void) | null = null;
     let browserPrintCleanupTimer: number | null = null;
-
-    function shouldOpenDesktopPdfInDefaultApp() {
-        return isDesktopPlatformActive();
-    }
 
     function shouldBypassNativePrintDialog() {
         return false;
@@ -308,23 +303,6 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         throw new Error(result.error || 'Failed to open the native print dialog');
     }
 
-    async function tryOpenPdfInDefaultAppForPdfData(printablePdfData: Uint8Array) {
-        if (!shouldOpenDesktopPdfInDefaultApp()) {
-            return false;
-        }
-
-        const result = await getDocumentsCapability().openPdfInDefaultAppData(
-            printablePdfData,
-            deps.fileName.value ?? undefined,
-        );
-        if (!result.success) {
-            return false;
-        }
-
-        printDialogOpen.value = false;
-        return true;
-    }
-
     async function tryOpenNativePrintDialogForResolvedPath(
         path: string | null | undefined,
         options: { force?: boolean; } = {},
@@ -353,23 +331,6 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         throw new Error(result.error || 'Failed to open the native print dialog');
     }
 
-    async function tryOpenPdfInDefaultAppForResolvedPath(path: string | null | undefined) {
-        if (!path || !shouldOpenDesktopPdfInDefaultApp()) {
-            return false;
-        }
-
-        const result = await getDocumentsCapability().openPdfInDefaultAppPath(
-            path,
-            deps.fileName.value ?? undefined,
-        );
-        if (!result.success) {
-            return false;
-        }
-
-        printDialogOpen.value = false;
-        return true;
-    }
-
     async function tryOpenNativePrintDialogForPath(options: { force?: boolean; } = {}) {
         return tryOpenNativePrintDialogForResolvedPath(deps.workingCopyPath.value, options);
     }
@@ -395,29 +356,17 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
             return false;
         }
 
-        if (await tryOpenPdfInDefaultAppForResolvedPath(deps.workingCopyPath.value)) {
-            return true;
-        }
-
         if (await tryOpenNativePrintDialogForPath()) {
             return true;
         }
 
         const sourcePdf = deps.sourcePdf.value;
         if (isPathPdfSource(sourcePdf)) {
-            if (await tryOpenPdfInDefaultAppForResolvedPath(sourcePdf.path)) {
-                return true;
-            }
-
             return tryOpenNativePrintDialogForResolvedPath(sourcePdf.path);
         }
 
         if (sourcePdf instanceof Blob) {
             const sourcePdfBytes = new Uint8Array(await sourcePdf.arrayBuffer());
-
-            if (await tryOpenPdfInDefaultAppForPdfData(sourcePdfBytes)) {
-                return true;
-            }
 
             if (await tryOpenNativePrintDialogForPdfData(sourcePdfBytes)) {
                 return true;
@@ -445,20 +394,12 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
             return false;
         }
 
-        if (await tryOpenPdfInDefaultAppForResolvedPath(deps.workingCopyPath.value)) {
-            return true;
-        }
-
         if (await tryOpenNativePrintDialogForPath()) {
             return true;
         }
 
         const sourcePdf = deps.sourcePdf.value;
-        if (isPathPdfSource(sourcePdf) && await tryOpenPdfInDefaultAppForResolvedPath(sourcePdf.path)) {
-            return true;
-        }
-
-        if (await tryOpenPdfInDefaultAppForPdfData(sourceData)) {
+        if (isPathPdfSource(sourcePdf) && await tryOpenNativePrintDialogForResolvedPath(sourcePdf.path)) {
             return true;
         }
 
@@ -508,10 +449,6 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
             const printablePdfData = await buildPrintablePdfData(sourceData, payload);
             if (!printablePdfData) {
                 throw new Error('Failed to prepare printable PDF data');
-            }
-
-            if (await tryOpenPdfInDefaultAppForPdfData(printablePdfData)) {
-                return;
             }
 
             if (!(await tryOpenNativePrintDialogForPdfData(printablePdfData))) {
