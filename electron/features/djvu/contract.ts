@@ -1,5 +1,6 @@
 export const DJVU_CHANNELS = {
     openForViewing: 'djvu:openForViewing',
+    releaseViewingPath: 'djvu:releaseViewingPath',
     convertToPdf: 'djvu:convertToPdf',
     cancel: 'djvu:cancel',
     getInfo: 'djvu:getInfo',

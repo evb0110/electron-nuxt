@@ -46,6 +46,7 @@ import {
     runBrowserPdfCombineWorkerRequest,
 } from '@app/platform/browser-api/browser-pdf-combine-worker-client';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
+import { emitBrowserOpenPdfDirectBatchProgress } from '@app/platform/browser-api/documents-menu-capability';
 import { stripPdfEncryption } from '@app/utils/pdf-decrypt';
 
 interface IPickedBrowserFile {
@@ -54,6 +55,7 @@ interface IPickedBrowserFile {
 }
 
 interface ICreateBrowserDocumentsFileCapabilityOptions {clearSearchCaches: () => void;}
+interface IBrowserBatchOpenProgressOptions {requestId?: string;}
 
 const pdfBinaryDecoder = new TextDecoder('latin1');
 const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
@@ -190,6 +192,42 @@ function buildBrowserLargeDownloadFallbackError(
     maxBytes: number,
 ) {
     return buildBrowserLargeJobError(label, maxBytes, BROWSER_LARGE_SAVE_HANDLE_HINT);
+}
+
+function emitBatchOpenProgress(
+    options: IBrowserBatchOpenProgressOptions | undefined,
+    processed: number,
+    total: number,
+    startedAt: number,
+) {
+    const requestId = options?.requestId?.trim();
+    if (!requestId) {
+        return;
+    }
+
+    const safeTotal = Math.max(total, 0);
+    const safeProcessed = safeTotal > 0
+        ? Math.min(Math.max(processed, 0), safeTotal)
+        : 0;
+    const elapsedMs = Math.max(0, Date.now() - startedAt);
+    const percent = safeTotal > 0
+        ? (safeProcessed / safeTotal) * 100
+        : 100;
+    const estimatedRemainingMs = safeProcessed > 0 && safeProcessed < safeTotal
+        ? Math.max(
+            0,
+            Math.round((elapsedMs / safeProcessed) * (safeTotal - safeProcessed)),
+        )
+        : null;
+
+    emitBrowserOpenPdfDirectBatchProgress({
+        requestId,
+        processed: safeProcessed,
+        total: safeTotal,
+        percent,
+        elapsedMs,
+        estimatedRemainingMs,
+    });
 }
 
 async function ensureBrowserCombinedPdfInputBudget(paths: string[]) {
@@ -695,9 +733,14 @@ async function embedImagePage(
     });
 }
 
-export async function createCombinedPdfFromPaths(paths: string[]) {
+export async function createCombinedPdfFromPaths(
+    paths: string[],
+    progressOptions?: IBrowserBatchOpenProgressOptions,
+) {
     await ensureBrowserCombinedPdfInputBudget(paths);
     await ensureBrowserCombinedPdfRewriteBudget(paths);
+    const startedAt = Date.now();
+    const totalPaths = paths.length;
 
     if (canCombineBrowserPathsOffThread(paths) && canUseBrowserPdfCombineWorker()) {
         const inputs = [];
@@ -713,10 +756,12 @@ export async function createCombinedPdfFromPaths(paths: string[]) {
                 getBrowserDocumentFileName(path),
                 data,
             ));
+            emitBatchOpenProgress(progressOptions, index + 1, totalPaths, startedAt);
         }
 
         try {
             const result = await runBrowserPdfCombineWorkerRequest('combinePdfs', { inputs });
+            emitBatchOpenProgress(progressOptions, totalPaths, totalPaths, startedAt);
             return result.data;
         } catch (error) {
             if (
@@ -751,10 +796,12 @@ export async function createCombinedPdfFromPaths(paths: string[]) {
                 sourcePdf.getPageIndices(),
             );
             copiedPages.forEach((page) => pdfDocument.addPage(page));
+            emitBatchOpenProgress(progressOptions, index + 1, totalPaths, startedAt);
             continue;
         }
 
         await embedImagePage(pdfDocument, fileName, bytes);
+        emitBatchOpenProgress(progressOptions, index + 1, totalPaths, startedAt);
     }
 
     await yieldToBrowser();
@@ -826,7 +873,11 @@ async function createBrowserWorkingCopyFromBytes(options: {
     return workingPath;
 }
 
-async function openDocumentPaths(paths: string[]) {
+async function openDocumentPaths(
+    paths: string[],
+    progressOptions?: IBrowserBatchOpenProgressOptions,
+) {
+    const startedAt = Date.now();
     const normalizedPaths = paths
         .filter((path) => typeof path === 'string')
         .map((path) => path.trim())
@@ -848,6 +899,7 @@ async function openDocumentPaths(paths: string[]) {
         }
 
         await browserDocumentStore.touchRecentFile(firstPath);
+        emitBatchOpenProgress(progressOptions, 1, 1, startedAt);
         return {
             kind: 'djvu',
             workingPath: '',
@@ -866,6 +918,7 @@ async function openDocumentPaths(paths: string[]) {
         await decryptBrowserWorkingCopy(workingPath);
         await browserDocumentStore.touchRecentFile(sourcePath);
         browserDocumentStore.unload(sourcePath);
+        emitBatchOpenProgress(progressOptions, 1, 1, startedAt);
         return {
             kind: 'pdf',
             workingPath,
@@ -873,7 +926,10 @@ async function openDocumentPaths(paths: string[]) {
         } satisfies TOpenFileResult;
     }
 
-    const combinedPdf = await createCombinedPdfFromPaths(normalizedPaths);
+    const combinedPdf = await createCombinedPdfFromPaths(
+        normalizedPaths,
+        progressOptions,
+    );
     const generatedName =
         normalizedPaths.length === 1
             ? ensurePdfExtension(firstFileName.replace(/\.[^.]+$/u, ''))
@@ -1027,8 +1083,8 @@ export function createBrowserDocumentsFileCapability(
 
             return openDocumentPaths([path]);
         },
-        async openPdfDirectBatch(paths) {
-            return openDocumentPaths(paths);
+        async openPdfDirectBatch(paths, requestId) {
+            return openDocumentPaths(paths, { requestId });
         },
         async savePdfAs(workingCopyPath) {
             const saveTarget =

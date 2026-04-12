@@ -207,6 +207,7 @@ interface IWindowTabsApi {
 
 interface IDjvuAPI {
     openForViewing: (djvuPath: TDocumentRef) => Promise<IDjvuOpenResult>;
+    releaseViewingPath: (djvuPath: TDocumentRef) => Promise<void>;
     convertToPdf: (djvuPath: TDocumentRef, outputPath: string, options: IDjvuConvertOptions) => Promise<IDjvuConvertResult>;
     cancel: (jobId: string) => Promise<{ canceled: boolean }>;
     getInfo: (djvuPath: TDocumentRef) => Promise<IDjvuInfo>;

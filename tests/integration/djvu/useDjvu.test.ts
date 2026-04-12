@@ -27,6 +27,7 @@ const mockElectronAPI = {
         onViewingReady: vi.fn(() => vi.fn()),
         onViewingError: vi.fn((_callback: (data: IViewingErrorData) => void) => vi.fn()),
         openForViewing: vi.fn(),
+        releaseViewingPath: vi.fn(),
         convertToPdf: vi.fn(),
         cancel: vi.fn(),
         cleanupTemp: vi.fn(),
@@ -39,30 +40,33 @@ const mockElectronAPI = {
     },
 };
 
+const mockDjvuModeState = {
+    isDjvuMode: ref(false),
+    djvuSourcePath: ref<string | null>(null),
+    djvuTempPdfPath: ref<string | null>(null),
+};
+
 vi.mock('@app/utils/platform', () => ({
     getPlatformAPI: () => mockElectronAPI,
     getElectronAPI: () => mockElectronAPI,
 }));
 
 vi.mock('@app/composables/useDjvuMode', () => {
-    const isDjvuMode = ref(false);
-    const djvuSourcePath = ref<string | null>(null);
-    const djvuTempPdfPath = ref<string | null>(null);
     const enterDjvuMode = vi.fn((source: string, temp: string | null = null) => {
-        isDjvuMode.value = true;
-        djvuSourcePath.value = source;
-        djvuTempPdfPath.value = temp;
+        mockDjvuModeState.isDjvuMode.value = true;
+        mockDjvuModeState.djvuSourcePath.value = source;
+        mockDjvuModeState.djvuTempPdfPath.value = temp;
     });
     const exitDjvuMode = vi.fn(() => {
-        isDjvuMode.value = false;
-        djvuSourcePath.value = null;
-        djvuTempPdfPath.value = null;
+        mockDjvuModeState.isDjvuMode.value = false;
+        mockDjvuModeState.djvuSourcePath.value = null;
+        mockDjvuModeState.djvuTempPdfPath.value = null;
     });
 
     return {useDjvuMode: () => ({
-        isDjvuMode,
-        djvuSourcePath,
-        djvuTempPdfPath,
+        isDjvuMode: mockDjvuModeState.isDjvuMode,
+        djvuSourcePath: mockDjvuModeState.djvuSourcePath,
+        djvuTempPdfPath: mockDjvuModeState.djvuTempPdfPath,
         isDjvuFeatureDisabled: vi.fn(() => false),
         enterDjvuMode,
         exitDjvuMode,
@@ -79,6 +83,9 @@ describe('useDjvu', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mockDjvuModeState.isDjvuMode.value = false;
+        mockDjvuModeState.djvuSourcePath.value = null;
+        mockDjvuModeState.djvuTempPdfPath.value = null;
         mockElectronAPI.djvu.onProgress.mockReturnValue(vi.fn());
         mockElectronAPI.djvu.onViewingReady.mockReturnValue(vi.fn());
         mockElectronAPI.documents.cleanupFile.mockResolvedValue(undefined);
@@ -210,6 +217,22 @@ describe('useDjvu', () => {
             await openPromise;
 
             expect(djvu.openingPath.value).toBeNull();
+        });
+
+        it('releases the previous DjVu viewing path when switching files', async () => {
+            mockElectronAPI.djvu.openForViewing.mockResolvedValue({
+                success: true,
+                pageCount: 2,
+                jobId: 'job-next',
+            });
+            mockDjvuModeState.isDjvuMode.value = true;
+            mockDjvuModeState.djvuSourcePath.value = '/existing.djvu';
+
+            const djvu = useDjvu();
+
+            await djvu.openDjvuFile('/next.djvu', vi.fn(async () => {}));
+
+            expect(mockElectronAPI.djvu.releaseViewingPath).toHaveBeenCalledWith('/existing.djvu');
         });
     });
 

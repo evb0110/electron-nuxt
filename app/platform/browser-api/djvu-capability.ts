@@ -734,6 +734,7 @@ export const browserDjvuCapability: IDjvuCapability = {
                     : 'DjVu viewing failed',
         }));
     },
+    async releaseViewingPath(_djvuPath) {},
     async convertToPdf(djvuPath, outputPath, options) {
         if (!isBrowserDocumentRef(outputPath)) {
             return {

@@ -38,6 +38,9 @@ import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('documents-dialogs');
+function getOpenDialogParentWindow() {
+    return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+}
 
 interface IOpenPdfResult {
     kind: 'pdf';
@@ -306,7 +309,8 @@ export function handleShowItemInFolder(
 }
 
 export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
-    const result = await dialog.showOpenDialog({
+    const parentWindow = getOpenDialogParentWindow();
+    const dialogOptions = {
         title: te('dialogs.openDocument'),
         filters: [{
             name: te('dialogs.documentsFilter'),
@@ -321,7 +325,10 @@ export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
             'openFile',
             'multiSelections',
         ],
-    });
+    } satisfies Electron.OpenDialogOptions;
+    const result = parentWindow
+        ? await dialog.showOpenDialog(parentWindow, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions);
 
     if (result.canceled || result.filePaths.length === 0) {
         return null;
@@ -336,7 +343,8 @@ export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
 }
 
 export async function handleOpenCombineDialog(): Promise<IOpenFileResult | null> {
-    const result = await dialog.showOpenDialog({
+    const parentWindow = getOpenDialogParentWindow();
+    const dialogOptions = {
         title: te('dialogs.combineFiles'),
         filters: [{
             name: te('dialogs.documentsFilter'),
@@ -349,7 +357,10 @@ export async function handleOpenCombineDialog(): Promise<IOpenFileResult | null>
             'openFile',
             'multiSelections',
         ],
-    });
+    } satisfies Electron.OpenDialogOptions;
+    const result = parentWindow
+        ? await dialog.showOpenDialog(parentWindow, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions);
 
     if (result.canceled || result.filePaths.length === 0) {
         return null;
@@ -364,7 +375,8 @@ export async function handleOpenCombineDialog(): Promise<IOpenFileResult | null>
 }
 
 export async function handleOpenImageDialog(): Promise<string | null> {
-    const result = await dialog.showOpenDialog({
+    const parentWindow = getOpenDialogParentWindow();
+    const dialogOptions = {
         title: te('dialogs.openImage'),
         filters: [{
             name: te('dialogs.imagesFilter'),
@@ -383,7 +395,10 @@ export async function handleOpenImageDialog(): Promise<string | null> {
             ],
         }],
         properties: ['openFile'],
-    });
+    } satisfies Electron.OpenDialogOptions;
+    const result = parentWindow
+        ? await dialog.showOpenDialog(parentWindow, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions);
 
     if (result.canceled || result.filePaths.length === 0) {
         return null;

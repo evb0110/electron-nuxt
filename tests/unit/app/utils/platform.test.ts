@@ -20,8 +20,8 @@ describe('platform runtime detection', () => {
         expect(isElectronRoutePath('/workspace')).toBe(false);
     });
 
-    it('uses the route as an SSR hint when electron api is unavailable', () => {
-        expect(resolveInitialDesktopRuntime('/electron', false)).toBe(true);
+    it('does not classify the desktop runtime from the route alone', () => {
+        expect(resolveInitialDesktopRuntime('/electron', false)).toBe(false);
         expect(resolveInitialDesktopRuntime('/', false)).toBe(false);
     });
 
@@ -37,9 +37,9 @@ describe('platform runtime detection', () => {
         expect(isBrowserPlatformActive(false)).toBe(true);
     });
 
-    it('prefers the desktop platform when runtime state or route requires it', () => {
+    it('prefers the desktop platform only when runtime state or the bridge requires it', () => {
         expect(shouldPreferDesktopPlatform('/', true, false)).toBe(true);
-        expect(shouldPreferDesktopPlatform('/electron', false, false)).toBe(true);
+        expect(shouldPreferDesktopPlatform('/electron', false, false)).toBe(false);
         expect(shouldPreferDesktopPlatform('/', false, true)).toBe(true);
         expect(shouldPreferDesktopPlatform('/', false, false)).toBe(false);
     });

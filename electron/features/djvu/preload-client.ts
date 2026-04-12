@@ -40,6 +40,8 @@ export function createDjvuPreloadClient(ipcRenderer: IpcRenderer): IDjvuCapabili
     return {
         openForViewing: (djvuPath: string) =>
             invoke<Awaited<ReturnType<IDjvuCapability['openForViewing']>>>(DJVU_CHANNELS.openForViewing, djvuPath),
+        releaseViewingPath: (djvuPath: string) =>
+            invoke<Awaited<ReturnType<IDjvuCapability['releaseViewingPath']>>>(DJVU_CHANNELS.releaseViewingPath, djvuPath),
         convertToPdf: (djvuPath: string, outputPath: string, options: {
             subsample?: number;
             preserveBookmarks?: boolean;
