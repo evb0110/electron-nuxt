@@ -50,6 +50,7 @@ import {
 } from '@electron/window-tab-transfer';
 import { promptSetDefaultViewer } from '@electron/default-viewer';
 import { createLogger } from '@electron/utils/logger';
+import { sweepStaleDefaultAppTempPdfs } from '@electron/features/documents/main/print';
 import {
     initializeUpdates,
     shutdownUpdates,
@@ -427,6 +428,10 @@ async function init() {
 
     registerIpcHandlers();
     logStartupPhase('IPC handlers registered');
+
+    void sweepStaleDefaultAppTempPdfs().catch((error: unknown) => {
+        logger.warn(`Failed to sweep stale default-app temp PDFs: ${String(error)}`);
+    });
 
     void cleanupStaleWorkingCopyDirectories()
         .then((result) => {

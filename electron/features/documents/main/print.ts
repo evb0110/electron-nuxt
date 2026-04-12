@@ -4,6 +4,8 @@ import {
     shell,
 } from 'electron';
 import {
+    readdir,
+    stat,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -20,6 +22,10 @@ const logger = createLogger('documents-print');
 const PRINT_LOAD_SETTLE_DELAY_MS = 300;
 const PRINT_WINDOW_WIDTH_PX = 1280;
 const PRINT_WINDOW_HEIGHT_PX = 1600;
+const DEFAULT_APP_TEMP_PREFIX = 'open-in-default-app-';
+const DEFAULT_APP_TEMP_CLEANUP_DELAY_MS = 5 * 60 * 1000;
+const DEFAULT_APP_TEMP_MAX_AGE_MS = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS;
+const scheduledDefaultAppTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
 
 interface IPrintPdfResult {
     success: boolean;
@@ -52,6 +58,61 @@ function normalizePrintableFileName(fileName?: string) {
 
 function toOwnedBuffer(data: Uint8Array) {
     return Buffer.from(data);
+}
+
+function scheduleDefaultAppTempCleanup(path: string, delayMs = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS) {
+    const existingTimer = scheduledDefaultAppTempCleanup.get(path);
+    if (existingTimer) {
+        clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+        scheduledDefaultAppTempCleanup.delete(path);
+        void unlink(path).catch(() => undefined);
+    }, delayMs);
+    timer.unref?.();
+    scheduledDefaultAppTempCleanup.set(path, timer);
+}
+
+async function cleanupDefaultAppTempPath(path: string) {
+    const existingTimer = scheduledDefaultAppTempCleanup.get(path);
+    if (existingTimer) {
+        clearTimeout(existingTimer);
+        scheduledDefaultAppTempCleanup.delete(path);
+    }
+
+    await unlink(path).catch(() => undefined);
+}
+
+export async function sweepStaleDefaultAppTempPdfs(maxAgeMs = DEFAULT_APP_TEMP_MAX_AGE_MS) {
+    const tempDir = app.getPath('temp');
+    const now = Date.now();
+
+    let entries: string[] = [];
+    try {
+        entries = await readdir(tempDir);
+    } catch {
+        return;
+    }
+
+    await Promise.all(entries.map(async (entry) => {
+        if (!entry.startsWith(DEFAULT_APP_TEMP_PREFIX) || extname(entry).toLowerCase() !== '.pdf') {
+            return;
+        }
+
+        const path = join(tempDir, entry);
+        try {
+            const fileStat = await stat(path);
+            const lastTouchedAt = Math.max(fileStat.mtimeMs, fileStat.ctimeMs);
+            if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs) {
+                return;
+            }
+        } catch {
+            return;
+        }
+
+        await cleanupDefaultAppTempPath(path);
+    }));
 }
 
 async function openPdfInDefaultApp(path: string): Promise<IOpenPdfInDefaultAppResult> {
@@ -179,10 +240,22 @@ export async function handleOpenPdfInDefaultAppData(
         throw new Error('Invalid PDF handoff payload');
     }
 
-    const tempFileName = `${randomUUID()}-${normalizePrintableFileName(fileName)}`;
+    const tempFileName = `${DEFAULT_APP_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(fileName)}`;
     const tempPath = join(app.getPath('temp'), tempFileName);
-    await writeFile(tempPath, toOwnedBuffer(data));
-    return openPdfInDefaultApp(tempPath);
+    try {
+        await writeFile(tempPath, toOwnedBuffer(data));
+        const result = await openPdfInDefaultApp(tempPath);
+        if (result.success) {
+            scheduleDefaultAppTempCleanup(tempPath);
+            return result;
+        }
+
+        await cleanupDefaultAppTempPath(tempPath);
+        return result;
+    } catch (error) {
+        await cleanupDefaultAppTempPath(tempPath);
+        throw error;
+    }
 }
 
 export function handleOpenPdfInDefaultAppPath(

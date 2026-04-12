@@ -72,7 +72,7 @@ const {
 
 describe('fileOps path security', () => {
     beforeEach(() => {
-        vi.clearAllMocks();
+        vi.resetAllMocks();
 
         mocks.existsSync.mockReturnValue(true);
         mocks.isAllowedReadPath.mockReturnValue(true);

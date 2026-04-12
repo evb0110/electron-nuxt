@@ -24,7 +24,7 @@ export const useDjvu = () => {
         djvuSourcePath,
         djvuTempPdfPath,
         enterDjvuMode,
-        exitDjvuMode,
+        exitDjvuMode: exitDjvuModeBase,
         isDjvuFeatureDisabled,
     } = useDjvuMode();
 
@@ -72,6 +72,24 @@ export const useDjvu = () => {
 
     function clearViewingError() {
         viewingError.value = null;
+    }
+
+    async function releaseViewingPath(path: TDocumentRef | null | undefined) {
+        if (!path) {
+            return;
+        }
+
+        try {
+            await getDjvuCapability().releaseViewingPath(path);
+        } catch (error) {
+            logSuppressedError('Failed to release DjVu viewing path', error);
+        }
+    }
+
+    function exitDjvuMode() {
+        const sourcePath = djvuSourcePath.value;
+        exitDjvuModeBase();
+        void releaseViewingPath(sourcePath);
     }
 
     function setupProgressListener() {
@@ -206,6 +224,7 @@ export const useDjvu = () => {
     setupViewingErrorListener();
     onUnmounted(() => {
         void cancelActiveJobs();
+        void releaseViewingPath(djvuSourcePath.value);
         teardownListeners();
     });
 
@@ -218,6 +237,7 @@ export const useDjvu = () => {
         closeActivePdf?: () => void | Promise<void>,
     ) {
         const djvu = getDjvuCapability();
+        const previousDjvuPath = djvuSourcePath.value;
         showBanner.value = true;
         clearViewingError();
         openingPath.value = djvuPath;
@@ -234,6 +254,9 @@ export const useDjvu = () => {
             BrowserLogger.info('djvu', 'Native DjVu viewing ready', { pageCount: result.pageCount ?? 0 });
             resetViewingProgressState();
             await closeActivePdf?.();
+            if (previousDjvuPath && previousDjvuPath !== djvuPath) {
+                await releaseViewingPath(previousDjvuPath);
+            }
             setOriginalPath?.(djvuPath);
             enterDjvuMode(djvuPath, null);
         } catch (e) {

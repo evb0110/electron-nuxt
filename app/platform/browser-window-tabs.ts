@@ -16,6 +16,7 @@ const WINDOW_ID_QUERY_PARAM = 'evbWindowId';
 const DEFAULT_TRANSFER_TIMEOUT_MS = 12_000;
 const DISCOVERY_SETTLE_DELAY_MS = 60;
 const FALLBACK_WINDOW_TITLE = 'EVB Viewer';
+const CLOSE_CURRENT_WINDOW_TIMEOUT_MS = 150;
 
 type TIncomingTransferListener = (
     transfer: IWindowTabIncomingTransfer,
@@ -154,6 +155,46 @@ function ensureChannel() {
 
 function postMessage(message: TBrowserWindowTabsMessage) {
     ensureChannel()?.postMessage(message);
+}
+
+function waitForBrowserWindowCloseAttempt() {
+    if (!hasBrowserWindowContext()) {
+        return Promise.resolve(false);
+    }
+
+    return new Promise<boolean>((resolve) => {
+        let settled = false;
+        let timeoutId = 0;
+
+        const cleanup = () => {
+            window.removeEventListener('pagehide', handleWindowClosed);
+            window.removeEventListener('beforeunload', handleWindowClosed);
+            if (timeoutId) {
+                window.clearTimeout(timeoutId);
+            }
+        };
+
+        const finish = (closed: boolean) => {
+            if (settled) {
+                return;
+            }
+
+            settled = true;
+            cleanup();
+            resolve(closed);
+        };
+
+        const handleWindowClosed = () => {
+            finish(true);
+        };
+
+        window.addEventListener('pagehide', handleWindowClosed, { once: true });
+        window.addEventListener('beforeunload', handleWindowClosed, { once: true });
+
+        timeoutId = window.setTimeout(() => {
+            finish(false);
+        }, CLOSE_CURRENT_WINDOW_TIMEOUT_MS);
+    });
 }
 
 function queueTransferForWindow(windowId: number, transferId: string) {
@@ -514,9 +555,9 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         };
     },
     onWindowAction: noopUnsubscribe,
-    closeCurrentWindow() {
+    async closeCurrentWindow() {
         if (!hasBrowserWindowContext()) {
-            return Promise.resolve(false);
+            return false;
         }
 
         postMessage({
@@ -524,7 +565,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             windowId: currentWindowId,
         });
         window.close();
-        return Promise.resolve(true);
+        return waitForBrowserWindowCloseAttempt();
     },
     notifyRendererReady() {
         initializeBrowserWindowTabs();

@@ -15,6 +15,8 @@ import type {
     TDirectionalCommandAvailability,
     TTabContextCommand,
 } from '@app/types/tab-context-menu';
+import { hasElectronAPI } from '@app/utils/platform';
+import { isWindowTabTransferSupported } from '@app/utils/platform-window-tabs';
 
 const TAB_TRANSITION_CACHE_GRACE_MS = 1200;
 const DIRECTION_ORDER: TGroupDirection[] = [
@@ -98,6 +100,7 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
     } = options;
 
     const splitCacheCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const canTransferTabsAcrossWindows = computed(() => hasElectronAPI() || isWindowTabTransferSupported());
 
     function getDirectionalTargetGroup(sourceGroupId: string, direction: TGroupDirection) {
         return findDirectionalGroup(sourceGroupId, direction, false);
@@ -154,7 +157,7 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
                 copy,
                 canClose: hasActiveTab && !transitionsBusy && !closeBlocked,
                 canCreate: !transitionsBusy,
-                canMoveToNewWindow: tabs.value.length > 1 && !transitionsBusy,
+                canMoveToNewWindow: canTransferTabsAcrossWindows.value && tabs.value.length > 1 && !transitionsBusy,
             };
         }
 

@@ -14,7 +14,8 @@ import { isAllowedDjvuTempPdfPath } from '@electron/djvu/temp-path';
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('djvu-viewing');
-const allowedDjvuViewingPaths = new Set<string>();
+const allowedDjvuViewingPathsBySender = new Map<number, Map<string, number>>();
+const senderCleanupRegistered = new Set<number>();
 const DJVU_STALE_SWEEP_MAX_AGE_MS = (() => {
     const parsed = Number.parseInt(
         process.env.EVB_DJVU_TEMP_STALE_MAX_AGE_MS ?? `${24 * 60 * 60 * 1000}`,
@@ -71,20 +72,81 @@ async function safeDeleteDjvuTempPdf(tempPdfPath: string) {
 }
 
 export async function performDjvuViewingShutdownCleanup() {
-    // Native DjVu viewing no longer creates temp PDFs on open.
+    allowedDjvuViewingPathsBySender.clear();
+    senderCleanupRegistered.clear();
 }
 
 export async function cleanupDjvuTempPdfPath(tempPdfPath: string) {
     await safeDeleteDjvuTempPdf(tempPdfPath);
 }
 
-export function isAllowedDjvuViewingPath(djvuPath: string) {
+function registerSenderCleanup(event: IpcMainInvokeEvent) {
+    const senderId = event.sender.id;
+    if (senderCleanupRegistered.has(senderId)) {
+        return;
+    }
+
+    senderCleanupRegistered.add(senderId);
+    event.sender.once('destroyed', () => {
+        allowedDjvuViewingPathsBySender.delete(senderId);
+        senderCleanupRegistered.delete(senderId);
+    });
+}
+
+function addAllowedDjvuViewingPath(event: IpcMainInvokeEvent, djvuPath: string) {
+    const normalizedPath = normalizeDjvuViewingPath(djvuPath);
+    if (!normalizedPath) {
+        return;
+    }
+
+    registerSenderCleanup(event);
+    const senderId = event.sender.id;
+    const allowedPaths = allowedDjvuViewingPathsBySender.get(senderId) ?? new Map<string, number>();
+    allowedPaths.set(normalizedPath, (allowedPaths.get(normalizedPath) ?? 0) + 1);
+    allowedDjvuViewingPathsBySender.set(senderId, allowedPaths);
+}
+
+export function releaseDjvuViewingPath(event: IpcMainInvokeEvent, djvuPath: string) {
+    const normalizedPath = normalizeDjvuViewingPath(djvuPath);
+    if (!normalizedPath) {
+        return;
+    }
+
+    const senderId = event.sender.id;
+    const allowedPaths = allowedDjvuViewingPathsBySender.get(senderId);
+    if (!allowedPaths) {
+        return;
+    }
+
+    const nextCount = (allowedPaths.get(normalizedPath) ?? 0) - 1;
+    if (nextCount > 0) {
+        allowedPaths.set(normalizedPath, nextCount);
+        return;
+    }
+
+    allowedPaths.delete(normalizedPath);
+    if (allowedPaths.size === 0) {
+        allowedDjvuViewingPathsBySender.delete(senderId);
+    }
+}
+
+export function isAllowedDjvuViewingPath(djvuPath: string, senderId?: number) {
     const normalizedPath = normalizeDjvuViewingPath(djvuPath);
     if (!normalizedPath) {
         return false;
     }
 
-    return allowedDjvuViewingPaths.has(normalizedPath);
+    if (typeof senderId === 'number') {
+        return (allowedDjvuViewingPathsBySender.get(senderId)?.get(normalizedPath) ?? 0) > 0;
+    }
+
+    for (const allowedPaths of allowedDjvuViewingPathsBySender.values()) {
+        if ((allowedPaths.get(normalizedPath) ?? 0) > 0) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 export async function sweepStaleDjvuTempPdfs(
@@ -140,7 +202,7 @@ export async function sweepStaleDjvuTempPdfs(
 }
 
 export async function handleDjvuOpenForViewing(
-    _event: IpcMainInvokeEvent,
+    event: IpcMainInvokeEvent,
     djvuPath: string,
 ): Promise<{
     success: boolean;
@@ -156,10 +218,7 @@ export async function handleDjvuOpenForViewing(
             };
         }
 
-        const normalizedPath = normalizeDjvuViewingPath(djvuPath);
-        if (normalizedPath) {
-            allowedDjvuViewingPaths.add(normalizedPath);
-        }
+        addAllowedDjvuViewingPath(event, djvuPath);
 
         logger.info(`Native DjVu viewing ready: ${djvuPath} (${pageCount} pages)`);
         return {

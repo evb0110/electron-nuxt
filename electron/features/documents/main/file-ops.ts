@@ -74,12 +74,16 @@ function normalizeNonEmptyPath(filePath: unknown): string {
 async function resolveDirectSourceReadPath(
     normalizedPath: string,
     extension: string,
+    senderId?: number,
 ): Promise<string | null> {
     if (!ALLOWED_DIRECT_SOURCE_READ_EXTENSIONS.has(extension)) {
         return null;
     }
 
-    if (!isAllowedDjvuViewingPath(normalizedPath)) {
+    const isDirectReadAllowed = typeof senderId === 'number'
+        ? isAllowedDjvuViewingPath(normalizedPath, senderId)
+        : isAllowedDjvuViewingPath(normalizedPath);
+    if (!isDirectReadAllowed) {
         return null;
     }
 
@@ -102,6 +106,7 @@ async function resolveDirectSourceReadPath(
 async function resolveReadablePath(
     normalizedPath: string,
     extension: string,
+    senderId?: number,
 ): Promise<string | null> {
     const directResolvedPath = await resolveAllowedReadPath(normalizedPath);
     if (directResolvedPath) {
@@ -112,7 +117,7 @@ async function resolveReadablePath(
     // working copy path to preserve temp-sandboxed reads.
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath);
     if (!mappedWorkingCopyPath) {
-        return resolveDirectSourceReadPath(normalizedPath, extension);
+        return resolveDirectSourceReadPath(normalizedPath, extension, senderId);
     }
 
     const mappedResolvedPath = await resolveAllowedReadPath(mappedWorkingCopyPath);
@@ -120,7 +125,7 @@ async function resolveReadablePath(
         return mappedResolvedPath;
     }
 
-    return resolveDirectSourceReadPath(normalizedPath, extension);
+    return resolveDirectSourceReadPath(normalizedPath, extension, senderId);
 }
 
 function resolveReadablePathSync(normalizedPath: string): string | null {
@@ -140,15 +145,16 @@ function resolveReadablePathSync(normalizedPath: string): string | null {
     return mappedWorkingCopyPath;
 }
 
-export async function handleFileRead(_event: Electron.IpcMainInvokeEvent, filePath: unknown): Promise<Uint8Array> {
+export async function handleFileRead(event: Electron.IpcMainInvokeEvent, filePath: unknown): Promise<Uint8Array> {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
+    const senderId = event.sender?.id;
 
     if (!ALLOWED_BINARY_READ_EXTENSIONS.has(extension)) {
         throw new Error('Invalid file type: only PDF and DjVu files are allowed');
     }
 
-    const resolvedPath = await resolveReadablePath(normalizedPath, extension);
+    const resolvedPath = await resolveReadablePath(normalizedPath, extension, senderId);
     if (!resolvedPath) {
         throw new Error('Invalid file path: reads only allowed within temp directory');
     }

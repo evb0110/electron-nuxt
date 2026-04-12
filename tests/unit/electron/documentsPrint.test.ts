@@ -130,10 +130,10 @@ describe('documents print', () => {
 
         expect(result).toEqual({ success: true });
         expect(mocks.writeFile).toHaveBeenCalledWith(
-            '/tmp/print-job-id-document.pdf',
+            '/tmp/open-in-default-app-print-job-id-document.pdf',
             Buffer.from(Uint8Array.of(1, 2, 3)),
         );
-        expect(mocks.openPath).toHaveBeenCalledWith('/tmp/print-job-id-document.pdf');
+        expect(mocks.openPath).toHaveBeenCalledWith('/tmp/open-in-default-app-print-job-id-document.pdf');
         expect(mocks.unlink).not.toHaveBeenCalled();
     });
 });

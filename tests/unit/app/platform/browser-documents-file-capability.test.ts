@@ -411,6 +411,87 @@ describe('createBrowserDocumentsFileCapability', () => {
         ]});
     });
 
+    it('emits browser batch-open progress while combining multiple inputs', async () => {
+        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
+        const [
+            { createCombinedPdfFromPaths },
+            { browserDocumentsMenuCapability },
+        ] = await Promise.all([
+            import('@app/platform/browser-api/documents-file-capability'),
+            import('@app/platform/browser-api/documents-menu-capability'),
+        ]);
+        const firstRef = await browserDocumentStore.createStoredDocument(
+            'first.pdf',
+            new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const secondRef = await browserDocumentStore.createStoredDocument(
+            'second.pdf',
+            new Uint8Array([
+                4,
+                5,
+                6,
+            ]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
+        browserPdfCombineWorkerMock.run.mockResolvedValue({data: new Uint8Array([
+            9,
+            8,
+            7,
+        ])});
+
+        const progressEvents: Array<{
+            requestId: string;
+            processed: number;
+            total: number;
+            percent: number;
+            elapsedMs: number;
+            estimatedRemainingMs: number | null;
+        }> = [];
+        const stopListening = browserDocumentsMenuCapability.onOpenPdfDirectBatchProgress((progress) => {
+            progressEvents.push(progress);
+        });
+
+        try {
+            await createCombinedPdfFromPaths(
+                [
+                    firstRef,
+                    secondRef,
+                ],
+                { requestId: 'browser-batch-1' },
+            );
+        } finally {
+            stopListening();
+        }
+
+        expect(progressEvents).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                requestId: 'browser-batch-1',
+                processed: 1,
+                total: 2,
+            }),
+            expect.objectContaining({
+                requestId: 'browser-batch-1',
+                processed: 2,
+                total: 2,
+                percent: 100,
+            }),
+        ]));
+    });
+
     it('offloads supported mixed PDF and raster-image combine jobs to the browser worker', async () => {
         const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
         const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documents-file-capability');

@@ -21,6 +21,7 @@ import { createLogger } from '@electron/utils/logger';
 import {
     cleanupDjvuTempPdfPath,
     handleDjvuOpenForViewing,
+    releaseDjvuViewingPath,
     sweepStaleDjvuTempPdfs,
 } from '@electron/features/djvu/main/viewing';
 import { isDjvuPath } from '@electron/image/pdf-conversion';
@@ -37,6 +38,17 @@ function normalizeDjvuPathForIpc(path: unknown) {
     }
     if (!existsSync(normalizedPath)) {
         throw new Error(`DjVu file not found: ${normalizedPath}`);
+    }
+    return normalizedPath;
+}
+
+function normalizeDjvuPathReferenceForIpc(path: unknown) {
+    const normalizedPath = typeof path === 'string' ? path.trim() : '';
+    if (!normalizedPath) {
+        throw new Error('Invalid DjVu path');
+    }
+    if (!isDjvuPath(normalizedPath)) {
+        throw new Error('Invalid DjVu file type');
     }
     return normalizedPath;
 }
@@ -105,6 +117,9 @@ interface IIpcMainHandleRegistrar {handle: IpcMain['handle'];}
 
 export function registerDjvuHandlers(registrar: IIpcMainHandleRegistrar = ipcMain) {
     registrar.handle('djvu:openForViewing', handleDjvuOpenForViewing);
+    registrar.handle('djvu:releaseViewingPath', (event, djvuPath) => {
+        releaseDjvuViewingPath(event, normalizeDjvuPathReferenceForIpc(djvuPath));
+    });
     registrar.handle('djvu:convertToPdf', (event, djvuPath, outputPath, options) =>
         handleDjvuConvertToPdf(
             event,

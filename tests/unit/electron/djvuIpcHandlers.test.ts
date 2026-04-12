@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
     handleDjvuConvertToPdf: vi.fn(),
     handleDjvuCancel: vi.fn(),
     handleDjvuOpenForViewing: vi.fn(),
+    releaseDjvuViewingPath: vi.fn(),
     cleanupDjvuTempPdfPath: vi.fn(),
     sweepStaleDjvuTempPdfs: vi.fn(),
 }));
@@ -45,6 +46,7 @@ vi.mock('@electron/features/djvu/main/pdf-export', () => ({
 }));
 vi.mock('@electron/features/djvu/main/viewing', () => ({
     handleDjvuOpenForViewing: mocks.handleDjvuOpenForViewing,
+    releaseDjvuViewingPath: mocks.releaseDjvuViewingPath,
     cleanupDjvuTempPdfPath: mocks.cleanupDjvuTempPdfPath,
     sweepStaleDjvuTempPdfs: mocks.sweepStaleDjvuTempPdfs,
 }));
@@ -81,6 +83,7 @@ describe('registerDjvuHandlers', () => {
         mocks.handleDjvuConvertToPdf.mockResolvedValue({success: true});
         mocks.handleDjvuCancel.mockResolvedValue({canceled: true});
         mocks.handleDjvuOpenForViewing.mockResolvedValue({success: true});
+        mocks.releaseDjvuViewingPath.mockReturnValue(undefined);
         mocks.cleanupDjvuTempPdfPath.mockResolvedValue(undefined);
         mocks.sweepStaleDjvuTempPdfs.mockResolvedValue(0);
     });

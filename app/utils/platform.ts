@@ -32,7 +32,8 @@ export function shouldPreferDesktopPlatform(
     desktopRuntime = false,
     electronApiAvailable = hasElectronAPI(),
 ) {
-    return electronApiAvailable || desktopRuntime || isElectronRoutePath(routePath);
+    void routePath;
+    return electronApiAvailable || desktopRuntime;
 }
 
 export function resolveInitialDesktopRuntime(routePath: string | null | undefined, electronApiAvailable = hasElectronAPI()) {
