@@ -315,6 +315,14 @@ export interface IDocumentsFileCapability {
     fileExists: (path: TDocumentRef) => Promise<boolean>;
     analyzePdfConformance: (path: TDocumentRef) => Promise<IPdfConformanceProfile>;
     validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
+    openPdfInDefaultAppData: (data: Uint8Array, fileName?: string) => Promise<{
+        success: boolean;
+        error?: string;
+    }>;
+    openPdfInDefaultAppPath: (path: TDocumentRef, fileName?: string) => Promise<{
+        success: boolean;
+        error?: string;
+    }>;
     printPdfData: (data: Uint8Array, fileName?: string) => Promise<{
         success: boolean;
         canceled?: boolean;

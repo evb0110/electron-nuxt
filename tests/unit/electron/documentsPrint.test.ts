@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => {
         MockBrowserWindow,
         appGetPath: vi.fn(() => '/tmp'),
         browserWindowInstances,
+        openPath: vi.fn(async () => ''),
         randomUUID: vi.fn(() => 'print-job-id'),
         unlink: vi.fn(async () => {}),
         writeFile: vi.fn(async () => {}),
@@ -39,6 +40,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('electron', () => ({
     app: { getPath: mocks.appGetPath },
     BrowserWindow: mocks.MockBrowserWindow,
+    shell: { openPath: mocks.openPath },
 }));
 
 vi.mock('fs/promises', () => ({
@@ -56,6 +58,8 @@ vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
 }) }));
 
 const {
+    handleOpenPdfInDefaultAppData,
+    handleOpenPdfInDefaultAppPath,
     handlePrintPdfData,
     handlePrintPdfPath,
 } = await import('@electron/features/documents/main/print');
@@ -104,5 +108,32 @@ describe('documents print', () => {
             Buffer.from(Uint8Array.of(1, 2, 3)),
         );
         expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-job-id-document.pdf');
+    });
+
+    it('opens an existing PDF path in the default desktop app', async () => {
+        const result = await handleOpenPdfInDefaultAppPath(
+            { sender: {} } as never,
+            '/tmp/source.pdf',
+            'source.pdf',
+        );
+
+        expect(result).toEqual({ success: true });
+        expect(mocks.openPath).toHaveBeenCalledWith('/tmp/source.pdf');
+    });
+
+    it('writes PDF bytes to a temp file before opening the default desktop app', async () => {
+        const result = await handleOpenPdfInDefaultAppData(
+            { sender: {} } as never,
+            Uint8Array.of(1, 2, 3),
+            'document.pdf',
+        );
+
+        expect(result).toEqual({ success: true });
+        expect(mocks.writeFile).toHaveBeenCalledWith(
+            '/tmp/print-job-id-document.pdf',
+            Buffer.from(Uint8Array.of(1, 2, 3)),
+        );
+        expect(mocks.openPath).toHaveBeenCalledWith('/tmp/print-job-id-document.pdf');
+        expect(mocks.unlink).not.toHaveBeenCalled();
     });
 });

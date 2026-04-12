@@ -16,6 +16,8 @@ export const DOCUMENTS_CHANNELS = {
     fileExists: 'file:exists',
     pdfAnalyzeConformance: 'pdf:analyzeConformance',
     pdfValidateData: 'pdf:validateData',
+    pdfOpenInDefaultAppData: 'pdf:openInDefaultAppData',
+    pdfOpenInDefaultAppPath: 'pdf:openInDefaultAppPath',
     pdfPrintData: 'pdf:printData',
     pdfPrintPath: 'pdf:printPath',
     fileWrite: 'file:write',

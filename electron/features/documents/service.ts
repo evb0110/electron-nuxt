@@ -26,6 +26,8 @@ import {
     handleFileWriteDocx,
 } from '@electron/features/documents/main/file-ops';
 import {
+    handleOpenPdfInDefaultAppData,
+    handleOpenPdfInDefaultAppPath,
     handlePrintPdfData,
     handlePrintPdfPath,
 } from '@electron/features/documents/main/print';
@@ -71,6 +73,8 @@ export function createDocumentsService(): IDocumentsService {
         fileExists: (event, filePath) => handleFileExists(event, filePath),
         analyzePdfConformance: (event, filePath) => handleAnalyzePdfConformance(event, filePath),
         validatePdfData: (event, data, fileName) => handleValidatePdfData(event, data, fileName),
+        openPdfInDefaultAppData: (event, data, fileName) => handleOpenPdfInDefaultAppData(event, data, fileName),
+        openPdfInDefaultAppPath: (event, filePath, fileName) => handleOpenPdfInDefaultAppPath(event, filePath, fileName),
         printPdfData: (event, data, fileName) => handlePrintPdfData(event, data, fileName),
         printPdfPath: (event, filePath, fileName) => handlePrintPdfPath(event, filePath, fileName),
         writeFile: (event, filePath, data) => handleFileWrite(event, filePath, data),
