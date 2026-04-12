@@ -29,7 +29,6 @@ const renderPdfPagesForBrowserPrintMock = vi.hoisted(() => vi.fn(async () => {})
 const shouldPrintPageMetricsDirectlyMock = vi.hoisted(() => vi.fn<TShouldPrintPageMetricsDirectly>(() => null));
 const shouldPrintSourcePdfDirectlyMock = vi.hoisted(() => vi.fn(async () => true));
 const waitForPrintPaintMock = vi.hoisted(() => vi.fn(async () => {}));
-const isDesktopPlatformActiveMock = vi.hoisted(() => vi.fn(() => false));
 const documentsCapabilityMock = vi.hoisted(() => ({
     openPdfInDefaultAppData: vi.fn(),
     openPdfInDefaultAppPath: vi.fn(),
@@ -68,8 +67,6 @@ vi.mock('@app/utils/platform-documents', () => ({
         && result.error === 'Printing via the native desktop dialog is unavailable in the browser capability'
     ),
 }));
-
-vi.mock('@app/utils/platform', () => ({ isDesktopPlatformActive: isDesktopPlatformActiveMock }));
 
 interface IFakeFrameWindow {
     addEventListener: ReturnType<typeof vi.fn>;
@@ -185,7 +182,6 @@ function createState(options?: {
 describe('useWorkspacePrint', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        isDesktopPlatformActiveMock.mockReturnValue(false);
         buildBrowserPrintFrameMarkupMock.mockReturnValue('<html><body><main data-browser-print-root></main></body></html>');
         shouldPrintPageMetricsDirectlyMock.mockReturnValue(null);
         shouldPrintSourcePdfDirectlyMock.mockResolvedValue(true);
@@ -263,9 +259,8 @@ describe('useWorkspacePrint', () => {
         }
     });
 
-    it('hands desktop printing off to the default PDF app for the default flow', async () => {
-        isDesktopPlatformActiveMock.mockReturnValue(true);
-        documentsCapabilityMock.openPdfInDefaultAppPath.mockResolvedValue({ success: true });
+    it('opens the native desktop print dialog for the default flow when a working copy path is available', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({ success: true });
         const {
             getPrintableSourceData,
             scope,
@@ -285,10 +280,10 @@ describe('useWorkspacePrint', () => {
             });
             await flushMicrotasks(12);
 
-            expect(documentsCapabilityMock.openPdfInDefaultAppPath).toHaveBeenCalledWith('/tmp/desktop.pdf', 'desktop.pdf');
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith('/tmp/desktop.pdf', 'desktop.pdf');
+            expect(documentsCapabilityMock.openPdfInDefaultAppPath).not.toHaveBeenCalled();
             expect(documentsCapabilityMock.openPdfInDefaultAppData).not.toHaveBeenCalled();
             expect(documentsCapabilityMock.printPdfData).not.toHaveBeenCalled();
-            expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
             expect(getPrintableSourceData).not.toHaveBeenCalled();
             await submitPromise;
 
@@ -465,12 +460,7 @@ describe('useWorkspacePrint', () => {
         }
     });
 
-    it('falls back to the native dialog when opening the desktop PDF app fails', async () => {
-        isDesktopPlatformActiveMock.mockReturnValue(true);
-        documentsCapabilityMock.openPdfInDefaultAppPath.mockResolvedValue({
-            success: false,
-            error: 'No app found',
-        });
+    it('never hands print jobs to the default PDF app when the native print path succeeds', async () => {
         documentsCapabilityMock.printPdfPath.mockResolvedValue({ success: true });
         const {
             getPrintableSourceData,
@@ -490,14 +480,12 @@ describe('useWorkspacePrint', () => {
                 orientation: 'auto',
             });
 
-            expect(documentsCapabilityMock.openPdfInDefaultAppPath).toHaveBeenCalledWith(
-                '/tmp/working-copy.pdf',
-                'working-copy.pdf',
-            );
             expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
                 '/tmp/working-copy.pdf',
                 'working-copy.pdf',
             );
+            expect(documentsCapabilityMock.openPdfInDefaultAppPath).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.openPdfInDefaultAppData).not.toHaveBeenCalled();
             expect(getPrintableSourceData).not.toHaveBeenCalled();
             expect(state.printDialogOpen.value).toBe(false);
             expect(state.printError.value).toBeNull();
