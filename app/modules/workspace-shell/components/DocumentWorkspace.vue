@@ -334,6 +334,31 @@
             </WorkspaceViewerHost>
         </WorkspaceSidebarHost>
         <div
+            v-if="pageOpBatchProgress && isPageOperationInProgress"
+            class="pointer-events-none absolute bottom-28 right-4 z-50 w-60 rounded-md border border-default bg-default/95 px-3 py-2 shadow-lg"
+            role="status"
+            aria-live="polite"
+        >
+            <div class="flex items-center gap-2">
+                <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+                <div class="min-w-0">
+                    <p class="m-0 text-xs font-medium text-default">
+                        {{ t('emptyState.preparingBatch') }}
+                    </p>
+                    <p class="m-0 text-[11px] text-muted">
+                        {{ t('emptyState.preparingBatchProgress', {
+                            processed: displayProcessedCount(pageOpBatchProgress.processed, pageOpBatchProgress.total),
+                            total: pageOpBatchProgress.total,
+                        }) }}
+                    </p>
+                    <p v-if="pageOpBatchEtaText" class="m-0 text-[11px] text-dimmed">
+                        {{ t('emptyState.preparingBatchEta', { eta: pageOpBatchEtaText }) }}
+                    </p>
+                </div>
+            </div>
+            <UProgress :value="pageOpBatchProgress.percent" class="mt-2" />
+        </div>
+        <div
             v-if="exportOverlay"
             class="pointer-events-none absolute bottom-12 right-4 z-50 w-60 rounded-md border border-default bg-default/95 px-3 py-2 shadow-lg"
             role="status"
@@ -734,6 +759,7 @@ const {
     handleStatusSaveClick,
     handleStatusShowInFolderClick,
     isPageOperationInProgress,
+    pageOpBatchProgress,
     pageOpsDelete,
     pageOpsExtract,
     pageOpsInsert,
@@ -886,12 +912,37 @@ const exportOverlayTitle = computed(() => {
 const exportOverlayDetail = computed(() => exportOverlay.value
     ? t('export.pageCount', {count: exportOverlay.value.pageCount})
     : '');
+const pageOpBatchEtaText = computed(() => formatEtaDuration(pageOpBatchProgress.value?.estimatedRemainingMs ?? null));
 const exportOverlayIcon = computed(() => exportOverlay.value?.state === 'success'
     ? 'i-lucide-circle-check'
     : 'i-lucide-loader-circle');
 const exportOverlayIconClass = computed(() => exportOverlay.value?.state === 'success'
     ? 'size-4 text-[var(--ui-success)]'
     : 'size-4 animate-spin text-muted');
+
+function displayProcessedCount(processed: number, total: number) {
+    if (total <= 0) {
+        return 0;
+    }
+
+    return Math.min(total, Math.max(0, Math.round(processed)));
+}
+
+function formatEtaDuration(etaMs: number | null) {
+    if (!Number.isFinite(etaMs) || etaMs === null || etaMs <= 0) {
+        return null;
+    }
+
+    const totalSeconds = Math.max(1, Math.round(etaMs / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    if (minutes > 0) {
+        return `${minutes}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    return `0:${String(seconds).padStart(2, '0')}`;
+}
 
 function handleDeletePages() {
     const pages = selectedThumbnailPages.value;

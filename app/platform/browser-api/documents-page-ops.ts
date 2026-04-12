@@ -353,7 +353,7 @@ export function createBrowserPageOps(
                 );
             }
         },
-        async insertFile(workingCopyPath, _totalPages, afterPage, sourcePaths) {
+        async insertFile(workingCopyPath, _totalPages, afterPage, sourcePaths, requestId) {
             await ensurePdfWithinBudget(
                 workingCopyPath,
                 'Inserting pages',
@@ -387,7 +387,7 @@ export function createBrowserPageOps(
             const insertionData = sourcePaths.length === 1
                 && /\.pdf$/iu.test(getBrowserDocumentFileName(sourcePaths[0]!))
                 ? await browserDocumentStore.read(sourcePaths[0]!)
-                : await options.createCombinedPdfFromPaths(sourcePaths, {requestId: `browser-page-op-insert-${crypto.randomUUID()}`});
+                : await options.createCombinedPdfFromPaths(sourcePaths, {requestId: requestId ?? `browser-page-op-insert-${crypto.randomUUID()}`});
 
             let result: IBrowserPageOpsWorkerResultMap['insertPages'];
             if (workerAvailable) {

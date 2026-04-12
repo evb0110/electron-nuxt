@@ -4,12 +4,24 @@ import type { TDocumentRef } from '@contracts/platform-api';
 import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { useAnalytics } from '@app/composables/useAnalytics';
-import { getPageOpsCapability } from '@app/utils/platform-documents';
+import {
+    getDocumentsCapability,
+    getPageOpsCapability,
+} from '@app/utils/platform-documents';
 
 type TPageOpsRotation = 90 | 180 | 270;
 type TPageOpsResult = { success: boolean };
 type TPageOperationRunner<TResult extends TPageOpsResult> = (path: TDocumentRef) => Promise<TResult>;
 type TPageOperationSuccess<TResult extends TPageOpsResult> = (result: TResult) => boolean;
+
+interface IPageOperationBatchProgress {
+    processed: number;
+    total: number;
+    percent: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number | null;
+}
+
 type TPageOperationErrorKey = Extract<
     TTranslationKey,
     | 'errors.pageOps.delete'
@@ -43,6 +55,7 @@ export const usePageOperations = (deps: {
 
     const isOperationInProgress = ref(false);
     const error = ref<string | null>(null);
+    const batchProgress = ref<IPageOperationBatchProgress | null>(null);
 
     function invalidateCaches() {
         if (workingCopyPath.value) {
@@ -195,21 +208,64 @@ export const usePageOperations = (deps: {
 
     async function insertFile(totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) {
         const startedAt = Date.now();
-        const didSucceed = await runOperation({
-            operationName: 'insertFile',
-            errorKey: 'errors.pageOps.insertFile',
-            shouldReload: true,
-            run: (path) => getPageOpsCapability().insertFile(path, totalPages, afterPage, sourcePaths),
-        });
-        if (didSucceed) {
-            analytics.track('page_operation_completed', {
-                afterPage,
-                durationMs: Math.max(0, Date.now() - startedAt),
-                operation: 'insert_file',
-                sourceFileCount: sourcePaths.length,
-            });
+        const requestId = sourcePaths.length > 1
+            ? `browser-page-op-insert-${crypto.randomUUID()}`
+            : undefined;
+        const stopProgress = requestId
+            ? getDocumentsCapability().onOpenPdfDirectBatchProgress((progress) => {
+                if (progress.requestId !== requestId) {
+                    return;
+                }
+
+                batchProgress.value = {
+                    processed: Math.max(0, progress.processed),
+                    total: Math.max(0, progress.total),
+                    percent: Math.min(100, Math.max(0, progress.percent)),
+                    elapsedMs: Math.max(0, progress.elapsedMs),
+                    estimatedRemainingMs:
+                        typeof progress.estimatedRemainingMs === 'number'
+                            ? Math.max(0, progress.estimatedRemainingMs)
+                            : null,
+                };
+            })
+            : null;
+
+        if (requestId) {
+            batchProgress.value = {
+                processed: 0,
+                total: sourcePaths.length,
+                percent: 0,
+                elapsedMs: 0,
+                estimatedRemainingMs: null,
+            };
         }
-        return didSucceed;
+
+        try {
+            const didSucceed = await runOperation({
+                operationName: 'insertFile',
+                errorKey: 'errors.pageOps.insertFile',
+                shouldReload: true,
+                run: (path) => getPageOpsCapability().insertFile(
+                    path,
+                    totalPages,
+                    afterPage,
+                    sourcePaths,
+                    requestId,
+                ),
+            });
+            if (didSucceed) {
+                analytics.track('page_operation_completed', {
+                    afterPage,
+                    durationMs: Math.max(0, Date.now() - startedAt),
+                    operation: 'insert_file',
+                    sourceFileCount: sourcePaths.length,
+                });
+            }
+            return didSucceed;
+        } finally {
+            stopProgress?.();
+            batchProgress.value = null;
+        }
     }
 
     async function reorderPages(newOrder: number[]) {
@@ -279,6 +335,7 @@ export const usePageOperations = (deps: {
     return {
         isOperationInProgress,
         error,
+        batchProgress,
         deletePages,
         extractPages,
         rotatePages,

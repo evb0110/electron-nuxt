@@ -18,8 +18,14 @@ export function createDocumentsPreloadPageOpsClient(
             invoke(PAGE_OPS_CHANNELS.reorder, workingCopyPath, newOrder),
         insert: (workingCopyPath: string, totalPages: number, afterPage: number) =>
             invoke(PAGE_OPS_CHANNELS.insert, workingCopyPath, totalPages, afterPage),
-        insertFile: (workingCopyPath: string, totalPages: number, afterPage: number, sourcePaths: string[]) =>
-            invoke(PAGE_OPS_CHANNELS.insertFile, workingCopyPath, totalPages, afterPage, sourcePaths),
+        insertFile: (
+            workingCopyPath: string,
+            totalPages: number,
+            afterPage: number,
+            sourcePaths: string[],
+            requestId?: string,
+        ) =>
+            invoke(PAGE_OPS_CHANNELS.insertFile, workingCopyPath, totalPages, afterPage, sourcePaths, requestId),
         rotate: (workingCopyPath: string, pages: number[], angle: number) =>
             invoke(PAGE_OPS_CHANNELS.rotate, workingCopyPath, pages, angle),
         crop: (workingCopyPath: string, pages: number[], margins: ICropMargins) =>
