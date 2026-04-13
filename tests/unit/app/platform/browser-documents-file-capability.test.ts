@@ -316,11 +316,26 @@ describe('createBrowserDocumentsFileCapability', () => {
 
         await expect(capability.openCombineDialog()).resolves.toBeNull();
 
+        const firstCall = showOpenFilePicker.mock.calls[0] as [{types?: Array<{ accept: Record<string, string[]>; }>;}] | undefined;
+        const accept = firstCall?.[0]?.types?.[0]?.accept;
         expect(showOpenFilePicker).toHaveBeenCalledTimes(1);
         expect(showOpenFilePicker).toHaveBeenCalledWith(expect.objectContaining({
             multiple: true,
             types: [expect.objectContaining({ accept: expect.not.objectContaining({'application/octet-stream': expect.anything()}) })],
         }));
+        expect(accept?.['image/*']).not.toContain('.svgz');
+    });
+
+    it('does not expose svgz files in the browser image picker', async () => {
+        const showOpenFilePicker = vi.fn(async () => []);
+        const { capability } = await loadBrowserDocumentsFileCapability({ windowOverrides: { showOpenFilePicker } });
+
+        await expect(capability.openImageDialog()).resolves.toBeNull();
+
+        const firstCall = showOpenFilePicker.mock.calls[0] as [{types?: Array<{ accept: Record<string, string[]>; }>;}] | undefined;
+        const accept = firstCall?.[0]?.types?.[0]?.accept;
+        expect(showOpenFilePicker).toHaveBeenCalledTimes(1);
+        expect(accept?.['image/*']).not.toContain('.svgz');
     });
 
     it('rejects oversized browser combine rewrites before reading the input PDFs', async () => {
@@ -635,6 +650,31 @@ describe('createBrowserDocumentsFileCapability', () => {
 
         await expect(createCombinedPdfFromPaths([svgRef])).rejects.toThrow();
         expect(browserPdfCombineWorkerMock.run).not.toHaveBeenCalled();
+    });
+
+    it('cleans up transient combine refs when opening picked browser inputs fails', async () => {
+        vi.stubGlobal('crypto', {
+            ...(globalThis.crypto ?? {}),
+            randomUUID: vi.fn(() => 'open-failure-ref'),
+        });
+        const brokenPng = new File([new Uint8Array([
+            1,
+            2,
+            3,
+        ])], 'broken.png', { type: 'image/png' });
+        const showOpenFilePicker = vi.fn(async () => [cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'broken.png',
+            getFile: async () => brokenPng,
+        })]);
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({ windowOverrides: { showOpenFilePicker } });
+        const failedRef = 'browser://documents/open-failure-ref/broken.png';
+
+        await expect(capability.openCombineDialog()).rejects.toThrow();
+        await expect(browserDocumentStore.exists(failedRef)).resolves.toBe(false);
     });
 
     it('creates one PDF page per TIFF frame on the direct browser fallback path', async () => {

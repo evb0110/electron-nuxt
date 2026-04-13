@@ -1122,6 +1122,16 @@ export function createBrowserDocumentsFileCapability(
 ): IDocumentsFileCapability {
     const { clearSearchCaches } = options;
 
+    async function cleanupTransientOpenRefs(paths: string[]) {
+        await Promise.all(paths.map(async (path) => {
+            try {
+                await browserDocumentStore.remove(path);
+            } catch {
+                // Cleanup is best effort for failed transient opens.
+            }
+        }));
+    }
+
     return {
         async openPdfDialog() {
             const pickedFiles = await pickFiles({
@@ -1140,7 +1150,12 @@ export function createBrowserDocumentsFileCapability(
                 saveHandle: picked.handle ?? null,
             });
 
-            return openDocumentPaths([sourceRef]);
+            try {
+                return await openDocumentPaths([sourceRef]);
+            } catch (error) {
+                await cleanupTransientOpenRefs([sourceRef]);
+                throw error;
+            }
         },
         async openCombineDialog() {
             const pickedFiles = await pickFiles({
@@ -1163,7 +1178,12 @@ export function createBrowserDocumentsFileCapability(
                 refs.push(ref);
             }
 
-            return openDocumentPaths(refs);
+            try {
+                return await openDocumentPaths(refs);
+            } catch (error) {
+                await cleanupTransientOpenRefs(refs);
+                throw error;
+            }
         },
         async openImageDialog() {
             const picked = await pickSingleFile({
