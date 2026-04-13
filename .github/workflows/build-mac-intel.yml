@@ -77,7 +77,7 @@ jobs:
           elif [ -n "$CSC_LINK" ] || [ -n "$CSC_KEY_PASSWORD" ]; then
             echo "::warning::Partial macOS signing credentials detected; building unsigned ad-hoc app"
           else
-            echo "::warning::No macOS signing certificate configured; building unsigned ad-hoc app"
+            echo "::notice::No macOS signing certificate configured; building unsigned ad-hoc app"
           fi
 
           if [ -n "$APPLE_API_KEY" ] && [ -n "$APPLE_API_KEY_ID" ] && [ -n "$APPLE_API_ISSUER" ]; then

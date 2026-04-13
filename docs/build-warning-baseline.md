@@ -1,7 +1,7 @@
 # Build Warning Baseline
 
 ## Status
-- Date: February 18, 2026
+- Date: April 13, 2026
 - Policy: CI fails on unknown build warnings (`pnpm run build:strict`)
 - Current baseline: zero allowlisted warnings
 

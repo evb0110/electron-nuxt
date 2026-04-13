@@ -1,5 +1,3 @@
 {
-  "allowedWarningPatterns": [
-    "\"options\" is not exported by.*useResizable\\.js"
-  ]
+  "allowedWarningPatterns": []
 }
