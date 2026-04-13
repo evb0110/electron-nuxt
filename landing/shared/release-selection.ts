@@ -233,8 +233,8 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
     const candidateAssets = preferredScopedAssets.length ? preferredScopedAssets : platformScopedAssets;
 
     const sorted = orderBy(candidateAssets, [
-        asset => architectureRank(asset.arch, profile.arch),
         asset => extensionRank(asset.extension, extensionPreference),
+        asset => architectureRank(asset.arch, profile.arch),
         asset => knownPlatformRank(asset.platform),
         asset => asset.name,
     ], [
@@ -321,14 +321,15 @@ export function compareInstallersForSelect(left: IReleaseInstaller, right: IRele
         return platformDiff;
     }
 
+    const extensionPreference = PREFERRED_EXTENSION_ORDER[left.platform] || PREFERRED_EXTENSION_ORDER.unknown;
+    const extensionDiff = extensionRank(left.extension, extensionPreference) - extensionRank(right.extension, extensionPreference);
+    if (extensionDiff !== 0) {
+        return extensionDiff;
+    }
+
     const archDiff = INSTALLER_ARCH_ORDER[left.arch] - INSTALLER_ARCH_ORDER[right.arch];
     if (archDiff !== 0) {
         return archDiff;
-    }
-
-    const extensionDiff = formatExtension(left.extension).localeCompare(formatExtension(right.extension));
-    if (extensionDiff !== 0) {
-        return extensionDiff;
     }
 
     return left.name.localeCompare(right.name);
