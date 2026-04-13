@@ -14,7 +14,6 @@ const SUPPORTED_IMAGE_EXTENSIONS = [
     '.jpg',
     '.png',
     '.svg',
-    '.svgz',
     '.tif',
     '.tiff',
     '.webp',
