@@ -134,7 +134,7 @@ jobs:
           elif [ -n "$CSC_LINK" ] || [ -n "$CSC_KEY_PASSWORD" ]; then
             echo "::warning::Partial macOS signing credentials detected; building unsigned ad-hoc app"
           else
-            echo "::warning::No macOS signing certificate configured; building unsigned ad-hoc app"
+            echo "::notice::No macOS signing certificate configured; building unsigned ad-hoc app"
           fi
 
           if [ -n "$APPLE_API_KEY" ] && [ -n "$APPLE_API_KEY_ID" ] && [ -n "$APPLE_API_ISSUER" ]; then
@@ -224,7 +224,7 @@ jobs:
             chmod +x "$APP_BUILDER"
             echo "Fixed permissions: $APP_BUILDER"
           else
-            echo "Warning: app-builder binary not found"
+            echo "::notice::app-builder binary not found; skipping explicit chmod workaround"
           fi
 
       - name: Package installer (Linux)
@@ -251,7 +251,7 @@ jobs:
           elif [ -n "$WIN_CSC_LINK" ] || [ -n "$WIN_CSC_KEY_PASSWORD" ]; then
             echo "::warning::Partial WIN_CSC_* secrets detected; building unsigned Windows installer"
           else
-            echo "::warning::No Windows signing certificate configured; building unsigned Windows installer"
+            echo "::notice::No Windows signing certificate configured; building unsigned Windows installer"
           fi
 
       - name: Package installer (Windows)

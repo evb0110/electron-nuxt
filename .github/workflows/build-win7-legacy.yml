@@ -96,7 +96,7 @@ jobs:
               sleep 20
             fi
           done
-          echo "::warning::Windows 7 legacy packaging failed after $ATTEMPTS attempts"
+          echo "::notice::Windows 7 legacy packaging failed after $ATTEMPTS attempts; continuing without the optional legacy artifact"
           exit 1
 
       - name: Verify packaged native tools
