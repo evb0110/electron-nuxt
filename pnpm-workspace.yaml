@@ -5,6 +5,7 @@ packages:
 # fresh install. Keep this allowlist minimal.
 onlyBuiltDependencies:
   - electron
+  - tesseract.js
 
 # These packages are intentionally safe to leave blocked in CI and fresh local
 # installs. strictDepBuilds turns any new blocked build script into an install
