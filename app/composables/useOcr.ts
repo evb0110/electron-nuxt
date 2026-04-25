@@ -21,6 +21,12 @@ import {
 import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
 import { getOcrCapability } from '@app/utils/platform-ocr';
+import { isBrowserPlatformActive } from '@app/utils/platform';
+import {
+    getDefaultBrowserOcrSettings,
+    readBrowserOcrPreferences,
+    saveBrowserOcrPreferences,
+} from '@app/platform/browser-api/browser-ocr-preferences';
 
 const RTL_OCR_LANGUAGES = new Set([
     'heb',
@@ -40,11 +46,13 @@ export const useOcr = () => {
     const { localizeOcrError } = useOcrErrorLocalizer();
 
     const availableLanguages = ref<IOcrLanguage[]>([]);
-    const settings = ref<IOcrSettings>({
-        pageRange: 'current',
-        customRange: '',
-        selectedLanguages: ['eng'],
-    });
+    const settings = ref<IOcrSettings>(isBrowserPlatformActive()
+        ? readBrowserOcrPreferences() ?? getDefaultBrowserOcrSettings()
+        : {
+            pageRange: 'current',
+            customRange: '',
+            selectedLanguages: ['eng'],
+        });
     const progress = ref<IOcrProgress>({
         isRunning: false,
         phase: 'preparing',
@@ -415,6 +423,10 @@ export const useOcr = () => {
                 settings.value.selectedLanguages.splice(index, 1);
             }
         }
+    }
+
+    if (isBrowserPlatformActive()) {
+        watch(settings, value => saveBrowserOcrPreferences(value), { deep: true });
     }
 
     const hasResults = computed(() => results.value.searchablePdfData !== null);
