@@ -13,9 +13,9 @@ interface IBrowserOcrLanguageRecord {
     sourceUrl: string | null;
 }
 
-export type TBrowserOcrCacheBackend = 'opfs+indexeddb' | 'indexeddb' | 'unavailable';
+type TBrowserOcrCacheBackend = 'opfs+indexeddb' | 'indexeddb' | 'unavailable';
 
-export interface IBrowserOcrLanguageCacheEntry {
+interface IBrowserOcrLanguageCacheEntry {
     code: string;
     installedAt: number | null;
     sizeBytes: number | null;
