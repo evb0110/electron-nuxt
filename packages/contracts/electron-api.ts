@@ -29,6 +29,8 @@ interface IOcrRecognizeRequest {
     pageNumber: number;
     imageData: Uint8Array;
     languages: string[];
+    imageWidth?: number;
+    imageHeight?: number;
 }
 
 interface IOcrRecognizeResult {
@@ -43,12 +45,18 @@ interface IOcrProgress {
     currentPage: number;
     processedCount: number;
     totalPages: number;
+    phase?: 'preparing' | 'processing';
+    phaseProgress?: number;
+    activePages?: number[];
+    languageCode?: string;
 }
 
 interface IOcrJobStartResult {
     started: boolean;
     jobId: string;
     error?: string;
+    installed?: string[];
+    errors?: string[];
 }
 
 interface IOcrResultFileAckResult {
@@ -377,6 +385,7 @@ export interface IOcrCapability {
     }>;
     cancel: (requestId: string) => Promise<{ canceled: boolean }>;
     getLanguages: () => Promise<IOcrLanguage[]>;
+    installLanguages: (languages: string[], requestId: string) => Promise<IOcrJobStartResult>;
     acknowledgeResultFile: (requestId: string, pdfPath?: TDocumentRef) => Promise<IOcrResultFileAckResult>;
     createSearchablePdf: (
         sourcePdfPath: string,

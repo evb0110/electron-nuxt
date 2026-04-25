@@ -3,6 +3,7 @@ import type {
     TDocumentRef,
 } from '@contracts/platform-api';
 import { isBrowserDocumentRef } from '@app/utils/document-ref';
+import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import { getPlatformAPI } from '@app/utils/platform';
 
 export function getDocumentsCapability(): IDocumentsCapability {
@@ -23,6 +24,38 @@ export function readDocumentRange(
     length: number,
 ) {
     return getDocumentsCapability().readFileRange(path, offset, length);
+}
+
+const FULL_READ_FALLBACK_CHUNK_SIZE = 4 * 1024 * 1024;
+
+function isBrowserFullReadLimitError(error: unknown) {
+    return error instanceof Error
+        && error.message.includes('too large to load fully into memory');
+}
+
+export async function readDocumentFileFully(path: TDocumentRef) {
+    const documents = getDocumentsCapability();
+    try {
+        return await documents.readFile(path);
+    } catch (error) {
+        if (!isBrowserFullReadLimitError(error)) {
+            throw error;
+        }
+    }
+
+    const { size } = await documents.statFile(path);
+    const output = new Uint8Array(size);
+    let offset = 0;
+    while (offset < size) {
+        const length = Math.min(FULL_READ_FALLBACK_CHUNK_SIZE, size - offset);
+        const chunk = await documents.readFileRange(path, offset, length);
+        output.set(chunk, offset);
+        offset += chunk.byteLength;
+        if (offset < size) {
+            await yieldToBrowser();
+        }
+    }
+    return output;
 }
 
 interface INativePrintResult {
