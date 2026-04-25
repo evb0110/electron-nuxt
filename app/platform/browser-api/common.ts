@@ -38,6 +38,7 @@ const SEARCH_EXCERPT_CONTEXT_CHARS = 30;
 const PDFJS_WORKER_SRC = '/pdf/pdf.worker.min.mjs';
 const PDFJS_RANGE_CHUNK_SIZE = Math.max(512 * 1024, BROWSER_DOCUMENT_CHUNK_SIZE);
 const SETTINGS_STORAGE_KEY = 'evb-viewer:browser:settings';
+const OCR_SETTINGS_STORAGE_KEY = 'evb-viewer:browser:ocr-settings';
 
 type TPdfJsLib = typeof PdfJsLibNamespace;
 type TPdfJsDocumentInit = Parameters<TPdfJsLib['getDocument']>[0];
@@ -281,6 +282,7 @@ export {
     OPEN_INPUT_ACCEPT,
     SEARCH_EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
+    OCR_SETTINGS_STORAGE_KEY,
     SETTINGS_STORAGE_KEY,
     buildDocxSaveTypes,
     buildImagePickerTypes,

@@ -451,11 +451,13 @@ async function init() {
             return;
         }
 
-        markWindowRendererReady(window.id);
         readyWindowIds.add(window.id);
         markWindowTabTransferReady(window.id);
 
         externalOpenManager.scheduleFlushPendingFiles();
+        setImmediate(() => {
+            markWindowRendererReady(window.id);
+        });
         if (window.id === getMainWindow()?.id) {
             logStartupPhase(`Main renderer signaled ready (windowId=${window.id})`);
             maybePromptForDefaultViewer();
