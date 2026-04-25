@@ -61,6 +61,13 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
 
         getLanguages: () => invoke<Awaited<ReturnType<IOcrCapability['getLanguages']>>>(OCR_CHANNELS.getLanguages),
 
+        installLanguages: async (languages: string[], requestId: string) => ({
+            started: true,
+            jobId: assertRequestId(requestId, 'ocrInstallLanguages.requestId'),
+            installed: languages,
+            errors: [],
+        }),
+
         acknowledgeResultFile: (requestId: string, pdfPath?: TDocumentRef) =>
             invoke<Awaited<ReturnType<IOcrCapability['acknowledgeResultFile']>>>(
                 OCR_CHANNELS.acknowledgeResultFile,

@@ -6,7 +6,6 @@
 - `pnpm dev:web`
 - `pnpm build`
 - `pnpm build:desktop`
-- `pnpm generate:web`
 - `pnpm preview`
 - `pnpm lint && pnpm typecheck && pnpm build`
 
@@ -16,7 +15,6 @@
 - `build` produces the SSR Nuxt web build used for deployment and is the contract Vercel should use.
 - `build:desktop` adds the Electron bundles on top of the SSR web build for local packaging and release flows.
 - Vercel builds emit Nitro output into `.vercel/output`; local desktop flows keep using `nuxt-output/`.
-- `generate:web` is available only for static-export experiments and does not preserve cookie-driven SSR behavior on `/`.
 - `pnpm lint && pnpm typecheck && pnpm build` is the current web-scope verification batch.
 
 ## Current Scope
