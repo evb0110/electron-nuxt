@@ -239,7 +239,9 @@ describe('window runtime readiness', () => {
         });
 
         const window = mocks.BrowserWindow.windows[0];
-        expect(window?.maximize).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => {
+            expect(window?.maximize).toHaveBeenCalledTimes(1);
+        });
         expect(window?.isVisible()).toBe(true);
 
         markWindowRendererReady(1);
@@ -262,7 +264,9 @@ describe('window runtime readiness', () => {
         });
 
         const window = mocks.BrowserWindow.windows[0];
-        expect(window?.isVisible()).toBe(true);
+        await vi.waitFor(() => {
+            expect(window?.isVisible()).toBe(true);
+        });
         expect(mocks.startServer).toHaveBeenCalledTimes(1);
         expect(mocks.waitForServer).not.toHaveBeenCalled();
 

@@ -13,12 +13,15 @@ const preloadScriptStartedAt = Date.now();
 const STARTUP_OVERLAY_ID = 'evb-startup-overlay';
 const STARTUP_OVERLAY_STYLE_ID = 'evb-startup-overlay-style';
 const APP_READY_EVENT_NAME = 'evb:app-ready';
+const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
+const STARTUP_OPEN_VISUAL_READY_EVENT_NAME = 'evb:startup-open-visual-ready';
 const DEV_STARTUP_OVERLAY_SHOWN_KEY = 'evb-viewer:dev:startup-overlay-shown';
-const STARTUP_OVERLAY_SPINNER_SIZE_PX = 24;
-const STARTUP_OVERLAY_GAP_PX = 12;
-const STARTUP_OVERLAY_TEXT_FONT_SIZE_PX = 14;
-const STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX = 14;
+const STARTUP_OVERLAY_SPINNER_SIZE_PX = 20;
+const STARTUP_OVERLAY_GAP_PX = 10;
+const STARTUP_OVERLAY_TEXT_FONT_SIZE_PX = 13;
+const STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX = 13;
 const DEV_STARTUP_OVERLAY_APP_READY_DELAY_MS = 2200;
+const STARTUP_OPEN_CLAIM_GRACE_MS = 300;
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
 const STARTUP_TRACE_ENABLED_KEY = '__EVB_STARTUP_TRACE__';
 
@@ -91,11 +94,14 @@ function ensureStartupOverlayStyles() {
     flex-direction: column;
     align-items: center;
     gap: ${STARTUP_OVERLAY_GAP_PX}px;
+    width: 128px;
+    height: ${STARTUP_OVERLAY_SPINNER_SIZE_PX + STARTUP_OVERLAY_GAP_PX + STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX}px;
     min-height: ${STARTUP_OVERLAY_SPINNER_SIZE_PX + STARTUP_OVERLAY_GAP_PX + STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX}px;
 }
 #${STARTUP_OVERLAY_ID} .evb-startup-overlay__spinner {
     width: ${STARTUP_OVERLAY_SPINNER_SIZE_PX}px;
     height: ${STARTUP_OVERLAY_SPINNER_SIZE_PX}px;
+    flex: 0 0 ${STARTUP_OVERLAY_SPINNER_SIZE_PX}px;
     border-radius: 999px;
     background: conic-gradient(
         from 0deg,
@@ -114,13 +120,16 @@ function ensureStartupOverlayStyles() {
     line-height: ${STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX}px;
     letter-spacing: 0.2px;
     margin: 0;
+    font-weight: 400;
+    height: ${STARTUP_OVERLAY_TEXT_LINE_HEIGHT_PX}px;
 }
 @keyframes evb-startup-overlay-spin {
     from { transform: translateZ(0) rotate(0deg); }
     to { transform: translateZ(0) rotate(360deg); }
 }
 `;
-    document.head.appendChild(style);
+    const styleRoot = document.head ?? document.documentElement;
+    styleRoot?.appendChild(style);
 }
 
 function mountStartupOverlay() {
@@ -137,7 +146,12 @@ function mountStartupOverlay() {
   <div class="evb-startup-overlay__text">Loading...</div>
 </div>
 `;
-    document.body.appendChild(overlay);
+    const overlayRoot = document.body ?? document.documentElement;
+    if (!overlayRoot) {
+        return;
+    }
+
+    overlayRoot.appendChild(overlay);
     tracePreload('startup overlay mounted');
     forwardPreloadLogToMain('info', 'loader', 'Startup overlay mounted', {
         variant: 'startup-overlay',
@@ -160,17 +174,70 @@ function unmountStartupOverlay(reason: string) {
 
 function installStartupOverlayLifecycle() {
     const overlayLifecycleStartedAt = Date.now();
+    const MAX_WAIT_MS = 30_000;
+    let waitingForStartupOpenVisual = false;
+    let appReadySeen = false;
+    let overlayRemoved = false;
+    let checkInterval: number | null = null;
+    let appReadyRemovalTimer: number | null = null;
+    let devRemovalTimer: number | null = null;
+
+    function clearAppReadyRemovalTimer() {
+        if (appReadyRemovalTimer === null) {
+            return;
+        }
+
+        window.clearTimeout(appReadyRemovalTimer);
+        appReadyRemovalTimer = null;
+    }
+
+    function clearDevRemovalTimer() {
+        if (devRemovalTimer === null) {
+            return;
+        }
+
+        window.clearTimeout(devRemovalTimer);
+        devRemovalTimer = null;
+    }
+
+    function clearCheckInterval() {
+        if (checkInterval === null) {
+            return;
+        }
+
+        window.clearInterval(checkInterval);
+        checkInterval = null;
+    }
+
+    function cleanupOverlayLifecycleListeners() {
+        clearCheckInterval();
+        clearAppReadyRemovalTimer();
+        clearDevRemovalTimer();
+        window.removeEventListener(APP_READY_EVENT_NAME, handleAppReady);
+        window.removeEventListener(STARTUP_OPEN_CLAIMED_EVENT_NAME, handleStartupOpenClaimed);
+        window.removeEventListener(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, handleStartupOpenVisualReady);
+    }
+
+    function removeOverlay(reason: string) {
+        if (overlayRemoved) {
+            return;
+        }
+
+        overlayRemoved = true;
+        cleanupOverlayLifecycleListeners();
+        unmountStartupOverlay(reason);
+    }
 
     function requestOverlayUnmount(reason: string) {
         if (!process.defaultApp) {
-            unmountStartupOverlay(reason);
+            removeOverlay(reason);
             return;
         }
 
         const removeWithDelay = () => {
             const elapsedMs = Date.now() - overlayLifecycleStartedAt;
             if (elapsedMs >= DEV_STARTUP_OVERLAY_APP_READY_DELAY_MS) {
-                unmountStartupOverlay(reason);
+                removeOverlay(reason);
                 return;
             }
 
@@ -181,12 +248,80 @@ function installStartupOverlayLifecycle() {
                 delayMs,
                 elapsedMs,
             });
-            window.setTimeout(() => {
-                unmountStartupOverlay(reason);
+            clearDevRemovalTimer();
+            devRemovalTimer = window.setTimeout(() => {
+                devRemovalTimer = null;
+                removeOverlay(reason);
             }, delayMs);
         };
 
         removeWithDelay();
+    }
+
+    function scheduleAppReadyRemoval(reason: string) {
+        appReadySeen = true;
+        clearCheckInterval();
+        clearAppReadyRemovalTimer();
+
+        appReadyRemovalTimer = window.setTimeout(() => {
+            appReadyRemovalTimer = null;
+            if (waitingForStartupOpenVisual) {
+                forwardPreloadLogToMain('info', 'loader', 'Startup overlay retained for startup document visual readiness', {
+                    variant: 'startup-overlay',
+                    reason,
+                });
+                return;
+            }
+
+            requestOverlayUnmount(reason);
+        }, STARTUP_OPEN_CLAIM_GRACE_MS);
+    }
+
+    function getStartupOpenPathCount(event: Event) {
+        if (!(event instanceof CustomEvent)) {
+            return 0;
+        }
+
+        const detail = event.detail as { pathCount?: unknown } | null;
+        const pathCount = typeof detail?.pathCount === 'number' ? detail.pathCount : 0;
+        if (!Number.isFinite(pathCount) || pathCount <= 0) {
+            return 0;
+        }
+
+        return Math.floor(pathCount);
+    }
+
+    function handleStartupOpenClaimed(event: Event) {
+        const pathCount = getStartupOpenPathCount(event);
+        if (pathCount > 0) {
+            waitingForStartupOpenVisual = true;
+            clearAppReadyRemovalTimer();
+            forwardPreloadLogToMain('info', 'loader', 'Startup external open claimed; retaining overlay until first document paint', {
+                variant: 'startup-overlay',
+                pathCount,
+            });
+            return;
+        }
+
+        waitingForStartupOpenVisual = false;
+        if (appReadySeen || (window as Window & { __appReady?: boolean }).__appReady) {
+            scheduleAppReadyRemoval('startup-open-claimed-empty');
+        }
+    }
+
+    function handleStartupOpenVisualReady(event: Event) {
+        waitingForStartupOpenVisual = false;
+        const detail = event instanceof CustomEvent ? event.detail as Record<string, unknown> | null : null;
+        forwardPreloadLogToMain('info', 'loader', 'Startup document visual readiness reached', {
+            variant: 'startup-overlay',
+            reason: typeof detail?.reason === 'string' ? detail.reason : 'startup-open-visual-ready',
+            timedOut: detail?.timedOut === true,
+        });
+        requestOverlayUnmount('startup-open-visual-ready');
+    }
+
+    function handleAppReady() {
+        scheduleAppReadyRemoval('app-ready-event');
     }
 
     if (process.defaultApp) {
@@ -206,25 +341,21 @@ function installStartupOverlayLifecycle() {
     mountStartupOverlay();
 
     const start = Date.now();
-    const MAX_WAIT_MS = 30_000;
-    const checkInterval = window.setInterval(() => {
+    checkInterval = window.setInterval(() => {
         const windowWithReady = window as Window & { __appReady?: boolean };
         if (windowWithReady.__appReady) {
-            window.clearInterval(checkInterval);
-            requestOverlayUnmount('__appReady-interval');
+            scheduleAppReadyRemoval('__appReady-interval');
             return;
         }
 
         if (Date.now() - start > MAX_WAIT_MS) {
-            window.clearInterval(checkInterval);
-            unmountStartupOverlay('timeout');
+            removeOverlay('timeout');
         }
     }, 50);
 
-    window.addEventListener(APP_READY_EVENT_NAME, () => {
-        window.clearInterval(checkInterval);
-        requestOverlayUnmount('app-ready-event');
-    }, { once: true });
+    window.addEventListener(APP_READY_EVENT_NAME, handleAppReady, { once: true });
+    window.addEventListener(STARTUP_OPEN_CLAIMED_EVENT_NAME, handleStartupOpenClaimed, { once: true });
+    window.addEventListener(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, handleStartupOpenVisualReady, { once: true });
 }
 
 const preloadState = globalThis as Record<string, unknown>;
@@ -282,8 +413,11 @@ if (!preloadAlreadyInstalled) {
     contextBridge.exposeInMainWorld('electronAPI', createElectronApi(ipcRenderer, webUtils));
     tracePreload('electronAPI exposed to renderer');
 
-    window.addEventListener('DOMContentLoaded', () => {
-        tracePreload('DOMContentLoaded observed');
-        installStartupOverlayLifecycle();
-    }, { once: true });
+    installStartupOverlayLifecycle();
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', () => {
+            tracePreload('DOMContentLoaded observed');
+            mountStartupOverlay();
+        }, { once: true });
+    }
 }
