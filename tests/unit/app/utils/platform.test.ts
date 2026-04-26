@@ -20,8 +20,8 @@ describe('platform runtime detection', () => {
         expect(isElectronRoutePath('/workspace')).toBe(false);
     });
 
-    it('does not classify the desktop runtime from the route alone', () => {
-        expect(resolveInitialDesktopRuntime('/electron', false)).toBe(false);
+    it('classifies the desktop runtime from the Electron route before the bridge mounts', () => {
+        expect(resolveInitialDesktopRuntime('/electron', false)).toBe(true);
         expect(resolveInitialDesktopRuntime('/', false)).toBe(false);
     });
 
@@ -39,7 +39,7 @@ describe('platform runtime detection', () => {
 
     it('prefers the desktop platform only when runtime state or the bridge requires it', () => {
         expect(shouldPreferDesktopPlatform('/', true, false)).toBe(true);
-        expect(shouldPreferDesktopPlatform('/electron', false, false)).toBe(false);
+        expect(shouldPreferDesktopPlatform('/electron', false, false)).toBe(true);
         expect(shouldPreferDesktopPlatform('/', false, true)).toBe(true);
         expect(shouldPreferDesktopPlatform('/', false, false)).toBe(false);
     });

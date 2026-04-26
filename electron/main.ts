@@ -455,13 +455,20 @@ async function init() {
         markWindowTabTransferReady(window.id);
 
         externalOpenManager.scheduleFlushPendingFiles();
-        setImmediate(() => {
-            markWindowRendererReady(window.id);
-        });
+        markWindowRendererReady(window.id);
         if (window.id === getMainWindow()?.id) {
             logStartupPhase(`Main renderer signaled ready (windowId=${window.id})`);
             maybePromptForDefaultViewer();
         }
+    });
+
+    ipcMain.handle('app:claimPendingExternalOpenPaths', (event) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!window || window.id !== getMainWindow()?.id) {
+            return [];
+        }
+
+        return externalOpenManager.claimPendingOpenPaths();
     });
 
     app.on('browser-window-created', (_event, window) => {

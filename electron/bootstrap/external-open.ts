@@ -244,6 +244,24 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         }
     }
 
+    function claimPendingOpenPaths() {
+        const paths = getPendingPathsSnapshot();
+        if (paths.length === 0) {
+            pendingFlushRequested = false;
+            clearRetryPendingFilesTimer();
+            return [];
+        }
+
+        removePendingPaths(paths);
+        hasHandledInitialExternalOpenDispatch = true;
+        pendingFlushRequested = pendingExternalOpenPaths.length > 0;
+        if (pendingExternalOpenPaths.length === 0) {
+            clearTimers();
+        }
+        options.logStartupPhase(`Claimed external file open batch (${paths.length} path(s))`);
+        return paths;
+    }
+
     function queueOpenRequestFromArgs(args: string[]) {
         const parsedPaths = collectSupportedPathsFromArgs(args);
         if (parsedPaths.length > 0) {
@@ -424,6 +442,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         },
         queueOpenRequest,
         queueOpenRequestFromArgs,
+        claimPendingOpenPaths,
         requestMainWindowForExternalOpen,
         scheduleFlushPendingFiles,
     };

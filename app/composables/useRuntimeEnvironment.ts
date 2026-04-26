@@ -1,6 +1,7 @@
 import {
     isDesktopPlatformActive,
     resolveInitialDesktopRuntime,
+    shouldPreferDesktopPlatform,
 } from '@app/utils/platform';
 
 function getRuntimeRoutePath() {
@@ -20,7 +21,11 @@ export function useRuntimeEnvironment() {
 
     if (import.meta.client) {
         onMounted(() => {
-            isDesktopRuntime.value = isDesktopPlatformActive();
+            isDesktopRuntime.value = shouldPreferDesktopPlatform(
+                routePath,
+                isDesktopRuntime.value,
+                isDesktopPlatformActive(),
+            );
         });
     }
 

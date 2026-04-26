@@ -87,6 +87,7 @@ function createRoutingOptions(options: {
                 ? createTabStub(tabId)
                 : null
         )),
+        updateTab: vi.fn(),
         removeTabFromState: vi.fn(),
         resolveTabForAction: vi.fn(() => null),
         handleCloseTab: vi.fn(async () => {}),
@@ -168,6 +169,46 @@ describe('useAppShellWorkspaceRouting', () => {
 
         expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/first.pdf');
         expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/second.pdf');
+    });
+
+    it('seeds a reused placeholder tab with a document hint before opening the path', async () => {
+        const activeGroupId = ref('group-1');
+        const activeTabId = ref('tab-1');
+        const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
+        const initialWorkspace = createWorkspace(false);
+        workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
+        const activeTab = createTabStub('tab-1');
+
+        const routingOptions = createRoutingOptions({
+            activeGroupId,
+            activeTabId,
+            workspaceRefs,
+            createTab: () => {
+                throw new Error('should reuse placeholder tab');
+            },
+        });
+        routingOptions.getTabById = vi.fn((tabId: string | null | undefined) => (
+            tabId === 'tab-1' ? activeTab : null
+        ));
+        routingOptions.updateTab = vi.fn((tabId: string, updates: Partial<ITab>) => {
+            if (tabId === 'tab-1') {
+                Object.assign(activeTab, updates);
+            }
+        });
+
+        const routing = useAppShellWorkspaceRouting(routingOptions);
+
+        await routing.openPathInAppropriateTab('/docs/cold-start.pdf');
+
+        expect(routingOptions.updateTab).toHaveBeenCalledWith('tab-1', expect.objectContaining({
+            fileName: 'cold-start.pdf',
+            originalPath: '/docs/cold-start.pdf',
+            isDjvu: false,
+        }));
+        expect(routingOptions.updateTab.mock.invocationCallOrder[0]).toBeLessThan(
+            initialWorkspace.openPath.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+        );
+        expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/cold-start.pdf');
     });
 
     it('reuses the active placeholder tab during startup even before its workspace ref is registered', async () => {
