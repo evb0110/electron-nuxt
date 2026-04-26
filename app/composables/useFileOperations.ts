@@ -296,11 +296,11 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             }
             return;
         }
-        const didRestoreReload = await reloadWaiter.promise.then(() => true).catch((error) => {
+        await reloadWaiter.promise.then(() => true).catch((error) => {
             BrowserLogger.warn('workspace', 'Saved PDF but failed to restore the reloaded view', error);
             return false;
         });
-        if (didRestoreReload && opts?.markShapeStateSavedOnSuccess) {
+        if (opts?.markShapeStateSavedOnSuccess) {
             markShapeStateSaved?.();
         }
     }

@@ -493,7 +493,7 @@ describe('useFileOperations', () => {
         expect(deps.restorePreparedPersistedShapeState).not.toHaveBeenCalled();
     });
 
-    it('does not mark shape state saved when the post-save reload fails to restore', async () => {
+    it('marks shape state saved after persistence even when the post-save reload fails to restore', async () => {
         const { deps } = createDeps({
             annotationDirty: ref(true),
             hasShapeChanges: vi.fn(() => true),
@@ -509,7 +509,7 @@ describe('useFileOperations', () => {
         expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
         expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
         expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
-        expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
+        expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
         expect(deps.adoptPersistedShapeStateForNextReload).toHaveBeenCalledOnce();
     });
 
