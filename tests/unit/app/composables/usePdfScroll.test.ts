@@ -35,6 +35,14 @@ function createContainerStub() {
     };
 }
 
+function createPageElementStub(pageNumber: number, top: number, height: number) {
+    return cast<HTMLElement>({
+        dataset: { page: String(pageNumber) },
+        offsetTop: top,
+        offsetHeight: height,
+    });
+}
+
 describe('usePdfScroll page layout fallback', () => {
     it('prefers a pinned current page while viewport metrics are stabilizing', () => {
         const { container } = createContainerStub();
@@ -80,6 +88,41 @@ describe('usePdfScroll page layout fallback', () => {
         scroll.scrollToPage(container, 3, 3, 20);
 
         expect(getScrollTop()).toBe(740);
+    });
+
+    it('prefers mounted DOM visibility when layout metrics disagree during virtualization', () => {
+        const mountedPage = createPageElementStub(5, 500, 200);
+        const container = cast<HTMLElement>({
+            clientHeight: 100,
+            clientWidth: 200,
+            scrollHeight: 2000,
+            scrollWidth: 200,
+            scrollLeft: 0,
+            scrollTop: 550,
+            querySelector: () => null,
+            querySelectorAll: () => [mountedPage],
+        });
+        const scroll = usePdfScroll();
+        scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
+            pageMetrics: Array.from({ length: 10 }, () => ({
+                width: 200,
+                height: 100,
+            })),
+            totalPages: 10,
+            viewMode: 'single',
+            scale: 1,
+            gap: 0,
+            paddingTop: 0,
+            paddingBottom: 0,
+            fallbackWidth: 200,
+            fallbackHeight: 100,
+        }));
+
+        expect(scroll.getVisiblePageRange(container, 10)).toEqual({
+            start: 5,
+            end: 5,
+        });
+        expect(scroll.getMostVisiblePage(container, 10)).toBe(5);
     });
 
     it('scrolls to spread rows using row-aware layout metrics', () => {

@@ -14,8 +14,18 @@ const RESIZE_RERENDER_SOURCES = new Set([
     'resize-settle',
 ]);
 
+const ANCHORED_CURRENT_PAGE_SYNC_SOURCES = new Set([
+    ...RESIZE_RERENDER_SOURCES,
+    'zoom-change',
+    'zoom-settle',
+]);
+
 export function isResizeRerenderSource(source: string) {
     return RESIZE_RERENDER_SOURCES.has(source);
+}
+
+export function isAnchoredCurrentPageSyncSource(source: string) {
+    return ANCHORED_CURRENT_PAGE_SYNC_SOURCES.has(source);
 }
 
 export function hasRenderedPageInRange(

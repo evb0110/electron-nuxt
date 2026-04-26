@@ -126,6 +126,7 @@ export default {
         'pencil': 'Bleistift',
         'marker': 'Marker',
         'stickyNotes': 'Haftnotizen',
+        'createNotes': 'Notizen erstellen',
         'stickyDescription': 'Erstellen Sie Notizen aus ausgewähltem Text oder platzieren Sie eine an beliebiger Stelle auf einer Seite.',
         'imageDescription': 'Fügen Sie ein Bild aus einer Datei oder der Zwischenablage ein und ändern Sie seine Größe direkt auf der Seite.',
         'addNoteToSelection': 'Notiz zur Auswahl hinzufügen',

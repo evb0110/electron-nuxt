@@ -141,12 +141,12 @@ const pageInputRef = ref<HTMLInputElement | null>(null);
 const pageControlsRef = ref<HTMLElement | null>(null);
 
 const effectiveCompactLevel = computed(() => {
-    return Math.max(0, Math.min(compactLevel, 2));
+    return Math.max(0, Math.min(compactLevel, 3));
 });
 
 const showEdgeButtons = computed(() => effectiveCompactLevel.value < 1);
 const showStepButtons = computed(() => effectiveCompactLevel.value < 3);
-const showTotalInDisplay = computed(() => effectiveCompactLevel.value < 2);
+const showTotalInDisplay = computed(() => effectiveCompactLevel.value < 3);
 const hasPages = computed(() => totalPages > 0);
 
 const effectivePageLabels = computed(() =>

@@ -75,6 +75,7 @@ const {
     clearFatalRuntimeError,
     reloadAfterFatalRuntimeError,
 } = useFatalRuntimeError();
+const route = useRoute();
 const colorMode = useColorMode();
 const localeHead = useLocaleHead({
     identifierAttribute: 'id',
@@ -121,10 +122,10 @@ async function preloadStartupContent() {
     const warmupStartedAt = performance.now();
     BrowserLogger.debug('loader', 'Startup content warmup started', { isDesktopRuntime: isDesktopRuntime.value });
 
-    const warmupTasks: Array<Promise<unknown>> = [
-        import('@app/modules/workspace-shell/components/DocumentWorkspace.vue'),
-        loadRecentFiles(),
-    ];
+    const warmupTasks: Array<Promise<unknown>> = [loadRecentFiles()];
+    if (route.meta.preloadWorkspaceShell !== false) {
+        warmupTasks.unshift(import('@app/modules/workspace-shell/components/DocumentWorkspace.vue'));
+    }
 
     const results = await Promise.allSettled(warmupTasks);
     BrowserLogger.debug('loader', 'Startup content warmup settled', {

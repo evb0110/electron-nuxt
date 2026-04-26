@@ -24,6 +24,7 @@
                 :is-capturing-region="isCapturingRegion"
                 :is-crop-selecting="isCropSelecting"
                 :is-placing-page-note="annotationPlacingPageNote"
+                :surface="toolbarSurface"
                 @open-file="handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
                 @save="handleToolbarSave"
@@ -126,14 +127,22 @@
                         :open="overflowMenuOpen"
                         :collapse-tier="collapseTier"
                         :can-save="canSave"
+                        can-save-as
+                        can-print
                         :can-undo="canUndo"
                         :can-redo="canRedo"
+                        :can-toggle-sidebar="canToggleSidebar"
+                        can-capture-region
+                        can-crop
+                        can-quick-note
                         :has-pdf="toolbarHasPdf"
                         :is-any-saving="isAnySaving"
                         :is-history-busy="isHistoryBusy"
                         :is-exporting-docx="isExportingDocx"
+                        :is-preparing-print="isPreparingPrint"
                         :can-export-docx="canExportDocx"
                         :can-use-ocr="canUseOcr"
+                        :show-sidebar="toolbarShowSidebar"
                         :drag-mode="dragMode"
                         :continuous-scroll="continuousScroll"
                         :view-mode="viewMode"
@@ -142,21 +151,28 @@
                         :is-fit-height-active="isFitHeightActive"
                         :is-capturing-region="isCapturingRegion"
                         :is-crop-selecting="isCropSelecting"
+                        :is-placing-page-note="annotationPlacingPageNote"
+                        :surface="toolbarSurface"
+                        trigger-icon="i-lucide-ellipsis"
                         @update:open="handleDropdownOpen('overflow', $event)"
+                        @open-file="handleOpenFileFromUi"
                         @capture-region="handleToolbarCaptureRegion"
                         @crop="handleToolbarCrop"
                         @save="handleToolbarSave"
                         @save-as="handleToolbarSaveAs"
+                        @print="handlePrint"
                         @export-docx="handleToolbarExportDocx"
                         @open-ocr="handleDropdownOpen('ocr', true)"
                         @undo="handleToolbarUndo"
                         @redo="handleToolbarRedo"
+                        @toggle-sidebar="handleToolbarToggleSidebar"
                         @fit-width="handleToolbarFitWidth"
                         @fit-height="handleToolbarFitHeight"
                         @enable-drag="handleToolbarEnableDrag"
                         @disable-drag="handleToolbarDisableDrag"
                         @set-view-mode="handleOverflowSetViewMode"
                         @toggle-continuous-scroll="handleToolbarToggleContinuousScroll"
+                        @quick-note="handleToolbarQuickNote"
                         @open-settings="handleOverflowOpenSettings"
                     />
                 </template>
@@ -531,6 +547,7 @@ import type {
 import type { TTabUpdate } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/reader-command-surface';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));
@@ -561,6 +578,7 @@ const { isDesktopRuntime } = useRuntimeEnvironment();
 const hasDesktopRuntime = computed(() => isDesktopRuntime.value);
 const canUseOcr = hasDesktopRuntime;
 const canUseDjvu = true;
+const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
 
 const emit = defineEmits<{
     'update-tab': [updates: TTabUpdate];

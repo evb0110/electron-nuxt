@@ -1144,7 +1144,6 @@ const {
     pagesToRender,
 } = usePdfViewerVirtualization({
     bufferPages,
-    continuousScroll,
     viewMode,
     numPages,
     basePageWidth,
@@ -1237,10 +1236,9 @@ const {
             return Promise.resolve();
         }
 
-        // Path-backed large PDFs can spend seconds re-reading and re-parsing
-        // the whole file for embedded managed shapes. Defer that work until
-        // after the first page paints so open latency stays dominated by the
-        // actual document load instead of a secondary pdf-lib scan.
+        // Imported shape annotations must be known before the first page paint;
+        // otherwise PDF.js can briefly draw native appearances before the
+        // managed overlay replaces them.
         return ensureEmbeddedShapesImportedForCurrentSource();
     },
     resetInsets,

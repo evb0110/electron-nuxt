@@ -1,6 +1,10 @@
 import { PDFDocument } from 'pdf-lib';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfPageMetric } from '@app/types/pdf';
+import {
+    getPdfjsAssetDir,
+    getPdfjsWorkerUrl,
+} from '@app/utils/viewer-assets';
 
 export type TPrintOrientation = 'auto' | 'portrait' | 'landscape';
 
@@ -34,7 +38,6 @@ const SAFE_DIRECT_PRINT_FIT_SCALE_THRESHOLD = 0.97;
 const SAFE_DIRECT_PRINT_ASPECT_DELTA_THRESHOLD = 0.1;
 const SINGLE_PAGE_PRINT_SAFE_MARGIN_PT = 18;
 const BROWSER_PRINT_RENDER_SCALE = 2;
-const PDFJS_PRINT_WORKER_SRC = '/pdf/pdf.worker.min.mjs';
 const STANDARD_SINGLE_PAGE_PRINT_SHEETS = [
     {
         key: 'a4' as const,
@@ -145,9 +148,10 @@ export function buildBrowserPrintFrameMarkup() {
 async function getPdfjsPrintLib() {
     const pdfjsLib = await import('pdfjs-dist');
     const globalWorkerOptions = pdfjsLib.GlobalWorkerOptions as { workerSrc?: string };
+    const workerSrc = getPdfjsWorkerUrl();
 
-    if (globalWorkerOptions.workerSrc !== PDFJS_PRINT_WORKER_SRC) {
-        globalWorkerOptions.workerSrc = PDFJS_PRINT_WORKER_SRC;
+    if (globalWorkerOptions.workerSrc !== workerSrc) {
+        globalWorkerOptions.workerSrc = workerSrc;
     }
 
     return pdfjsLib;
@@ -191,6 +195,12 @@ export async function renderPdfPagesForBrowserPrint(
     const loadingTask = pdfjsLib.getDocument({
         data: pdfData,
         verbosity: pdfjsLib.VerbosityLevel.ERRORS,
+        standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
+        cMapUrl: getPdfjsAssetDir('cmaps'),
+        cMapPacked: true,
+        wasmUrl: getPdfjsAssetDir('wasm'),
+        iccUrl: getPdfjsAssetDir('iccs'),
+        useSystemFonts: false,
     });
     const pdfDocument = await loadingTask.promise;
 

@@ -14,10 +14,11 @@ import type {
     ICurrentPageSyncOptions,
     IResizeAnchorContext,
 } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerCurrentPageSync';
+import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerResizeLifecycle';
 import { shouldPreserveExistingRerenderContent } from '@app/modules/pdf-viewer-runtime/rerenderStrategy';
 
 const ZOOM_QUEUE_LOG_THROTTLE_MS = 420;
-const ZOOM_GESTURE_MAX_CANVAS_PIXELS = 14_000_000;
+const ZOOM_CHANGE_MAX_CANVAS_PIXELS = 14_000_000;
 
 interface IPageRange {
     start: number;
@@ -63,10 +64,7 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
     summarizeVisiblePageSnapshotForLog: (container: HTMLElement | null) => unknown;
     syncCurrentPageFromViewport: (options?: ICurrentPageSyncOptions) => Promise<void>;
     markLowResZoomRerenderUsed: () => void;
-    buildResizeAnchorContext: (options?: {
-        anchorViewportX?: number | null;
-        anchorViewportY?: number | null;
-    }) => IResizeAnchorContext;
+    buildResizeAnchorContext: (options?: IBuildResizeAnchorContextOptions) => IResizeAnchorContext;
     scheduleEndResizeTransition: (
         token: number,
         reason: string,
@@ -85,7 +83,6 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
     resetContinuousScrollState: () => void;
     resetZoomRerenderQueueState: (reason: string) => void;
     consumeZoomViewportAnchor?: () => IZoomViewportAnchor | null;
-    isZoomGestureSessionLocked?: () => boolean;
     beginResizeTransition: (source: string, anchorPage: number | null) => number;
     consumeSuppressedZoomRerender?: (nextZoom: number) => boolean;
 }
@@ -122,7 +119,6 @@ export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCo
         resetContinuousScrollState,
         resetZoomRerenderQueueState,
         consumeZoomViewportAnchor,
-        isZoomGestureSessionLocked,
         beginResizeTransition,
         consumeSuppressedZoomRerender,
     } = options;
@@ -140,11 +136,16 @@ export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCo
         if (source !== 'zoom-change') {
             return undefined;
         }
-        const gestureSessionLocked = isZoomGestureSessionLocked?.() ?? false;
-        if (!gestureSessionLocked) {
-            return undefined;
+        return ZOOM_CHANGE_MAX_CANVAS_PIXELS;
+    }
+
+    function canTrustCurrentPageAsZoomAnchor() {
+        const page = currentPage.value;
+        if (!Number.isFinite(page) || page < 1 || page > numPages.value) {
+            return false;
         }
-        return ZOOM_GESTURE_MAX_CANVAS_PIXELS;
+        const range = visibleRange.value;
+        return page >= range.start && page <= range.end;
     }
 
     async function reRenderVisiblePagesAndSyncCurrentPage(
@@ -300,14 +301,18 @@ export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCo
             }
             cancelInFlightPageRenders?.();
             const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
+            const trustCurrentPageAnchor = !zoomViewportAnchor && canTrustCurrentPageAsZoomAnchor();
             const zoomAnchor = buildResizeAnchorContext({
                 anchorViewportX: zoomViewportAnchor?.x ?? null,
                 anchorViewportY: zoomViewportAnchor?.y ?? null,
+                preferredAnchorPage: currentPage.value,
+                trustPreferredAnchorPage: trustCurrentPageAnchor,
             });
             BrowserLogger.warnThrottled('pdf-zoom-debug', 'zoom-watch-schedule-rerender', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-watch] schedule zoom rerender', {
                 previousZoom,
                 nextZoom,
                 consumedZoomViewportAnchor: zoomViewportAnchor,
+                trustCurrentPageAnchor,
                 builtZoomAnchor: zoomAnchor,
                 viewer: summarizeViewerMetricsForLog(viewerContainer.value),
             });

@@ -126,6 +126,7 @@ export default {
         'pencil': 'Matita',
         'marker': 'Evidenziatore',
         'stickyNotes': 'Note adesive',
+        'createNotes': 'Crea note',
         'stickyDescription': 'Crea note dal testo selezionato o posizionale in qualsiasi punto della pagina.',
         'imageDescription': 'Inserisci un’immagine da file o dagli appunti e ridimensionala direttamente sulla pagina.',
         'addNoteToSelection': 'Aggiungi nota alla selezione',

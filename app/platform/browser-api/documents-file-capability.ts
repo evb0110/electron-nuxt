@@ -78,6 +78,8 @@ const BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_COMBINED_PDF_REWRITE_MAX_BYTES = 32 * 1024 * 1024;
 const BROWSER_LARGE_SAVE_HANDLE_HINT = 'Use a browser with local file system access enabled to save large documents.';
 const BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
+const BROWSER_OPEN_PICKER_MODE_SESSION_KEY = 'evb-viewer:browser:open-picker-mode';
+const BROWSER_OPEN_PICKER_MODE_INPUT = 'input';
 const WORKER_IMAGE_COMBINE_EXTENSIONS = new Set([
     '.apng',
     '.avif',
@@ -91,6 +93,42 @@ const WORKER_IMAGE_COMBINE_EXTENSIONS = new Set([
     '.webp',
 ]);
 const UTIF_MODULE = UTIF as IUtifModule;
+
+function isFileSystemAccessDeniedError(error: unknown) {
+    return error instanceof DOMException
+        && (error.name === 'NotAllowedError' || error.name === 'SecurityError');
+}
+
+function getBrowserSessionStorage() {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    try {
+        return window.sessionStorage;
+    } catch {
+        return null;
+    }
+}
+
+function shouldUseFileSystemAccessOpenPicker(
+    preferFileSystemAccess: boolean,
+    hasOpenPicker: boolean,
+) {
+    if (!preferFileSystemAccess || !hasOpenPicker) {
+        return false;
+    }
+
+    return getBrowserSessionStorage()?.getItem(BROWSER_OPEN_PICKER_MODE_SESSION_KEY)
+        !== BROWSER_OPEN_PICKER_MODE_INPUT;
+}
+
+function rememberInputOpenPickerMode() {
+    getBrowserSessionStorage()?.setItem(
+        BROWSER_OPEN_PICKER_MODE_SESSION_KEY,
+        BROWSER_OPEN_PICKER_MODE_INPUT,
+    );
+}
 
 function toOwnedArrayBuffer(bytes: Uint8Array) {
     if (
@@ -409,11 +447,14 @@ export async function pickFiles(options: {
     accept: string;
     multiple?: boolean;
     pickerTypes?: IFilePickerAcceptType[];
+    preferFileSystemAccess?: boolean;
 }) {
     const pickerWindow = getWindowWithPickers();
-    if (pickerWindow?.showOpenFilePicker) {
+    const showOpenFilePicker = pickerWindow?.showOpenFilePicker?.bind(pickerWindow);
+    const preferFileSystemAccess = options.preferFileSystemAccess ?? true;
+    if (shouldUseFileSystemAccessOpenPicker(preferFileSystemAccess, Boolean(showOpenFilePicker)) && showOpenFilePicker) {
         try {
-            const handles = await pickerWindow.showOpenFilePicker({
+            const handles = await showOpenFilePicker({
                 multiple: options.multiple ?? false,
                 types: options.pickerTypes,
             });
@@ -429,7 +470,16 @@ export async function pickFiles(options: {
                 return [];
             }
 
-            throw error;
+            if (isFileSystemAccessDeniedError(error)) {
+                // Some embedded browsers expose File System Access pickers but
+                // deny FileSystemFileHandle.getFile(). Do not chain a hidden
+                // input picker in the same gesture; switch future opens to the
+                // input path for this browser session instead.
+                rememberInputOpenPickerMode();
+                return [];
+            } else {
+                throw error;
+            }
         }
     }
 
@@ -466,13 +516,20 @@ export async function pickFiles(options: {
                 if (!settled) {
                     finish([]);
                 }
-            }, 0);
+            }, 500);
         };
 
         input.type = 'file';
         input.accept = options.accept;
         input.multiple = options.multiple ?? false;
         input.style.display = 'none';
+        input.addEventListener(
+            'cancel',
+            () => {
+                finish([]);
+            },
+            { once: true },
+        );
         input.addEventListener(
             'change',
             () => {
@@ -1206,7 +1263,15 @@ export function createBrowserDocumentsFileCapability(
                 return null;
             }
 
-            return openDocumentPaths([path]);
+            try {
+                return await openDocumentPaths([path]);
+            } catch (error) {
+                if (isFileSystemAccessDeniedError(error)) {
+                    return null;
+                }
+
+                throw error;
+            }
         },
         async openPdfDirectBatch(paths, requestId) {
             return openDocumentPaths(paths, { requestId });

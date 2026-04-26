@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     PDFDocument,
+    PDFHexString,
     PDFName,
 } from 'pdf-lib';
 import {
@@ -14,7 +15,8 @@ import {
 import { formatPdfJsAnnotationRef } from '@app/composables/pdf/pdfSerializationRefs';
 import type { IShapeAnnotation } from '@app/types/annotations';
 
-async function createPdfWithEmbeddedShapes() {
+async function createPdfWithEmbeddedShapes(options: { managedInk?: boolean } = {}) {
+    const { managedInk = true } = options;
     const doc = await PDFDocument.create();
     const page = doc.addPage([
         600,
@@ -207,6 +209,9 @@ async function createPdfWithEmbeddedShapes() {
             6,
         ],
     });
+    if (managedInk) {
+        inkDict.set(PDFName.of('EVBShapeKey'), PDFHexString.fromText('evb-shape:test-ink'));
+    }
 
     const squareRef = doc.context.register(squareDict);
     const circleRef = doc.context.register(circleDict);
@@ -318,6 +323,21 @@ describe('importEmbeddedShapeAnnotations', () => {
         expect(shapes[5]?.points).toHaveLength(4);
         expect(shapes[5]?.strokes).toHaveLength(2);
         expect(shapes[5]?.strokes?.[1]).toHaveLength(3);
+    });
+
+    it('leaves native Ink annotations owned by PDF.js unless they were created by EVB', async () => {
+        const { bytes } = await createPdfWithEmbeddedShapes({ managedInk: false });
+
+        const shapes = await importEmbeddedShapeAnnotations(bytes);
+
+        expect(shapes).toHaveLength(5);
+        expect(shapes.map(shape => shape.pdfSubtype)).toEqual([
+            'Square',
+            'Circle',
+            'Line',
+            'PolyLine',
+            'Polygon',
+        ]);
     });
 
     it('collects embedded annotation ids from imported shapes only', () => {

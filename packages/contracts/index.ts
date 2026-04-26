@@ -32,6 +32,38 @@ export type {
     TOpenFileResult,
 } from './platform-api';
 
+export type {
+    IDesktopMenuCapability,
+    IDesktopWindowCapability,
+    IViewerAssetResolver,
+    IViewerDocumentCapability,
+    IViewerDocumentOutputCapability,
+    IViewerDocumentPickerCapability,
+    IViewerDocumentReadCapability,
+    IViewerHostApi,
+    IViewerHostEnvironment,
+    IViewerSearchCapability,
+    IViewerSettingsCapability,
+    TViewerHostKind,
+} from './viewer-host';
+
+export {
+    READER_COMMAND_CATEGORIES,
+    READER_COMMAND_DESCRIPTORS,
+    READER_COMMANDS,
+} from './reader-commands';
+export type {
+    IReaderCommandDescriptor,
+    IReaderCommandRequest,
+    IReaderCommandSurface,
+    IReaderCommandState,
+    IReaderCommandStateSnapshot,
+    TReaderCommandCategory,
+    TReaderCommandId,
+    TReaderCommandMap,
+    TReaderCommandPlacement,
+} from './reader-commands';
+
 export type { TDocumentRef } from './document';
 
 export type {

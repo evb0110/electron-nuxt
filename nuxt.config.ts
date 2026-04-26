@@ -37,6 +37,7 @@ const nitroOutputDir = process.env.VERCEL === '1' || process.env.NOW_BUILDER ===
     : 'nuxt-output';
 
 const isDev = process.env.NODE_ENV !== 'production';
+const appDir = fileURLToPath(new URL('./app', import.meta.url));
 
 export default defineNuxtConfig({
     app: {
@@ -429,7 +430,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
     },
 
     alias: {
-        '@app': fileURLToPath(new URL('./app', import.meta.url)),
+        '@app': appDir,
         '@contracts': fileURLToPath(new URL('./packages/contracts', import.meta.url)),
         '@i18n-core': fileURLToPath(new URL('./packages/i18n-core', import.meta.url)),
         '@i18n-app': fileURLToPath(new URL('./packages/i18n-app', import.meta.url)),
@@ -655,10 +656,10 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
             warmup: {
                 // Pre-transform the initial route/module graph to reduce Electron cold-start blank time in dev.
                 clientFiles: [
-                    './app/app.vue',
-                    './app/pages/index.vue',
-                    './app/composables/useSettings.ts',
-                    './app/composables/useTypedI18n.ts',
+                    `${appDir}/app.vue`,
+                    `${appDir}/pages/index.vue`,
+                    `${appDir}/composables/useSettings.ts`,
+                    `${appDir}/composables/useTypedI18n.ts`,
                 ],
             },
         },

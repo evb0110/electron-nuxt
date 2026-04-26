@@ -3,6 +3,20 @@ import type { IElectronAPI } from './electron-api';
 export interface IPlatformApi extends IElectronAPI {}
 
 export type { TDocumentRef } from './document';
+export type {
+    IDesktopMenuCapability,
+    IDesktopWindowCapability,
+    IViewerAssetResolver,
+    IViewerDocumentCapability,
+    IViewerDocumentOutputCapability,
+    IViewerDocumentPickerCapability,
+    IViewerDocumentReadCapability,
+    IViewerHostApi,
+    IViewerHostEnvironment,
+    IViewerSearchCapability,
+    IViewerSettingsCapability,
+    TViewerHostKind,
+} from './viewer-host';
 
 export type {
     IAppUpdateStatus,

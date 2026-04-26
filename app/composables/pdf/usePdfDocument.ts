@@ -11,7 +11,12 @@ import type {
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { guardAsync } from '@app/utils/async-guard';
 import { readDocumentRange } from '@app/utils/platform-documents';
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
+import {
+    getPdfjsAssetDir,
+    getPdfjsWorkerUrl,
+} from '@app/utils/viewer-assets';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = getPdfjsWorkerUrl();
 
 type TPdfDataRangeTransportCtor = new (
     length: number,
@@ -272,11 +277,11 @@ export const usePdfDocument = () => {
                 loadingTask = pdfjsLib.getDocument({
                     url: objectUrl,
                     verbosity: pdfjsLib.VerbosityLevel.ERRORS,
-                    standardFontDataUrl: '/pdf/standard_fonts/',
-                    cMapUrl: '/pdf/cmaps/',
+                    standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
+                    cMapUrl: getPdfjsAssetDir('cmaps'),
                     cMapPacked: true,
-                    wasmUrl: '/pdf/wasm/',
-                    iccUrl: '/pdf/iccs/',
+                    wasmUrl: getPdfjsAssetDir('wasm'),
+                    iccUrl: getPdfjsAssetDir('iccs'),
                     useSystemFonts: false,
                 });
             } else {
@@ -396,11 +401,11 @@ export const usePdfDocument = () => {
                     rangeChunkSize: 1024 * 1024,
                     disableAutoFetch: true,
                     verbosity: pdfjsLib.VerbosityLevel.ERRORS,
-                    standardFontDataUrl: '/pdf/standard_fonts/',
-                    cMapUrl: '/pdf/cmaps/',
+                    standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
+                    cMapUrl: getPdfjsAssetDir('cmaps'),
                     cMapPacked: true,
-                    wasmUrl: '/pdf/wasm/',
-                    iccUrl: '/pdf/iccs/',
+                    wasmUrl: getPdfjsAssetDir('wasm'),
+                    iccUrl: getPdfjsAssetDir('iccs'),
                     useSystemFonts: false,
                 });
 

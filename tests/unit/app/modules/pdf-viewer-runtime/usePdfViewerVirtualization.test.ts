@@ -88,7 +88,6 @@ function createVirtualizationHarness(viewMode: TPdfViewMode) {
 
     return usePdfViewerVirtualization({
         bufferPages: computed(() => 0),
-        continuousScroll: computed(() => true),
         viewMode: computed(() => viewMode),
         numPages,
         basePageWidth: ref(300),
@@ -109,7 +108,6 @@ function createVirtualizationHarness(viewMode: TPdfViewMode) {
 
 function createPagedHarness(options?: {
     viewMode?: TPdfViewMode;
-    continuousScroll?: boolean;
     visibleRange?: {
         start: number;
         end: number;
@@ -123,7 +121,6 @@ function createPagedHarness(options?: {
 
     return usePdfViewerVirtualization({
         bufferPages: computed(() => 0),
-        continuousScroll: computed(() => options?.continuousScroll ?? true),
         viewMode: computed(() => options?.viewMode ?? 'single'),
         numPages,
         basePageWidth: ref(300),
@@ -169,20 +166,35 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.bottomVirtualSpacerStyle.value).toEqual({ height: '220px' });
     });
 
-    it('renders only the visible spread when continuous scrolling is disabled', () => {
+    it('keeps paged mode virtualized with spacers so touch scrolling can reach adjacent pages', () => {
         const virtualization = createPagedHarness({
             viewMode: 'facing',
-            continuousScroll: false,
             visibleRange: {
                 start: 9,
                 end: 10,
             },
         });
 
-        expect(virtualization.virtualizedContinuousMode.value).toBe(false);
+        expect(virtualization.virtualizedContinuousMode.value).toBe(true);
+        expect(virtualization.virtualWindowStartPage.value).toBe(3);
+        expect(virtualization.virtualWindowEndPage.value).toBe(16);
         expect(virtualization.pagesToRender.value).toEqual([
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
             9,
             10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
         ]);
+        expect(virtualization.topVirtualSpacerStyle.value).toEqual({ height: '100px' });
+        expect(virtualization.bottomVirtualSpacerStyle.value).toEqual({ height: '220px' });
     });
 });

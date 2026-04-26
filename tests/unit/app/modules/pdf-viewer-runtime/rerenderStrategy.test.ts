@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     hasRenderedPageInRange,
+    isAnchoredCurrentPageSyncSource,
     isResizeRerenderSource,
     shouldPreserveExistingRerenderContent,
 } from '@app/modules/pdf-viewer-runtime/rerenderStrategy';
@@ -14,6 +15,14 @@ describe('rerenderStrategy', () => {
         expect(isResizeRerenderSource('resize-observer')).toBe(true);
         expect(isResizeRerenderSource('resize-settle')).toBe(true);
         expect(isResizeRerenderSource('zoom-change')).toBe(false);
+    });
+
+    it('uses fixed current-page sync for resize and zoom anchors', () => {
+        expect(isAnchoredCurrentPageSyncSource('resize-observer')).toBe(true);
+        expect(isAnchoredCurrentPageSyncSource('resize-settle')).toBe(true);
+        expect(isAnchoredCurrentPageSyncSource('zoom-change')).toBe(true);
+        expect(isAnchoredCurrentPageSyncSource('zoom-settle')).toBe(true);
+        expect(isAnchoredCurrentPageSyncSource('re-render')).toBe(false);
     });
 
     it('checks whether the visible range already has rendered content', () => {
