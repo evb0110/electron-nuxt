@@ -82,14 +82,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify Electron install
-        run: pnpm run check:electron:install
-
-      - name: Validate
-        run: pnpm run validate
-
-      - name: Unit and integration tests
-        run: pnpm run test:release
+      - name: Release checks
+        run: pnpm run release:verify:checks
 
   build_artifacts:
     name: Package Release Artifacts

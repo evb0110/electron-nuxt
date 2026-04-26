@@ -14,6 +14,14 @@ const {
     getRequiredArtifactPatterns,
     shouldVerifyPackagedStartup,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href);
+const {
+    getLocalReleaseCheckCommands,
+    runLocalReleaseChecks,
+} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-checks.mjs')).href);
+const {
+    getLocalReleaseBuildCommand,
+    getPackagingArgs,
+} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href);
 
 describe('release policy', () => {
     it('derives local release targets from host platform and arch', () => {
@@ -88,6 +96,75 @@ describe('release policy', () => {
         }).map((pattern: RegExp) => pattern.source)).toEqual([
             '\\.dmg$',
             '\\.zip$',
+        ]);
+    });
+
+    it('keeps release checks focused on static checks and release-critical tests', () => {
+        const commands = getLocalReleaseCheckCommands()
+            .map((command: { args: string[] }) => command.args.join(' '));
+
+        expect(commands).toEqual([
+            'run lint',
+            'run typecheck',
+            'run check:electron:install',
+            'run test:release',
+        ]);
+        expect(commands.join('\n')).not.toContain('validate');
+        expect(commands.join('\n')).not.toContain('build:strict');
+        expect(commands.join('\n')).not.toContain('knip');
+        expect(commands.join('\n')).not.toContain('typecheck:coverage');
+        expect(commands.join('\n')).not.toContain('check:architecture');
+    });
+
+    it('runs release checks under the supplied CI-mode environment', () => {
+        const calls: Array<{
+            args: string[];
+            command: string;
+            env?: Record<string, string>;
+        }> = [];
+
+        runLocalReleaseChecks({
+            env: {
+                CI: 'true',
+                FOO: 'bar',
+            },
+            runCommand: (command: string, args: string[], options: { env?: Record<string, string> }) => {
+                calls.push({
+                    args,
+                    command,
+                    env: options.env,
+                });
+            },
+        });
+
+        expect(calls).toHaveLength(4);
+        expect(calls.every(call => call.command === 'pnpm')).toBe(true);
+        expect(calls.every(call => call.env?.CI === 'true')).toBe(true);
+        expect(calls.every(call => call.env?.FOO === 'bar')).toBe(true);
+    });
+
+    it('keeps build-warning enforcement in the local packaging phase', () => {
+        expect(getLocalReleaseBuildCommand()).toEqual({
+            args: [
+                'run',
+                'build:strict',
+            ],
+            command: 'pnpm',
+        });
+    });
+
+    it('uses a ZIP-only local package check for supplemental macOS Intel builds', () => {
+        expect(getPackagingArgs({
+            arch: 'x64',
+            platform: 'mac',
+        })).toEqual([
+            'exec',
+            'electron-builder',
+            '--publish',
+            'never',
+            '--mac',
+            'zip',
+            '--x64',
         ]);
     });
 });

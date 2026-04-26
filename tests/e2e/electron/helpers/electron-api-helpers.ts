@@ -78,7 +78,8 @@ export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, req
             }>;
         };};}).electronAPI;
 
-        if (!api?.ocr?.createSearchablePdf || !api.ocr.onComplete || !api.ocr.onProgress) {
+        const ocr = api?.ocr;
+        if (!ocr?.createSearchablePdf || !ocr.onComplete || !ocr.onProgress) {
             throw new Error('electronAPI.ocr is unavailable');
         }
 
@@ -98,7 +99,7 @@ export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, req
                     reject(new Error('Timed out waiting for OCR completion event'));
                 }, 180_000);
 
-                disposeComplete = api.ocr.onComplete((result) => {
+                disposeComplete = ocr.onComplete((result) => {
                     if (result.requestId !== id) {
                         return;
                     }
@@ -107,13 +108,13 @@ export async function runOcrSearchablePdf(page: Page, sourcePdfPath: string, req
                 });
             });
 
-            disposeProgress = api.ocr.onProgress((progress) => {
+            disposeProgress = ocr.onProgress((progress) => {
                 if (progress.requestId === id) {
                     progressEvents.push({requestId: progress.requestId});
                 }
             });
 
-            const startResult = await api.ocr.createSearchablePdf(
+            const startResult = await ocr.createSearchablePdf(
                 sourcePath,
                 [{
                     pageNumber: 1,
@@ -183,7 +184,7 @@ export async function acknowledgeOcrResult(page: Page, requestId: string, pdfPat
 
 export async function applyOcrResultToActiveWorkspace(page: Page, pdfPath: string) {
     return evaluateInPage(page, async (path: string) => {
-        const api = (window as Window & {electronAPI?: {documents?: {readFile?: (filePath: string) => Promise<ArrayBufferLike | Uint8Array>;};};}).electronAPI;
+        const api = (window as Window & {electronAPI?: {documents?: {readFile?: (filePath: string) => Promise<ArrayBuffer | Uint8Array>;};};}).electronAPI;
 
         const readFile = api?.documents?.readFile;
         if (typeof readFile !== 'function') {
@@ -214,7 +215,7 @@ export async function consumeOcrResultIntoActiveWorkspace(page: Page, requestId:
         path,
     }) => {
         const api = (window as Window & {electronAPI?: {
-            documents?: {readFile?: (filePath: string) => Promise<ArrayBufferLike | Uint8Array>;};
+            documents?: {readFile?: (filePath: string) => Promise<ArrayBuffer | Uint8Array>;};
             ocr?: {acknowledgeResultFile?: (requestId: string, pdfPath?: string) => Promise<{
                 cleaned: boolean;
                 error?: string;

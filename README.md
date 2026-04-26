@@ -198,8 +198,10 @@ pnpm run check:resources:matrix
 pnpm run release:verify
 ```
 
-Release-critical checks intentionally stop at linting, typechecking, builds,
-and the fast unit/integration suite. Electron E2E is available as a manual
+Release-critical checks intentionally stop at linting, typechecking, Electron
+install verification, strict artifact builds, current-platform packaging, and
+the fast unit/integration suite. Broader maintenance checks stay in
+`pnpm validate` and pull-request CI. Electron E2E is available as a manual
 diagnostic tool when we need true desktop-shell coverage.
 
 The manual Electron E2E smoke lane currently covers:
