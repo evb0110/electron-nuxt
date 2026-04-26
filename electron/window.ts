@@ -81,6 +81,110 @@ const windowRuntime = createWindowRuntime({
     logWindowStartup,
 });
 
+function showAndFocusMaximizedWindow(window: BrowserWindow) {
+    if (window.isDestroyed()) {
+        return;
+    }
+
+    if (config.automation.hideWindow) {
+        // Automation windows stay hidden so local desktop focus is never disrupted.
+        return;
+    }
+
+    if (!window.isMaximized()) {
+        window.maximize();
+    }
+    if (!window.isVisible()) {
+        if (config.automation.noFocus) {
+            // Keep E2E windows out of focus so local work is not interrupted.
+            const showInactive = (window as BrowserWindow & { showInactive?: () => void; }).showInactive;
+            if (typeof showInactive === 'function') {
+                showInactive.call(window);
+            } else {
+                window.show();
+            }
+        } else {
+            window.show();
+        }
+    }
+
+    if (config.automation.noFocus) {
+        return;
+    }
+
+    window.focus();
+
+    if (process.platform === 'darwin') {
+        app.focus({ steal: true });
+    }
+}
+
+function buildStartupPlaceholderHtml() {
+    return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>${config.window.title}</title>
+<style>
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: #fff;
+  color: #6b7280;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+body {
+  display: grid;
+  place-items: center;
+}
+.loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #d1d5db;
+  border-top-color: #6b7280;
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+</style>
+</head>
+<body>
+<main class="loader" role="status" aria-live="polite">
+  <div class="spinner" aria-hidden="true"></div>
+  <div>Loading...</div>
+</main>
+</body>
+</html>`;
+}
+
+async function loadStartupPlaceholder(window: BrowserWindow) {
+    try {
+        await window.loadURL('about:blank');
+        if (window.isDestroyed()) {
+            return;
+        }
+
+        await window.webContents.executeJavaScript(`
+            document.open();
+            document.write(${JSON.stringify(buildStartupPlaceholderHtml())});
+            document.close();
+        `);
+    } catch (error) {
+        logger.warn(`Failed to load startup placeholder: ${formatErrorMessage(error)}`);
+    }
+}
+
 async function lockRendererZoom(window: BrowserWindow) {
     try {
         await window.webContents.setVisualZoomLevelLimits(1, 1);
@@ -432,44 +536,6 @@ function attachShowLifecycle(
         windowRendererReadyCallbacks.delete(window.id);
     };
 
-    function showAndFocusMaximizedWindow() {
-        if (window.isDestroyed()) {
-            return;
-        }
-
-        if (config.automation.hideWindow) {
-            // Automation windows stay hidden so local desktop focus is never disrupted.
-            return;
-        }
-
-        if (!window.isMaximized()) {
-            window.maximize();
-        }
-        if (!window.isVisible()) {
-            if (config.automation.noFocus) {
-                // Keep E2E windows out of focus so local work is not interrupted.
-                const showInactive = (window as BrowserWindow & { showInactive?: () => void; }).showInactive;
-                if (typeof showInactive === 'function') {
-                    showInactive.call(window);
-                } else {
-                    window.show();
-                }
-            } else {
-                window.show();
-            }
-        }
-
-        if (config.automation.noFocus) {
-            return;
-        }
-
-        window.focus();
-
-        if (process.platform === 'darwin') {
-            app.focus({ steal: true });
-        }
-    }
-
     const showWindowNow = async () => {
         if (window.isDestroyed() || hasShownWindow) {
             return;
@@ -490,7 +556,7 @@ function attachShowLifecycle(
         }
 
         if (config.isDev) {
-            showAndFocusMaximizedWindow();
+            showAndFocusMaximizedWindow(window);
             logNavEvent('window-shown-early-for-dev');
 
             try {
@@ -505,7 +571,7 @@ function attachShowLifecycle(
                 // Page might be navigating
             }
         } else {
-            showAndFocusMaximizedWindow();
+            showAndFocusMaximizedWindow(window);
         }
 
         logWindowStartup(`Window shown (windowId=${window.id})`, {hasShownWindow});
@@ -725,8 +791,6 @@ function attachShowLifecycle(
 
 export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const createStart = Date.now();
-    await windowRuntime.ensureReady();
-
     const preloadPath = join(__dirname, 'preload.js');
     logger.debug(`__dirname: ${__dirname}`);
     logger.debug(`preload path: ${preloadPath}`);
@@ -757,14 +821,25 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     windowSecurity.hardenWindowWebContents(window);
     attachRendererDiagnostics(window);
     attachShowLifecycle(window, { blockShowUntilRendererReady: shouldWaitForInitialRendererReady });
-    const initialLoadPromise = window.loadURL(config.server.url);
+
+    const startupPlaceholderPromise = loadStartupPlaceholder(window);
+    showAndFocusMaximizedWindow(window);
+
+    const initialLoadPromise = (async () => {
+        await windowRuntime.ensureReady();
+        await startupPlaceholderPromise.catch(() => {});
+        if (window.isDestroyed()) {
+            return;
+        }
+        await window.loadURL(config.server.url);
+    })();
     void initialLoadPromise.catch((error) => {
         logger.error(`Initial loadURL failed: ${error instanceof Error ? error.message : String(error)}`);
     });
     const initialRendererReadyPromise = shouldWaitForInitialRendererReady
         ? waitForInitialRendererReady(window, initialLoadPromise)
         : null;
-    window.webContents.once('did-finish-load', () => {
+    window.webContents.on('did-finish-load', () => {
         void lockRendererZoom(window);
     });
     logWindowStartup(`BrowserWindow created and loadURL dispatched (step +${Date.now() - createStart}ms)`, {
@@ -781,6 +856,8 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             }
             throw error;
         }
+    } else {
+        await initialLoadPromise;
     }
 
     return window;

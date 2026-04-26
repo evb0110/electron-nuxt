@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => {
         readonly webContents = {
             forcefullyCrashRenderer: vi.fn(),
             getURL: vi.fn(() => 'http://127.0.0.1:3235'),
+            executeJavaScript: vi.fn(async () => undefined),
             on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
                 const existing = this.handlers.get(`webContents:${event}`) ?? [];
                 existing.push(handler);
@@ -119,7 +120,7 @@ const mocks = vi.hoisted(() => {
         },
         clearCache: vi.fn(async () => {}),
         dialog: { showMessageBox: vi.fn(async () => ({ response: 0 })) },
-        loadURL: vi.fn(async () => {}),
+        loadURL: vi.fn(async (_url?: string) => {}),
         logger: {
             debug: vi.fn(),
             error: vi.fn(),
@@ -225,7 +226,7 @@ describe('window runtime readiness', () => {
         await expect(createPromise).resolves.toBe(mocks.BrowserWindow.windows[0]);
     });
 
-    it('does not maximize a hidden startup window before renderer-ready', async () => {
+    it('shows a startup window before renderer-ready', async () => {
         mocks.config.automation.hideWindow = false;
         const {
             createAppWindow,
@@ -238,19 +239,46 @@ describe('window runtime readiness', () => {
         });
 
         const window = mocks.BrowserWindow.windows[0];
-        expect(window?.maximize).not.toHaveBeenCalled();
-        expect(window?.show).not.toHaveBeenCalled();
-        expect(window?.isVisible()).toBe(false);
+        expect(window?.maximize).toHaveBeenCalledTimes(1);
+        expect(window?.isVisible()).toBe(true);
 
         markWindowRendererReady(1);
         await createPromise;
+    });
+
+    it('creates and shows the startup window before the runtime server is ready', async () => {
+        mocks.config.automation.hideWindow = false;
+        let resolveServerStart: () => void = () => {
+            throw new Error('startServer was not called');
+        };
+        mocks.startServer.mockReturnValueOnce(new Promise<void>((resolve) => {
+            resolveServerStart = resolve;
+        }));
+        const { createAppWindow } = await import('@electron/window');
+
+        const createPromise = createAppWindow();
+        await vi.waitFor(() => {
+            expect(mocks.BrowserWindow.windows).toHaveLength(1);
+        });
+
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window?.isVisible()).toBe(true);
+        expect(mocks.startServer).toHaveBeenCalledTimes(1);
+        expect(mocks.waitForServer).not.toHaveBeenCalled();
+
+        resolveServerStart();
+        await expect(createPromise).resolves.toBe(window);
     });
 
     it('rejects strict startup when the initial loadURL call fails', async () => {
         const loadError = new Error('renderer bootstrap failed');
         const { createAppWindow } = await import('@electron/window');
 
-        mocks.loadURL.mockRejectedValueOnce(loadError);
+        mocks.loadURL.mockImplementation(async (url?: string) => {
+            if (url === mocks.config.server.url) {
+                throw loadError;
+            }
+        });
 
         await expect(createAppWindow({ waitForInitialRendererReady: true }))
             .rejects
