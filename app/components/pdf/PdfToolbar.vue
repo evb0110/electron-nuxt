@@ -1,14 +1,16 @@
 <template>
-    <header ref="toolbarRef" class="toolbar">
+    <header ref="toolbarRef" :class="['toolbar', `toolbar--${variant}`]">
         <div class="toolbar-section toolbar-left">
             <slot
+                v-if="isCommandInline('app-menu')"
                 name="app-menu"
                 :collapse-tier="collapseTier"
                 :has-overflow-items="hasOverflowItems"
                 :is-collapsed="isCollapsed"
             />
-            <div v-if="$slots['app-menu']" class="toolbar-separator" />
+            <div v-if="isCommandInline('app-menu') && $slots['app-menu']" class="toolbar-separator" />
             <ToolbarButton
+                v-if="isCommandInline('open-file')"
                 icon="lucide:folder-open"
                 :tooltip="t('toolbar.openPdf')"
                 :shortcut="shortcutLabels.openFile"
@@ -18,6 +20,7 @@
             />
             <div class="toolbar-separator" />
             <ToolbarButton
+                v-if="isCommandInline('toggle-sidebar')"
                 icon="lucide:panel-left"
                 :active="showSidebar"
                 :tooltip="t('toolbar.toggleSidebar')"
@@ -30,6 +33,7 @@
 
             <template v-if="!isCollapsed(3)">
                 <ToolbarButton
+                    v-if="isCommandInline('save')"
                     icon="lucide:save"
                     :tooltip="t('toolbar.save')"
                     :shortcut="shortcutLabels.save"
@@ -38,6 +42,7 @@
                     @click="emit('save')"
                 />
                 <ToolbarButton
+                    v-if="isCommandInline('save-as')"
                     icon="lucide:save-all"
                     :tooltip="t('toolbar.saveAs')"
                     :shortcut="shortcutLabels.saveAs"
@@ -46,6 +51,7 @@
                     @click="emit('save-as')"
                 />
                 <ToolbarButton
+                    v-if="isCommandInline('print')"
                     icon="lucide:printer"
                     :tooltip="t('toolbar.print')"
                     :shortcut="shortcutLabels.print"
@@ -59,6 +65,7 @@
 
             <template v-if="!isCollapsed(3)">
                 <ToolbarButton
+                    v-if="isCommandInline('undo')"
                     icon="lucide:undo-2"
                     :tooltip="t('toolbar.undo')"
                     :shortcut="shortcutLabels.undo"
@@ -66,6 +73,7 @@
                     @click="emit('undo')"
                 />
                 <ToolbarButton
+                    v-if="isCommandInline('redo')"
                     icon="lucide:redo-2"
                     :tooltip="t('toolbar.redo')"
                     :shortcut="shortcutLabels.redo"
@@ -80,6 +88,7 @@
         <div class="toolbar-section toolbar-center">
             <div class="toolbar-inline-group">
                 <slot
+                    v-if="isCommandInline('page-navigation')"
                     name="page-dropdown"
                     :collapse-tier="collapseTier"
                     :has-overflow-items="hasOverflowItems"
@@ -91,6 +100,7 @@
 
             <div class="toolbar-inline-group">
                 <slot
+                    v-if="isCommandInline('zoom')"
                     name="zoom-dropdown"
                     :collapse-tier="collapseTier"
                     :has-overflow-items="hasOverflowItems"
@@ -101,7 +111,7 @@
             <div class="toolbar-separator" />
 
             <div v-if="!isCollapsed(2)" class="toolbar-button-group">
-                <div class="toolbar-group-item">
+                <div v-if="isCommandInline('fit-width')" class="toolbar-group-item">
                     <ToolbarButton
                         icon="lucide:move-horizontal"
                         :active="isFitWidthActive"
@@ -112,7 +122,7 @@
                         @click="emit('fit-width')"
                     />
                 </div>
-                <div class="toolbar-group-item">
+                <div v-if="isCommandInline('fit-height')" class="toolbar-group-item">
                     <ToolbarButton
                         icon="lucide:move-vertical"
                         :active="isFitHeightActive"
@@ -123,7 +133,7 @@
                         @click="emit('fit-height')"
                     />
                 </div>
-                <div v-if="!isCollapsed(1)" class="toolbar-group-item">
+                <div v-if="isCommandInline('continuous-scroll') && !isCollapsed(1)" class="toolbar-group-item">
                     <ToolbarButton
                         icon="lucide:scroll"
                         :active="continuousScroll"
@@ -138,7 +148,7 @@
             <div class="toolbar-separator" />
 
             <ToolbarButton
-                v-if="isCollapsed(2)"
+                v-if="isCommandInline('quick-note') && isCollapsed(2)"
                 icon="lucide:message-square-plus"
                 :active="isPlacingPageNote"
                 :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
@@ -147,7 +157,7 @@
             />
 
             <div v-else class="toolbar-button-group">
-                <div class="toolbar-group-item">
+                <div v-if="isCommandInline('quick-note')" class="toolbar-group-item">
                     <ToolbarButton
                         icon="lucide:message-square-plus"
                         :active="isPlacingPageNote"
@@ -157,7 +167,7 @@
                         @click="emit('quick-note')"
                     />
                 </div>
-                <div class="toolbar-group-item">
+                <div v-if="isCommandInline('drag-mode')" class="toolbar-group-item">
                     <ToolbarButton
                         icon="lucide:hand"
                         :active="dragMode && !isPlacingPageNote"
@@ -167,7 +177,7 @@
                         @click="emit('enable-drag')"
                     />
                 </div>
-                <div class="toolbar-group-item">
+                <div v-if="isCommandInline('text-select')" class="toolbar-group-item">
                     <ToolbarButton
                         icon="lucide:text-cursor"
                         :active="!dragMode && !isPlacingPageNote"
@@ -184,7 +194,7 @@
 
         <div class="toolbar-section toolbar-right">
             <ToolbarButton
-                v-if="!isCollapsed(2)"
+                v-if="isCommandInline('capture-region') && !isCollapsed(2)"
                 icon="lucide:scan"
                 :active="isCapturingRegion"
                 :tooltip="t('toolbar.captureRegion')"
@@ -192,7 +202,7 @@
                 @click="emit('capture-region')"
             />
             <ToolbarButton
-                v-if="!isCollapsed(2)"
+                v-if="isCommandInline('crop') && !isCollapsed(2)"
                 icon="lucide:crop"
                 :active="isCropSelecting"
                 :tooltip="t('toolbar.crop')"
@@ -201,6 +211,7 @@
             />
 
             <slot
+                v-if="isCommandInline('ocr')"
                 name="ocr"
                 :collapse-tier="collapseTier"
                 :has-overflow-items="hasOverflowItems"
@@ -208,7 +219,7 @@
             />
 
             <ToolbarButton
-                v-if="!isCollapsed(1)"
+                v-if="isCommandInline('export-docx') && !isCollapsed(1)"
                 icon="lucide:file-text"
                 :tooltip="t('toolbar.exportDocx')"
                 :shortcut="shortcutLabels.exportDocx"
@@ -220,12 +231,14 @@
             <div v-if="!isCollapsed(2)" class="toolbar-separator" />
 
             <slot
+                v-if="isCommandInline('overflow-menu')"
                 name="overflow-menu"
                 :collapse-tier="collapseTier"
                 :has-overflow-items="hasOverflowItems"
                 :is-collapsed="isCollapsed"
             />
             <ToolbarButton
+                v-if="isCommandInline('fullscreen')"
                 :icon="isFullscreen ? 'lucide:shrink' : 'lucide:expand'"
                 :tooltip="t('toolbar.fullscreen')"
                 :active="isFullscreen"
@@ -233,6 +246,7 @@
                 @click="toggleFullscreen()"
             />
             <ToolbarButton
+                v-if="isCommandInline('settings')"
                 icon="lucide:settings"
                 :tooltip="t('toolbar.settings')"
                 @click="emit('open-settings')"
@@ -244,9 +258,18 @@
 <script setup lang="ts">
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 import { getShortcutLabels } from '@app/constants/shortcuts';
+import {
+    isReaderCommandInline,
+    type TReaderCommandId,
+    type IReaderCommandSurface,
+} from '@app/utils/reader-command-surface';
 
-defineProps<{
+const {
+    surface = undefined,
+    variant = 'editor',
+} = defineProps<{
     hasPdf: boolean;
+    variant?: 'editor' | 'reader';
     canToggleSidebar?: boolean;
     canSave: boolean;
     canUndo: boolean;
@@ -268,6 +291,7 @@ defineProps<{
     isPlacingPageNote: boolean;
     continuousScroll: boolean;
     isDjvuMode?: boolean;
+    surface?: IReaderCommandSurface;
 }>();
 
 const emit = defineEmits<{
@@ -306,6 +330,10 @@ const {
 } = useFullscreen();
 
 const shortcutLabels = getShortcutLabels();
+
+function isCommandInline(command: TReaderCommandId) {
+    return isReaderCommandInline(surface, command);
+}
 </script>
 
 <style scoped>
@@ -401,5 +429,30 @@ const shortcutLabels = getShortcutLabels();
     gap: 0.25rem;
     flex-shrink: 0;
     min-width: max-content;
+}
+
+.toolbar--reader {
+    gap: 0.5rem;
+    padding: 0.5rem 0.625rem;
+    justify-content: space-between;
+}
+
+.toolbar--reader .toolbar-separator {
+    display: none;
+}
+
+.toolbar--reader .toolbar-left,
+.toolbar--reader .toolbar-center,
+.toolbar--reader .toolbar-right {
+    gap: 0.5rem;
+}
+
+.toolbar--reader .toolbar-center {
+    flex: 0 1 auto;
+}
+
+.toolbar--reader .toolbar-left,
+.toolbar--reader .toolbar-right {
+    min-width: 0;
 }
 </style>

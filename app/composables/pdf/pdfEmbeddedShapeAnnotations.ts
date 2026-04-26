@@ -461,6 +461,13 @@ function importInkShape(
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ): IShapeAnnotation | null {
+    // PDF.js owns native Ink appearance streams; only EVB-authored Ink is safe
+    // to rehydrate into the managed SVG overlay without visual drift.
+    const stableKey = readManagedShapeStableKey(dict);
+    if (!stableKey) {
+        return null;
+    }
+
     const inkList = dict.lookupMaybe(INK_LIST_NAME, PDFArray);
     if (!(inkList instanceof PDFArray) || inkList.size() === 0) {
         return null;
@@ -510,7 +517,6 @@ function importInkShape(
     }
 
     const annotationId = refToAnnotationId(ref);
-    const stableKey = readManagedShapeStableKey(dict) ?? generateManagedShapeStableKey();
     return {
         id: createImportedShapeId(pageIndex, annotationId, stableKey, 'Ink'),
         type: toImportedShapeType('Ink'),

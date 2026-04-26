@@ -4,6 +4,10 @@ import {
     browserDocumentStore,
     BROWSER_DOCUMENT_CHUNK_SIZE,
 } from '@app/platform/browser-document-store';
+import {
+    getPdfjsAssetDir,
+    getPdfjsWorkerUrl,
+} from '@app/utils/viewer-assets';
 
 const SUPPORTED_IMAGE_EXTENSIONS = [
     '.apng',
@@ -35,7 +39,6 @@ const OPEN_INPUT_ACCEPT = [
 const EXPORT_RENDER_SCALE = 2;
 const SEARCH_RESULT_LIMIT = 5000;
 const SEARCH_EXCERPT_CONTEXT_CHARS = 30;
-const PDFJS_WORKER_SRC = '/pdf/pdf.worker.min.mjs';
 const PDFJS_RANGE_CHUNK_SIZE = Math.max(512 * 1024, BROWSER_DOCUMENT_CHUNK_SIZE);
 const SETTINGS_STORAGE_KEY = 'evb-viewer:browser:settings';
 const OCR_SETTINGS_STORAGE_KEY = 'evb-viewer:browser:ocr-settings';
@@ -79,9 +82,10 @@ async function getPdfjsLib() {
     pdfjsLibPromise ??= import('pdfjs-dist');
     const pdfjsLib = await pdfjsLibPromise;
     const globalWorkerOptions = pdfjsLib.GlobalWorkerOptions as { workerSrc?: string };
+    const workerSrc = getPdfjsWorkerUrl();
 
-    if (globalWorkerOptions.workerSrc !== PDFJS_WORKER_SRC) {
-        globalWorkerOptions.workerSrc = PDFJS_WORKER_SRC;
+    if (globalWorkerOptions.workerSrc !== workerSrc) {
+        globalWorkerOptions.workerSrc = workerSrc;
     }
 
     return pdfjsLib;
@@ -91,6 +95,12 @@ function createPdfjsDocumentInit(pdfjsLib: TPdfJsLib, data: Uint8Array) {
     return {
         data: toUint8Array(data),
         verbosity: pdfjsLib.VerbosityLevel.ERRORS,
+        standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
+        cMapUrl: getPdfjsAssetDir('cmaps'),
+        cMapPacked: true,
+        wasmUrl: getPdfjsAssetDir('wasm'),
+        iccUrl: getPdfjsAssetDir('iccs'),
+        useSystemFonts: false,
     } as unknown as TPdfJsDocumentInit;
 }
 
@@ -175,6 +185,12 @@ async function createPdfjsDocumentInitFromBrowserDocument(
         disableAutoFetch: true,
         disableStream: true,
         verbosity: pdfjsLib.VerbosityLevel.ERRORS,
+        standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
+        cMapUrl: getPdfjsAssetDir('cmaps'),
+        cMapPacked: true,
+        wasmUrl: getPdfjsAssetDir('wasm'),
+        iccUrl: getPdfjsAssetDir('iccs'),
+        useSystemFonts: false,
     } as unknown as TPdfJsDocumentInit;
 }
 
@@ -291,7 +307,6 @@ export {
     buildPdfSaveTypes,
     createPdfjsDocumentInit,
     createPdfjsDocumentInitFromBrowserDocument,
-    PDFJS_WORKER_SRC,
     ensureDocxExtension,
     ensurePdfExtension,
 };

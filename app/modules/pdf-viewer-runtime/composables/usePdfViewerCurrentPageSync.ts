@@ -6,7 +6,7 @@ import type {
     PDFDocumentProxy,
     IScrollSnapshot,
 } from '@app/types/pdf';
-import { isResizeRerenderSource } from '@app/modules/pdf-viewer-runtime/rerenderStrategy';
+import { isAnchoredCurrentPageSyncSource } from '@app/modules/pdf-viewer-runtime/rerenderStrategy';
 
 const CURRENT_PAGE_SYNC_SAMPLE_COUNT = 3;
 
@@ -253,10 +253,10 @@ export function usePdfViewerCurrentPageSync(options: IUsePdfViewerCurrentPageSyn
         }
 
         const source = options.source ?? 'default';
-        if (options.resizeAnchor && isResizeRerenderSource(source)) {
+        if (options.resizeAnchor && isAnchoredCurrentPageSyncSource(source)) {
             BrowserLogger.warn(
                 'pdf-nav',
-                `[resize-anchor] fixed current-page sync source=${source}`
+                `[anchor] fixed current-page sync source=${source}`
                 + ` page=${options.resizeAnchor.page}`
                 + ` token=${options.resizeAnchor.transitionToken}`,
                 {

@@ -109,17 +109,18 @@ describe('usePdfDocument range loading', () => {
         }]);
         expect(documentState.isLoading.value).toBe(false);
 
+        const { getPdfjsAssetDir } = await import('@app/utils/viewer-assets');
         expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
         expect(pdfjsState.getDocument).toHaveBeenCalledWith(expect.objectContaining({
             range: expect.any(MockPdfDataRangeTransport),
             length: size,
             rangeChunkSize: 1024 * 1024,
             verbosity: pdfjsState.VerbosityLevel.ERRORS,
-            standardFontDataUrl: '/pdf/standard_fonts/',
-            cMapUrl: '/pdf/cmaps/',
+            standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
+            cMapUrl: getPdfjsAssetDir('cmaps'),
             cMapPacked: true,
-            wasmUrl: '/pdf/wasm/',
-            iccUrl: '/pdf/iccs/',
+            wasmUrl: getPdfjsAssetDir('wasm'),
+            iccUrl: getPdfjsAssetDir('iccs'),
             useSystemFonts: false,
         }));
     });

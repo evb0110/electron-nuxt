@@ -14,6 +14,13 @@ import { resolveResizeAnchorPage } from '@app/modules/pdf-viewer-runtime/resizeA
 
 type TViewerMetrics = ReturnType<typeof summarizeViewerMetrics>;
 
+export interface IBuildResizeAnchorContextOptions {
+    anchorViewportX?: number | null;
+    anchorViewportY?: number | null;
+    preferredAnchorPage?: number | null;
+    trustPreferredAnchorPage?: boolean;
+}
+
 interface IUsePdfViewerResizeLifecycleOptions {
     viewerContainer: Ref<HTMLElement | null>;
     isLoading: Ref<boolean>;
@@ -105,10 +112,19 @@ export function usePdfViewerResizeLifecycle(options: IUsePdfViewerResizeLifecycl
         }, 90);
     }
 
-    function buildResizeAnchorContext(optionsOverride?: {
-        anchorViewportX?: number | null;
-        anchorViewportY?: number | null;
-    }) {
+    function normalizePreferredAnchorPage(page: number | null | undefined) {
+        if (
+            typeof page !== 'number'
+            || !Number.isFinite(page)
+            || page < 1
+            || page > numPages.value
+        ) {
+            return null;
+        }
+        return Math.trunc(page);
+    }
+
+    function buildResizeAnchorContext(optionsOverride?: IBuildResizeAnchorContextOptions) {
         const initialSnapshot = captureScrollSnapshot(viewerContainer.value, optionsOverride);
         const snapshotAnchorPage =
             initialSnapshot
@@ -120,7 +136,18 @@ export function usePdfViewerResizeLifecycle(options: IUsePdfViewerResizeLifecycl
             viewerContainer.value,
             numPages.value,
         );
-        const anchorPage = resolveResizeAnchorPage({
+        const preferredAnchorPage = optionsOverride?.trustPreferredAnchorPage
+            ? normalizePreferredAnchorPage(optionsOverride.preferredAnchorPage)
+            : null;
+        const trustedPreferredAnchorPage =
+            preferredAnchorPage !== null
+            && (
+                snapshotAnchorPage === null
+                || Math.abs(preferredAnchorPage - snapshotAnchorPage) <= 1
+            )
+                ? preferredAnchorPage
+                : null;
+        const anchorPage = trustedPreferredAnchorPage ?? resolveResizeAnchorPage({
             totalPages: numPages.value,
             mostVisiblePage,
             snapshotAnchorPage,
@@ -134,6 +161,7 @@ export function usePdfViewerResizeLifecycle(options: IUsePdfViewerResizeLifecycl
             optionsOverride: optionsOverride ?? null,
             snapshotAnchorPage,
             mostVisiblePage,
+            trustedPreferredAnchorPage,
             anchorPage,
             snapshot,
             viewer: summarizeViewerMetricsForLog(viewerContainer.value),

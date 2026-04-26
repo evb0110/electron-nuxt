@@ -240,8 +240,10 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
             return cached.result;
         }
 
-        const layoutVisibility = getViewportVisibilityFromLayout(container, totalPages);
-        const result = layoutVisibility ?? getViewportVisibilityFromDom(container, totalPages);
+        const domVisibility = getViewportVisibilityFromDom(container, totalPages);
+        const result = domVisibility.range || domVisibility.mostVisiblePage !== null
+            ? domVisibility
+            : getViewportVisibilityFromLayout(container, totalPages) ?? domVisibility;
         viewportVisibilityCache = {
             container,
             totalPages,

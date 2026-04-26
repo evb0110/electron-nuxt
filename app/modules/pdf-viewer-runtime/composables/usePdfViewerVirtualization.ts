@@ -7,7 +7,6 @@ import type { IPdfPageMetric } from '@app/types/pdf';
 import type { TPdfViewMode } from '@contracts/shared';
 import {
     buildPageLayoutMetrics,
-    getPageRowBoundsForViewMode,
     getLeadingSpacerHeightForPage,
     getPageRowBounds,
     getTrailingSpacerHeightForPage,
@@ -25,7 +24,6 @@ export interface IZoomVirtualizationFreeze {
 
 interface IUsePdfViewerVirtualizationOptions {
     bufferPages: ComputedRef<number>;
-    continuousScroll: ComputedRef<boolean>;
     viewMode: ComputedRef<TPdfViewMode>;
     numPages: Ref<number>;
     basePageWidth: Ref<number | null>;
@@ -76,7 +74,6 @@ export function expandVirtualWindowForAnchor(options: {
 export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationOptions) {
     const {
         bufferPages,
-        continuousScroll,
         viewMode,
         numPages,
         basePageWidth,
@@ -126,7 +123,7 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
     let pageLayoutCacheKey = '';
     let pageLayoutCacheValue: ReturnType<typeof buildPageLayoutMetrics> = null;
     const pageLayout = computed(() => {
-        if (!continuousScroll.value || numPages.value <= 0 || pageHeightEstimate.value <= 0) {
+        if (numPages.value <= 0 || pageHeightEstimate.value <= 0) {
             pageLayoutCacheKey = '';
             pageLayoutCacheValue = null;
             return null;
@@ -174,8 +171,7 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
     }
 
     const virtualizedContinuousMode = computed(() =>
-        continuousScroll.value
-        && numPages.value > 0
+        numPages.value > 0
         && pageHeightEstimate.value > 0,
     );
 
@@ -327,25 +323,6 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
     const pagesToRender = computed(() => {
         if (numPages.value <= 0) {
             return [];
-        }
-
-        if (!virtualizedContinuousMode.value) {
-            const baseStart = Math.max(1, Math.min(numPages.value, visibleRange.value.start));
-            const baseEnd = Math.max(baseStart, Math.min(numPages.value, visibleRange.value.end));
-            const startBounds = getPageRowBoundsForViewMode({
-                pageNumber: baseStart,
-                viewMode: viewMode.value,
-                totalPages: numPages.value,
-            });
-            const endBounds = getPageRowBoundsForViewMode({
-                pageNumber: baseEnd,
-                viewMode: viewMode.value,
-                totalPages: numPages.value,
-            });
-            return range(
-                startBounds.start,
-                endBounds.end + 1,
-            );
         }
 
         const layout = pageLayout.value;

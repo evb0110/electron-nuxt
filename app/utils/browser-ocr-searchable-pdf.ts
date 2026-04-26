@@ -3,8 +3,9 @@ import {
     PDFDocument,
     rgb,
 } from 'pdf-lib';
+import { getViewerAssetResolver } from '@app/utils/viewer-assets';
 
-const DEFAULT_BROWSER_OCR_FONT_URL = '/pdf/standard_fonts/LiberationSans-Regular.ttf';
+const DEFAULT_BROWSER_OCR_FONT_FILE = 'LiberationSans-Regular.ttf';
 const MIN_BROWSER_OCR_FONT_SIZE = 1;
 const DEFAULT_FONT_HEIGHT_RATIO = 0.85;
 const WORD_WIDTH_PADDING_RATIO = 0.98;
@@ -33,7 +34,8 @@ function normalizeWordText(text: string) {
 async function loadDefaultBrowserOcrFontData() {
     if (!cachedBrowserOcrFontPromise) {
         cachedBrowserOcrFontPromise = (async () => {
-            const response = await fetch(DEFAULT_BROWSER_OCR_FONT_URL);
+            const fontUrl = getViewerAssetResolver().standardFontUrl(DEFAULT_BROWSER_OCR_FONT_FILE);
+            const response = await fetch(fontUrl);
             if (!response.ok) {
                 throw new Error(`Failed to load browser OCR font (${response.status})`);
             }

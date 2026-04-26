@@ -193,8 +193,12 @@ async function createPdfBytes() {
 }
 
 function createMockElement(tagName: string) {
+    const listeners = new Map<string, () => void>();
     return {
         tagName: tagName.toUpperCase(),
+        accept: '',
+        multiple: false,
+        type: '',
         style: {},
         files: null,
         content: {
@@ -206,8 +210,14 @@ function createMockElement(tagName: string) {
         appendChild() {},
         append() {},
         remove() {},
-        click() {},
-        addEventListener() {},
+        click() {
+            listeners.get('change')?.();
+        },
+        addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+            if (typeof listener === 'function') {
+                listeners.set(type, () => listener(new Event(type)));
+            }
+        },
         removeEventListener() {},
         getContext() {
             return null;
@@ -215,14 +225,19 @@ function createMockElement(tagName: string) {
     };
 }
 
-interface ILoadBrowserDocumentsFileCapabilityOptions { windowOverrides?: Record<string, unknown>; }
+interface ILoadBrowserDocumentsFileCapabilityOptions {
+    inputFiles?: File[];
+    windowOverrides?: Record<string, unknown>;
+}
 
 async function loadBrowserDocumentsFileCapability(options?: ILoadBrowserDocumentsFileCapabilityOptions) {
     vi.resetModules();
     vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
     const localStorage = new MemoryStorage();
+    const sessionStorage = new MemoryStorage();
     vi.stubGlobal('window', {
         localStorage,
+        sessionStorage,
         addEventListener() {},
         removeEventListener() {},
         setTimeout,
@@ -237,7 +252,11 @@ async function loadBrowserDocumentsFileCapability(options?: ILoadBrowserDocument
             removeChild() {},
         },
         createElement(tagName: string) {
-            return createMockElement(tagName);
+            const element = createMockElement(tagName);
+            if (tagName === 'input' && options?.inputFiles) {
+                (element as { files: File[] | null }).files = options.inputFiles;
+            }
+            return element;
         },
         createElementNS(_namespace: string, tagName: string) {
             return createMockElement(tagName);
@@ -336,6 +355,29 @@ describe('createBrowserDocumentsFileCapability', () => {
         const accept = firstCall?.[0]?.types?.[0]?.accept;
         expect(showOpenFilePicker).toHaveBeenCalledTimes(1);
         expect(accept?.['image/*']).not.toContain('.svgz');
+    });
+
+    it('does not chain a hidden input picker after denied browser file handles', async () => {
+        const pdfBytes = await createPdfBytes();
+        const pickedPdf = new File([pdfBytes], 'fallback.pdf', { type: 'application/pdf' });
+        const deniedHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'denied.pdf',
+            getFile: vi.fn(async () => {
+                throw new DOMException('Not allowed', 'NotAllowedError');
+            }),
+        });
+        const showOpenFilePicker = vi.fn(async () => [deniedHandle]);
+        const { capability } = await loadBrowserDocumentsFileCapability({
+            inputFiles: [pickedPdf],
+            windowOverrides: { showOpenFilePicker },
+        });
+
+        await expect(capability.openPdfDialog()).resolves.toBeNull();
+        const fallbackResult = await capability.openPdfDialog();
+
+        expect(showOpenFilePicker).toHaveBeenCalledTimes(1);
+        expect(fallbackResult?.kind).toBe('pdf');
     });
 
     it('rejects oversized browser combine rewrites before reading the input PDFs', async () => {
@@ -662,15 +704,10 @@ describe('createBrowserDocumentsFileCapability', () => {
             2,
             3,
         ])], 'broken.png', { type: 'image/png' });
-        const showOpenFilePicker = vi.fn(async () => [cast<FileSystemFileHandle>({
-            kind: 'file',
-            name: 'broken.png',
-            getFile: async () => brokenPng,
-        })]);
         const {
             capability,
             browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({ windowOverrides: { showOpenFilePicker } });
+        } = await loadBrowserDocumentsFileCapability({ inputFiles: [brokenPng] });
         const failedRef = 'browser://documents/open-failure-ref/broken.png';
 
         await expect(capability.openCombineDialog()).rejects.toThrow();
@@ -981,6 +1018,39 @@ describe('createBrowserDocumentsFileCapability', () => {
         browserDocumentStore.unload(sourceRef);
 
         await expect(browserDocumentStore.read(sourceRef)).resolves.toEqual(pdfBytes);
+    });
+
+    it('keeps recent entries when direct browser handle reopen is denied', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'denied.pdf',
+            getFile: vi.fn(async () => {
+                throw new DOMException('Not allowed', 'NotAllowedError');
+            }),
+        });
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'denied.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: handle,
+                storageMode: 'handle',
+            },
+        );
+        await browserDocumentStore.touchRecentFile(sourceRef);
+
+        await expect(capability.openPdfDirect(sourceRef)).resolves.toBeNull();
+        const recentFiles = await capability.recentFiles.get();
+        expect(recentFiles).toEqual([expect.objectContaining({
+            originalPath: sourceRef,
+            fileName: 'denied.pdf',
+        })]);
     });
 
     it('keeps oversized handle-backed sources lazy during direct open', async () => {

@@ -6,7 +6,7 @@ import {
 import { resolveEmbeddedShapeImportLoadPolicy } from '@app/composables/pdf/pdfEmbeddedShapeImportPolicy';
 
 describe('resolveEmbeddedShapeImportLoadPolicy', () => {
-    it('defers shape import for path-backed PDFs even when bytes are already in memory', () => {
+    it('awaits shape import before initial render for path-backed PDFs even when bytes are already in memory', () => {
         expect(resolveEmbeddedShapeImportLoadPolicy(
             new Uint8Array([
                 1,
@@ -15,8 +15,8 @@ describe('resolveEmbeddedShapeImportLoadPolicy', () => {
             ]),
             '/tmp/example.pdf',
         )).toEqual({
-            awaitBeforeInitialRender: false,
-            deferUntilAfterInitialRender: true,
+            awaitBeforeInitialRender: true,
+            deferUntilAfterInitialRender: false,
         });
     });
 
@@ -34,13 +34,13 @@ describe('resolveEmbeddedShapeImportLoadPolicy', () => {
         });
     });
 
-    it('defers shape import for path-backed PDFs without in-memory bytes', () => {
+    it('awaits shape import before initial render for path-backed PDFs without in-memory bytes', () => {
         expect(resolveEmbeddedShapeImportLoadPolicy(
             null,
             '/tmp/example.pdf',
         )).toEqual({
-            awaitBeforeInitialRender: false,
-            deferUntilAfterInitialRender: true,
+            awaitBeforeInitialRender: true,
+            deferUntilAfterInitialRender: false,
         });
     });
 

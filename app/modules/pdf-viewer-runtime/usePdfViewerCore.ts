@@ -489,7 +489,6 @@ export const usePdfViewerCore = (options: IUsePdfViewerCoreOptions) => {
         resetContinuousScrollState,
         resetZoomRerenderQueueState: (reason) => resetZoomRerenderQueueStateDelegate.call(reason),
         consumeZoomViewportAnchor,
-        isZoomGestureSessionLocked,
         beginResizeTransition,
         consumeSuppressedZoomRerender,
     });

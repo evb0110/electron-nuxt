@@ -378,6 +378,7 @@ async function readFileHandleBytes(
     offset?: number,
     length?: number,
 ) {
+    await ensureFileHandleReadPermission(handle);
     const file = await handle.getFile();
     if (typeof offset === 'number' && typeof length === 'number') {
         const start = Math.max(0, offset);
@@ -395,8 +396,32 @@ async function readFileHandleBytes(
 }
 
 async function readFileHandleSize(handle: FileSystemFileHandle) {
+    await ensureFileHandleReadPermission(handle);
     const file = await handle.getFile();
     return file.size;
+}
+
+async function ensureFileHandleReadPermission(handle: FileSystemFileHandle) {
+    type TFileSystemHandlePermissionDescriptor = { mode: 'read' };
+    const permissionHandle = handle as FileSystemFileHandle & {
+        queryPermission?: (descriptor?: TFileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
+        requestPermission?: (descriptor?: TFileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
+    };
+    const descriptor: TFileSystemHandlePermissionDescriptor = { mode: 'read' };
+
+    if (typeof permissionHandle.queryPermission === 'function') {
+        const currentPermission = await permissionHandle.queryPermission(descriptor);
+        if (currentPermission === 'granted') {
+            return;
+        }
+    }
+
+    if (typeof permissionHandle.requestPermission === 'function') {
+        const requestedPermission = await permissionHandle.requestPermission(descriptor);
+        if (requestedPermission === 'granted') {
+            return;
+        }
+    }
 }
 
 function readRecentFilesFromStorage() {

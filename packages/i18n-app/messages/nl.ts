@@ -126,6 +126,7 @@ export default {
         'pencil': 'Potlood',
         'marker': 'Markeerstift',
         'stickyNotes': 'Plaknotities',
+        'createNotes': 'Notities maken',
         'stickyDescription': 'Maak notities van geselecteerde tekst of plaats er een op een pagina.',
         'imageDescription': 'Voeg een afbeelding uit een bestand of van het klembord in en wijzig het formaat direct op de pagina.',
         'addNoteToSelection': 'Notitie aan selectie toevoegen',

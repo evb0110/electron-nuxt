@@ -400,7 +400,8 @@ describe('pdf-print', () => {
 
         await renderPdfPagesForBrowserPrint(targetDocument, Uint8Array.of(1, 2, 3));
 
-        expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe('/pdf/pdf.worker.min.mjs');
+        const { getPdfjsWorkerUrl } = await import('@app/utils/viewer-assets');
+        expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe(getPdfjsWorkerUrl());
         expect(root.replaceChildren).toHaveBeenCalledTimes(1);
         expect(root.append).toHaveBeenCalledTimes(2);
         expect(firstPage.render).toHaveBeenCalledWith(expect.objectContaining({

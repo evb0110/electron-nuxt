@@ -500,6 +500,29 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             return;
         }
 
+        const pagesMissingMountedContainer = pagesToRenderNow.filter(
+            (pageNumber) => !getPageContainer(containerRoot, pageNumber - 1),
+        );
+        if (pagesMissingMountedContainer.length > 0) {
+            BrowserLogger.warnThrottled(
+                'pdf-renderer',
+                'render-visible-wait-for-mounted-pages',
+                RERENDER_LOG_THROTTLE_MS,
+                'Waiting for virtualized page containers before rendering',
+                {
+                    pagesMissingMountedContainer,
+                    visibleRange,
+                    renderVersion: version,
+                    currentRenderVersion: renderVersion,
+                    currentPage: options.currentPage.value,
+                },
+            );
+            await nextTick();
+            if (renderVersion !== version) {
+                return;
+            }
+        }
+
         const scale = toValue(options.effectiveScale);
 
         for (const batch of chunk(pagesToRenderNow, CONCURRENT_RENDERS)) {
@@ -908,6 +931,18 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         const containerAtCapture = options.container.value;
         const snapshot = captureScrollSnapshot(containerAtCapture);
         const snapshotToRestore = anchorSnapshot ?? snapshot;
+        async function getMountedVisibleRangeAfterRestore() {
+            await nextTick();
+            if (renderVersion !== version) {
+                return null;
+            }
+            const range = getVisibleRange();
+            await nextTick();
+            if (renderVersion !== version) {
+                return null;
+            }
+            return range;
+        }
         if (snapshot) {
             BrowserLogger.warnThrottled('pdf-nav', 'rerender-snapshot-captured', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] captured version=${version}`, {
                 version,
@@ -1005,7 +1040,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     return;
                 }
 
-                const visibleRange = getVisibleRange();
+                const visibleRange = await getMountedVisibleRangeAfterRestore();
+                if (visibleRange === null) {
+                    return;
+                }
                 await renderVisiblePages(visibleRange, {
                     preserveRenderedPages: true,
                     forceRerender: true,
@@ -1084,7 +1122,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 return;
             }
 
-            const visibleRange = getVisibleRange();
+            const visibleRange = await getMountedVisibleRangeAfterRestore();
+            if (visibleRange === null) {
+                return;
+            }
             await renderVisiblePages(visibleRange, {
                 bufferOverride: renderBufferOverride,
                 maxCanvasPixelsOverride,

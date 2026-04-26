@@ -23,10 +23,13 @@ describe('browser api common', () => {
 
     it('configures pdf.js worker source and leaves worker mode enabled', async () => {
         const {
-            PDFJS_WORKER_SRC,
             createPdfjsDocumentInit,
             getPdfjsLib,
         } = await import('@app/platform/browser-api/common');
+        const {
+            getPdfjsAssetDir,
+            getPdfjsWorkerUrl,
+        } = await import('@app/utils/viewer-assets');
 
         const pdfjsLib = await getPdfjsLib();
         const input = new Uint8Array([
@@ -36,11 +39,17 @@ describe('browser api common', () => {
         ]);
         const init = createPdfjsDocumentInit(pdfjsLib, input);
 
-        expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe(PDFJS_WORKER_SRC);
+        expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBe(getPdfjsWorkerUrl());
         expect(init).not.toHaveProperty('disableWorker');
         expect(init).toMatchObject({
             data: expect.any(Uint8Array),
             verbosity: pdfjsModule.VerbosityLevel.ERRORS,
+            standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
+            cMapUrl: getPdfjsAssetDir('cmaps'),
+            cMapPacked: true,
+            wasmUrl: getPdfjsAssetDir('wasm'),
+            iccUrl: getPdfjsAssetDir('iccs'),
+            useSystemFonts: false,
         });
         const initData = (init as { data: Uint8Array }).data;
         expect(initData).not.toBe(input);

@@ -21,6 +21,7 @@
         :is-capturing-region="snapshot.isCapturingRegion"
         :is-crop-selecting="snapshot.isCropSelecting"
         :is-placing-page-note="snapshot.isPlacingPageNote"
+        :surface="toolbarSurface"
         @open-file="emit('open-file')"
         @open-settings="emit('open-settings')"
         @save="emit('save')"
@@ -83,7 +84,7 @@
                 :working-copy-path="null"
                 :open="ocrPopupOpen"
                 :disabled="snapshot.isDjvuMode || !hasPdf"
-                :hide-trigger="isCollapsed(3)"
+                :hide-trigger="isCollapsed(2)"
                 @update:open="emit('update:ocrPopupOpen', $event)"
                 @export-docx="emit('export-docx')"
                 @ocr-complete="emit('ocr-complete')"
@@ -122,14 +123,22 @@
                 :open="overflowMenuOpen"
                 :collapse-tier="collapseTier"
                 :can-save="snapshot.canSave"
+                can-save-as
+                can-print
                 :can-undo="snapshot.canUndo"
                 :can-redo="snapshot.canRedo"
+                can-toggle-sidebar
+                can-capture-region
+                can-crop
+                can-quick-note
                 :has-pdf="hasPdf"
                 :is-any-saving="snapshot.isAnySaving"
                 :is-history-busy="snapshot.isHistoryBusy"
                 :is-exporting-docx="snapshot.isExportingDocx"
+                :is-preparing-print="snapshot.isPreparingPrint"
                 :can-export-docx="snapshot.canExportDocx"
                 :can-use-ocr="canUseOcr"
+                :show-sidebar="snapshot.showSidebar"
                 :drag-mode="snapshot.dragMode"
                 :continuous-scroll="snapshot.continuousScroll"
                 :view-mode="snapshot.viewMode"
@@ -138,20 +147,27 @@
                 :is-fit-height-active="snapshot.isFitHeightActive"
                 :is-capturing-region="snapshot.isCapturingRegion"
                 :is-crop-selecting="snapshot.isCropSelecting"
+                :is-placing-page-note="snapshot.isPlacingPageNote"
+                :surface="toolbarSurface"
+                trigger-icon="i-lucide-ellipsis"
                 @update:open="emit('update:overflowMenuOpen', $event)"
+                @open-file="emit('open-file')"
                 @capture-region="emit('capture-region')"
                 @crop="emit('crop')"
                 @save="emit('save')"
                 @save-as="emit('save-as')"
+                @print="emit('print')"
                 @export-docx="emit('export-docx')"
                 @undo="emit('undo')"
                 @redo="emit('redo')"
+                @toggle-sidebar="emit('toggle-sidebar')"
                 @fit-width="emit('fit-width')"
                 @fit-height="emit('fit-height')"
                 @enable-drag="emit('enable-drag')"
                 @disable-drag="emit('disable-drag')"
                 @set-view-mode="emit('set-view-mode', $event)"
                 @toggle-continuous-scroll="emit('toggle-continuous-scroll')"
+                @quick-note="emit('quick-note')"
                 @open-settings="emit('open-settings')"
             />
         </template>
@@ -167,6 +183,7 @@ import PdfZoomDropdown from '@app/components/pdf/PdfZoomDropdown.vue';
 import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
+import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/reader-command-surface';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 
@@ -183,6 +200,7 @@ const props = defineProps<{
 const { isDesktopRuntime } = useRuntimeEnvironment();
 const canUseOcr = computed(() => isDesktopRuntime.value);
 const canUseDjvu = true;
+const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
 
 const emit = defineEmits<{
     'update:ocrPopupOpen': [open: boolean];

@@ -126,6 +126,7 @@ export default {
         'pencil': 'Lápiz',
         'marker': 'Marcador',
         'stickyNotes': 'Notas adhesivas',
+        'createNotes': 'Crear notas',
         'stickyDescription': 'Cree notas a partir del texto seleccionado o colóquelas en cualquier lugar de la página.',
         'imageDescription': 'Inserte una imagen desde un archivo o el portapapeles y cambie su tamaño directamente en la página.',
         'addNoteToSelection': 'Añadir nota a la selección',

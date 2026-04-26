@@ -1,0 +1,93 @@
+import {
+    READER_COMMANDS,
+    type IReaderCommandSurface,
+    type TReaderCommandId,
+    type TReaderCommandMap,
+} from '@contracts/reader-commands';
+
+export type {
+    IReaderCommandSurface,
+    TReaderCommandId,
+    TReaderCommandMap,
+} from '@contracts/reader-commands';
+
+function createCommandMap(overrides: Partial<Record<TReaderCommandId, boolean>>) {
+    return Object.freeze(Object.fromEntries(
+        READER_COMMANDS.map(command => [
+            command,
+            overrides[command] ?? false,
+        ]),
+    )) as TReaderCommandMap;
+}
+
+function createSurface(options: {
+    inline: Partial<Record<TReaderCommandId, boolean>>;
+    menu: Partial<Record<TReaderCommandId, boolean>>;
+}) {
+    return Object.freeze({
+        inline: createCommandMap(options.inline),
+        menu: createCommandMap(options.menu),
+    }) as IReaderCommandSurface;
+}
+
+const allCommands = Object.fromEntries(READER_COMMANDS.map(command => [
+    command,
+    true,
+]));
+
+export const DESKTOP_EDITOR_READER_COMMAND_SURFACE = createSurface({
+    inline: allCommands,
+    menu: allCommands,
+});
+
+export const MOBILE_READER_COMMAND_SURFACE = createSurface({
+    inline: {
+        'app-menu': true,
+        'open-file': true,
+        'overflow-menu': true,
+        'page-navigation': true,
+        zoom: true,
+    },
+    menu: {
+        'capture-region': true,
+        'continuous-scroll': true,
+        crop: true,
+        'drag-mode': true,
+        'export-docx': true,
+        'fit-height': true,
+        'fit-width': true,
+        fullscreen: true,
+        ocr: true,
+        'open-file': true,
+        print: true,
+        'quick-note': true,
+        'save-as': true,
+        settings: true,
+        'text-select': true,
+        'toggle-sidebar': true,
+        'view-mode': true,
+    },
+});
+
+export function isReaderCommandInline(
+    surface: IReaderCommandSurface | null | undefined,
+    command: TReaderCommandId,
+) {
+    return (surface ?? DESKTOP_EDITOR_READER_COMMAND_SURFACE).inline[command];
+}
+
+export function isReaderCommandInMenu(
+    surface: IReaderCommandSurface | null | undefined,
+    command: TReaderCommandId,
+) {
+    return (surface ?? DESKTOP_EDITOR_READER_COMMAND_SURFACE).menu[command];
+}
+
+export function listReaderCommandsForPlacement(
+    surface: IReaderCommandSurface | null | undefined,
+    placement: keyof IReaderCommandSurface,
+) {
+    const resolvedSurface = surface ?? DESKTOP_EDITOR_READER_COMMAND_SURFACE;
+
+    return READER_COMMANDS.filter(command => resolvedSurface[placement][command]);
+}
