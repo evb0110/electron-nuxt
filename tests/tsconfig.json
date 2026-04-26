@@ -6,8 +6,7 @@
     },
     "include": [
         "./**/*.ts",
-        "../app/**/*.ts",
-        "../app/**/*.vue",
+        "../app/types/*.d.ts",
         "../electron/types/*.d.ts",
         "../.nuxt/nuxt.d.ts"
     ],

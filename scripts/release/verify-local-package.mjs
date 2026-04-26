@@ -5,10 +5,11 @@ import {
     rmSync,
     unlinkSync,
 } from 'node:fs';
-import {
+import path, {
     join,
     resolve,
 } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { run } from './shared.mjs';
 import {
     getReleaseCiEnv,
@@ -20,7 +21,17 @@ import {
 
 const RELEASE_DIR = 'release';
 
-function getPackagingArgs(target) {
+export function getLocalReleaseBuildCommand() {
+    return {
+        args: [
+            'run',
+            'build:strict',
+        ],
+        command: 'pnpm',
+    };
+}
+
+export function getPackagingArgs(target) {
     if (target.platform === 'mac' && target.arch === 'x64') {
         return [
             'exec',
@@ -164,6 +175,13 @@ function pruneUpdaterMetadataForLocalParity(target) {
 function main() {
     const targets = getLocalReleaseTargets();
     const distDir = resolve(process.cwd(), RELEASE_DIR);
+    const releaseCiEnv = getReleaseCiEnv(process.env);
+    const buildCommand = getLocalReleaseBuildCommand();
+
+    run(buildCommand.command, buildCommand.args, {
+        env: releaseCiEnv,
+        stdio: 'inherit',
+    });
 
     for (const target of targets) {
         rmSync(distDir, {
@@ -171,7 +189,7 @@ function main() {
             recursive: true,
         });
 
-        const env = getReleaseCiEnv(process.env);
+        const env = { ...releaseCiEnv };
         if (target.platform === 'linux') {
             env.USE_SYSTEM_FPM = 'true';
         }
@@ -196,4 +214,9 @@ function main() {
     }
 }
 
-main();
+const isDirectCliRun = process.argv[1]
+    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (isDirectCliRun) {
+    main();
+}

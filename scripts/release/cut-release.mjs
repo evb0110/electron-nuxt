@@ -73,7 +73,7 @@ async function main() {
 
         if (shouldSkipGitHubReleaseWait()) {
             process.stdout.write(
-                `Release ${tag} queued. GitHub will validate, build, and publish it from the tag-triggered Release workflow.\n`,
+                `Release ${tag} queued. GitHub will rerun release checks, build, and publish it from the tag-triggered Release workflow.\n`,
             );
             return;
         }

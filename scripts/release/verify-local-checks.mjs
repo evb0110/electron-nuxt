@@ -1,36 +1,58 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { run } from './shared.mjs';
 import { getReleaseCiEnv } from './policy.mjs';
 
-function main() {
-    const releaseCiEnv = getReleaseCiEnv();
-
-    // Run the local release gate under CI-mode test semantics so runner-only
-    // behavior is more likely to fail before we ever push a release tag.
-    run('pnpm', [
-        'run',
-        'validate',
-    ], {
-        env: releaseCiEnv,
-        stdio: 'inherit',
-    });
-
-    run('pnpm', [
-        'run',
-        'check:electron:install',
-    ], {
-        env: releaseCiEnv,
-        stdio: 'inherit',
-    });
-
-    // Keep release-critical tests fast and deterministic. Manual Electron E2E
-    // coverage remains available, but it no longer blocks version cuts.
-    run('pnpm', [
-        'run',
-        'test:release',
-    ], {
-        env: releaseCiEnv,
-        stdio: 'inherit',
-    });
+export function getLocalReleaseCheckCommands() {
+    return [
+        {
+            args: [
+                'run',
+                'lint',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
+                'typecheck',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
+                'check:electron:install',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
+                'test:release',
+            ],
+            command: 'pnpm',
+        },
+    ];
 }
 
-main();
+export function runLocalReleaseChecks({
+    env = getReleaseCiEnv(),
+    runCommand = run,
+} = {}) {
+    // Run the local release gate under CI-mode test semantics so runner-only
+    // behavior is more likely to fail before we ever push a release tag.
+    for (const command of getLocalReleaseCheckCommands()) {
+        runCommand(command.command, command.args, {
+            env,
+            stdio: 'inherit',
+        });
+    }
+}
+
+const isDirectCliRun = process.argv[1]
+    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (isDirectCliRun) {
+    runLocalReleaseChecks();
+}
