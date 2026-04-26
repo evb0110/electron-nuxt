@@ -132,37 +132,59 @@ body {
   height: 100%;
   margin: 0;
   background: #fff;
-  color: #6b7280;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #475569;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1;
 }
 body {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .loader {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  font-size: 14px;
+  width: 128px;
+  height: 43px;
+  min-height: 43px;
+  font-size: 13px;
+  line-height: 13px;
 }
 .spinner {
-  width: 24px;
-  height: 24px;
-  border: 3px solid #d1d5db;
-  border-top-color: #6b7280;
-  border-radius: 50%;
-  animation: spin 800ms linear infinite;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border-radius: 999px;
+  background: conic-gradient(
+    from 0deg,
+    rgba(0, 0, 0, 0.12) 0deg,
+    rgba(0, 0, 0, 0.12) 260deg,
+    rgba(0, 0, 0, 0.5) 360deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
+  animation: spin 0.9s linear infinite;
+  will-change: transform;
+  transform: translateZ(0);
 }
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  from { transform: translateZ(0) rotate(0deg); }
+  to { transform: translateZ(0) rotate(360deg); }
+}
+.text {
+  height: 13px;
+  margin: 0;
+  font-weight: 400;
+  letter-spacing: 0.2px;
 }
 </style>
 </head>
 <body>
 <main class="loader" role="status" aria-live="polite">
   <div class="spinner" aria-hidden="true"></div>
-  <div>Loading...</div>
+  <div class="text">Loading...</div>
 </main>
 </body>
 </html>`;
@@ -511,6 +533,7 @@ function attachShowLifecycle(
     const STABILITY_WINDOW_MS = config.isDev ? 200 : 500;
     let lastNavigationTime = 0;
     let stabilityCheckTimeout: NodeJS.Timeout | null = null;
+    const isStartupPlaceholderUrl = (url: string) => url === 'about:blank';
 
     const logNavEvent = (event: string, details?: Record<string, unknown>) => {
         if (config.isDev) {
@@ -663,6 +686,9 @@ function attachShowLifecycle(
         if (!isMainFrame) {
             return;
         }
+        if (isStartupPlaceholderUrl(url)) {
+            return;
+        }
 
         mainFrameLoadFinished = false;
         lastNavigationTime = Date.now();
@@ -683,6 +709,10 @@ function attachShowLifecycle(
     };
 
     const onFinishLoad = () => {
+        if (isStartupPlaceholderUrl(window.webContents.getURL())) {
+            return;
+        }
+
         mainFrameLoadFinished = true;
         lastNavigationTime = Date.now();
         logNavEvent('navigation-finish-load');
@@ -823,10 +853,11 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     attachShowLifecycle(window, { blockShowUntilRendererReady: shouldWaitForInitialRendererReady });
 
     const startupPlaceholderPromise = loadStartupPlaceholder(window);
-    showAndFocusMaximizedWindow(window);
+    const runtimeReadyPromise = windowRuntime.ensureReady();
+    void runtimeReadyPromise.catch(() => {});
 
     const initialLoadPromise = (async () => {
-        await windowRuntime.ensureReady();
+        await runtimeReadyPromise;
         await startupPlaceholderPromise.catch(() => {});
         if (window.isDestroyed()) {
             return;
@@ -842,6 +873,8 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     window.webContents.on('did-finish-load', () => {
         void lockRendererZoom(window);
     });
+    await startupPlaceholderPromise.catch(() => {});
+    showAndFocusMaximizedWindow(window);
     logWindowStartup(`BrowserWindow created and loadURL dispatched (step +${Date.now() - createStart}ms)`, {
         windowId: window.id,
         url: config.server.url,

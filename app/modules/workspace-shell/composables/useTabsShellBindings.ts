@@ -11,6 +11,8 @@ import { registerTabsMenuBindings } from '@app/modules/workspace-shell/composabl
 import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/platform-shortcuts';
 
+const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
+
 interface IUseTabsShellBindingsOptions {
     tabs: Ref<Array<{ id: string }>>;
     activeTabId: Ref<string | null>;
@@ -62,6 +64,14 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
 
     const menuCleanups: Array<() => void> = [];
     const debugHandleSave = () => activeWorkspace.value?.handleSave() ?? Promise.resolve();
+
+    function dispatchStartupOpenClaimed(pathCount: number) {
+        if (typeof window === 'undefined') {
+            return;
+        }
+
+        window.dispatchEvent(new CustomEvent(STARTUP_OPEN_CLAIMED_EVENT_NAME, {detail: { pathCount }}));
+    }
 
     function cycleTab(direction: number) {
         if (tabs.value.length <= 1 || !activeTabId.value) {
@@ -152,6 +162,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
 
         void (async () => {
             const startupExternalPaths = await getWindowTabsCapability().claimPendingExternalOpenPaths();
+            dispatchStartupOpenClaimed(startupExternalPaths.length);
             if (startupExternalPaths.length > 0) {
                 traceRendererStartup('tabs shell claimed startup external paths', {pathCount: startupExternalPaths.length});
                 await beginOpenPathsInAppropriateTab(startupExternalPaths);
@@ -161,6 +172,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
             getWindowTabsCapability().notifyRendererReady();
         })().catch((error) => {
             BrowserLogger.warn('tabs-shell', 'Startup external-open preparation failed before renderer ready', error);
+            dispatchStartupOpenClaimed(0);
             getWindowTabsCapability().notifyRendererReady();
         });
 
