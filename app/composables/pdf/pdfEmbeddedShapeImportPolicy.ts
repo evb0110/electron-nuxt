@@ -10,17 +10,17 @@ export function resolveEmbeddedShapeImportLoadPolicy(
     const hasSourceData = sourceData instanceof Uint8Array && sourceData.byteLength > 0;
     const hasWorkingCopyPath = typeof workingCopyPath === 'string' && workingCopyPath.trim().length > 0;
 
-    if (hasSourceData) {
-        return {
-            awaitBeforeInitialRender: true,
-            deferUntilAfterInitialRender: false,
-        };
-    }
-
     if (hasWorkingCopyPath) {
         return {
             awaitBeforeInitialRender: false,
             deferUntilAfterInitialRender: true,
+        };
+    }
+
+    if (hasSourceData) {
+        return {
+            awaitBeforeInitialRender: true,
+            deferUntilAfterInitialRender: false,
         };
     }
 

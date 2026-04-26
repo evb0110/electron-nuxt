@@ -920,7 +920,6 @@ const exportOverlayIcon = computed(() => exportOverlay.value?.state === 'success
 const exportOverlayIconClass = computed(() => exportOverlay.value?.state === 'success'
     ? 'size-4 text-[var(--ui-success)]'
     : 'size-4 animate-spin text-muted');
-const DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS = 8_000;
 
 function displayProcessedCount(processed: number, total: number) {
     if (total <= 0) {
@@ -999,41 +998,6 @@ function handleViewerCurrentPageUpdate(page: number) {
     currentPage.value = page;
 }
 
-async function waitForDocumentOpenVisualSettle(action: string) {
-    await nextTick();
-    const viewer = pdfViewerRef.value;
-    if (!viewer?.waitForViewerLoadSettled) {
-        return;
-    }
-
-    let visualSettleTimeout: ReturnType<typeof setTimeout> | null = null;
-    try {
-        await Promise.race([
-            viewer.waitForViewerLoadSettled(),
-            new Promise<never>((_resolve, reject) => {
-                visualSettleTimeout = setTimeout(() => {
-                    reject(new Error(`Timed out waiting for ${action} visual settle`));
-                }, DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS);
-            }),
-        ]);
-    } catch (error) {
-        BrowserLogger.warn('loader', 'Document open visual settle timed out; releasing shell loader', {
-            action,
-            timeoutMs: DOCUMENT_OPEN_VISUAL_SETTLE_TIMEOUT_MS,
-            error,
-        });
-    } finally {
-        if (visualSettleTimeout) {
-            clearTimeout(visualSettleTimeout);
-        }
-    }
-}
-
-async function runOpenWithVisualSettle(action: string, run: () => Promise<void>) {
-    await run();
-    await waitForDocumentOpenVisualSettle(action);
-}
-
 const {
     hasQueuedSplitRestore,
     isExternallyRestoring,
@@ -1075,20 +1039,11 @@ const workspaceExpose: IWorkspaceExpose = createWorkspaceExpose({
     handleRedo: () => {
         void handleRedo();
     },
-    handleOpenFileFromUi: () => runOpenWithVisualSettle('handleOpenFileFromUi', handleOpenFileFromUi),
-    handleCombineImages: () => runOpenWithVisualSettle('handleCombineImages', handleCombineImages),
-    handleOpenFileDirectWithPersist: path => runOpenWithVisualSettle(
-        'handleOpenFileDirectWithPersist',
-        () => handleOpenFileDirectWithPersist(path),
-    ),
-    handleOpenFileDirectBatchWithPersist: paths => runOpenWithVisualSettle(
-        'handleOpenFileDirectBatchWithPersist',
-        () => handleOpenFileDirectBatchWithPersist(paths),
-    ),
-    handleOpenFileWithResult: result => runOpenWithVisualSettle(
-        'handleOpenFileWithResult',
-        () => handleOpenFileWithResult(result),
-    ),
+    handleOpenFileFromUi,
+    handleCombineImages,
+    handleOpenFileDirectWithPersist,
+    handleOpenFileDirectBatchWithPersist,
+    handleOpenFileWithResult,
     handleCloseFileFromUi,
     handleExportDocx,
     handleExportImages,
