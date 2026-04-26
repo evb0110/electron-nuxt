@@ -81,9 +81,10 @@ const mocks = vi.hoisted(() => {
             return this.visible;
         }
 
-        maximize() {
+        maximize = vi.fn(() => {
             this.maximized = true;
-        }
+            this.visible = true;
+        });
 
         on(event: string, handler: (...args: unknown[]) => void) {
             const existing = this.handlers.get(event) ?? [];
@@ -100,9 +101,9 @@ const mocks = vi.hoisted(() => {
             return handlers.length > 0;
         }
 
-        show() {
+        show = vi.fn(() => {
             this.visible = true;
-        }
+        });
 
         private removeListener(event: string, handler: (...args: unknown[]) => void) {
             const existing = this.handlers.get(event) ?? [];
@@ -125,6 +126,21 @@ const mocks = vi.hoisted(() => {
             info: vi.fn(),
             warn: vi.fn(),
         },
+        config: {
+            automation: {
+                hideWindow: true,
+                noFocus: false,
+            },
+            isDev: false,
+            isMac: false,
+            server: {url: 'http://127.0.0.1:3235'},
+            window: {
+                backgroundColor: '#fff',
+                height: 800,
+                title: 'EVB Viewer',
+                width: 1200,
+            },
+        },
         openExternal: vi.fn(async () => {}),
         setupContentSecurityPolicy: vi.fn(),
         startServer: vi.fn(async () => {}),
@@ -142,21 +158,7 @@ vi.mock('electron', () => ({
     shell: {openExternal: mocks.openExternal},
 }));
 
-vi.mock('@electron/config', () => ({config: {
-    automation: {
-        hideWindow: true,
-        noFocus: false,
-    },
-    isDev: false,
-    isMac: false,
-    server: {url: 'http://127.0.0.1:3235'},
-    window: {
-        backgroundColor: '#fff',
-        height: 800,
-        title: 'EVB Viewer',
-        width: 1200,
-    },
-}}));
+vi.mock('@electron/config', () => ({config: mocks.config}));
 
 vi.mock('@electron/server', () => ({
     startServer: mocks.startServer,
@@ -184,6 +186,8 @@ describe('window runtime readiness', () => {
         mocks.startServer.mockResolvedValue(undefined);
         mocks.stopServer.mockResolvedValue(undefined);
         mocks.loadURL.mockResolvedValue(undefined);
+        mocks.config.automation.hideWindow = true;
+        mocks.config.automation.noFocus = false;
     });
 
     it('restarts the runtime server when a later window detects stale health', async () => {
@@ -219,6 +223,27 @@ describe('window runtime readiness', () => {
         markWindowRendererReady(1);
 
         await expect(createPromise).resolves.toBe(mocks.BrowserWindow.windows[0]);
+    });
+
+    it('does not maximize a hidden startup window before renderer-ready', async () => {
+        mocks.config.automation.hideWindow = false;
+        const {
+            createAppWindow,
+            markWindowRendererReady,
+        } = await import('@electron/window');
+
+        const createPromise = createAppWindow({ waitForInitialRendererReady: true });
+        await vi.waitFor(() => {
+            expect(mocks.BrowserWindow.windows).toHaveLength(1);
+        });
+
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window?.maximize).not.toHaveBeenCalled();
+        expect(window?.show).not.toHaveBeenCalled();
+        expect(window?.isVisible()).toBe(false);
+
+        markWindowRendererReady(1);
+        await createPromise;
     });
 
     it('rejects strict startup when the initial loadURL call fails', async () => {

@@ -753,10 +753,6 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         mainWindowId = window.id;
     }
 
-    if (!config.automation.hideWindow && !window.isMaximized()) {
-        window.maximize();
-    }
-
     const shouldWaitForInitialRendererReady = options.waitForInitialRendererReady ?? false;
     windowSecurity.hardenWindowWebContents(window);
     attachRendererDiagnostics(window);
