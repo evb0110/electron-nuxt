@@ -89,7 +89,7 @@ export const config = {
         width: 900,
         height: 700,
         title: 'EVB Viewer',
-        backgroundColor: '#f5f5f5',
+        backgroundColor: '#ffffff',
     },
 
     updates: {

@@ -732,7 +732,9 @@ useAppShellLifecycle({
 .editor-global-status-host {
     display: flex;
     flex-direction: column;
+    height: 1.9rem;
     min-height: 1.9rem;
+    flex: 0 0 1.9rem;
 }
 
 @media (width <= 900px) {

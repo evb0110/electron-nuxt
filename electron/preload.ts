@@ -81,7 +81,7 @@ function ensureStartupOverlayStyles() {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #f5f5f5;
+    background: #ffffff;
     color: #475569;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     line-height: 1;

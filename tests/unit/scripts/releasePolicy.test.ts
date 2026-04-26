@@ -28,20 +28,12 @@ describe('release policy', () => {
         expect(getLocalReleaseTargets({
             arch: 'arm64',
             platform: 'darwin',
-        })).toEqual([
-            {
-                arch: 'arm64',
-                expectsUpdaterMetadata: true,
-                isPrimaryHostTarget: true,
-                platform: 'mac',
-            },
-            {
-                arch: 'x64',
-                expectsUpdaterMetadata: false,
-                isPrimaryHostTarget: false,
-                platform: 'mac',
-            },
-        ]);
+        })).toEqual([{
+            arch: 'arm64',
+            expectsUpdaterMetadata: true,
+            isPrimaryHostTarget: true,
+            platform: 'mac',
+        }]);
 
         expect(getLocalReleaseTargets({
             arch: 'x64',

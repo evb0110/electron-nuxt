@@ -42,14 +42,10 @@ export function getLocalReleaseTargets(options = {}) {
         throw new Error(`Unsupported local release arch "${arch}"`);
     }
 
-    const targetArchs = (
-        platform === 'mac' && arch === 'arm64'
-            ? [
-                'arm64',
-                'x64',
-            ]
-            : [arch]
-    );
+    // Local packaging verifies the current host package only. Cross-arch macOS
+    // packages require matching bundled native-tool resources and are covered by
+    // the GitHub release/build matrix on the corresponding runner architecture.
+    const targetArchs = [arch];
 
     return targetArchs.map((targetArch) => ({
         arch: targetArch,

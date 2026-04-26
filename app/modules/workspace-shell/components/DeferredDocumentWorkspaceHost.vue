@@ -758,10 +758,11 @@ defineExpose(workspaceExpose);
 .workspace-host__loading {
     position: absolute;
     inset: 0;
+    z-index: 5;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: color-mix(in oklab, var(--app-window-bg) 90%, var(--ui-bg-muted) 10%);
+    background: var(--app-window-bg);
 }
 
 .workspace-host__spinner {

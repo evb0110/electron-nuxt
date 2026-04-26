@@ -58,6 +58,7 @@ const emit = defineEmits<{
 
 <style scoped>
 .status-bar {
+    height: 1.9rem;
     min-height: 1.9rem;
     display: flex;
     align-items: center;

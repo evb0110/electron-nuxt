@@ -4,7 +4,7 @@
         class="relative h-full w-full"
         :class="{ 'pdf-viewer-container--dark': invertColors }"
     >
-        <div v-if="isViewerLoadingOverlayVisible" class="absolute inset-0 z-[1] flex items-center justify-center bg-[var(--ui-bg-muted)]">
+        <div v-if="isLocalViewerLoadingOverlayVisible" class="absolute inset-0 z-[1] flex items-center justify-center bg-[var(--ui-bg-muted)]">
             <div class="flex flex-col items-center gap-2">
                 <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-[var(--ui-text-muted)]" />
                 <span class="text-sm text-[var(--ui-text-muted)]">{{ t('common.loading') }}</span>
@@ -154,6 +154,7 @@ import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 interface IProps {
     src: TPdfSource | null;
     sourcePdfData?: Uint8Array | null;
+    suppressLoadingOverlay?: boolean;
     bufferPages?: number;
     isAnySaving?: boolean;
     zoom?: number;
@@ -192,6 +193,7 @@ const props = defineProps<IProps>();
 
 const src = computed(() => props.src);
 const sourcePdfData = computed(() => props.sourcePdfData ?? null);
+const suppressLoadingOverlay = computed(() => props.suppressLoadingOverlay === true);
 const bufferPages = computed(() => props.bufferPages ?? 2);
 const isAnySaving = computed(() => props.isAnySaving ?? false);
 const zoom = computed(() => props.zoom ?? 1);
@@ -1309,6 +1311,9 @@ const { isViewerLoadingOverlayVisible } = usePdfViewerLoadingState({
     viewerContainer,
     holdOverlayVisible: isVisualReloadTransitionActive,
 });
+const isLocalViewerLoadingOverlayVisible = computed(() => (
+    isViewerLoadingOverlayVisible.value && !suppressLoadingOverlay.value
+));
 
 const viewerClass = computed(() => ({
     'pdfViewer--saving': isAnySaving.value,
@@ -1320,7 +1325,7 @@ const viewerClass = computed(() => ({
     'pdfViewer--mode-single': viewMode.value === 'single',
     'pdfViewer--mode-facing': viewMode.value === 'facing',
     'pdfViewer--mode-facing-first-single': viewMode.value === 'facing-first-single',
-    'pdfViewer--hidden': isViewerLoadingOverlayVisible.value,
+    'pdfViewer--hidden': isLocalViewerLoadingOverlayVisible.value,
     'pdfViewer--fit-height': fitMode.value === 'height',
     'pdfViewer--resize-transition': resizeTransitionVisible.value,
     'pdfViewer--zoom-snap-suppressed': zoomSnapSuppressed.value,
