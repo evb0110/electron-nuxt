@@ -392,6 +392,7 @@ const {
     handleOpenInNewTab,
     openPathInAppropriateTab,
     openPathsInAppropriateTab,
+    beginOpenPathsInAppropriateTab,
     handleWindowTabsAction,
 } = useAppShellWorkspaceRouting({
     activeGroupId,
@@ -401,6 +402,7 @@ const {
     waitForWorkspace,
     createTab,
     getTabById,
+    updateTab,
     removeTabFromState,
     resolveTabForAction,
     handleCloseTab,
@@ -585,6 +587,7 @@ useTabsShellBindings({
     handleFallbackToolbarOpenFile,
     openPathInAppropriateTab,
     openPathsInAppropriateTab,
+    beginOpenPathsInAppropriateTab,
     clearRecentFiles,
     loadRecentFiles,
     ensureAtLeastOneTab,

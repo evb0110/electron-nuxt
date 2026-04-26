@@ -167,6 +167,20 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).toHaveBeenCalledWith(['/docs/retry.pdf']);
     });
 
+    it('lets the startup renderer claim queued paths before renderer-ready dispatch', () => {
+        const harness = createManagerHarness({ isRendererReady: false });
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequest(['/docs/startup.pdf']);
+
+        expect(harness.manager.claimPendingOpenPaths()).toEqual(['/docs/startup.pdf']);
+
+        harness.setRendererReady(true);
+        harness.manager.scheduleFlushPendingFiles();
+
+        expect(harness.dispatchOpenPaths).not.toHaveBeenCalled();
+    });
+
     it('retries queued paths after a failed renderer dispatch instead of dropping them', async () => {
         vi.useFakeTimers();
         const dispatchOpenPaths = vi

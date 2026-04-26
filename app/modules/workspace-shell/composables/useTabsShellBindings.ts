@@ -5,6 +5,7 @@ import type { TWindowTabsAction } from '@contracts/window-tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { getPlatformAPI } from '@app/utils/platform';
+import { BrowserLogger } from '@app/utils/browser-logger';
 import { traceRendererStartup } from '@app/utils/startup-trace';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/composables/tabs-menu-bindings';
 import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
@@ -20,6 +21,7 @@ interface IUseTabsShellBindingsOptions {
     handleFallbackToolbarOpenFile: () => Promise<void>;
     openPathInAppropriateTab: (path: TDocumentRef) => Promise<void>;
     openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
+    beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
     clearRecentFiles: () => Promise<void>;
     loadRecentFiles: () => Promise<void>;
     ensureAtLeastOneTab: () => void;
@@ -44,6 +46,7 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
         handleFallbackToolbarOpenFile,
         openPathInAppropriateTab,
         openPathsInAppropriateTab,
+        beginOpenPathsInAppropriateTab,
         clearRecentFiles,
         loadRecentFiles,
         ensureAtLeastOneTab,
@@ -146,8 +149,18 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
             handleWindowTabsAction,
         }));
         traceRendererStartup('tabs shell menu bindings registered');
-        void nextTick(() => {
+
+        void (async () => {
+            const startupExternalPaths = await getWindowTabsCapability().claimPendingExternalOpenPaths();
+            if (startupExternalPaths.length > 0) {
+                traceRendererStartup('tabs shell claimed startup external paths', {pathCount: startupExternalPaths.length});
+                await beginOpenPathsInAppropriateTab(startupExternalPaths);
+            }
+            await nextTick();
             traceRendererStartup('tabs shell dispatching app:rendererReady');
+            getWindowTabsCapability().notifyRendererReady();
+        })().catch((error) => {
+            BrowserLogger.warn('tabs-shell', 'Startup external-open preparation failed before renderer ready', error);
             getWindowTabsCapability().notifyRendererReady();
         });
 

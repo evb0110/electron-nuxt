@@ -573,6 +573,9 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         updateKnownCurrentWindow();
         announceCurrentWindow();
     },
+    claimPendingExternalOpenPaths() {
+        return Promise.resolve([]);
+    },
     onMenuNewTab: noopUnsubscribe,
     onMenuCloseTab: noopUnsubscribe,
     onMenuSplitEditor: noopUnsubscribe,

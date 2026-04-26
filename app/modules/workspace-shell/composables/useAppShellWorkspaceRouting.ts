@@ -32,6 +32,7 @@ interface IUseAppShellWorkspaceRoutingOptions {
         initial?: Partial<ITab>;
     }) => ITab;
     getTabById: (tabId: string | null | undefined) => ITab | null;
+    updateTab: (tabId: string, updates: Partial<ITab>) => void;
     removeTabFromState: (tabId: string) => void;
     resolveTabForAction: (tabId: string | undefined) => IResolvedTabAction | null;
     handleCloseTab: (groupId: string, tabId: string) => Promise<void>;
@@ -96,6 +97,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         waitForWorkspace,
         createTab,
         getTabById,
+        updateTab,
         removeTabFromState,
         resolveTabForAction,
         handleCloseTab,
@@ -125,6 +127,41 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
             return null;
         }
         return workspaceRefs.value.get(tabId) ?? waitForWorkspace(tabId);
+    }
+
+    function seedTabDocumentHint(tabId: string | null | undefined, pathOrResult: TDocumentRef | TOpenFileResult) {
+        if (!tabId) {
+            return;
+        }
+
+        const tab = getTabById(tabId);
+        if (!tab || hasDocumentMountHint(tab)) {
+            return;
+        }
+
+        updateTab(tab.id, buildPendingTabDocumentHint(pathOrResult));
+    }
+
+    async function openInExistingTab(tabId: string, pathOrResult: TDocumentRef | TOpenFileResult) {
+        seedTabDocumentHint(tabId, pathOrResult);
+        const workspace = activeTabId.value === tabId
+            ? activeWorkspace.value ?? await resolveWorkspaceForTab(tabId)
+            : await resolveWorkspaceForTab(tabId);
+        if (!workspace) {
+            return false;
+        }
+
+        if (workspaceOccupiesTab(workspace)) {
+            return false;
+        }
+
+        if (typeof pathOrResult === 'string') {
+            await workspace.handleOpenFileDirectWithPersist(pathOrResult);
+            return true;
+        }
+
+        await workspace.handleOpenFileWithResult(pathOrResult);
+        return true;
     }
 
     async function handleFallbackToolbarOpenFile() {
@@ -168,9 +205,20 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
     }
 
     async function openResultInAppropriateTab(result: TOpenFileResult) {
-        const workspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
-        if (workspace && !workspaceOccupiesTab(workspace)) {
-            await workspace.handleOpenFileWithResult(result);
+        const tabId = activeTabId.value;
+        const tab = getTabById(tabId);
+        const workspace = activeWorkspace.value;
+        if (tab && !hasDocumentMountHint(tab) && (!workspace || !workspaceOccupiesTab(workspace))) {
+            const opened = await openInExistingTab(tab.id, result);
+            if (opened) {
+                return;
+            }
+        }
+
+        const resolvedWorkspace = workspace ?? await resolveWorkspaceForTab(tabId);
+        if (resolvedWorkspace && !workspaceOccupiesTab(resolvedWorkspace)) {
+            seedTabDocumentHint(tabId, result);
+            await resolvedWorkspace.handleOpenFileWithResult(result);
             return;
         }
 
@@ -178,9 +226,20 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
     }
 
     async function openPathInAppropriateTab(path: TDocumentRef) {
-        const workspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
-        if (workspace && !workspaceOccupiesTab(workspace)) {
-            await workspace.handleOpenFileDirectWithPersist(path);
+        const tabId = activeTabId.value;
+        const tab = getTabById(tabId);
+        const workspace = activeWorkspace.value;
+        if (tab && !hasDocumentMountHint(tab) && (!workspace || !workspaceOccupiesTab(workspace))) {
+            const opened = await openInExistingTab(tab.id, path);
+            if (opened) {
+                return;
+            }
+        }
+
+        const resolvedWorkspace = workspace ?? await resolveWorkspaceForTab(tabId);
+        if (resolvedWorkspace && !workspaceOccupiesTab(resolvedWorkspace)) {
+            seedTabDocumentHint(tabId, path);
+            await resolvedWorkspace.handleOpenFileDirectWithPersist(path);
             return;
         }
         await handleOpenInNewTab(path, activeGroupId.value ?? undefined);
@@ -194,7 +253,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
             return;
         }
 
-        const initialActiveWorkspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
+        const initialActiveWorkspace = activeWorkspace.value;
         const initialActiveTab = getTabById(activeTabId.value);
         let canReuseActiveTab = false;
         if (initialActiveTab && !hasDocumentMountHint(initialActiveTab)) {
@@ -235,6 +294,67 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         }
     }
 
+    async function beginOpenPathsInAppropriateTab(paths: TDocumentRef[]) {
+        const normalizedPaths = uniq(paths
+            .map(path => path.trim())
+            .filter(path => path.length > 0));
+        if (normalizedPaths.length === 0) {
+            return;
+        }
+
+        const startupOpenTasks: Array<Promise<void>> = [];
+        const initialActiveWorkspace = activeWorkspace.value;
+        const initialActiveTab = getTabById(activeTabId.value);
+        let canReuseActiveTab = false;
+        if (initialActiveTab && !hasDocumentMountHint(initialActiveTab)) {
+            canReuseActiveTab = (
+                !initialActiveWorkspace
+                || !workspaceOccupiesTab(initialActiveWorkspace)
+            );
+        }
+
+        for (const [
+            index,
+            path,
+        ] of normalizedPaths.entries()) {
+            if (canReuseActiveTab && initialActiveTab) {
+                seedTabDocumentHint(initialActiveTab.id, path);
+                canReuseActiveTab = false;
+                startupOpenTasks.push(openInExistingTab(initialActiveTab.id, path).then(() => undefined));
+                continue;
+            }
+
+            const tab = createTab({
+                groupId: activeGroupId.value,
+                activate: index === normalizedPaths.length - 1,
+                initial: buildPendingTabDocumentHint(path),
+            });
+            startupOpenTasks.push((async () => {
+                const workspace = await waitForWorkspace(tab.id);
+                if (!workspace) {
+                    removeTabFromState(tab.id);
+                    return;
+                }
+                await workspace.handleOpenFileDirectWithPersist(path);
+            })());
+        }
+
+        for (const [
+            index,
+            task,
+        ] of startupOpenTasks.entries()) {
+            void task.catch((error: unknown) => {
+                BrowserLogger.warn('workspace-routing', 'Failed to begin startup external path open', {
+                    path: normalizedPaths[index],
+                    pathIndex: index,
+                    error,
+                });
+            });
+        }
+
+        await nextTick();
+    }
+
     async function handleWindowTabsAction(action: TWindowTabsAction) {
         if (action.kind === 'close-tab') {
             const resolved = resolveTabForAction(action.tabId);
@@ -273,6 +393,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         openResultInAppropriateTab,
         openPathInAppropriateTab,
         openPathsInAppropriateTab,
+        beginOpenPathsInAppropriateTab,
         handleWindowTabsAction,
     };
 }

@@ -65,6 +65,10 @@ interface ICoreInvokeMap {
         args: [];
         result: boolean;
     };
+    'app:claimPendingExternalOpenPaths': {
+        args: [];
+        result: string[];
+    };
     'tabs:transfer': {
         args: [request: IWindowTabTransferRequest];
         result: Awaited<ReturnType<IElectronAPI['windowTabs']['transfer']>>;
@@ -188,6 +192,10 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
                 tracePreloadStartup('app:rendererReady dispatched');
                 ipcRenderer.send('app:rendererReady');
             },
+            claimPendingExternalOpenPaths: () => invokeWithStartupTrace(
+                'app:claimPendingExternalOpenPaths',
+                () => invokeCore('app:claimPendingExternalOpenPaths'),
+            ),
             transfer: (request: IWindowTabTransferRequest) => invokeCore('tabs:transfer', request),
             transferAck: (ack: IWindowTabTransferAck) => invokeCore('tabs:transferAck', ack),
             listTargetWindows: () => invokeCore('tabs:listTargets'),

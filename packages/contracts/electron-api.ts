@@ -441,6 +441,7 @@ export interface IUpdatesCapability {
 export interface IWindowTabsCapability extends IWindowTabsApi {
     closeCurrentWindow: () => Promise<boolean>;
     notifyRendererReady: () => void;
+    claimPendingExternalOpenPaths: () => Promise<TDocumentRef[]>;
     onMenuNewTab: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuCloseTab: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSplitEditor: (callback: (direction: TGroupDirection) => void) => IMenuEventUnsubscribe;

@@ -334,7 +334,6 @@ function workspaceHasPdf(workspace: IWorkspaceExpose) {
 }
 
 async function runWhileOpeningDocument(run: () => Promise<void>) {
-    documentOpenInFlightCount.value += 1;
     try {
         await run();
     } finally {
@@ -343,6 +342,7 @@ async function runWhileOpeningDocument(run: () => Promise<void>) {
 }
 
 async function enqueueDocumentOpen(run: () => Promise<void>) {
+    documentOpenInFlightCount.value += 1;
     const queuedRun = documentOpenQueue
         .catch(() => {})
         .then(() => runWhileOpeningDocument(run));
