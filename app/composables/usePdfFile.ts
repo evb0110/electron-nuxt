@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import { clamp } from 'es-toolkit/math';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { getDocumentRefBaseName } from '@app/utils/document-ref';
@@ -266,7 +267,7 @@ export const usePdfFile = () => {
                 return;
             }
 
-            const requestId = crypto.randomUUID();
+            const requestId = createUuid();
             openBatchProgress.value = {
                 processed: 0,
                 total: normalizedPaths.length,

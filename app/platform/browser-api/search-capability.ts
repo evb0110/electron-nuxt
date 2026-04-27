@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import type {
     IPdfSearchProgress,
     IPdfSearchResponse,
@@ -497,7 +498,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         async run(pdfPath, query, options = {}) {
             await assertSearchWithinBrowserBudget(pdfPath);
             const { size } = await browserDocumentStore.stat(pdfPath);
-            const requestId = options.requestId ?? crypto.randomUUID();
+            const requestId = options.requestId ?? createUuid();
             const results: IPdfSearchResult[] = [];
             const matcher = buildSearchRegex(query, {
                 matchCase: Boolean(options.matchCase),

@@ -125,6 +125,7 @@ function createCrossFeatureZones(relativeRoot, zoneMessagePrefix) {
 export default withNuxt(
     {ignores: [
         '**/.devkit/**',
+        'apps/mobile-spike/**',
         'landing/**',
         'eslint.config.mjs',
         'stylelint.config.mjs',
@@ -261,6 +262,7 @@ export default withNuxt(
             'custom/brace-return-after-if': 'error',
             'custom/import-specifier-newline': 'error',
             'custom/destructuring-property-newline': 'error',
+            'custom/no-raw-uuid-import': 'error',
             ...stylisticRules,
         },
     },
@@ -605,13 +607,20 @@ export default withNuxt(
             'app/**/*.ts',
             'app/**/*.vue',
         ],
+        ignores: ['app/utils/uuid.ts'],
         rules: {
             'no-restricted-imports': [
                 'error',
-                {paths: [{
-                    name: '@app/utils/electron',
-                    message: 'Use @app/utils/platform so renderer code stays platform-neutral.',
-                }]},
+                {paths: [
+                    {
+                        name: '@app/utils/electron',
+                        message: 'Use @app/utils/platform so renderer code stays platform-neutral.',
+                    },
+                    {
+                        name: 'uuid',
+                        message: 'Use createUuid() from @app/utils/uuid so renderer code works in non-secure WebView contexts.',
+                    },
+                ]},
             ],
         },
     },

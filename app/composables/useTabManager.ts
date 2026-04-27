@@ -1,4 +1,5 @@
 
+import { createUuid } from '@app/utils/uuid';
 import type {
     ITab,
     TTabUpdate,
@@ -9,7 +10,7 @@ const activeTabId = ref<string | null>(null);
 
 function createEmptyTab(): ITab {
     return {
-        id: crypto.randomUUID(),
+        id: createUuid(),
         fileName: null,
         originalPath: null,
         isDirty: false,

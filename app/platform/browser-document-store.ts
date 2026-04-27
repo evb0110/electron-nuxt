@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import type { IRecentFile } from '@contracts/shared';
 import {
     safeGetLocalStorageItem,
@@ -118,7 +119,7 @@ function getDocumentFileName(ref: string) {
 }
 
 function createBrowserDocumentRef(fileName: string) {
-    return `${BROWSER_REF_PREFIX}${crypto.randomUUID()}/${encodeURIComponent(fileName)}`;
+    return `${BROWSER_REF_PREFIX}${createUuid()}/${encodeURIComponent(fileName)}`;
 }
 
 function defaultRetentionForKind(kind: IBrowserDocumentEntry['kind']) {

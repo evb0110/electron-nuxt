@@ -1,4 +1,5 @@
 
+import { createUuid } from '@app/utils/uuid';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@contracts/shared';
@@ -171,7 +172,7 @@ export const useOcr = () => {
             return;
         }
 
-        const requestId = `ocr-${crypto.randomUUID()}`;
+        const requestId = `ocr-${createUuid()}`;
         activeRequestId.value = requestId;
         BrowserLogger.info('ocr', 'Request created', {
             requestId,

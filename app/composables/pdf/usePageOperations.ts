@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import type { Ref } from 'vue';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/platform-api';
@@ -209,7 +210,7 @@ export const usePageOperations = (deps: {
     async function insertFile(totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) {
         const startedAt = Date.now();
         const requestId = sourcePaths.length > 1
-            ? `browser-page-op-insert-${crypto.randomUUID()}`
+            ? `browser-page-op-insert-${createUuid()}`
             : undefined;
         const stopProgress = requestId
             ? getDocumentsCapability().onOpenPdfDirectBatchProgress((progress) => {

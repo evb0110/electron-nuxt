@@ -64,6 +64,14 @@ export type {
     TReaderCommandPlacement,
 } from './reader-commands';
 
+export type {
+    IRnWebViewDocumentOpenPayload,
+    THostToViewerMessage,
+    TViewerBridgeLayoutMode,
+    TViewerBridgeTheme,
+    TViewerToHostMessage,
+} from './rn-webview-protocol';
+
 export type { TDocumentRef } from './document';
 
 export type {

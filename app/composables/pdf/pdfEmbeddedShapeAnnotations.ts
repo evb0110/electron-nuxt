@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import {
     PDFArray,
     PDFDict,
@@ -213,7 +214,7 @@ function createImportedShapeId(
     if (annotationId) {
         return `embedded-shape:${pageIndex}:${annotationId}`;
     }
-    return `embedded-shape:${pageIndex}:${subtype}:${crypto.randomUUID()}`;
+    return `embedded-shape:${pageIndex}:${subtype}:${createUuid()}`;
 }
 
 function toLineEndStyle(value: string | null | undefined): TLineEndStyle | undefined {

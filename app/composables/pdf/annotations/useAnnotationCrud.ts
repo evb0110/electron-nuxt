@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import { AnnotationEditorType } from '@app/services/pdfjs/runtime-lib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
@@ -187,7 +188,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
     }
 
     function nextNotePlacementAttemptId() {
-        return `note-${crypto.randomUUID()}`;
+        return `note-${createUuid()}`;
     }
 
     function setActiveCommentAndSync(stableKey: string | null) {

@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import type { IPageOpsCapability } from '@contracts/platform-api';
 import type { IPageGeometry } from '@contracts/shared';
 import {
@@ -387,7 +388,7 @@ export function createBrowserPageOps(
             const insertionData = sourcePaths.length === 1
                 && /\.pdf$/iu.test(getBrowserDocumentFileName(sourcePaths[0]!))
                 ? await browserDocumentStore.read(sourcePaths[0]!)
-                : await options.createCombinedPdfFromPaths(sourcePaths, {requestId: requestId ?? `browser-page-op-insert-${crypto.randomUUID()}`});
+                : await options.createCombinedPdfFromPaths(sourcePaths, {requestId: requestId ?? `browser-page-op-insert-${createUuid()}`});
 
             let result: IBrowserPageOpsWorkerResultMap['insertPages'];
             if (workerAvailable) {

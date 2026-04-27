@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import type {
     IAnalyticsDocumentContext,
     IAnalyticsEventEnvelope,
@@ -181,7 +182,7 @@ function getSessionId() {
         // Session storage is optional in constrained browser environments.
     }
 
-    const nextValue = crypto.randomUUID();
+    const nextValue = createUuid();
     analyticsBrowserState.sessionId = nextValue;
 
     try {

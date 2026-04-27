@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import type { IPdfBookmarkEntry } from '@contracts/pdf';
 import type {
     IDjvuCapability,
@@ -746,7 +747,7 @@ export const browserDjvuCapability: IDjvuCapability = {
         const worker = await createDjvuWorkerFromPath(djvuPath);
         const pageSizes = await worker.doc.getPagesSizes().run();
         const pageCount = pageSizes.length;
-        const jobId = `djvu-convert-${crypto.randomUUID()}`;
+        const jobId = `djvu-convert-${createUuid()}`;
         const abortController = createDjvuJob(jobId, worker);
 
         try {

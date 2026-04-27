@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import type {
     IMenuEventUnsubscribe,
     IWindowTabsCapability,
@@ -473,7 +474,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             };
         }
 
-        const transferId = crypto.randomUUID();
+        const transferId = createUuid();
         const payload: IWindowTabIncomingTransfer = {
             transferId,
             sourceWindowId: currentWindowId,

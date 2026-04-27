@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
@@ -72,7 +73,7 @@ export function useDocumentWorkspaceToolbar(options: IUseDocumentWorkspaceToolba
 
     function handleToolbarToggleSidebar() {
         clearSidebarToggleCheckpointTimers();
-        const attemptId = `sidebar-toggle-${crypto.randomUUID()}`;
+        const attemptId = `sidebar-toggle-${createUuid()}`;
         const beforePage = options.currentPage.value;
         const beforeSidebar = options.showSidebar.value;
         const viewer = options.pdfViewerRef.value?.getViewerContainer?.() ?? null;

@@ -1,4 +1,5 @@
 
+import { createUuid } from '@app/utils/uuid';
 import type {
     Ref,
     ComputedRef,
@@ -24,7 +25,7 @@ import {
 import { BrowserLogger } from '@app/utils/browser-logger';
 
 function generateShapeId() {
-    return `shape-${crypto.randomUUID()}`;
+    return `shape-${createUuid()}`;
 }
 
 function normalizeComparableNumber(value: number | null | undefined) {

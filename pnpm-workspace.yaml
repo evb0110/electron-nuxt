@@ -1,5 +1,6 @@
 packages:
   - '.'
+  - 'apps/*'
 
 # Release automation and Electron smoke need the real Electron binary on every
 # fresh install. Keep this allowlist minimal.

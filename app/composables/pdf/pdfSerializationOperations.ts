@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import {
     PDFArray,
     PDFDict,
@@ -1447,7 +1448,7 @@ async function applyPlacedImage(
         ]),
         AP: doc.context.obj({ N: appearanceRef }),
         F: PDFNumber.of(4),
-        NM: PDFHexString.fromText(`placed-image-${crypto.randomUUID()}`),
+        NM: PDFHexString.fromText(`placed-image-${createUuid()}`),
         Name: PDFName.of('Approved'),
     });
     appendAnnotationRefToPage(page, doc, doc.context.register(stampDict));

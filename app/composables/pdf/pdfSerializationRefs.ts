@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import type {PDFDocument} from 'pdf-lib';
 import {
     PDFArray,
@@ -175,7 +176,7 @@ export function normalizePdfJsAnnotationId(annotationId: string | null | undefin
 }
 
 export function generateManagedShapeStableKey() {
-    return `${MANAGED_SHAPE_STABLE_KEY_PREFIX}${crypto.randomUUID()}`;
+    return `${MANAGED_SHAPE_STABLE_KEY_PREFIX}${createUuid()}`;
 }
 
 export function normalizeManagedShapeStableKey(stableKey: string | null | undefined) {

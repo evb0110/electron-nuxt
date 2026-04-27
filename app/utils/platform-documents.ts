@@ -5,6 +5,7 @@ import type {
 import { isBrowserDocumentRef } from '@app/utils/document-ref';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import { getPlatformAPI } from '@app/utils/platform';
+import { getExternalDocumentReader } from '@app/utils/external-document-readers';
 
 export function getDocumentsCapability(): IDocumentsCapability {
     return getPlatformAPI().documents;
@@ -23,6 +24,11 @@ export function readDocumentRange(
     offset: number,
     length: number,
 ) {
+    const externalReader = getExternalDocumentReader(path);
+    if (externalReader) {
+        return externalReader.readRange(offset, length);
+    }
+
     return getDocumentsCapability().readFileRange(path, offset, length);
 }
 

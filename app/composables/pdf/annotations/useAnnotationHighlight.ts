@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import { AnnotationEditorType } from '@app/services/pdfjs/runtime-lib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
@@ -1226,7 +1227,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         diagnosticsContext?: INotePlacementDiagnosticsContext,
     ) {
         const attemptId = diagnosticsContext?.attemptId
-            ?? `note-${crypto.randomUUID()}`;
+            ?? `note-${createUuid()}`;
         const viewer = viewerContainer.value;
         const viewerScrollSnapshot = (
             viewer

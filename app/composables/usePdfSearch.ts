@@ -1,4 +1,5 @@
 
+import { createUuid } from '@app/utils/uuid';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -182,7 +183,7 @@ export const usePdfSearch = () => {
             return;
         }
 
-        const requestId = `search-${crypto.randomUUID()}`;
+        const requestId = `search-${createUuid()}`;
 
         try {
             isSearching.value = true;

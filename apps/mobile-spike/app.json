@@ -1,0 +1,18 @@
+{
+    "expo": {
+        "name": "EVB Viewer Mobile Spike",
+        "slug": "evb-viewer-mobile-spike",
+        "scheme": "evbviewer",
+        "version": "0.0.0",
+        "orientation": "portrait",
+        "userInterfaceStyle": "automatic",
+        "ios": {
+            "supportsTablet": true,
+            "bundleIdentifier": "app.evb.viewer.mobile.spike"
+        },
+        "android": {
+            "package": "app.evb.viewer.mobile.spike",
+            "usesCleartextTraffic": true
+        }
+    }
+}

@@ -1,4 +1,32 @@
 export default {rules: {
+    'no-raw-uuid-import': {
+        meta: {
+            type: 'problem',
+            docs: {
+                description: 'Require app UUID creation to go through @app/utils/uuid',
+                recommended: true,
+            },
+            schema: [],
+        },
+        create(context) {
+            const normalizedFilename = context.filename.replace(/\\/g, '/');
+
+            return {ImportDeclaration(node) {
+                if (node.source.value !== 'uuid') {
+                    return;
+                }
+
+                if (normalizedFilename.endsWith('/app/utils/uuid.ts')) {
+                    return;
+                }
+
+                context.report({
+                    node,
+                    message: 'Import createUuid() from @app/utils/uuid instead of importing uuid directly.',
+                });
+            }};
+        },
+    },
     'import-specifier-newline': {
         meta: {
             type: 'layout',

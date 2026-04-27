@@ -1,3 +1,4 @@
+import { createUuid } from '@app/utils/uuid';
 import type {
     IEditorLayoutLeafNode,
     IEditorLayoutSplitNode,
@@ -60,7 +61,7 @@ export function appendGroupToLayout(
 
     return {
         type: 'split',
-        id: crypto.randomUUID(),
+        id: createUuid(),
         orientation: 'horizontal',
         ratio: 0.5,
         first: currentLayout,
