@@ -420,7 +420,7 @@ export default {rules: {
                 return {};
             }
 
-            const sourceCode = context.getSourceCode();
+            const sourceCode = context.sourceCode ?? context.getSourceCode?.();
             const replacements = [
                 [
                     'text-(--ui-text-dimmed)',
@@ -657,7 +657,7 @@ export default {rules: {
                 return {};
             }
 
-            const sourceCode = context.getSourceCode();
+            const sourceCode = context.sourceCode ?? context.getSourceCode?.();
 
             const ops = [
                 {

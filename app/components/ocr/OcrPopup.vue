@@ -1,14 +1,27 @@
 <template>
-    <UPopover v-model:open="isOpen" mode="click" :disabled="disabled">
-        <template v-if="!hideTrigger">
-            <ToolbarButton
-                :icon="triggerIcon"
-                :tooltip="triggerTooltip"
-                :active="isOpen || progress.isRunning"
-                :disabled="disabled"
-                :loading="progress.isRunning"
-            />
-        </template>
+    <UPopover
+        v-model:open="isOpen"
+        mode="click"
+        :disabled="disabled"
+        :content="{ side: 'bottom', align: 'end', sideOffset: 8, collisionPadding: 8 }"
+    >
+        <button
+            v-if="!hideTrigger"
+            :class="[
+                'ocr-trigger',
+                {
+                    'is-active': isOpen || progress.isRunning,
+                    'is-loading': progress.isRunning,
+                },
+            ]"
+            :disabled="disabled || progress.isRunning"
+            :aria-label="triggerTooltip"
+            :title="triggerTooltip"
+            type="button"
+        >
+            <Icon v-if="!progress.isRunning" :name="triggerIcon" class="size-5" />
+            <Icon v-else name="lucide:loader-2" class="size-5 animate-spin" />
+        </button>
         <span v-else class="hidden-trigger" aria-hidden="true" />
 
         <template #content>
@@ -266,7 +279,6 @@ import { useTimeoutFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/platform-api';
 import type { TTranslationKey } from '@i18n-app';
-import ToolbarButton from '@app/components/ToolbarButton.vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getSettingsCapability } from '@app/utils/platform-settings';
 
@@ -464,10 +476,67 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
 
 .hidden-trigger {
     display: block;
-    width: 0;
-    height: 0;
+    width: var(--toolbar-control-height);
+    height: var(--toolbar-control-height);
     overflow: hidden;
+    visibility: hidden;
     pointer-events: none;
+}
+
+.ocr-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--toolbar-control-height);
+    height: var(--toolbar-control-height);
+    padding: 0.25rem;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: var(--ui-text);
+    cursor: pointer;
+    transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
+}
+
+.ocr-trigger:hover {
+    background: var(--app-toolbar-control-hover-bg);
+    color: var(--app-toolbar-control-hover-fg);
+}
+
+.ocr-trigger.is-active {
+    background: var(--app-toolbar-control-active-bg);
+    color: var(--app-toolbar-control-hover-fg);
+}
+
+.ocr-trigger.is-active:hover {
+    background: var(--app-toolbar-control-active-hover-bg);
+}
+
+.ocr-trigger:focus {
+    outline: none;
+}
+
+.ocr-trigger:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
+    position: relative;
+    z-index: 1;
+}
+
+.ocr-trigger:disabled {
+    opacity: var(--app-toolbar-control-disabled-opacity);
+    color: var(--app-toolbar-control-disabled-fg);
+    cursor: not-allowed;
+}
+
+.ocr-trigger:disabled:hover {
+    background: transparent;
+    color: var(--app-toolbar-control-disabled-fg);
+}
+
+.ocr-trigger:disabled.is-loading {
+    opacity: 1;
+    color: var(--ui-text-muted);
+    cursor: wait;
 }
 
 .header {
@@ -560,14 +629,18 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
 
 .error-content {
     min-width: 0;
+    align-items: flex-start;
 }
 
 .error-text {
+    align-self: stretch;
     overflow-wrap: anywhere;
 }
 
 .copy-logs {
     align-self: flex-start;
+    width: auto;
+    flex: none;
 }
 
 .results {

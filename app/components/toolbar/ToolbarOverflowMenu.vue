@@ -1,5 +1,9 @@
 <template>
-    <UPopover v-model:open="isOpen" mode="click">
+    <UPopover
+        v-model:open="isOpen"
+        mode="click"
+        :content="{ side: 'bottom', align: 'end', sideOffset: 8, collisionPadding: 8 }"
+    >
         <UTooltip :text="t('toolbar.moreTools')" :delay-duration="1200">
             <UButton
                 :icon="triggerIcon"
