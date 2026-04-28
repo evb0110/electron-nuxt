@@ -10,6 +10,14 @@ import {
 const mocks = vi.hoisted(() => ({
     ensureTessdataLanguages: vi.fn(),
     existsSync: vi.fn(() => true),
+    workerInstances: [] as Array<{
+        listeners: Map<string, Array<(...args: unknown[]) => void>>;
+        postMessage: ReturnType<typeof vi.fn>;
+        terminate: ReturnType<typeof vi.fn>;
+        emit: (event: string, ...args: unknown[]) => void;
+        on: (event: string, listener: (...args: unknown[]) => void) => unknown;
+        removeAllListeners: () => unknown;
+    }>,
     getOcrToolPaths: vi.fn(() => ({
         tesseract: '/mock/tesseract',
         tessdata: '/mock/tessdata',
@@ -40,18 +48,30 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('worker_threads', () => ({Worker: class {
-    on() {
-        return this;
+    listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+    postMessage = vi.fn();
+    terminate = vi.fn(async () => 0);
+
+    constructor() {
+        mocks.workerInstances.push(this);
     }
 
-    postMessage() {}
+    on(event: string, listener: (...args: unknown[]) => void) {
+        const listeners = this.listeners.get(event) ?? [];
+        listeners.push(listener);
+        this.listeners.set(event, listeners);
+        return this;
+    }
 
     removeAllListeners() {
+        this.listeners.clear();
         return this;
     }
 
-    terminate() {
-        return Promise.resolve(0);
+    emit(event: string, ...args: unknown[]) {
+        for (const listener of this.listeners.get(event) ?? []) {
+            listener(...args);
+        }
     }
 }}));
 
@@ -79,6 +99,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         vi.clearAllMocks();
         vi.stubEnv('EVB_OCR_QUEUE_MAX_SIZE', '1');
         mocks.ensureTessdataLanguages.mockReset();
+        mocks.workerInstances.length = 0;
         mocks.stat.mockResolvedValue({
             size: 1024,
             isFile: () => true,
@@ -86,6 +107,7 @@ describe('ocr job manager preparing-stage robustness', () => {
     });
 
     afterEach(async () => {
+        vi.useRealTimers();
         vi.unstubAllEnvs();
         const { shutdownOcrJobManager } = await import('@electron/ocr/jobManager');
         await shutdownOcrJobManager();
@@ -200,5 +222,57 @@ describe('ocr job manager preparing-stage robustness', () => {
             started: true,
             jobId: 'job-4',
         });
+    });
+
+    it('uses worker activity as the OCR job watchdog heartbeat', async () => {
+        vi.useFakeTimers();
+        vi.stubEnv('EVB_OCR_JOB_IDLE_TIMEOUT_MS', '15000');
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/ocr/jobManager');
+
+        const result = await handleOcrCreateSearchablePdfAsync(
+            createEvent(55) as never,
+            '/tmp/work-5.pdf',
+            [
+                {
+                    pageNumber: 1,
+                    languages: ['eng'],
+                },
+                {
+                    pageNumber: 2,
+                    languages: ['eng'],
+                },
+            ],
+            'job-5',
+        );
+
+        expect(result).toMatchObject({
+            started: true,
+            jobId: 'job-5',
+        });
+        const worker = mocks.workerInstances[0];
+        expect(worker).toBeDefined();
+
+        await vi.advanceTimersByTimeAsync(14_000);
+        expect(worker?.terminate).not.toHaveBeenCalled();
+
+        worker?.emit('message', {
+            type: 'progress',
+            jobId: 'job-5',
+            progress: {
+                requestId: 'job-5',
+                currentPage: 1,
+                processedCount: 1,
+                totalPages: 2,
+            },
+        });
+
+        await vi.advanceTimersByTimeAsync(14_000);
+        expect(worker?.terminate).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1_001);
+        expect(worker?.terminate).toHaveBeenCalledTimes(1);
+        vi.useRealTimers();
     });
 });
