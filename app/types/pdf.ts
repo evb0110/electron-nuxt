@@ -66,7 +66,13 @@ export interface IPdfPathSource {
     size: number;
 }
 
-export type TPdfSource = Blob | IPdfPathSource;
+export interface IPdfUrlSource {
+    kind: 'url';
+    url: string;
+    size?: number;
+}
+
+export type TPdfSource = Blob | IPdfPathSource | IPdfUrlSource;
 
 export interface ISearchExcerpt {
     prefix: boolean;

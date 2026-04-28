@@ -175,8 +175,8 @@
             class="min-h-0 flex-1"
         >
             <PdfEmptyState
-                :recent-files="recentFiles"
-                :recent-files-resolved="recentFilesResolved"
+                :recent-files="displayedRecentFiles"
+                :recent-files-resolved="displayedRecentFilesResolved"
                 :open-batch-progress="null"
                 :open-in-progress="isOpening"
                 @open-file="handleOpen"
@@ -317,6 +317,7 @@ const continuousScroll = ref(true);
 const dragMode = ref(false);
 const isSearchOpen = ref(false);
 const showSettings = ref(false);
+const hasMounted = ref(false);
 const pageDropdownOpen = ref(false);
 const zoomDropdownOpen = ref(false);
 const overflowMenuOpen = ref(false);
@@ -325,10 +326,12 @@ const bridgeDocumentTitle = ref<string | undefined>();
 const bridgeDocumentStatus = ref<string | null>(null);
 const bridgeDocumentError = ref<string | null>(null);
 const bridgePdfSrc = shallowRef<TPdfSource | null>(null);
+const bridgeRecentFiles = ref<IRecentFile[]>([]);
 const pdfViewerRef = ref<{ scrollToPage: (pageNumber: number) => void } | null>(null);
 const toolbarSurface = MOBILE_READER_COMMAND_SURFACE;
 let unsubscribeHostMessages: (() => void) | null = null;
 let viewerReadyTimer: number | null = null;
+let bridgeDocumentLoadTimer: number | null = null;
 let unregisterBridgeReader: (() => void) | null = null;
 const chunkedDocuments = new Map<string, {
     message: Extract<THostToViewerMessage, { type: 'document:open-chunked' }>;
@@ -341,13 +344,21 @@ const rangeRequests = new Map<string, {
     timer: number;
 }>();
 const activePdfSrc = computed(() => bridgePdfSrc.value ?? pdfSrc.value);
+const isNativeBridgeHost = computed(() => hasMounted.value && isReactNativeWebViewHost());
+const displayedRecentFiles = computed(() => (isNativeBridgeHost.value ? bridgeRecentFiles.value : recentFiles.value));
+const displayedRecentFilesResolved = computed(() => (isNativeBridgeHost.value ? true : recentFilesResolved.value));
 
 definePageMeta({ preloadWorkspaceShell: false });
 useServerSeoMeta({ robots: 'noindex, nofollow' });
 useHead(() => ({ title: t('app.title', undefined) }));
 onMounted(() => {
-    void loadRecentFiles();
+    hasMounted.value = true;
     unsubscribeHostMessages = subscribeToHostMessages(handleHostMessage);
+    if (isNativeBridgeHost.value) {
+        postViewerMessage({ type: 'recent-files:request' });
+    } else {
+        void loadRecentFiles();
+    }
     announceViewerReady();
 });
 
@@ -365,6 +376,7 @@ onUnmounted(() => {
         window.clearTimeout(viewerReadyTimer);
         viewerReadyTimer = null;
     }
+    clearBridgeDocumentLoadTimer();
 });
 
 watch(
@@ -439,7 +451,7 @@ watch(
 );
 
 async function handleOpen() {
-    if (isReactNativeWebViewHost()) {
+    if (isNativeBridgeHost.value) {
         postViewerMessage({ type: 'document:request-open' });
         return;
     }
@@ -458,6 +470,14 @@ async function handleOpen() {
 }
 
 async function openRecent(file: IRecentFile) {
+    if (isNativeBridgeHost.value) {
+        postViewerMessage({
+            type: 'recent-file:open',
+            ref: file.originalPath,
+        });
+        return;
+    }
+
     isOpening.value = true;
     try {
         bridgePdfSrc.value = null;
@@ -472,10 +492,23 @@ async function openRecent(file: IRecentFile) {
 }
 
 async function removeRecent(file: IRecentFile) {
+    if (isNativeBridgeHost.value) {
+        postViewerMessage({
+            type: 'recent-file:remove',
+            ref: file.originalPath,
+        });
+        return;
+    }
+
     await removeRecentFile(file);
 }
 
 async function clearRecent() {
+    if (isNativeBridgeHost.value) {
+        postViewerMessage({ type: 'recent-files:clear' });
+        return;
+    }
+
     await clearRecentFiles();
 }
 
@@ -492,7 +525,11 @@ async function handleClose() {
     isSearchOpen.value = false;
     currentPage.value = 1;
     totalPages.value = 0;
-    await loadRecentFiles();
+    if (isNativeBridgeHost.value) {
+        postViewerMessage({ type: 'recent-files:request' });
+    } else {
+        await loadRecentFiles();
+    }
 }
 
 async function handleSearch() {
@@ -520,6 +557,7 @@ function handleViewerDocumentUpdate(document: { numPages?: number } | null) {
 
     bridgeDocumentStatus.value = null;
     bridgeDocumentError.value = null;
+    clearBridgeDocumentLoadTimer();
     postViewerMessage({
         type: 'document:loaded',
         documentId: bridgeDocumentId.value,
@@ -543,8 +581,16 @@ async function handleHostMessage(message: THostToViewerMessage) {
         postViewerMessage({ type: 'viewer:ready' });
         return;
     }
+    if (message.type === 'recent-files:changed') {
+        bridgeRecentFiles.value = message.recentFiles;
+        return;
+    }
     if (message.type === 'document:open') {
         await openBridgeDocument(message);
+        return;
+    }
+    if (message.type === 'document:open-url') {
+        openUrlBridgeDocument(message);
         return;
     }
     if (message.type === 'document:open-ranged') {
@@ -594,6 +640,43 @@ function beginChunkedBridgeDocument(message: Extract<THostToViewerMessage, { typ
     });
 }
 
+function openUrlBridgeDocument(message: Extract<THostToViewerMessage, { type: 'document:open-url' }>) {
+    if (!message.url) {
+        bridgeDocumentStatus.value = null;
+        bridgeDocumentError.value = 'The selected document did not provide a reader URL.';
+        postViewerMessage({
+            type: 'viewer:error',
+            code: 'missing-document-url',
+            message: 'RN URL document open requires a URL.',
+        });
+        return;
+    }
+
+    closeFile();
+    bridgePdfSrc.value = null;
+    bridgeDocumentError.value = null;
+    unregisterBridgeReader?.();
+    unregisterBridgeReader = null;
+    bridgeDocumentId.value = message.documentId;
+    bridgeDocumentTitle.value = message.suggestedName;
+    bridgeDocumentStatus.value = `Opening ${message.suggestedName ?? 'document'}`;
+    currentPage.value = 1;
+    totalPages.value = 0;
+    searchDraft.value = '';
+    isSearchOpen.value = false;
+    postViewerMessage({
+        type: 'document:open-started',
+        documentId: message.documentId,
+        title: message.suggestedName,
+    });
+    bridgePdfSrc.value = {
+        kind: 'url',
+        url: message.url,
+        size: message.size,
+    };
+    armBridgeDocumentLoadTimer(message.documentId, message.url);
+}
+
 function openRangedBridgeDocument(message: Extract<THostToViewerMessage, { type: 'document:open-ranged' }>) {
     if (!message.size || message.size <= 0) {
         bridgeDocumentStatus.value = null;
@@ -628,9 +711,7 @@ function openRangedBridgeDocument(message: Extract<THostToViewerMessage, { type:
         path: message.ref,
         size: message.size,
     };
-    void nextTick(() => {
-        bridgeDocumentStatus.value = null;
-    });
+    armBridgeDocumentLoadTimer(message.documentId, message.ref);
 }
 
 async function appendBridgeDocumentChunk(message: Extract<THostToViewerMessage, { type: 'document:chunk' }>) {
@@ -757,6 +838,33 @@ async function openBridgeDocument(message: Extract<THostToViewerMessage, { type:
             message: error instanceof Error ? error.message : String(error),
         });
     }
+}
+
+function clearBridgeDocumentLoadTimer() {
+    if (!bridgeDocumentLoadTimer) {
+        return;
+    }
+
+    window.clearTimeout(bridgeDocumentLoadTimer);
+    bridgeDocumentLoadTimer = null;
+}
+
+function armBridgeDocumentLoadTimer(documentId: string, source: string) {
+    clearBridgeDocumentLoadTimer();
+    bridgeDocumentLoadTimer = window.setTimeout(() => {
+        if (bridgeDocumentId.value !== documentId || totalPages.value > 0) {
+            return;
+        }
+
+        const message = `Timed out while PDF.js was loading ${source}.`;
+        bridgeDocumentStatus.value = null;
+        bridgeDocumentError.value = message;
+        postViewerMessage({
+            type: 'viewer:error',
+            code: 'document-url-load-timeout',
+            message,
+        });
+    }, 30_000);
 }
 
 async function executeBridgeCommand(command: string) {

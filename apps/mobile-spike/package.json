@@ -10,6 +10,8 @@
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
+        "@dr.pogodin/react-native-fs": "^2.38.2",
+        "@dr.pogodin/react-native-static-server": "^0.26.2",
         "@evb/contracts": "file:../../packages/contracts",
         "expo": "54.0.33",
         "expo-constants": "~18.0.13",
@@ -17,6 +19,7 @@
         "expo-file-system": "19.0.21",
         "expo-modules-core": "^3.0.29",
         "expo-status-bar": "3.0.9",
+        "expo-system-ui": "^55.0.16",
         "react": "19.1.0",
         "react-native": "0.81.5",
         "react-native-safe-area-context": "~5.6.2",

@@ -8,7 +8,12 @@
         "userInterfaceStyle": "automatic",
         "ios": {
             "supportsTablet": true,
-            "bundleIdentifier": "app.evb.viewer.mobile.spike"
+            "bundleIdentifier": "app.evb.viewer.mobile.spike",
+            "infoPlist": {
+                "NSAppTransportSecurity": {
+                    "NSAllowsLocalNetworking": true
+                }
+            }
         },
         "android": {
             "package": "app.evb.viewer.mobile.spike",

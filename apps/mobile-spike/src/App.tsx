@@ -16,7 +16,7 @@ import {
     Text,
     View,
 } from 'react-native';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as DocumentPicker from 'expo-document-picker';
 import { File as ExpoFile } from 'expo-file-system';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
@@ -28,6 +28,7 @@ import {
     READER_COMMAND_DESCRIPTORS,
     type TReaderCommandId,
 } from '@evb/contracts/reader-commands';
+import type { IRecentFile } from '@evb/contracts/shared';
 import type {
     THostToViewerMessage,
     TViewerToHostMessage,
@@ -41,10 +42,63 @@ const DEFAULT_VIEWER_PATH = '/mobile-reader-proof';
 const VIEWER_READY_TIMEOUT_MS = 12_000;
 const VIEWER_READY_PING_MS = 500;
 const DOCUMENT_LOAD_TIMEOUT_MS = 45_000;
-const SMALL_FILE_DIRECT_OPEN_BYTES = 1024 * 1024;
+const DOCUMENT_SERVER_PROBE_TIMEOUT_MS = 10_000;
 const OPEN_INTENT_RETRY_MS = 900;
 const OPEN_INTENT_RETRY_LIMIT = 50;
 const TRANSFER_REPLACED_MESSAGE = 'Document open was replaced by another selection.';
+const MAX_NATIVE_RECENT_FILES = 12;
+const SERVED_DOCUMENTS_DIR_NAME = 'evb-viewer-documents';
+const DEVELOPMENT_BUILD_REQUIRED_MESSAGE = [
+    'Opening PDFs requires an Expo development build that includes EVB native modules.',
+    'Expo Go and development builds installed before the native document server was added do not include ReactNativeFs.',
+    'Rebuild and reinstall the mobile app with `pnpm --dir apps/mobile-spike android` or `pnpm --dir apps/mobile-spike ios`.',
+].join(' ');
+const WEBVIEW_BOOTSTRAP_SCRIPT = `
+(function () {
+  if (window.__evbMobileBridgeBootstrapInstalled) {
+    return true;
+  }
+  window.__evbMobileBridgeBootstrapInstalled = true;
+  function post(message) {
+    try {
+      window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(message));
+    } catch (error) {}
+  }
+  function serialize(args) {
+    return args.map(function (arg) {
+      if (arg instanceof Error) {
+        return arg.stack || arg.message;
+      }
+      if (typeof arg === 'string') {
+        return arg;
+      }
+      try {
+        return JSON.stringify(arg);
+      } catch (error) {
+        return String(arg);
+      }
+    }).join(' ');
+  }
+  ['debug', 'info', 'warn', 'error'].forEach(function (level) {
+    var original = console[level];
+    console[level] = function () {
+      var args = Array.prototype.slice.call(arguments);
+      post({ type: 'viewer:console', level: level, message: serialize(args) });
+      if (typeof original === 'function') {
+        original.apply(console, args);
+      }
+    };
+  });
+  window.addEventListener('error', function (event) {
+    post({ type: 'viewer:console', level: 'error', message: event.message || 'Unhandled WebView error' });
+  });
+  window.addEventListener('unhandledrejection', function (event) {
+    post({ type: 'viewer:console', level: 'error', message: serialize([event.reason || 'Unhandled WebView rejection']) });
+  });
+  post({ type: 'viewer:console', level: 'info', message: 'bridge bootstrap installed' });
+  return true;
+})();
+`;
 
 const MENU_COMMANDS: TReaderCommandId[] = [
     'fit-width',
@@ -58,22 +112,30 @@ const MENU_COMMANDS: TReaderCommandId[] = [
 interface IOpenedDocument {
     documentId: string;
     name: string;
-    uri: string;
+    ref: string;
     size: number;
 }
 
 interface INativeDocumentSource {
     name: string;
-    uri: string;
+    servedFileName: string;
+    servedPath: string;
+    sourceUri: string;
     size: number;
     mimeType: string;
+}
+
+interface IImportedNativeDocument extends INativeDocumentSource {
+    documentId: string;
+    readerUrl: string;
+    ref: string;
 }
 
 type TPendingOpenedDocument = IOpenedDocument;
 
 interface IOpenIntent {
     documentId: string;
-    message: Extract<THostToViewerMessage, { type: 'document:open' | 'document:open-ranged' }>;
+    message: Extract<THostToViewerMessage, { type: 'document:open' | 'document:open-url' | 'document:open-ranged' }>;
     deliveredGenerations: Set<number>;
     acknowledgedGeneration: number | null;
     attemptCount: number;
@@ -92,6 +154,9 @@ interface IViewerUrlResolution {
 
 type TOpenTrigger = 'native-button' | 'webview-request';
 type TPickerBackend = 'expo-file-system' | 'expo-document-picker';
+
+type TStaticServerInstance = InstanceType<typeof import('@dr.pogodin/react-native-static-server').default>;
+type TReactNativeFsModule = typeof import('@dr.pogodin/react-native-fs');
 
 interface IPickedDocumentAsset {
     backend: TPickerBackend;
@@ -155,6 +220,11 @@ function resolveViewerUrl(): IViewerUrlResolution {
         source: 'ios-simulator-fallback',
         url: makeViewerUrl('127.0.0.1'),
     };
+}
+
+function isExpoGoRuntime() {
+    return Constants.executionEnvironment === ExecutionEnvironment.StoreClient
+        || Constants.appOwnership === 'expo';
 }
 
 function isPickerCancelError(error: unknown) {
@@ -235,12 +305,65 @@ async function pickNativePdf(): Promise<IPickedDocumentAsset | null> {
     return pickWithDocumentPicker();
 }
 
+function createDocumentId() {
+    const timestamp = Date.now();
+    const random = Math.floor(Math.random() * 1_000_000);
+    return `${timestamp}-${random}`;
+}
+
+function sanitizeServedFileName(name: string) {
+    const trimmed = name.trim() || 'document.pdf';
+    const safe = trimmed
+        .replace(/[^\w .()-]+/gu, '_')
+        .replace(/\s+/gu, ' ')
+        .slice(0, 120)
+        .trim();
+    return safe || 'document.pdf';
+}
+
+function buildServedFileName(documentId: string, name: string) {
+    return `${documentId}-${sanitizeServedFileName(name)}`;
+}
+
+function buildServedDocumentUrl(origin: string, fileName: string) {
+    return `${origin}/${encodeURIComponent(fileName)}`;
+}
+
+async function probeServedDocumentUrl(url: string, expectedSize: number) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DOCUMENT_SERVER_PROBE_TIMEOUT_MS);
+    try {
+        const response = await fetch(url, {
+            headers: { Range: 'bytes=0-1023' },
+            signal: controller.signal,
+        });
+        if (!response.ok && response.status !== 206) {
+            throw new Error(`Unexpected status ${response.status}`);
+        }
+        const bytes = await response.arrayBuffer();
+        if (!bytes.byteLength) {
+            throw new Error('Local document server returned an empty probe response.');
+        }
+        const contentRange = response.headers.get('content-range');
+        const contentLength = response.headers.get('content-length');
+        console.info(`[mobile-spike] local document probe ok: status=${response.status}, bytes=${bytes.byteLength}, content-length=${contentLength ?? 'none'}, content-range=${contentRange ?? 'none'}, expected-size=${expectedSize}`);
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 export default function App() {
     const webViewRef = useRef<WebView>(null);
     const pendingMessages = useRef<THostToViewerMessage[]>([]);
     const documentLoadResolvers = useRef(new Map<string, IDeferred<void>>());
     const nativeDocuments = useRef(new Map<string, INativeDocumentSource>());
+    const nativeRecentFiles = useRef<IRecentFile[]>([]);
+    const nativeFsModule = useRef<TReactNativeFsModule | null>(null);
+    const documentServer = useRef<TStaticServerInstance | null>(null);
+    const documentServerOrigin = useRef<string | null>(null);
+    const servedDocumentsDir = useRef<string | null>(null);
     const openDocumentRef = useRef<((trigger: TOpenTrigger) => Promise<void>) | null>(null);
+    const openRecentDocumentRef = useRef<((ref: string) => Promise<void>) | null>(null);
     const pendingOpenIntent = useRef<IOpenIntent | null>(null);
     const pendingOpenedDocument = useRef<TPendingOpenedDocument | null>(null);
     const viewerGeneration = useRef(0);
@@ -336,6 +459,121 @@ export default function App() {
         webViewRef.current?.postMessage(encodeBridgeMessage(message));
     }, []);
 
+    const loadNativeDocumentServerModules = useCallback(async () => {
+        if (nativeFsModule.current) {
+            return nativeFsModule.current;
+        }
+
+        if (isExpoGoRuntime()) {
+            throw new Error(DEVELOPMENT_BUILD_REQUIRED_MESSAGE);
+        }
+
+        try {
+            const fsModule = await import('@dr.pogodin/react-native-fs');
+            nativeFsModule.current = fsModule;
+            return fsModule;
+        } catch (error) {
+            throw new Error(
+                DEVELOPMENT_BUILD_REQUIRED_MESSAGE,
+                { cause: error },
+            );
+        }
+    }, []);
+
+    const ensureDocumentServer = useCallback(async () => {
+        const fsModule = await loadNativeDocumentServerModules();
+        const documentDir = `${fsModule.DocumentDirectoryPath}/${SERVED_DOCUMENTS_DIR_NAME}`;
+        if (servedDocumentsDir.current !== documentDir) {
+            await fsModule.mkdir(documentDir);
+            servedDocumentsDir.current = documentDir;
+        } else if (!(await fsModule.exists(documentDir))) {
+            await fsModule.mkdir(documentDir);
+        }
+
+        if (!documentServer.current) {
+            const { default: StaticServer } = await import('@dr.pogodin/react-native-static-server');
+            const server = new StaticServer({
+                errorLog: true,
+                fileDir: documentDir,
+                hostname: '127.0.0.1',
+                port: 0,
+                stopInBackground: false,
+            });
+            server.addStateListener((state, details, error) => {
+                const suffix = details ? `: ${details}` : '';
+                if (error) {
+                    console.warn(`[mobile-spike] document server ${state}${suffix}: ${error.message}`);
+                } else {
+                    console.info(`[mobile-spike] document server ${state}${suffix}`);
+                }
+            });
+            documentServer.current = server;
+        }
+
+        const origin = await documentServer.current.start('Opening local document server');
+        documentServerOrigin.current = origin;
+        return {
+            documentDir,
+            fsModule,
+            origin,
+        };
+    }, [loadNativeDocumentServerModules]);
+
+    const importPickedDocument = useCallback(async (asset: IPickedDocumentAsset): Promise<IImportedNativeDocument> => {
+        const {
+            documentDir,
+            fsModule,
+            origin,
+        } = await ensureDocumentServer();
+        const documentId = createDocumentId();
+        const documentRef = `rn://document/${encodeURIComponent(documentId)}`;
+        const servedFileName = buildServedFileName(documentId, asset.name);
+        const servedPath = `${documentDir}/${servedFileName}`;
+        await fsModule.copyFile(asset.uri, servedPath);
+        const stat = await fsModule.stat(servedPath);
+        const size = Number(stat.size) || asset.size;
+        if (!size || size <= 0) {
+            throw new Error('The selected file could not be imported or its size is unknown.');
+        }
+
+        return {
+            documentId,
+            ref: documentRef,
+            readerUrl: buildServedDocumentUrl(origin, servedFileName),
+            name: asset.name,
+            servedFileName,
+            servedPath,
+            sourceUri: asset.uri,
+            size,
+            mimeType: asset.mimeType,
+        };
+    }, [ensureDocumentServer]);
+
+    const getReaderUrlForDocument = useCallback(async (document: INativeDocumentSource) => {
+        const { origin } = await ensureDocumentServer();
+        return buildServedDocumentUrl(origin, document.servedFileName);
+    }, [ensureDocumentServer]);
+
+    const publishRecentFiles = useCallback(() => {
+        sendToViewerNow({
+            type: 'recent-files:changed',
+            recentFiles: nativeRecentFiles.current,
+        });
+    }, [sendToViewerNow]);
+
+    const touchRecentFile = useCallback((document: TPendingOpenedDocument) => {
+        nativeRecentFiles.current = [
+            {
+                originalPath: document.ref,
+                fileName: document.name,
+                timestamp: Date.now(),
+                fileSize: document.size,
+            },
+            ...nativeRecentFiles.current.filter(file => file.originalPath !== document.ref),
+        ].slice(0, MAX_NATIVE_RECENT_FILES);
+        publishRecentFiles();
+    }, [publishRecentFiles]);
+
     const deliverPendingOpenIntent = useCallback((force = false) => {
         const intent = pendingOpenIntent.current;
         if (!intent) {
@@ -369,6 +607,23 @@ export default function App() {
     }, [
         clearOpenIntentRetryTimer,
         sendToViewerNow,
+    ]);
+
+    const markViewerReady = useCallback(() => {
+        clearViewerPingTimer();
+        clearViewerReadyTimer();
+        setIsViewerLoading(false);
+        setLoadError(null);
+        setIsViewerReady(true);
+        flushPendingMessages();
+        publishRecentFiles();
+        deliverPendingOpenIntent();
+    }, [
+        clearViewerPingTimer,
+        clearViewerReadyTimer,
+        deliverPendingOpenIntent,
+        flushPendingMessages,
+        publishRecentFiles,
     ]);
 
     const waitForDocumentLoaded = useCallback((documentId: string) => new Promise<void>((resolve, reject) => {
@@ -410,7 +665,7 @@ export default function App() {
         const boundedLength = Math.min(safeLength, Math.max(0, document.size - safeOffset));
         try {
             const base64 = boundedLength > 0
-                ? await LegacyFileSystem.readAsStringAsync(document.uri, {
+                ? await LegacyFileSystem.readAsStringAsync(document.sourceUri, {
                     encoding: LegacyFileSystem.EncodingType.Base64,
                     position: safeOffset,
                     length: boundedLength,
@@ -457,6 +712,7 @@ export default function App() {
             clearViewerReadyTimer();
             clearOpenIntentRetryTimer();
             rejectPendingTransfers('Mobile shell unmounted.');
+            void documentServer.current?.stop('Mobile shell unmounted');
         };
     }, [
         beginViewerLoad,
@@ -470,6 +726,13 @@ export default function App() {
         const subscription = AppState.addEventListener('change', state => {
             if (state === 'active' && isViewerReady && !loadError) {
                 setLastEvent('Verifying reader');
+                if (nativeDocuments.current.size > 0) {
+                    void ensureDocumentServer().catch(error => {
+                        console.warn(`[mobile-spike] failed to restart document server: ${
+                            error instanceof Error ? error.message : String(error)
+                        }`);
+                    });
+                }
                 sendToViewerNow({
                     type: 'host:ping',
                     requestId: `${Date.now()}`,
@@ -480,6 +743,7 @@ export default function App() {
         return () => subscription.remove();
     }, [
         deliverPendingOpenIntent,
+        ensureDocumentServer,
         isViewerReady,
         loadError,
         sendToViewerNow,
@@ -492,15 +756,20 @@ export default function App() {
         }
 
         setLastEvent(message.type);
+        if (message.type === 'viewer:console') {
+            const text = `[mobile-spike:webview] ${message.message}`;
+            if (message.level === 'error') {
+                console.error(text);
+            } else if (message.level === 'warn') {
+                console.warn(text);
+            } else {
+                console.info(text);
+            }
+            return;
+        }
         if (message.type === 'viewer:ready') {
             console.info('[mobile-spike] viewer:ready');
-            clearViewerPingTimer();
-            clearViewerReadyTimer();
-            setIsViewerLoading(false);
-            setLoadError(null);
-            setIsViewerReady(true);
-            flushPendingMessages();
-            deliverPendingOpenIntent();
+            markViewerReady();
             return;
         }
         if (message.type === 'document:loaded') {
@@ -509,6 +778,7 @@ export default function App() {
                 const pendingDocument = pendingOpenedDocument.current;
                 if (pendingDocument?.documentId === message.documentId) {
                     setOpenedDocument(pendingDocument);
+                    touchRecentFile(pendingDocument);
                     pendingOpenedDocument.current = null;
                 }
                 const intent = pendingOpenIntent.current;
@@ -524,6 +794,24 @@ export default function App() {
         if (message.type === 'document:request-open') {
             console.info('[mobile-spike] open requested from WebView');
             void openDocumentRef.current?.('webview-request');
+            return;
+        }
+        if (message.type === 'recent-files:request') {
+            publishRecentFiles();
+            return;
+        }
+        if (message.type === 'recent-file:open') {
+            void openRecentDocumentRef.current?.(message.ref);
+            return;
+        }
+        if (message.type === 'recent-file:remove') {
+            nativeRecentFiles.current = nativeRecentFiles.current.filter(file => file.originalPath !== message.ref);
+            publishRecentFiles();
+            return;
+        }
+        if (message.type === 'recent-files:clear') {
+            nativeRecentFiles.current = [];
+            publishRecentFiles();
             return;
         }
         if (message.type === 'document:open-started') {
@@ -558,9 +846,12 @@ export default function App() {
         clearOpenIntentRetryTimer,
         deliverPendingOpenIntent,
         flushPendingMessages,
+        markViewerReady,
+        publishRecentFiles,
         rejectPendingTransfers,
         respondWithDocumentRange,
         resolveDocumentLoaded,
+        touchRecentFile,
     ]);
 
     const openDocument = useCallback(async (trigger: TOpenTrigger) => {
@@ -583,75 +874,45 @@ export default function App() {
             }
             console.info(`[mobile-spike] picker returned ${asset.name} from ${asset.backend}: ${asset.uri}`);
             setLastEvent(`Picked via ${asset.backend}`);
-
-            const selectedFile = asset.file ?? new ExpoFile(asset.uri);
-            const size = asset.size ?? selectedFile.size;
-            if (!size || size <= 0) {
-                throw new Error('The selected file could not be read or its size is unknown.');
-            }
-
-            const documentId = `${Date.now()}:${asset.name}`;
-            const documentRef = `rn://document/${encodeURIComponent(documentId)}`;
+            setActiveTransfer(`Importing ${asset.name}`);
+            const importedDocument = await importPickedDocument(asset);
             const pendingDocument: TPendingOpenedDocument = {
-                documentId,
-                name: asset.name,
-                uri: asset.uri,
-                size,
+                documentId: importedDocument.documentId,
+                name: importedDocument.name,
+                ref: importedDocument.ref,
+                size: importedDocument.size,
             };
-            nativeDocuments.current.set(documentRef, {
-                name: asset.name,
-                uri: asset.uri,
-                size,
-                mimeType: asset.mimeType,
+            nativeDocuments.current.set(importedDocument.ref, {
+                name: importedDocument.name,
+                servedFileName: importedDocument.servedFileName,
+                servedPath: importedDocument.servedPath,
+                sourceUri: importedDocument.sourceUri,
+                size: importedDocument.size,
+                mimeType: importedDocument.mimeType,
             });
             pendingOpenedDocument.current = pendingDocument;
 
-            if (size > 0 && size <= SMALL_FILE_DIRECT_OPEN_BYTES) {
-                console.info(`[mobile-spike] opening small document directly: ${asset.name} (${size} bytes)`);
-                setLastEvent('Reading small document');
-                setActiveTransfer(`Reading ${asset.name}`);
-                const base64 = await selectedFile.base64();
-                setLastEvent('Opening small document');
-                setActiveTransfer(`Opening ${asset.name}`);
-                pendingOpenIntent.current = {
-                    documentId,
-                    acknowledgedGeneration: null,
-                    attemptCount: 0,
-                    deliveredGenerations: new Set(),
-                    message: {
-                        type: 'document:open',
-                        documentId,
-                        ref: documentRef,
-                        suggestedName: asset.name,
-                        mimeType: asset.mimeType,
-                        size,
-                        base64,
-                    },
-                };
-                deliverPendingOpenIntent();
-                await waitForDocumentLoaded(documentId);
-                return;
-            }
-
-            console.info(`[mobile-spike] opening ranged document: ${asset.name} (${size} bytes)`);
-            setLastEvent('Opening ranged document');
-            setActiveTransfer(`Opening ${asset.name}`);
+            await probeServedDocumentUrl(importedDocument.readerUrl, importedDocument.size);
+            console.info(`[mobile-spike] opening local URL document: ${importedDocument.name} (${importedDocument.size} bytes) at ${importedDocument.readerUrl}`);
+            setLastEvent('Opening URL document');
+            setActiveTransfer(`Opening ${importedDocument.name}`);
             pendingOpenIntent.current = {
-                documentId,
+                documentId: importedDocument.documentId,
                 acknowledgedGeneration: null,
                 attemptCount: 0,
                 deliveredGenerations: new Set(),
                 message: {
-                    type: 'document:open-ranged',
-                    documentId,
-                    ref: documentRef,
-                    suggestedName: asset.name,
-                    mimeType: asset.mimeType,
-                    size,
+                    type: 'document:open-url',
+                    documentId: importedDocument.documentId,
+                    ref: importedDocument.ref,
+                    url: importedDocument.readerUrl,
+                    suggestedName: importedDocument.name,
+                    mimeType: importedDocument.mimeType,
+                    size: importedDocument.size,
                 },
             };
             deliverPendingOpenIntent();
-            await waitForDocumentLoaded(documentId);
+            await waitForDocumentLoaded(importedDocument.documentId);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             setLastEvent('Document read failed');
@@ -671,9 +932,80 @@ export default function App() {
         waitForDocumentLoaded,
     ]);
 
+    const openRecentDocument = useCallback(async (ref: string) => {
+        const document = nativeDocuments.current.get(ref);
+        if (!document) {
+            nativeRecentFiles.current = nativeRecentFiles.current.filter(file => file.originalPath !== ref);
+            publishRecentFiles();
+            Alert.alert('Recent file unavailable', 'This recent file is no longer available in this mobile session.');
+            return;
+        }
+
+        if (activeTransfer) {
+            console.info(`[mobile-spike] replacing active transfer from recent: ${activeTransfer}`);
+            rejectPendingTransfers(TRANSFER_REPLACED_MESSAGE);
+        }
+
+        const documentId = `${Date.now()}:${document.name}`;
+        const pendingDocument: TPendingOpenedDocument = {
+            documentId,
+            name: document.name,
+            ref,
+            size: document.size,
+        };
+        pendingOpenedDocument.current = pendingDocument;
+
+        try {
+            const readerUrl = await getReaderUrlForDocument(document);
+            await probeServedDocumentUrl(readerUrl, document.size);
+            console.info(`[mobile-spike] reopening local URL recent document: ${document.name} (${document.size} bytes) at ${readerUrl}`);
+            setLastEvent('Opening recent document');
+            setActiveTransfer(`Opening ${document.name}`);
+            pendingOpenIntent.current = {
+                documentId,
+                acknowledgedGeneration: null,
+                attemptCount: 0,
+                deliveredGenerations: new Set(),
+                message: {
+                    type: 'document:open-url',
+                    documentId,
+                    ref,
+                    url: readerUrl,
+                    suggestedName: document.name,
+                    mimeType: document.mimeType,
+                    size: document.size,
+                },
+            };
+            deliverPendingOpenIntent();
+            await waitForDocumentLoaded(documentId);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setLastEvent('Recent document read failed');
+            setActiveTransfer(null);
+            pendingOpenIntent.current = null;
+            pendingOpenedDocument.current = null;
+            clearOpenIntentRetryTimer();
+            if (message !== TRANSFER_REPLACED_MESSAGE) {
+                Alert.alert('Could not open recent document', message);
+            }
+        }
+    }, [
+        activeTransfer,
+        clearOpenIntentRetryTimer,
+        deliverPendingOpenIntent,
+        getReaderUrlForDocument,
+        publishRecentFiles,
+        rejectPendingTransfers,
+        waitForDocumentLoaded,
+    ]);
+
     useEffect(() => {
         openDocumentRef.current = openDocument;
-    }, [openDocument]);
+        openRecentDocumentRef.current = openRecentDocument;
+    }, [
+        openDocument,
+        openRecentDocument,
+    ]);
 
     const executeCommand = useCallback((commandId: TReaderCommandId) => {
         postToViewer({
@@ -727,11 +1059,18 @@ export default function App() {
                     javaScriptEnabled
                     domStorageEnabled
                     mixedContentMode="always"
+                    injectedJavaScriptBeforeContentLoaded={WEBVIEW_BOOTSTRAP_SCRIPT}
                     onMessage={handleViewerMessage}
                     onLoadStart={() => beginViewerLoad('Loading viewer')}
                     onLoad={() => {
                         setLastEvent('Viewer page loaded');
                         console.info(`[mobile-spike] WebView loaded: ${viewerUrl}`);
+                        setTimeout(pingViewer, 0);
+                        setTimeout(pingViewer, 500);
+                    }}
+                    onLoadEnd={() => {
+                        setTimeout(pingViewer, 0);
+                        setTimeout(pingViewer, 1_000);
                     }}
                     onError={event => {
                         const { code, description } = event.nativeEvent;

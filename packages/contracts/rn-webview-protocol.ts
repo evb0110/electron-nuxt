@@ -1,4 +1,5 @@
 import type { TDocumentRef } from './document';
+import type { IRecentFile } from './shared';
 import type {
     IReaderCommandRequest,
     IReaderCommandState,
@@ -17,6 +18,11 @@ export interface IRnWebViewDocumentOpenPayload {
     base64?: string;
 }
 
+type TRnWebViewDocumentUrlOpenPayloadBase = Omit<IRnWebViewDocumentOpenPayload, 'base64'>;
+
+interface IRnWebViewDocumentUrlOpenPayload
+    extends TRnWebViewDocumentUrlOpenPayloadBase { url: string; }
+
 export type THostToViewerMessage =
     | {
         type: 'host:environment';
@@ -27,6 +33,7 @@ export type THostToViewerMessage =
         requestId: string;
     }
     | ({ type: 'document:open'; } & IRnWebViewDocumentOpenPayload)
+    | ({ type: 'document:open-url'; } & IRnWebViewDocumentUrlOpenPayload)
     | ({type: 'document:open-ranged';} & Omit<IRnWebViewDocumentOpenPayload, 'base64'>)
     | ({
         type: 'document:open-chunked';
@@ -74,10 +81,19 @@ export type THostToViewerMessage =
     | {
         type: 'search:cancel';
         requestId?: string;
+    }
+    | {
+        type: 'recent-files:changed';
+        recentFiles: IRecentFile[];
     };
 
 export type TViewerToHostMessage =
     | { type: 'viewer:ready'; }
+    | {
+        type: 'viewer:console';
+        level: 'debug' | 'info' | 'warn' | 'error';
+        message: string;
+    }
     | {
         type: 'document:loaded';
         documentId: string | null;
@@ -85,6 +101,16 @@ export type TViewerToHostMessage =
         title?: string;
     }
     | {type: 'document:request-open';}
+    | {type: 'recent-files:request';}
+    | {
+        type: 'recent-file:open';
+        ref: TDocumentRef;
+    }
+    | {
+        type: 'recent-file:remove';
+        ref: TDocumentRef;
+    }
+    | {type: 'recent-files:clear';}
     | {
         type: 'document:request-bytes';
         requestId: string;

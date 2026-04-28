@@ -284,6 +284,37 @@ export const usePdfDocument = () => {
                     iccUrl: getPdfjsAssetDir('iccs'),
                     useSystemFonts: false,
                 });
+            } else if (src.kind === 'url') {
+                loadingTask = pdfjsLib.getDocument({
+                    url: src.url,
+                    length: src.size,
+                    rangeChunkSize: 1024 * 1024,
+                    disableAutoFetch: true,
+                    verbosity: pdfjsLib.VerbosityLevel.ERRORS,
+                    standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
+                    cMapUrl: getPdfjsAssetDir('cmaps'),
+                    cMapPacked: true,
+                    wasmUrl: getPdfjsAssetDir('wasm'),
+                    iccUrl: getPdfjsAssetDir('iccs'),
+                    useSystemFonts: false,
+                });
+
+                const activeLoadingTask = loadingTask;
+                const pdfDoc = await activeLoadingTask.promise;
+
+                if (version !== renderVersion) {
+                    destroyPdfDocumentDeferred(pdfDoc, 'Failed to destroy stale URL PDF document');
+                    return null;
+                }
+
+                pdfDocument.value = pdfDoc;
+                numPages.value = pdfDoc.numPages;
+                await primeInitialPageMetrics(pdfDoc, version);
+
+                return {
+                    version,
+                    document: pdfDoc,
+                };
             } else {
                 // Large PDFs: avoid reading the full file into renderer memory. Use range reads via IPC.
                 const length = src.size;

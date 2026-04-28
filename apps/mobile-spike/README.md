@@ -28,6 +28,23 @@ In another terminal, start Expo:
 pnpm dev:mobile
 ```
 
+The document transport uses native modules (`@dr.pogodin/react-native-static-server`
+and `@dr.pogodin/react-native-fs`), so opening PDFs requires an Expo
+development build. Expo Go can still render the shell, but it cannot run the
+local document server.
+
+If opening a file reports `ReactNativeFs could not be found`, the app is still
+running in Expo Go or in a development build that was installed before the
+native document-server dependencies were added. Stop Expo Go, rebuild, and
+reinstall the development app.
+
+Build and run a development app when testing document opening:
+
+```bash
+pnpm --dir apps/mobile-spike ios
+pnpm --dir apps/mobile-spike android
+```
+
 The default WebView URL is:
 
 ```text
@@ -56,13 +73,15 @@ configuration; the WebView remains just the reader presentation surface.
 ## Current Scope
 
 - Opens a PDF via Expo's native document picker.
-- Sends small/medium PDFs to the WebView as base64 for the first proof.
+- Imports picked PDFs into app-owned storage.
+- Serves imported PDFs through a native localhost static server.
+- Sends the reader a stable URL so PDF.js can load the document through normal
+  browser URL/range semantics instead of `postMessage` byte transfer.
 - Receives `viewer:ready`, `document:loaded`, and `reader:page-changed`.
 - Sends coarse `reader:execute-command` messages from a native command sheet.
 
 ## Deliberate Limits
 
-- Large PDFs are blocked above 64 MB until the range-read bridge is implemented.
 - The native command sheet shows command keys instead of localized labels.
 - The app loads the web reader from the dev server; bundled/offline WebView
   assets are a later spike.

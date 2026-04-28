@@ -84,7 +84,7 @@
                         />
                         <div class="flex-1 min-w-0 flex flex-col gap-0.5">
                             <span class="recent-file-name">{{ file.fileName }}</span>
-                            <span v-if="!isBrowserDocumentRef(file.originalPath)" class="recent-file-path">{{ getParentFolder(file.originalPath) }}</span>
+                            <span v-if="shouldShowRecentPath(file.originalPath)" class="recent-file-path">{{ getParentFolder(file.originalPath) }}</span>
                         </div>
                         <span class="recent-file-time">{{ formatRelativeTimeLocalized(file.timestamp) }}</span>
                         <UTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
@@ -183,6 +183,10 @@ function getParentFolder(filePath: string) {
     parts.pop();
     const folderParts = parts.slice(-2);
     return folderParts.join('/');
+}
+
+function shouldShowRecentPath(filePath: string) {
+    return !isBrowserDocumentRef(filePath) && !filePath.startsWith('rn://');
 }
 
 function displayProcessedCount(processed: number, total: number) {
