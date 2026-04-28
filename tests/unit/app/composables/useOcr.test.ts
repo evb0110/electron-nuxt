@@ -123,6 +123,71 @@ describe('useOcr', () => {
         }
     });
 
+    it('clears previous searchable PDF results when a later OCR run fails', async () => {
+        type TOcrCompleteTestResult = {
+            requestId: string;
+            success: boolean;
+            pdfPath?: string;
+            requiresCleanupAck?: boolean;
+            errors: string[];
+        };
+        let completeHandler: ((result: TOcrCompleteTestResult) => void) | null = null;
+        const emitComplete = (result: TOcrCompleteTestResult) => {
+            const handler = completeHandler;
+            if (!handler) {
+                throw new Error('OCR completion handler was not registered');
+            }
+            handler(result);
+        };
+        mockOcr.onComplete.mockImplementation((handler) => {
+            completeHandler = handler;
+            return vi.fn();
+        });
+        mockDocuments.readFile.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        mockOcr.acknowledgeResultFile.mockResolvedValue({ cleaned: true });
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            const firstRunPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+            await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
+            const firstRequestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
+            emitComplete({
+                requestId: firstRequestId,
+                success: true,
+                pdfPath: '/tmp/ocr-result.pdf',
+                requiresCleanupAck: true,
+                errors: [],
+            });
+            await firstRunPromise;
+            expect(ocr.hasResults.value).toBe(true);
+
+            const secondRunPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+            await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 1);
+            expect(ocr.hasResults.value).toBe(false);
+            const secondRequestId = mockOcr.createSearchablePdf.mock.calls[1]?.[2] as string;
+            emitComplete({
+                requestId: secondRequestId,
+                success: false,
+                errors: ['OCR job idle timed out after 15000ms without worker activity'],
+            });
+            await secondRunPromise;
+
+            expect(ocr.hasResults.value).toBe(false);
+            expect(ocr.error.value).toContain('OCR job idle timed out');
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('opens the DOCX save dialog before gathering text for export', async () => {
         const callOrder: string[] = [];
         mockDocuments.saveDocxAs.mockImplementationOnce(async () => {

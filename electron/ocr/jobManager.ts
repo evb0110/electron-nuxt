@@ -17,7 +17,7 @@ import { Worker } from 'worker_threads';
 import { uniq } from 'es-toolkit/array';
 import { withTimeout } from 'es-toolkit/promise';
 import {
-    OCR_JOB_MAX_RUNTIME_MS,
+    OCR_JOB_IDLE_TIMEOUT_MS,
     OCR_MODEL_PREP_TIMEOUT_MS,
     OCR_QUEUE_MAX_AGE_MS,
     OCR_QUEUE_MAX_BUFFERED_BYTES,
@@ -274,6 +274,30 @@ function clearJobWatchdog(scopedJobId: string) {
     activeJob.watchdogTimer = null;
 }
 
+function resetJobWatchdog(job: IOcrQueuedJob) {
+    const activeJob = activeJobs.get(job.scopedJobId);
+    if (!activeJob || activeJob.completed) {
+        return;
+    }
+
+    clearJobWatchdog(job.scopedJobId);
+    const watchdog = setTimeout(() => {
+        const pendingActiveJob = activeJobs.get(job.scopedJobId);
+        if (!pendingActiveJob || pendingActiveJob.completed) {
+            return;
+        }
+
+        sendJobFailure(job, `OCR job idle timed out after ${OCR_JOB_IDLE_TIMEOUT_MS}ms without worker activity`);
+        terminateAndFinalizeActiveJob(job.scopedJobId, {
+            markCancelled: true,
+            reason: `watchdog idle timeout (${OCR_JOB_IDLE_TIMEOUT_MS}ms)`,
+        });
+        log.error(`OCR watchdog idle timed out job ${job.requestId}`);
+    }, OCR_JOB_IDLE_TIMEOUT_MS);
+    watchdog.unref?.();
+    activeJob.watchdogTimer = watchdog;
+}
+
 async function terminateWorkerSafely(
     scopedJobId: string,
     worker: Worker,
@@ -462,24 +486,11 @@ function startQueuedJob(job: IOcrQueuedJob) {
         watchdogTimer: null,
     };
     activeJobs.set(job.scopedJobId, activeJob);
-    const watchdog = setTimeout(() => {
-        const pendingActiveJob = activeJobs.get(job.scopedJobId);
-        if (!pendingActiveJob || pendingActiveJob.completed) {
-            return;
-        }
-
-        sendJobFailure(job, `OCR job timed out after ${OCR_JOB_MAX_RUNTIME_MS}ms`);
-        terminateAndFinalizeActiveJob(job.scopedJobId, {
-            markCancelled: true,
-            reason: `watchdog timeout (${OCR_JOB_MAX_RUNTIME_MS}ms)`,
-        });
-        log.error(`OCR watchdog timed out job ${job.requestId}`);
-    }, OCR_JOB_MAX_RUNTIME_MS);
-    watchdog.unref?.();
-    activeJob.watchdogTimer = watchdog;
+    resetJobWatchdog(job);
     logQueueDepth(`OCR job ${job.requestId} activated`);
 
     worker.on('message', (message: unknown) => {
+        resetJobWatchdog(job);
         const parsedMessage = parseWorkerMessage(message);
         if (!parsedMessage) {
             log.warn(`Ignoring malformed OCR worker message for job ${job.requestId}`);

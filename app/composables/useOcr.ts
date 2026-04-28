@@ -85,11 +85,15 @@ export const useOcr = () => {
         progressCleanup = null;
         completeCleanup?.();
         completeCleanup = null;
+        clearOcrTimeout();
+        pendingOcrReject = null;
+    }
+
+    function clearOcrTimeout() {
         if (timeoutId) {
             clearTimeout(timeoutId);
             timeoutId = null;
         }
-        pendingOcrReject = null;
     }
 
     async function loadLanguages() {
@@ -134,6 +138,8 @@ export const useOcr = () => {
             error.value = t('errors.file.invalid');
             return;
         }
+
+        clearResults();
 
         const runToken = Symbol('ocr-run');
         activeRunToken = runToken;
@@ -181,6 +187,18 @@ export const useOcr = () => {
         try {
             const ocr = getOcrCapability();
             const documents = getDocumentsCapability();
+            const resetOcrTimeout = () => {
+                clearOcrTimeout();
+                timeoutId = setTimeout(() => {
+                    if (activeRunToken !== runToken) {
+                        return;
+                    }
+                    const rejectPending = pendingOcrReject;
+                    pendingOcrReject = null;
+                    timeoutId = null;
+                    rejectPending?.(new Error(t('errors.ocr.timeout')));
+                }, OCR_TIMEOUT_MS);
+            };
 
             progressCleanup = ocr.onProgress((p) => {
                 if (activeRunToken !== runToken) {
@@ -191,6 +209,7 @@ export const useOcr = () => {
                     requestId,
                 });
                 if (p.requestId === requestId) {
+                    resetOcrTimeout();
                     progress.value.phase = 'processing';
                     progress.value.currentPage = p.currentPage;
                     progress.value.processedCount = p.processedCount;
@@ -233,21 +252,12 @@ export const useOcr = () => {
                         }
                         didResolve = true;
                         pendingOcrReject = null;
-                        if (timeoutId) {
-                            clearTimeout(timeoutId);
-                            timeoutId = null;
-                        }
+                        clearOcrTimeout();
                         resolve(result);
                     }
                 });
 
-                timeoutId = setTimeout(() => {
-                    if (!didResolve && activeRunToken === runToken) {
-                        pendingOcrReject = null;
-                        timeoutId = null;
-                        reject(new Error(t('errors.ocr.timeout')));
-                    }
-                }, OCR_TIMEOUT_MS);
+                resetOcrTimeout();
             });
 
             ensureRunActive();
