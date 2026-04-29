@@ -459,6 +459,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
         '/robots.txt': { prerender: true },
         '/sitemap.xml': { prerender: true },
         '/electron': {
+            ssr: false,
             headers: { 'X-Robots-Tag': 'noindex, nofollow' },
         },
         '/workspace': {
