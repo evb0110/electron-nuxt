@@ -146,6 +146,7 @@ Usage:
 Options:
   --session <name>, -s <name>   Session name (default: "default")
   --all                         Apply to all sessions (with stop)
+  --keep-nuxt                   Keep the default Nuxt dev server alive when stopping one session
 
 Session:
   start               Start session (foreground, Ctrl+C to stop)
@@ -200,6 +201,7 @@ export async function runCli() {
 
     let sessionName = 'default';
     let stopAll = false;
+    let keepNuxt = false;
     const filteredArgs: string[] = [];
 
     for (let i = 0; i < rawArgs.length; i += 1) {
@@ -210,6 +212,8 @@ export async function runCli() {
             sessionName = rawArgs[++i] ?? 'default';
         } else if (arg === '--all') {
             stopAll = true;
+        } else if (arg === '--keep-nuxt') {
+            keepNuxt = true;
         } else if (arg) {
             filteredArgs.push(arg);
         }
@@ -250,7 +254,10 @@ export async function runCli() {
                 break;
 
             case 'stop':
-                await stopSession(stopAll);
+                await stopSession({
+                    stopAll,
+                    keepNuxt,
+                });
                 break;
 
             case 'status': {

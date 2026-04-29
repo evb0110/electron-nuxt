@@ -12,6 +12,7 @@ import {
     shouldBootstrapInteractiveDevProfile,
     shouldUseMacOSHiddenAppLauncher,
     shouldDisableAutomationSandbox,
+    isReusableNuxtResponse,
 } from '../../../scripts/electron-run/session-manager';
 import { shouldWaitForExternalDevServer } from '../../../electron/server';
 
@@ -194,6 +195,23 @@ describe('session-manager automation launch args', () => {
             isDev: true,
             hasFixedServerPort: true,
             waitForExternalDevServer: false,
+        })).toBe(false);
+    });
+
+    it('reuses only Nuxt-looking dev server responses', () => {
+        expect(isReusableNuxtResponse({
+            poweredBy: 'Nuxt',
+            body: '<script type="module" src="/_nuxt/app.js"></script>',
+        })).toBe(true);
+
+        expect(isReusableNuxtResponse({
+            poweredBy: 'Express',
+            body: '<script type="module" src="/_nuxt/app.js"></script>',
+        })).toBe(false);
+
+        expect(isReusableNuxtResponse({
+            poweredBy: 'Nuxt',
+            body: '<main>unrelated app</main>',
         })).toBe(false);
     });
 });

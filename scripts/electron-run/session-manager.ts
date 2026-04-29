@@ -71,6 +71,7 @@ const ELECTRON_STARTUP_LOG_MAX_LINES = 300;
 const ELECTRON_STARTUP_LOG_TAIL_LINES = 60;
 const ELECTRON_SERVER_PATH = '/electron';
 const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+const KEEP_NUXT_ON_STOP_MARKER = 'keep-nuxt-on-stop';
 const TRUTHY_ENV_VALUES = new Set([
     '1',
     'true',
@@ -380,6 +381,34 @@ async function isNuxtRunning(): Promise<boolean> {
     }
 }
 
+export function isReusableNuxtResponse(options: {
+    poweredBy: string | null;
+    body: string;
+}) {
+    return (options.poweredBy?.toLowerCase() ?? '').includes('nuxt')
+        && options.body.includes('/_nuxt/');
+}
+
+async function isReusableNuxtServer(): Promise<boolean> {
+    try {
+        const res = await fetch(`http://127.0.0.1:${getNuxtPort()}${ELECTRON_SERVER_PATH}`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(1000),
+        });
+        if (!res.ok) {
+            return false;
+        }
+        const poweredBy = res.headers.get('x-powered-by')?.toLowerCase() ?? '';
+        const text = await res.text();
+        return isReusableNuxtResponse({
+            poweredBy,
+            body: text,
+        });
+    } catch {
+        return false;
+    }
+}
+
 export async function killExistingNuxt(): Promise<void> {
     try {
         const pids = await getPidsOnPort(getNuxtPort());
@@ -451,6 +480,12 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
         console.log(`[Nuxt] Using isolated port ${getNuxtPort()} for session '${getCurrentSessionName()}'`);
     }
     console.log(`[Nuxt] Browser dev server: http://localhost:${getNuxtPort()}/`);
+
+    if (!forceClean && await isReusableNuxtServer()) {
+        console.log(`[Nuxt] Reusing existing dev server at http://127.0.0.1:${getNuxtPort()}`);
+        logTiming('Nuxt existing dev server reused');
+        return null;
+    }
 
     await cleanupStaleNuxtPortOwners('before start');
     logTiming('Nuxt port cleanup complete');
@@ -1447,8 +1482,15 @@ export async function startSession(forceClean = false) {
             isShuttingDown = true;
 
             console.log('\nShutting down...');
+            const keepNuxtOnStop = existsSync(join(sessionDir(), KEEP_NUXT_ON_STOP_MARKER));
+            if (keepNuxtOnStop) {
+                console.log('[Nuxt] Keeping dev server alive for fast restart');
+            }
             try {
                 unlinkSync(sessionFilePath());
+            } catch {}
+            try {
+                unlinkSync(join(sessionDir(), KEEP_NUXT_ON_STOP_MARKER));
             } catch {}
             clearSessionStarting();
             httpServer?.close();
@@ -1462,7 +1504,7 @@ export async function startSession(forceClean = false) {
                 }
             } catch {}
 
-            if (sessionState?.nuxtProcess) {
+            if (sessionState?.nuxtProcess && !keepNuxtOnStop) {
                 const otherNames = listAllSessionNames().filter(name => name !== getCurrentSessionName());
                 const othersAlive = otherNames.some((name) => {
                     const info = getSessionInfo(name);
@@ -1479,6 +1521,8 @@ export async function startSession(forceClean = false) {
                 } else {
                     console.log('[Nuxt] Left running (other sessions active)');
                 }
+            } else if (sessionState?.nuxtProcess && keepNuxtOnStop) {
+                sessionState.nuxtProcess.unref();
             }
 
             sessionState = null;
@@ -1569,7 +1613,18 @@ export async function startSession(forceClean = false) {
     }
 }
 
-export async function stopSingleSession(name: string) {
+async function waitForProcessExit(pid: number, timeoutMs: number) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (!isProcessAlive(pid)) {
+            return true;
+        }
+        await delay(100);
+    }
+    return !isProcessAlive(pid);
+}
+
+export async function stopSingleSession(name: string, options: {keepNuxt?: boolean} = {}) {
     await cleanupStaleSessionArtifacts(name);
 
     const info = getSessionInfo(name);
@@ -1581,7 +1636,17 @@ export async function stopSingleSession(name: string) {
     }
 
     if (info) {
-        if (isProcessAlive(info.pid)) {
+        if (options.keepNuxt && info.nuxtPid && isProcessAlive(info.nuxtPid)) {
+            mkdirSync(sessionDir(name), {recursive: true});
+            writeFileSync(join(sessionDir(name), KEEP_NUXT_ON_STOP_MARKER), String(Date.now()));
+            try {
+                process.kill(info.pid, 'SIGTERM');
+            } catch {}
+            const didExit = await waitForProcessExit(info.pid, 2500);
+            if (!didExit && isProcessAlive(info.pid)) {
+                await killProcessTree(info.pid, 1500);
+            }
+        } else if (isProcessAlive(info.pid)) {
             await killProcessTree(info.pid, 1500);
         }
 
@@ -1590,7 +1655,7 @@ export async function stopSingleSession(name: string) {
         }
         await killElectronProcessesByCdpPort(info.cdpPort);
 
-        if (info.nuxtPid && isProcessAlive(info.nuxtPid)) {
+        if (info.nuxtPid && isProcessAlive(info.nuxtPid) && !options.keepNuxt) {
             const others = listAllSessionNames().filter(sessionName => sessionName !== name);
             const othersAlive = others.some((sessionName) => {
                 const otherInfo = getSessionInfo(sessionName);
@@ -1601,10 +1666,15 @@ export async function stopSingleSession(name: string) {
             } else {
                 console.log('[Nuxt] Left running (other sessions active)');
             }
+        } else if (info.nuxtPid && isProcessAlive(info.nuxtPid) && options.keepNuxt) {
+            console.log('[Nuxt] Left running for fast restart');
         }
 
         try {
             unlinkSync(sessionFilePath(name));
+        } catch {}
+        try {
+            unlinkSync(join(sessionDir(name), KEEP_NUXT_ON_STOP_MARKER));
         } catch {}
     }
 
@@ -1633,11 +1703,14 @@ export async function stopAllSessions() {
     console.log('All sessions stopped.');
 }
 
-export async function stopSession(stopAll = false) {
-    if (stopAll) {
+export async function stopSession(options: {
+    stopAll?: boolean;
+    keepNuxt?: boolean;
+} = {}) {
+    if (options.stopAll) {
         await stopAllSessions();
     } else {
-        await stopSingleSession(getCurrentSessionName());
+        await stopSingleSession(getCurrentSessionName(), {keepNuxt: options.keepNuxt});
     }
 }
 
