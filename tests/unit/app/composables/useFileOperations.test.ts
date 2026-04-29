@@ -627,10 +627,11 @@ describe('useFileOperations', () => {
 
         try {
             const savePromise = handleSave();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(deps.saveDocument).toHaveBeenCalledOnce();
             await vi.advanceTimersByTimeAsync(PDF_SAVE_TIMEOUT_MS);
             await savePromise;
 
-            expect(deps.saveDocument).toHaveBeenCalledOnce();
             expect(deps.serializePdfForSave).not.toHaveBeenCalled();
             expect(deps.saveFile).not.toHaveBeenCalled();
             expect(deps.isSaving.value).toBe(false);

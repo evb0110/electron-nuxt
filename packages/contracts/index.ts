@@ -126,6 +126,8 @@ export {
 } from './runtime-identity';
 export type { IRuntimeIdentityPayload } from './runtime-identity';
 
+export { isTimeoutError } from './timeout-error';
+
 export type {
     IRecentFile,
     IOcrLanguage,

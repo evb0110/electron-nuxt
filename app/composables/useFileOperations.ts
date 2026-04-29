@@ -5,6 +5,7 @@ import type {
     TPdfSaveMode,
 } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/platform-api';
+import { isTimeoutError } from '@contracts/timeout-error';
 import type {
     Ref,
     ShallowRef,
@@ -101,10 +102,6 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
 
     function getValidationFileName() {
         return workingCopyPath.value?.split(/[\\/]/u).pop() ?? undefined;
-    }
-
-    function isTimeoutError(error: unknown) {
-        return error instanceof Error && error.name === 'TimeoutError';
     }
 
     function hasLivePdfJsAnnotationChanges() {

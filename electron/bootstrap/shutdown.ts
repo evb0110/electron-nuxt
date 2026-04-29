@@ -1,4 +1,5 @@
 import { withTimeout } from 'es-toolkit/promise';
+import { isTimeoutError } from '@contracts/timeout-error';
 
 function parseIntEnv(name: string, fallback: number, minimum: number, maximum?: number) {
     const parsed = Number.parseInt(process.env[name] ?? `${fallback}`, 10);
@@ -44,7 +45,7 @@ export function runShutdownSteps(
                     await step.run();
                 }, SHUTDOWN_STEP_TIMEOUT_MS);
             } catch (error) {
-                const timeout = error instanceof Error && error.name === 'TimeoutError';
+                const timeout = isTimeoutError(error);
                 logger.error(
                     timeout
                         ? `Shutdown step timed out (${step.label}, ${SHUTDOWN_STEP_TIMEOUT_MS}ms)`
@@ -73,7 +74,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
         try {
             await options.runCleanupSteps();
         } catch (error) {
-            if (error instanceof Error && error.name === 'TimeoutError') {
+            if (isTimeoutError(error)) {
                 options.logger.error(`Global shutdown cleanup timed out after ${SHUTDOWN_TOTAL_TIMEOUT_MS}ms`);
                 return;
             }
