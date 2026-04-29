@@ -102,6 +102,14 @@ const mocks = vi.hoisted(() => {
             return handlers.length > 0;
         }
 
+        emitWebContents(event: string, ...args: unknown[]) {
+            const handlers = [...(this.handlers.get(`webContents:${event}`) ?? [])];
+            for (const handler of handlers) {
+                handler(...args);
+            }
+            return handlers.length > 0;
+        }
+
         show = vi.fn(() => {
             this.visible = true;
         });
@@ -226,7 +234,7 @@ describe('window runtime readiness', () => {
         await expect(createPromise).resolves.toBe(mocks.BrowserWindow.windows[0]);
     });
 
-    it('shows a startup window before renderer-ready', async () => {
+    it('shows a startup placeholder before renderer-ready', async () => {
         mocks.config.automation.hideWindow = false;
         const {
             createAppWindow,

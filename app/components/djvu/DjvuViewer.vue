@@ -84,11 +84,9 @@ import type { ComponentPublicInstance } from 'vue';
 import type { TDocumentRef } from '@contracts/platform-api';
 import type { TPdfViewMode } from '@contracts/shared';
 import type {
-    IAnnotationCommentSummary,
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type { ICropSelectionResult } from '@app/types/crop';
 import type { IScrollSnapshot } from '@app/types/pdf';
 import type { IDjvuPageSize } from '@app/platform/browser-api/djvujs-loader';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
@@ -1027,7 +1025,7 @@ defineExpose<IPdfViewerExpose>({
     restoreScrollSnapshot,
     captureRegionToClipboard: returnFalseAsync,
     isCapturingRegion: false,
-    startCropSelection: returnNullAsync as () => Promise<ICropSelectionResult | null>,
+    startCropSelection: returnNullAsync,
     cancelCropSelection: noop,
     isCropSelecting: false,
     saveDocument: () => Promise.resolve(null),
@@ -1038,7 +1036,7 @@ defineExpose<IPdfViewerExpose>({
     cancelCommentPlacement: noop,
     undoAnnotation: noop,
     redoAnnotation: noop,
-    focusAnnotationComment: returnVoidAsync as (comment: IAnnotationCommentSummary) => Promise<void>,
+    focusAnnotationComment: returnVoidAsync,
     updateAnnotationComment: () => false,
     deleteAnnotationComment: () => Promise.resolve(false),
     suppressAnnotationId: noop,

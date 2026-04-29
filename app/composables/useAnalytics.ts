@@ -127,7 +127,7 @@ function normalizePayload(
 function normalizeDocumentContext(
     context: Partial<IAnalyticsDocumentContext>,
 ): IAnalyticsDocumentContext {
-    return normalizePayload(context as Record<string, unknown>) as IAnalyticsDocumentContext;
+    return normalizePayload(context);
 }
 
 function getScreenCategory(width: number): TAnalyticsScreenCategory {

@@ -64,16 +64,29 @@ const handleCommand = createCommandHandler(() => sessionState);
 const MAX_CONSOLE_MESSAGES = 400;
 const MAX_DEVTOOLS_EVENTS = 1200;
 const RENDERER_READY_TIMEOUT_MS = 15_000;
+const ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS = 20_000;
 const VITE_OPTIMIZE_DEP_ERROR_MARKER = 'VITE_OPTIMIZE_DEP_504';
 const ELECTRON_START_TIMEOUT_MS = 45_000;
 const ELECTRON_STARTUP_LOG_MAX_LINES = 300;
 const ELECTRON_STARTUP_LOG_TAIL_LINES = 60;
+const ELECTRON_SERVER_PATH = '/electron';
+const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const TRUTHY_ENV_VALUES = new Set([
     '1',
     'true',
     'yes',
     'on',
 ]);
+
+function formatElapsedMs(startedAt: number) {
+    return `${((Date.now() - startedAt) / 1000).toFixed(2)}s`;
+}
+
+function createStartupLogger(startedAt = Date.now()) {
+    return (message: string) => {
+        console.log(`[Startup +${formatElapsedMs(startedAt)}] ${message}`);
+    };
+}
 
 function pushBounded<T>(collection: T[], item: T, maxSize: number) {
     collection.push(item);
@@ -357,7 +370,10 @@ async function killElectronProcessesByCdpPort(cdpPort: number | null | undefined
 
 async function isNuxtRunning(): Promise<boolean> {
     try {
-        const res = await fetch(`http://127.0.0.1:${getNuxtPort()}`, { method: 'HEAD' });
+        const res = await fetch(`http://127.0.0.1:${getNuxtPort()}`, {
+            method: 'HEAD',
+            signal: AbortSignal.timeout(500),
+        });
         return res.ok;
     } catch {
         return false;
@@ -424,6 +440,7 @@ async function cleanupStaleNuxtPortOwners(reason: string) {
 }
 
 async function startNuxtServer(forceClean = false): Promise<ChildProcess | null> {
+    const logTiming = createStartupLogger();
     const isDefaultSession = getCurrentSessionName() === 'default';
     if (isDefaultSession) {
         setNuxtPort(DEFAULT_NUXT_PORT);
@@ -435,9 +452,13 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
     }
     console.log(`[Nuxt] Browser dev server: http://localhost:${getNuxtPort()}/`);
 
+    await cleanupStaleNuxtPortOwners('before start');
+    logTiming('Nuxt port cleanup complete');
+
     if (forceClean) {
         console.log('[Nuxt] Force clean start...');
         await clearViteCache();
+        logTiming('Nuxt cache cleanup complete');
     }
 
     const timeout = 120_000;
@@ -445,12 +466,11 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
         console.log(`[Nuxt] Starting dev server on port ${getNuxtPort()} (attempt ${attempt + 1}/2)...`);
-        const nuxt = spawn('pnpm', [
+        const nuxt = spawn(PNPM_COMMAND, [
             'run',
             'dev:nuxt',
         ], {
             cwd: projectRoot,
-            shell: true,
             stdio: [
                 'ignore',
                 'pipe',
@@ -481,18 +501,22 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
         const checkOutput = (text: string) => {
             if (text.includes('Vite client built')) {
                 console.log('[Nuxt] Vite client built');
+                logTiming('Nuxt Vite client built');
                 viteClientBuilt = true;
             }
             if (text.includes('Vite server built')) {
                 console.log('[Nuxt] Vite server built');
+                logTiming('Nuxt Vite server built');
                 viteServerBuilt = true;
             }
             if (text.includes('Nitro server built') || text.includes('Nitro') && text.includes('built')) {
                 console.log('[Nuxt] Nitro server built');
+                logTiming('Nuxt Nitro server built');
                 nitroBuilt = true;
             }
             if (text.includes('Vite client warmed up')) {
                 console.log('[Nuxt] Vite client warmed up');
+                logTiming('Nuxt Vite client warmed up');
                 viteClientWarmed = true;
             }
             if (text.toLowerCase().includes('address already in use') || text.toLowerCase().includes('eaddrinuse')) {
@@ -506,26 +530,43 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
         const start = Date.now();
         let lastLog = 0;
 
+        // Electron can now wait for the externally managed Nuxt server, so keep
+        // the expensive dev-server build and Electron startup overlapped.
+        await delay(750);
+        if (!nuxtExited) {
+            console.log('[Nuxt] Dev process started; Electron will wait for HTTP readiness.');
+            logTiming('Nuxt dev process spawned');
+            return nuxt;
+        }
+
         while (Date.now() - start < timeout) {
             const serverUp = await isNuxtRunning();
             const buildsComplete = viteClientBuilt && viteServerBuilt && nitroBuilt;
             const warmupComplete = viteClientWarmed || (Date.now() - start > WARMUP_GRACE_MS);
             const elapsedMs = Date.now() - start;
 
-            if (serverUp && buildsComplete && warmupComplete) {
+            if (buildsComplete && warmupComplete) {
+                if (!serverUp) {
+                    console.log('[Nuxt] Build markers complete; Electron will wait for HTTP readiness.');
+                    logTiming('Nuxt build markers complete');
+                    return nuxt;
+                }
+
                 console.log('[Nuxt] Server ready at http://127.0.0.1:' + getNuxtPort());
+                logTiming('Nuxt server ready');
 
                 console.log('[Nuxt] Warming up dependencies...');
                 try {
-                    await fetch(`http://127.0.0.1:${getNuxtPort()}/`, { method: 'GET' });
-                    await delay(2000);
+                    await fetch(getElectronAppUrl(), { method: 'GET' });
                 } catch {}
+                logTiming('Nuxt dependency warmup complete');
 
                 return nuxt;
             }
 
             if (serverUp && elapsedMs > 15_000) {
                 console.log('[Nuxt] Server responded without full build markers; proceeding with existing readiness signal.');
+                logTiming('Nuxt server ready from HTTP fallback');
                 return nuxt;
             }
 
@@ -655,7 +696,8 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
         ...process.env,
         EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
         EVB_SERVER_PORT: String(getNuxtPort()),
-        EVB_SERVER_PATH: '/electron',
+        EVB_SERVER_PATH: ELECTRON_SERVER_PATH,
+        EVB_WAIT_FOR_EXTERNAL_DEV_SERVER: '1',
         ...automationWindowEnv,
         EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
         EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),
@@ -853,9 +895,32 @@ function isAppPageUrl(url: string): boolean {
     return url.includes(`localhost:${port}`) || url.includes(`127.0.0.1:${port}`);
 }
 
+function getElectronAppUrl(): string {
+    return `http://127.0.0.1:${getNuxtPort()}${ELECTRON_SERVER_PATH}`;
+}
+
 async function findAppPage(browser: Browser): Promise<Page | null> {
     const pages = await browser.pages();
     return pages.find(page => isAppPageUrl(page.url())) ?? null;
+}
+
+async function waitForAppPage(browser: Browser, timeoutMs: number): Promise<Page | null> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        const page = await findAppPage(browser);
+        if (page) {
+            return page;
+        }
+        await delay(250);
+    }
+    return null;
+}
+
+function isNavigationAbortedError(error: unknown) {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+    return error.message.includes('net::ERR_ABORTED');
 }
 
 async function waitForElectronPageTarget(cdpPort: number, timeoutMs = 30_000): Promise<void> {
@@ -908,11 +973,13 @@ async function connectToBrowser(cdpPort: number): Promise<{
     browser: Browser;
     page: Page
 }> {
+    const logTiming = createStartupLogger();
     console.log('[Puppeteer] Connecting via CDP...');
 
     // Wait for the Electron BrowserWindow page target to appear in CDP,
     // then connect to the browser-level WebSocket endpoint.
     await waitForElectronPageTarget(cdpPort);
+    logTiming('Electron page target available');
     const browserWsUrl = await getBrowserWsEndpoint(cdpPort);
 
     let browser: Browser | null = null;
@@ -927,6 +994,7 @@ async function connectToBrowser(cdpPort: number): Promise<{
                     throw new Error('CDP connect timeout');
                 }),
             ]);
+            logTiming('Puppeteer connected to CDP');
             break;
         } catch (error) {
             if (attempt === 0 || attempt === 4 || attempt === 9) {
@@ -959,10 +1027,29 @@ async function connectToBrowser(cdpPort: number): Promise<{
     }
 
     if (!isAppPageUrl(page.url())) {
-        await page.goto(`http://127.0.0.1:${getNuxtPort()}/`, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30_000,
-        });
+        const appLoadedPage = await waitForAppPage(browser, ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS);
+        if (appLoadedPage) {
+            page = appLoadedPage;
+            logTiming('Electron app page appeared without fallback navigation');
+        } else {
+            try {
+                await page.goto(getElectronAppUrl(), {
+                    waitUntil: 'domcontentloaded',
+                    timeout: 30_000,
+                });
+                logTiming('Fallback navigation to Electron app URL complete');
+            } catch (error) {
+                if (!isNavigationAbortedError(error)) {
+                    throw error;
+                }
+                const recoveredPage = await waitForAppPage(browser, ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS);
+                if (!recoveredPage) {
+                    throw error;
+                }
+                page = recoveredPage;
+                logTiming('Recovered from aborted fallback navigation');
+            }
+        }
     }
 
     let trackedPage: Page | null = null;
@@ -999,6 +1086,7 @@ async function connectToBrowser(cdpPort: number): Promise<{
         }
 
         console.log('[Puppeteer] Waiting for Vue to hydrate...');
+        logTiming('Renderer body available');
         let hydrated = false;
         let navigationCount = 0;
         const MAX_NAVIGATIONS = 3;
@@ -1109,6 +1197,7 @@ async function connectToBrowser(cdpPort: number): Promise<{
         }
 
         console.log('[Puppeteer] Connected to app');
+        logTiming('Renderer bindings ready');
         return {
             browser,
             page,
@@ -1121,6 +1210,7 @@ async function connectToBrowser(cdpPort: number): Promise<{
 }
 
 export async function startSession(forceClean = false) {
+    const logTiming = createStartupLogger();
     await cleanupStaleSessionArtifacts();
 
     if (await isSessionRunning()) {
@@ -1147,6 +1237,7 @@ export async function startSession(forceClean = false) {
         }
 
         let nuxtProcess = await startNuxtServer(forceClean);
+        logTiming('Nuxt startup phase complete');
 
         if (forceClean) {
             try {
@@ -1168,6 +1259,7 @@ export async function startSession(forceClean = false) {
         const serverPort = await findFreePort();
         let cdpPort = await findFreePort();
         console.log(`[Ports] CDP: ${cdpPort}, HTTP server: ${serverPort}`);
+        logTiming('Automation ports allocated');
 
         let electronProcess: ChildProcess | null = null;
         let browser: Browser | null = null;
@@ -1181,12 +1273,14 @@ export async function startSession(forceClean = false) {
             }
 
             electronProcess = await startElectron(cdpPort);
+            logTiming('Electron process/CDP ready');
 
             try {
                 ({
                     browser,
                     page,
                 } = await connectToBrowser(cdpPort));
+                logTiming('Browser automation attached');
                 launchError = null;
                 break;
             } catch (error) {
@@ -1457,6 +1551,7 @@ export async function startSession(forceClean = false) {
             clearSessionStarting();
 
             console.log(`\n\u2713 Session '${getCurrentSessionName()}' ready on port ${serverPort}`);
+            logTiming('Session command server ready');
             console.log('  Press Ctrl+C to stop\n');
         });
 
@@ -1576,7 +1671,7 @@ export async function startSessionDetached() {
 
     mkdirSync(sessionDir(), { recursive: true });
     const logFd = openSync(sessionLogFilePath(), 'w');
-    const child = spawn('pnpm', [
+    const child = spawn(PNPM_COMMAND, [
         'electron:run',
         `--session=${getCurrentSessionName()}`,
         'start',

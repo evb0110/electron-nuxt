@@ -178,7 +178,7 @@ function deleteStoreValue(
 function getAllStoreKeys(store: IDBObjectStore): Promise<IDBValidKey[]> {
     return new Promise((resolve, reject) => {
         const request = store.getAllKeys();
-        request.onsuccess = () => resolve((request.result as IDBValidKey[] | undefined) ?? []);
+        request.onsuccess = () => resolve((request.result) ?? []);
         request.onerror = () => reject(request.error ?? new Error('Failed to list search cache records'));
     });
 }

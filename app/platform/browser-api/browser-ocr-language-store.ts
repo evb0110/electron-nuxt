@@ -58,7 +58,7 @@ function readAllStoreValues<T>(store: IDBObjectStore): Promise<T[]> {
 function readAllStoreKeys(store: IDBObjectStore): Promise<IDBValidKey[]> {
     return new Promise((resolve, reject) => {
         const request = store.getAllKeys();
-        request.onsuccess = () => resolve((request.result as IDBValidKey[] | undefined) ?? []);
+        request.onsuccess = () => resolve((request.result) ?? []);
         request.onerror = () => reject(request.error ?? new Error('Failed to read OCR language store keys'));
     });
 }

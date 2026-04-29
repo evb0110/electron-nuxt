@@ -27,12 +27,12 @@ const mocks = vi.hoisted(() => ({
     })),
     setApplicationMenu: vi.fn(),
     appListeners: new Map<string, (...args: unknown[]) => void>(),
-    createWindow: ((_id: number, _title: string) => {
+    createWindow: ((_id: number, _title: string): ITestWindow => {
         throw new Error('createWindow mock not initialized');
-    }) as (id: number, title: string) => ITestWindow,
-    focusWindow: ((_window: ITestWindow | null) => {
+    }),
+    focusWindow: ((_window: ITestWindow | null): void => {
         throw new Error('focusWindow mock not initialized');
-    }) as (window: ITestWindow | null) => void,
+    }),
 }));
 
 vi.mock('electron', () => {

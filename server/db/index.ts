@@ -4,16 +4,18 @@ import {
     drizzle,
     type NeonHttpDatabase,
 } from 'drizzle-orm/neon-http';
+import { getRuntimeEnv } from '../utils/runtime-env';
 import * as schema from '../db/schema';
 
 let dbInstance: NeonHttpDatabase<typeof schema> | null = null;
 
 function resolveDatabaseUrl(event?: H3Event): string {
     void event;
+    const env = getRuntimeEnv();
 
-    return process.env.NUXT_ANALYTICS_DATABASE_URL
-        || process.env.ANALYTICS_DATABASE_URL
-        || process.env.DATABASE_URL
+    return env.NUXT_ANALYTICS_DATABASE_URL
+        || env.ANALYTICS_DATABASE_URL
+        || env.DATABASE_URL
         || '';
 }
 

@@ -21,7 +21,7 @@ describe('useSidebarResize', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
-        vi.stubGlobal('window', {} as Window);
+        vi.stubGlobal('window', {});
     });
 
     it('clamps the sidebar at the minimum width instead of closing it', async () => {

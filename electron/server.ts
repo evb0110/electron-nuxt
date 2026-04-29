@@ -39,6 +39,7 @@ let usingExternalServer = false;
 let stoppingServerPromise: Promise<void> | null = null;
 const SERVER_OWNERSHIP_FILE = 'nuxt-server-owner.json';
 const HAS_FIXED_SERVER_PORT = Boolean(process.env.EVB_SERVER_PORT?.trim());
+const WAIT_FOR_EXTERNAL_DEV_SERVER = process.env.EVB_WAIT_FOR_EXTERNAL_DEV_SERVER === '1';
 function parseIntegerEnv(
     rawValue: string | undefined,
     {
@@ -191,6 +192,31 @@ async function isTrustedRuntimeServer() {
     } catch {
         return false;
     }
+}
+
+export function shouldWaitForExternalDevServer(options: {
+    isDev?: boolean;
+    hasFixedServerPort?: boolean;
+    waitForExternalDevServer?: boolean;
+} = {}) {
+    return (options.isDev ?? config.isDev)
+        && (options.hasFixedServerPort ?? HAS_FIXED_SERVER_PORT)
+        && (options.waitForExternalDevServer ?? WAIT_FOR_EXTERNAL_DEV_SERVER);
+}
+
+async function waitForExternalDevServer(startTime: number) {
+    const deadline = Date.now() + SERVER_READY_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        if (await isServerRunning() && await isTrustedRuntimeServer()) {
+            logger.info(`Using externally managed Nuxt dev server (+${Date.now() - startTime}ms)`);
+            usingExternalServer = true;
+            serverReady = Promise.resolve();
+            return;
+        }
+        await delay(SERVER_POLL_INTERVAL_MS);
+    }
+
+    throw new Error(`External Nuxt dev server did not become ready at ${config.server.url}`);
 }
 
 async function reserveLocalPort() {
@@ -387,6 +413,12 @@ export async function startServer() {
             clearOwnershipMarker();
             throw new Error(`Refusing to attach to pre-existing runtime server at ${config.server.url}`);
         }
+    }
+
+    if (shouldWaitForExternalDevServer()) {
+        logger.info(`Waiting for externally managed Nuxt dev server at ${config.server.url}...`);
+        await waitForExternalDevServer(startTime);
+        return;
     }
 
     logger.info('Starting Nuxt server...');

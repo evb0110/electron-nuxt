@@ -862,7 +862,7 @@ function handleContextMenu(event: MouseEvent) {
         return;
     }
 
-    const hit = findInteractiveShape(event as PointerEvent);
+    const hit = findInteractiveShape(event);
     if (!hit) {
         return;
     }

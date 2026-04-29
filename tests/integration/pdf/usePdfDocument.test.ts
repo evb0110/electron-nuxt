@@ -16,11 +16,6 @@ vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {
     debug: loggerDebug,
 }}));
 
-interface ILoadingTask {
-    promise: Promise<unknown>;
-    destroy: ReturnType<typeof vi.fn>;
-}
-
 interface IPdfjsDataRangeTransport {
     onDataRange: ReturnType<typeof vi.fn>;
     abort: ReturnType<typeof vi.fn>;
@@ -78,7 +73,7 @@ describe('usePdfDocument range loading', () => {
                 destroy: vi.fn(),
             }),
             destroy: vi.fn(),
-        } as ILoadingTask);
+        });
     });
 
     it('loads a PDF through range transport and populates document state', async () => {
@@ -151,7 +146,7 @@ describe('usePdfDocument range loading', () => {
                 destroy: vi.fn(),
             }),
             destroy: vi.fn(),
-        } as ILoadingTask);
+        });
         electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
@@ -208,7 +203,7 @@ describe('usePdfDocument range loading', () => {
                 destroy: vi.fn(),
             }),
             destroy: vi.fn(),
-        } as ILoadingTask);
+        });
         electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,
@@ -301,7 +296,7 @@ describe('usePdfDocument range loading', () => {
         pdfjsState.getDocument.mockReturnValue({
             promise: deferred.promise,
             destroy,
-        } as ILoadingTask);
+        });
 
         electronApi.documents.readFileRange
             .mockResolvedValueOnce(new Uint8Array([
@@ -360,7 +355,7 @@ describe('usePdfDocument range loading', () => {
                 destroy: vi.fn(),
             }),
             destroy: vi.fn(),
-        } as ILoadingTask);
+        });
         electronApi.documents.readFileRange.mockResolvedValue(new Uint8Array([
             1,
             2,

@@ -33,7 +33,7 @@ class FakeWorker {
             this.messageHandlers.add(handler as (event: MessageEvent) => void);
         }
         if (type === 'error') {
-            this.errorHandlers.add(handler as (event: ErrorEvent) => void);
+            this.errorHandlers.add(handler);
         }
     }
 
@@ -48,7 +48,7 @@ class FakeWorker {
             this.messageHandlers.delete(handler as (event: MessageEvent) => void);
         }
         if (type === 'error') {
-            this.errorHandlers.delete(handler as (event: ErrorEvent) => void);
+            this.errorHandlers.delete(handler);
         }
     }
 

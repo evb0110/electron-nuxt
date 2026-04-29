@@ -175,7 +175,7 @@ describe('usePdfViewerDocumentLifecycle', () => {
             ),
             zoom: computed(() => zoom.value),
             zoomMode: computed(() => 'custom' as const),
-            effectiveScale: computed(() => zoom.value * fitWidthScale.value) as never,
+            effectiveScale: computed(() => zoom.value * fitWidthScale.value),
             currentPage,
             visibleRange,
             basePageWidth: ref(612),

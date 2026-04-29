@@ -137,12 +137,12 @@ interface IWorkspaceUiSyncTestDeps {
 function createWatcherDeps(overrides: Partial<IWorkspaceUiSyncTestDeps> = {}): IWorkspaceUiSyncTestDeps {
     return {
         pendingDjvu: ref<string | null>(null),
-        openDjvuFile: vi.fn(async () => {}) as TWorkspaceUiSyncDeps['openDjvuFile'],
-        loadPdfFromPath: vi.fn(async () => {}) as TWorkspaceUiSyncDeps['loadPdfFromPath'],
+        openDjvuFile: vi.fn(async () => {}),
+        loadPdfFromPath: vi.fn(async () => {}),
         currentPage: ref(1),
         pdfViewerRef: ref(null),
         originalPath: ref<string | null>(null),
-        closeFile: vi.fn(async () => {}) as TWorkspaceUiSyncDeps['closeFile'],
+        closeFile: vi.fn(async () => {}),
         openBatchProgress: ref(null),
         isActive: ref(false),
         fileName: ref<string | null>(null),

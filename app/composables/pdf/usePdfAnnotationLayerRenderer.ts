@@ -5,10 +5,6 @@ import {
     DrawLayer,
 } from '@app/services/pdfjs/runtime-lib';
 import type {
-    IL10n,
-    IPDFLinkService,
-} from 'pdfjs-dist/types/web/interfaces';
-import type {
     PDFPageProxy,
     AnnotationEditorUIManager,
     PDFDocumentProxy,
@@ -16,6 +12,10 @@ import type {
 import type { AnnotationLayer as TAnnotationLayer } from 'pdfjs-dist/types/src/display/annotation_layer';
 import type { AnnotationEditorLayer as TAnnotationEditorLayer } from 'pdfjs-dist/types/src/display/editor/annotation_editor_layer';
 import type { DrawLayer as TDrawLayer } from 'pdfjs-dist/types/src/display/draw_layer';
+import type {
+    IL10n,
+    IPDFLinkService,
+} from 'pdfjs-dist/types/web/interfaces';
 import type {
     MaybeRefOrGetter,
     Ref,
@@ -673,7 +673,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             if (editorLayer) {
                 editorLayer.update({ viewport: editorViewport });
             } else {
-                activeLayer.render({ viewport: editorViewport });
+                void activeLayer.render({ viewport: editorViewport });
             }
 
             const currentMode =

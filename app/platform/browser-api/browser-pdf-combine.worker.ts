@@ -1,7 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
 import UTIF from 'utif';
 import type {
-    IBrowserPdfCombineWorkerResultMap,
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browser-pdf-combine-worker.types';
@@ -225,13 +224,13 @@ self.addEventListener('message', async (event: MessageEvent<TBrowserPdfCombineWo
 
     try {
         const data = await handleCombinePdfsRequest(
-            request as TBrowserPdfCombineWorkerRequest<'combinePdfs'>,
+            request,
         );
         const response: TBrowserPdfCombineWorkerResponse = {
             id: request.id,
             type: request.type,
             ok: true,
-            data: data as IBrowserPdfCombineWorkerResultMap['combinePdfs'],
+            data: data,
         };
         self.postMessage(response, [data.data.buffer]);
     } catch (error) {
