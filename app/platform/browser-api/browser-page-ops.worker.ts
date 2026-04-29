@@ -150,7 +150,7 @@ self.addEventListener('message', async (event: MessageEvent<TBrowserPageOpsWorke
             data: {
                 ...mutationResult,
                 data: transferableData,
-            } as never,
+            },
         };
         self.postMessage(response, [transferableData.buffer]);
     } catch (error) {

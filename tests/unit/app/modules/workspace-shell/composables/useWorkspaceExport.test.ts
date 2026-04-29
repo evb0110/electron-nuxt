@@ -58,10 +58,7 @@ describe('useWorkspaceExport', () => {
             outputPaths: string[];
         }) => void; } = {};
         exportImagesMock.mockImplementationOnce(() => new Promise((resolve) => {
-            exportDeferred.resolve = resolve as (value: {
-                success: boolean;
-                outputPaths: string[];
-            }) => void;
+            exportDeferred.resolve = resolve;
         }));
 
         const {

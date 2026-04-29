@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => {
     return {
         StartupError: MockDjvuPdfWorkerStartupError,
         bookmarkTaskState: {
-            mode: 'success' as 'cancel-pending' | 'startup-error' | 'success',
+            mode: 'success',
             workerTerminate: vi.fn(() => Promise.resolve(0)),
             rejectPendingBookmark: null as ((error: Error) => void) | null,
         },

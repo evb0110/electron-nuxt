@@ -52,7 +52,7 @@ export function buildTextLayerIndex(textLayerDiv: HTMLElement): {
         }
 
         if (element.tagName === 'SPAN' && element.children.length === 0) {
-            const span = element as HTMLSpanElement;
+            const span = element;
             const text = span.textContent ?? '';
             const textNode = span.firstChild && span.firstChild.nodeType === Node.TEXT_NODE
                 ? span.firstChild as Text

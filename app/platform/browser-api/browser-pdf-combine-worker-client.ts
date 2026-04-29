@@ -204,7 +204,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
 
         try {
             const workerRequest = buildWorkerRequestWithTransfers(
-                request as TAnyBrowserPdfCombineWorkerRequest,
+                request,
             );
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {

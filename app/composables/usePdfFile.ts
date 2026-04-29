@@ -612,7 +612,7 @@ export const usePdfFile = () => {
         if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
             const snapshot = snapshotHint.slice();
             pdfData.value = snapshot;
-            pdfSrc.value = toPdfBlob(snapshot) as TPdfSource;
+            pdfSrc.value = toPdfBlob(snapshot);
             markCurrentHistoryEntryClean(snapshot);
         } else {
             const nextState = await readPdfStateFromPath(path);

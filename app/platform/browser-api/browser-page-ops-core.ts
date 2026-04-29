@@ -186,7 +186,7 @@ export async function rotatePdfBytes(
 
         const currentRotation = page.getRotation().angle;
         page.setRotation(
-            degrees(((currentRotation + angle) % 360) as 0 | 90 | 180 | 270),
+            degrees(((currentRotation + angle) % 360)),
         );
     }
 

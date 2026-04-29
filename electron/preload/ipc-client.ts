@@ -42,8 +42,8 @@ export function createTypedIpcEventSubscriber<
             callback: () => void,
         ): IMenuEventUnsubscribe {
             const handler = (_event: IpcRendererEvent) => callback();
-            ipcRenderer.on(channel as string, handler);
-            return () => ipcRenderer.removeListener(channel as string, handler);
+            ipcRenderer.on(channel, handler);
+            return () => ipcRenderer.removeListener(channel, handler);
         },
 
         onPayload<TChannel extends TPayloadEventChannel<TEventMap>>(
@@ -51,8 +51,8 @@ export function createTypedIpcEventSubscriber<
             callback: (payload: TEventMap[TChannel]) => void,
         ): IMenuEventUnsubscribe {
             const handler = (_event: IpcRendererEvent, payload: TEventMap[TChannel]) => callback(payload);
-            ipcRenderer.on(channel as string, handler);
-            return () => ipcRenderer.removeListener(channel as string, handler);
+            ipcRenderer.on(channel, handler);
+            return () => ipcRenderer.removeListener(channel, handler);
         },
     };
 }

@@ -625,13 +625,15 @@ async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number
             ? pageAttribute
             : 1;
         const resolvedPageIndex = Math.max(0, (targetPageNumber ?? resolvedPageNumber) - 1);
-        const getLayer = (uiManager as {
+        const uiManagerLayerAccess: {
             getLayer?: (pageIndex: number) => unknown;
             currentLayer?: unknown;
-        } | null)?.getLayer;
+        } | null = uiManager;
+        const getLayer = uiManagerLayerAccess?.getLayer;
         const programmaticLayer = getLayer?.call(uiManager, resolvedPageIndex)
-            ?? (uiManager as { currentLayer?: unknown } | null)?.currentLayer
+            ?? uiManagerLayerAccess?.currentLayer
             ?? null;
+        const programmaticLayerEditorAccess: { createAndAddNewEditor?: unknown; } | null = programmaticLayer;
         const fatalDialog = Array.from(document.querySelectorAll<HTMLElement>('div.fixed.inset-0'))
             .find((candidate) => candidate.textContent?.includes('Reload') && candidate.textContent?.includes('runtime') !== false)
             ?? null;
@@ -655,7 +657,7 @@ async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number
             layerPointerEvents: layer ? window.getComputedStyle(layer).pointerEvents : null,
             hasProgrammaticUiManager: Boolean(uiManager),
             hasProgrammaticEditorLayer: Boolean(programmaticLayer),
-            programmaticLayerSupportsCreate: typeof (programmaticLayer as {createAndAddNewEditor?: unknown;} | null)?.createAndAddNewEditor === 'function',
+            programmaticLayerSupportsCreate: typeof programmaticLayerEditorAccess?.createAndAddNewEditor === 'function',
             fatalRuntimeVisible: Boolean(fatalDialog),
             fatalRuntimeDetail: detailBlock?.textContent?.trim() ?? null,
         };
@@ -803,11 +805,8 @@ async function programmaticFreeTextCreation(
         const layer = getLayer?.call(uiManager, resolvedPageIndex)
             ?? (uiManager as { currentLayer?: unknown }).currentLayer
             ?? null;
-        const createAndAddNewEditor = (layer as {createAndAddNewEditor?: (
-            event: PointerEvent,
-            isCentered: boolean,
-            data?: Record<string, unknown>,
-        ) => unknown;} | null)?.createAndAddNewEditor;
+        const layerEditorAccess: { createAndAddNewEditor?: (event: PointerEvent, isCentered: boolean, data?: unknown) => unknown; } | null = layer;
+        const createAndAddNewEditor = layerEditorAccess?.createAndAddNewEditor;
         if (typeof createAndAddNewEditor !== 'function') {
             return false;
         }
@@ -1276,7 +1275,7 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
                         component?.exposed,
                     ]) {
                         if (candidate && typeof candidate === 'object') {
-                            workspaceInstance = candidate as TPdfViewerWorkspaceInstance;
+                            workspaceInstance = candidate;
                             break;
                         }
                     }

@@ -18,7 +18,7 @@ function parseRawBrowserSettingsPayload(raw: unknown): Partial<ISettingsData> | 
     }
 
     if (typeof raw === 'object') {
-        return raw as Partial<ISettingsData>;
+        return raw;
     }
 
     if (typeof raw !== 'string') {

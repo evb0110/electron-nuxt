@@ -4,6 +4,7 @@ import {
     getRequestIP,
     getRequestURL,
 } from 'h3';
+import { getRuntimeEnv } from '../utils/runtime-env';
 
 interface IGeoData {
     country: string | null;
@@ -62,17 +63,18 @@ export async function hashVisitorIdentity(event: H3Event): Promise<string> {
 
 export function isAnalyticsWriteAllowed(event: H3Event): boolean {
     void event;
+    const env = getRuntimeEnv();
 
-    const writeEnabled = process.env.NUXT_ANALYTICS_WRITE_ENABLED
-        || process.env.ANALYTICS_WRITE_ENABLED
+    const writeEnabled = env.NUXT_ANALYTICS_WRITE_ENABLED
+        || env.ANALYTICS_WRITE_ENABLED
         || '';
     if (!isTruthyFlag(writeEnabled)) {
         return false;
     }
 
     const allowedHosts = normalizeAllowedHosts(
-        process.env.NUXT_ANALYTICS_ALLOWED_HOSTS
-        || process.env.ANALYTICS_ALLOWED_HOSTS
+        env.NUXT_ANALYTICS_ALLOWED_HOSTS
+        || env.ANALYTICS_ALLOWED_HOSTS
         || '',
     );
     if (allowedHosts.length === 0) {

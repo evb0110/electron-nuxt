@@ -18,8 +18,12 @@ import {
     shouldPrintSourcePdfDirectly,
 } from '@app/utils/pdf-print';
 
-const pdfjsModule = vi.hoisted(() => ({
-    GlobalWorkerOptions: {} as { workerSrc?: string },
+const pdfjsModule = vi.hoisted((): {
+    GlobalWorkerOptions: { workerSrc?: string; };
+    VerbosityLevel: { ERRORS: number; };
+    getDocument: ReturnType<typeof vi.fn>;
+} => ({
+    GlobalWorkerOptions: {},
     VerbosityLevel: { ERRORS: 0 },
     getDocument: vi.fn(),
 }));

@@ -13,18 +13,6 @@ import {
     readTiffFrameDpi,
 } from '@electron/image/image-dpi';
 
-interface IUtifFrame {
-    width?: number;
-    height?: number;
-    [key: string]: unknown;
-}
-
-interface IUtifModule {
-    decode(input: Uint8Array | ArrayBuffer): IUtifFrame[];
-    decodeImage(input: Uint8Array | ArrayBuffer, frame: IUtifFrame): void;
-    toRGBA8(frame: IUtifFrame): Uint8Array;
-}
-
 export interface ICreateCombinedPdfProgress {
     processed: number;
     total: number;
@@ -38,7 +26,7 @@ interface ICreateCombinedPdfOptions {
     unsupportedFileError: (sourcePath: string) => string;
 }
 
-const UTIF = utifModule as IUtifModule;
+const UTIF = utifModule;
 
 export const SUPPORTED_IMAGE_EXTENSIONS = [
     '.png',

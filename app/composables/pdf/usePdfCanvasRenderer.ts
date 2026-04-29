@@ -271,7 +271,7 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
             rawDims,
             userUnit,
             totalScaleFactor,
-            startRender: () => (pdfPage.render(renderContext) as ICancelableRenderTask),
+            startRender: () => (pdfPage.render(renderContext)),
         };
     }
 

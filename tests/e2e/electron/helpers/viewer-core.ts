@@ -548,7 +548,7 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
                 if (!menu) {
                     return true;
                 }
-                const style = window.getComputedStyle(menu as HTMLElement);
+                const style = window.getComputedStyle(menu);
                 return (
                     style.display === 'none'
                     || style.visibility === 'hidden'
@@ -612,7 +612,7 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
             if (!menu) {
                 return true;
             }
-            const style = window.getComputedStyle(menu as HTMLElement);
+            const style = window.getComputedStyle(menu);
             return (
                 style.display === 'none'
                 || style.visibility === 'hidden'
