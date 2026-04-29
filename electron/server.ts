@@ -27,6 +27,7 @@ import {
     getRuntimeIdentityUrl,
     isTrustedRuntimeIdentityPayload,
 } from '@contracts/runtime-identity';
+import { isTimeoutError } from '@contracts/timeout-error';
 import { runCommand } from '@electron/utils/exec';
 import { createLogger } from '@electron/utils/logger';
 import { terminateProcessTree } from '@electron/utils/process-tree';
@@ -568,7 +569,7 @@ export function waitForServer() {
                     await readyPromise;
                 }, SERVER_READY_TIMEOUT_MS);
             } catch (error) {
-                if (error instanceof Error && error.name === 'TimeoutError') {
+                if (isTimeoutError(error)) {
                     throw new Error(`Server failed to start within ${SERVER_READY_TIMEOUT_MS / 1000}s`);
                 }
                 throw error;
