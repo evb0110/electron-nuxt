@@ -8,6 +8,7 @@ import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 
 const { t } = useTypedI18n();
 
+definePageMeta({ preloadWorkspaceShell: false });
 useServerSeoMeta({ robots: 'noindex, nofollow' });
 useHead(() => ({ title: t('app.title') }));
 
