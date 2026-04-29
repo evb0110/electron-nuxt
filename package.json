@@ -12,7 +12,7 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "start": "pnpm run build:electron && electron .",
-    "dev": "pnpm electron:run stop --session=default && pnpm run build:electron && tsx scripts/electron-run.ts start",
+    "dev": "pnpm electron:run stop --session=default --keep-nuxt && pnpm run build:electron && tsx scripts/electron-run.ts start",
     "dev:nuxt": "pnpm exec nuxi dev --host 127.0.0.1",
     "dev:web": "pnpm exec nuxi dev --host 127.0.0.1 --port 3235",
     "build": "pnpm exec nuxi build",
