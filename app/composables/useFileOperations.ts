@@ -132,6 +132,27 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         );
     }
 
+    async function validatePdfSaveData(
+        data: Uint8Array,
+        saveMode: TPdfSaveMode,
+    ): Promise<IPdfSaveResult | null> {
+        const validation = await validatePdfData(data, getValidationFileName());
+        if (!validation.isValid) {
+            BrowserLogger.warn('workspace', 'Save aborted because PDF validation failed', {
+                errors: validation.errors,
+                warnings: validation.warnings,
+            });
+            return null;
+        }
+
+        return {
+            finalBytes: data,
+            saveMode,
+            warnings: validation.warnings,
+            validation,
+        };
+    }
+
     async function buildSerializedSaveResult(
         rawData: Uint8Array,
         pendingTexts: Map<string, string> | null,
@@ -149,21 +170,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             pendingDeletes,
         });
 
-        const validation = await validatePdfData(data, getValidationFileName());
-        if (!validation.isValid) {
-            BrowserLogger.warn('workspace', 'Save aborted because PDF validation failed', {
-                errors: validation.errors,
-                warnings: validation.warnings,
-            });
-            return null;
-        }
-
-        return {
-            finalBytes: data,
-            saveMode: opts?.saveMode ?? 'rewrite',
-            warnings: validation.warnings,
-            validation,
-        };
+        return validatePdfSaveData(data, opts?.saveMode ?? 'rewrite');
     }
 
     async function validateWorkingCopySnapshot(saveMode: TPdfSaveMode) {
@@ -172,21 +179,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             return null;
         }
 
-        const validation = await validatePdfData(data, getValidationFileName());
-        if (!validation.isValid) {
-            BrowserLogger.warn('workspace', 'Save aborted because PDF validation failed', {
-                errors: validation.errors,
-                warnings: validation.warnings,
-            });
-            return null;
-        }
-
-        return {
-            finalBytes: data,
-            saveMode,
-            warnings: validation.warnings,
-            validation,
-        } satisfies IPdfSaveResult;
+        return validatePdfSaveData(data, saveMode);
     }
 
     function finalizeSuccessfulSave(result: IPdfPersistResult, opts?: {
