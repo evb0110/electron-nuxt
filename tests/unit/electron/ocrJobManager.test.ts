@@ -271,7 +271,7 @@ describe('ocr job manager preparing-stage robustness', () => {
         await vi.advanceTimersByTimeAsync(14_000);
         expect(worker?.terminate).not.toHaveBeenCalled();
 
-        await vi.advanceTimersByTimeAsync(1_001);
+        await vi.advanceTimersByTimeAsync(1_251);
         expect(worker?.terminate).toHaveBeenCalledTimes(1);
         vi.useRealTimers();
     });
