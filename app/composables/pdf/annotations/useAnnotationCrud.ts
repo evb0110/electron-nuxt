@@ -369,6 +369,84 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
             })[0] ?? null;
     }
 
+    function scoreDeleteCandidateText(targetText: string, candidateText: string) {
+        const textExact = targetText.length > 0 && candidateText.length > 0 && targetText === candidateText;
+        let score = 0;
+
+        if (textExact) {
+            score += 6;
+        }
+        else if (
+            targetText.length > 0
+            && candidateText.length > 0
+            && (candidateText.includes(targetText) || targetText.includes(candidateText))
+        ) {
+            score += 2;
+        }
+        else if (targetText.length > 0 && candidateText.length > 0) {
+            score -= 1;
+        }
+        else if (targetText.length === 0 && candidateText.length === 0) {
+            score += 0.5;
+        }
+
+        return {
+            score,
+            textExact,
+        };
+    }
+
+    function scoreDeleteCandidateSubtype(
+        targetSubtype: string,
+        candidateSubtype: string,
+    ) {
+        return targetSubtype && candidateSubtype && targetSubtype === candidateSubtype ? 1.5 : 0;
+    }
+
+    function scoreDeleteCandidateSource(
+        comment: IAnnotationCommentSummary,
+        candidate: IAnnotationCommentSummary,
+    ) {
+        let score = 0;
+        if (comment.hasNote === candidate.hasNote) score += 0.5;
+        if (candidate.source === comment.source) score += 0.5;
+        if (comment.source === 'editor' && candidate.source === 'pdf' && Boolean(candidate.annotationId || candidate.uid)) {
+            score += 0.75;
+        }
+        return score;
+    }
+
+    function scoreDeleteCandidateRef(
+        comment: IAnnotationCommentSummary,
+        candidate: IAnnotationCommentSummary,
+        textExact: boolean,
+    ) {
+        let score = 0;
+        if (!comment.annotationId && candidate.annotationId) score += 2.1;
+        if (!comment.uid && candidate.uid) score += 1.4;
+        if (textExact && Boolean(candidate.annotationId || candidate.uid)) score += 0.9;
+        return score;
+    }
+
+    function scoreDeleteCandidateGeometry(
+        comment: IAnnotationCommentSummary,
+        candidate: IAnnotationCommentSummary,
+        textExact: boolean,
+    ) {
+        const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
+        let score = 0;
+        if (iou > 0) {
+            score += iou * 6;
+        }
+        else if (normalizeMarkerRect(comment.markerRect) && normalizeMarkerRect(candidate.markerRect) && !textExact) {
+            score -= 0.5;
+        }
+        return {
+            score,
+            iou,
+        };
+    }
+
     function scoreDeleteCandidate(
         comment: IAnnotationCommentSummary,
         candidate: IAnnotationCommentSummary,
@@ -377,45 +455,19 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
     ) {
         const ct = candidate.text.trim().toLowerCase();
         const cs = (candidate.subtype ?? '').trim().toLowerCase();
-        const textExact = targetText.length > 0 && ct.length > 0 && targetText === ct;
-        let score = 0;
-
-        if (textExact) {
-            score += 6;
-        }
-        else if (targetText.length > 0 && ct.length > 0 && (ct.includes(targetText) || targetText.includes(ct))) {
-            score += 2;
-        }
-        else if (targetText.length > 0 && ct.length > 0) {
-            score -= 1;
-        }
-        else if (targetText.length === 0 && ct.length === 0) {
-            score += 0.5;
-        }
-
-        if (targetSubtype && cs && targetSubtype === cs) score += 1.5;
-        if (comment.hasNote === candidate.hasNote) score += 0.5;
-        if (candidate.source === comment.source) score += 0.5;
-        if (!comment.annotationId && candidate.annotationId) score += 2.1;
-        if (!comment.uid && candidate.uid) score += 1.4;
-        if (comment.source === 'editor' && candidate.source === 'pdf' && Boolean(candidate.annotationId || candidate.uid)) {
-            score += 0.75;
-        }
-        if (textExact && Boolean(candidate.annotationId || candidate.uid)) score += 0.9;
-
-        const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
-        if (iou > 0) {
-            score += iou * 6;
-        }
-        else if (normalizeMarkerRect(comment.markerRect) && normalizeMarkerRect(candidate.markerRect) && !textExact) {
-            score -= 0.5;
-        }
+        const textScore = scoreDeleteCandidateText(targetText, ct);
+        const geometryScore = scoreDeleteCandidateGeometry(comment, candidate, textScore.textExact);
+        const score = textScore.score
+            + scoreDeleteCandidateSubtype(targetSubtype, cs)
+            + scoreDeleteCandidateSource(comment, candidate)
+            + scoreDeleteCandidateRef(comment, candidate, textScore.textExact)
+            + geometryScore.score;
 
         return {
             candidate,
             score,
-            textExact,
-            iou,
+            textExact: textScore.textExact,
+            iou: geometryScore.iou,
         };
     }
 
@@ -776,6 +828,63 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
             ?? findEditorByMarkerRect(target.comment, target.pageIndex);
     }
 
+    async function switchToPopupModeForDelete(
+        toolManager: ICrudToolManager,
+        uiManager: AnnotationEditorUIManager,
+        comment: IAnnotationCommentSummary,
+        pageNumber: number,
+        previousMode: ReturnType<AnnotationEditorUIManager['getMode']>,
+    ) {
+        if (!shouldAttemptPopupModeForDelete(comment) || previousMode === AnnotationEditorType.POPUP) {
+            return false;
+        }
+
+        const switchError = await toolManager.updateModeWithRetry(uiManager, AnnotationEditorType.POPUP, pageNumber);
+        return !switchError;
+    }
+
+    async function restorePopupModeAfterDelete(
+        toolManager: ICrudToolManager,
+        uiManager: AnnotationEditorUIManager,
+        switchedToPopupMode: boolean,
+        previousMode: ReturnType<AnnotationEditorUIManager['getMode']>,
+        pageNumber: number,
+    ) {
+        if (switchedToPopupMode) {
+            await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
+        }
+    }
+
+    function deleteSelectedAnnotationComment(
+        uiManager: AnnotationEditorUIManager,
+        editor: IPdfjsEditor | null,
+        deletedViaSelectionFallback: boolean,
+    ) {
+        let deleted = deletedViaSelectionFallback;
+
+        try {
+            if (!deleted && editor) {
+                setSelectedEditor(uiManager, editor);
+                uiManager.delete();
+                deleted = true;
+            }
+        }
+        catch (deleteError) {
+            logCrudDebug('uiManager.delete failed for annotation comment', deleteError);
+            try { editor?.remove?.(); deleted = true; }
+            catch (removeError) {
+                logCrudDebug('editor.remove failed for annotation comment', removeError);
+                try { editor?.delete?.(); deleted = true; }
+                catch (legacyDeleteError) {
+                    logCrudDebug('editor.delete fallback failed for annotation comment', legacyDeleteError);
+                    deleted = false;
+                }
+            }
+        }
+
+        return deleted;
+    }
+
     async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
         const uiManager = annotationUiManager.value;
         if (!uiManager) {
@@ -814,8 +923,13 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         }
 
         if (!editor && shouldAttemptPopupModeForDelete(resolvedComment) && previousMode !== AnnotationEditorType.POPUP) {
-            const switchError = await toolManager.updateModeWithRetry(uiManager, AnnotationEditorType.POPUP, deleteTarget.pageNumber);
-            if (!switchError) switchedToPopupMode = true;
+            switchedToPopupMode = await switchToPopupModeForDelete(
+                toolManager,
+                uiManager,
+                resolvedComment,
+                deleteTarget.pageNumber,
+                previousMode,
+            );
         }
 
         let attemptedCommentSelection = false;
@@ -849,9 +963,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
                 pageNumber: deleteTarget.pageNumber,
                 candidateIds: deleteTarget.candidateIds,
             });
-            if (switchedToPopupMode) {
-                await toolManager.updateModeWithRetry(uiManager, previousMode, deleteTarget.pageNumber);
-            }
+            await restorePopupModeAfterDelete(toolManager, uiManager, switchedToPopupMode, previousMode, deleteTarget.pageNumber);
             return false;
         }
 
@@ -863,32 +975,8 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
                     : deleteTarget.comment.pageIndex,
             )
             : null;
-        let deleted = deletedViaSelectionFallback;
-
-        try {
-            if (!deleted && editor) {
-                setSelectedEditor(uiManager, editor);
-                uiManager.delete();
-                deleted = true;
-            }
-        }
-        catch (deleteError) {
-            logCrudDebug('uiManager.delete failed for annotation comment', deleteError);
-            try { editor?.remove?.(); deleted = true; }
-            catch (removeError) {
-                logCrudDebug('editor.remove failed for annotation comment', removeError);
-                try { editor?.delete?.(); deleted = true; }
-                catch (legacyDeleteError) {
-                    logCrudDebug('editor.delete fallback failed for annotation comment', legacyDeleteError);
-                    deleted = false;
-                }
-            }
-        }
-        finally {
-            if (switchedToPopupMode) {
-                await toolManager.updateModeWithRetry(uiManager, previousMode, deleteTarget.pageNumber);
-            }
-        }
+        const deleted = deleteSelectedAnnotationComment(uiManager, editor, deletedViaSelectionFallback);
+        await restorePopupModeAfterDelete(toolManager, uiManager, switchedToPopupMode, previousMode, deleteTarget.pageNumber);
 
         if (!deleted) {
             return false;

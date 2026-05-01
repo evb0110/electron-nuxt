@@ -527,6 +527,330 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         );
     }
 
+    type TCanvasRenderResult = Awaited<ReturnType<typeof renderPreparedCanvasResult>>;
+    type TAnnotationLayerInstance = Awaited<
+        ReturnType<typeof annotationLayerRenderer.renderAnnotationLayer>
+    > | null;
+
+    interface IRenderPageContext {
+        container: HTMLElement;
+        pdfPage: PDFPageProxy;
+        renderResult: TCanvasRenderResult;
+        textLayerDiv: HTMLDivElement | null;
+        annotationLayerInstance: TAnnotationLayerInstance;
+    }
+
+    async function loadPageForRender(
+        pageNumber: number,
+        version: number,
+    ) {
+        const pdfPage = await withPageStageTimeout(
+            getPage(pageNumber),
+            {
+                pageNumber,
+                stage: 'page-load',
+                timeoutMs: PDF_PAGE_LOAD_TIMEOUT_MS,
+            },
+            () => renderVersion === version,
+        );
+        return renderVersion === version ? pdfPage : null;
+    }
+
+    async function prepareCanvasForRender(
+        pdfPage: PDFPageProxy,
+        pageNumber: number,
+        version: number,
+        scale: number,
+        renderOptions?: IRenderVisiblePagesOptions,
+    ) {
+        const preparedCanvasRender = await canvasRenderer.prepareCanvasRender(
+            pdfPage,
+            scale,
+            {
+                hiddenAnnotationIds: toValue(options.hiddenAnnotationIds) ?? undefined,
+                maxCanvasPixels: renderOptions?.maxCanvasPixelsOverride,
+            },
+        );
+        if (!preparedCanvasRender) {
+            return null;
+        }
+
+        if (renderVersion !== version) {
+            canvasRenderer.cleanupCanvas(preparedCanvasRender.canvas);
+            return null;
+        }
+
+        return renderPreparedCanvasResult(
+            pageNumber,
+            version,
+            preparedCanvasRender,
+        );
+    }
+
+    function mountRenderedCanvas(
+        pageNumber: number,
+        container: HTMLElement,
+        canvasHost: HTMLDivElement,
+        renderResult: TCanvasRenderResult,
+        scale: number,
+    ) {
+        const {
+            canvas,
+            viewport,
+            userUnit,
+            totalScaleFactor,
+        } = renderResult;
+
+        canvasRenderer.applyContainerDimensions(
+            container,
+            viewport,
+            scale,
+            userUnit,
+            totalScaleFactor,
+        );
+        const previousCanvas = pageCanvases.get(pageNumber);
+        canvasRenderer.mountCanvas(
+            canvasHost,
+            canvas,
+            container,
+            RENDERED_CONTAINER_CLASS,
+        );
+        if (previousCanvas && previousCanvas !== canvas) {
+            canvasRenderer.cleanupCanvas(previousCanvas);
+        }
+        pageCanvases.set(pageNumber, canvas);
+    }
+
+    async function renderTextLayerForPage(
+        pageNumber: number,
+        version: number,
+        context: IRenderPageContext,
+        scale: number,
+    ) {
+        const {
+            container,
+            pdfPage,
+            renderResult,
+            textLayerDiv,
+        } = context;
+        if (!textLayerDiv) {
+            return true;
+        }
+
+        const {
+            canvas,
+            viewport,
+            scaleX,
+            scaleY,
+            rawDims,
+            userUnit,
+            totalScaleFactor,
+        } = renderResult;
+
+        cleanupTextLayer(pageNumber);
+        let isTextLayerRendered = false;
+
+        try {
+            await textLayerRenderer.renderTextLayer(
+                pdfPage,
+                textLayerDiv,
+                viewport,
+                scale,
+                userUnit,
+                totalScaleFactor,
+            );
+            isTextLayerRendered = true;
+        } catch (textLayerError) {
+            logNonCriticalStageError(
+                pageNumber,
+                'text layer',
+                textLayerError,
+            );
+            textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
+        }
+
+        if (renderVersion !== version) {
+            cleanupPageIfCurrentRender(pageNumber, version);
+            return false;
+        }
+
+        if (!isTextLayerRendered) {
+            return true;
+        }
+
+        try {
+            const cleanup =
+                textLayerRenderer.setupTextLayerInteraction(textLayerDiv);
+            if (typeof cleanup === 'function') {
+                textLayerCleanupFns.set(pageNumber, cleanup);
+            }
+        } catch (textLayerInteractionError) {
+            logNonCriticalStageError(
+                pageNumber,
+                'text layer interaction',
+                textLayerInteractionError,
+            );
+        }
+
+        try {
+            textLayerRenderer.applyPageSearchHighlights(
+                container,
+                textLayerDiv,
+                pageNumber,
+                canvas,
+                {
+                    userUnit,
+                    totalScaleFactor,
+                    viewportWidth: viewport.width,
+                    viewportHeight: viewport.height,
+                    rawPageWidth: rawDims.pageWidth,
+                    rawPageHeight: rawDims.pageHeight,
+                    canvasPixelWidth: canvas.width,
+                    canvasPixelHeight: canvas.height,
+                    renderScaleX: scaleX,
+                    renderScaleY: scaleY,
+                },
+            );
+        } catch (searchHighlightError) {
+            logNonCriticalStageError(
+                pageNumber,
+                'search highlights',
+                searchHighlightError,
+            );
+        }
+
+        return true;
+    }
+
+    async function renderAnnotationLayersForPage(
+        pageNumber: number,
+        version: number,
+        context: IRenderPageContext,
+    ) {
+        const {
+            container,
+            pdfPage,
+            renderResult,
+            textLayerDiv,
+        } = context;
+        const {
+            viewport,
+            annotationCanvasMap,
+        } = renderResult;
+        const annotationLayerDiv =
+            container.querySelector<HTMLElement>('.annotation-layer');
+        let annotationLayerInstance: TAnnotationLayerInstance = null;
+        if (annotationLayerDiv && toValue(showAnnotations)) {
+            if (renderVersion !== version) {
+                cleanupPageIfCurrentRender(pageNumber, version);
+                return {
+                    shouldContinue: false,
+                    annotationLayerInstance: null,
+                };
+            }
+
+            try {
+                annotationLayerInstance =
+                    await annotationLayerRenderer.renderAnnotationLayer(
+                        pdfPage,
+                        annotationLayerDiv,
+                        viewport,
+                        pageNumber,
+                        annotationCanvasMap,
+                    );
+            } catch (annotationError) {
+                logNonCriticalStageError(
+                    pageNumber,
+                    'annotation layer',
+                    annotationError,
+                );
+            }
+
+            if (renderVersion !== version) {
+                cleanupPageIfCurrentRender(pageNumber, version);
+                return {
+                    shouldContinue: false,
+                    annotationLayerInstance: null,
+                };
+            }
+        }
+
+        const annotationEditorLayerDiv =
+            container.querySelector<HTMLElement>('.annotation-editor-layer');
+        if (
+            annotationEditorLayerDiv &&
+            toValue(options.annotationUiManager)
+        ) {
+            try {
+                annotationLayerRenderer.renderAnnotationEditorLayer(
+                    container,
+                    annotationEditorLayerDiv,
+                    textLayerDiv,
+                    viewport,
+                    pageNumber,
+                    annotationLayerInstance,
+                );
+            } catch (annotationEditorError) {
+                logNonCriticalStageError(
+                    pageNumber,
+                    'annotation editor layer',
+                    annotationEditorError,
+                );
+            }
+        }
+
+        return {
+            shouldContinue: true,
+            annotationLayerInstance,
+        };
+    }
+
+    function scheduleOcrDebugForPage(
+        pageNumber: number,
+        context: IRenderPageContext,
+    ) {
+        if (!textLayerRenderer.isOcrDebugEnabled()) {
+            return;
+        }
+
+        const wcPath = toValue(workingCopyPath);
+        if (!wcPath) {
+            return;
+        }
+
+        const {
+            viewport,
+            rawDims,
+        } = context.renderResult;
+        scheduleRenderOcrDebugBoxes(
+            context.container,
+            pageNumber,
+            wcPath,
+            viewport,
+            rawDims.pageWidth,
+            rawDims.pageHeight,
+        );
+    }
+
+    function finalizePageRender(
+        pageNumber: number,
+        version: number,
+        pdfPage: PDFPageProxy,
+    ) {
+        if (renderVersion !== version) {
+            return;
+        }
+
+        // Once the canvas and DOM layers are in place, ask PDF.js to
+        // release per-page render resources while keeping the visible
+        // output mounted. This reduces retained image/operator memory
+        // for raster-heavy documents such as DjVu conversions.
+        releasePageResources(pageNumber, pdfPage);
+        renderedPages.add(pageNumber);
+        staleRenderedPages.delete(pageNumber);
+        options.onPageRendered?.(pageNumber);
+    }
+
     async function renderSingleVisiblePage(
         containerRoot: HTMLElement,
         pageNumber: number,
@@ -565,40 +889,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 return;
             }
 
-            const pdfPage = await withPageStageTimeout(
-                getPage(pageNumber),
-                {
-                    pageNumber,
-                    stage: 'page-load',
-                    timeoutMs: PDF_PAGE_LOAD_TIMEOUT_MS,
-                },
-                () => renderVersion === version,
-            );
-            if (renderVersion !== version) {
+            const pdfPage = await loadPageForRender(pageNumber, version);
+            if (!pdfPage) {
                 return;
             }
 
-            const preparedCanvasRender = await canvasRenderer.prepareCanvasRender(
+            const renderResult = await prepareCanvasForRender(
                 pdfPage,
-                scale,
-                {
-                    hiddenAnnotationIds: toValue(options.hiddenAnnotationIds) ?? undefined,
-                    maxCanvasPixels: renderOptions?.maxCanvasPixelsOverride,
-                },
-            );
-            if (!preparedCanvasRender) {
-                return;
-            }
-
-            if (renderVersion !== version) {
-                canvasRenderer.cleanupCanvas(preparedCanvasRender.canvas);
-                return;
-            }
-
-            const renderResult = await renderPreparedCanvasResult(
                 pageNumber,
                 version,
-                preparedCanvasRender,
+                scale,
+                renderOptions,
             );
             if (!renderResult) {
                 return;
@@ -609,191 +910,39 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 return;
             }
 
-            const {
-                canvas,
-                viewport,
-                annotationCanvasMap,
-                scaleX,
-                scaleY,
-                rawDims,
-                userUnit,
-                totalScaleFactor,
-            } = renderResult;
-
-            canvasRenderer.applyContainerDimensions(
-                container,
-                viewport,
-                scale,
-                userUnit,
-                totalScaleFactor,
-            );
-            const previousCanvas = pageCanvases.get(pageNumber);
-            canvasRenderer.mountCanvas(
-                canvasHost,
-                canvas,
-                container,
-                RENDERED_CONTAINER_CLASS,
-            );
-            if (previousCanvas && previousCanvas !== canvas) {
-                canvasRenderer.cleanupCanvas(previousCanvas);
-            }
-            pageCanvases.set(pageNumber, canvas);
+            mountRenderedCanvas(pageNumber, container, canvasHost, renderResult, scale);
 
             const textLayerDiv =
                 container.querySelector<HTMLDivElement>('.text-layer');
-            if (textLayerDiv) {
-                cleanupTextLayer(pageNumber);
-                let isTextLayerRendered = false;
-
-                try {
-                    await textLayerRenderer.renderTextLayer(
-                        pdfPage,
-                        textLayerDiv,
-                        viewport,
-                        scale,
-                        userUnit,
-                        totalScaleFactor,
-                    );
-                    isTextLayerRendered = true;
-                } catch (textLayerError) {
-                    logNonCriticalStageError(
-                        pageNumber,
-                        'text layer',
-                        textLayerError,
-                    );
-                    textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
-                }
-
-                if (renderVersion !== version) {
-                    cleanupPageIfCurrentRender(pageNumber, version);
-                    return;
-                }
-
-                if (isTextLayerRendered) {
-                    try {
-                        const cleanup =
-                            textLayerRenderer.setupTextLayerInteraction(textLayerDiv);
-                        if (typeof cleanup === 'function') {
-                            textLayerCleanupFns.set(pageNumber, cleanup);
-                        }
-                    } catch (textLayerInteractionError) {
-                        logNonCriticalStageError(
-                            pageNumber,
-                            'text layer interaction',
-                            textLayerInteractionError,
-                        );
-                    }
-
-                    try {
-                        textLayerRenderer.applyPageSearchHighlights(
-                            container,
-                            textLayerDiv,
-                            pageNumber,
-                            canvas,
-                            {
-                                userUnit,
-                                totalScaleFactor,
-                                viewportWidth: viewport.width,
-                                viewportHeight: viewport.height,
-                                rawPageWidth: rawDims.pageWidth,
-                                rawPageHeight: rawDims.pageHeight,
-                                canvasPixelWidth: canvas.width,
-                                canvasPixelHeight: canvas.height,
-                                renderScaleX: scaleX,
-                                renderScaleY: scaleY,
-                            },
-                        );
-                    } catch (searchHighlightError) {
-                        logNonCriticalStageError(
-                            pageNumber,
-                            'search highlights',
-                            searchHighlightError,
-                        );
-                    }
-
-                }
+            const renderContext: IRenderPageContext = {
+                container,
+                pdfPage,
+                renderResult,
+                textLayerDiv,
+                annotationLayerInstance: null,
+            };
+            const shouldContinueAfterTextLayer = await renderTextLayerForPage(
+                pageNumber,
+                version,
+                renderContext,
+                scale,
+            );
+            if (!shouldContinueAfterTextLayer) {
+                return;
             }
 
-            const annotationLayerDiv =
-                container.querySelector<HTMLElement>('.annotation-layer');
-            let annotationLayerInstance = null;
-            if (annotationLayerDiv && toValue(showAnnotations)) {
-                if (renderVersion !== version) {
-                    cleanupPageIfCurrentRender(pageNumber, version);
-                    return;
-                }
-
-                try {
-                    annotationLayerInstance =
-                        await annotationLayerRenderer.renderAnnotationLayer(
-                            pdfPage,
-                            annotationLayerDiv,
-                            viewport,
-                            pageNumber,
-                            annotationCanvasMap,
-                        );
-                } catch (annotationError) {
-                    logNonCriticalStageError(
-                        pageNumber,
-                        'annotation layer',
-                        annotationError,
-                    );
-                }
-
-                if (renderVersion !== version) {
-                    cleanupPageIfCurrentRender(pageNumber, version);
-                    return;
-                }
+            const annotationRenderResult = await renderAnnotationLayersForPage(
+                pageNumber,
+                version,
+                renderContext,
+            );
+            if (!annotationRenderResult.shouldContinue) {
+                return;
             }
-
-            const annotationEditorLayerDiv =
-                container.querySelector<HTMLElement>('.annotation-editor-layer');
-            if (
-                annotationEditorLayerDiv &&
-                toValue(options.annotationUiManager)
-            ) {
-                try {
-                    annotationLayerRenderer.renderAnnotationEditorLayer(
-                        container,
-                        annotationEditorLayerDiv,
-                        textLayerDiv,
-                        viewport,
-                        pageNumber,
-                        annotationLayerInstance,
-                    );
-                } catch (annotationEditorError) {
-                    logNonCriticalStageError(
-                        pageNumber,
-                        'annotation editor layer',
-                        annotationEditorError,
-                    );
-                }
-            }
-
-            if (textLayerRenderer.isOcrDebugEnabled()) {
-                const wcPath = toValue(workingCopyPath);
-                if (wcPath) {
-                    scheduleRenderOcrDebugBoxes(
-                        container,
-                        pageNumber,
-                        wcPath,
-                        viewport,
-                        rawDims.pageWidth,
-                        rawDims.pageHeight,
-                    );
-                }
-            }
-
-            if (renderVersion === version) {
-                // Once the canvas and DOM layers are in place, ask PDF.js to
-                // release per-page render resources while keeping the visible
-                // output mounted. This reduces retained image/operator memory
-                // for raster-heavy documents such as DjVu conversions.
-                releasePageResources(pageNumber, pdfPage);
-                renderedPages.add(pageNumber);
-                staleRenderedPages.delete(pageNumber);
-                options.onPageRendered?.(pageNumber);
-            }
+            renderContext.annotationLayerInstance =
+                annotationRenderResult.annotationLayerInstance;
+            scheduleOcrDebugForPage(pageNumber, renderContext);
+            finalizePageRender(pageNumber, version, pdfPage);
         } catch (error) {
             if (isRenderingCancelledError(error)) {
                 if (renderVersion === version) {
