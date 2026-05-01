@@ -184,6 +184,9 @@ pnpm typecheck
 # Unit + integration tests
 pnpm test
 
+# Heavy generated Electron bundle integrity check
+pnpm run test:bundle-integrity
+
 # Manual Electron E2E diagnostics
 pnpm run test:e2e:electron
 

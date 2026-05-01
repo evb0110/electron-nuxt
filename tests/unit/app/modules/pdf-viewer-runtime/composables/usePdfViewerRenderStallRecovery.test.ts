@@ -11,6 +11,54 @@ import {
 import { usePdfViewerRenderStallRecovery } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerRenderStallRecovery';
 
 describe('usePdfViewerRenderStallRecovery', () => {
+    it('invalidates stalled pages and schedules a reload when rendering stalls', () => {
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(10_000);
+            const scheduleReload = vi.fn();
+            const cancelInFlightPageRenders = vi.fn();
+            const recovery = usePdfViewerRenderStallRecovery({
+                src: computed(
+                    () => ({
+                        kind: 'path' as const,
+                        path: '/tmp/test.pdf',
+                        size: 1,
+                    }),
+                ),
+                isLoading: ref(false),
+                isAnySaving: ref(false),
+                numPages: ref(3),
+                currentPage: ref(2),
+                visibleRange: ref({
+                    start: 1,
+                    end: 3,
+                }),
+                viewerContainer: ref(null),
+                summarizeViewerMetricsForLog: () => ({ visiblePages: [
+                    1,
+                    2,
+                ] }),
+                cancelInFlightPageRenders,
+                scheduleReload,
+            });
+
+            recovery.handlePageRenderStall({
+                pageNumber: 2,
+                stage: 'canvas-render',
+                timeoutMs: 15_000,
+            });
+
+            vi.runAllTimers();
+
+            expect(cancelInFlightPageRenders).toHaveBeenCalledOnce();
+            expect(scheduleReload).toHaveBeenCalledWith(true);
+            expect(recovery.consumePendingInvalidation()).toEqual([2]);
+            expect(recovery.consumePendingInvalidation()).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('skips stalled page recovery while a save is in progress', () => {
         vi.useFakeTimers();
         try {

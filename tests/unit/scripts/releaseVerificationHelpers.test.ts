@@ -22,6 +22,18 @@ describe('release verification helpers', () => {
             rendererReady: false,
             serverReady: true,
         })).toBe(false);
+
+        expect(isPackagedStartupReady({
+            appAlive: false,
+            rendererReady: true,
+            serverReady: true,
+        })).toBe(false);
+
+        expect(isPackagedStartupReady({
+            appAlive: true,
+            rendererReady: true,
+            serverReady: false,
+        })).toBe(false);
     });
 
     it('parses allowed packaged-tool exit codes without dropping non-zero codes', () => {

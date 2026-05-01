@@ -16,9 +16,15 @@ import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer-runtime/compos
 import type { PDFDocumentProxy } from '@app/types/pdf';
 
 describe('usePdfViewerLoadingState', () => {
+    let triggerObservedMutation: (() => void) | null = null;
+
     beforeEach(() => {
         vi.unstubAllGlobals();
         vi.stubGlobal('MutationObserver', class {
+            constructor(callback: () => void) {
+                triggerObservedMutation = callback;
+            }
+
             observe() {}
             disconnect() {}
         });
@@ -76,6 +82,46 @@ describe('usePdfViewerLoadingState', () => {
             await nextTick();
 
             expect(state?.isViewerLoadingOverlayVisible.value).toBe(true);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('hides the loading overlay after the first rendered canvas appears', async () => {
+        const scope = effectScope();
+        try {
+            let hasRenderedCanvas = false;
+            const container = document.createElement('div');
+            const querySelector = vi
+                .spyOn(container, 'querySelector')
+                .mockImplementation(() => (hasRenderedCanvas ? document.createElement('canvas') : null));
+
+            const state = scope.run(() => {
+                const src = computed(() =>
+                    new Blob([new Uint8Array([1])], { type: 'application/pdf' }),
+                );
+                const isLoading = ref(false);
+                const pdfDocument = shallowRef<PDFDocumentProxy | null>({} as PDFDocumentProxy);
+                const viewerContainer = ref<HTMLElement | null>(container);
+
+                return usePdfViewerLoadingState({
+                    src,
+                    isLoading,
+                    pdfDocument,
+                    viewerContainer,
+                });
+            });
+
+            expect(state).toBeTruthy();
+            await nextTick();
+            expect(state?.isViewerLoadingOverlayVisible.value).toBe(true);
+
+            hasRenderedCanvas = true;
+            triggerObservedMutation?.();
+            await nextTick();
+
+            expect(querySelector).toHaveBeenCalledWith('.page_container--rendered .page_canvas canvas');
+            expect(state?.isViewerLoadingOverlayVisible.value).toBe(false);
         } finally {
             scope.stop();
         }
