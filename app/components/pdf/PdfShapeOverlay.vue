@@ -413,36 +413,69 @@ function isClosedArrow(style: IShapeAnnotation['lineEndStyle']) {
     return style === 'closedArrow';
 }
 
+function lineEndpoint(shape: IShapeAnnotation, edge: 'start' | 'end') {
+    return edge === 'start'
+        ? {
+            x: shape.x,
+            y: shape.y,
+        }
+        : {
+            x: shape.x2 ?? shape.x,
+            y: shape.y2 ?? shape.y,
+        };
+}
+
+function lineArrowSizing(shape: IShapeAnnotation) {
+    return {
+        headLength: 10 * shape.strokeWidth,
+        headHalfWidth: 3.5 * shape.strokeWidth,
+    };
+}
+
+function formatSvgPoints(points: Array<{
+    x: number;
+    y: number
+}>) {
+    return points.map(point => `${point.x},${point.y}`).join(' ');
+}
+
 function lineArrowGeometry(shape: IShapeAnnotation, edge: 'start' | 'end') {
-    const anchorX = edge === 'start' ? shape.x : (shape.x2 ?? shape.x);
-    const anchorY = edge === 'start' ? shape.y : (shape.y2 ?? shape.y);
-    const otherX = edge === 'start' ? (shape.x2 ?? shape.x) : shape.x;
-    const otherY = edge === 'start' ? (shape.y2 ?? shape.y) : shape.y;
+    const anchor = lineEndpoint(shape, edge);
+    const other = lineEndpoint(shape, edge === 'start' ? 'end' : 'start');
     const w = svgWidth.value;
     const h = svgHeight.value;
 
-    const dxPx = (anchorX - otherX) * w;
-    const dyPx = (anchorY - otherY) * h;
+    const dxPx = (anchor.x - other.x) * w;
+    const dyPx = (anchor.y - other.y) * h;
     const angle = Math.atan2(dyPx, dxPx);
     const cosA = Math.cos(angle);
     const sinA = Math.sin(angle);
 
-    const headLength = 10 * shape.strokeWidth;
-    const headHalfWidth = 3.5 * shape.strokeWidth;
+    const {
+        headLength,
+        headHalfWidth,
+    } = lineArrowSizing(shape);
 
-    const baseCenterNX = anchorX - (headLength * cosA) / w;
-    const baseCenterNY = anchorY - (headLength * sinA) / h;
+    const baseCenterNX = anchor.x - (headLength * cosA) / w;
+    const baseCenterNY = anchor.y - (headLength * sinA) / h;
 
     const perpNX = (-sinA * headHalfWidth) / w;
     const perpNY = (cosA * headHalfWidth) / h;
 
-    const leftX = baseCenterNX + perpNX;
-    const leftY = baseCenterNY + perpNY;
-    const rightX = baseCenterNX - perpNX;
-    const rightY = baseCenterNY - perpNY;
+    const headPoints = [
+        anchor,
+        {
+            x: baseCenterNX + perpNX,
+            y: baseCenterNY + perpNY,
+        },
+        {
+            x: baseCenterNX - perpNX,
+            y: baseCenterNY - perpNY,
+        },
+    ];
 
     return {
-        headPoints: `${anchorX},${anchorY} ${leftX},${leftY} ${rightX},${rightY}`,
+        headPoints: formatSvgPoints(headPoints),
         lineAnchor: {
             x: baseCenterNX,
             y: baseCenterNY, 
@@ -477,11 +510,11 @@ function lineVisibleSegment(shape: IShapeAnnotation) {
 }
 
 function shapePoints(shape: IShapeAnnotation) {
-    return shape.points?.map(point => `${point.x},${point.y}`).join(' ') ?? '';
+    return shape.points ? formatSvgPoints(shape.points) : '';
 }
 
 function shapeStrokePointSets(shape: IShapeAnnotation) {
-    return getShapeStrokePointSets(shape).map(points => points.map(point => `${point.x},${point.y}`).join(' '));
+    return getShapeStrokePointSets(shape).map(points => formatSvgPoints(points));
 }
 
 const selectedShapeBounds = computed(() => {

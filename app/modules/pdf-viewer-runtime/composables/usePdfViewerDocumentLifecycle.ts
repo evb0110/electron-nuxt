@@ -386,53 +386,111 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
         );
     }
 
+    function startDocumentLoad() {
+        isLoadFromSourceActive.value = true;
+        const token = ++documentLoadToken;
+        options.onDocumentLoadStateChange?.({
+            token,
+            phase: 'started',
+        });
+        return token;
+    }
+
+    function settleDocumentLoad(token: number) {
+        isLoadFromSourceActive.value = false;
+        options.onDocumentLoadStateChange?.({
+            token,
+            phase: 'settled',
+        });
+    }
+
+    function pinReloadRecoveryPageIfNeeded(plan: IReloadPlan) {
+        if (!plan.shouldPinReloadPage) {
+            return;
+        }
+
+        // Geometry-changing reloads can briefly report a stale viewport page
+        // while placeholders, resize observers, and buffered renders settle.
+        options.pinCurrentPageDuringRecovery(plan.resolvedPageToRestore, {
+            durationMs: 900,
+            reason: 'reload-recovery',
+        });
+    }
+
+    function captureSelectiveReloadState(plan: IReloadPlan) {
+        return {
+            savedBaseWidth: plan.isSelectiveReload ? options.basePageWidth.value : null,
+            savedBaseHeight: plan.isSelectiveReload ? options.basePageHeight.value : null,
+            savedVisibleRange: plan.isSelectiveReload
+                ? { ...options.visibleRange.value }
+                : null,
+        };
+    }
+
+    function loadPdfForPlan(plan: IReloadPlan) {
+        return options.loadPdf(
+            options.src.value as TPdfSource,
+            plan.isSelectiveReload ? { preservePageStructure: true } : undefined,
+        );
+    }
+
+    function resolveCustomReloadZoomToApply(plan: IReloadPlan) {
+        if (plan.displayZoomToRestore === null) {
+            return null;
+        }
+
+        return resolveCustomReloadZoomMultiplier({
+            currentZoom: options.zoom.value,
+            currentEffectiveScale: options.effectiveScale.value,
+            targetDisplayZoom: plan.displayZoomToRestore,
+        });
+    }
+
+    function finishLoadedSource(
+        plan: IReloadPlan,
+        visualReload: IVisualReloadTransition,
+        settleVisualReloadTransition: (reason: string) => void,
+    ) {
+        const visualReloadTransitionHandledByWarmRender = visualReload.token !== null;
+        scheduleWarmBufferedRender(plan, settleVisualReloadTransition);
+        options.applySearchHighlights();
+        options.commentSync.scheduleAnnotationCommentsSync(true);
+        scheduleRecoverInitialRender();
+
+        if (!visualReloadTransitionHandledByWarmRender) {
+            settleVisualReloadTransition('load-complete');
+        }
+    }
+
     async function loadFromSource(isReload = false) {
         if (!options.src.value) {
             clearAnnotationCacheForEmptySource();
             return;
         }
 
-        isLoadFromSourceActive.value = true;
-        const activeLoadToken = ++documentLoadToken;
-        options.onDocumentLoadStateChange?.({
-            token: activeLoadToken,
-            phase: 'started',
-        });
+        const activeLoadToken = startDocumentLoad();
 
         try {
             const plan = computeReloadPlan(isReload);
             const visualReload = createVisualReloadTransition(plan.shouldPinReloadPage);
             const settleVisualReloadTransition = visualReload.settle;
-            let visualReloadTransitionHandledByWarmRender = false;
 
-            if (plan.shouldPinReloadPage) {
-                // Geometry-changing reloads can briefly report a stale viewport page
-                // while placeholders, resize observers, and buffered renders settle.
-                options.pinCurrentPageDuringRecovery(plan.resolvedPageToRestore, {
-                    durationMs: 900,
-                    reason: 'reload-recovery',
-                });
-            }
-
-            const savedBaseWidth = plan.isSelectiveReload ? options.basePageWidth.value : null;
-            const savedBaseHeight = plan.isSelectiveReload ? options.basePageHeight.value : null;
-            const savedVisibleRange = plan.isSelectiveReload
-                ? { ...options.visibleRange.value }
-                : null;
+            pinReloadRecoveryPageIfNeeded(plan);
+            const {
+                savedBaseWidth,
+                savedBaseHeight,
+                savedVisibleRange,
+            } = captureSelectiveReloadState(plan);
 
             applyPreLoadStateReset(plan, isReload);
 
-            const loaded = await options.loadPdf(
-                options.src.value,
-                plan.isSelectiveReload ? { preservePageStructure: true } : undefined,
-            );
+            const loaded = await loadPdfForPlan(plan);
             if (!loaded) {
                 settleVisualReloadTransition('load-aborted');
                 return;
             }
 
             restoreSelectiveReloadBaseDimensions(plan, savedBaseWidth, savedBaseHeight);
-
             applyPostLoadDocumentMetadata(plan);
             await options.ensurePageMetricsInRange(
                 resolveMetricHydrationStartPage(plan, isReload),
@@ -448,17 +506,11 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
 
             if (!plan.isSelectiveReload) {
                 options.computeFitWidthScale(options.viewerContainer.value);
-                if (plan.displayZoomToRestore !== null) {
-                    const nextZoom = resolveCustomReloadZoomMultiplier({
-                        currentZoom: options.zoom.value,
-                        currentEffectiveScale: options.effectiveScale.value,
-                        targetDisplayZoom: plan.displayZoomToRestore,
-                    });
-                    if (nextZoom !== null && Math.abs(nextZoom - options.zoom.value) > 0.001) {
-                        options.suppressNextZoomRerender(nextZoom);
-                        options.emit('update:zoom', nextZoom);
-                        await waitForZoomPropSync(nextZoom);
-                    }
+                const nextZoom = resolveCustomReloadZoomToApply(plan);
+                if (nextZoom !== null && Math.abs(nextZoom - options.zoom.value) > 0.001) {
+                    options.suppressNextZoomRerender(nextZoom);
+                    options.emit('update:zoom', nextZoom);
+                    await waitForZoomPropSync(nextZoom);
                 }
                 options.setupPagePlaceholders();
                 if (isReload && options.currentPage.value > 1) {
@@ -495,23 +547,9 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
                 settleVisualReloadTransition('initial-render-error');
                 logAsyncStageError('render visible pages after source load', error);
             }
-            if (visualReload.token !== null) {
-                visualReloadTransitionHandledByWarmRender = true;
-            }
-            scheduleWarmBufferedRender(plan, settleVisualReloadTransition);
-            options.applySearchHighlights();
-            options.commentSync.scheduleAnnotationCommentsSync(true);
-            scheduleRecoverInitialRender();
-
-            if (!visualReloadTransitionHandledByWarmRender) {
-                settleVisualReloadTransition('load-complete');
-            }
+            finishLoadedSource(plan, visualReload, settleVisualReloadTransition);
         } finally {
-            isLoadFromSourceActive.value = false;
-            options.onDocumentLoadStateChange?.({
-                token: activeLoadToken,
-                phase: 'settled',
-            });
+            settleDocumentLoad(activeLoadToken);
         }
     }
 

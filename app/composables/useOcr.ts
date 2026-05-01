@@ -2,7 +2,11 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@contracts/shared';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type {
+    IDocumentsCapability,
+    IOcrCapability,
+    TDocumentRef,
+} from '@contracts/platform-api';
 import { createDocxFromText } from '@app/utils/docx';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browser-logger';
@@ -31,6 +35,18 @@ class OcrCanceledError extends Error {
         super('OCR canceled');
         this.name = 'OcrCanceledError';
     }
+}
+
+type TOcrCompleteResult = Parameters<IOcrCapability['onComplete']>[0] extends (
+    result: infer TResult,
+) => void ? TResult : never;
+type TOcrPageRequest = Parameters<IOcrCapability['createSearchablePdf']>[1][number];
+type TRunGuard = () => void;
+
+interface IOcrRunContext {
+    runToken: symbol;
+    runGeneration: number;
+    ensureRunActive: TRunGuard;
 }
 
 export const useOcr = () => {
@@ -97,6 +113,354 @@ export const useOcr = () => {
         }
     }
 
+    function isRunActive(runToken: symbol, runGeneration: number) {
+        return activeRunToken === runToken && runGeneration === cancelGeneration;
+    }
+
+    function createRunGuard(runToken: symbol, runGeneration: number): TRunGuard {
+        return () => {
+            if (!isRunActive(runToken, runGeneration)) {
+                throw new OcrCanceledError();
+            }
+        };
+    }
+
+    function createOcrRunContext(): IOcrRunContext {
+        const runToken = Symbol('ocr-run');
+        activeRunToken = runToken;
+        const runGeneration = cancelGeneration;
+        return {
+            runToken,
+            runGeneration,
+            ensureRunActive: createRunGuard(runToken, runGeneration),
+        };
+    }
+
+    function beginRunProgress(pages: number[]) {
+        progress.value = {
+            isRunning: true,
+            phase: 'preparing',
+            currentPage: pages[0] ?? 1,
+            totalPages: pages.length,
+            processedCount: 0,
+        };
+    }
+
+    async function waitForRunUiReady(runToken: symbol, runGeneration: number) {
+        await nextTick();
+        if (!isRunActive(runToken, runGeneration)) {
+            return false;
+        }
+
+        await waitForVisualFrames({ frames: 2 });
+        return isRunActive(runToken, runGeneration);
+    }
+
+    function resetOcrTimeout(runToken: symbol) {
+        clearOcrTimeout();
+        timeoutId = setTimeout(() => {
+            if (activeRunToken !== runToken) {
+                return;
+            }
+            const rejectPending = pendingOcrReject;
+            pendingOcrReject = null;
+            timeoutId = null;
+            rejectPending?.(new Error(t('errors.ocr.timeout')));
+        }, OCR_TIMEOUT_MS);
+    }
+
+    function registerProgressListener(
+        ocr: IOcrCapability,
+        requestId: string,
+        runToken: symbol,
+    ) {
+        progressCleanup = ocr.onProgress((p) => {
+            if (activeRunToken !== runToken) {
+                return;
+            }
+            BrowserLogger.debug('ocr', 'Progress update', {
+                ...p,
+                requestId,
+            });
+            if (p.requestId === requestId) {
+                resetOcrTimeout(runToken);
+                progress.value.phase = 'processing';
+                progress.value.currentPage = p.currentPage;
+                progress.value.processedCount = p.processedCount;
+            }
+        });
+    }
+
+    function waitForOcrCompletion(
+        ocr: IOcrCapability,
+        requestId: string,
+        runToken: symbol,
+    ) {
+        return new Promise<TOcrCompleteResult>((resolve, reject) => {
+            let didResolve = false;
+            pendingOcrReject = reject;
+
+            completeCleanup = ocr.onComplete((result) => {
+                BrowserLogger.debug('ocr', 'Complete event received', {
+                    requestId,
+                    resultRequestId: result.requestId,
+                    success: result.success,
+                    didResolve,
+                });
+                if (result.requestId === requestId && activeRunToken === runToken) {
+                    if (didResolve) {
+                        BrowserLogger.debug('ocr', 'Ignoring duplicate completion', { requestId });
+                        return;
+                    }
+                    didResolve = true;
+                    pendingOcrReject = null;
+                    clearOcrTimeout();
+                    resolve(result);
+                }
+            });
+
+            resetOcrTimeout(runToken);
+        });
+    }
+
+    function buildPageRequests(pages: number[]): TOcrPageRequest[] {
+        const languages = [...settings.value.selectedLanguages];
+        return pages.map(pageNum => ({
+            pageNumber: pageNum,
+            languages,
+        }));
+    }
+
+    function applyOcrResponseErrors(response: TOcrCompleteResult, requestId: string) {
+        if (response.errors.length === 0) {
+            return;
+        }
+
+        BrowserLogger.error('ocr', 'OCR backend reported page failures', {
+            requestId,
+            success: response.success,
+            errors: response.errors,
+        });
+        const localizedErrors = response.errors.map(err =>
+            localizeOcrError(err, 'errors.ocr.createSearchablePdf'),
+        );
+        error.value = uniq(localizedErrors).join('; ');
+    }
+
+    async function acknowledgeOrCleanupOcrResult(
+        ocr: IOcrCapability,
+        documents: IDocumentsCapability,
+        requestId: string,
+        response: TOcrCompleteResult,
+    ) {
+        if (!response.pdfPath) {
+            return;
+        }
+
+        let didCleanupViaAck = false;
+        if (response.requiresCleanupAck) {
+            try {
+                const ackResult = await ocr.acknowledgeResultFile(requestId, response.pdfPath);
+                didCleanupViaAck = ackResult.cleaned;
+                if (!ackResult.cleaned && ackResult.error) {
+                    BrowserLogger.warn('ocr', 'OCR cleanup acknowledgement was rejected', {
+                        requestId,
+                        path: response.pdfPath,
+                        error: ackResult.error,
+                    });
+                }
+            } catch (ackErr) {
+                BrowserLogger.warn('ocr', 'Failed to acknowledge OCR temp result file', {
+                    requestId,
+                    path: response.pdfPath,
+                    error: ackErr,
+                });
+            }
+        }
+
+        if (didCleanupViaAck) {
+            return;
+        }
+
+        try {
+            await documents.cleanupOcrTemp(response.pdfPath);
+        } catch (cleanupErr) {
+            BrowserLogger.warn('ocr', 'Failed to cleanup temp file', {
+                requestId,
+                path: response.pdfPath,
+                error: cleanupErr,
+            });
+        }
+    }
+
+    async function readOcrPdfResult(
+        ocr: IOcrCapability,
+        documents: IDocumentsCapability,
+        requestId: string,
+        response: TOcrCompleteResult,
+        ensureRunActive: TRunGuard,
+    ) {
+        if (!response.pdfPath) {
+            throw new Error(t('errors.ocr.noPdfData'));
+        }
+
+        BrowserLogger.debug('ocr', 'Reading OCR PDF from temp path', {
+            requestId,
+            path: response.pdfPath,
+        });
+
+        try {
+            const fileData = await documents.readFile(response.pdfPath);
+            const pdfBytes = new Uint8Array(fileData);
+            BrowserLogger.debug('ocr', 'Loaded OCR PDF', {
+                requestId,
+                bytes: pdfBytes.length,
+            });
+            ensureRunActive();
+            return pdfBytes;
+        } finally {
+            await acknowledgeOrCleanupOcrResult(ocr, documents, requestId, response);
+        }
+    }
+
+    function storeOcrPdfResult(pdfBytes: Uint8Array) {
+        results.value = {
+            pages: new Map(),
+            languages: [...settings.value.selectedLanguages],
+            completedAt: Date.now(),
+            searchablePdfData: pdfBytes,
+        };
+    }
+
+    function logOcrRunFailure(requestId: string, caughtError: unknown) {
+        const errMsg = getErrorMessage(caughtError);
+        const errStack = caughtError instanceof Error ? caughtError.stack : undefined;
+        BrowserLogger.error('ocr', 'OCR run failed', {
+            requestId,
+            error: errMsg,
+        });
+        if (errStack) {
+            BrowserLogger.error('ocr', 'OCR stack trace', {
+                requestId,
+                stack: errStack,
+            });
+        }
+    }
+
+    function validateOcrRunRequest(
+        pages: number[],
+        workingCopyPath: TDocumentRef | null,
+    ): workingCopyPath is TDocumentRef {
+        if (pages.length === 0) {
+            error.value = t('errors.ocr.noValidPages');
+            return false;
+        }
+        if (!workingCopyPath) {
+            error.value = t('errors.file.invalid');
+            return false;
+        }
+        return true;
+    }
+
+    function getSelectedOcrPages(currentPage: number, totalPages: number) {
+        const pages = parsePageRange(
+            settings.value.pageRange,
+            settings.value.customRange,
+            currentPage,
+            totalPages,
+        );
+
+        BrowserLogger.debug('ocr', 'Pages selected', pages);
+        return pages;
+    }
+
+    function createOcrRequestId(pages: number[]) {
+        const requestId = `ocr-${crypto.randomUUID()}`;
+        activeRequestId.value = requestId;
+        BrowserLogger.info('ocr', 'Request created', {
+            requestId,
+            pages: pages.length,
+        });
+        return requestId;
+    }
+
+    async function handleOcrResponse(
+        ocr: IOcrCapability,
+        documents: IDocumentsCapability,
+        requestId: string,
+        response: TOcrCompleteResult,
+        ensureRunActive: TRunGuard,
+    ) {
+        applyOcrResponseErrors(response, requestId);
+
+        if (response.success && response.pdfPath) {
+            const pdfBytes = await readOcrPdfResult(
+                ocr,
+                documents,
+                requestId,
+                response,
+                ensureRunActive,
+            );
+            storeOcrPdfResult(pdfBytes);
+        } else if (response.success) {
+            throw new Error(t('errors.ocr.noPdfData'));
+        } else if (!response.success) {
+            error.value = error.value || t('errors.ocr.createSearchablePdf');
+        }
+    }
+
+    async function executeOcrRun(
+        requestId: string,
+        pages: number[],
+        workingCopyPath: TDocumentRef,
+        runToken: symbol,
+        ensureRunActive: TRunGuard,
+    ) {
+        const ocr = getOcrCapability();
+        const documents = getDocumentsCapability();
+        registerProgressListener(ocr, requestId, runToken);
+        const pageRequests = buildPageRequests(pages);
+
+        BrowserLogger.debug('ocr', 'Starting backend job', {
+            requestId,
+            pages,
+            workingCopyPath,
+        });
+
+        ensureRunActive();
+        const ocrPromise = waitForOcrCompletion(ocr, requestId, runToken);
+
+        ensureRunActive();
+        const startResult = await ocr.createSearchablePdf(
+            workingCopyPath,
+            pageRequests,
+            requestId,
+            undefined,
+        );
+        ensureRunActive();
+
+        BrowserLogger.debug('ocr', 'Job started', {
+            requestId,
+            ...startResult,
+        });
+
+        if (!startResult.started) {
+            throw new Error(localizeOcrError(startResult.error, 'errors.ocr.start'));
+        }
+
+        ensureRunActive();
+        const response = await ocrPromise;
+        ensureRunActive();
+
+        BrowserLogger.debug('ocr', 'Backend response', {
+            requestId,
+            success: response.success,
+            errors: response.errors,
+        });
+
+        await handleOcrResponse(ocr, documents, requestId, response, ensureRunActive);
+    }
+
     async function runOcr(
         currentPage: number,
         totalPages: number,
@@ -114,263 +478,40 @@ export const useOcr = () => {
         }
 
         error.value = null;
-        const pages = parsePageRange(
-            settings.value.pageRange,
-            settings.value.customRange,
-            currentPage,
-            totalPages,
-        );
+        const pages = getSelectedOcrPages(currentPage, totalPages);
 
-        BrowserLogger.debug('ocr', 'Pages selected', pages);
-
-        if (pages.length === 0) {
-            error.value = t('errors.ocr.noValidPages');
-            return;
-        }
-        if (!workingCopyPath) {
-            error.value = t('errors.file.invalid');
+        if (!validateOcrRunRequest(pages, workingCopyPath)) {
             return;
         }
 
         clearResults();
 
-        const runToken = Symbol('ocr-run');
-        activeRunToken = runToken;
-        const runGeneration = cancelGeneration;
-        const ensureRunActive = () => {
-            if (
-                activeRunToken !== runToken
-                || runGeneration !== cancelGeneration
-            ) {
-                throw new OcrCanceledError();
-            }
-        };
+        const {
+            runToken,
+            runGeneration,
+            ensureRunActive,
+        } = createOcrRunContext();
 
-        progress.value = {
-            isRunning: true,
-            phase: 'preparing',
-            currentPage: pages[0] ?? 1,
-            totalPages: pages.length,
-            processedCount: 0,
-        };
-
-        await nextTick();
-        if (
-            activeRunToken !== runToken
-            || runGeneration !== cancelGeneration
-        ) {
+        beginRunProgress(pages);
+        if (!await waitForRunUiReady(runToken, runGeneration)) {
             return;
         }
 
-        await waitForVisualFrames({ frames: 2 });
-        if (
-            activeRunToken !== runToken
-            || runGeneration !== cancelGeneration
-        ) {
-            return;
-        }
-
-        const requestId = `ocr-${crypto.randomUUID()}`;
-        activeRequestId.value = requestId;
-        BrowserLogger.info('ocr', 'Request created', {
-            requestId,
-            pages: pages.length, 
-        });
+        const requestId = createOcrRequestId(pages);
 
         try {
-            const ocr = getOcrCapability();
-            const documents = getDocumentsCapability();
-            const resetOcrTimeout = () => {
-                clearOcrTimeout();
-                timeoutId = setTimeout(() => {
-                    if (activeRunToken !== runToken) {
-                        return;
-                    }
-                    const rejectPending = pendingOcrReject;
-                    pendingOcrReject = null;
-                    timeoutId = null;
-                    rejectPending?.(new Error(t('errors.ocr.timeout')));
-                }, OCR_TIMEOUT_MS);
-            };
-
-            progressCleanup = ocr.onProgress((p) => {
-                if (activeRunToken !== runToken) {
-                    return;
-                }
-                BrowserLogger.debug('ocr', 'Progress update', {
-                    ...p,
-                    requestId,
-                });
-                if (p.requestId === requestId) {
-                    resetOcrTimeout();
-                    progress.value.phase = 'processing';
-                    progress.value.currentPage = p.currentPage;
-                    progress.value.processedCount = p.processedCount;
-                }
-            });
-
-            const languages = [...settings.value.selectedLanguages];
-            const pageRequests = pages.map(pageNum => ({
-                pageNumber: pageNum,
-                languages,
-            }));
-
-            BrowserLogger.debug('ocr', 'Starting backend job', {
+            await executeOcrRun(
                 requestId,
                 pages,
                 workingCopyPath,
-            });
-
-            ensureRunActive();
-            const ocrPromise = new Promise<{
-                success: boolean;
-                pdfPath?: TDocumentRef;
-                requiresCleanupAck?: boolean;
-                errors: string[];
-            }>((resolve, reject) => {
-                let didResolve = false;
-                pendingOcrReject = reject;
-
-                completeCleanup = ocr.onComplete((result) => {
-                    BrowserLogger.debug('ocr', 'Complete event received', {
-                        requestId,
-                        resultRequestId: result.requestId,
-                        success: result.success,
-                        didResolve,
-                    });
-                    if (result.requestId === requestId && activeRunToken === runToken) {
-                        if (didResolve) {
-                            BrowserLogger.debug('ocr', 'Ignoring duplicate completion', { requestId });
-                            return;
-                        }
-                        didResolve = true;
-                        pendingOcrReject = null;
-                        clearOcrTimeout();
-                        resolve(result);
-                    }
-                });
-
-                resetOcrTimeout();
-            });
-
-            ensureRunActive();
-            const startResult = await ocr.createSearchablePdf(
-                workingCopyPath,
-                pageRequests,
-                requestId,
-                undefined,
+                runToken,
+                ensureRunActive,
             );
-            ensureRunActive();
-
-            BrowserLogger.debug('ocr', 'Job started', {
-                requestId,
-                ...startResult, 
-            });
-
-            if (!startResult.started) {
-                throw new Error(localizeOcrError(startResult.error, 'errors.ocr.start'));
-            }
-
-            ensureRunActive();
-            const response = await ocrPromise;
-            ensureRunActive();
-
-            BrowserLogger.debug('ocr', 'Backend response', {
-                requestId,
-                success: response.success,
-                errors: response.errors,
-            });
-
-            if (response.errors.length > 0) {
-                BrowserLogger.error('ocr', 'OCR backend reported page failures', {
-                    requestId,
-                    success: response.success,
-                    errors: response.errors,
-                });
-                const localizedErrors = response.errors.map(err =>
-                    localizeOcrError(err, 'errors.ocr.createSearchablePdf'),
-                );
-                error.value = uniq(localizedErrors).join('; ');
-            }
-
-            if (response.success && response.pdfPath) {
-                let pdfBytes: Uint8Array;
-
-                BrowserLogger.debug('ocr', 'Reading OCR PDF from temp path', {
-                    requestId,
-                    path: response.pdfPath, 
-                });
-                let didCleanupViaAck = false;
-
-                try {
-                    const fileData = await documents.readFile(response.pdfPath);
-                    pdfBytes = new Uint8Array(fileData);
-                    BrowserLogger.debug('ocr', 'Loaded OCR PDF', {
-                        requestId,
-                        bytes: pdfBytes.length, 
-                    });
-                    ensureRunActive();
-                } finally {
-                    if (response.requiresCleanupAck) {
-                        try {
-                            const ackResult = await ocr.acknowledgeResultFile(requestId, response.pdfPath);
-                            didCleanupViaAck = ackResult.cleaned;
-                            if (!ackResult.cleaned && ackResult.error) {
-                                BrowserLogger.warn('ocr', 'OCR cleanup acknowledgement was rejected', {
-                                    requestId,
-                                    path: response.pdfPath,
-                                    error: ackResult.error,
-                                });
-                            }
-                        } catch (ackErr) {
-                            BrowserLogger.warn('ocr', 'Failed to acknowledge OCR temp result file', {
-                                requestId,
-                                path: response.pdfPath,
-                                error: ackErr, 
-                            });
-                        }
-                    }
-
-                    if (!didCleanupViaAck) {
-                        try {
-                            await documents.cleanupOcrTemp(response.pdfPath);
-                        } catch (cleanupErr) {
-                            BrowserLogger.warn('ocr', 'Failed to cleanup temp file', {
-                                requestId,
-                                path: response.pdfPath,
-                                error: cleanupErr, 
-                            });
-                        }
-                    }
-                }
-
-                results.value = {
-                    pages: new Map(),
-                    languages: [...settings.value.selectedLanguages],
-                    completedAt: Date.now(),
-                    searchablePdfData: pdfBytes,
-                };
-            } else if (response.success) {
-                throw new Error(t('errors.ocr.noPdfData'));
-            } else if (!response.success) {
-                error.value = error.value || t('errors.ocr.createSearchablePdf');
-            }
         } catch (e) {
-            const errMsg = getErrorMessage(e);
-            const errStack = e instanceof Error ? e.stack : undefined;
             if (e instanceof OcrCanceledError) {
                 return;
             }
-            BrowserLogger.error('ocr', 'OCR run failed', {
-                requestId,
-                error: errMsg, 
-            });
-            if (errStack) {
-                BrowserLogger.error('ocr', 'OCR stack trace', {
-                    requestId,
-                    stack: errStack, 
-                });
-            }
+            logOcrRunFailure(requestId, e);
             error.value = localizeOcrError(e, 'errors.ocr.createSearchablePdf');
         } finally {
             if (activeRunToken === runToken) {

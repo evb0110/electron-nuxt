@@ -148,21 +148,27 @@ export const usePdfOutlineEditing = (
         emitBookmarksChange();
     }
 
-    function removeBookmark(id: string) {
-        const location = findBookmarkLocation(bookmarks.value, id);
-        if (!location) {
-            return;
-        }
-
+    function collectRemovedBookmarkIds(item: IBookmarkItem) {
         const removedIds = new Set<string>();
-        collectBookmarkIds(location.item, removedIds);
-        location.list.splice(location.index, 1);
+        collectBookmarkIds(item, removedIds);
+        return removedIds;
+    }
 
-        const nextActive = location.list[location.index] ?? location.list[location.index - 1] ?? location.parent;
-        if (activeItemId.value && removedIds.has(activeItemId.value)) {
-            activeItemId.value = nextActive?.id ?? null;
+    function getNextActiveAfterRemoval(location: NonNullable<ReturnType<typeof findBookmarkLocation>>) {
+        return location.list[location.index] ?? location.list[location.index - 1] ?? location.parent;
+    }
+
+    function removeIdsFromSet(source: Set<string>, removedIds: Set<string>) {
+        const next = new Set<string>();
+        for (const id of source) {
+            if (!removedIds.has(id)) {
+                next.add(id);
+            }
         }
+        return next;
+    }
 
+    function clearRemovedEditingState(removedIds: Set<string>) {
         if (editingItemId.value && removedIds.has(editingItemId.value)) {
             editingItemId.value = null;
         }
@@ -170,18 +176,58 @@ export const usePdfOutlineEditing = (
         if (styleRangeStartId.value && removedIds.has(styleRangeStartId.value)) {
             styleRangeStartId.value = null;
         }
+    }
 
-        const nextExpanded = new Set<string>();
-        for (const expandedId of expandedBookmarkIds.value) {
-            if (!removedIds.has(expandedId)) {
-                nextExpanded.add(expandedId);
-            }
+    function updateActiveAfterBookmarkRemoval(
+        location: NonNullable<ReturnType<typeof findBookmarkLocation>>,
+        removedIds: Set<string>,
+    ) {
+        if (!activeItemId.value || !removedIds.has(activeItemId.value)) {
+            return;
         }
-        expandedBookmarkIds.value = nextExpanded;
+
+        const nextActive = getNextActiveAfterRemoval(location);
+        activeItemId.value = nextActive?.id ?? null;
+    }
+
+    function removeBookmark(id: string) {
+        const location = findBookmarkLocation(bookmarks.value, id);
+        if (!location) {
+            return;
+        }
+
+        const removedIds = collectRemovedBookmarkIds(location.item);
+        location.list.splice(location.index, 1);
+
+        updateActiveAfterBookmarkRemoval(location, removedIds);
+        clearRemovedEditingState(removedIds);
+        expandedBookmarkIds.value = removeIdsFromSet(expandedBookmarkIds.value, removedIds);
 
         closeBookmarkContextMenu();
         pruneStaleState();
         emitBookmarksChange();
+    }
+
+    function resolveBookmarkStyle(
+        item: IBookmarkItem,
+        updates: Partial<Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>>,
+    ) {
+        return {
+            bold: typeof updates.bold === 'boolean' ? updates.bold : item.bold,
+            italic: typeof updates.italic === 'boolean' ? updates.italic : item.italic,
+            color: updates.color === undefined
+                ? item.color
+                : normalizeBookmarkColor(updates.color),
+        };
+    }
+
+    function hasBookmarkStyleChanged(
+        item: IBookmarkItem,
+        nextStyle: Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>,
+    ) {
+        return item.bold !== nextStyle.bold
+            || item.italic !== nextStyle.italic
+            || item.color !== nextStyle.color;
     }
 
     function updateBookmarkStyle(
@@ -193,23 +239,14 @@ export const usePdfOutlineEditing = (
             return;
         }
 
-        const nextBold = typeof updates.bold === 'boolean' ? updates.bold : location.item.bold;
-        const nextItalic = typeof updates.italic === 'boolean' ? updates.italic : location.item.italic;
-        const nextColor = updates.color === undefined
-            ? location.item.color
-            : normalizeBookmarkColor(updates.color);
-
-        if (
-            location.item.bold === nextBold
-            && location.item.italic === nextItalic
-            && location.item.color === nextColor
-        ) {
+        const nextStyle = resolveBookmarkStyle(location.item, updates);
+        if (!hasBookmarkStyleChanged(location.item, nextStyle)) {
             return;
         }
 
-        location.item.bold = nextBold;
-        location.item.italic = nextItalic;
-        location.item.color = nextColor;
+        location.item.bold = nextStyle.bold;
+        location.item.italic = nextStyle.italic;
+        location.item.color = nextStyle.color;
         emitBookmarksChange();
     }
 
@@ -233,12 +270,34 @@ export const usePdfOutlineEditing = (
         updateBookmarkStyle(id, { color });
     }
 
-    function pruneStaleState() {
+    function getValidBookmarkIds() {
         const validIds = new Set<string>();
         for (const item of flatBookmarks.value) {
             validIds.add(item.id);
         }
+        return validIds;
+    }
 
+    function retainValidIds(source: Set<string>, validIds: Set<string>) {
+        const next = new Set<string>();
+        for (const id of source) {
+            if (validIds.has(id)) {
+                next.add(id);
+            }
+        }
+        return next;
+    }
+
+    function hasInvalidId(source: Set<string>, validIds: Set<string>) {
+        for (const id of source) {
+            if (!validIds.has(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function pruneActiveAndEditingState(validIds: Set<string>) {
         if (activeItemId.value && !validIds.has(activeItemId.value)) {
             activeItemId.value = null;
         }
@@ -250,37 +309,27 @@ export const usePdfOutlineEditing = (
         if (styleRangeStartId.value && !validIds.has(styleRangeStartId.value)) {
             styleRangeStartId.value = null;
         }
+    }
 
-        const nextSelected = new Set<string>();
-        for (const id of selectedBookmarkIds.value) {
-            if (validIds.has(id)) {
-                nextSelected.add(id);
-            }
-        }
-        selectedBookmarkIds.value = nextSelected;
-
+    function pruneSelectionState(validIds: Set<string>) {
+        selectedBookmarkIds.value = retainValidIds(selectedBookmarkIds.value, validIds);
         if (selectionAnchorBookmarkId.value && !validIds.has(selectionAnchorBookmarkId.value)) {
             selectionAnchorBookmarkId.value = null;
         }
+    }
 
-        let hasInvalidDraggingId = false;
-        for (const id of draggingBookmarkIds.value) {
-            if (!validIds.has(id)) {
-                hasInvalidDraggingId = true;
-                break;
-            }
-        }
-        if (hasInvalidDraggingId) {
+    function pruneDragState(validIds: Set<string>) {
+        if (hasInvalidId(draggingBookmarkIds.value, validIds)) {
             resetDragState();
         }
+    }
 
-        const nextExpanded = new Set<string>();
-        for (const id of expandedBookmarkIds.value) {
-            if (validIds.has(id)) {
-                nextExpanded.add(id);
-            }
-        }
-        expandedBookmarkIds.value = nextExpanded;
+    function pruneStaleState() {
+        const validIds = getValidBookmarkIds();
+        pruneActiveAndEditingState(validIds);
+        pruneSelectionState(validIds);
+        pruneDragState(validIds);
+        expandedBookmarkIds.value = retainValidIds(expandedBookmarkIds.value, validIds);
     }
 
     function mapBookmarksForPersistence(items: IBookmarkItem[]): IPdfBookmarkEntry[] {

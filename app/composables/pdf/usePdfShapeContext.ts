@@ -41,6 +41,8 @@ interface IUsePdfShapeContextDeps {
     onShapeContextMenu: (payload: IShapeContextMenuPayload) => void;
 }
 
+type TShapeTranslator = (shape: IShapeAnnotation, deltaX: number, deltaY: number) => IShapeAnnotation;
+
 export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
     const {
         shapeComposable,
@@ -70,42 +72,82 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
         baselineBounds: ReturnType<typeof getShapeBounds>;
     } | null = null;
 
-    function translateShape(shape: IShapeAnnotation, deltaX: number, deltaY: number): IShapeAnnotation {
+    function resolveSafeShapeTranslation(shape: IShapeAnnotation, deltaX: number, deltaY: number) {
         const bounds = getShapeBounds(shape);
-        const safeDeltaX = Math.max(-bounds.minX, Math.min(1 - bounds.maxX, deltaX));
-        const safeDeltaY = Math.max(-bounds.minY, Math.min(1 - bounds.maxY, deltaY));
+        return {
+            x: Math.max(-bounds.minX, Math.min(1 - bounds.maxX, deltaX)),
+            y: Math.max(-bounds.minY, Math.min(1 - bounds.maxY, deltaY)),
+        };
+    }
 
-        if (shape.type === 'line' || shape.type === 'arrow') {
-            return {
-                ...shape,
-                x: shape.x + safeDeltaX,
-                y: shape.y + safeDeltaY,
-                x2: (shape.x2 ?? shape.x) + safeDeltaX,
-                y2: (shape.y2 ?? shape.y) + safeDeltaY,
-            };
-        }
-
-        if ((shape.type === 'polyline' || shape.type === 'polygon') && (shape.points || shape.strokes)) {
-            return {
-                ...shape,
-                x: shape.x + safeDeltaX,
-                y: shape.y + safeDeltaY,
-                points: shape.points?.map(point => ({
-                    x: point.x + safeDeltaX,
-                    y: point.y + safeDeltaY,
-                })),
-                strokes: shape.strokes?.map(points => points.map(point => ({
-                    x: point.x + safeDeltaX,
-                    y: point.y + safeDeltaY,
-                }))),
-            };
-        }
-
+    function translateLineShape(shape: IShapeAnnotation, deltaX: number, deltaY: number): IShapeAnnotation {
         return {
             ...shape,
-            x: shape.x + safeDeltaX,
-            y: shape.y + safeDeltaY,
+            x: shape.x + deltaX,
+            y: shape.y + deltaY,
+            x2: (shape.x2 ?? shape.x) + deltaX,
+            y2: (shape.y2 ?? shape.y) + deltaY,
         };
+    }
+
+    function translatePoint(point: {
+        x: number;
+        y: number
+    }, deltaX: number, deltaY: number) {
+        return {
+            x: point.x + deltaX,
+            y: point.y + deltaY,
+        };
+    }
+
+    function translatePointShape(shape: IShapeAnnotation, deltaX: number, deltaY: number): IShapeAnnotation {
+        return {
+            ...shape,
+            x: shape.x + deltaX,
+            y: shape.y + deltaY,
+            points: shape.points?.map(point => translatePoint(point, deltaX, deltaY)),
+            strokes: shape.strokes?.map(points => points.map(point => translatePoint(point, deltaX, deltaY))),
+        };
+    }
+
+    function translatePositionShape(shape: IShapeAnnotation, deltaX: number, deltaY: number): IShapeAnnotation {
+        return {
+            ...shape,
+            x: shape.x + deltaX,
+            y: shape.y + deltaY,
+        };
+    }
+
+    function isLineShape(shape: IShapeAnnotation) {
+        return shape.type === 'line' || shape.type === 'arrow';
+    }
+
+    function hasTranslatablePointGeometry(shape: IShapeAnnotation) {
+        return (shape.type === 'polyline' || shape.type === 'polygon')
+            && (Boolean(shape.points) || Boolean(shape.strokes));
+    }
+
+    const shapeTranslationRules: Array<{
+        matches: (shape: IShapeAnnotation) => boolean;
+        translate: TShapeTranslator;
+    }> = [
+        {
+            matches: isLineShape,
+            translate: translateLineShape,
+        },
+        {
+            matches: hasTranslatablePointGeometry,
+            translate: translatePointShape,
+        },
+    ];
+
+    function resolveShapeTranslator(shape: IShapeAnnotation): TShapeTranslator {
+        return shapeTranslationRules.find(rule => rule.matches(shape))?.translate ?? translatePositionShape;
+    }
+
+    function translateShape(shape: IShapeAnnotation, deltaX: number, deltaY: number): IShapeAnnotation {
+        const safeDelta = resolveSafeShapeTranslation(shape, deltaX, deltaY);
+        return resolveShapeTranslator(shape)(shape, safeDelta.x, safeDelta.y);
     }
 
     function cloneShape(shape: IShapeAnnotation): IShapeAnnotation {

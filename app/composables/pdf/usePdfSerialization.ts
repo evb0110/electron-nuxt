@@ -196,6 +196,38 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         };
     }
 
+    function applyMarkupPayload(payload: IPdfSerializationSavePayload) {
+        payload.markupSubtypeOverrides = Array.from(getMarkupSubtypeOverrides()?.entries() ?? []);
+        payload.markupSubtypeHints = collectMarkupSubtypeHints(annotationComments.value);
+    }
+
+    function applyShapePayload(
+        payload: IPdfSerializationSavePayload,
+        options?: Pick<ISerializePdfForSaveOptions, 'includeShapes' | 'rewriteShapeState'>,
+    ) {
+        payload.rewriteShapeState = options?.rewriteShapeState ?? false;
+        payload.shapes = (options?.includeShapes ?? true) ? getAllShapes() : [];
+        payload.deletedShapeAnnotationIds = getDeletedEmbeddedShapeAnnotationIds?.() ?? [];
+        payload.deletedShapeStableKeys = getDeletedEmbeddedShapeStableKeys?.() ?? [];
+    }
+
+    function applyAnnotationPayload(
+        payload: IPdfSerializationSavePayload,
+        options?: Pick<ISerializePdfForSaveOptions, 'pendingTexts' | 'pendingDeletes'>,
+    ) {
+        payload.freeTextComments = getFreeTextNoteComments();
+        payload.annotationComments = annotationComments.value;
+        payload.pendingEmbeddedTextUpdates = Array.from(options?.pendingTexts?.entries() ?? []);
+        payload.pendingEmbeddedAnnotationDeletes = options?.pendingDeletes ?? [];
+    }
+
+    function applyDocumentStructurePayload(payload: IPdfSerializationSavePayload) {
+        payload.pageLabelsDirty = pageLabelsDirty.value;
+        payload.pageLabelRanges = pageLabelRanges.value;
+        payload.bookmarksDirty = bookmarksDirty?.value ?? false;
+        payload.bookmarkItems = bookmarkItems?.value ?? [];
+    }
+
     async function runSerializedEdit(
         data: Uint8Array,
         payload: IPdfSerializationSavePayload,
@@ -241,20 +273,10 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         options?: ISerializePdfForSaveOptions,
     ): Promise<IPdfSerializationSavePayload> {
         const payload = createEmptySavePayload();
-        payload.markupSubtypeOverrides = Array.from(getMarkupSubtypeOverrides()?.entries() ?? []);
-        payload.markupSubtypeHints = collectMarkupSubtypeHints(annotationComments.value);
-        payload.rewriteShapeState = options?.rewriteShapeState ?? false;
-        payload.shapes = (options?.includeShapes ?? true) ? getAllShapes() : [];
-        payload.deletedShapeAnnotationIds = getDeletedEmbeddedShapeAnnotationIds?.() ?? [];
-        payload.deletedShapeStableKeys = getDeletedEmbeddedShapeStableKeys?.() ?? [];
-        payload.freeTextComments = getFreeTextNoteComments();
-        payload.annotationComments = annotationComments.value;
-        payload.pendingEmbeddedTextUpdates = Array.from(options?.pendingTexts?.entries() ?? []);
-        payload.pendingEmbeddedAnnotationDeletes = options?.pendingDeletes ?? [];
-        payload.pageLabelsDirty = pageLabelsDirty.value;
-        payload.pageLabelRanges = pageLabelRanges.value;
-        payload.bookmarksDirty = bookmarksDirty?.value ?? false;
-        payload.bookmarkItems = bookmarkItems?.value ?? [];
+        applyMarkupPayload(payload);
+        applyShapePayload(payload, options);
+        applyAnnotationPayload(payload, options);
+        applyDocumentStructurePayload(payload);
         payload.placedImage = await toSerializedPlacedImagePayload(options?.placedImage);
         return payload;
     }
@@ -269,17 +291,16 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
     async function rewriteMarkupSubtypes(data: Uint8Array): Promise<Uint8Array> {
         const payload = createEmptySavePayload();
-        payload.markupSubtypeOverrides = Array.from(getMarkupSubtypeOverrides()?.entries() ?? []);
-        payload.markupSubtypeHints = collectMarkupSubtypeHints(annotationComments.value);
+        applyMarkupPayload(payload);
         return runSerializedEdit(data, payload);
     }
 
     async function serializeShapeAnnotations(data: Uint8Array): Promise<Uint8Array> {
         const payload = createEmptySavePayload();
-        payload.rewriteShapeState = true;
-        payload.shapes = getAllShapes();
-        payload.deletedShapeAnnotationIds = getDeletedEmbeddedShapeAnnotationIds?.() ?? [];
-        payload.deletedShapeStableKeys = getDeletedEmbeddedShapeStableKeys?.() ?? [];
+        applyShapePayload(payload, {
+            includeShapes: true,
+            rewriteShapeState: true,
+        });
         return runSerializedEdit(data, payload);
     }
 
