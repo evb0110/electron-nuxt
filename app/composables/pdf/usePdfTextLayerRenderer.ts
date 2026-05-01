@@ -126,29 +126,38 @@ export const usePdfTextLayerRenderer = (deps: {
         return Array.from(wordsByKey.values());
     }
 
+    function buildCurrentMatchSignature(currentMatchValue: IPdfSearchMatch) {
+        return [
+            'current',
+            currentMatchValue.matchIndex,
+            currentMatchValue.pageMatchIndex ?? -1,
+            currentMatchValue.startOffset,
+            currentMatchValue.endOffset,
+            currentMatchValue.words?.length ?? 0,
+        ].join(':');
+    }
+
+    function isCurrentMatchForPage(
+        currentMatchValue: IPdfSearchMatch | null,
+        pageIndex: number | undefined,
+    ): currentMatchValue is IPdfSearchMatch {
+        return Boolean(currentMatchValue && currentMatchValue.pageIndex === pageIndex);
+    }
+
     function buildPageHighlightSignature(
         pageMatchData: IPdfPageMatches | null,
         currentMatchValue: IPdfSearchMatch | null,
     ) {
         if (!pageMatchData || pageMatchData.matches.length === 0) {
-            return currentMatchValue && currentMatchValue.pageIndex === pageMatchData?.pageIndex
+            return isCurrentMatchForPage(currentMatchValue, pageMatchData?.pageIndex)
                 ? `empty|current=${currentMatchValue.matchIndex}:${currentMatchValue.pageMatchIndex ?? -1}`
                 : 'empty';
         }
 
         const parts: string[] = [pageMatchData.signatureToken ?? `${pageMatchData.pageIndex}:${pageMatchData.matches.length}`];
 
-        if (currentMatchValue && currentMatchValue.pageIndex === pageMatchData.pageIndex) {
-            parts.push(
-                [
-                    'current',
-                    currentMatchValue.matchIndex,
-                    currentMatchValue.pageMatchIndex ?? -1,
-                    currentMatchValue.startOffset,
-                    currentMatchValue.endOffset,
-                    currentMatchValue.words?.length ?? 0,
-                ].join(':'),
-            );
+        if (isCurrentMatchForPage(currentMatchValue, pageMatchData.pageIndex)) {
+            parts.push(buildCurrentMatchSignature(currentMatchValue));
         }
 
         return parts.join('|');

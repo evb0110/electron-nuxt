@@ -199,7 +199,7 @@ const {
     handleDragEnter: handleExternalDragEnter,
     handleDragOver: handleExternalDragOver,
     handleDragLeave: handleExternalDragLeave,
-    handleDrop: handleExternalDrop,
+    handleExternalDrop,
 } = usePageDragDrop({
     containerRef,
     totalPages: toRef(props, 'totalPages'),

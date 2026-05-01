@@ -1,6 +1,6 @@
 import { normalizeSelectedPageNumbers } from '@app/utils/pdf-page-selection';
 
-export type TPdfPageScope = 'all' | 'current' | 'selected' | 'range';
+type TPdfPageScope = 'all' | 'current' | 'selected' | 'range';
 
 interface IPdfPageScopeSelectionOptions {
     totalPages: () => number;
@@ -16,19 +16,6 @@ export function usePdfPageScopeSelection(options: IPdfPageScopeSelectionOptions)
 
     const normalizedSelectedPages = computed(() =>
         normalizeSelectedPageNumbers(options.selectedPages(), options.totalPages()));
-
-    const selectedPageCount = computed(() => {
-        if (scope.value === 'all') {
-            return options.totalPages();
-        }
-        if (scope.value === 'current') {
-            return options.totalPages() > 0 ? 1 : 0;
-        }
-        if (scope.value === 'selected') {
-            return normalizedSelectedPages.value.length;
-        }
-        return options.resolveRangePages()?.length ?? 0;
-    });
 
     function resetScopeForOpen() {
         scope.value = normalizedSelectedPages.value.length > 0 ? 'selected' : 'all';
@@ -64,7 +51,6 @@ export function usePdfPageScopeSelection(options: IPdfPageScopeSelectionOptions)
         rangeInput,
         rangeTouched,
         normalizedSelectedPages,
-        selectedPageCount,
         resetScopeForOpen,
         resolveScopedPageNumbers,
     };

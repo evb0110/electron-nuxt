@@ -41,6 +41,15 @@ interface ICanvasScale {
     scaleY: number;
 }
 
+interface IHiddenAnnotationScanState {
+    skippedIndices: Set<number>;
+    annotationStack: boolean[];
+    hiddenDepth: number;
+}
+
+const BEGIN_ANNOTATION_OP = 80;
+const END_ANNOTATION_OP = 81;
+
 export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
     const { outputScale } = deps;
     const hiddenAnnotationOperationsFilterCache = new WeakMap<
@@ -67,46 +76,64 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
             return new Set<number>();
         }
 
-        const skippedIndices = new Set<number>();
-        const annotationStack: boolean[] = [];
-        // PDF.js encodes annotation appearance sections with begin/end annotation
-        // operators in the shared operator list. These op ids are stable.
-        const beginAnnotationOp = 80;
-        const endAnnotationOp = 81;
-        let hiddenDepth = 0;
+        const state: IHiddenAnnotationScanState = {
+            skippedIndices: new Set<number>(),
+            annotationStack: [],
+            hiddenDepth: 0,
+        };
 
-        operatorList.fnArray.forEach((fn, index) => {
-            if (fn === beginAnnotationOp) {
-                const args: unknown = operatorList.argsArray[index];
-                const annotationId = Array.isArray(args) && typeof args[0] === 'string'
-                    ? normalizePdfJsAnnotationId(args[0])
-                    : null;
-                const isHidden = annotationId ? hiddenAnnotationIds.has(annotationId) : false;
-
-                if (hiddenDepth > 0 || isHidden) {
-                    skippedIndices.add(index);
-                }
-
-                annotationStack.push(isHidden);
-                if (isHidden) {
-                    hiddenDepth += 1;
-                }
-                return;
+        for (const [
+            index,
+            fn,
+        ] of operatorList.fnArray.entries()) {
+            if (fn === BEGIN_ANNOTATION_OP) {
+                processBeginAnnotationOperator(
+                    state,
+                    operatorList.argsArray[index],
+                    index,
+                    hiddenAnnotationIds,
+                );
+                continue;
             }
 
-            if (hiddenDepth > 0) {
-                skippedIndices.add(index);
+            if (state.hiddenDepth > 0) {
+                state.skippedIndices.add(index);
             }
 
-            if (fn === endAnnotationOp) {
-                const didHideCurrentAnnotation = annotationStack.pop() ?? false;
-                if (didHideCurrentAnnotation) {
-                    hiddenDepth = Math.max(0, hiddenDepth - 1);
-                }
+            if (fn === END_ANNOTATION_OP) {
+                processEndAnnotationOperator(state);
             }
-        });
+        }
 
-        return skippedIndices;
+        return state.skippedIndices;
+    }
+
+    function processBeginAnnotationOperator(
+        state: IHiddenAnnotationScanState,
+        args: unknown,
+        index: number,
+        hiddenAnnotationIds: Set<string>,
+    ) {
+        const annotationId = Array.isArray(args) && typeof args[0] === 'string'
+            ? normalizePdfJsAnnotationId(args[0])
+            : null;
+        const isHidden = annotationId ? hiddenAnnotationIds.has(annotationId) : false;
+
+        if (state.hiddenDepth > 0 || isHidden) {
+            state.skippedIndices.add(index);
+        }
+
+        state.annotationStack.push(isHidden);
+        if (isHidden) {
+            state.hiddenDepth += 1;
+        }
+    }
+
+    function processEndAnnotationOperator(state: IHiddenAnnotationScanState) {
+        const didHideCurrentAnnotation = state.annotationStack.pop() ?? false;
+        if (didHideCurrentAnnotation) {
+            state.hiddenDepth = Math.max(0, state.hiddenDepth - 1);
+        }
     }
 
     function getHiddenAnnotationFilterCacheKey(

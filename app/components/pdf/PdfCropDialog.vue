@@ -153,7 +153,7 @@
                 color="neutral"
                 variant="ghost"
                 :label="t('crop.removeCrop')"
-                :disabled="loading || resolvedPages.length === 0"
+                :disabled="loading || cropPages.length === 0"
                 @click="handleRemoveCrop"
             />
             <div class="flex gap-2">
@@ -298,14 +298,14 @@ const previewPageStyle = computed(() => {
 const isValid = computed(() => {
     const cropWidth = props.mediaBox.width - margins.left - margins.right;
     const cropHeight = props.mediaBox.height - margins.top - margins.bottom;
-    return cropWidth > 0 && cropHeight > 0 && resolvedPages.value.length > 0;
+    return cropWidth > 0 && cropHeight > 0 && cropPages.value.length > 0;
 });
 
 const rangePages = computed(() => {
     return expandPageRange(parsePageRangeInput(rangeInput.value, props.totalPages));
 });
 
-const resolvedPages = computed((): number[] => {
+const cropPages = computed((): number[] => {
     switch (scope.value) {
         case 'all': return createAllPageNumbers(props.totalPages);
         case 'current': return [props.currentPage];
@@ -332,13 +332,13 @@ function handleApply() {
 
     emit('apply', {
         margins: { ...margins },
-        pages: resolvedPages.value,
+        pages: cropPages.value,
     });
     open.value = false;
 }
 
 function handleRemoveCrop() {
-    const pages = resolvedPages.value;
+    const pages = cropPages.value;
     if (pages.length === 0) {
         return;
     }

@@ -200,17 +200,24 @@ function normalizePersistedKind(value: unknown): TPersistedDocumentKind | null {
     return null;
 }
 
+function readRequiredString(value: unknown) {
+    return typeof value === 'string' ? value : null;
+}
+
+function readRequiredNumber(value: unknown) {
+    return typeof value === 'number' ? value : null;
+}
+
 function readPersistedDocumentRequiredFields(
     value: Record<string, unknown>,
 ): IPersistedDocumentRequiredFields | null {
-    const ref = typeof value.ref === 'string' ? value.ref : null;
-    const fileName = typeof value.fileName === 'string' ? value.fileName : null;
-    const mimeType = typeof value.mimeType === 'string' ? value.mimeType : null;
+    const ref = readRequiredString(value.ref);
+    const fileName = readRequiredString(value.fileName);
+    const mimeType = readRequiredString(value.mimeType);
     const kind = normalizePersistedKind(value.kind);
     const data = normalizePersistedBytes(value.data);
-    const fileSize = typeof value.fileSize === 'number' ? value.fileSize : null;
-    const updatedAt =
-        typeof value.updatedAt === 'number' ? value.updatedAt : null;
+    const fileSize = readRequiredNumber(value.fileSize);
+    const updatedAt = readRequiredNumber(value.updatedAt);
 
     if (!ref || !fileName || !mimeType || !kind || !data || fileSize === null || updatedAt === null) {
         return null;
@@ -318,6 +325,111 @@ function normalizePersistedWriteBytes(
 ) {
     const bytes = toUint8Array(data);
     return cloneData ? cloneBytes(bytes) : bytes;
+}
+
+function defaultSaveKindForFileName(fileName: string): IBrowserDocumentEntry['saveKind'] {
+    if (/\.pdf$/i.test(fileName)) {
+        return 'pdf';
+    }
+
+    if (/\.docx$/i.test(fileName)) {
+        return 'docx';
+    }
+
+    return 'generic';
+}
+
+function createEntryFromPersistedRecord(
+    record: IBrowserPersistedDocumentRecord,
+): IBrowserDocumentEntry {
+    return {
+        ...record,
+        data: cloneBytes(record.data),
+        pendingLoad: null,
+        retention: record.retention ?? defaultRetentionForKind(record.kind),
+        saveName: record.saveName ?? record.fileName,
+        saveKind: record.saveKind ?? defaultSaveKindForFileName(record.fileName),
+        saveHandle: record.saveHandle ?? null,
+        storageMode: record.storageMode ?? 'inline',
+        chunkCount: record.chunkCount ?? 0,
+        chunkSize: record.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
+    };
+}
+
+function collectChunkIndicesByRef(chunkKeys: IChunkKeyRecord[]) {
+    const chunkIndicesByRef = new Map<string, Set<number>>();
+    for (const chunkKey of chunkKeys) {
+        let refChunks = chunkIndicesByRef.get(chunkKey.ref);
+        if (!refChunks) {
+            refChunks = new Set<number>();
+            chunkIndicesByRef.set(chunkKey.ref, refChunks);
+        }
+        refChunks.add(chunkKey.index);
+    }
+    return chunkIndicesByRef;
+}
+
+function isChunkedRecordMissingChunks(
+    record: IBrowserPersistedDocumentRecord,
+    chunkIndicesByRef: Map<string, Set<number>>,
+) {
+    const chunkCount = record.chunkCount ?? 0;
+    if (record.storageMode !== 'chunked' || chunkCount <= 0) {
+        return false;
+    }
+
+    const chunkIndices = chunkIndicesByRef.get(record.ref);
+    if (!chunkIndices) {
+        return true;
+    }
+
+    for (let index = 0; index < chunkCount; index += 1) {
+        if (!chunkIndices.has(index)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function countNonWorkingDependents(records: IBrowserPersistedDocumentRecord[]) {
+    const dependentCounts = new Map<string, number>();
+    for (const record of records) {
+        if (!record.sourceRef || record.kind === 'working') {
+            continue;
+        }
+
+        dependentCounts.set(
+            record.sourceRef,
+            (dependentCounts.get(record.sourceRef) ?? 0) + 1,
+        );
+    }
+    return dependentCounts;
+}
+
+function shouldRemovePersistedRecord(
+    record: IBrowserPersistedDocumentRecord,
+    recentRefs: Set<string>,
+    nonWorkingDependentCounts: Map<string, number>,
+) {
+    return (
+        record.kind === 'working'
+        || (
+            !recentRefs.has(record.ref)
+            && (nonWorkingDependentCounts.get(record.ref) ?? 0) === 0
+        )
+    );
+}
+
+function normalizeReadRange(offset: number, length: number) {
+    const start = Math.max(0, Math.floor(offset));
+    const rangeLength = Math.max(0, Math.floor(length));
+
+    return {
+        start,
+        rangeLength,
+        end: start + rangeLength,
+    };
 }
 
 async function openDatabase() {
@@ -854,24 +966,7 @@ export class BrowserDocumentStore {
             return null;
         }
 
-        const entry: IBrowserDocumentEntry = {
-            ...normalizedRecord,
-            data: cloneBytes(normalizedRecord.data),
-            pendingLoad: null,
-            retention: normalizedRecord.retention ?? defaultRetentionForKind(normalizedRecord.kind),
-            saveName: normalizedRecord.saveName ?? normalizedRecord.fileName,
-            saveKind: normalizedRecord.saveKind ?? (
-                /\.pdf$/i.test(normalizedRecord.fileName)
-                    ? 'pdf'
-                    : /\.docx$/i.test(normalizedRecord.fileName)
-                        ? 'docx'
-                        : 'generic'
-            ),
-            saveHandle: normalizedRecord.saveHandle ?? null,
-            storageMode: normalizedRecord.storageMode ?? 'inline',
-            chunkCount: normalizedRecord.chunkCount ?? 0,
-            chunkSize: normalizedRecord.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
-        };
+        const entry = createEntryFromPersistedRecord(normalizedRecord);
 
         this.entries.set(ref, entry);
         return entry;
@@ -1300,26 +1395,12 @@ export class BrowserDocumentStore {
             writeRecentFilesToStorage(recentFiles);
         }
         const recentRefs = new Set(recentFiles.map((file) => file.originalPath));
-        const nonWorkingDependentCounts = new Map<string, number>();
-
-        for (const record of records) {
-            if (!record.sourceRef || record.kind === 'working') {
-                continue;
-            }
-
-            nonWorkingDependentCounts.set(
-                record.sourceRef,
-                (nonWorkingDependentCounts.get(record.sourceRef) ?? 0) + 1,
-            );
-        }
-
+        const nonWorkingDependentCounts = countNonWorkingDependents(records);
         const refsToRemove = records
-            .filter((record) => (
-                record.kind === 'working'
-                || (
-                    !recentRefs.has(record.ref)
-                    && (nonWorkingDependentCounts.get(record.ref) ?? 0) === 0
-                )
+            .filter((record) => shouldRemovePersistedRecord(
+                record,
+                recentRefs,
+                nonWorkingDependentCounts,
             ))
             .map(record => record.ref);
 
@@ -1333,34 +1414,9 @@ export class BrowserDocumentStore {
                 .map((key) => typeof key === 'string' ? parseChunkKey(key) : null)
                 .filter((key): key is IChunkKeyRecord => key !== null)
             : [];
-        const chunkIndicesByRef = new Map<string, Set<number>>();
-        for (const chunkKey of chunkKeys) {
-            let refChunks = chunkIndicesByRef.get(chunkKey.ref);
-            if (!refChunks) {
-                refChunks = new Set<number>();
-                chunkIndicesByRef.set(chunkKey.ref, refChunks);
-            }
-            refChunks.add(chunkKey.index);
-        }
+        const chunkIndicesByRef = collectChunkIndicesByRef(chunkKeys);
         const brokenChunkRefs = records
-            .filter((record) => {
-                if (record.storageMode !== 'chunked' || (record.chunkCount ?? 0) <= 0) {
-                    return false;
-                }
-
-                const chunkIndices = chunkIndicesByRef.get(record.ref);
-                if (!chunkIndices) {
-                    return true;
-                }
-
-                for (let index = 0; index < (record.chunkCount ?? 0); index += 1) {
-                    if (!chunkIndices.has(index)) {
-                        return true;
-                    }
-                }
-
-                return false;
-            })
+            .filter((record) => isChunkedRecordMissingChunks(record, chunkIndicesByRef))
             .map((record) => record.ref);
         const refsToRemoveSet = new Set([
             ...refsToRemove,
@@ -1570,9 +1626,11 @@ export class BrowserDocumentStore {
         offset: number,
         length: number,
     ) {
-        const start = Math.max(0, Math.floor(offset));
-        const rangeLength = Math.max(0, Math.floor(length));
-        const end = start + rangeLength;
+        const {
+            start,
+            rangeLength,
+            end,
+        } = normalizeReadRange(offset, length);
 
         switch (entry.storageMode) {
             case 'source-proxy':
@@ -1592,44 +1650,54 @@ export class BrowserDocumentStore {
                 return bytes;
             }
             case 'chunked': {
-                if (rangeLength === 0 || entry.chunkCount === 0 || entry.fileSize === 0) {
-                    return new Uint8Array();
-                }
-                const boundedEnd = Math.min(end, entry.fileSize);
-                const boundedLength = Math.max(0, boundedEnd - start);
-                if (boundedLength === 0) {
-                    return new Uint8Array();
-                }
-                const output = new Uint8Array(boundedLength);
-                const chunkSize = Math.max(1, entry.chunkSize);
-                const firstChunkIndex = Math.floor(start / chunkSize);
-                const lastChunkIndex = Math.floor((boundedEnd - 1) / chunkSize);
-                let outputOffset = 0;
-
-                for (
-                    let chunkIndex = firstChunkIndex;
-                    chunkIndex <= lastChunkIndex;
-                    chunkIndex += 1
-                ) {
-                    const chunk = await this.loadChunk(entry.ref, chunkIndex);
-                    if (!chunk) {
-                        throw new Error(`Browser document chunk missing: ${entry.ref}#${chunkIndex}`);
-                    }
-
-                    const chunkStart = chunkIndex * chunkSize;
-                    const sliceStart = Math.max(0, start - chunkStart);
-                    const sliceEnd = Math.min(chunk.byteLength, boundedEnd - chunkStart);
-                    const slice = chunk.slice(sliceStart, sliceEnd);
-                    output.set(slice, outputOffset);
-                    outputOffset += slice.byteLength;
-                }
-
-                return output;
+                return this.readChunkedEntryRange(entry, start, rangeLength, end);
             }
             case 'inline':
             default:
                 return entry.data.slice(start, end);
         }
+    }
+
+    private async readChunkedEntryRange(
+        entry: IBrowserDocumentEntry,
+        start: number,
+        rangeLength: number,
+        end: number,
+    ) {
+        if (rangeLength === 0 || entry.chunkCount === 0 || entry.fileSize === 0) {
+            return new Uint8Array();
+        }
+        const boundedEnd = Math.min(end, entry.fileSize);
+        const boundedLength = Math.max(0, boundedEnd - start);
+        if (boundedLength === 0) {
+            return new Uint8Array();
+        }
+
+        const output = new Uint8Array(boundedLength);
+        const chunkSize = Math.max(1, entry.chunkSize);
+        const firstChunkIndex = Math.floor(start / chunkSize);
+        const lastChunkIndex = Math.floor((boundedEnd - 1) / chunkSize);
+        let outputOffset = 0;
+
+        for (
+            let chunkIndex = firstChunkIndex;
+            chunkIndex <= lastChunkIndex;
+            chunkIndex += 1
+        ) {
+            const chunk = await this.loadChunk(entry.ref, chunkIndex);
+            if (!chunk) {
+                throw new Error(`Browser document chunk missing: ${entry.ref}#${chunkIndex}`);
+            }
+
+            const chunkStart = chunkIndex * chunkSize;
+            const sliceStart = Math.max(0, start - chunkStart);
+            const sliceEnd = Math.min(chunk.byteLength, boundedEnd - chunkStart);
+            const slice = chunk.slice(sliceStart, sliceEnd);
+            output.set(slice, outputOffset);
+            outputOffset += slice.byteLength;
+        }
+
+        return output;
     }
 
     private async loadChunk(ref: string, index: number): Promise<Uint8Array | null> {

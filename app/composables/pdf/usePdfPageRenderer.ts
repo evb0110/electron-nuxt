@@ -102,6 +102,57 @@ interface IRenderVisiblePagesOptions {
     maxCanvasPixelsOverride?: number;
 }
 
+interface IRerenderAllVisiblePagesOptions {
+    preserveExistingPages?: boolean;
+    anchorSnapshot?: IScrollSnapshot | null;
+    disableHorizontalAnchorRestore?: boolean;
+    disableVerticalAnchorRestore?: boolean;
+    disablePageAnchorRestore?: boolean;
+    rerenderSource?: string;
+    renderBufferOverride?: number;
+    maxCanvasPixelsOverride?: number;
+}
+
+interface IVisibleRenderBounds {
+    renderStart: number;
+    renderEnd: number;
+}
+
+interface ISinglePageRenderTarget {
+    container: HTMLElement;
+    canvasHost: HTMLDivElement;
+}
+
+interface IRoundedScrollPosition {
+    scrollTop: number | null;
+    scrollLeft: number | null;
+}
+
+interface IRenderVisiblePagesRequest extends IVisibleRenderBounds {
+    containerRoot: HTMLElement;
+    version: number;
+    buffer: number;
+    forceRerender: boolean;
+}
+
+interface INormalizedRerenderOptions {
+    preserveExistingPages: boolean;
+    anchorSnapshot: IScrollSnapshot | null;
+    disableHorizontalAnchorRestore: boolean;
+    disableVerticalAnchorRestore: boolean;
+    disablePageAnchorRestore: boolean;
+    rerenderSource: string;
+    renderBufferOverride?: number;
+    maxCanvasPixelsOverride?: number;
+}
+
+interface IRerenderRestoreContext extends INormalizedRerenderOptions {
+    version: number;
+    snapshotToRestore: IScrollSnapshot | null;
+}
+
+type TRerenderRestoreMode = 'preserve' | 'full';
+
 function createPageRenderTimeoutError(
     pageNumber: number,
     stage: TPageRenderStallStage,
@@ -851,6 +902,164 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         options.onPageRendered?.(pageNumber);
     }
 
+    function shouldSkipSingleVisiblePageRender(
+        pageNumber: number,
+        version: number,
+        forceRerender: boolean,
+    ) {
+        if (renderVersion !== version) {
+            return true;
+        }
+
+        if (renderedPages.has(pageNumber)) {
+            const isStaleRender = staleRenderedPages.has(pageNumber);
+            if (!forceRerender && !isStaleRender) {
+                return true;
+            }
+        }
+
+        return renderingPages.get(pageNumber) === version;
+    }
+
+    function getSinglePageRenderTarget(
+        containerRoot: HTMLElement,
+        pageNumber: number,
+    ): ISinglePageRenderTarget | null {
+        const container = getPageContainer(containerRoot, pageNumber - 1);
+        if (!container) {
+            return null;
+        }
+
+        const canvasHost =
+            container.querySelector<HTMLDivElement>('.page_canvas');
+        if (!canvasHost) {
+            return null;
+        }
+
+        return {
+            container,
+            canvasHost,
+        };
+    }
+
+    async function mountSingleVisiblePageLayers(
+        pageNumber: number,
+        version: number,
+        scale: number,
+        target: ISinglePageRenderTarget,
+        pdfPage: PDFPageProxy,
+        renderResult: Awaited<ReturnType<typeof prepareCanvasForRender>>,
+    ) {
+        if (!renderResult) {
+            return;
+        }
+
+        if (renderVersion !== version) {
+            canvasRenderer.cleanupCanvas(renderResult.canvas);
+            return;
+        }
+
+        mountRenderedCanvas(pageNumber, target.container, target.canvasHost, renderResult, scale);
+
+        const textLayerDiv =
+            target.container.querySelector<HTMLDivElement>('.text-layer');
+        const renderContext: IRenderPageContext = {
+            container: target.container,
+            pdfPage,
+            renderResult,
+            textLayerDiv,
+            annotationLayerInstance: null,
+        };
+        const shouldContinueAfterTextLayer = await renderTextLayerForPage(
+            pageNumber,
+            version,
+            renderContext,
+            scale,
+        );
+        if (!shouldContinueAfterTextLayer) {
+            return;
+        }
+
+        const annotationRenderResult = await renderAnnotationLayersForPage(
+            pageNumber,
+            version,
+            renderContext,
+        );
+        if (!annotationRenderResult.shouldContinue) {
+            return;
+        }
+
+        renderContext.annotationLayerInstance =
+            annotationRenderResult.annotationLayerInstance;
+        scheduleOcrDebugForPage(pageNumber, renderContext);
+        finalizePageRender(pageNumber, version, pdfPage);
+    }
+
+    function scheduleCancelledPageRenderRetry(pageNumber: number, version: number) {
+        if (renderVersion !== version) {
+            return;
+        }
+
+        setTimeout(() => {
+            if (renderVersion !== version) {
+                return;
+            }
+            scheduleRenderForSinglePage(pageNumber, {
+                preserveRenderedPages: true,
+                bufferOverride: 0,
+            });
+        }, 0);
+    }
+
+    function logPageRenderTimeout(error: IPageRenderTimeoutError, version: number) {
+        BrowserLogger.warn(
+            'pdf-renderer',
+            `Timed out waiting for ${error.stage} on page ${error.pageNumber}`,
+            {
+                pageNumber: error.pageNumber,
+                stage: error.stage,
+                timeoutMs: error.timeoutMs,
+                renderVersion: version,
+                currentRenderVersion: renderVersion,
+                currentPage: options.currentPage.value,
+                totalPages: numPages.value,
+            },
+        );
+    }
+
+    function handleSinglePageRenderError(
+        error: unknown,
+        pageNumber: number,
+        version: number,
+    ) {
+        if (isRenderingCancelledError(error)) {
+            scheduleCancelledPageRenderRetry(pageNumber, version);
+            return;
+        }
+
+        if (isPageRenderTimeoutError(error)) {
+            logPageRenderTimeout(error, version);
+            cleanupPageIfCurrentRender(pageNumber, version);
+            return;
+        }
+
+        BrowserLogger.error(
+            'pdf-renderer',
+            formatRenderError(error, pageNumber),
+        );
+        cleanupPageIfCurrentRender(pageNumber, version);
+    }
+
+    function clearSinglePageRenderTracking(pageNumber: number, version: number) {
+        const activeRenderTask = activeRenderTasks.get(pageNumber);
+        if (activeRenderTask && activeRenderTask.version === version) {
+            activeRenderTasks.delete(pageNumber);
+        }
+        if (renderingPages.get(pageNumber) === version) {
+            renderingPages.delete(pageNumber);
+        }
+    }
+
     async function renderSingleVisiblePage(
         containerRoot: HTMLElement,
         pageNumber: number,
@@ -859,33 +1068,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         forceRerender: boolean,
         renderOptions?: IRenderVisiblePagesOptions,
     ) {
-        if (renderVersion !== version) {
-            return;
-        }
-
-        if (renderedPages.has(pageNumber)) {
-            const isStaleRender = staleRenderedPages.has(pageNumber);
-            if (!forceRerender && !isStaleRender) {
-                return;
-            }
-        }
-
-        const alreadyRenderingVersion = renderingPages.get(pageNumber);
-        if (alreadyRenderingVersion === version) {
+        if (shouldSkipSingleVisiblePageRender(pageNumber, version, forceRerender)) {
             return;
         }
 
         renderingPages.set(pageNumber, version);
 
         try {
-            const container = getPageContainer(containerRoot, pageNumber - 1);
-            if (!container) {
-                return;
-            }
-
-            const canvasHost =
-                container.querySelector<HTMLDivElement>('.page_canvas');
-            if (!canvasHost) {
+            const target = getSinglePageRenderTarget(containerRoot, pageNumber);
+            if (!target) {
                 return;
             }
 
@@ -905,165 +1096,121 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 return;
             }
 
-            if (renderVersion !== version) {
-                canvasRenderer.cleanupCanvas(renderResult.canvas);
-                return;
-            }
-
-            mountRenderedCanvas(pageNumber, container, canvasHost, renderResult, scale);
-
-            const textLayerDiv =
-                container.querySelector<HTMLDivElement>('.text-layer');
-            const renderContext: IRenderPageContext = {
-                container,
+            await mountSingleVisiblePageLayers(
+                pageNumber,
+                version,
+                scale,
+                target,
                 pdfPage,
                 renderResult,
-                textLayerDiv,
-                annotationLayerInstance: null,
-            };
-            const shouldContinueAfterTextLayer = await renderTextLayerForPage(
-                pageNumber,
-                version,
-                renderContext,
-                scale,
             );
-            if (!shouldContinueAfterTextLayer) {
-                return;
-            }
-
-            const annotationRenderResult = await renderAnnotationLayersForPage(
-                pageNumber,
-                version,
-                renderContext,
-            );
-            if (!annotationRenderResult.shouldContinue) {
-                return;
-            }
-            renderContext.annotationLayerInstance =
-                annotationRenderResult.annotationLayerInstance;
-            scheduleOcrDebugForPage(pageNumber, renderContext);
-            finalizePageRender(pageNumber, version, pdfPage);
         } catch (error) {
-            if (isRenderingCancelledError(error)) {
-                if (renderVersion === version) {
-                    setTimeout(() => {
-                        if (renderVersion !== version) {
-                            return;
-                        }
-                        scheduleRenderForSinglePage(pageNumber, {
-                            preserveRenderedPages: true,
-                            bufferOverride: 0,
-                        });
-                    }, 0);
-                }
-                return;
-            }
-
-            if (isPageRenderTimeoutError(error)) {
-                BrowserLogger.warn(
-                    'pdf-renderer',
-                    `Timed out waiting for ${error.stage} on page ${error.pageNumber}`,
-                    {
-                        pageNumber: error.pageNumber,
-                        stage: error.stage,
-                        timeoutMs: error.timeoutMs,
-                        renderVersion: version,
-                        currentRenderVersion: renderVersion,
-                        currentPage: options.currentPage.value,
-                        totalPages: numPages.value,
-                    },
-                );
-                cleanupPageIfCurrentRender(pageNumber, version);
-                return;
-            }
-
-            BrowserLogger.error(
-                'pdf-renderer',
-                formatRenderError(error, pageNumber),
-            );
-            cleanupPageIfCurrentRender(pageNumber, version);
+            handleSinglePageRenderError(error, pageNumber, version);
         } finally {
-            const activeRenderTask = activeRenderTasks.get(pageNumber);
-            if (activeRenderTask && activeRenderTask.version === version) {
-                activeRenderTasks.delete(pageNumber);
-            }
-            if (renderingPages.get(pageNumber) === version) {
-                renderingPages.delete(pageNumber);
-            }
+            clearSinglePageRenderTracking(pageNumber, version);
         }
     }
 
-    async function renderVisiblePages(
+    function getVisibleRenderBounds(
+        visibleRange: IPageRange,
+        buffer: number,
+    ): IVisibleRenderBounds {
+        return {
+            renderStart: Math.max(1, visibleRange.start - buffer),
+            renderEnd: Math.min(numPages.value, visibleRange.end + buffer),
+        };
+    }
+
+    function getRenderVisiblePagesRequest(
         visibleRange: IPageRange,
         renderOptions?: IRenderVisiblePagesOptions,
-    ) {
+    ): IRenderVisiblePagesRequest | null {
         const containerRoot = options.container.value;
-
         if (!containerRoot || numPages.value === 0) {
-            return;
+            return null;
         }
 
         const version = renderVersion;
         const buffer = renderOptions?.bufferOverride ?? toValue(bufferPages);
         const forceRerender = renderOptions?.forceRerender ?? false;
+        return {
+            containerRoot,
+            version,
+            buffer,
+            forceRerender,
+            ...getVisibleRenderBounds(visibleRange, buffer),
+        };
+    }
 
-        const renderStart = Math.max(1, visibleRange.start - buffer);
-        const renderEnd = Math.min(numPages.value, visibleRange.end + buffer);
-
+    async function hydratePageMetricsForVisibleRender(request: IRenderVisiblePagesRequest) {
         const didHydrateMetrics = await ensurePageMetricsInRange(
-            renderStart,
-            renderEnd,
+            request.renderStart,
+            request.renderEnd,
         );
-        if (renderVersion !== version) {
-            return;
+        if (renderVersion !== request.version) {
+            return false;
         }
         if (didHydrateMetrics) {
             setupPagePlaceholders();
         }
+        return true;
+    }
 
-        const pagesToKeep = new Set(range(renderStart, renderEnd + 1));
-
-        if (!renderOptions?.preserveRenderedPages) {
-            for (const pageNum of renderedPages) {
-                if (!pagesToKeep.has(pageNum)) {
-                    cleanupPage(pageNum);
-                }
+    function cleanupRenderedPagesOutside(pagesToKeep: Set<number>) {
+        for (const pageNum of renderedPages) {
+            if (!pagesToKeep.has(pageNum)) {
+                cleanupPage(pageNum);
             }
         }
+    }
 
-        const pagesToRenderNow = range(renderStart, renderEnd + 1).filter(
+    function getPagesToRenderNow(
+        renderStart: number,
+        renderEnd: number,
+        forceRerender: boolean,
+    ) {
+        return range(renderStart, renderEnd + 1).filter(
             (i) => forceRerender || staleRenderedPages.has(i) || !renderedPages.has(i),
         );
+    }
 
-        if (pagesToRenderNow.length === 0) {
-            return;
-        }
-
+    async function waitForMountedPageContainers(
+        containerRoot: HTMLElement,
+        pagesToRenderNow: number[],
+        visibleRange: IPageRange,
+        version: number,
+    ) {
         const pagesMissingMountedContainer = pagesToRenderNow.filter(
             (pageNumber) => !getPageContainer(containerRoot, pageNumber - 1),
         );
-        if (pagesMissingMountedContainer.length > 0) {
-            BrowserLogger.warnThrottled(
-                'pdf-renderer',
-                'render-visible-wait-for-mounted-pages',
-                RERENDER_LOG_THROTTLE_MS,
-                'Waiting for virtualized page containers before rendering',
-                {
-                    pagesMissingMountedContainer,
-                    visibleRange,
-                    renderVersion: version,
-                    currentRenderVersion: renderVersion,
-                    currentPage: options.currentPage.value,
-                },
-            );
-            await nextTick();
-            if (renderVersion !== version) {
-                return;
-            }
+        if (pagesMissingMountedContainer.length === 0) {
+            return;
         }
 
-        const scale = toValue(options.effectiveScale);
+        BrowserLogger.warnThrottled(
+            'pdf-renderer',
+            'render-visible-wait-for-mounted-pages',
+            RERENDER_LOG_THROTTLE_MS,
+            'Waiting for virtualized page containers before rendering',
+            {
+                pagesMissingMountedContainer,
+                visibleRange,
+                renderVersion: version,
+                currentRenderVersion: renderVersion,
+                currentPage: options.currentPage.value,
+            },
+        );
+        await nextTick();
+    }
 
+    async function renderVisiblePageBatches(
+        containerRoot: HTMLElement,
+        pagesToRenderNow: number[],
+        version: number,
+        scale: number,
+        forceRerender: boolean,
+        renderOptions?: IRenderVisiblePagesOptions,
+    ) {
         for (const batch of chunk(pagesToRenderNow, CONCURRENT_RENDERS)) {
             await Promise.all(
                 batch.map((pageNumber) => renderSingleVisiblePage(
@@ -1078,121 +1225,79 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
 
-    async function reRenderAllVisiblePages(
-        getVisibleRange: () => IPageRange,
-        rerenderOptions?: {
-            preserveExistingPages?: boolean;
-            anchorSnapshot?: IScrollSnapshot | null;
-            disableHorizontalAnchorRestore?: boolean;
-            disableVerticalAnchorRestore?: boolean;
-            disablePageAnchorRestore?: boolean;
-            rerenderSource?: string;
-            renderBufferOverride?: number;
-            maxCanvasPixelsOverride?: number;
-        },
+    async function renderVisiblePages(
+        visibleRange: IPageRange,
+        renderOptions?: IRenderVisiblePagesOptions,
     ) {
-        const preserveExistingPages = rerenderOptions?.preserveExistingPages ?? false;
-        const anchorSnapshot = rerenderOptions?.anchorSnapshot ?? null;
-        const disableHorizontalAnchorRestore = rerenderOptions?.disableHorizontalAnchorRestore ?? false;
-        const disableVerticalAnchorRestore = rerenderOptions?.disableVerticalAnchorRestore ?? false;
-        const disablePageAnchorRestore = rerenderOptions?.disablePageAnchorRestore ?? false;
-        const rerenderSource = rerenderOptions?.rerenderSource ?? 'unknown';
-        const renderBufferOverride = rerenderOptions?.renderBufferOverride;
-        const maxCanvasPixelsOverride = rerenderOptions?.maxCanvasPixelsOverride;
-        const version = bumpRenderVersion();
-        const containerAtCapture = options.container.value;
-        const snapshot = captureScrollSnapshot(containerAtCapture);
-        const snapshotToRestore = anchorSnapshot ?? snapshot;
-        async function getMountedVisibleRangeAfterRestore() {
-            await nextTick();
-            if (renderVersion !== version) {
-                return null;
-            }
-            const range = getVisibleRange();
-            await nextTick();
-            if (renderVersion !== version) {
-                return null;
-            }
-            return range;
+        const request = getRenderVisiblePagesRequest(visibleRange, renderOptions);
+        if (!request) {
+            return;
         }
 
-        function restoreScrollAndLog(mode: 'preserve' | 'full') {
-            const containerBeforeRestore = options.container.value;
-            const beforeScrollTop = containerBeforeRestore
-                ? Math.round(containerBeforeRestore.scrollTop)
-                : null;
-            const beforeScrollLeft = containerBeforeRestore
-                ? Math.round(containerBeforeRestore.scrollLeft)
-                : null;
-            restoreScrollFromSnapshot(options.container.value, snapshotToRestore, {
-                restoreHorizontal: !disableHorizontalAnchorRestore,
-                restoreVertical: !disableVerticalAnchorRestore,
-                preferPageAnchor: !disablePageAnchorRestore,
-                allowVerticalRatioFallback: rerenderSource !== 'zoom-change',
-            });
-            const containerAfterRestore = options.container.value;
-            const afterScrollTop = containerAfterRestore
-                ? Math.round(containerAfterRestore.scrollTop)
-                : null;
-            const afterScrollLeft = containerAfterRestore
-                ? Math.round(containerAfterRestore.scrollLeft)
-                : null;
-
-            BrowserLogger.warnThrottled('pdf-zoom-debug', `rerender-restore-${mode}`, RERENDER_LOG_THROTTLE_MS, `[rerender-restore] ${mode} source=${rerenderSource} version=${version}`, {
-                rerenderSource,
-                version,
-                beforeScrollTop,
-                afterScrollTop,
-                deltaScrollTop: beforeScrollTop !== null && afterScrollTop !== null
-                    ? afterScrollTop - beforeScrollTop
-                    : null,
-                beforeScrollLeft,
-                afterScrollLeft,
-                deltaScrollLeft: beforeScrollLeft !== null && afterScrollLeft !== null
-                    ? afterScrollLeft - beforeScrollLeft
-                    : null,
-                disableHorizontalAnchorRestore,
-                disableVerticalAnchorRestore,
-                disablePageAnchorRestore,
-                snapshot: snapshotToRestore,
-            });
-            BrowserLogger.warnThrottled('pdf-nav', mode === 'preserve' ? 'rerender-snapshot-restored-preserve' : 'rerender-snapshot-restored', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] restored${mode === 'preserve' ? '-preserve' : ''} version=${version}`, {
-                version,
-                ...(mode === 'preserve' ? { preserveExistingPages } : {}),
-                hasAnchorSnapshotOverride: Boolean(anchorSnapshot),
-                currentPage: options.currentPage.value,
-                numPages: numPages.value,
-                snapshot: snapshotToRestore,
-                scrollTop: containerAfterRestore ? Math.round(containerAfterRestore.scrollTop) : null,
-                clientHeight: containerAfterRestore
-                    ? Math.round(containerAfterRestore.clientHeight)
-                    : null,
-                mostVisiblePage: containerAfterRestore
-                    ? getMostVisiblePageFromDom(containerAfterRestore, numPages.value)
-                    : null,
-            });
+        const {
+            renderStart,
+            renderEnd,
+            forceRerender,
+            containerRoot,
+            version,
+        } = request;
+        if (!await hydratePageMetricsForVisibleRender(request)) {
+            return;
         }
 
-        async function renderMountedVisiblePagesAfterRestore(optionsOverride?: {
-            preserveRenderedPages?: boolean;
-            forceRerender?: boolean;
-        }) {
-            if (renderVersion !== version) {
-                return false;
-            }
+        const pagesToKeep = new Set(range(renderStart, renderEnd + 1));
 
-            const visibleRange = await getMountedVisibleRangeAfterRestore();
-            if (visibleRange === null) {
-                return false;
-            }
-            await renderVisiblePages(visibleRange, {
-                ...optionsOverride,
-                bufferOverride: renderBufferOverride,
-                maxCanvasPixelsOverride,
-            });
-            return true;
+        if (!renderOptions?.preserveRenderedPages) {
+            cleanupRenderedPagesOutside(pagesToKeep);
         }
 
+        const pagesToRenderNow = getPagesToRenderNow(renderStart, renderEnd, forceRerender);
+
+        if (pagesToRenderNow.length === 0) {
+            return;
+        }
+
+        await waitForMountedPageContainers(
+            containerRoot,
+            pagesToRenderNow,
+            visibleRange,
+            version,
+        );
+        if (renderVersion !== version) {
+            return;
+        }
+
+        const scale = toValue(options.effectiveScale);
+        await renderVisiblePageBatches(
+            containerRoot,
+            pagesToRenderNow,
+            version,
+            scale,
+            forceRerender,
+            renderOptions,
+        );
+    }
+
+    function getRoundedScrollPosition(container: HTMLElement | null): IRoundedScrollPosition {
+        return {
+            scrollTop: container ? Math.round(container.scrollTop) : null,
+            scrollLeft: container ? Math.round(container.scrollLeft) : null,
+        };
+    }
+
+    function getNullableDelta(before: number | null, after: number | null) {
+        return before !== null && after !== null
+            ? after - before
+            : null;
+    }
+
+    function logRerenderSnapshotCapture(
+        version: number,
+        preserveExistingPages: boolean,
+        anchorSnapshot: IScrollSnapshot | null,
+        snapshot: IScrollSnapshot | null,
+        containerAtCapture: HTMLElement | null,
+    ) {
         if (snapshot) {
             BrowserLogger.warnThrottled('pdf-nav', 'rerender-snapshot-captured', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] captured version=${version}`, {
                 version,
@@ -1207,16 +1312,199 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     ? getMostVisiblePageFromDom(containerAtCapture, numPages.value)
                     : null,
             });
-        } else {
-            BrowserLogger.warnThrottled('pdf-nav', 'rerender-snapshot-missing', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] missing version=${version}`, {
-                version,
-                preserveExistingPages,
-                hasAnchorSnapshotOverride: Boolean(anchorSnapshot),
-                currentPage: options.currentPage.value,
-                numPages: numPages.value,
-                hasContainer: Boolean(containerAtCapture),
-            });
+            return;
         }
+
+        BrowserLogger.warnThrottled('pdf-nav', 'rerender-snapshot-missing', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] missing version=${version}`, {
+            version,
+            preserveExistingPages,
+            hasAnchorSnapshotOverride: Boolean(anchorSnapshot),
+            currentPage: options.currentPage.value,
+            numPages: numPages.value,
+            hasContainer: Boolean(containerAtCapture),
+        });
+    }
+
+    function logRerenderZoomRestore(
+        mode: TRerenderRestoreMode,
+        rerenderSource: string,
+        version: number,
+        beforeScroll: IRoundedScrollPosition,
+        afterScroll: IRoundedScrollPosition,
+        disableOptions: {
+            disableHorizontalAnchorRestore: boolean;
+            disableVerticalAnchorRestore: boolean;
+            disablePageAnchorRestore: boolean;
+        },
+        snapshotToRestore: IScrollSnapshot | null,
+    ) {
+        BrowserLogger.warnThrottled('pdf-zoom-debug', `rerender-restore-${mode}`, RERENDER_LOG_THROTTLE_MS, `[rerender-restore] ${mode} source=${rerenderSource} version=${version}`, {
+            rerenderSource,
+            version,
+            beforeScrollTop: beforeScroll.scrollTop,
+            afterScrollTop: afterScroll.scrollTop,
+            deltaScrollTop: getNullableDelta(beforeScroll.scrollTop, afterScroll.scrollTop),
+            beforeScrollLeft: beforeScroll.scrollLeft,
+            afterScrollLeft: afterScroll.scrollLeft,
+            deltaScrollLeft: getNullableDelta(beforeScroll.scrollLeft, afterScroll.scrollLeft),
+            ...disableOptions,
+            snapshot: snapshotToRestore,
+        });
+    }
+
+    function logRerenderNavRestore(
+        mode: TRerenderRestoreMode,
+        version: number,
+        preserveExistingPages: boolean,
+        anchorSnapshot: IScrollSnapshot | null,
+        snapshotToRestore: IScrollSnapshot | null,
+        containerAfterRestore: HTMLElement | null,
+    ) {
+        BrowserLogger.warnThrottled('pdf-nav', mode === 'preserve' ? 'rerender-snapshot-restored-preserve' : 'rerender-snapshot-restored', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] restored${mode === 'preserve' ? '-preserve' : ''} version=${version}`, {
+            version,
+            ...(mode === 'preserve' ? { preserveExistingPages } : {}),
+            hasAnchorSnapshotOverride: Boolean(anchorSnapshot),
+            currentPage: options.currentPage.value,
+            numPages: numPages.value,
+            snapshot: snapshotToRestore,
+            scrollTop: containerAfterRestore ? Math.round(containerAfterRestore.scrollTop) : null,
+            clientHeight: containerAfterRestore
+                ? Math.round(containerAfterRestore.clientHeight)
+                : null,
+            mostVisiblePage: containerAfterRestore
+                ? getMostVisiblePageFromDom(containerAfterRestore, numPages.value)
+                : null,
+        });
+    }
+
+    function normalizeRerenderOptions(
+        rerenderOptions?: IRerenderAllVisiblePagesOptions,
+    ): INormalizedRerenderOptions {
+        const {
+            preserveExistingPages = false,
+            anchorSnapshot = null,
+            disableHorizontalAnchorRestore = false,
+            disableVerticalAnchorRestore = false,
+            disablePageAnchorRestore = false,
+            rerenderSource = 'unknown',
+            renderBufferOverride,
+            maxCanvasPixelsOverride,
+        } = rerenderOptions ?? {};
+
+        return {
+            preserveExistingPages,
+            anchorSnapshot,
+            disableHorizontalAnchorRestore,
+            disableVerticalAnchorRestore,
+            disablePageAnchorRestore,
+            rerenderSource,
+            renderBufferOverride,
+            maxCanvasPixelsOverride,
+        };
+    }
+
+    async function getMountedVisibleRangeAfterRestore(
+        version: number,
+        getVisibleRange: () => IPageRange,
+    ) {
+        await nextTick();
+        if (renderVersion !== version) {
+            return null;
+        }
+        const range = getVisibleRange();
+        await nextTick();
+        if (renderVersion !== version) {
+            return null;
+        }
+        return range;
+    }
+
+    function restoreScrollAndLog(
+        mode: TRerenderRestoreMode,
+        context: IRerenderRestoreContext,
+    ) {
+        const containerBeforeRestore = options.container.value;
+        const beforeScroll = getRoundedScrollPosition(containerBeforeRestore);
+        restoreScrollFromSnapshot(options.container.value, context.snapshotToRestore, {
+            restoreHorizontal: !context.disableHorizontalAnchorRestore,
+            restoreVertical: !context.disableVerticalAnchorRestore,
+            preferPageAnchor: !context.disablePageAnchorRestore,
+            allowVerticalRatioFallback: context.rerenderSource !== 'zoom-change',
+        });
+        const containerAfterRestore = options.container.value;
+        const afterScroll = getRoundedScrollPosition(containerAfterRestore);
+
+        logRerenderZoomRestore(
+            mode,
+            context.rerenderSource,
+            context.version,
+            beforeScroll,
+            afterScroll,
+            {
+                disableHorizontalAnchorRestore: context.disableHorizontalAnchorRestore,
+                disableVerticalAnchorRestore: context.disableVerticalAnchorRestore,
+                disablePageAnchorRestore: context.disablePageAnchorRestore,
+            },
+            context.snapshotToRestore,
+        );
+        logRerenderNavRestore(
+            mode,
+            context.version,
+            context.preserveExistingPages,
+            context.anchorSnapshot,
+            context.snapshotToRestore,
+            containerAfterRestore,
+        );
+    }
+
+    async function renderMountedVisiblePagesAfterRestore(
+        version: number,
+        getVisibleRange: () => IPageRange,
+        renderBufferOverride: number | undefined,
+        maxCanvasPixelsOverride: number | undefined,
+        optionsOverride?: {
+            preserveRenderedPages?: boolean;
+            forceRerender?: boolean;
+        },
+    ) {
+        if (renderVersion !== version) {
+            return false;
+        }
+
+        const visibleRange = await getMountedVisibleRangeAfterRestore(version, getVisibleRange);
+        if (visibleRange === null) {
+            return false;
+        }
+        await renderVisiblePages(visibleRange, {
+            ...optionsOverride,
+            bufferOverride: renderBufferOverride,
+            maxCanvasPixelsOverride,
+        });
+        return true;
+    }
+
+    async function reRenderAllVisiblePages(
+        getVisibleRange: () => IPageRange,
+        rerenderOptions?: IRerenderAllVisiblePagesOptions,
+    ) {
+        const normalizedOptions = normalizeRerenderOptions(rerenderOptions);
+        const { preserveExistingPages } = normalizedOptions;
+        const version = bumpRenderVersion();
+        const containerAtCapture = options.container.value;
+        const snapshot = captureScrollSnapshot(containerAtCapture);
+        const restoreContext: IRerenderRestoreContext = {
+            ...normalizedOptions,
+            version,
+            snapshotToRestore: normalizedOptions.anchorSnapshot ?? snapshot,
+        };
+
+        logRerenderSnapshotCapture(
+            version,
+            preserveExistingPages,
+            normalizedOptions.anchorSnapshot,
+            snapshot,
+            containerAtCapture,
+        );
 
         await renderMutex.acquire();
 
@@ -1231,13 +1519,19 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 setupPagePlaceholders();
 
                 if (renderVersion === version) {
-                    restoreScrollAndLog('preserve');
+                    restoreScrollAndLog('preserve', restoreContext);
                 }
 
-                await renderMountedVisiblePagesAfterRestore({
-                    preserveRenderedPages: true,
-                    forceRerender: true,
-                });
+                await renderMountedVisiblePagesAfterRestore(
+                    version,
+                    getVisibleRange,
+                    normalizedOptions.renderBufferOverride,
+                    normalizedOptions.maxCanvasPixelsOverride,
+                    {
+                        preserveRenderedPages: true,
+                        forceRerender: true,
+                    },
+                );
                 return;
             }
 
@@ -1246,9 +1540,14 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             setupPagePlaceholders();
 
             if (renderVersion === version) {
-                restoreScrollAndLog('full');
+                restoreScrollAndLog('full', restoreContext);
             }
-            await renderMountedVisiblePagesAfterRestore();
+            await renderMountedVisiblePagesAfterRestore(
+                version,
+                getVisibleRange,
+                normalizedOptions.renderBufferOverride,
+                normalizedOptions.maxCanvasPixelsOverride,
+            );
         } finally {
             renderMutex.release();
         }

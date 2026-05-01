@@ -2,7 +2,6 @@ import type {
     IBookmarkItem,
     IBookmarkDropTarget,
     IBookmarkDropPayload,
-    TBookmarkDropPosition,
 } from '@app/types/pdf-outline';
 import {
     findBookmarkLocation,
@@ -29,7 +28,7 @@ export const usePdfOutlineDragDrop = (
         isRootAppendDropTarget.value = false;
     }
 
-    function getSelectedRootIds(selection: Set<string>) {
+    function resolveSelectedRootIds(selection: Set<string>) {
         const roots = new Set<string>();
         for (const id of selection) {
             let hasSelectedAncestor = false;
@@ -94,43 +93,6 @@ export const usePdfOutlineDragDrop = (
             .filter((item): item is IBookmarkItem => item !== null);
     }
 
-    function moveBookmarksToTarget(
-        draggedRootIds: string[],
-        targetId: string,
-        position: TBookmarkDropPosition,
-    ) {
-        if (!canDropBookmarks(draggedRootIds, targetId)) {
-            return;
-        }
-
-        const targetLocationBeforeExtraction = findBookmarkLocation(bookmarks.value, targetId);
-        if (!targetLocationBeforeExtraction) {
-            return;
-        }
-
-        const draggedItems = extractDraggedItems(draggedRootIds);
-        if (draggedItems.length === 0) {
-            return;
-        }
-
-        const targetLocation = findBookmarkLocation(bookmarks.value, targetId);
-        if (!targetLocation) {
-            bookmarks.value.push(...draggedItems);
-            return;
-        }
-
-        if (position === 'child') {
-            targetLocation.item.items.push(...draggedItems);
-            const nextExpanded = new Set(expandedBookmarkIds.value);
-            nextExpanded.add(targetLocation.item.id);
-            expandedBookmarkIds.value = nextExpanded;
-            return;
-        }
-
-        const insertionIndex = position === 'before' ? targetLocation.index : targetLocation.index + 1;
-        targetLocation.list.splice(insertionIndex, 0, ...draggedItems);
-    }
-
     function moveBookmarksToRootEnd(draggedRootIds: string[]) {
         const draggedItems = extractDraggedItems(draggedRootIds);
         if (draggedItems.length === 0) {
@@ -148,7 +110,7 @@ export const usePdfOutlineDragDrop = (
             applySingleSelection(payload.id);
         }
 
-        const draggedRoots = getSelectedRootIds(selectedBookmarkIds.value);
+        const draggedRoots = resolveSelectedRootIds(selectedBookmarkIds.value);
         draggingBookmarkIds.value = new Set(draggedRoots.length > 0 ? draggedRoots : [payload.id]);
         bookmarkDropTarget.value = null;
         isRootAppendDropTarget.value = false;
@@ -189,7 +151,25 @@ export const usePdfOutlineDragDrop = (
             return;
         }
 
-        moveBookmarksToTarget(draggingRoots, payload.targetId, payload.position);
+        const targetLocationBeforeExtraction = findBookmarkLocation(bookmarks.value, payload.targetId);
+        if (targetLocationBeforeExtraction) {
+            const draggedItems = extractDraggedItems(draggingRoots);
+            const targetLocation = findBookmarkLocation(bookmarks.value, payload.targetId);
+            if (draggedItems.length > 0) {
+                if (!targetLocation) {
+                    bookmarks.value.push(...draggedItems);
+                } else if (payload.position === 'child') {
+                    targetLocation.item.items.push(...draggedItems);
+                    const nextExpanded = new Set(expandedBookmarkIds.value);
+                    nextExpanded.add(targetLocation.item.id);
+                    expandedBookmarkIds.value = nextExpanded;
+                } else {
+                    const insertionIndex = payload.position === 'before' ? targetLocation.index : targetLocation.index + 1;
+                    targetLocation.list.splice(insertionIndex, 0, ...draggedItems);
+                }
+            }
+        }
+
         activeItemId.value = draggingRoots[0] ?? null;
         emitBookmarksChange();
         resetDragState();
@@ -228,7 +208,6 @@ export const usePdfOutlineDragDrop = (
         bookmarkDropTarget,
         isRootAppendDropTarget,
         resetDragState,
-        getSelectedRootIds,
         handleBookmarkDragStart,
         handleBookmarkDragHover,
         handleBookmarkDrop,

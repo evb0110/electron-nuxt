@@ -419,6 +419,93 @@ function markerRectConfidenceScore(
     return score;
 }
 
+function markerRectArea(rect: {
+    width: number;
+    height: number;
+}) {
+    return rect.width * rect.height;
+}
+
+function summarySortIndex(summary: Pick<IAnnotationCommentSummary, 'sortIndex'>) {
+    return typeof summary.sortIndex === 'number' ? summary.sortIndex : null;
+}
+
+function mergeSortIndex(
+    left: Pick<IAnnotationCommentSummary, 'sortIndex'>,
+    right: Pick<IAnnotationCommentSummary, 'sortIndex'>,
+) {
+    const leftSortIndex = summarySortIndex(left);
+    const rightSortIndex = summarySortIndex(right);
+    return (
+        leftSortIndex !== null && rightSortIndex !== null
+            ? Math.min(leftSortIndex, rightSortIndex)
+            : (leftSortIndex ?? rightSortIndex)
+    );
+}
+
+function compareSortIndexes(left: number | null, right: number | null) {
+    if (left === right) {
+        return 0;
+    }
+    if (left === null) {
+        return 1;
+    }
+    if (right === null) {
+        return -1;
+    }
+    return left - right;
+}
+
+function firstNonZero(values: number[]) {
+    return values.find(value => value !== 0) ?? 0;
+}
+
+function mergeModifiedAt(
+    existing: Pick<IAnnotationCommentSummary, 'modifiedAt'>,
+    incoming: Pick<IAnnotationCommentSummary, 'modifiedAt'>,
+) {
+    const existingTs = existing.modifiedAt ?? null;
+    const incomingTs = incoming.modifiedAt ?? null;
+    if (existingTs && incomingTs) {
+        return Math.max(existingTs, incomingTs);
+    }
+    return existingTs ?? incomingTs;
+}
+
+function isSpecificSubtype(subtype: IAnnotationCommentSummary['subtype']) {
+    return Boolean(subtype && subtype !== 'Highlight');
+}
+
+function mergeSpecificFirstField<T extends Pick<IAnnotationCommentSummary, 'subtype'>>(
+    existing: T,
+    incoming: T,
+    select: (summary: T) => string | null | undefined,
+) {
+    const existingValue = select(existing);
+    const incomingValue = select(incoming);
+    if (existingValue && isSpecificSubtype(existing.subtype)) {
+        return existingValue;
+    }
+    if (incomingValue && isSpecificSubtype(incoming.subtype)) {
+        return incomingValue;
+    }
+    return existingValue ?? incomingValue;
+}
+
+function preferredMarkerRectSide(
+    left: Pick<IAnnotationCommentSummary, 'source' | 'modifiedAt'> & {rect: IAnnotationMarkerRect},
+    right: Pick<IAnnotationCommentSummary, 'source' | 'modifiedAt'> & {rect: IAnnotationMarkerRect},
+) {
+    const sourceDelta = Number(right.source === 'editor') - Number(left.source === 'editor');
+    const preferenceDelta = firstNonZero([
+        markerRectConfidenceScore(right, right.rect) - markerRectConfidenceScore(left, left.rect),
+        (right.modifiedAt ?? 0) - (left.modifiedAt ?? 0),
+        sourceDelta,
+        markerRectArea(right.rect) - markerRectArea(left.rect),
+    ]);
+    return preferenceDelta > 0 ? 'right' : 'left';
+}
+
 function pickPreferredMarkerRect(
     left: Pick<IAnnotationCommentSummary, 'markerRect' | 'source' | 'modifiedAt'>,
     right: Pick<IAnnotationCommentSummary, 'markerRect' | 'source' | 'modifiedAt'>,
@@ -432,25 +519,46 @@ function pickPreferredMarkerRect(
         return leftRect;
     }
 
-    const leftScore = markerRectConfidenceScore(left, leftRect);
-    const rightScore = markerRectConfidenceScore(right, rightRect);
-    if (leftScore !== rightScore) {
-        return rightScore > leftScore ? rightRect : leftRect;
-    }
+    const preferredSide = preferredMarkerRectSide(
+        {
+            ...left,
+            rect: leftRect,
+        },
+        {
+            ...right,
+            rect: rightRect,
+        },
+    );
+    return preferredSide === 'right' ? rightRect : leftRect;
+}
 
-    const leftTs = left.modifiedAt ?? 0;
-    const rightTs = right.modifiedAt ?? 0;
-    if (leftTs !== rightTs) {
-        return rightTs > leftTs ? rightRect : leftRect;
+function selectDuplicateSummaryId(
+    primary: IAnnotationCommentSummary,
+    secondary: IAnnotationCommentSummary,
+    merged: Pick<IAnnotationCommentSummary, 'id'>,
+    annotationId: string | null,
+    uid: string | null,
+) {
+    if (annotationId) {
+        return primary.annotationId ? primary.id : secondary.id;
     }
-
-    if (left.source !== right.source) {
-        return right.source === 'editor' ? rightRect : leftRect;
+    if (uid) {
+        return primary.uid ? primary.id : secondary.id;
     }
+    return merged.id;
+}
 
-    const leftArea = leftRect.width * leftRect.height;
-    const rightArea = rightRect.width * rightRect.height;
-    return rightArea > leftArea ? rightRect : leftRect;
+function compareSummarySortOrder(a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) {
+    return firstNonZero([
+        a.pageIndex - b.pageIndex,
+        compareSortIndexes(summarySortIndex(a), summarySortIndex(b)),
+        (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0),
+        a.stableKey.localeCompare(b.stableKey),
+    ]);
+}
+
+export function compareAnnotationComments(a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) {
+    return compareSummarySortOrder(a, b);
 }
 
 export function mergeCommentSummaries(
@@ -462,45 +570,18 @@ export function mergeCommentSummaries(
 
     const author = existing.author?.trim() ? existing.author : incoming.author;
 
-    const kindLabel = (() => {
-        if (existing.kindLabel?.trim() && existing.subtype !== 'Highlight') {
-            return existing.kindLabel;
-        }
-        if (incoming.kindLabel?.trim() && incoming.subtype !== 'Highlight') {
-            return incoming.kindLabel;
-        }
-        return existing.kindLabel?.trim() ? existing.kindLabel : incoming.kindLabel;
-    })();
+    const kindLabel = mergeSpecificFirstField(
+        existing,
+        incoming,
+        summary => summary.kindLabel?.trim() ? summary.kindLabel : null,
+    );
 
-    const modifiedAt = (() => {
-        const existingTs = existing.modifiedAt ?? null;
-        const incomingTs = incoming.modifiedAt ?? null;
-        if (existingTs && incomingTs) {
-            return Math.max(existingTs, incomingTs);
-        }
-        return existingTs ?? incomingTs;
-    })();
+    const modifiedAt = mergeModifiedAt(existing, incoming);
 
     const source = existing.source === 'editor' ? 'editor' : incoming.source;
-    const existingSortIndex = typeof existing.sortIndex === 'number' ? existing.sortIndex : null;
-    const incomingSortIndex = typeof incoming.sortIndex === 'number' ? incoming.sortIndex : null;
-    const sortIndex = (
-        existingSortIndex !== null && incomingSortIndex !== null
-            ? Math.min(existingSortIndex, incomingSortIndex)
-            : (existingSortIndex ?? incomingSortIndex)
-    );
+    const sortIndex = mergeSortIndex(existing, incoming);
     const hasNote = Boolean(existing.hasNote || incoming.hasNote);
-    const subtype = (() => {
-        const existingSubtype = existing.subtype ?? null;
-        const incomingSubtype = incoming.subtype ?? null;
-        if (existingSubtype && existingSubtype !== 'Highlight') {
-            return existingSubtype;
-        }
-        if (incomingSubtype && incomingSubtype !== 'Highlight') {
-            return incomingSubtype;
-        }
-        return existingSubtype ?? incomingSubtype;
-    })();
+    const subtype = mergeSpecificFirstField(existing, incoming, summary => summary.subtype ?? null);
 
     return {
         ...existing,
@@ -532,19 +613,8 @@ export function mergeDuplicateCommentSummary(
             ? 'editor'
             : 'pdf'
     );
-    const primarySortIndex = typeof primary.sortIndex === 'number' ? primary.sortIndex : null;
-    const secondarySortIndex = typeof secondary.sortIndex === 'number' ? secondary.sortIndex : null;
-    const sortIndex = (
-        primarySortIndex !== null && secondarySortIndex !== null
-            ? Math.min(primarySortIndex, secondarySortIndex)
-            : (primarySortIndex ?? secondarySortIndex)
-    );
-
-    const id = annotationId
-        ? (primary.annotationId ? primary.id : secondary.id)
-        : (uid
-            ? (primary.uid ? primary.id : secondary.id)
-            : merged.id);
+    const sortIndex = mergeSortIndex(primary, secondary);
+    const id = selectDuplicateSummaryId(primary, secondary, merged, annotationId, uid);
 
     const normalized: IAnnotationCommentSummary = {
         ...merged,
@@ -589,28 +659,7 @@ export function dedupeAnnotationCommentSummaries(comments: IAnnotationCommentSum
         merged[existingIndex] = mergeDuplicateCommentSummary(primary, candidate);
     }
 
-    return merged.sort((a, b) => {
-        if (a.pageIndex !== b.pageIndex) {
-            return a.pageIndex - b.pageIndex;
-        }
-        const aSort = typeof a.sortIndex === 'number' ? a.sortIndex : null;
-        const bSort = typeof b.sortIndex === 'number' ? b.sortIndex : null;
-        if (aSort !== null && bSort !== null && aSort !== bSort) {
-            return aSort - bSort;
-        }
-        if (aSort !== null && bSort === null) {
-            return -1;
-        }
-        if (aSort === null && bSort !== null) {
-            return 1;
-        }
-        const aTime = a.modifiedAt ?? 0;
-        const bTime = b.modifiedAt ?? 0;
-        if (aTime !== bTime) {
-            return bTime - aTime;
-        }
-        return a.stableKey.localeCompare(b.stableKey);
-    });
+    return merged.sort(compareSummarySortOrder);
 }
 
 export function commentsMatchForEditorLookup(
@@ -618,6 +667,39 @@ export function commentsMatchForEditorLookup(
     right: Pick<IAnnotationCommentSummary, 'stableKey' | 'annotationId' | 'uid' | 'id' | 'pageIndex' | 'source'>,
 ) {
     return annotationCommentsMatch(left, right);
+}
+
+function shouldHydrateSummaryFromMemory(summary: IAnnotationCommentSummary) {
+    return !summary.text.trim() && !summary.hasNote;
+}
+
+function findSummaryMemoryEntry(
+    summary: IAnnotationCommentSummary,
+    commentSummaryMemory: Map<string, ISummaryMemoryEntry>,
+) {
+    for (const key of getSummaryMemoryKeys(summary)) {
+        const cached = commentSummaryMemory.get(key);
+        if (cached?.text.trim()) {
+            return cached;
+        }
+    }
+    return null;
+}
+
+function applySummaryMemory(
+    summary: IAnnotationCommentSummary,
+    cached: ISummaryMemoryEntry,
+) {
+    return {
+        ...summary,
+        text: cached.text,
+        modifiedAt: summary.modifiedAt ?? cached.modifiedAt,
+        author: summary.author ?? cached.author,
+        kindLabel: summary.kindLabel ?? cached.kindLabel,
+        subtype: summary.subtype ?? cached.subtype,
+        color: summary.color ?? cached.color,
+        markerRect: summary.markerRect ?? cached.markerRect,
+    };
 }
 
 export function useAnnotationIdentity(
@@ -688,31 +770,12 @@ export function useAnnotationIdentity(
     }
 
     function hydrateSummaryFromMemory(summary: IAnnotationCommentSummary) {
-        if (summary.text.trim()) {
-            return summary;
-        }
-        if (summary.hasNote) {
+        if (!shouldHydrateSummaryFromMemory(summary)) {
             return summary;
         }
 
-        for (const key of getSummaryMemoryKeys(summary)) {
-            const cached = commentSummaryMemory.get(key);
-            if (!cached || !cached.text.trim()) {
-                continue;
-            }
-            return {
-                ...summary,
-                text: cached.text,
-                modifiedAt: summary.modifiedAt ?? cached.modifiedAt,
-                author: summary.author ?? cached.author,
-                kindLabel: summary.kindLabel ?? cached.kindLabel,
-                subtype: summary.subtype ?? cached.subtype,
-                color: summary.color ?? cached.color,
-                markerRect: summary.markerRect ?? cached.markerRect,
-            };
-        }
-
-        return summary;
+        const cached = findSummaryMemoryEntry(summary, commentSummaryMemory);
+        return cached ? applySummaryMemory(summary, cached) : summary;
     }
 
     function findCommentByStableKey(stableKey: string) {
@@ -757,28 +820,7 @@ export function useAnnotationIdentity(
         computeSummaryStableKey,
         toCanonicalStableKey,
         normalizeSummaryStableKey,
-        compareAnnotationComments: (a: IAnnotationCommentSummary, b: IAnnotationCommentSummary) => {
-            if (a.pageIndex !== b.pageIndex) {
-                return a.pageIndex - b.pageIndex;
-            }
-            const sortIndexA = typeof a.sortIndex === 'number' ? a.sortIndex : null;
-            const sortIndexB = typeof b.sortIndex === 'number' ? b.sortIndex : null;
-            if (sortIndexA !== null && sortIndexB !== null && sortIndexA !== sortIndexB) {
-                return sortIndexA - sortIndexB;
-            }
-            if (sortIndexA !== null && sortIndexB === null) {
-                return -1;
-            }
-            if (sortIndexA === null && sortIndexB !== null) {
-                return 1;
-            }
-            const aTime = a.modifiedAt ?? 0;
-            const bTime = b.modifiedAt ?? 0;
-            if (aTime !== bTime) {
-                return bTime - aTime;
-            }
-            return a.stableKey.localeCompare(b.stableKey);
-        },
+        compareAnnotationComments,
         dedupeAnnotationCommentSummaries,
         commentMergePriority,
         mergeDuplicateCommentSummary,

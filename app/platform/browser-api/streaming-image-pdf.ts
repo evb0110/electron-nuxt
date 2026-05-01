@@ -64,16 +64,8 @@ function imageObjectNumber(pageIndex: number) {
     return pageObjectNumber(pageIndex) + 2;
 }
 
-function flattenBookmarkLevel(
-    items: IPdfBookmarkEntry[],
-    parentRef: number,
-    nextRef: number,
-): {
-    nodes: IBookmarkNodeBuild[];
-    nextRef: number;
-    visibleCount: number;
-} {
-    const nodes: IBookmarkNodeBuild[] = items.map((item) => ({
+function createBookmarkNodes(items: IPdfBookmarkEntry[], parentRef: number) {
+    return items.map((item) => ({
         ref: 0,
         item,
         parentRef,
@@ -85,13 +77,18 @@ function flattenBookmarkLevel(
         visibleCount: 1,
         children: [],
     }));
+}
 
+function assignBookmarkRefs(nodes: IBookmarkNodeBuild[], nextRef: number) {
     let cursorRef = nextRef;
     for (const node of nodes) {
         node.ref = cursorRef;
         cursorRef += 1;
     }
+    return cursorRef;
+}
 
+function linkBookmarkSiblings(nodes: IBookmarkNodeBuild[]) {
     for (const [
         index,
         node,
@@ -99,6 +96,20 @@ function flattenBookmarkLevel(
         node.prevRef = nodes[index - 1]?.ref ?? null;
         node.nextRef = nodes[index + 1]?.ref ?? null;
     }
+}
+
+function flattenBookmarkLevel(
+    items: IPdfBookmarkEntry[],
+    parentRef: number,
+    nextRef: number,
+): {
+    nodes: IBookmarkNodeBuild[];
+    nextRef: number;
+    visibleCount: number;
+} {
+    const nodes: IBookmarkNodeBuild[] = createBookmarkNodes(items, parentRef);
+    let cursorRef = assignBookmarkRefs(nodes, nextRef);
+    linkBookmarkSiblings(nodes);
 
     for (const node of nodes) {
         const childBuild = flattenBookmarkLevel(
