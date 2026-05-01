@@ -7,15 +7,7 @@ import {
     WHEEL_ZOOM_GESTURE_GRACE_MS,
     WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
 } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerWheelZoom.constants';
-
-interface IViewerStateForLog {
-    scrollTop: number;
-    scrollLeft: number;
-    clientWidth: number;
-    clientHeight: number;
-    scrollWidth: number;
-    scrollHeight: number;
-}
+import type { IViewerStateForLog } from '@app/modules/pdf-viewer-runtime/composables/pdfViewerZoomTypes';
 
 interface IUsePdfViewerZoomInteractionLockOptions {
     currentPage: Ref<number>;

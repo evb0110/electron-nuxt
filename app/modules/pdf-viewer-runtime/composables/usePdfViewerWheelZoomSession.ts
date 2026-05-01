@@ -10,6 +10,7 @@ import {
     ZOOM_VIEWPORT_ANCHOR_MAX_AGE_MS,
 } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerWheelZoom.constants';
 import { usePdfViewerZoomInteractionLock } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerZoomInteractionLock';
+import type { IViewerStateForLog } from '@app/modules/pdf-viewer-runtime/composables/pdfViewerZoomTypes';
 
 interface IZoomViewportAnchorIntent {
     id: number;
@@ -41,15 +42,6 @@ interface IImmediateZoomRestoreIntent {
     sessionId: number;
     snapshot: IScrollSnapshot;
     capturedAtMs: number;
-}
-
-interface IViewerStateForLog {
-    scrollTop: number;
-    scrollLeft: number;
-    clientWidth: number;
-    clientHeight: number;
-    scrollWidth: number;
-    scrollHeight: number;
 }
 
 interface IUsePdfViewerWheelZoomSessionOptions {

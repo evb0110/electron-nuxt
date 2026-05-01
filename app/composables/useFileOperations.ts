@@ -397,6 +397,41 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return false;
     }
 
+    async function saveSerializedChanges(
+        rawData: Uint8Array | null,
+        pendingTexts: Map<string, string> | null,
+        pendingDeletes: IAnnotationCommentSummary[] | null,
+        shapeStateDirty: boolean,
+        reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
+        mode: 'save' | 'save_as',
+        saveMode: TPdfSaveMode,
+        persist: (
+            data: Uint8Array,
+            opts: { saveMode: TPdfSaveMode },
+        ) => Promise<IPdfPersistResult>,
+    ) {
+        if (!rawData) {
+            return false;
+        }
+
+        const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
+            includeShapes: shapeStateDirty,
+            rewriteShapeState: shapeStateDirty,
+            saveMode,
+        });
+        if (!saveResult) {
+            return false;
+        }
+
+        return persistSerializedSaveResult(
+            saveResult,
+            shapeStateDirty,
+            reloadWaiter,
+            mode,
+            persist,
+        );
+    }
+
     async function handleSave() {
         if (hasSaveOperationInProgress()) {
             return false;
@@ -431,22 +466,16 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || shapeStateDirty || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
                 if (shouldSerialize) {
                     const rawData = await getSerializationBasePdfBytes();
-                    if (rawData) {
-                        const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
-                            includeShapes: shapeStateDirty,
-                            rewriteShapeState: shapeStateDirty,
-                            saveMode: 'rewrite',
-                        });
-                        if (saveResult) {
-                            saveSucceeded = await persistSerializedSaveResult(
-                                saveResult,
-                                shapeStateDirty,
-                                reloadWaiter,
-                                'save',
-                                saveFile,
-                            );
-                        }
-                    }
+                    saveSucceeded = await saveSerializedChanges(
+                        rawData,
+                        pendingTexts,
+                        pendingDeletes,
+                        shapeStateDirty,
+                        reloadWaiter,
+                        'save',
+                        'rewrite',
+                        saveFile,
+                    );
                     await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
                     finalizedReloadWaiter = true;
                     return saveSucceeded;
@@ -470,22 +499,16 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
 
             const shapeStateDirty = hasShapeChanges?.() ?? false;
             const rawData = await saveDocumentWithRetry();
-            if (rawData) {
-                const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
-                    includeShapes: shapeStateDirty,
-                    rewriteShapeState: shapeStateDirty,
-                    saveMode: 'rewrite',
-                });
-                if (saveResult) {
-                    saveSucceeded = await persistSerializedSaveResult(
-                        saveResult,
-                        shapeStateDirty,
-                        reloadWaiter,
-                        'save',
-                        saveFile,
-                    );
-                }
-            }
+            saveSucceeded = await saveSerializedChanges(
+                rawData,
+                pendingTexts,
+                pendingDeletes,
+                shapeStateDirty,
+                reloadWaiter,
+                'save',
+                'rewrite',
+                saveFile,
+            );
             await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
             finalizedReloadWaiter = true;
             return saveSucceeded;
@@ -519,22 +542,16 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || shapeStateDirty || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
             if (shouldSerialize) {
                 const rawData = await getSerializationBasePdfBytes();
-                if (rawData) {
-                    const saveResult = await buildSerializedSaveResult(rawData, pendingTexts, pendingDeletes, {
-                        includeShapes: shapeStateDirty,
-                        rewriteShapeState: shapeStateDirty,
-                        saveMode: 'save_as_rewrite',
-                    });
-                    if (saveResult) {
-                        saveSucceeded = await persistSerializedSaveResult(
-                            saveResult,
-                            shapeStateDirty,
-                            reloadWaiter,
-                            'save_as',
-                            saveWorkingCopyAs,
-                        );
-                    }
-                }
+                saveSucceeded = await saveSerializedChanges(
+                    rawData,
+                    pendingTexts,
+                    pendingDeletes,
+                    shapeStateDirty,
+                    reloadWaiter,
+                    'save_as',
+                    'save_as_rewrite',
+                    saveWorkingCopyAs,
+                );
             } else {
                 const saveResult = await validateWorkingCopySnapshot('save_as_rewrite');
                 if (saveResult) {
