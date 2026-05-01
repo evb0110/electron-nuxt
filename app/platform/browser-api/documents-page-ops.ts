@@ -109,7 +109,7 @@ export function createBrowserPageOps(
         }
     }
 
-    async function ensureCombinedInputsWithinBudget(paths: string[], label: string) {
+    async function getCombinedInputBytes(paths: string[], maxBytes?: number) {
         let totalBytes = 0;
         for (let index = 0; index < paths.length; index += 1) {
             if (index > 0) {
@@ -117,22 +117,18 @@ export function createBrowserPageOps(
             }
             const { size } = await browserDocumentStore.stat(paths[index]!);
             totalBytes += size;
-            if (totalBytes > BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES) {
-                throw buildBrowserPageOpLimitError(label, BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES);
+            if (typeof maxBytes === 'number' && totalBytes > maxBytes) {
+                return totalBytes;
             }
-        }
-    }
-
-    async function getCombinedInputBytes(paths: string[]) {
-        let totalBytes = 0;
-        for (let index = 0; index < paths.length; index += 1) {
-            if (index > 0) {
-                await yieldToBrowser();
-            }
-            const { size } = await browserDocumentStore.stat(paths[index]!);
-            totalBytes += size;
         }
         return totalBytes;
+    }
+
+    async function ensureCombinedInputsWithinBudget(paths: string[], label: string) {
+        const totalBytes = await getCombinedInputBytes(paths, BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES);
+        if (totalBytes > BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES) {
+            throw buildBrowserPageOpLimitError(label, BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES);
+        }
     }
 
     async function readWorkingCopyBytes(path: string) {
