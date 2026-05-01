@@ -35,6 +35,122 @@ interface IRunCommandOptions {
 const DEFAULT_MAX_STDOUT_BYTES = parseIntegerEnv('EVB_NATIVE_TOOL_MAX_STDOUT_BYTES', 262_144, 1_024);
 const DEFAULT_MAX_STDERR_BYTES = parseIntegerEnv('EVB_NATIVE_TOOL_MAX_STDERR_BYTES', 262_144, 1_024);
 
+type TNativeProcess = ReturnType<typeof spawn>;
+
+interface ICommandRunContext {
+    effectiveCwd: string | undefined;
+    effectiveEnv: NodeJS.ProcessEnv | undefined;
+    displayName: string;
+    displayCommand: string;
+}
+
+function createCommandRunContext(command: string, args: string[], options: IRunCommandOptions): ICommandRunContext {
+    const {
+        cwd,
+        env,
+        commandLabel,
+        defaultCwdToCommandDir = false,
+        prependCommandDirToPath = false,
+        includeProcessEnv = true,
+    } = options;
+    const commandDir = getCommandDirectory(command);
+    const effectiveCwd = cwd ?? (defaultCwdToCommandDir ? commandDir ?? undefined : undefined);
+    const baseEnv: NodeJS.ProcessEnv = includeProcessEnv ? { ...process.env } : {};
+    const mergedEnv = env
+        ? {
+            ...baseEnv,
+            ...env,
+        }
+        : (includeProcessEnv ? process.env : undefined);
+    const effectiveEnv = commandDir && prependCommandDirToPath && mergedEnv
+        ? prependDirectoryToPath(commandDir, mergedEnv)
+        : mergedEnv;
+    return {
+        effectiveCwd,
+        effectiveEnv,
+        displayName: commandLabel ?? command,
+        displayCommand: `${command} ${args.map(formatArgForLog).join(' ')}`.trim(),
+    };
+}
+
+function createBoundedOutputCapture(maxStdoutBytes: number, maxStderrBytes: number) {
+    let stdout = '';
+    let stderr = '';
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
+
+    return {
+        appendStdout(data: Buffer) {
+            const appended = appendTextChunkWithByteCap(stdout, data, maxStdoutBytes);
+            stdout = appended.text;
+            stdoutTruncated = stdoutTruncated || appended.truncated;
+        },
+        appendStderr(data: Buffer) {
+            const appended = appendTextChunkWithByteCap(stderr, data, maxStderrBytes);
+            stderr = appended.text;
+            stderrTruncated = stderrTruncated || appended.truncated;
+        },
+        snapshot() {
+            return {
+                stdout,
+                stderr,
+                stdoutTruncated,
+                stderrTruncated,
+            };
+        },
+    };
+}
+
+function spawnNativeProcess(
+    command: string,
+    args: string[],
+    context: ICommandRunContext,
+    windowsHide: boolean,
+) {
+    return spawn(command, args, {
+        cwd: context.effectiveCwd,
+        env: context.effectiveEnv,
+        shell: false,
+        windowsHide,
+        detached: process.platform !== 'win32',
+        stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+        ],
+    });
+}
+
+function killProcessBestEffort(proc: TNativeProcess) {
+    try {
+        proc.kill('SIGKILL');
+    } catch {
+        // Process may already be gone.
+    }
+}
+
+function terminateNativeProcessBestEffort(proc: TNativeProcess) {
+    const pid = proc.pid;
+    if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
+        void terminateProcessTree(pid, {
+            graceMs: 1_000,
+            preferProcessGroup: process.platform !== 'win32',
+        });
+        return;
+    }
+    try {
+        proc.kill('SIGTERM');
+    } catch {
+        // Process may already be gone.
+    }
+}
+
+function getTruncatedOutputMessage(label: 'stdout' | 'stderr', truncated: boolean, maxBytes: number, text: string) {
+    return truncated
+        ? `[${label} truncated to ${maxBytes} bytes]\n${text}`
+        : text;
+}
+
 export async function runNativeCommand(
     command: string,
     args: string[],
@@ -63,28 +179,18 @@ export async function runNativeCommand(
             return;
         }
 
-        let proc: ReturnType<typeof spawn> | null = null;
+        let proc: TNativeProcess | null = null;
         let abortHandler: (() => void) | null = null;
 
-        const commandDir = getCommandDirectory(command);
-        const effectiveCwd = cwd ?? (defaultCwdToCommandDir ? commandDir ?? undefined : undefined);
-        const baseEnv: NodeJS.ProcessEnv = includeProcessEnv ? { ...process.env } : {};
-        const mergedEnv = env
-            ? {
-                ...baseEnv,
-                ...env,
-            }
-            : (includeProcessEnv ? process.env : undefined);
-        const effectiveEnv = commandDir && prependCommandDirToPath && mergedEnv
-            ? prependDirectoryToPath(commandDir, mergedEnv)
-            : mergedEnv;
-        const displayName = commandLabel ?? command;
-        const displayCommand = `${command} ${args.map(formatArgForLog).join(' ')}`.trim();
-
-        let stdout = '';
-        let stderr = '';
-        let stdoutTruncated = false;
-        let stderrTruncated = false;
+        const context = createCommandRunContext(command, args, {
+            cwd,
+            env,
+            commandLabel,
+            defaultCwdToCommandDir,
+            prependCommandDirToPath,
+            includeProcessEnv,
+        });
+        const output = createBoundedOutputCapture(maxStdoutBytes, maxStderrBytes);
         let timeoutHandle: NodeJS.Timeout | null = null;
         let forceRejectHandle: NodeJS.Timeout | null = null;
         let pendingTerminationError: Error | null = null;
@@ -101,19 +207,7 @@ export async function runNativeCommand(
                 return;
             }
 
-            const pid = targetProc.pid;
-            if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
-                void terminateProcessTree(pid, {
-                    graceMs: 1_000,
-                    preferProcessGroup: process.platform !== 'win32',
-                });
-            } else {
-                try {
-                    targetProc.kill('SIGTERM');
-                } catch {
-                    // Process may already be gone.
-                }
-            }
+            terminateNativeProcessBestEffort(targetProc);
 
             forceRejectHandle = setTimeout(() => {
                 finalizeReject(error);
@@ -163,49 +257,25 @@ export async function runNativeCommand(
         }
 
         try {
-            proc = spawn(command, args, {
-                cwd: effectiveCwd,
-                env: effectiveEnv,
-                shell: false,
-                windowsHide,
-                detached: process.platform !== 'win32',
-                stdio: [
-                    'ignore',
-                    'pipe',
-                    'pipe',
-                ],
-            });
+            proc = spawnNativeProcess(command, args, context, windowsHide);
         } catch (error) {
-            const message = `${displayName} failed to start: ${getErrorMessage(error)}`;
-            log?.('error', `${message}; cmd=${displayCommand}`);
+            const message = `${context.displayName} failed to start: ${getErrorMessage(error)}`;
+            log?.('error', `${message}; cmd=${context.displayCommand}`);
             finalizeReject(new Error(message));
             return;
         }
         if (settled) {
-            try {
-                proc.kill('SIGKILL');
-            } catch {
-                // Process may already be gone.
-            }
+            killProcessBestEffort(proc);
             return;
         }
 
-        proc.stdout?.on('data', (data: Buffer) => {
-            const appended = appendTextChunkWithByteCap(stdout, data, maxStdoutBytes);
-            stdout = appended.text;
-            stdoutTruncated = stdoutTruncated || appended.truncated;
-        });
-
-        proc.stderr?.on('data', (data: Buffer) => {
-            const appended = appendTextChunkWithByteCap(stderr, data, maxStderrBytes);
-            stderr = appended.text;
-            stderrTruncated = stderrTruncated || appended.truncated;
-        });
+        proc.stdout?.on('data', output.appendStdout);
+        proc.stderr?.on('data', output.appendStderr);
 
         if (typeof timeoutMs === 'number' && timeoutMs > 0) {
             timeoutHandle = setTimeout(() => {
-                log?.('error', `${displayName} timed out after ${timeoutMs}ms; cmd=${displayCommand}`);
-                requestTermination(new Error(`${displayName} timed out after ${timeoutMs}ms`));
+                log?.('error', `${context.displayName} timed out after ${timeoutMs}ms; cmd=${context.displayCommand}`);
+                requestTermination(new Error(`${context.displayName} timed out after ${timeoutMs}ms`));
             }, timeoutMs);
         }
         if (signal?.aborted) {
@@ -213,8 +283,8 @@ export async function runNativeCommand(
         }
 
         proc.on('error', (error) => {
-            const message = `${displayName} failed to start: ${error.message}`;
-            log?.('error', `${message}; cmd=${displayCommand}`);
+            const message = `${context.displayName} failed to start: ${error.message}`;
+            log?.('error', `${message}; cmd=${context.displayCommand}`);
             finalizeReject(new Error(message));
         });
 
@@ -225,34 +295,35 @@ export async function runNativeCommand(
             }
 
             const exitCode = typeof code === 'number' ? code : -1;
+            const outputSnapshot = output.snapshot();
             if (!allowedExitCodes.includes(exitCode)) {
                 const failure = formatCommandFailureMessage(
-                    displayName,
+                    context.displayName,
                     command,
                     args,
                     exitCode,
-                    stdoutTruncated ? `[stdout truncated to ${maxStdoutBytes} bytes]\n${stdout}` : stdout,
-                    stderrTruncated ? `[stderr truncated to ${maxStderrBytes} bytes]\n${stderr}` : stderr,
+                    getTruncatedOutputMessage('stdout', outputSnapshot.stdoutTruncated, maxStdoutBytes, outputSnapshot.stdout),
+                    getTruncatedOutputMessage('stderr', outputSnapshot.stderrTruncated, maxStderrBytes, outputSnapshot.stderr),
                     closeSignal,
                 );
                 log?.('error', `${failure.message}; cmd=${failure.displayCommand}`);
                 finalizeReject(new Error(failure.message));
                 return;
             }
-            if (rejectOnStdoutTruncation && stdoutTruncated) {
-                const message = `${displayName} stdout exceeded ${maxStdoutBytes} bytes`;
-                log?.('error', `${message}; cmd=${displayCommand}`);
+            if (rejectOnStdoutTruncation && outputSnapshot.stdoutTruncated) {
+                const message = `${context.displayName} stdout exceeded ${maxStdoutBytes} bytes`;
+                log?.('error', `${message}; cmd=${context.displayCommand}`);
                 finalizeReject(new Error(message));
                 return;
             }
 
             if (closeSignal) {
-                log?.('warn', `${displayName} exited after signal ${closeSignal}; cmd=${displayCommand}`);
+                log?.('warn', `${context.displayName} exited after signal ${closeSignal}; cmd=${context.displayCommand}`);
             }
 
             finalizeResolve({
-                stdout,
-                stderr,
+                stdout: outputSnapshot.stdout,
+                stderr: outputSnapshot.stderr,
                 exitCode,
             });
         });

@@ -41,6 +41,62 @@ export function parseDjvuOutline(sexpression: string): IPdfBookmarkEntry[] {
 
 type TSexpToken = string | TSexpToken[];
 
+function isSexpWhitespace(ch: string) {
+    return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
+}
+
+function isSexpParen(ch: string) {
+    return ch === '(' || ch === ')';
+}
+
+function readQuotedToken(input: string, startIndex: number): {
+    token: string;
+    nextIndex: number;
+} {
+    let str = '';
+    let i = startIndex + 1;
+    while (i < input.length) {
+        const c = input[i]!;
+        if (c === '\\' && i + 1 < input.length) {
+            str += input[i + 1];
+            i += 2;
+            continue;
+        }
+        if (c === '"') {
+            return {
+                token: `"${str}"`,
+                nextIndex: i + 1,
+            };
+        }
+        str += c;
+        i++;
+    }
+    return {
+        token: `"${str}"`,
+        nextIndex: i,
+    };
+}
+
+function readAtomToken(input: string, startIndex: number): {
+    token: string;
+    nextIndex: number;
+} {
+    let atom = '';
+    let i = startIndex;
+    while (i < input.length) {
+        const ch = input[i]!;
+        if (isSexpWhitespace(ch) || isSexpParen(ch)) {
+            break;
+        }
+        atom += ch;
+        i++;
+    }
+    return {
+        token: atom,
+        nextIndex: i,
+    };
+}
+
 function tokenize(input: string): string[] {
     const tokens: string[] = [];
     let i = 0;
@@ -48,47 +104,27 @@ function tokenize(input: string): string[] {
     while (i < input.length) {
         const ch = input[i]!;
 
-        if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+        if (isSexpWhitespace(ch)) {
             i++;
             continue;
         }
 
-        if (ch === '(' || ch === ')') {
+        if (isSexpParen(ch)) {
             tokens.push(ch);
             i++;
             continue;
         }
 
         if (ch === '"') {
-            let str = '';
-            i++; // skip opening quote
-            while (i < input.length) {
-                const c = input[i]!;
-                if (c === '\\' && i + 1 < input.length) {
-                    str += input[i + 1];
-                    i += 2;
-                    continue;
-                }
-                if (c === '"') {
-                    i++; // skip closing quote
-                    break;
-                }
-                str += c;
-                i++;
-            }
-            tokens.push(`"${str}"`);
+            const quoted = readQuotedToken(input, i);
+            tokens.push(quoted.token);
+            i = quoted.nextIndex;
             continue;
         }
 
-        // Atom (unquoted symbol like 'bookmarks')
-        let atom = '';
-        while (i < input.length && input[i] !== ' ' && input[i] !== '\t' &&
-               input[i] !== '\n' && input[i] !== '\r' &&
-               input[i] !== '(' && input[i] !== ')') {
-            atom += input[i];
-            i++;
-        }
-        tokens.push(atom);
+        const atom = readAtomToken(input, i);
+        tokens.push(atom.token);
+        i = atom.nextIndex;
     }
 
     return tokens;

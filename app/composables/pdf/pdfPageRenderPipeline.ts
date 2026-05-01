@@ -331,6 +331,99 @@ export function isRenderingCancelledError(error: unknown) {
     return /rendering cancelled/i.test(message);
 }
 
+function getScrollSnapshotAnchor(container: HTMLElement, options?: {
+    anchorViewportX?: number | null;
+    anchorViewportY?: number | null;
+    preferredAnchorPage?: number | null;
+}) {
+    const anchorViewportX = getViewportAnchorCoordinate(
+        options?.anchorViewportX,
+        container.clientWidth / 2,
+        container.clientWidth,
+    );
+    const anchorViewportY = getViewportAnchorCoordinate(
+        options?.anchorViewportY,
+        container.clientHeight / 2,
+        container.clientHeight,
+    );
+    const anchorContentX = container.scrollLeft + anchorViewportX;
+    const anchorContentY = container.scrollTop + anchorViewportY;
+    const anchorSnapshot = getAnchorPageSnapshot(
+        container,
+        anchorContentX,
+        anchorContentY,
+        options?.preferredAnchorPage,
+    );
+    return {
+        anchorViewportX,
+        anchorViewportY,
+        anchorContentX,
+        anchorContentY,
+        anchorSnapshot,
+    };
+}
+
+function getAnchorSnapshotPage(anchorSnapshot: IAnchorPageSnapshot | null | undefined) {
+    return anchorSnapshot?.page ?? null;
+}
+
+function getAnchorSnapshotInsidePage(anchorSnapshot: IAnchorPageSnapshot | null | undefined) {
+    return anchorSnapshot?.insidePage ?? false;
+}
+
+function getAnchorSnapshotPageYRatio(anchorSnapshot: IAnchorPageSnapshot | null | undefined) {
+    return anchorSnapshot?.pageYRatio ?? 0;
+}
+
+function getAnchorSnapshotPageXRatio(anchorSnapshot: IAnchorPageSnapshot | null | undefined) {
+    return anchorSnapshot?.pageXRatio ?? 0;
+}
+
+function getAnchorSnapshotOutsideEdge(anchorSnapshot: IAnchorPageSnapshot | null | undefined) {
+    return anchorSnapshot?.pageYOutsideEdge ?? 'inside';
+}
+
+function getAnchorSnapshotOutsideOffset(anchorSnapshot: IAnchorPageSnapshot | null | undefined) {
+    return anchorSnapshot?.pageYOutsideOffsetPx ?? null;
+}
+
+function getDefaultAnchorSnapshot(anchorSnapshot: IAnchorPageSnapshot | null | undefined) {
+    return {
+        page: getAnchorSnapshotPage(anchorSnapshot),
+        insidePage: getAnchorSnapshotInsidePage(anchorSnapshot),
+        pageYRatio: getAnchorSnapshotPageYRatio(anchorSnapshot),
+        pageXRatio: getAnchorSnapshotPageXRatio(anchorSnapshot),
+        pageYOutsideEdge: getAnchorSnapshotOutsideEdge(anchorSnapshot),
+        pageYOutsideOffsetPx: getAnchorSnapshotOutsideOffset(anchorSnapshot),
+    };
+}
+
+function createScrollSnapshot(
+    container: HTMLElement,
+    scrollWidth: number,
+    scrollHeight: number,
+    anchor: ReturnType<typeof getScrollSnapshotAnchor>,
+): IScrollSnapshot {
+    const anchorPage = getDefaultAnchorSnapshot(anchor.anchorSnapshot);
+    return {
+        width: scrollWidth,
+        height: scrollHeight,
+        centerX: container.scrollLeft + container.clientWidth / 2,
+        centerY: container.scrollTop + container.clientHeight / 2,
+        anchorPage: anchorPage.page,
+        anchorInsidePage: anchorPage.insidePage,
+        anchorOffsetRatio: anchorPage.pageYRatio,
+        anchorViewportX: anchor.anchorViewportX,
+        anchorViewportY: anchor.anchorViewportY,
+        anchorContentXRatio: getNormalizedRatio(anchor.anchorContentX / Math.max(scrollWidth, 1), 0),
+        anchorContentYRatio: getNormalizedRatio(anchor.anchorContentY / Math.max(scrollHeight, 1), 0),
+        anchorPageXRatio: anchorPage.pageXRatio,
+        anchorPageYRatio: anchorPage.pageYRatio,
+        anchorPageYOutsideEdge: anchorPage.pageYOutsideEdge,
+        anchorPageYOutsideOffsetPx: anchorPage.pageYOutsideOffsetPx,
+    };
+}
+
 export function captureScrollSnapshot(
     container: HTMLElement | null,
     options?: {
@@ -351,46 +444,13 @@ export function captureScrollSnapshot(
         return null;
     }
 
-    const anchorViewportX = getViewportAnchorCoordinate(
-        options?.anchorViewportX,
-        container.clientWidth / 2,
-        container.clientWidth,
-    );
-    const anchorViewportY = getViewportAnchorCoordinate(
-        options?.anchorViewportY,
-        container.clientHeight / 2,
-        container.clientHeight,
-    );
-    const anchorContentX = container.scrollLeft + anchorViewportX;
-    const anchorContentY = container.scrollTop + anchorViewportY;
-    const anchorSnapshot = getAnchorPageSnapshot(
-        container,
-        anchorContentX,
-        anchorContentY,
-        options?.preferredAnchorPage,
-    );
-    const snapshot: IScrollSnapshot = {
-        width: scrollWidth,
-        height: scrollHeight,
-        centerX: container.scrollLeft + container.clientWidth / 2,
-        centerY: container.scrollTop + container.clientHeight / 2,
-        anchorPage: anchorSnapshot?.page ?? null,
-        anchorInsidePage: anchorSnapshot?.insidePage ?? false,
-        anchorOffsetRatio: anchorSnapshot?.pageYRatio ?? 0,
-        anchorViewportX,
-        anchorViewportY,
-        anchorContentXRatio: getNormalizedRatio(anchorContentX / Math.max(scrollWidth, 1), 0),
-        anchorContentYRatio: getNormalizedRatio(anchorContentY / Math.max(scrollHeight, 1), 0),
-        anchorPageXRatio: anchorSnapshot?.pageXRatio ?? 0,
-        anchorPageYRatio: anchorSnapshot?.pageYRatio ?? 0,
-        anchorPageYOutsideEdge: anchorSnapshot?.pageYOutsideEdge ?? 'inside',
-        anchorPageYOutsideOffsetPx: anchorSnapshot?.pageYOutsideOffsetPx ?? null,
-    };
+    const anchor = getScrollSnapshotAnchor(container, options);
+    const snapshot = createScrollSnapshot(container, scrollWidth, scrollHeight, anchor);
     BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-capture', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-capture]', {
-        anchorViewportX,
-        anchorViewportY,
-        anchorContentX,
-        anchorContentY,
+        anchorViewportX: anchor.anchorViewportX,
+        anchorViewportY: anchor.anchorViewportY,
+        anchorContentX: anchor.anchorContentX,
+        anchorContentY: anchor.anchorContentY,
         preferredAnchorPage: options?.preferredAnchorPage ?? null,
         snapshot,
         container: summarizeViewerMetrics(container),
