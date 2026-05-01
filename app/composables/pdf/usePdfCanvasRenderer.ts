@@ -31,6 +31,16 @@ interface IRenderCanvasOptions {
     hiddenAnnotationIds?: Set<string>;
 }
 
+interface ICanvasPixelSize {
+    pixelWidth: number;
+    pixelHeight: number;
+}
+
+interface ICanvasScale {
+    scaleX: number;
+    scaleY: number;
+}
+
 export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
     const { outputScale } = deps;
     const hiddenAnnotationOperationsFilterCache = new WeakMap<
@@ -168,6 +178,94 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
         canvas.remove();
     }
 
+    function isValidViewportSize(width: number, height: number) {
+        return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0;
+    }
+
+    function getMaxCanvasPixels(options?: IRenderCanvasOptions) {
+        return typeof options?.maxCanvasPixels === 'number'
+            && Number.isFinite(options.maxCanvasPixels)
+            && options.maxCanvasPixels > 0
+            ? Math.max(1, Math.round(options.maxCanvasPixels))
+            : null;
+    }
+
+    function calculateCanvasPixelSize(
+        cssWidth: number,
+        cssHeight: number,
+        options?: IRenderCanvasOptions,
+    ): ICanvasPixelSize {
+        const requestedPixelWidth = Math.max(1, Math.round(cssWidth * outputScale));
+        const requestedPixelHeight = Math.max(1, Math.round(cssHeight * outputScale));
+        const requestedPixelCount = requestedPixelWidth * requestedPixelHeight;
+        const maxCanvasPixels = getMaxCanvasPixels(options);
+        const shouldClampPixels = maxCanvasPixels !== null && requestedPixelCount > maxCanvasPixels;
+        const pixelScaleFactor = shouldClampPixels
+            ? Math.sqrt(maxCanvasPixels / requestedPixelCount)
+            : 1;
+
+        return {
+            pixelWidth: Math.max(1, Math.round(requestedPixelWidth * pixelScaleFactor)),
+            pixelHeight: Math.max(1, Math.round(requestedPixelHeight * pixelScaleFactor)),
+        };
+    }
+
+    function setupCanvas(
+        canvas: HTMLCanvasElement,
+        cssWidth: number,
+        cssHeight: number,
+        pixelSize: ICanvasPixelSize,
+    ): ICanvasScale {
+        canvas.width = pixelSize.pixelWidth;
+        canvas.height = pixelSize.pixelHeight;
+        canvas.style.width = `${cssWidth}px`;
+        canvas.style.height = `${cssHeight}px`;
+        canvas.style.display = 'block';
+        canvas.style.margin = '0';
+
+        return {
+            scaleX: pixelSize.pixelWidth / cssWidth,
+            scaleY: pixelSize.pixelHeight / cssHeight,
+        };
+    }
+
+    function isValidCanvasScale(scale: ICanvasScale) {
+        return Number.isFinite(scale.scaleX)
+            && Number.isFinite(scale.scaleY)
+            && scale.scaleX > 0
+            && scale.scaleY > 0;
+    }
+
+    function createOutputTransform(scale: ICanvasScale) {
+        return scale.scaleX !== 1 || scale.scaleY !== 1 ? [
+            scale.scaleX,
+            0,
+            0,
+            scale.scaleY,
+            0,
+            0,
+        ] : undefined;
+    }
+
+    async function createAnnotationRenderOptions(
+        pdfPage: PDFPageProxy,
+        options?: IRenderCanvasOptions,
+    ) {
+        const annotationCanvasMap = new Map<string, HTMLCanvasElement>();
+        const annotationMode = AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1;
+        const operationsFilter = await createHiddenAnnotationOperationsFilter(
+            pdfPage,
+            annotationMode,
+            options?.hiddenAnnotationIds,
+        );
+
+        return {
+            annotationCanvasMap,
+            annotationMode,
+            operationsFilter,
+        };
+    }
+
     async function prepareCanvasRender(
         pdfPage: PDFPageProxy,
         scale: number,
@@ -189,85 +287,43 @@ export const usePdfCanvasRenderer = (deps: { outputScale: number }) => {
 
         const cssWidth = viewport.width;
         const cssHeight = viewport.height;
-        if (
-            !Number.isFinite(cssWidth) ||
-      !Number.isFinite(cssHeight) ||
-      cssWidth <= 0 ||
-      cssHeight <= 0
-        ) {
+        if (!isValidViewportSize(cssWidth, cssHeight)) {
             BrowserLogger.warn(
                 'pdf-renderer',
                 `Skipping page ${pdfPage.pageNumber} render due to invalid viewport size ${cssWidth}x${cssHeight}`,
             );
             return null;
         }
-        const requestedPixelWidth = Math.max(1, Math.round(cssWidth * outputScale));
-        const requestedPixelHeight = Math.max(1, Math.round(cssHeight * outputScale));
-        const requestedPixelCount = requestedPixelWidth * requestedPixelHeight;
-        const maxCanvasPixels = typeof options?.maxCanvasPixels === 'number'
-            && Number.isFinite(options.maxCanvasPixels)
-            && options.maxCanvasPixels > 0
-            ? Math.max(1, Math.round(options.maxCanvasPixels))
-            : null;
-        const shouldClampPixels = maxCanvasPixels !== null && requestedPixelCount > maxCanvasPixels;
-        const pixelScaleFactor = shouldClampPixels
-            ? Math.sqrt(maxCanvasPixels / requestedPixelCount)
-            : 1;
-        const pixelWidth = Math.max(1, Math.round(requestedPixelWidth * pixelScaleFactor));
-        const pixelHeight = Math.max(1, Math.round(requestedPixelHeight * pixelScaleFactor));
 
-        canvas.width = pixelWidth;
-        canvas.height = pixelHeight;
-        canvas.style.width = `${cssWidth}px`;
-        canvas.style.height = `${cssHeight}px`;
-        canvas.style.display = 'block';
-        canvas.style.margin = '0';
-
-        const sx = pixelWidth / cssWidth;
-        const sy = pixelHeight / cssHeight;
-        if (!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0) {
+        const pixelSize = calculateCanvasPixelSize(cssWidth, cssHeight, options);
+        const canvasScale = setupCanvas(canvas, cssWidth, cssHeight, pixelSize);
+        if (!isValidCanvasScale(canvasScale)) {
             BrowserLogger.warn(
                 'pdf-renderer',
-                `Skipping page ${pdfPage.pageNumber} render due to invalid canvas scale ${sx}x${sy}`,
+                `Skipping page ${pdfPage.pageNumber} render due to invalid canvas scale ${canvasScale.scaleX}x${canvasScale.scaleY}`,
             );
             return null;
         }
 
-        const transform = sx !== 1 || sy !== 1 ? [
-            sx,
-            0,
-            0,
-            sy,
-            0,
-            0,
-        ] : undefined;
-        const annotationCanvasMap = new Map<string, HTMLCanvasElement>();
-        const annotationMode = AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1;
-        const operationsFilter = await createHiddenAnnotationOperationsFilter(
-            pdfPage,
-            annotationMode,
-            options?.hiddenAnnotationIds,
-        );
+        const annotationOptions = await createAnnotationRenderOptions(pdfPage, options);
 
         const renderContext = {
             canvasContext: context,
             canvas,
-            transform,
+            transform: createOutputTransform(canvasScale),
             viewport,
             // Let PDF.js prepare separate annotation canvases for appearance-backed
             // annotations (for example placed image stamps) while keeping the
             // annotation layer responsible for attaching them into the DOM.
-            annotationMode,
-            annotationCanvasMap,
-            operationsFilter,
+            ...annotationOptions,
         };
 
         return {
             canvas,
             viewport,
-            annotationCanvasMap,
-            scaleX: sx,
-            scaleY: sy,
+            annotationCanvasMap: annotationOptions.annotationCanvasMap,
+            scaleX: canvasScale.scaleX,
+            scaleY: canvasScale.scaleY,
             rawDims,
             userUnit,
             totalScaleFactor,

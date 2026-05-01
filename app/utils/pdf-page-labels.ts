@@ -188,49 +188,80 @@ function getLabelForOffset(range: IPdfPageLabelRange, offset: number) {
     return range.prefix + formatLabelValue(range.style, number);
 }
 
-function inferCandidates(label: string): IPdfPageLabelRange[] {
-    const candidates: IPdfPageLabelRange[] = [{
+function createLiteralLabelCandidate(label: string): IPdfPageLabelRange {
+    return {
         startPage: 1,
         style: null,
         prefix: label,
         startNumber: 1,
-    }];
+    };
+}
 
-    const decimalMatch = /^(.*?)(\d+)$/.exec(label);
-    if (decimalMatch) {
-        candidates.push({
-            startPage: 1,
-            style: 'D',
-            prefix: decimalMatch[1] ?? '',
-            startNumber: toPositiveInt(decimalMatch[2], 1),
-        });
+function inferDecimalCandidate(label: string): IPdfPageLabelRange | null {
+    const match = /^(.*?)(\d+)$/.exec(label);
+    if (!match) {
+        return null;
     }
 
-    const romanMatch = /^(.*?)([ivxlcdm]+)$/i.exec(label);
-    if (romanMatch) {
-        const romanValue = parseRoman(romanMatch[2] ?? '');
-        if (romanValue !== null) {
-            const suffix = romanMatch[2] ?? '';
-            candidates.push({
-                startPage: 1,
-                style: suffix === suffix.toLowerCase() ? 'r' : 'R',
-                prefix: romanMatch[1] ?? '',
-                startNumber: romanValue,
-            });
-        }
+    return {
+        startPage: 1,
+        style: 'D',
+        prefix: match[1] ?? '',
+        startNumber: toPositiveInt(match[2], 1),
+    };
+}
+
+function inferRomanCandidate(label: string): IPdfPageLabelRange | null {
+    const match = /^(.*?)([ivxlcdm]+)$/i.exec(label);
+    if (!match) {
+        return null;
     }
 
-    const alphabeticMatch = /^(.*?)([A-Za-z]+)$/.exec(label);
-    if (alphabeticMatch) {
-        const alphaValue = parseAlphabetic(alphabeticMatch[2] ?? '');
-        if (alphaValue !== null) {
-            const suffix = alphabeticMatch[2] ?? '';
-            candidates.push({
-                startPage: 1,
-                style: suffix === suffix.toLowerCase() ? 'a' : 'A',
-                prefix: alphabeticMatch[1] ?? '',
-                startNumber: alphaValue,
-            });
+    const suffix = match[2] ?? '';
+    const romanValue = parseRoman(suffix);
+    if (romanValue === null) {
+        return null;
+    }
+
+    return {
+        startPage: 1,
+        style: suffix === suffix.toLowerCase() ? 'r' : 'R',
+        prefix: match[1] ?? '',
+        startNumber: romanValue,
+    };
+}
+
+function inferAlphabeticCandidate(label: string): IPdfPageLabelRange | null {
+    const match = /^(.*?)([A-Za-z]+)$/.exec(label);
+    if (!match) {
+        return null;
+    }
+
+    const suffix = match[2] ?? '';
+    const alphaValue = parseAlphabetic(suffix);
+    if (alphaValue === null) {
+        return null;
+    }
+
+    return {
+        startPage: 1,
+        style: suffix === suffix.toLowerCase() ? 'a' : 'A',
+        prefix: match[1] ?? '',
+        startNumber: alphaValue,
+    };
+}
+
+function inferCandidates(label: string): IPdfPageLabelRange[] {
+    const candidates = [createLiteralLabelCandidate(label)];
+    const parsedCandidates = [
+        inferDecimalCandidate(label),
+        inferRomanCandidate(label),
+        inferAlphabeticCandidate(label),
+    ];
+
+    for (const candidate of parsedCandidates) {
+        if (candidate) {
+            candidates.push(candidate);
         }
     }
 
