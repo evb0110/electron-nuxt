@@ -467,36 +467,30 @@ function inlineIdentityMatchesNote(
 
 const minimizedIndicatorTargets = computed<Record<string, HTMLElement>>(() => {
     void indicatorDomTick.value;
-    const snapshot = viewportDomSnapshot.value;
-    if (!snapshot) {
-        return {};
-    }
-
-    const targets: Record<string, HTMLElement> = {};
-    anchoredAnnotationNoteWindows.value.forEach((note) => {
-        const pageContainer = snapshot.pageContainers.get(note.comment.pageNumber);
-        if (pageContainer) {
-            targets[note.comment.stableKey] = pageContainer;
-        }
-    });
-    return targets;
+    return mapAnnotationNotesToPageTargets(anchoredAnnotationNoteWindows.value);
 });
 
 const openNoteAnchorTargets = computed<Record<string, HTMLElement>>(() => {
     void indicatorDomTick.value;
+    return mapAnnotationNotesToPageTargets(openNoteAnchors.value);
+});
+
+type TAnnotationNotePageTargetSource = typeof anchoredAnnotationNoteWindows.value[number];
+
+function mapAnnotationNotesToPageTargets(notes: TAnnotationNotePageTargetSource[]) {
     const snapshot = viewportDomSnapshot.value;
     if (!snapshot) {
         return {};
     }
     const targets: Record<string, HTMLElement> = {};
-    openNoteAnchors.value.forEach((note) => {
+    notes.forEach((note) => {
         const pageContainer = snapshot.pageContainers.get(note.comment.pageNumber);
         if (pageContainer) {
             targets[note.comment.stableKey] = pageContainer;
         }
     });
     return targets;
-});
+}
 
 interface IConnectorLine {
     stableKey: string;
