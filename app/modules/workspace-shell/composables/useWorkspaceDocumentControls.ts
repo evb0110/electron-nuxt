@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
 import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
-import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
+import {
+    type IPageOpsHandlersDeps,
+    usePageOpsHandlers,
+} from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
 import {
     type IPageFileOperationsDeps,
     usePageFileOperations,
@@ -17,39 +20,21 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     | 'openFileDirect'
     | 'openFileDirectBatch'
     | 'pickFileToOpen'
-> {
+>, Omit<IPageOpsHandlersDeps,
+    'invalidateThumbnailPages'
+    | 'onExportPages'
+    | 'onExtractedDocument'
+    | 'pdfViewerRef'
+    > {
     hasDocument: Ref<boolean>;
     pdfData: Ref<Uint8Array | null>;
     originalPath: Ref<TDocumentRef | null>;
-    workingCopyPath: Ref<TDocumentRef | null>;
-    currentPage: Ref<number>;
     effectiveZoom: Ref<number>;
     canSave: Ref<boolean>;
-    isAnySaving: Ref<boolean>;
-    isHistoryBusy: Ref<boolean>;
     handleSave: () => Promise<void>;
-    totalPages: Ref<number>;
-    selectedThumbnailPages: Ref<number[]>;
-    setSelectedThumbnailPages: (pages: number[]) => void;
     requestThumbnailInvalidation: (pages: number[]) => void;
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
-    pageContextMenu: Ref<{
-        visible: boolean;
-        pages: number[];
-    }>;
-    closePageContextMenu: () => void;
     handleExportImages: (pages: number[]) => Promise<void>;
-    ensureHistoryBaselineForExternalMutation: () => Promise<boolean>;
-    reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
-    preparePdfReloadWaiter: (
-        pageToRestore: number,
-        opts?: { captureScrollSnapshot?: boolean },
-    ) => {
-        promise: Promise<void>;
-        cancel: () => void;
-    };
-    clearOcrCache: (path: TDocumentRef) => void;
-    resetSearchCache: () => void;
     pickFileToOpenWithDjvuCleanup: () => Promise<TOpenFileResult | null>;
     openFileWithDjvuCleanup: (preSelected?: TOpenFileResult) => Promise<void>;
     openFileDirectWithDjvuCleanup: (path: TDocumentRef) => Promise<void>;

@@ -5,7 +5,7 @@ import { usePageOperations } from '@app/composables/pdf/usePageOperations';
 
 interface IPdfViewerForPageOps {invalidatePages: (pages: number[]) => void;}
 
-interface IPageOpsHandlersDeps {
+export interface IPageOpsHandlersDeps {
     workingCopyPath: Ref<TDocumentRef | null>;
     currentPage: Ref<number>;
     totalPages: Ref<number>;
