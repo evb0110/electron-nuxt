@@ -57,6 +57,7 @@ import {
     writeOcrIndexV2,
 } from '@electron/ocr/worker/index-writer';
 import { runCommand } from '@electron/ocr/worker/run-command';
+import { getErrorMessage } from '@electron/utils/error';
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -296,7 +297,7 @@ async function preparePdfForPoppler(
         log('debug', `Prepared Poppler input via qpdf: ${normalizedPdfPath} (${normalizedStat.size} bytes)`);
         return normalizedPdfPath;
     } catch (err) {
-        log('warn', `qpdf preflight failed; falling back to original PDF for Poppler commands: ${err instanceof Error ? err.message : String(err)}`);
+        log('warn', `qpdf preflight failed; falling back to original PDF for Poppler commands: ${getErrorMessage(err)}`);
         return sourcePdfPath;
     }
 }
@@ -439,7 +440,7 @@ async function processOcrJob(
                     errors.push(`Page ${page.pageNumber}: ${ocrResult.error}`);
                 }
             } catch (err) {
-                const errMsg = err instanceof Error ? err.message : String(err);
+                const errMsg = getErrorMessage(err);
                 log('warn', `Failed to process page ${page.pageNumber}: ${errMsg}`);
                 errors.push(`Failed to process page ${page.pageNumber}: ${errMsg}`);
             } finally {
@@ -496,7 +497,7 @@ async function processOcrJob(
                 trackTempFile,
             );
         } catch (qpdfErr) {
-            const errMsg = qpdfErr instanceof Error ? qpdfErr.message : String(qpdfErr);
+            const errMsg = getErrorMessage(qpdfErr);
             errors.push(`Failed to merge OCR'd pages with original PDF: ${errMsg}`);
             sendComplete(jobId, {
                 success: false,
@@ -510,7 +511,7 @@ async function processOcrJob(
         try {
             validatedWorkingCopyPath = await resolveSafeOcrIndexBasePath(sourcePdfPath, paths.tempDir);
         } catch (pathErr) {
-            const pathErrMsg = pathErr instanceof Error ? pathErr.message : String(pathErr);
+            const pathErrMsg = getErrorMessage(pathErr);
             log('warn', `Rejected OCR index path "${sourcePdfPath}": ${pathErrMsg}`);
         }
 
@@ -525,7 +526,7 @@ async function processOcrJob(
                     log,
                 );
             } catch (v2Err) {
-                const v2ErrMsg = v2Err instanceof Error ? v2Err.message : String(v2Err);
+                const v2ErrMsg = getErrorMessage(v2Err);
                 log('warn', `Failed to write OCR index v2: ${v2ErrMsg}`);
             }
         }
@@ -548,7 +549,7 @@ async function processOcrJob(
             errors,
         });
     } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
+        const errMsg = getErrorMessage(err);
         log('error', `CRITICAL ERROR in processOcrJob: ${errMsg}`);
         sendComplete(jobId, {
             success: false,

@@ -4,6 +4,7 @@ import type {
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browser-pdf-combine-worker.types';
+import { getErrorMessage } from '@app/utils/error';
 
 interface IUtifFrame {
     width?: number;
@@ -237,7 +238,7 @@ self.addEventListener('message', async (event: MessageEvent<TBrowserPdfCombineWo
         const response: TBrowserPdfCombineWorkerResponse = {
             id: request.id,
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         };
         self.postMessage(response);
     }

@@ -6,6 +6,7 @@ import {
     createCombinedPdf as createCombinedPdfShared,
     type ICreateCombinedPdfProgress,
 } from '@electron/image/pdf-combine-shared';
+import { getErrorMessage } from '@electron/utils/error';
 
 interface ICombineWorkerData {inputPaths?: unknown;}
 interface ICombineWorkerProgressPayload extends ICreateCombinedPdfProgress {type: 'progress';}
@@ -76,7 +77,7 @@ async function runCombineWorker() {
         const payload: ICombineWorkerResultPayload = {
             type: 'result',
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         };
         port.postMessage(payload);
     }

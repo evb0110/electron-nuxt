@@ -1,5 +1,6 @@
 import { withTimeout } from 'es-toolkit/promise';
 import { isTimeoutError } from '@contracts/timeout-error';
+import { getErrorMessage } from '@electron/utils/error';
 
 function parseIntEnv(name: string, fallback: number, minimum: number, maximum?: number) {
     const parsed = Number.parseInt(process.env[name] ?? `${fallback}`, 10);
@@ -49,7 +50,7 @@ export function runShutdownSteps(
                 logger.error(
                     timeout
                         ? `Shutdown step timed out (${step.label}, ${SHUTDOWN_STEP_TIMEOUT_MS}ms)`
-                        : `Shutdown step failed (${step.label}): ${error instanceof Error ? error.message : String(error)}`,
+                        : `Shutdown step failed (${step.label}): ${getErrorMessage(error)}`,
                 );
             }
         }
@@ -78,7 +79,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
                 options.logger.error(`Global shutdown cleanup timed out after ${SHUTDOWN_TOTAL_TIMEOUT_MS}ms`);
                 return;
             }
-            options.logger.error(`Global shutdown cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+            options.logger.error(`Global shutdown cleanup failed: ${getErrorMessage(error)}`);
         }
     }
 
@@ -110,7 +111,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             }
             if (!gracefulShutdownPromise) {
                 gracefulShutdownPromise = performCleanup().catch((error) => {
-                    options.logger.error(`Graceful shutdown cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+                    options.logger.error(`Graceful shutdown cleanup failed: ${getErrorMessage(error)}`);
                 });
             }
 

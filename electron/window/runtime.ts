@@ -5,6 +5,7 @@ import {
     waitForServer,
 } from '@electron/server';
 import { setupContentSecurityPolicy } from '@electron/security/csp';
+import { getErrorMessage } from '@electron/utils/error';
 
 interface ILogger {warn(message: string): void;}
 
@@ -32,7 +33,7 @@ export function createWindowRuntime(options: ICreateWindowRuntimeOptions) {
                 try {
                     await session.defaultSession.clearCache();
                 } catch (err) {
-                    options.logger.warn(`Failed to clear HTTP cache: ${err instanceof Error ? err.message : String(err)}`);
+                    options.logger.warn(`Failed to clear HTTP cache: ${getErrorMessage(err)}`);
                 }
             }
 
@@ -64,7 +65,7 @@ export function createWindowRuntime(options: ICreateWindowRuntimeOptions) {
 
                     options.logger.warn(
                         `Runtime server health check failed; restarting before retry: ${
-                            error instanceof Error ? error.message : String(error)
+                            getErrorMessage(error)
                         }`,
                     );
                     await stopServer();

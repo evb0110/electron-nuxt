@@ -3,6 +3,7 @@ import {
     workerData,
 } from 'worker_threads';
 import { analyzePdfConformanceFileDirect } from '@electron/features/documents/main/pdf-conformance-core';
+import { getErrorMessage } from '@electron/utils/error';
 
 interface IPdfConformanceWorkerData { filePath?: unknown; }
 
@@ -45,7 +46,7 @@ async function runPdfConformanceWorker() {
         const payload: TPdfConformanceWorkerResult = {
             type: 'result',
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         };
         parentPort.postMessage(payload);
     } finally {

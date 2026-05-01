@@ -5,6 +5,7 @@ import '@electron/search/dom-polyfill';
 // Must use the legacy build — the default build uses DOMMatrix and other
 // browser-only APIs that don't exist in Node.js worker threads.
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { abortErrorFromSignal } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/logger';
 
 const log = createLogger('pdfjs-text-extractor');
@@ -16,15 +17,9 @@ interface IPageText {
 
 interface IExtractPdfjsTextOptions {signal?: AbortSignal;}
 
-function createAbortError() {
-    const error = new Error('The operation was aborted');
-    error.name = 'AbortError';
-    return error;
-}
-
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
-        throw createAbortError();
+        throw abortErrorFromSignal(signal);
     }
 }
 
@@ -39,13 +34,13 @@ async function withAbortSignal<T>(
 
     if (signal.aborted) {
         onAbort();
-        throw createAbortError();
+        throw abortErrorFromSignal(signal);
     }
 
     return new Promise<T>((resolve, reject) => {
         const handleAbort = () => {
             onAbort();
-            reject(createAbortError());
+            reject(abortErrorFromSignal(signal));
         };
 
         signal.addEventListener('abort', handleAbort, { once: true });

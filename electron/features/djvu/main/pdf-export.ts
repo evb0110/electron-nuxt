@@ -32,6 +32,7 @@ import {
     createDjvuPdfBookmarkTask,
     DjvuPdfWorkerStartupError,
 } from '@electron/features/djvu/main/pdf-worker-client';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('djvu-pdf-export');
 const canceledJobIds = new Set<string>();
@@ -375,11 +376,11 @@ export async function handleDjvuConvertToPdf(
             };
         });
     } catch (error) {
-        logger.error(`[${jobId}] Conversion failed: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(`[${jobId}] Conversion failed: ${getErrorMessage(error)}`);
         return {
             success: false,
             jobId,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         };
     } finally {
         canceledJobIds.delete(jobId);

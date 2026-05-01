@@ -64,13 +64,13 @@ vi.mock('electron', () => ({
 
 vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
 vi.mock('@electron/utils/path-validator', () => ({isAllowedWritePath: (path: string) => mocks.isAllowedWritePath(path)}));
-vi.mock('@electron/page-ops/qpdf', () => ({
+vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     deletePages: (...args: unknown[]) => mocks.deletePages(...args),
     extractPages: (...args: unknown[]) => mocks.extractPages(...args),
     reorderPages: (...args: unknown[]) => mocks.reorderPages(...args),
     rotatePages: (...args: unknown[]) => mocks.rotatePages(...args),
 }));
-vi.mock('@electron/page-ops/crop', () => ({
+vi.mock('@electron/features/page-ops/main/crop', () => ({
     cropPages: (...args: unknown[]) => mocks.cropPages(...args),
     removeCropFromPages: (...args: unknown[]) => mocks.removeCropFromPages(...args),
     getPageGeometry: (...args: unknown[]) => mocks.getPageGeometry(...args),
@@ -93,7 +93,7 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-const { registerPageOpsHandlers } = await import('@electron/page-ops/ipc');
+const { registerPageOpsHandlers } = await import('@electron/features/page-ops/main/ipc');
 
 function getHandler(channel: string) {
     const handler = mocks.handlers.get(channel);

@@ -1,6 +1,6 @@
 
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
+import { usePositionedMenu } from '@app/composables/usePositionedMenu';
 
 interface IAnnotationContextMenuState {
     visible: boolean;
@@ -16,9 +16,8 @@ interface IAnnotationContextMenuState {
 
 export const useAnnotationContextMenu = () => {
     const { t } = useTypedI18n();
-    const { clampElementToViewport } = useContextMenuPosition();
 
-    const annotationContextMenu = ref<IAnnotationContextMenuState>({
+    const createInitialAnnotationContextMenuState = (): IAnnotationContextMenuState => ({
         visible: false,
         x: 0,
         y: 0,
@@ -29,16 +28,15 @@ export const useAnnotationContextMenu = () => {
         pageX: null,
         pageY: null,
     });
-    const contextMenuElement = computed(() => (
-        typeof window === 'undefined'
-            ? null
-            : document.querySelector<HTMLElement>('.annotation-context-menu')
-    ));
-
-    const annotationContextMenuStyle = computed(() => ({
-        left: `${annotationContextMenu.value.x}px`,
-        top: `${annotationContextMenu.value.y}px`,
-    }));
+    const {
+        menu: annotationContextMenu,
+        menuStyle: annotationContextMenuStyle,
+        showPositionedMenu,
+        resetMenu,
+    } = usePositionedMenu<IAnnotationContextMenuState>(
+        '.annotation-context-menu',
+        createInitialAnnotationContextMenuState,
+    );
 
     const annotationContextMenuCanCopy = computed(() => {
         const text = annotationContextMenu.value.comment?.text?.trim();
@@ -108,38 +106,11 @@ export const useAnnotationContextMenu = () => {
         return `${t('annotations.delete')} ${t('annotations.annotationLabel')}`;
     });
 
-    function positionAnnotationContextMenu(
-        x: number,
-        y: number,
-        fallbackWidth: number,
-        fallbackHeight: number,
-    ) {
-        const clamped = clampElementToViewport(
-            x,
-            y,
-            contextMenuElement.value,
-            fallbackWidth,
-            fallbackHeight,
-        );
-        annotationContextMenu.value.x = clamped.x;
-        annotationContextMenu.value.y = clamped.y;
-    }
-
     function closeAnnotationContextMenu() {
         if (!annotationContextMenu.value.visible) {
             return;
         }
-        annotationContextMenu.value = {
-            visible: false,
-            x: 0,
-            y: 0,
-            comment: null,
-            hasSelection: false,
-            selectionText: '',
-            pageNumber: null,
-            pageX: null,
-            pageY: null,
-        };
+        resetMenu();
     }
 
     function showAnnotationContextMenu(payload: {
@@ -158,36 +129,22 @@ export const useAnnotationContextMenu = () => {
         const markupSectionHeight = hasSelection ? 200 : 0;
         const estimatedHeight = (hasComment ? 258 : 0) + markupSectionHeight + 252;
 
-        const initialPosition = clampElementToViewport(
-            payload.clientX,
-            payload.clientY,
-            contextMenuElement.value,
+        showPositionedMenu({
+            x: payload.clientX,
+            y: payload.clientY,
             fallbackWidth,
-            estimatedHeight,
-        );
-
-        annotationContextMenu.value = {
-            visible: true,
-            x: initialPosition.x,
-            y: initialPosition.y,
-            comment: payload.comment,
-            hasSelection: payload.hasSelection,
-            selectionText: payload.selectionText,
-            pageNumber: payload.pageNumber,
-            pageX: payload.pageX,
-            pageY: payload.pageY,
-        };
-
-        void nextTick(() => {
-            if (!annotationContextMenu.value.visible) {
-                return;
-            }
-            positionAnnotationContextMenu(
-                payload.clientX,
-                payload.clientY,
-                fallbackWidth,
-                estimatedHeight,
-            );
+            fallbackHeight: estimatedHeight,
+            buildState: position => ({
+                visible: true,
+                x: position.x,
+                y: position.y,
+                comment: payload.comment,
+                hasSelection: payload.hasSelection,
+                selectionText: payload.selectionText,
+                pageNumber: payload.pageNumber,
+                pageX: payload.pageX,
+                pageY: payload.pageY,
+            }),
         });
     }
 

@@ -11,6 +11,7 @@ import {
     prependDirectoryToPath,
 } from '@electron/native-tools/tool-registry';
 import { terminateProcessTree } from '@electron/utils/process-tree';
+import { getErrorMessage } from '@electron/utils/error';
 
 interface IRunCommandOptions {
     cwd?: string;
@@ -220,7 +221,7 @@ export async function runCommand(
                 ],
             });
         } catch (error) {
-            const message = `${displayName} failed to start: ${error instanceof Error ? error.message : String(error)}`;
+            const message = `${displayName} failed to start: ${getErrorMessage(error)}`;
             log?.('error', `${message}; cmd=${displayCommand}`);
             finalizeReject(new Error(message));
             return;

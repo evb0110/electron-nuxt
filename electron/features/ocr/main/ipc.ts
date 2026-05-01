@@ -7,7 +7,10 @@ import {
     ipcMain,
 } from 'electron';
 import { extname } from 'path';
-import { OCR_CHANNELS } from '@electron/features/ocr/contract';
+import {
+    OCR_CHANNELS,
+    OCR_EVENT_CHANNELS,
+} from '@electron/features/ocr/contract';
 import {AVAILABLE_OCR_LANGUAGES} from '@electron/ocr/available-languages';
 import {
     buildOcrErrorEnvelope,
@@ -42,6 +45,7 @@ import {
     getTesseractThreadLimit,
 } from '@electron/utils/concurrency';
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
+import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('ocr-ipc');
 
@@ -98,7 +102,7 @@ async function handleOcrRecognizeBatch(
 
         let processedCount = 0;
 
-        safeSendToWindow(window, 'ocr:progress', {
+        safeSendToWindow(window, OCR_EVENT_CHANNELS.progress, {
             requestId,
             currentPage: targetPages[0]?.pageNumber ?? 0,
             processedCount,
@@ -117,11 +121,11 @@ async function handleOcrRecognizeBatch(
                     errors.push(`Page ${page.pageNumber}: ${result.error}`);
                 }
             } catch (err) {
-                const errMsg = err instanceof Error ? err.message : String(err);
+                const errMsg = getErrorMessage(err);
                 errors.push(`Page ${page.pageNumber}: ${errMsg}`);
             } finally {
                 processedCount += 1;
-                safeSendToWindow(window, 'ocr:progress', {
+                safeSendToWindow(window, OCR_EVENT_CHANNELS.progress, {
                     requestId,
                     currentPage: getSequentialProgressPage(targetPages, processedCount),
                     processedCount,

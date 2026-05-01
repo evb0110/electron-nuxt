@@ -48,6 +48,8 @@ import type {
     TOcrWorkerOutboundMessage,
 } from '@electron/ocr/worker/types';
 import { createLogger } from '@electron/utils/logger';
+import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
+import { getErrorMessage } from '@electron/utils/error';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -82,7 +84,7 @@ function assertNever(value: never): never {
 
 export function safeSendToWindow(
     window: BrowserWindow | null | undefined,
-    channel: string,
+    channel: typeof OCR_EVENT_CHANNELS[keyof typeof OCR_EVENT_CHANNELS],
     ...args: unknown[]
 ) {
     if (!window) {
@@ -98,7 +100,7 @@ export function safeSendToWindow(
     try {
         window.webContents.send(channel, ...args);
     } catch (err) {
-        log.debug(`Failed to send IPC message to channel "${channel}": ${err instanceof Error ? err.message : String(err)}`);
+        log.debug(`Failed to send IPC message to channel "${channel}": ${getErrorMessage(err)}`);
     }
 }
 
@@ -168,7 +170,7 @@ async function removeResultFile(path: string) {
     } catch (err) {
         const code = isErrnoException(err) ? err.code : undefined;
         if (code !== 'ENOENT') {
-            log.warn(`Failed to cleanup OCR temp result file "${path}": ${err instanceof Error ? err.message : String(err)}`);
+            log.warn(`Failed to cleanup OCR temp result file "${path}": ${getErrorMessage(err)}`);
         }
     }
 }
@@ -206,7 +208,7 @@ async function estimateRequestBytes(
     try {
         sourcePdfBytes = (await stat(sourcePdfPath)).size;
     } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
+        const errMsg = getErrorMessage(err);
         log.warn(`Failed to stat OCR source PDF "${sourcePdfPath}" for queue estimation: ${errMsg}`);
     }
     return sourcePdfBytes + (pages.length * averagePageOverhead);
@@ -320,7 +322,7 @@ async function terminateWorkerSafely(
         }
         await withTimeout(() => worker.terminate(), OCR_WORKER_TERMINATE_TIMEOUT_MS);
     } catch (error) {
-        log.warn(`[${scopedJobId}] Failed to terminate OCR worker (${reason}): ${error instanceof Error ? error.message : String(error)}`);
+        log.warn(`[${scopedJobId}] Failed to terminate OCR worker (${reason}): ${getErrorMessage(error)}`);
     }
 }
 
@@ -416,7 +418,7 @@ function registerSenderCleanup(event: IpcMainInvokeEvent) {
 
 function sendJobFailure(job: IOcrQueuedJob, error: string) {
     const window = getJobWindow(job.webContentsId);
-    safeSendToWindow(window, 'ocr:complete', {
+    safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
         requestId: job.requestId,
         success: false,
         errors: [error],
@@ -452,7 +454,7 @@ function handleWorkerMessage(
                 log.warn(`Ignoring OCR progress for mismatched job id "${message.jobId}" (expected "${requestId}")`);
                 return;
             }
-            safeSendToWindow(window, 'ocr:progress', message.progress);
+            safeSendToWindow(window, OCR_EVENT_CHANNELS.progress, message.progress);
             return;
         case 'complete': {
             if (message.jobId !== requestId) {
@@ -464,7 +466,7 @@ function handleWorkerMessage(
                 void pendingResultFileStore.evictStale();
             }
 
-            safeSendToWindow(window, 'ocr:complete', {
+            safeSendToWindow(window, OCR_EVENT_CHANNELS.complete, {
                 requestId,
                 ...message.result,
             });
@@ -484,7 +486,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
     try {
         worker = createOcrWorker();
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         sendJobFailure(job, `OCR worker unavailable: ${message}`);
         log.error(`Failed to start OCR worker for job ${job.requestId}: ${message}`);
         dispatchQueuedJobs();
@@ -567,7 +569,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
         };
         worker.postMessage(startMessage);
     } catch (error) {
-        const errMsg = error instanceof Error ? error.message : String(error);
+        const errMsg = getErrorMessage(error);
         sendJobFailure(job, `Failed to post OCR job to worker: ${errMsg}`);
         terminateAndFinalizeActiveJob(job.scopedJobId, { reason: 'failed to post worker start message' });
         return;
@@ -773,7 +775,7 @@ export async function handleOcrCreateSearchablePdfAsync(
                 error: 'OCR job was cancelled before it started',
             };
         }
-        const errMsg = err instanceof Error ? err.message : String(err);
+        const errMsg = getErrorMessage(err);
         log.error(`Failed to queue OCR worker job: ${errMsg}`);
         return {
             started: false,

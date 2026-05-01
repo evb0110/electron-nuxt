@@ -5,6 +5,7 @@ import {
     serializePdfEdits,
     updateEmbeddedAnnotationText,
 } from '@app/composables/pdf/pdfSerializationOperations';
+import { getErrorMessage } from '@app/utils/error';
 
 interface ISerializationWorkerRequestMap {
     save: {
@@ -96,7 +97,7 @@ self.addEventListener('message', async (event: MessageEvent<TSerializationWorker
         const response: TSerializationWorkerResponse = {
             id: request.id,
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         };
         self.postMessage(response);
     }

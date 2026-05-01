@@ -8,6 +8,7 @@ import { screenRectToMargins } from '@app/utils/pdf-crop-coordinates';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
 import { getPageOpsCapability } from '@app/utils/platform-documents';
+import { getErrorMessage } from '@app/utils/error';
 
 interface IUseWorkspaceCropOptions {
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
@@ -69,7 +70,7 @@ export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
             BrowserLogger.warn('crop', 'Failed to initialize crop dialog geometry', {
                 pageNumber: result.pageNumber,
                 path: options.workingCopyPath.value,
-                error: error instanceof Error ? error.message : String(error),
+                error: getErrorMessage(error),
             });
             if (requestToken === cropRequestToken) {
                 cropDialogLoading.value = false;

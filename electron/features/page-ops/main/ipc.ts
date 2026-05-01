@@ -34,16 +34,17 @@ import {
     cropPages,
     getPageGeometry,
     removeCropFromPages,
-} from '@electron/page-ops/crop';
+} from '@electron/features/page-ops/main/crop';
 import {
     deletePages,
     extractPages,
     reorderPages,
     rotatePages,
-} from '@electron/page-ops/qpdf';
-import type { TRotationAngle } from '@electron/page-ops/qpdf';
+} from '@electron/features/page-ops/main/qpdf';
+import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
 import { createLogger } from '@electron/utils/logger';
 import { isAllowedWritePath } from '@electron/utils/path-validator';
+import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('page-ops-ipc');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -335,7 +336,7 @@ async function prepareInsertionSourcePdf(
                 }
             } catch (cleanupError) {
                 log.debug(`Failed to cleanup insertion source PDF "${tempSourcePdfPath}": ${
-                    cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                    getErrorMessage(cleanupError)
                 }`);
             }
         },
@@ -390,7 +391,7 @@ async function insertPagesFromSourcePaths(
             }
         } catch (cleanupError) {
             log.debug(`Failed to cleanup temporary insert output "${tempPath}": ${
-                cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                getErrorMessage(cleanupError)
             }`);
         }
         throw err;

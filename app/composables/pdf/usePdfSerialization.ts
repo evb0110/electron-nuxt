@@ -347,6 +347,10 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
     }
 
     async function updateEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary, text: string) {
+        // Keep this path paired with rewriteFreeTextNoteRects in save flows.
+        // PDF.js reads Popup text from the parent FreeText /Contents, so text
+        // updates are safe only after the visible FreeText AP stream has been
+        // neutralized by the rect rewrite pass.
         const sourceData = await getSourcePdfData();
         if (!sourceData) {
             return false;

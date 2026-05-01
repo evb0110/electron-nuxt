@@ -128,6 +128,8 @@ export type { IRuntimeIdentityPayload } from './runtime-identity';
 
 export { isTimeoutError } from './timeout-error';
 
+export { getErrorMessage } from './error';
+
 export type {
     IRecentFile,
     IOcrLanguage,

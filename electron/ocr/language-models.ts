@@ -21,10 +21,16 @@ import { Readable } from 'stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { pipeline } from 'stream/promises';
 import { fileURLToPath } from 'url';
+import {
+    abortErrorFromSignal,
+    createAbortError,
+    isAbortError,
+} from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/logger';
 import { forEachConcurrent } from '@electron/utils/concurrency';
 import { measureElectronPerfAsync } from '@electron/utils/dev-perf';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/available-languages';
+import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('ocr-language-models');
 const DOWNLOAD_BASE_URL = 'https://github.com/tesseract-ocr/tessdata_best/raw/main';
@@ -130,18 +136,6 @@ class DownloadTimeoutError extends Error {
     }
 }
 
-function createAbortError(message = 'The operation was aborted') {
-    const error = new Error(message);
-    error.name = 'AbortError';
-    return error;
-}
-
-function abortErrorFromSignal(signal: AbortSignal) {
-    return signal.reason instanceof Error
-        ? signal.reason
-        : createAbortError();
-}
-
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
@@ -162,14 +156,6 @@ function getErrorCode(error: unknown): string | null {
     }
 
     return null;
-}
-
-function isAbortError(error: unknown) {
-    if (!error || typeof error !== 'object') {
-        return false;
-    }
-
-    return (error as { name?: string }).name === 'AbortError';
 }
 
 function isTimeoutError(error: unknown) {
@@ -337,7 +323,7 @@ function classifyDownloadError(languageCode: string, error: unknown, timeoutMs =
         );
     }
 
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     const normalizedMessage = message.toLowerCase();
     if (
         normalizedMessage.includes('network is unreachable')

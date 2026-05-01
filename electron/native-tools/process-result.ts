@@ -1,4 +1,5 @@
 import { describeProcessExitCode } from '@electron/utils/process-exit';
+export { createAbortError } from '@electron/utils/abort';
 
 export interface IProcessResult {
     stdout: string;
@@ -7,12 +8,6 @@ export interface IProcessResult {
 }
 
 export type TProcessLog = (level: 'debug' | 'warn' | 'error', message: string) => void;
-
-export function createAbortError() {
-    const error = new Error('The operation was aborted');
-    error.name = 'AbortError';
-    return error;
-}
 
 function truncateForError(text: string, maxLen = 1200) {
     const normalized = text.trim();

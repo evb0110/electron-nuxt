@@ -1,8 +1,5 @@
 import type { Ref } from 'vue';
-import {
-    onClickOutside,
-    useEventListener,
-} from '@vueuse/core';
+import { useEventListener } from '@vueuse/core';
 import type {
     IBookmarkItem,
     IBookmarkMenuPayload,
@@ -12,7 +9,7 @@ import {
     findBookmarkLocation,
     normalizeBookmarkColor,
 } from '@app/utils/pdf-outline-helpers';
-import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
+import { usePositionedMenu } from '@app/composables/usePositionedMenu';
 
 export const usePdfOutlineContextMenu = (
     bookmarks: Ref<IBookmarkItem[]>,
@@ -22,20 +19,34 @@ export const usePdfOutlineContextMenu = (
     onEscape: () => void,
 ) => {
     const { t } = useTypedI18n();
-    const { clampElementToViewport } = useContextMenuPosition();
     const windowTarget = typeof window === 'undefined' ? undefined : window;
 
-    const bookmarkContextMenu = ref<{
+    interface IBookmarkContextMenuState {
         visible: boolean;
         x: number;
         y: number;
         itemId: string | null;
-    }>({
+    }
+
+    const createInitialBookmarkContextMenuState = (): IBookmarkContextMenuState => ({
         visible: false,
         x: 0,
         y: 0,
         itemId: null,
     });
+    const {
+        menu: bookmarkContextMenu,
+        showPositionedMenu,
+        resetMenu,
+    } = usePositionedMenu<IBookmarkContextMenuState>(
+        '.bookmarks-context-menu',
+        createInitialBookmarkContextMenuState,
+        { autoDismiss: {
+            onOutsideClick: true,
+            onResize: true,
+            onScroll: true,
+        } },
+    );
 
     const selectedContextBookmark = computed(() => {
         const id = bookmarkContextMenu.value.itemId;
@@ -71,11 +82,6 @@ export const usePdfOutlineContextMenu = (
     });
 
     const canApplyStyleRange = computed(() => Boolean(styleRangeInfo.value));
-    const contextMenuElement = computed(() => (
-        typeof window === 'undefined'
-            ? null
-            : document.querySelector<HTMLElement>('.bookmarks-context-menu')
-    ));
 
     const applyStyleRangeLabel = computed(() => {
         const info = styleRangeInfo.value;
@@ -85,23 +91,6 @@ export const usePdfOutlineContextMenu = (
         return t('bookmarks.applyStyleToCount', { count: info.count });
     });
 
-    function positionBookmarkContextMenu(
-        x: number,
-        y: number,
-        fallbackWidth: number,
-        fallbackHeight: number,
-    ) {
-        const clamped = clampElementToViewport(
-            x,
-            y,
-            contextMenuElement.value,
-            fallbackWidth,
-            fallbackHeight,
-        );
-        bookmarkContextMenu.value.x = clamped.x;
-        bookmarkContextMenu.value.y = clamped.y;
-    }
-
     function openBookmarkContextMenu(payload: IBookmarkMenuPayload) {
         if (!isEditMode.value) {
             return;
@@ -109,31 +98,17 @@ export const usePdfOutlineContextMenu = (
 
         const fallbackWidth = 320;
         const fallbackHeight = 380;
-        const initialPosition = clampElementToViewport(
-            payload.x,
-            payload.y,
-            contextMenuElement.value,
+        showPositionedMenu({
+            x: payload.x,
+            y: payload.y,
             fallbackWidth,
             fallbackHeight,
-        );
-
-        bookmarkContextMenu.value = {
-            visible: true,
-            x: initialPosition.x,
-            y: initialPosition.y,
-            itemId: payload.id,
-        };
-
-        void nextTick(() => {
-            if (!bookmarkContextMenu.value.visible) {
-                return;
-            }
-            positionBookmarkContextMenu(
-                payload.x,
-                payload.y,
-                fallbackWidth,
-                fallbackHeight,
-            );
+            buildState: position => ({
+                visible: true,
+                x: position.x,
+                y: position.y,
+                itemId: payload.id,
+            }),
         });
     }
 
@@ -142,12 +117,7 @@ export const usePdfOutlineContextMenu = (
             return;
         }
 
-        bookmarkContextMenu.value = {
-            visible: false,
-            x: 0,
-            y: 0,
-            itemId: null,
-        };
+        resetMenu();
     }
 
     function setStyleRangeStart(id: string) {
@@ -194,15 +164,7 @@ export const usePdfOutlineContextMenu = (
             onEscape();
         }
     }
-    onClickOutside(contextMenuElement, () => {
-        if (!bookmarkContextMenu.value.visible) {
-            return;
-        }
-        closeBookmarkContextMenu();
-    }, { capture: true });
     useEventListener(windowTarget, 'keydown', handleGlobalKeydown);
-    useEventListener(windowTarget, 'resize', closeBookmarkContextMenu);
-    useEventListener(windowTarget, 'scroll', closeBookmarkContextMenu, { capture: true });
 
     return {
         bookmarkContextMenu,

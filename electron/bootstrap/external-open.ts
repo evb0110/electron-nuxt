@@ -1,6 +1,7 @@
 import { extname } from 'path';
 import { fileURLToPath } from 'url';
 import { uniq } from 'es-toolkit/array';
+import { getErrorMessage } from '@electron/utils/error';
 
 const SUPPORTED_EXTENSIONS = new Set([
     '.pdf',
@@ -336,7 +337,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             try {
                 await ensureMainWindowForExternalOpen();
             } catch (error) {
-                options.logger.error(`Failed to prepare window for external open: ${error instanceof Error ? error.message : String(error)}`);
+                options.logger.error(`Failed to prepare window for external open: ${getErrorMessage(error)}`);
             } finally {
                 ensureWindowForExternalOpenPromise = null;
             }

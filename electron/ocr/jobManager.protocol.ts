@@ -1,4 +1,13 @@
 import type { TOcrWorkerOutboundMessage } from '@electron/ocr/worker/types';
+import {
+    createAbortError,
+    isAbortError,
+} from '@electron/utils/abort';
+
+export {
+    createAbortError,
+    isAbortError,
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -8,20 +17,10 @@ function isStringArray(value: unknown): value is string[] {
     return Array.isArray(value) && value.every(item => typeof item === 'string');
 }
 
-export function createAbortError(message: string) {
-    const error = new Error(message);
-    error.name = 'AbortError';
-    return error;
-}
-
 export function createTimeoutError(message: string) {
     const error = new Error(message);
     error.name = 'TimeoutError';
     return error;
-}
-
-export function isAbortError(error: unknown) {
-    return error instanceof Error && error.name === 'AbortError';
 }
 
 export function toScopedOcrJobId(webContentsId: number, requestId: string) {

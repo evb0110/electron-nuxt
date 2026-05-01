@@ -7,6 +7,7 @@ import {
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('pdf-decrypt');
 const DECRYPT_TIMEOUT_MS = 30_000;
@@ -65,7 +66,7 @@ export async function decryptPdfFileIfNeeded(filePath: string): Promise<boolean>
             return false;
         }
     } catch (error) {
-        logger.debug(`PDF encrypt check skipped: ${error instanceof Error ? error.message : String(error)}`);
+        logger.debug(`PDF encrypt check skipped: ${getErrorMessage(error)}`);
         return false;
     }
 }

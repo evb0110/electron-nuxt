@@ -29,6 +29,7 @@ import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { createLogger } from '@electron/utils/logger';
 import { measureElectronPerfAsync } from '@electron/utils/dev-perf';
 import { combinePagesIntoMultiPageTiffLocal } from '@electron/features/image-export/main/tiff-combine-local';
+import { getErrorMessage } from '@electron/utils/error';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 
@@ -409,7 +410,7 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
                 }});
             } catch (error) {
                 reject(new TiffCombineWorkerStartupError(
-                    `TIFF combine worker failed to start: ${error instanceof Error ? error.message : String(error)}`,
+                    `TIFF combine worker failed to start: ${getErrorMessage(error)}`,
                 ));
                 return;
             }
@@ -446,7 +447,7 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
                 finalize(() => {
                     if (!online) {
                         reject(new TiffCombineWorkerStartupError(
-                            `TIFF combine worker failed before becoming ready: ${error instanceof Error ? error.message : String(error)}`,
+                            `TIFF combine worker failed before becoming ready: ${getErrorMessage(error)}`,
                         ));
                         return;
                     }

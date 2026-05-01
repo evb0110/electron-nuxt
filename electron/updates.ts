@@ -17,7 +17,9 @@ import {
     loadSettings,
     updateSettings,
 } from '@electron/settings';
+import { isAbortError } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const { autoUpdater } = electronUpdater;
 
@@ -265,11 +267,6 @@ async function ensureUpdaterSupported() {
     return codeSignatureCheckPromise;
 }
 
-function isAbortError(error: unknown) {
-    return error instanceof Error
-        && (error.name === 'AbortError' || error.message.includes('aborted'));
-}
-
 async function readSkippedVersion() {
     const settings = await loadSettings();
     const skipped = normalizeVersion(settings.skippedUpdateVersion);
@@ -321,7 +318,7 @@ async function maybeClearSupersededDownloadedVersion() {
     } catch (error) {
         logger.warn(
             `Unable to verify whether downloaded update ${downloadedVersion} is current: ${
-                error instanceof Error ? error.message : String(error)
+                getErrorMessage(error)
             }`,
         );
         return false;
@@ -345,7 +342,7 @@ function scheduleNextPoll() {
     pollTimer = setTimeout(() => {
         void checkForUpdates('auto')
             .catch((error) => {
-                logger.error(`Automatic update poll failed: ${error instanceof Error ? error.message : String(error)}`);
+                logger.error(`Automatic update poll failed: ${getErrorMessage(error)}`);
             })
             .finally(() => {
                 scheduleNextPoll();
@@ -426,7 +423,7 @@ function setAutoUpdaterListeners() {
     });
 
     const onUpdaterError = (error: unknown) => {
-        logger.error(`Updater error: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(`Updater error: ${getErrorMessage(error)}`);
         if (currentCheckOrigin !== 'manual') {
             pendingVersion = null;
             setIdleStatus('auto');
@@ -438,7 +435,7 @@ function setAutoUpdaterListeners() {
             origin: 'manual',
             version: pendingVersion,
             percent: null,
-            message: error instanceof Error ? error.message : String(error),
+            message: getErrorMessage(error),
         });
     };
     autoUpdater.on('error', onUpdaterError);
@@ -478,13 +475,13 @@ function setAutoUpdaterListeners() {
                 message: null,
             });
         } catch (error) {
-            logger.error(`Failed to process downloaded update event: ${error instanceof Error ? error.message : String(error)}`);
+            logger.error(`Failed to process downloaded update event: ${getErrorMessage(error)}`);
             updateStatus({
                 phase: 'error',
                 origin: currentCheckOrigin,
                 version: pendingVersion,
                 percent: null,
-                message: error instanceof Error ? error.message : String(error),
+                message: getErrorMessage(error),
             });
         }
     };
@@ -509,7 +506,7 @@ async function shouldRunUpdaterCheck(origin: TAppUpdateCheckOrigin) {
     } catch (error) {
         const message = isAbortError(error)
             ? 'Timed out while checking for updates.'
-            : (error instanceof Error ? error.message : String(error));
+            : getErrorMessage(error);
         logger.warn(`Unable to query update metadata: ${message}`);
         return true;
     }
@@ -626,14 +623,14 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
             try {
                 await autoUpdater.checkForUpdates();
             } catch (error) {
-                logger.error(`checkForUpdates failed: ${error instanceof Error ? error.message : String(error)}`);
+                logger.error(`checkForUpdates failed: ${getErrorMessage(error)}`);
                 if (origin === 'manual') {
                     updateStatus({
                         phase: 'error',
                         origin: 'manual',
                         version: pendingVersion,
                         percent: null,
-                        message: error instanceof Error ? error.message : String(error),
+                        message: getErrorMessage(error),
                     });
                 }
             }
@@ -643,14 +640,14 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
 
         await currentCheckPromise;
     } catch (error) {
-        logger.error(`checkForUpdates internal failure: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(`checkForUpdates internal failure: ${getErrorMessage(error)}`);
         if (origin === 'manual') {
             updateStatus({
                 phase: 'error',
                 origin: 'manual',
                 version: pendingVersion,
                 percent: null,
-                message: error instanceof Error ? error.message : String(error),
+                message: getErrorMessage(error),
             });
         }
     }
@@ -698,7 +695,7 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
                 });
             })
             .catch((error) => {
-                logger.warn(`Updater signature check failed: ${error instanceof Error ? error.message : String(error)}`);
+                logger.warn(`Updater signature check failed: ${getErrorMessage(error)}`);
             });
     }
 
@@ -706,7 +703,7 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
     pollTimer = setTimeout(() => {
         void checkForUpdates('auto')
             .catch((error) => {
-                logger.error(`Initial automatic update check failed: ${error instanceof Error ? error.message : String(error)}`);
+                logger.error(`Initial automatic update check failed: ${getErrorMessage(error)}`);
             })
             .finally(() => {
                 scheduleNextPoll();
@@ -734,7 +731,7 @@ export async function installDownloadedUpdate() {
     try {
         await writeSkippedVersion(null);
     } catch (error) {
-        logger.warn(`Failed to clear skipped update version before install: ${error instanceof Error ? error.message : String(error)}`);
+        logger.warn(`Failed to clear skipped update version before install: ${getErrorMessage(error)}`);
     }
     autoUpdater.quitAndInstall(false, true);
     return { started: true };

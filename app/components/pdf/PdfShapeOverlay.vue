@@ -313,18 +313,13 @@
 <script setup lang="ts">
 
 import { useResizeObserver } from '@vueuse/core';
-import { clamp } from 'es-toolkit/math';
 import type {
     IShapeAnnotation,
     TDrawableShapeType,
     IAnnotationSettings,
     TShapeResizeHandle,
 } from '@app/types/annotations';
-import {
-    findShapeAtPoint,
-    getNormalizedSvgPointerCoords,
-    hasPointerMovedPastThreshold,
-} from '@app/composables/pdf/pdfShapeOverlayInteractions';
+import { usePdfShapeOverlayInteractions } from '@app/composables/pdf/pdfShapeOverlayInteractions';
 import {
     getAllShapePoints,
     getShapeStrokePointSets,
@@ -495,36 +490,6 @@ function shapeStrokePointSets(shape: IShapeAnnotation) {
     return getShapeStrokePointSets(shape).map(points => points.map(point => `${point.x},${point.y}`).join(' '));
 }
 
-function getNormalizedCoords(event: PointerEvent) {
-    const coords = getNormalizedSvgPointerCoords(event);
-    if (!coords) {
-        return null;
-    }
-    return {
-        x: clamp(coords.x, 0, 1),
-        y: clamp(coords.y, 0, 1),
-    };
-}
-
-function boundsContainCoords(bounds: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}, coords: {
-    x: number;
-    y: number;
-}) {
-    const padX = 12 / Math.max(svgWidth.value, 1);
-    const padY = 12 / Math.max(svgHeight.value, 1);
-    return (
-        coords.x >= bounds.x - padX
-        && coords.x <= bounds.x + bounds.width + padX
-        && coords.y >= bounds.y - padY
-        && coords.y <= bounds.y + bounds.height + padY
-    );
-}
-
 const selectedShapeBounds = computed(() => {
     if (!props.selectedShapeId) {
         return null;
@@ -636,291 +601,36 @@ const selectedShapeContextBounds = computed(() => {
     return selectedShapeBounds.value;
 });
 
-let pointerDrawing = false;
-let pointerDraggingShapeId: string | null = null;
-let pointerResizingShapeId: string | null = null;
-let suppressSelectionAfterDraw = false;
-let suppressSelectionResetFrame: number | null = null;
-let pendingShapeDrag: {
-    shapeId: string;
-    x: number;
-    y: number;
-    clientX: number;
-    clientY: number;
-} | null = null;
-
-function canCapturePointer(event: PointerEvent) {
-    return typeof event.pointerId === 'number' && event.pointerId > 0;
-}
-
-function clearPostDrawSelectionSuppression() {
-    suppressSelectionAfterDraw = false;
-    if (suppressSelectionResetFrame !== null) {
-        cancelAnimationFrame(suppressSelectionResetFrame);
-        suppressSelectionResetFrame = null;
-    }
-}
-
-function suppressPostDrawSelection() {
-    suppressSelectionAfterDraw = true;
-    if (suppressSelectionResetFrame !== null) {
-        cancelAnimationFrame(suppressSelectionResetFrame);
-    }
-    suppressSelectionResetFrame = requestAnimationFrame(() => {
-        suppressSelectionAfterDraw = false;
-        suppressSelectionResetFrame = null;
-    });
-}
-
-function beginPendingShapeInteraction(shape: IShapeAnnotation, coords: {
-    x: number;
-    y: number;
-}, event: PointerEvent) {
-    emit('select-shape', shape.id);
-    pendingShapeDrag = {
-        shapeId: shape.id,
-        x: coords.x,
-        y: coords.y,
-        clientX: event.clientX,
-        clientY: event.clientY,
-    };
-    if (canCapturePointer(event)) {
-        svgRef.value?.setPointerCapture?.(event.pointerId);
-    }
-}
-
-function findInteractiveShape(event: Pick<PointerEvent, 'clientX' | 'clientY' | 'currentTarget' | 'target'>) {
-    const coords = getNormalizedCoords(event as PointerEvent);
-    if (!coords) {
-        return null;
-    }
-
-    const shape = findShapeAtPoint({
-        shapes: props.shapes,
-        x: coords.x,
-        y: coords.y,
-        svgWidth: svgWidth.value,
-        svgHeight: svgHeight.value,
-    });
-
-    if (!shape) {
-        const selectedShape = props.selectedShapeId
-            ? props.shapes.find(candidate => candidate.id === props.selectedShapeId) ?? null
-            : null;
-        if (selectedShape && selectedShapeBounds.value && boundsContainCoords(selectedShapeBounds.value, coords)) {
-            return {
-                coords,
-                shape: selectedShape,
-            };
-        }
-        return null;
-    }
-
-    return {
-        coords,
-        shape,
-    };
-}
-
-function handlePointerDown(event: PointerEvent) {
-    if (!props.isActive || !props.tool) {
-        if (!props.selectionEnabled) {
-            return;
-        }
-        if (event.button !== 0) {
-            return;
-        }
-        const hit = findInteractiveShape(event);
-        if (hit) {
-            beginPendingShapeInteraction(hit.shape, hit.coords, event);
-            return;
-        }
-        emit('select-shape', null);
-        return;
-    }
-    event.preventDefault();
-    const coords = getNormalizedCoords(event);
-    if (!coords) {
-        return;
-    }
-    pointerDrawing = true;
-    if (canCapturePointer(event)) {
-        svgRef.value?.setPointerCapture?.(event.pointerId);
-    }
-    emit('start-drawing', coords);
-}
-
-function handlePointerMove(event: PointerEvent) {
-    if (pointerResizingShapeId) {
-        const coords = getNormalizedCoords(event);
-        if (!coords) {
-            return;
-        }
-        emit('continue-resize-shape', coords);
-        return;
-    }
-    if (pendingShapeDrag) {
-        const coords = getNormalizedCoords(event);
-        if (!coords) {
-            return;
-        }
-
-        if (!pointerDraggingShapeId) {
-            if (!hasPointerMovedPastThreshold(pendingShapeDrag, event, 6)) {
-                return;
-            }
-
-            pointerDraggingShapeId = pendingShapeDrag.shapeId;
-            emit('start-drag-shape', {
-                shapeId: pendingShapeDrag.shapeId,
-                x: pendingShapeDrag.x,
-                y: pendingShapeDrag.y,
-            });
-        }
-
-        emit('continue-drag-shape', coords);
-        return;
-    }
-    if (!pointerDrawing) {
-        return;
-    }
-    const coords = getNormalizedCoords(event);
-    if (!coords) {
-        return;
-    }
-    emit('continue-drawing', coords);
-}
-
-function handlePointerUp(event?: PointerEvent) {
-    if (event?.type === 'pointerleave' && event.pointerId && svgRef.value?.hasPointerCapture?.(event.pointerId)) {
-        return;
-    }
-    if (event && svgRef.value?.hasPointerCapture?.(event.pointerId)) {
-        svgRef.value.releasePointerCapture(event.pointerId);
-    }
-    pendingShapeDrag = null;
-    if (pointerResizingShapeId) {
-        pointerResizingShapeId = null;
-        emit('finish-resize-shape');
-        return;
-    }
-    if (pointerDraggingShapeId) {
-        pointerDraggingShapeId = null;
-        emit('finish-drag-shape');
-        return;
-    }
-    if (!pointerDrawing) {
-        return;
-    }
-    pointerDrawing = false;
-    suppressPostDrawSelection();
-    emit('finish-drawing');
-}
-
-function handleShapeClick(id: string) {
-    if (!props.selectionEnabled) {
-        return;
-    }
-    if (suppressSelectionAfterDraw) {
-        return;
-    }
-    emit('select-shape', id);
-}
-
-function handleShapePointerDown(shape: IShapeAnnotation, event: PointerEvent) {
-    if (!props.selectionEnabled) {
-        return;
-    }
-    if (event.button !== 0) {
-        return;
-    }
-    const coords = getNormalizedCoords(event);
-    if (!coords) {
-        return;
-    }
-
-    beginPendingShapeInteraction(shape, coords, event);
-}
-
-function handleShapeContextMenu(id: string, event: MouseEvent) {
-    if (!props.selectionEnabled) {
-        return;
-    }
-    emit('select-shape', id);
-    emit('shape-contextmenu', {
-        shapeId: id,
-        clientX: event.clientX,
-        clientY: event.clientY,
-    });
-}
-
-function handleContextMenu(event: MouseEvent) {
-    if (!props.selectionEnabled) {
-        return;
-    }
-    if (props.isActive || props.tool) {
-        return;
-    }
-
-    const hit = findInteractiveShape(event);
-    if (!hit) {
-        return;
-    }
-    event.preventDefault();
-    emit('select-shape', hit.shape.id);
-    emit('shape-contextmenu', {
-        shapeId: hit.shape.id,
-        clientX: event.clientX,
-        clientY: event.clientY,
-    });
-}
-
-function handleSelectedShapeBoundsContextMenu(event: MouseEvent) {
-    if (!props.selectionEnabled) {
-        return;
-    }
-    if (!props.selectedShapeId) {
-        return;
-    }
-    emit('select-shape', props.selectedShapeId);
-    emit('shape-contextmenu', {
-        shapeId: props.selectedShapeId,
-        clientX: event.clientX,
-        clientY: event.clientY,
-    });
-}
-
-function handleResizeHandlePointerDown(handle: TShapeResizeHandle, event: PointerEvent) {
-    if (!props.selectionEnabled) {
-        return;
-    }
-    if (event.button !== 0 || !selectedShape.value) {
-        return;
-    }
-
-    const coords = getNormalizedCoords(event);
-    if (!coords) {
-        return;
-    }
-
-    pendingShapeDrag = null;
-    pointerDraggingShapeId = null;
-    pointerDrawing = false;
-    pointerResizingShapeId = selectedShape.value.id;
-    emit('select-shape', selectedShape.value.id);
-    emit('start-resize-shape', {
-        shapeId: selectedShape.value.id,
-        handle,
-        x: coords.x,
-        y: coords.y,
-    });
-    if (canCapturePointer(event)) {
-        svgRef.value?.setPointerCapture?.(event.pointerId);
-    }
-}
-
-onBeforeUnmount(() => {
-    clearPostDrawSelectionSuppression();
+const {
+    handleContextMenu,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handleResizeHandlePointerDown,
+    handleSelectedShapeBoundsContextMenu,
+    handleShapeClick,
+    handleShapeContextMenu,
+    handleShapePointerDown,
+} = usePdfShapeOverlayInteractions({
+    svgRef,
+    svgWidth,
+    svgHeight,
+    props,
+    selectedShape,
+    selectedShapeBounds,
+    emit: {
+        startDrawing: payload => emit('start-drawing', payload),
+        continueDrawing: payload => emit('continue-drawing', payload),
+        finishDrawing: () => emit('finish-drawing'),
+        startDragShape: payload => emit('start-drag-shape', payload),
+        continueDragShape: payload => emit('continue-drag-shape', payload),
+        finishDragShape: () => emit('finish-drag-shape'),
+        startResizeShape: payload => emit('start-resize-shape', payload),
+        continueResizeShape: payload => emit('continue-resize-shape', payload),
+        finishResizeShape: () => emit('finish-resize-shape'),
+        selectShape: id => emit('select-shape', id),
+        shapeContextmenu: payload => emit('shape-contextmenu', payload),
+    },
 });
 </script>
 

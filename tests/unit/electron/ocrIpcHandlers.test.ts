@@ -68,7 +68,7 @@ vi.mock('@electron/ocr/preprocessingHandlers', () => ({
     handlePreprocessPage: mocks.handlePreprocessPage,
 }));
 
-const { registerOcrHandlers } = await import('@electron/ocr/ipc');
+const { registerOcrHandlers } = await import('@electron/features/ocr/main/ipc');
 
 function getHandler(channel: string) {
     const handler = mocks.handlers.get(channel);

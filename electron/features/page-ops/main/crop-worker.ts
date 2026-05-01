@@ -11,6 +11,7 @@ import {
     getPageGeometryLocal,
     removeCropFromPagesLocal,
 } from '@electron/features/page-ops/main/crop-local';
+import { getErrorMessage } from '@electron/utils/error';
 
 type TCropWorkerInput =
     | {
@@ -86,7 +87,7 @@ async function run() {
         parentPort.postMessage({
             type: 'result',
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         } satisfies TCropWorkerResult);
     }
 }

@@ -16,6 +16,7 @@ import {
     MAX_RECENT_FILES,
 } from '@electron/config/constants';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('recent-files');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -97,7 +98,7 @@ function inspectPath(filePath: string): 'exists' | 'missing' | 'unreadable' {
         if (code === 'ENOENT' || code === 'ENOTDIR') {
             return 'missing';
         }
-        logger.warn(`Recent file path unreadable; preserving entry (${filePath}): ${error instanceof Error ? error.message : String(error)}`);
+        logger.warn(`Recent file path unreadable; preserving entry (${filePath}): ${getErrorMessage(error)}`);
         return 'unreadable';
     }
 }
@@ -158,7 +159,7 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
                     }
                     logger.warn(
                         `Failed to bootstrap recent files from ${bootstrapPath}: ${
-                            bootstrapError instanceof Error ? bootstrapError.message : String(bootstrapError)
+                            getErrorMessage(bootstrapError)
                         }`,
                     );
                 }
@@ -169,7 +170,7 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
                 files: [],
             };
         }
-        logger.error(`Failed to load recent files: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error(`Failed to load recent files: ${getErrorMessage(err)}`);
         return {
             version: 1,
             files: [],
@@ -184,7 +185,7 @@ async function saveRecentFilesData(data: IRecentFilesData): Promise<void> {
         await writeFile(tempPath, JSON.stringify(data, null, 2), 'utf-8');
         await rename(tempPath, storagePath);
     } catch (err) {
-        logger.error(`Failed to save recent files: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error(`Failed to save recent files: ${getErrorMessage(err)}`);
         try {
             await unlink(tempPath);
         } catch {

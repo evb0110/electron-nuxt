@@ -9,6 +9,7 @@ import { existsSync } from 'fs';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('page-ops-qpdf');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -59,7 +60,7 @@ async function cleanupTemp(tempPath: string) {
         }
     } catch (cleanupError) {
         log.debug(`Failed to cleanup qpdf temp file "${tempPath}": ${
-            cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+            getErrorMessage(cleanupError)
         }`);
     }
 }
@@ -77,7 +78,7 @@ async function cleanupEmptyTarget(targetPath: string) {
         }
 
         log.debug(`Failed to cleanup empty output file "${targetPath}": ${
-            cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+            getErrorMessage(cleanupError)
         }`);
     }
 }

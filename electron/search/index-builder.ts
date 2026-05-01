@@ -7,7 +7,12 @@ import { join } from 'path';
 import type { IOcrWord } from '@contracts/shared';
 import { extractTextFromPdf } from '@electron/search/pdf-text-extractor';
 import { extractTextWithPdfjs } from '@electron/search/pdfjs-text-extractor';
+import {
+    abortErrorFromSignal,
+    isAbortError,
+} from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 export interface IPageIndex {
     pageNumber: number;
@@ -56,23 +61,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
-function createAbortError() {
-    const error = new Error('The operation was aborted');
-    error.name = 'AbortError';
-    return error;
-}
-
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
-        throw createAbortError();
+        throw abortErrorFromSignal(signal);
     }
-}
-
-function isAbortError(error: unknown) {
-    return error instanceof Error && (
-        error.name === 'AbortError'
-        || error.message.toLowerCase().includes('aborted')
-    );
 }
 
 /**
@@ -130,7 +122,7 @@ async function loadOcrIndexText(
         if (isAbortError(err)) {
             throw err;
         }
-        const errMsg = err instanceof Error ? err.message : String(err);
+        const errMsg = getErrorMessage(err);
         log.debug(`Failed to load OCR v2 index: ${errMsg}`);
         return null;
     }
@@ -250,7 +242,7 @@ export async function buildSearchIndex(
             if (isAbortError(err)) {
                 throw err;
             }
-            const errMsg = err instanceof Error ? err.message : String(err);
+            const errMsg = getErrorMessage(err);
             log.debug(`Warning: Failed to save OCR-based index: ${errMsg}`);
         }
 
@@ -308,7 +300,7 @@ export async function buildSearchIndex(
             if (isAbortError(pdfjsErr)) {
                 throw pdfjsErr;
             }
-            const errMsg = pdfjsErr instanceof Error ? pdfjsErr.message : String(pdfjsErr);
+            const errMsg = getErrorMessage(pdfjsErr);
             log.warn(`Failed to extract text with pdfjs-dist: ${errMsg}`);
         }
 
@@ -340,7 +332,7 @@ export async function buildSearchIndex(
                 if (isAbortError(pdfTextErr)) {
                     throw pdfTextErr;
                 }
-                const errMsg = pdfTextErr instanceof Error ? pdfTextErr.message : String(pdfTextErr);
+                const errMsg = getErrorMessage(pdfTextErr);
                 log.warn(`Failed to extract text with pdftotext: ${errMsg}`);
             }
         }
@@ -400,7 +392,7 @@ export async function buildSearchIndex(
         log.debug(`Index saved successfully: ${indexPath}`);
         return index;
     } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
+        const errMsg = getErrorMessage(err);
         log.debug(`Failed to save index: ${errMsg}`);
         throw err;
     }

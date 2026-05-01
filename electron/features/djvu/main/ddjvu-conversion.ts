@@ -24,6 +24,7 @@ import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
 import { describeProcessExitCode } from '@electron/utils/process-exit';
 import { terminateProcessTree } from '@electron/utils/process-tree';
+import { getErrorMessage } from '@electron/utils/error';
 
 interface IDjvuConvertOptions {
     subsample?: number;
@@ -197,7 +198,7 @@ async function _convertDjvuToPdfWithRanges(
                 success: false,
                 outputPath,
                 fileSize: 0,
-                error: `Output file not found after parallel conversion: ${err instanceof Error ? err.message : String(err)}`,
+                error: `Output file not found after parallel conversion: ${getErrorMessage(err)}`,
             };
         }
     } finally {
@@ -270,7 +271,7 @@ async function _convertDjvuToPdfSingleProcess(
             success: false,
             outputPath,
             fileSize: 0,
-            error: `Output file not found after conversion: ${err instanceof Error ? err.message : String(err)}`,
+            error: `Output file not found after conversion: ${getErrorMessage(err)}`,
         };
     }
 }
@@ -383,7 +384,7 @@ async function mergePdfChunks(
     } catch (error) {
         return {
             success: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         };
     }
 }
@@ -462,7 +463,7 @@ export async function convertDjvuPageToImage(
             success: false,
             outputPath,
             fileSize: 0,
-            error: `Output file not found: ${err instanceof Error ? err.message : String(err)}`,
+            error: `Output file not found: ${getErrorMessage(err)}`,
         };
     }
 }
@@ -572,7 +573,7 @@ async function runProcess(
         } catch (error) {
             resolve({
                 success: false,
-                error: error instanceof Error ? error.message : String(error),
+                error: getErrorMessage(error),
             });
             return;
         }

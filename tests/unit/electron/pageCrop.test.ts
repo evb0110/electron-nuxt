@@ -22,7 +22,7 @@ import {
     cropPages,
     getPageGeometry,
     removeCropFromPages,
-} from '@electron/page-ops/crop';
+} from '@electron/features/page-ops/main/crop';
 
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),

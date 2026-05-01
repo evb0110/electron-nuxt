@@ -13,11 +13,11 @@ import {
     type IOcrSettings,
     type IOcrProgress,
     type IOcrResults,
-} from '@app/composables/ocrLanguages';
+} from '@app/utils/ocr/languages';
 import {
     loadOcrText,
     extractPdfText,
-} from '@app/composables/ocrProcessing';
+} from '@app/utils/ocr/processing';
 import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
 import { getOcrCapability } from '@app/utils/platform-ocr';
@@ -27,6 +27,7 @@ import {
     readBrowserOcrPreferences,
     saveBrowserOcrPreferences,
 } from '@app/platform/browser-api/browser-ocr-preferences';
+import { getErrorMessage } from '@app/utils/error';
 
 const RTL_OCR_LANGUAGES = new Set([
     'heb',
@@ -363,7 +364,7 @@ export const useOcr = () => {
                 error.value = error.value || t('errors.ocr.createSearchablePdf');
             }
         } catch (e) {
-            const errMsg = e instanceof Error ? e.message : String(e);
+            const errMsg = getErrorMessage(e);
             const errStack = e instanceof Error ? e.stack : undefined;
             if (e instanceof OcrCanceledError) {
                 return;

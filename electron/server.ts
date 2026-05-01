@@ -31,6 +31,7 @@ import { isTimeoutError } from '@contracts/timeout-error';
 import { runCommand } from '@electron/utils/exec';
 import { createLogger } from '@electron/utils/logger';
 import { terminateProcessTree } from '@electron/utils/process-tree';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('server');
 
@@ -151,7 +152,7 @@ function writeOwnershipMarker(pid: number) {
     try {
         writeFileSync(markerPath, JSON.stringify(marker), 'utf-8');
     } catch (err) {
-        logger.warn(`Failed to write server ownership marker: ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(`Failed to write server ownership marker: ${getErrorMessage(err)}`);
     }
 }
 
@@ -162,7 +163,7 @@ function clearOwnershipMarker() {
             unlinkSync(markerPath);
         }
     } catch (err) {
-        logger.warn(`Failed to clear server ownership marker: ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(`Failed to clear server ownership marker: ${getErrorMessage(err)}`);
     }
 }
 
@@ -504,7 +505,7 @@ export async function startServer() {
     })();
 
     nuxtProcess.on('error', (err) => {
-        logger.error(`Failed to start Nuxt server: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error(`Failed to start Nuxt server: ${getErrorMessage(err)}`);
         rejectReady(err instanceof Error ? err : new Error(String(err)));
     });
 
@@ -541,7 +542,7 @@ export function waitForServer() {
                     }
                 } catch (error) {
                     logger.debug(`Server health check attempt ${attempt}/${SERVER_HEALTH_MAX_ATTEMPTS} failed: ${
-                        error instanceof Error ? error.message : String(error)
+                        getErrorMessage(error)
                     }`);
                     throw error;
                 }

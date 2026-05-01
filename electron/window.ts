@@ -15,6 +15,7 @@ import { stopServer } from '@electron/server';
 import { createLogger } from '@electron/utils/logger';
 import { createWindowRuntime } from '@electron/window/runtime';
 import { createWindowSecurity } from '@electron/window/security';
+import { getErrorMessage } from '@electron/utils/error';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -67,9 +68,7 @@ interface IWindowStartupWaiter {
 interface IAttachShowLifecycleOptions {blockShowUntilRendererReady?: boolean;}
 
 function formatErrorMessage(error: unknown) {
-    return error instanceof Error
-        ? error.message
-        : String(error);
+    return getErrorMessage(error);
 }
 const windowSecurity = createWindowSecurity({
     getServerUrl: () => config.server.url,
@@ -214,7 +213,7 @@ async function lockRendererZoom(window: BrowserWindow) {
         window.webContents.setZoomLevel(0);
     } catch (error) {
         logger.warn(
-            `Failed to lock renderer zoom: ${error instanceof Error ? error.message : String(error)}`,
+            `Failed to lock renderer zoom: ${getErrorMessage(error)}`,
         );
     }
 }
@@ -423,7 +422,7 @@ function attachRendererDiagnostics(window: BrowserWindow) {
             } catch (error) {
                 logger.error(
                     `Renderer recovery load failed (${reason}, windowId=${windowId}): ${
-                        error instanceof Error ? error.message : String(error)
+                        getErrorMessage(error)
                     }`,
                 );
             }
@@ -769,7 +768,7 @@ function attachShowLifecycle(
                 } catch (error) {
                     logger.error(
                         `Failed runtime server restart/retry after load refusal: ${
-                            error instanceof Error ? error.message : String(error)
+                            getErrorMessage(error)
                         }`,
                     );
                     await showWindowNow();
@@ -865,7 +864,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         await window.loadURL(config.server.url);
     })();
     void initialLoadPromise.catch((error) => {
-        logger.error(`Initial loadURL failed: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(`Initial loadURL failed: ${getErrorMessage(error)}`);
     });
     const initialRendererReadyPromise = shouldWaitForInitialRendererReady
         ? waitForInitialRendererReady(window, initialLoadPromise)

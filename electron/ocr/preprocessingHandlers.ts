@@ -12,6 +12,7 @@ import {
     validatePreprocessingSetup,
 } from '@electron/ocr/preprocessing';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('ocr-ipc');
 const PREPROCESS_MAX_IMAGE_BYTES = (() => {
@@ -131,12 +132,12 @@ export async function handlePreprocessPage(
             try {
                 await unlink(inputPath);
             } catch (cleanupErr) {
-                log.warn(`Cleanup warning (inputPath): ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
+                log.warn(`Cleanup warning (inputPath): ${getErrorMessage(cleanupErr)}`);
             }
             try {
                 await unlink(outputPath);
             } catch (cleanupErr) {
-                log.warn(`Cleanup warning (outputPath): ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
+                log.warn(`Cleanup warning (outputPath): ${getErrorMessage(cleanupErr)}`);
             }
         }
     } catch (err) {
@@ -147,7 +148,7 @@ export async function handlePreprocessPage(
                 error: 'Renderer disconnected during preprocessing',
             };
         }
-        const errMsg = err instanceof Error ? err.message : String(err);
+        const errMsg = getErrorMessage(err);
         log.debug(`Preprocessing error: ${errMsg}`);
         return {
             success: false,

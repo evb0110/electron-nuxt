@@ -12,6 +12,7 @@ import {
 import { getDjvuPageCount } from '@electron/djvu/metadata';
 import { isAllowedDjvuTempPdfPath } from '@electron/djvu/temp-path';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('djvu-viewing');
 const allowedDjvuViewingPathsBySender = new Map<number, Map<string, number>>();
@@ -226,7 +227,7 @@ export async function handleDjvuOpenForViewing(
             pageCount,
         };
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         logger.error(`DjVu open failed: ${message}`);
         return {
             success: false,

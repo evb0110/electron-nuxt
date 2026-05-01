@@ -1,6 +1,7 @@
 import type { TWorkerLog } from '@electron/ocr/worker/types';
 import { runCommand } from '@electron/ocr/worker/run-command';
 import { clamp } from 'es-toolkit/math';
+import { getErrorMessage } from '@electron/utils/error';
 
 const PDFIMAGES_TIMEOUT_MS = 30 * 1000;
 
@@ -50,7 +51,7 @@ export async function detectSourceDpi(
             return best;
         }
     } catch (err) {
-        log('debug', `pdfimages detection failed: ${err instanceof Error ? err.message : String(err)}`);
+        log('debug', `pdfimages detection failed: ${getErrorMessage(err)}`);
     }
 
     return null;

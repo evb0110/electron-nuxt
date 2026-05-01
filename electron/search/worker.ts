@@ -16,7 +16,12 @@ import {
     EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
 } from '@electron/config/constants';
+import {
+    createAbortError,
+    isAbortError,
+} from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 type TCachedIndex = {
     mtimeMs: number;
@@ -331,19 +336,6 @@ function markRequestCancelled(requestId: string) {
     }
     cancelledRequests.set(requestId, now + CANCELLED_REQUEST_TTL_MS);
     pruneCancelledRequests(now);
-}
-
-function createAbortError() {
-    const error = new Error('The operation was aborted');
-    error.name = 'AbortError';
-    return error;
-}
-
-function isAbortError(error: unknown) {
-    return error instanceof Error && (
-        error.name === 'AbortError'
-        || error.message.toLowerCase().includes('aborted')
-    );
 }
 
 function throwIfCancelled(
@@ -672,7 +664,7 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
             return;
         }
 
-        const errMsg = error instanceof Error ? error.message : String(error);
+        const errMsg = getErrorMessage(error);
         postMessage({
             type: 'error',
             requestId,

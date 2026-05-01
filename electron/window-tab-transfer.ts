@@ -11,6 +11,7 @@ import {
     getWindowById,
 } from '@electron/window';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('window-tab-transfer');
 const INCOMING_TRANSFER_CHANNEL = 'tabs:incomingTransfer';
@@ -187,7 +188,7 @@ export class WindowTabTransferBroker {
         } catch (error) {
             this.finishTransfer(transferId, {
                 success: false,
-                error: `Failed to deliver transfer to target renderer: ${error instanceof Error ? error.message : String(error)}`,
+                error: `Failed to deliver transfer to target renderer: ${getErrorMessage(error)}`,
             });
         }
     }

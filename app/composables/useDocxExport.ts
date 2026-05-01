@@ -4,7 +4,7 @@ import { createDocxFromTextAsync } from '@app/utils/docx';
 import {
     loadOcrText,
     extractPdfText,
-} from '@app/composables/ocrProcessing';
+} from '@app/utils/ocr/processing';
 import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { getDocumentRefBaseName } from '@app/utils/document-ref';

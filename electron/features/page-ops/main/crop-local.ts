@@ -16,6 +16,7 @@ import type {
     IPageGeometry,
 } from '@contracts/shared';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('page-ops-crop');
 
@@ -71,7 +72,7 @@ async function cleanupTemp(tempPath: string) {
         }
     } catch (cleanupError) {
         log.debug(`Failed to cleanup temp file "${tempPath}": ${
-            cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+            getErrorMessage(cleanupError)
         }`);
     }
 }

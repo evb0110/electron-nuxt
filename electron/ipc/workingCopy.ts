@@ -24,6 +24,7 @@ import {
 } from 'path';
 import { createLogger } from '@electron/utils/logger';
 import { decryptPdfFileIfNeeded } from '@electron/utils/pdf-decrypt';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('working-copy');
 const ALLOWED_SAVE_EXTENSIONS = new Set([
@@ -311,7 +312,7 @@ export async function handleFileSave(
         await copyFile(normalizedWorkingPath, originalPath);
         return true;
     } catch (err) {
-        throw new Error(`Failed to save: ${err instanceof Error ? err.message : String(err)}`);
+        throw new Error(`Failed to save: ${getErrorMessage(err)}`);
     }
 }
 
@@ -348,7 +349,7 @@ async function cleanupWorkingCopyDirectory(workingPath: string) {
             ]);
         }
     } catch (err) {
-        logger.warn(`Failed to delete working directory: ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(`Failed to delete working directory: ${getErrorMessage(err)}`);
     }
 }
 

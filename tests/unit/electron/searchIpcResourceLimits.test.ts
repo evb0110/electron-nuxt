@@ -181,7 +181,7 @@ describe('search IPC worker resource limits', () => {
         process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '1';
         mocks.autoCompleteSearch = false;
 
-        const { registerSearchHandlers } = await import('@electron/search/ipc');
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
         registerSearchHandlers();
         const searchHandler = getSearchHandler();
 
@@ -226,7 +226,7 @@ describe('search IPC worker resource limits', () => {
     it('reuses an idle worker under cap pressure instead of spawning a new one', async () => {
         process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '1';
 
-        const { registerSearchHandlers } = await import('@electron/search/ipc');
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
         registerSearchHandlers();
         const searchHandler = getSearchHandler();
 
@@ -267,7 +267,7 @@ describe('search IPC worker resource limits', () => {
     it('keeps normal per-sender search flow unchanged', async () => {
         process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '4';
 
-        const { registerSearchHandlers } = await import('@electron/search/ipc');
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
         registerSearchHandlers();
         const searchHandler = getSearchHandler();
 
@@ -302,7 +302,7 @@ describe('search IPC worker resource limits', () => {
     it('caps the default active worker budget at two concurrent senders', async () => {
         mocks.autoCompleteSearch = false;
 
-        const { registerSearchHandlers } = await import('@electron/search/ipc');
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
         registerSearchHandlers();
         const searchHandler = getSearchHandler();
 
@@ -361,7 +361,7 @@ describe('search IPC worker resource limits', () => {
         mocks.autoCompleteSearch = false;
 
         try {
-            const { registerSearchHandlers } = await import('@electron/search/ipc');
+            const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
             registerSearchHandlers();
             const searchHandler = getSearchHandler();
             const cancelHandler = getCancelHandler();
@@ -404,7 +404,7 @@ describe('search IPC worker resource limits', () => {
             size: 300 * 1024 * 1024,
         });
 
-        const { registerSearchHandlers } = await import('@electron/search/ipc');
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
         registerSearchHandlers();
         const searchHandler = getSearchHandler();
 
