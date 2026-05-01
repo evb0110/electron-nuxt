@@ -729,6 +729,21 @@ function cancelAllRenders() {
     renderingPages.clear();
 }
 
+function cancelRenderForPage(page: number) {
+    const task = renderTasks.get(page);
+    if (task) {
+        try {
+            task.cancel();
+        } catch {
+            // Ignore cancellation errors
+        }
+        renderTasks.delete(page);
+    }
+
+    renderingPages.delete(page);
+    renderingCanvases.delete(page);
+}
+
 function pruneDetachedThumbnailState() {
     const mountedPages = new Set(virtualPages.value);
 
@@ -749,18 +764,7 @@ function pruneDetachedThumbnailState() {
             continue;
         }
 
-        const task = renderTasks.get(page);
-        if (task) {
-            try {
-                task.cancel();
-            } catch {
-                // Ignore cancellation errors
-            }
-            renderTasks.delete(page);
-        }
-
-        renderingPages.delete(page);
-        renderingCanvases.delete(page);
+        cancelRenderForPage(page);
     }
 }
 
@@ -1076,19 +1080,7 @@ function invalidatePages(pages: number[]) {
     });
     for (const page of pages) {
         renderedCanvases.delete(page);
-
-        const task = renderTasks.get(page);
-        if (task) {
-            try {
-                task.cancel();
-            } catch {
-                // Ignore cancellation errors
-            }
-            renderTasks.delete(page);
-        }
-
-        renderingPages.delete(page);
-        renderingCanvases.delete(page);
+        cancelRenderForPage(page);
 
         const canvas = getCanvas(page);
         if (canvas) {
