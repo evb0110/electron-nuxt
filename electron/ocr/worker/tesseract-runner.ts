@@ -324,35 +324,23 @@ export async function runOcrFileBased(
 }
 
 function parseTsvOutput(tsvContent: string): IOcrWord[] {
-    const lines = tsvContent.trim().split('\n');
-    if (lines.length < 2) {
-        return [];
-    }
-
     const words: IOcrWord[] = [];
 
-    for (let i = 1; i < lines.length; i++) {
-        const line = lines[i]?.trim();
-        if (!line) continue;
-
-        const parts = line.split('\t');
-        if (parts.length < 12) continue;
-
-        const level = parseInt(parts[0]!, 10);
-        if (level !== 5) continue;
-
+    for (const {
+        parts,
+        text,
+    } of iterateTsvWordRows(tsvContent)) {
         const left = parseInt(parts[6]!, 10);
         const top = parseInt(parts[7]!, 10);
         const width = parseInt(parts[8]!, 10);
         const height = parseInt(parts[9]!, 10);
         const confidence = parseInt(parts[10]!, 10);
-        const text = parts[11] || '';
 
         if (confidence < 20) continue;
         if (width <= 0 || height <= 0) continue;
 
         words.push({
-            text: text.trim(),
+            text,
             x: left,
             y: top,
             width,
@@ -364,31 +352,19 @@ function parseTsvOutput(tsvContent: string): IOcrWord[] {
 }
 
 function parseTsvText(tsvContent: string): string {
-    const lines = tsvContent.trim().split('\n');
-    if (lines.length < 2) {
-        return '';
-    }
-
     const outputLines: string[] = [];
     let currentLineKey: string | null = null;
     let currentWords: string[] = [];
 
-    for (let i = 1; i < lines.length; i++) {
-        const line = lines[i]?.trim();
-        if (!line) continue;
-
-        const parts = line.split('\t');
-        if (parts.length < 12) continue;
-
-        const level = parseInt(parts[0]!, 10);
-        if (level !== 5) continue;
-
+    for (const {
+        parts,
+        text,
+    } of iterateTsvWordRows(tsvContent)) {
         const blockNum = parts[2] || '0';
         const parNum = parts[3] || '0';
         const lineNum = parts[4] || '0';
         const lineKey = `${blockNum}-${parNum}-${lineNum}`;
 
-        const text = (parts[11] || '').trim();
         if (!text) continue;
 
         if (currentLineKey !== null && lineKey !== currentLineKey) {
@@ -407,4 +383,30 @@ function parseTsvText(tsvContent: string): string {
     }
 
     return outputLines.join('\n').trim();
+}
+
+function* iterateTsvWordRows(tsvContent: string): Generator<{
+    parts: string[];
+    text: string;
+}> {
+    const lines = tsvContent.trim().split('\n');
+    if (lines.length < 2) {
+        return;
+    }
+
+    for (let i = 1; i < lines.length; i++) {
+        const line = lines[i]?.trim();
+        if (!line) continue;
+
+        const parts = line.split('\t');
+        if (parts.length < 12) continue;
+
+        const level = parseInt(parts[0]!, 10);
+        if (level !== 5) continue;
+
+        yield {
+            parts,
+            text: (parts[11] || '').trim(),
+        };
+    }
 }

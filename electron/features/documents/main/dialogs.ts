@@ -120,6 +120,35 @@ interface ISaveDialogOptions {
     extension: string;
 }
 
+interface ITrustedOriginalPathOptions {
+    sourcePath?: string;
+    warningContext: string;
+}
+
+function resolveTrustedOriginalPath(
+    originalPath: string | undefined,
+    options: ITrustedOriginalPathOptions,
+) {
+    const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
+        ? originalPath.trim()
+        : undefined;
+    if (normalizedOriginalPath && (!isAbsolute(normalizedOriginalPath) || !isSupportedOpenPath(normalizedOriginalPath))) {
+        throw new Error('Invalid original path');
+    }
+
+    const trustedOriginalPath = normalizedOriginalPath && (
+        normalizedOriginalPath === options.sourcePath
+        || isKnownWorkingCopyOriginalPath(normalizedOriginalPath)
+    )
+        ? normalizedOriginalPath
+        : undefined;
+    if (normalizedOriginalPath && !trustedOriginalPath) {
+        logger.warn(`Ignoring untrusted original path for ${options.warningContext}`);
+    }
+
+    return trustedOriginalPath;
+}
+
 async function openInputPaths(
     paths: string[],
     options: IOpenInputPathsOptions = {},
@@ -260,20 +289,7 @@ export async function handleCreateWorkingCopyFromData(
         throw new Error('Invalid PDF payload');
     }
 
-    const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
-        ? originalPath.trim()
-        : undefined;
-    if (normalizedOriginalPath && (!isAbsolute(normalizedOriginalPath) || !isSupportedOpenPath(normalizedOriginalPath))) {
-        throw new Error('Invalid original path');
-    }
-    const trustedOriginalPath = normalizedOriginalPath && isKnownWorkingCopyOriginalPath(normalizedOriginalPath)
-        ? normalizedOriginalPath
-        : undefined;
-    if (normalizedOriginalPath && !trustedOriginalPath) {
-        // Ignore renderer-supplied write targets unless they originated from a
-        // previously trusted working-copy mapping.
-        logger.warn('Ignoring untrusted original path for createWorkingCopyFromData');
-    }
+    const trustedOriginalPath = resolveTrustedOriginalPath(originalPath, {warningContext: 'createWorkingCopyFromData'});
 
     return createWorkingCopyFromData(normalizedName, data, trustedOriginalPath);
 }
@@ -295,21 +311,10 @@ export async function handleCreateWorkingCopyFromPath(
         throw new Error('Invalid source file type');
     }
 
-    const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
-        ? originalPath.trim()
-        : undefined;
-    if (normalizedOriginalPath && (!isAbsolute(normalizedOriginalPath) || !isSupportedOpenPath(normalizedOriginalPath))) {
-        throw new Error('Invalid original path');
-    }
-    const trustedOriginalPath = normalizedOriginalPath && (
-        normalizedOriginalPath === normalizedSourcePath
-        || isKnownWorkingCopyOriginalPath(normalizedOriginalPath)
-    )
-        ? normalizedOriginalPath
-        : undefined;
-    if (normalizedOriginalPath && !trustedOriginalPath) {
-        logger.warn('Ignoring untrusted original path for createWorkingCopyFromPath');
-    }
+    const trustedOriginalPath = resolveTrustedOriginalPath(originalPath, {
+        sourcePath: normalizedSourcePath,
+        warningContext: 'createWorkingCopyFromPath',
+    });
 
     return createWorkingCopyFromPath(normalizedSourcePath, trustedOriginalPath);
 }
