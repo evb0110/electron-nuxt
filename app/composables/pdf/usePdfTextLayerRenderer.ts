@@ -554,6 +554,34 @@ export const usePdfTextLayerRenderer = (deps: {
             };
         }
 
+        function scrollMatchRectIntoView(
+            rect: DOMRect,
+            targetPageContainer: HTMLElement,
+            source: 'range' | 'mark',
+        ) {
+            const containerRect = containerRoot.getBoundingClientRect();
+            const elementTop = rect.top - containerRect.top + containerRoot.scrollTop;
+            const desiredTop = elementTop - containerRoot.clientHeight / 2 + rect.height / 2;
+            const {
+                clampedTop,
+                minTop,
+                maxTop,
+                paddingTop,
+                paddingBottom,
+            } = clampScrollTopToTargetPage(desiredTop, targetPageContainer);
+
+            logPdfNav(
+                `[PDF-NAV] scrollToCurrentMatch (${source}): scrollTop=${containerRoot.scrollTop.toFixed(1)}`
+                + ` rect.top=${rect.top.toFixed(1)} containerRect.top=${containerRect.top.toFixed(1)}`
+                + ` elementTop=${elementTop.toFixed(1)} desiredTop=${desiredTop.toFixed(1)}`
+                + ` clampedTop=${clampedTop.toFixed(1)} pageMin=${minTop.toFixed(1)}`
+                + ` pageMax=${maxTop.toFixed(1)} padTop=${paddingTop.toFixed(1)}`
+                + ` padBottom=${paddingBottom.toFixed(1)}`,
+            );
+
+            containerRoot.scrollTop = clampedTop;
+        }
+
         const currentMatchValue = toValue(deps.currentSearchMatch);
         if (!currentMatchValue) {
             logPdfNav('[PDF-NAV] scrollToCurrentMatch: no current search match');
@@ -604,28 +632,7 @@ export const usePdfTextLayerRenderer = (deps: {
                 return false;
             }
 
-            const containerRect = containerRoot.getBoundingClientRect();
-            const elementTop = rect.top - containerRect.top + containerRoot.scrollTop;
-            const desiredTop = elementTop - containerRoot.clientHeight / 2 + rect.height / 2;
-            const {
-                clampedTop,
-                minTop,
-                maxTop,
-                paddingTop,
-                paddingBottom,
-            } = clampScrollTopToTargetPage(desiredTop, targetContainer);
-
-            logPdfNav(
-                `[PDF-NAV] scrollToCurrentMatch (range): scrollTop=${containerRoot.scrollTop.toFixed(1)}`
-                + ` rect.top=${rect.top.toFixed(1)} containerRect.top=${containerRect.top.toFixed(1)}`
-                + ` elementTop=${elementTop.toFixed(1)} desiredTop=${desiredTop.toFixed(1)}`
-                + ` clampedTop=${clampedTop.toFixed(1)} pageMin=${minTop.toFixed(1)}`
-                + ` pageMax=${maxTop.toFixed(1)} padTop=${paddingTop.toFixed(1)}`
-                + ` padBottom=${paddingBottom.toFixed(1)}`,
-            );
-
-            containerRoot.scrollTop = clampedTop;
-
+            scrollMatchRectIntoView(rect, targetContainer, 'range');
             return true;
         }
 
@@ -637,27 +644,7 @@ export const usePdfTextLayerRenderer = (deps: {
             return false;
         }
 
-        const containerRect = containerRoot.getBoundingClientRect();
-        const elementTop = highlightRect.top - containerRect.top + containerRoot.scrollTop;
-        const desiredTop = elementTop - containerRoot.clientHeight / 2 + highlightRect.height / 2;
-        const {
-            clampedTop,
-            minTop,
-            maxTop,
-            paddingTop,
-            paddingBottom,
-        } = clampScrollTopToTargetPage(desiredTop, targetContainer);
-
-        logPdfNav(
-            `[PDF-NAV] scrollToCurrentMatch (mark): scrollTop=${containerRoot.scrollTop.toFixed(1)}`
-            + ` rect.top=${highlightRect.top.toFixed(1)} containerRect.top=${containerRect.top.toFixed(1)}`
-            + ` elementTop=${elementTop.toFixed(1)} desiredTop=${desiredTop.toFixed(1)}`
-            + ` clampedTop=${clampedTop.toFixed(1)} pageMin=${minTop.toFixed(1)}`
-            + ` pageMax=${maxTop.toFixed(1)} padTop=${paddingTop.toFixed(1)}`
-            + ` padBottom=${paddingBottom.toFixed(1)}`,
-        );
-
-        containerRoot.scrollTop = clampedTop;
+        scrollMatchRectIntoView(highlightRect, targetContainer, 'mark');
         return true;
     }
 
