@@ -593,6 +593,109 @@ function hasRenderedCanvasOnPage(pageNumber: number) {
     );
 }
 
+async function resetEmbeddedShapeImportBaseline() {
+    lastEmbeddedShapeImportPath = null;
+    hasEmbeddedShapeImportBaseline = false;
+    shapeComposable.replaceShapes([]);
+    await nextTick();
+    syncHiddenEmbeddedAnnotationDom();
+}
+
+async function resolveEmbeddedShapeImportBytes(data: Uint8Array | null, path: string | null) {
+    if (data && data.length > 0) {
+        return data;
+    }
+    return path
+        ? readDocumentBytes(path)
+        : null;
+}
+
+async function importEmbeddedShapesFromResolvedSource(data: Uint8Array | null, path: string | null): Promise<
+    | { status: 'empty' }
+    | { status: 'failed' }
+    | {
+        status: 'imported';
+        shapes: IShapeAnnotation[]
+    }
+> {
+    try {
+        const sourceData = await resolveEmbeddedShapeImportBytes(data, path);
+        if (!sourceData || sourceData.length === 0) {
+            return { status: 'empty' };
+        }
+        return {
+            status: 'imported',
+            shapes: await importEmbeddedShapeAnnotations(sourceData),
+        };
+    } catch (error) {
+        BrowserLogger.warn('pdf-shapes', 'Failed to import embedded PDF shapes', error);
+        return { status: 'failed' };
+    }
+}
+
+function isStaleEmbeddedShapeImport(token: number, path: string | null) {
+    return embeddedShapeImportToken !== token || workingCopyPath.value !== path;
+}
+
+function logStaleEmbeddedShapeImport(token: number, path: string | null) {
+    BrowserLogger.debug('pdf-shapes', 'Skipped stale embedded shape import result', () => ({
+        path,
+        token,
+        currentToken: embeddedShapeImportToken,
+        samePath: workingCopyPath.value === path,
+    }));
+}
+
+function shouldReconcileEmbeddedShapeImport(path: string | null) {
+    return (
+        !shouldReplaceManagedShapesOnNextImport
+        && hasEmbeddedShapeImportBaseline
+        && path === lastEmbeddedShapeImportPath
+        && shapeComposable.hasShapes.value
+    );
+}
+
+async function applyImportedEmbeddedShapes(importedShapes: IShapeAnnotation[], path: string | null, token: number) {
+    const shouldReconcileWithExistingShapes = shouldReconcileEmbeddedShapeImport(path);
+
+    BrowserLogger.debug('pdf-shapes', 'Embedded shape import finished', () => ({
+        path,
+        token,
+        importedShapeCount: importedShapes.length,
+        importMode: shouldReconcileWithExistingShapes ? 'reconcile' : 'replace',
+        shouldReconcileWithExistingShapes,
+        currentShapeCountBeforeApply: shapeComposable.getAllShapes().length,
+    }));
+
+    if (shouldReconcileWithExistingShapes) {
+        shapeComposable.reconcilePersistedShapes(importedShapes);
+    } else {
+        shapeComposable.replaceShapes(importedShapes);
+    }
+
+    shouldReplaceManagedShapesOnNextImport = false;
+    hasEmbeddedShapeImportBaseline = true;
+    lastEmbeddedShapeImportPath = path ?? null;
+
+    await nextTick();
+    syncHiddenEmbeddedAnnotationDom();
+}
+
+async function rerenderManagedEmbeddedShapesIfNeeded() {
+    if (!hasRenderedViewerCanvas()) {
+        return;
+    }
+
+    await rerenderRenderedManagedEmbeddedShapePages({
+        shapes: shapeComposable.getAllShapes(),
+        visibleRange: visibleRange.value,
+        renderBuffer: bufferPages.value,
+        isPageRendered,
+        invalidatePages: invalidateRenderedPages,
+        renderVisiblePages,
+    });
+}
+
 function importEmbeddedShapesForSource(
     data: Uint8Array | null,
     path: string | null,
@@ -612,96 +715,29 @@ function importEmbeddedShapesForSource(
             currentShapeCount: shapeComposable.getAllShapes().length,
         }));
         if ((!data || data.length === 0) && !path) {
-            lastEmbeddedShapeImportPath = null;
-            hasEmbeddedShapeImportBaseline = false;
-            shapeComposable.replaceShapes([]);
-            await nextTick();
-            syncHiddenEmbeddedAnnotationDom();
+            await resetEmbeddedShapeImportBaseline();
             return;
         }
 
-        let importedShapes: IShapeAnnotation[] = [];
-        let sourceData = data;
-        try {
-            if ((!sourceData || sourceData.length === 0) && path) {
-                sourceData = await readDocumentBytes(path);
-            }
-
-            if (!sourceData || sourceData.length === 0) {
-                lastEmbeddedShapeImportPath = null;
-                hasEmbeddedShapeImportBaseline = false;
-                shapeComposable.replaceShapes([]);
-                await nextTick();
-                syncHiddenEmbeddedAnnotationDom();
-                return;
-            }
-
-            importedShapes = await importEmbeddedShapeAnnotations(sourceData);
-        } catch (error) {
-            BrowserLogger.warn('pdf-shapes', 'Failed to import embedded PDF shapes', error);
+        const result = await importEmbeddedShapesFromResolvedSource(data, path);
+        if (result.status === 'empty') {
+            await resetEmbeddedShapeImportBaseline();
             return;
         }
-
-        if (
-            embeddedShapeImportToken !== localToken
-            || workingCopyPath.value !== path
-        ) {
-            BrowserLogger.debug('pdf-shapes', 'Skipped stale embedded shape import result', () => ({
-                path,
-                token: localToken,
-                currentToken: embeddedShapeImportToken,
-                samePath: workingCopyPath.value === path,
-            }));
+        if (result.status === 'failed') {
             return;
         }
-
-        const shouldReconcileWithExistingShapes = (
-            !shouldReplaceManagedShapesOnNextImport
-            && (
-                hasEmbeddedShapeImportBaseline
-                && path === lastEmbeddedShapeImportPath
-                && shapeComposable.hasShapes.value
-            )
-        );
-
-        BrowserLogger.debug('pdf-shapes', 'Embedded shape import finished', () => ({
-            path,
-            token: localToken,
-            importedShapeCount: importedShapes.length,
-            importMode: shouldReconcileWithExistingShapes ? 'reconcile' : 'replace',
-            shouldReconcileWithExistingShapes,
-            currentShapeCountBeforeApply: shapeComposable.getAllShapes().length,
-        }));
-
-        if (shouldReconcileWithExistingShapes) {
-            shapeComposable.reconcilePersistedShapes(importedShapes);
-        } else {
-            shapeComposable.replaceShapes(importedShapes);
+        if (isStaleEmbeddedShapeImport(localToken, path)) {
+            logStaleEmbeddedShapeImport(localToken, path);
+            return;
         }
-
-        shouldReplaceManagedShapesOnNextImport = false;
-        hasEmbeddedShapeImportBaseline = true;
-        lastEmbeddedShapeImportPath = path ?? null;
-
-        await nextTick();
-        syncHiddenEmbeddedAnnotationDom();
 
         // If the viewer has already painted before the managed embedded shapes
         // finished importing, do one corrective rerender. The normal path now
         // waits for this import before the first page render, so this is a
         // fallback rather than the primary behavior.
-        if (!hasRenderedViewerCanvas()) {
-            return;
-        }
-
-        await rerenderRenderedManagedEmbeddedShapePages({
-            shapes: shapeComposable.getAllShapes(),
-            visibleRange: visibleRange.value,
-            renderBuffer: bufferPages.value,
-            isPageRendered,
-            invalidatePages: invalidateRenderedPages,
-            renderVisiblePages,
-        });
+        await applyImportedEmbeddedShapes(result.shapes, path, localToken);
+        await rerenderManagedEmbeddedShapesIfNeeded();
     })();
 
     return embeddedShapeImportPromise;
