@@ -9,6 +9,7 @@ import {
     ensurePdfExtension,
 } from '@app/platform/browser-api/common';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/common';
+import { buildBrowserByteLimitError } from '@app/platform/browser-api/browser-platform-helpers';
 import {
     BrowserPageOpsWorkerUnavailableError,
     canUseBrowserPageOpsWorker,
@@ -84,15 +85,11 @@ const BROWSER_PAGE_OP_COMBINED_INPUT_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_PAGE_OP_INSERT_WORKING_SET_MAX_BYTES = 96 * 1024 * 1024;
 
 function buildBrowserPageOpLimitError(label: string, maxBytes: number) {
-    return new Error(
-        `${label} is unavailable in the browser for PDFs larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`,
-    );
+    return buildBrowserByteLimitError(label, maxBytes, 'PDFs');
 }
 
 function buildBrowserPageOpJobLimitError(label: string, maxBytes: number) {
-    return new Error(
-        `${label} is unavailable in the browser for jobs larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`,
-    );
+    return buildBrowserByteLimitError(label, maxBytes, 'jobs');
 }
 
 export function createBrowserPageOps(

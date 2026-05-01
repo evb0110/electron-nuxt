@@ -360,7 +360,7 @@ export function killPids(
     }
 }
 
-function collectDescendantPidsUnix(rootPid: number) {
+export function collectDescendantPidsUnix(rootPid: number) {
     if (!Number.isFinite(rootPid) || rootPid <= 0) {
         return [];
     }

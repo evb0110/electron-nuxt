@@ -9,11 +9,7 @@ import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import { getDocumentRefBaseName } from '@app/utils/document-ref';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
-
-const RTL_OCR_LANGUAGES = new Set([
-    'heb',
-    'syr',
-]);
+import { hasRtlOcrLanguage } from '@app/utils/ocr/text-direction';
 
 export const useDocxExport = () => {
     const analytics = useAnalytics();
@@ -55,7 +51,7 @@ export const useDocxExport = () => {
                     return false;
                 }
 
-                const hasRtl = selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
+                const hasRtl = hasRtlOcrLanguage(selectedLanguages);
                 const docxBytes = await createDocxFromTextAsync(text, hasRtl);
                 await documents.writeDocxFile(outPath, docxBytes);
                 analytics.track('export_completed', {

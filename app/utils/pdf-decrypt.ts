@@ -230,6 +230,54 @@ async function decryptStringsInArray(
     }
 }
 
+async function decryptPdfRawStream(
+    doc: PDFDocument,
+    ref: PDFRef,
+    obj: PDFRawStream,
+    fileKey: CryptoKey,
+) {
+    const type = obj.dict.lookupMaybe(PDFName.of('Type'), PDFName);
+    if (type?.toString() === '/XRef') {
+        return;
+    }
+
+    const dec = await decryptContent(fileKey, obj.contents);
+    if (dec) {
+        doc.context.assign(ref, PDFRawStream.of(obj.dict, dec));
+    }
+
+    await decryptStringsInDict(obj.dict, fileKey);
+}
+
+async function decryptIndirectObject(
+    doc: PDFDocument,
+    ref: PDFRef,
+    obj: unknown,
+    fileKey: CryptoKey,
+) {
+    if (obj instanceof PDFRawStream) {
+        await decryptPdfRawStream(doc, ref, obj, fileKey);
+        return;
+    }
+
+    if (obj instanceof PDFDict) {
+        await decryptStringsInDict(obj, fileKey);
+        return;
+    }
+
+    if (obj instanceof PDFArray) {
+        await decryptStringsInArray(obj, fileKey);
+        return;
+    }
+
+    if (obj instanceof PDFString || obj instanceof PDFHexString) {
+        const dec = await decryptContent(fileKey, obj.asBytes());
+        if (dec) {
+            doc.context.assign(ref, bytesToHexString(dec));
+        }
+    }
+}
+
 function hasEncryptMarker(data: Uint8Array): boolean {
     const decoder = new TextDecoder('latin1');
     const marker = '/Encrypt';
@@ -307,25 +355,7 @@ export async function stripPdfEncryption(data: Uint8Array): Promise<Uint8Array> 
         obj,
     ] of doc.context.enumerateIndirectObjects()) {
         if (ref.toString() === encryptRefStr) continue;
-
-        if (obj instanceof PDFRawStream) {
-            const type = obj.dict.lookupMaybe(PDFName.of('Type'), PDFName);
-            if (type?.toString() === '/XRef') continue;
-
-            const dec = await decryptContent(fileKey, obj.contents);
-            if (dec) {
-                doc.context.assign(ref, PDFRawStream.of(obj.dict, dec));
-            }
-
-            await decryptStringsInDict(obj.dict, fileKey);
-        } else if (obj instanceof PDFDict) {
-            await decryptStringsInDict(obj, fileKey);
-        } else if (obj instanceof PDFArray) {
-            await decryptStringsInArray(obj, fileKey);
-        } else if (obj instanceof PDFString || obj instanceof PDFHexString) {
-            const dec = await decryptContent(fileKey, obj.asBytes());
-            if (dec) doc.context.assign(ref, bytesToHexString(dec));
-        }
+        await decryptIndirectObject(doc, ref, obj, fileKey);
     }
 
     delete doc.context.trailerInfo.Encrypt;

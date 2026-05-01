@@ -77,6 +77,18 @@ async function cleanupTemp(tempPath: string) {
     }
 }
 
+async function savePdfAtomically(pdfDoc: PDFDocument, workingCopyPath: string) {
+    const tempPath = makeTempPath(workingCopyPath);
+    try {
+        const outputBytes = await pdfDoc.save();
+        await writeFile(tempPath, outputBytes);
+        await atomicReplace(tempPath, workingCopyPath);
+    } catch (err) {
+        await cleanupTemp(tempPath);
+        throw err;
+    }
+}
+
 export async function cropPagesLocal(
     workingCopyPath: string,
     pages: number[],
@@ -105,16 +117,7 @@ export async function cropPagesLocal(
 
         page.setCropBox(cropX, cropY, cropWidth, cropHeight);
     }
-
-    const tempPath = makeTempPath(workingCopyPath);
-    try {
-        const outputBytes = await pdfDoc.save();
-        await writeFile(tempPath, outputBytes);
-        await atomicReplace(tempPath, workingCopyPath);
-    } catch (err) {
-        await cleanupTemp(tempPath);
-        throw err;
-    }
+    await savePdfAtomically(pdfDoc, workingCopyPath);
 }
 
 export async function removeCropFromPagesLocal(
@@ -139,16 +142,7 @@ export async function removeCropFromPagesLocal(
 
         page.setCropBox(mediaBox.x, mediaBox.y, mediaBox.width, mediaBox.height);
     }
-
-    const tempPath = makeTempPath(workingCopyPath);
-    try {
-        const outputBytes = await pdfDoc.save();
-        await writeFile(tempPath, outputBytes);
-        await atomicReplace(tempPath, workingCopyPath);
-    } catch (err) {
-        await cleanupTemp(tempPath);
-        throw err;
-    }
+    await savePdfAtomically(pdfDoc, workingCopyPath);
 }
 
 export async function getPageGeometryLocal(

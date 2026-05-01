@@ -1,3 +1,9 @@
+import type { IPdfSearchHighlightMatchRange } from '@app/composables/pdfSearchHighlightRanges';
+import {
+    getHighlightMatchBoundsInSpan,
+    getRelevantHighlightMatches,
+} from '@app/composables/pdfSearchHighlightRanges';
+
 export type TTextLayerRun =
     | {
         kind: 'span';
@@ -12,11 +18,7 @@ export type TTextLayerRun =
         endOffset: number;
     };
 
-export interface IHighlightMatchRange {
-    start: number;
-    end: number;
-    isCurrent: boolean;
-}
+export interface IHighlightMatchRange extends IPdfSearchHighlightMatchRange {}
 
 export interface ITextLayerIndexCacheEntry {
     text: string;
@@ -174,12 +176,7 @@ export function highlightTextInSpan(
     precomputedMatches?: IHighlightMatchRange[],
 ): HTMLElement[] {
     const text = span.textContent ?? '';
-    const spanEndOffset = spanStartOffset + text.length;
-
-    const relevantMatches = precomputedMatches
-        ?? matches.filter(
-            (m) => m.start < spanEndOffset && m.end > spanStartOffset,
-        );
+    const relevantMatches = getRelevantHighlightMatches(text.length, spanStartOffset, matches, precomputedMatches);
 
     if (relevantMatches.length === 0) {
         return [];
@@ -195,8 +192,10 @@ export function highlightTextInSpan(
 
     let currentPos = 0;
     for (const match of relevantMatches) {
-        const matchStartInSpan = Math.max(0, match.start - spanStartOffset);
-        const matchEndInSpan = Math.min(text.length, match.end - spanStartOffset);
+        const {
+            start: matchStartInSpan,
+            end: matchEndInSpan,
+        } = getHighlightMatchBoundsInSpan(text.length, spanStartOffset, match);
 
         if (matchStartInSpan > currentPos) {
             fragments.push({
