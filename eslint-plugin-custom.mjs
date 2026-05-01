@@ -379,7 +379,7 @@ export default {rules: {
 
                     for (let i = 0; i < lines.length; i++) {
                         const line = lines[i];
-                        const regex = /&-+(?![^{]*\{[^}]*:[^}]*\})/g;
+                        const regex = /&[-_]+(?![^{]*\{[^}]*:[^}]*\})/g;
                         let match;
 
                         while ((match = regex.exec(line)) !== null) {

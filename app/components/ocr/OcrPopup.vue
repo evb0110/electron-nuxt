@@ -301,7 +301,10 @@ const props = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:open', value: boolean): void;
-    (e: 'ocrComplete', pdfData: Uint8Array): void;
+    (e: 'ocrComplete', payload: {
+        pdfData: Uint8Array;
+        sourceWorkingCopyPath: TDocumentRef;
+    }): void;
     (e: 'export-docx', selectedLanguages: string[]): void;
 }>();
 
@@ -330,6 +333,7 @@ const effectiveError = computed(() => error.value ?? props.externalError ?? null
 const isCopyingLogs = ref(false);
 const copyLogsState = ref<'idle' | 'copied' | 'failed'>('idle');
 const showSuccessState = ref(false);
+const activeOcrSourcePath = ref<TDocumentRef | null>(null);
 const {
     start: startCopyLogsStateReset,
     stop: stopCopyLogsStateReset,
@@ -444,10 +448,12 @@ function handleRunOcr() {
     if (!props.pdfDocument || !props.workingCopyPath) {
         return;
     }
+    activeOcrSourcePath.value = props.workingCopyPath;
     void runOcr(props.currentPage, props.totalPages, props.workingCopyPath);
 }
 
 function handleCancel() {
+    activeOcrSourcePath.value = null;
     cancelOcr();
 }
 
@@ -457,12 +463,17 @@ function handleExportDocx() {
 
 // Emit when OCR completes with PDF data
 watch(() => results.value.searchablePdfData, (pdfData) => {
-    if (pdfData) {
+    const sourceWorkingCopyPath = activeOcrSourcePath.value;
+    if (pdfData && sourceWorkingCopyPath) {
         isOpen.value = false;
         showSuccessState.value = true;
         stopSuccessStateReset();
         startSuccessStateReset();
-        emit('ocrComplete', pdfData);
+        emit('ocrComplete', {
+            pdfData,
+            sourceWorkingCopyPath,
+        });
+        activeOcrSourcePath.value = null;
     }
 });
 </script>

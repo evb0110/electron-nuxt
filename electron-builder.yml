@@ -6,8 +6,13 @@ copyright: Copyright © 2026 Eugene Barsky
 # Only worker entry files that require direct filesystem paths are unpacked.
 asar: true
 asarUnpack:
+  - dist-electron/djvu-pdf-worker.js
+  - dist-electron/image-export-tiff-worker.js
   - dist-electron/ocr-worker.js
+  - dist-electron/page-ops-crop-worker.js
   - dist-electron/pdf-combine-worker.js
+  - dist-electron/pdf-conformance-worker.js
+  - dist-electron/search-worker.js
 npmRebuild: false
 afterPack: ./scripts/afterPack.cjs
 afterSign: ./scripts/afterSign.cjs

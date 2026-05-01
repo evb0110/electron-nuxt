@@ -57,7 +57,7 @@ export interface IDocumentsService {
     cleanupFile: (_event: IpcMainInvokeEvent, workingPath: string) => void;
     cleanupOcrTemp: (event: IpcMainInvokeEvent, filePath: string) => Promise<void>;
     setWindowTitle: (event: IpcMainInvokeEvent, title: string) => void;
-    showItemInFolder: (event: IpcMainInvokeEvent, filePath: string) => boolean;
+    showItemInFolder: (event: IpcMainInvokeEvent, filePath: string) => Promise<boolean>;
     setMenuDocumentState: (event: IpcMainInvokeEvent, hasDocument: boolean) => void;
     setMenuTabCount: (event: IpcMainInvokeEvent, tabCount: number) => void;
     getRecentFiles: () => Promise<IRecentFile[]>;

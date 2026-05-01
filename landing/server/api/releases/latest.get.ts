@@ -72,7 +72,11 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
     try {
         release = await fetchLatestRelease();
     } catch (error) {
-        console.error('Unable to fetch latest release', error);
+        console.error('Unable to fetch latest release', {
+            message: error instanceof Error ? error.message : String(error),
+            statusCode: typeof error === 'object' && error && 'statusCode' in error ? error.statusCode : undefined,
+            statusMessage: typeof error === 'object' && error && 'statusMessage' in error ? error.statusMessage : undefined,
+        });
         throw createError({
             statusCode: 502,
             statusMessage: 'Unable to fetch latest release data from GitHub',

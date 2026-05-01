@@ -57,10 +57,8 @@ export const usePageOperations = (deps: {
     const error = ref<string | null>(null);
     const batchProgress = ref<IPageOperationBatchProgress | null>(null);
 
-    function invalidateCaches() {
-        if (workingCopyPath.value) {
-            clearOcrCache(workingCopyPath.value);
-        }
+    function invalidateCaches(path: TDocumentRef) {
+        clearOcrCache(path);
         resetSearchCache();
     }
 
@@ -86,6 +84,9 @@ export const usePageOperations = (deps: {
                 if (!didPrimeHistory) {
                     return false;
                 }
+                if (workingCopyPath.value !== path) {
+                    return false;
+                }
             }
 
             const result = await options.run(path);
@@ -94,8 +95,12 @@ export const usePageOperations = (deps: {
                 return false;
             }
 
+            if (workingCopyPath.value !== path) {
+                return false;
+            }
+
             if (options.shouldReload) {
-                invalidateCaches();
+                invalidateCaches(path);
                 await reloadWorkingCopyIntoHistory({ markDirty: true });
             }
 

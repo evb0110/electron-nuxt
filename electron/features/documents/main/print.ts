@@ -16,6 +16,7 @@ import {
 } from 'path';
 import { randomUUID } from 'crypto';
 import { pathToFileURL } from 'url';
+import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('documents-print');
@@ -133,6 +134,14 @@ async function openPdfInDefaultApp(path: string): Promise<IOpenPdfInDefaultAppRe
             error: error instanceof Error ? error.message : 'Failed to open the default PDF app',
         };
     }
+}
+
+async function resolveAllowedPdfPath(filePath: string) {
+    const resolvedPath = await resolveAllowedReadPath(filePath);
+    if (!resolvedPath || extname(resolvedPath).toLowerCase() !== '.pdf') {
+        throw new Error('Invalid PDF path');
+    }
+    return resolvedPath;
 }
 
 function createPrintWindow(ownerWindow?: BrowserWindow) {
@@ -258,19 +267,21 @@ export async function handleOpenPdfInDefaultAppData(
     }
 }
 
-export function handleOpenPdfInDefaultAppPath(
+export async function handleOpenPdfInDefaultAppPath(
     _event: Electron.IpcMainInvokeEvent,
     filePath: string,
     _fileName?: string,
 ): Promise<IOpenPdfInDefaultAppResult> {
-    return openPdfInDefaultApp(filePath);
+    const resolvedPath = await resolveAllowedPdfPath(filePath);
+    return openPdfInDefaultApp(resolvedPath);
 }
 
-export function handlePrintPdfPath(
+export async function handlePrintPdfPath(
     event: Electron.IpcMainInvokeEvent,
     filePath: string,
     _fileName?: string,
 ): Promise<IPrintPdfResult> {
     const ownerWindow = BrowserWindow.fromWebContents(event.sender) ?? undefined;
-    return openNativePrintDialogForPath(ownerWindow, filePath);
+    const resolvedPath = await resolveAllowedPdfPath(filePath);
+    return openNativePrintDialogForPath(ownerWindow, resolvedPath);
 }

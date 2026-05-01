@@ -53,6 +53,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const log = createLogger('ocr-ipc');
+const OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS ?? '250', 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        return 250;
+    }
+    return Math.min(parsed, 2_000);
+})();
 
 const activeJobs = new Map<string, IOcrActiveJob>();
 const queuedJobs: IOcrQueuedJob[] = [];
@@ -304,6 +311,13 @@ async function terminateWorkerSafely(
     reason: string,
 ) {
     try {
+        worker.postMessage({
+            type: 'cancel',
+            jobId: scopedJobId,
+        });
+        if (OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS > 0) {
+            await new Promise(resolve => setTimeout(resolve, OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS));
+        }
         await withTimeout(() => worker.terminate(), OCR_WORKER_TERMINATE_TIMEOUT_MS);
     } catch (error) {
         log.warn(`[${scopedJobId}] Failed to terminate OCR worker (${reason}): ${error instanceof Error ? error.message : String(error)}`);

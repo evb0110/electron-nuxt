@@ -7,6 +7,7 @@ import {
 import type { IOcrWord } from '@contracts/shared';
 import type { IOcrFileResult } from '@electron/ocr/worker/types';
 import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseract-language-config';
+import { terminateProcessTree } from '@electron/utils/process-tree';
 
 const PNG_SIGNATURE = Buffer.from([
     0x89,
@@ -118,6 +119,7 @@ export async function runOcrFileBased(
     tesseractBinary: string,
     tessdataPath: string,
     threads?: number,
+    signal?: AbortSignal,
 ): Promise<IOcrFileResult> {
     const outputBase = imagePath.replace(/\.png$/, '') + '-ocr';
     const languageConfig = resolveTesseractLanguageConfig(languages);
@@ -143,15 +145,47 @@ export async function runOcrFileBased(
     ];
 
     return new Promise((resolve) => {
-        const proc = spawn(tesseractBinary, args, { env: buildTesseractEnv(tessdataPath, threads) });
+        if (signal?.aborted) {
+            resolve({
+                success: false,
+                pageData: null,
+                pdfPath: null,
+                error: 'Tesseract aborted',
+            });
+            return;
+        }
+
+        const proc = spawn(tesseractBinary, args, {
+            env: buildTesseractEnv(tessdataPath, threads),
+            detached: process.platform !== 'win32',
+        });
 
         let stderr = '';
         let stderrTruncated = false;
         let settled = false;
         let timedOut = false;
+        let aborted = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
         let killHandle: NodeJS.Timeout | null = null;
         let forceFinalizeHandle: NodeJS.Timeout | null = null;
+        let abortHandler: (() => void) | null = null;
+
+        const requestTermination = () => {
+            const pid = proc.pid;
+            if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
+                void terminateProcessTree(pid, {
+                    graceMs: FILE_BASED_OCR_KILL_GRACE_MS,
+                    preferProcessGroup: process.platform !== 'win32',
+                });
+                return;
+            }
+
+            try {
+                proc.kill('SIGTERM');
+            } catch {
+                // Process may have exited already.
+            }
+        };
 
         const finalize = (result: IOcrFileResult) => {
             if (settled) {
@@ -171,16 +205,23 @@ export async function runOcrFileBased(
                 clearTimeout(forceFinalizeHandle);
                 forceFinalizeHandle = null;
             }
+            if (signal && abortHandler) {
+                signal.removeEventListener('abort', abortHandler);
+            }
             resolve(result);
         };
 
+        if (signal) {
+            abortHandler = () => {
+                aborted = true;
+                requestTermination();
+            };
+            signal.addEventListener('abort', abortHandler, { once: true });
+        }
+
         timeoutHandle = setTimeout(() => {
             timedOut = true;
-            try {
-                proc.kill('SIGTERM');
-            } catch {
-                // Process may have exited already.
-            }
+            requestTermination();
 
             killHandle = setTimeout(() => {
                 try {
@@ -207,6 +248,10 @@ export async function runOcrFileBased(
         }, FILE_BASED_OCR_TIMEOUT_MS);
         timeoutHandle.unref?.();
 
+        if (signal?.aborted) {
+            abortHandler?.();
+        }
+
         proc.stderr.on('data', (data: Buffer) => {
             const appended = appendWithCap(stderr, data, FILE_BASED_OCR_MAX_STDERR_BYTES);
             stderr = appended.value;
@@ -217,6 +262,20 @@ export async function runOcrFileBased(
             const stderrSummary = stderrTruncated
                 ? `[stderr truncated to ${FILE_BASED_OCR_MAX_STDERR_BYTES} bytes]\n${stderr}`
                 : stderr;
+
+            if (aborted) {
+                await Promise.all([
+                    safeUnlink(tsvPath),
+                    safeUnlink(pdfPath),
+                ]);
+                finalize({
+                    success: false,
+                    pageData: null,
+                    pdfPath: null,
+                    error: 'Tesseract aborted',
+                });
+                return;
+            }
 
             if (timedOut) {
                 await Promise.all([

@@ -147,6 +147,9 @@ run_macos_packaged_tool_smoke() {
   if ! node scripts/release/assert-packaged-tool-smoke.mjs "$tool_name" "$exit_code" "$output_file"; then
     cat "$output_file"
     rm -f "$output_file"
+    if [ "$exit_code" -eq 0 ]; then
+      exit 1
+    fi
     exit "$exit_code"
   fi
 

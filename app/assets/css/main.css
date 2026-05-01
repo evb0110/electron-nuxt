@@ -19,6 +19,7 @@
 
 :root {
     --ui-primary: var(--color-brand-700);
+    --ui-success: oklch(45% 0.13 147);
     --app-window-bg: var(--ui-bg, #ffffff);
     --app-font-mono:
         ui-monospace,
@@ -202,6 +203,7 @@
 
 .dark {
     --ui-primary: var(--color-brand-200);
+    --ui-success: oklch(72% 0.16 147);
     --app-window-bg: var(--ui-bg, #18181b);
     --app-scrollbar-thumb: color-mix(in oklab, var(--ui-border) 35%, var(--ui-text-muted) 65%);
     --app-scrollbar-thumb-hover: color-mix(in oklab, var(--ui-border) 20%, var(--ui-text-muted) 80%);

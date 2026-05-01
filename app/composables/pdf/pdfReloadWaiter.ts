@@ -65,14 +65,22 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
 
             const viewer = options.pdfViewerRef.value;
             if (viewer?.waitForViewerLoadSettled) {
-                await Promise.race([
-                    viewer.waitForViewerLoadSettled(),
-                    new Promise<never>((_resolve, reject) => {
-                        setTimeout(() => {
-                            reject(new Error('Timed out waiting for viewer load to settle after PDF reload'));
-                        }, PDF_RELOAD_TIMEOUT_MS);
-                    }),
-                ]);
+                let settleTimer: ReturnType<typeof setTimeout> | null = null;
+                try {
+                    await Promise.race([
+                        viewer.waitForViewerLoadSettled(),
+                        new Promise<never>((_resolve, reject) => {
+                            settleTimer = setTimeout(() => {
+                                settleTimer = null;
+                                reject(new Error('Timed out waiting for viewer load to settle after PDF reload'));
+                            }, PDF_RELOAD_TIMEOUT_MS);
+                        }),
+                    ]);
+                } finally {
+                    if (settleTimer) {
+                        clearTimeout(settleTimer);
+                    }
+                }
             }
             if (isCancelled.value) {
                 return;

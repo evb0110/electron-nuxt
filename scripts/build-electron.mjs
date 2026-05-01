@@ -1,6 +1,7 @@
 import {
     mkdir,
     copyFile,
+    rm,
 } from 'node:fs/promises';
 import esbuild from 'esbuild';
 
@@ -64,6 +65,10 @@ const builds = [
     },
 ];
 
+await rm('dist-electron', {
+    recursive: true,
+    force: true,
+});
 await mkdir('dist-electron', { recursive: true });
 
 await Promise.all(builds.map(build => esbuild.build({
