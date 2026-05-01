@@ -365,21 +365,51 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         }
     }
 
-    async function handleSave() {
-        if (isSaving.value || isSavingAs.value) {
+    async function persistOpenAnnotationNotes(abortMessage: string) {
+        if (annotationNoteWindowsCount.value <= 0) {
+            return true;
+        }
+
+        const savedNotes = await persistAllAnnotationNotes(true);
+        if (!savedNotes) {
+            BrowserLogger.warn('workspace', abortMessage);
             return false;
         }
-        if (annotationNoteWindowsCount.value > 0) {
-            const savedNotes = await persistAllAnnotationNotes(true);
-            if (!savedNotes) {
-                BrowserLogger.warn('workspace', 'Save aborted because annotation note persistence failed');
-                return false;
-            }
-        }
+
+        return true;
+    }
+
+    function consumePendingEmbeddedAnnotationChanges() {
         const pendingTexts = consumePendingEmbeddedTextUpdates();
         const pendingDeletes = consumePendingEmbeddedAnnotationDeletes();
-        const hasPendingTexts = Boolean(pendingTexts && pendingTexts.size > 0);
-        const hasPendingDeletes = Boolean(pendingDeletes && pendingDeletes.length > 0);
+        return {
+            pendingTexts,
+            pendingDeletes,
+            hasPendingTexts: Boolean(pendingTexts && pendingTexts.size > 0),
+            hasPendingDeletes: Boolean(pendingDeletes && pendingDeletes.length > 0),
+        };
+    }
+
+    function hasSaveOperationInProgress() {
+        if (isSaving.value || isSavingAs.value) {
+            return true;
+        }
+        return false;
+    }
+
+    async function handleSave() {
+        if (hasSaveOperationInProgress()) {
+            return false;
+        }
+        if (!await persistOpenAnnotationNotes('Save aborted because annotation note persistence failed')) {
+            return false;
+        }
+        const {
+            pendingTexts,
+            pendingDeletes,
+            hasPendingTexts,
+            hasPendingDeletes,
+        } = consumePendingEmbeddedAnnotationChanges();
         const reloadWaiter = preparePostSaveReload?.() ?? null;
         let finalizedReloadWaiter = false;
         let saveSucceeded = false;
@@ -468,20 +498,18 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
     }
 
     async function handleSaveAs() {
-        if (isSaving.value || isSavingAs.value) {
+        if (hasSaveOperationInProgress()) {
             return false;
         }
-        if (annotationNoteWindowsCount.value > 0) {
-            const savedNotes = await persistAllAnnotationNotes(true);
-            if (!savedNotes) {
-                BrowserLogger.warn('workspace', 'Save As aborted because annotation note persistence failed');
-                return false;
-            }
+        if (!await persistOpenAnnotationNotes('Save As aborted because annotation note persistence failed')) {
+            return false;
         }
-        const pendingTexts = consumePendingEmbeddedTextUpdates();
-        const pendingDeletes = consumePendingEmbeddedAnnotationDeletes();
-        const hasPendingTexts = Boolean(pendingTexts && pendingTexts.size > 0);
-        const hasPendingDeletes = Boolean(pendingDeletes && pendingDeletes.length > 0);
+        const {
+            pendingTexts,
+            pendingDeletes,
+            hasPendingTexts,
+            hasPendingDeletes,
+        } = consumePendingEmbeddedAnnotationChanges();
         const reloadWaiter = preparePostSaveReload?.() ?? null;
         let finalizedReloadWaiter = false;
         let saveSucceeded = false;
