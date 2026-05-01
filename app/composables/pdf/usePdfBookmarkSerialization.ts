@@ -1,18 +1,12 @@
-import type {
-    PDFDict,
-    PDFRef,
-} from 'pdf-lib';
 import {
     PDFDocument,
-    PDFHexString,
     PDFName,
-    PDFNumber,
-    PDFString,
 } from 'pdf-lib';
 import type { Ref } from 'vue';
 import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { normalizeBookmarkColor } from '@app/utils/pdf-outline-helpers';
+import { writeBookmarkOutlines } from '@app/composables/pdf/pdfBookmarkOutlineWriter';
 
 const BOOKMARK_SERIALIZATION_LOG_SECTION = 'pdf-bookmarks';
 
@@ -86,154 +80,6 @@ export async function rewriteBookmarks(
         return new Uint8Array(await doc.save());
     }
 
-    interface IOutlineNodeBuild {
-        ref: PDFRef;
-        dict: PDFDict;
-        item: IPdfBookmarkEntry;
-        visibleCount: number;
-    }
-
-    const parentName = PDFName.of('Parent');
-    const prevName = PDFName.of('Prev');
-    const nextName = PDFName.of('Next');
-    const firstName = PDFName.of('First');
-    const lastName = PDFName.of('Last');
-    const countName = PDFName.of('Count');
-    const titleName = PDFName.of('Title');
-    const destName = PDFName.of('Dest');
-    const typeName = PDFName.of('Type');
-    const flagsName = PDFName.of('F');
-    const colorName = PDFName.of('C');
-
-    const pdfNull = doc.context.obj(null);
-
-    function setNodeDestination(dict: PDFDict, item: IPdfBookmarkEntry) {
-        if (typeof item.pageIndex === 'number') {
-            const pageRef = doc.getPage(item.pageIndex).ref;
-            const destArray = doc.context.obj([
-                pageRef,
-                PDFName.of('XYZ'),
-                pdfNull,
-                pdfNull,
-                pdfNull,
-            ]);
-            dict.set(destName, destArray);
-            return;
-        }
-
-        if (item.namedDest) {
-            dict.set(destName, PDFString.of(item.namedDest));
-        }
-    }
-
-    function setNodeStyle(dict: PDFDict, item: IPdfBookmarkEntry) {
-        const flags = (item.italic ? 1 : 0) | (item.bold ? 2 : 0);
-        if (flags > 0) {
-            dict.set(flagsName, PDFNumber.of(flags));
-        }
-
-        if (!item.color) {
-            return;
-        }
-
-        const value = item.color.replace('#', '');
-        const red = Number.parseInt(value.slice(0, 2), 16) / 255;
-        const green = Number.parseInt(value.slice(2, 4), 16) / 255;
-        const blue = Number.parseInt(value.slice(4, 6), 16) / 255;
-
-        dict.set(colorName, doc.context.obj([
-            red,
-            green,
-            blue,
-        ]));
-    }
-
-    function buildOutlineLevel(
-        items: IPdfBookmarkEntry[],
-        parentRef: PDFRef,
-    ): {
-        first: PDFRef | null;
-        last: PDFRef | null;
-        visibleCount: number;
-    } {
-        if (items.length === 0) {
-            return {
-                first: null,
-                last: null,
-                visibleCount: 0,
-            };
-        }
-
-        const nodes: IOutlineNodeBuild[] = items.map((item) => {
-            const dict = doc.context.obj({});
-            dict.set(titleName, PDFHexString.fromText(item.title));
-            setNodeDestination(dict, item);
-            setNodeStyle(dict, item);
-
-            const ref = doc.context.register(dict);
-            return {
-                ref,
-                dict,
-                item,
-                visibleCount: 1,
-            };
-        });
-
-        for (const [
-            index,
-            node,
-        ] of nodes.entries()) {
-            node.dict.set(parentName, parentRef);
-            if (index > 0) {
-                const previous = nodes[index - 1];
-                if (previous) {
-                    node.dict.set(prevName, previous.ref);
-                }
-            }
-            if (index + 1 < nodes.length) {
-                const next = nodes[index + 1];
-                if (next) {
-                    node.dict.set(nextName, next.ref);
-                }
-            }
-        }
-
-        for (const node of nodes) {
-            const childResult = buildOutlineLevel(node.item.items, node.ref);
-            if (childResult.first && childResult.last) {
-                node.dict.set(firstName, childResult.first);
-                node.dict.set(lastName, childResult.last);
-                if (childResult.visibleCount > 0) {
-                    node.dict.set(countName, PDFNumber.of(childResult.visibleCount));
-                }
-                node.visibleCount += childResult.visibleCount;
-            }
-        }
-
-        const first = nodes[0]?.ref ?? null;
-        const last = nodes[nodes.length - 1]?.ref ?? null;
-        const visibleCount = nodes.reduce((total, node) => total + node.visibleCount, 0);
-
-        return {
-            first,
-            last,
-            visibleCount,
-        };
-    }
-
-    const outlinesDict = doc.context.obj({});
-    outlinesDict.set(typeName, PDFName.of('Outlines'));
-    const outlinesRef = doc.context.register(outlinesDict);
-
-    const tree = buildOutlineLevel(normalizedBookmarks, outlinesRef);
-    if (!tree.first || !tree.last) {
-        doc.catalog.delete(outlinesName);
-        return new Uint8Array(await doc.save());
-    }
-
-    outlinesDict.set(firstName, tree.first);
-    outlinesDict.set(lastName, tree.last);
-    outlinesDict.set(countName, PDFNumber.of(tree.visibleCount));
-    doc.catalog.set(outlinesName, outlinesRef);
+    writeBookmarkOutlines(doc, normalizedBookmarks);
     return new Uint8Array(await doc.save());
 }
