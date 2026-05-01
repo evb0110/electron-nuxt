@@ -16,7 +16,7 @@ const OPEN_SETTLE_DELAY_MS = 25;
 const OPEN_SETTLE_MAX_ATTEMPTS = 160;
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
-interface IPageFileOperationsDeps {
+export interface IPageFileOperationsDeps {
     pdfSrc: Ref<TPdfSource | null>;
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;

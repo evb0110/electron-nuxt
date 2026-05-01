@@ -1,18 +1,24 @@
 import type { Ref } from 'vue';
 import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
 import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
-import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
-import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
+import {
+    type IPageFileOperationsDeps,
+    usePageFileOperations,
+} from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
-import type { TPdfSource } from '@app/types/pdf';
 import type {
     TDocumentRef,
     TOpenFileResult,
 } from '@contracts/platform-api';
 
-interface IWorkspaceDocumentControlsOptions {
+interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps,
+    'closeFile'
+    | 'openFile'
+    | 'openFileDirect'
+    | 'openFileDirectBatch'
+    | 'pickFileToOpen'
+> {
     hasDocument: Ref<boolean>;
-    pdfSrc: Ref<TPdfSource | null>;
     pdfData: Ref<Uint8Array | null>;
     originalPath: Ref<TDocumentRef | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
@@ -44,22 +50,11 @@ interface IWorkspaceDocumentControlsOptions {
     };
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
-    isExportingDocx: Ref<boolean>;
-    isAnyAnnotationNoteSaving: Ref<boolean>;
-    annotationNoteWindows: Ref<IAnnotationNoteWindowState[]>;
-    annotationDirty: Ref<boolean>;
-    isDirty: Ref<boolean>;
-    pageLabelsDirty: Ref<boolean>;
-    bookmarksDirty: Ref<boolean>;
-    hasAnnotationChanges: () => boolean;
-    persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
     pickFileToOpenWithDjvuCleanup: () => Promise<TOpenFileResult | null>;
     openFileWithDjvuCleanup: (preSelected?: TOpenFileResult) => Promise<void>;
     openFileDirectWithDjvuCleanup: (path: TDocumentRef) => Promise<void>;
     openFileDirectBatchWithDjvuCleanup: (paths: TDocumentRef[]) => Promise<void>;
     closeFileWithDjvuCleanup: () => Promise<void>;
-    closeAllDropdowns: () => void;
-    emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => void;
 }
 
 export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControlsOptions) {
