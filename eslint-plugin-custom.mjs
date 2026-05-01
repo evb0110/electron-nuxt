@@ -56,6 +56,73 @@ function walkExpression(node, visitor, seen) {
     }
 }
 
+function getTemplateBodyServices(context) {
+    const parserServices = context.parserServices || context.sourceCode?.parserServices;
+    if (!parserServices || !parserServices.defineTemplateBodyVisitor) {
+        return null;
+    }
+    const sourceCode = context.sourceCode ?? context.getSourceCode?.();
+    return {
+        parserServices,
+        sourceCode,
+    };
+}
+
+function createClassLiteralFix(sourceCode, node, replacementValue) {
+    return (fixer) => {
+        const raw = sourceCode.getText(node);
+        const quote = raw[0];
+        const escaped = escapeForQuote(replacementValue, quote);
+
+        if (quote === '`') {
+            return fixer.replaceText(node, `\`${escaped}\``);
+        }
+        if (quote === '"' || quote === '\'') {
+            return fixer.replaceText(node, `${quote}${escaped}${quote}`);
+        }
+        return null;
+    };
+}
+
+function createClassAttributeVisitor(analyze) {
+    return {VAttribute(node) {
+        const isClass =
+            !node.directive
+            && node.key?.type === 'VIdentifier'
+            && node.key.name === 'class';
+
+        const isBoundClass =
+            node.directive
+            && node.key?.name?.name === 'bind'
+            && node.key.argument
+            && node.key.argument.type === 'VIdentifier'
+            && node.key.argument.name === 'class';
+
+        if (isClass) {
+            const literalValue = getLiteralValue(node.value);
+            if (literalValue) {
+                analyze(node.value, literalValue);
+            }
+            return;
+        }
+
+        if (isBoundClass && node.value && node.value.expression) {
+            const seen = new Set();
+            walkExpression(
+                node.value.expression,
+                (child) => {
+                    const literalValue = getLiteralValue(child);
+                    if (!literalValue) {
+                        return;
+                    }
+                    analyze(child, literalValue);
+                },
+                seen,
+            );
+        }
+    }};
+}
+
 export default {rules: {
     'import-specifier-newline': {
         meta: {
@@ -472,13 +539,14 @@ export default {rules: {
             schema: [],
         },
         create(context) {
-            const parserServices = context.parserServices || context.sourceCode?.parserServices;
-
-            if (!parserServices || !parserServices.defineTemplateBodyVisitor) {
+            const services = getTemplateBodyServices(context);
+            if (!services) {
                 return {};
             }
-
-            const sourceCode = context.sourceCode ?? context.getSourceCode?.();
+            const {
+                parserServices,
+                sourceCode,
+            } = services;
             const replacements = [
                 [
                     'text-(--ui-text-dimmed)',
@@ -584,60 +652,16 @@ export default {rules: {
                 context.report({
                     node,
                     message: `Use Nuxt UI semantic utilities: ${message}`,
-                    fix(fixer) {
-                        const raw = sourceCode.getText(node);
-                        const quote = raw[0];
-                        const escaped = escapeForQuote(result.value, quote);
-
-                        if (quote === '`') {
-                            return fixer.replaceText(node, `\`${escaped}\``);
-                        }
-                        if (quote === '"' || quote === '\'') {
-                            return fixer.replaceText(node, `${quote}${escaped}${quote}`);
-                        }
-                        return null;
-                    },
+                    fix: createClassLiteralFix(sourceCode, node, result.value),
                 });
             }
 
-            return parserServices.defineTemplateBodyVisitor({VAttribute(node) {
-                const isClass =
-                    !node.directive
-                    && node.key?.type === 'VIdentifier'
-                    && node.key.name === 'class';
-
-                const isBoundClass =
-                    node.directive
-                    && node.key?.name?.name === 'bind'
-                    && node.key.argument
-                    && node.key.argument.type === 'VIdentifier'
-                    && node.key.argument.name === 'class';
-
-                if (isClass) {
-                    const literalValue = getLiteralValue(node.value);
-                    if (literalValue) {
-                        const result = replaceTokens(literalValue);
-                        reportLiteral(node.value, literalValue, result);
-                    }
-                    return;
-                }
-
-                if (isBoundClass && node.value && node.value.expression) {
-                    const seen = new Set();
-                    walkExpression(
-                        node.value.expression,
-                        (child) => {
-                            const literalValue = getLiteralValue(child);
-                            if (!literalValue) {
-                                return;
-                            }
-                            const result = replaceTokens(literalValue);
-                            reportLiteral(child, literalValue, result);
-                        },
-                        seen,
-                    );
-                }
-            }});
+            return parserServices.defineTemplateBodyVisitor(
+                createClassAttributeVisitor((node, literalValue) => {
+                    const result = replaceTokens(literalValue);
+                    reportLiteral(node, literalValue, result);
+                }),
+            );
         },
     },
     'tailwind-class-shorthand': {
@@ -651,13 +675,14 @@ export default {rules: {
             schema: [],
         },
         create(context) {
-            const parserServices = context.parserServices || context.sourceCode?.parserServices;
-
-            if (!parserServices || !parserServices.defineTemplateBodyVisitor) {
+            const services = getTemplateBodyServices(context);
+            if (!services) {
                 return {};
             }
-
-            const sourceCode = context.sourceCode ?? context.getSourceCode?.();
+            const {
+                parserServices,
+                sourceCode,
+            } = services;
 
             const ops = [
                 {
@@ -1197,19 +1222,7 @@ export default {rules: {
                     context.report({
                         node,
                         message,
-                        fix(fixer) {
-                            const raw = sourceCode.getText(node);
-                            const quote = raw[0];
-                            const escaped = escapeForQuote(result.value, quote);
-
-                            if (quote === '`') {
-                                return fixer.replaceText(node, `\`${escaped}\``);
-                            }
-                            if (quote === '"' || quote === '\'') {
-                                return fixer.replaceText(node, `${quote}${escaped}${quote}`);
-                            }
-                            return null;
-                        },
+                        fix: createClassLiteralFix(sourceCode, node, result.value),
                     });
                 }
 
@@ -1228,44 +1241,12 @@ export default {rules: {
                 }
             }
 
-            return parserServices.defineTemplateBodyVisitor({VAttribute(node) {
-                const isClass =
-                    !node.directive
-                    && node.key?.type === 'VIdentifier'
-                    && node.key.name === 'class';
-
-                const isBoundClass =
-                    node.directive
-                    && node.key?.name?.name === 'bind'
-                    && node.key.argument
-                    && node.key.argument.type === 'VIdentifier'
-                    && node.key.argument.name === 'class';
-
-                if (isClass) {
-                    const literalValue = getLiteralValue(node.value);
-                    if (literalValue) {
-                        const result = simplifyClassString(literalValue);
-                        reportLiteral(node.value, literalValue, result);
-                    }
-                    return;
-                }
-
-                if (isBoundClass && node.value && node.value.expression) {
-                    const seen = new Set();
-                    walkExpression(
-                        node.value.expression,
-                        (child) => {
-                            const literalValue = getLiteralValue(child);
-                            if (!literalValue) {
-                                return;
-                            }
-                            const result = simplifyClassString(literalValue);
-                            reportLiteral(child, literalValue, result);
-                        },
-                        seen,
-                    );
-                }
-            }});
+            return parserServices.defineTemplateBodyVisitor(
+                createClassAttributeVisitor((node, literalValue) => {
+                    const result = simplifyClassString(literalValue);
+                    reportLiteral(node, literalValue, result);
+                }),
+            );
         },
     },
 }};

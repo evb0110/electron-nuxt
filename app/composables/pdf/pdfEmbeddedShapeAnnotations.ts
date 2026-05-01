@@ -4,8 +4,8 @@ import {
     PDFDocument,
     PDFName,
     PDFNumber,
-    PDFRef,
 } from 'pdf-lib';
+import type { PDFRef } from 'pdf-lib';
 import type {
     IShapeAnnotation,
     IShapePoint,
@@ -15,20 +15,22 @@ import type {
 } from '@app/types/annotations';
 import {
     normalizeMarkerRect,
-    normalizePageRotation,
     toMarkerPointFromPdfPoint,
     toMarkerRectFromPdfRect,
 } from '@app/composables/pdf/annotationGeometry';
+import type { normalizePageRotation } from '@app/composables/pdf/annotationGeometry';
 import {
     formatPdfJsAnnotationRef,
     generateManagedShapeStableKey,
     readManagedShapeStableKey,
 } from '@app/composables/pdf/pdfSerializationRefs';
 import { getAllShapePoints } from '@app/composables/pdf/pdfShapeStrokes';
+import { readPdfRectFromDict } from '@app/composables/pdf/pdfPageBoxes';
 import {
-    readPdfRectFromDict,
-    resolvePdfPageView,
-} from '@app/composables/pdf/pdfPageBoxes';
+    computePointsMinMax,
+    iterateAnnotationRefDicts,
+    resolvePageAnnotationContext,
+} from '@app/composables/pdf/pdfPageAnnotationIteration';
 
 const IMPORTED_SHAPE_SUBTYPES = new Set<TEmbeddedPdfShapeSubtype>([
     'Square',
@@ -206,17 +208,16 @@ function toImportedShapeType(
 }
 
 function toPointsBounds(points: IShapePoint[]) {
-    if (points.length === 0) {
+    const bounds = computePointsMinMax(points);
+    if (!bounds) {
         return null;
     }
 
-    const xs = points.map(point => point.x);
-    const ys = points.map(point => point.y);
     return {
-        x: Math.min(...xs),
-        y: Math.min(...ys),
-        width: Math.max(0.0001, Math.max(...xs) - Math.min(...xs)),
-        height: Math.max(0.0001, Math.max(...ys) - Math.min(...ys)),
+        x: bounds.minX,
+        y: bounds.minY,
+        width: Math.max(0.0001, bounds.maxX - bounds.minX),
+        height: Math.max(0.0001, bounds.maxY - bounds.minY),
     };
 }
 
@@ -487,28 +488,21 @@ export async function importEmbeddedShapeAnnotations(data: Uint8Array) {
         pageIndex,
         page,
     ] of pdfDocument.getPages().entries()) {
-        const pageView = resolvePdfPageView(page);
-        if (!pageView) {
+        const context = resolvePageAnnotationContext(page);
+        if (!context) {
             continue;
         }
 
-        const pageRotation = normalizePageRotation(page.getRotation().angle);
-        const annots = page.node.Annots();
-        if (!(annots instanceof PDFArray)) {
-            continue;
-        }
+        const {
+            pageView,
+            pageRotation,
+            annots,
+        } = context;
 
-        for (let annotationIndex = 0; annotationIndex < annots.size(); annotationIndex += 1) {
-            const value = annots.get(annotationIndex);
-            if (!(value instanceof PDFRef)) {
-                continue;
-            }
-
-            const dict = pdfDocument.context.lookupMaybe(value, PDFDict);
-            if (!(dict instanceof PDFDict)) {
-                continue;
-            }
-
+        for (const {
+            dict,
+            ref,
+        } of iterateAnnotationRefDicts(pdfDocument, annots)) {
             const rawSubtype = dict.get(PDFName.of('Subtype'))?.toString() ?? null;
             const subtype = normalizeImportedShapeSubtype(rawSubtype?.replace(/^\//, ''));
             if (!subtype) {
@@ -519,14 +513,14 @@ export async function importEmbeddedShapeAnnotations(data: Uint8Array) {
                 switch (subtype) {
                     case 'Square':
                     case 'Circle':
-                        return importRectShape(dict, value, pageIndex, pageView, pageRotation, subtype);
+                        return importRectShape(dict, ref, pageIndex, pageView, pageRotation, subtype);
                     case 'Line':
-                        return importLineShape(dict, value, pageIndex, pageView, pageRotation);
+                        return importLineShape(dict, ref, pageIndex, pageView, pageRotation);
                     case 'PolyLine':
                     case 'Polygon':
-                        return importVerticesShape(dict, value, pageIndex, pageView, pageRotation, subtype);
+                        return importVerticesShape(dict, ref, pageIndex, pageView, pageRotation, subtype);
                     case 'Ink':
-                        return importInkShape(dict, value, pageIndex, pageView, pageRotation);
+                        return importInkShape(dict, ref, pageIndex, pageView, pageRotation);
                 }
             })();
 

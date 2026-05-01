@@ -182,7 +182,7 @@ function markerRectCenterDistanceLocal(
     return Math.hypot(leftCx - rightCx, leftCy - rightCy);
 }
 
-function likelyEditorPdfMirror(
+export function likelyEditorPdfMirror(
     left: IAnnotationCommentSummary,
     right: IAnnotationCommentSummary,
 ) {

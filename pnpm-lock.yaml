@@ -252,6 +252,9 @@ importers:
       vitest:
         specifier: ^4.1.5
         version: 4.1.5(@types/node@24.12.2)(@vitest/coverage-v8@4.1.5)(vite@7.3.2(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.99.0)(terser@5.46.2)(tsx@4.21.0)(yaml@2.8.3))
+      vue-eslint-parser:
+        specifier: 10.4.0
+        version: 10.4.0(eslint@9.39.4(jiti@2.6.1))
       vue-tsc:
         specifier: 3.2.7
         version: 3.2.7(typescript@5.9.3)

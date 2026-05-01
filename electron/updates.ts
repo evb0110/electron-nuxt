@@ -581,7 +581,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                 });
                 if (currentCheckOrigin === 'auto') {
                     await currentCheckPromise;
-                    return checkForUpdates('manual');
+                    return await checkForUpdates('manual');
                 }
             }
             return;
@@ -737,7 +737,7 @@ export async function installDownloadedUpdate() {
     return { started: true };
 }
 
-export async function deferDownloadedUpdate() {
+export function deferDownloadedUpdate() {
     if (!downloadedVersion) {
         return;
     }

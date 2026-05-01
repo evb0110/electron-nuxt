@@ -436,14 +436,14 @@ export const usePdfDocument = () => {
                 ]);
                 rejectRangeReadFailure = null;
 
-                return acceptLoadedDocument(pdfDoc, version);
+                return await acceptLoadedDocument(pdfDoc, version);
             }
 
             if (!loadingTask) {
                 return null;
             }
             const pdfDoc = await loadingTask.promise;
-            return acceptLoadedDocument(pdfDoc, version);
+            return await acceptLoadedDocument(pdfDoc, version);
         } catch (error) {
             // Ignore cancellation errors from destroyed loading tasks
             if (version !== renderVersion) {

@@ -437,14 +437,14 @@ async function waitForReusableNuxtServer(timeoutMs: number): Promise<boolean> {
 
 export async function killExistingNuxt(): Promise<void> {
     try {
-        const pids = await getPidsOnPort(getNuxtPort());
+        const pids = getPidsOnPort(getNuxtPort());
         await killProcessTreeForPids(pids, 1200);
-        await killPids(pids);
+        killPids(pids);
         await delay(500);
     } catch {}
 }
 
-async function clearViteCache(): Promise<void> {
+function clearViteCache(): void {
     const cachePaths = [
         join(projectRoot, 'node_modules', '.vite'),
         join(projectRoot, 'node_modules', '.cache', 'vite'),
@@ -455,7 +455,7 @@ async function clearViteCache(): Promise<void> {
         try {
             rmSync(cachePath, {
                 recursive: true,
-                force: true, 
+                force: true,
             });
             console.log(`[Cache] Cleared ${cachePath.replace(projectRoot + '/', '')}`);
         } catch {}
@@ -463,13 +463,13 @@ async function clearViteCache(): Promise<void> {
 }
 
 async function cleanupStaleNuxtPortOwners(reason: string) {
-    const pidsOnPort = await getPidsOnPort(getNuxtPort());
+    const pidsOnPort = getPidsOnPort(getNuxtPort());
     if (pidsOnPort.length === 0) {
         return false;
     }
 
     const managedNuxtPids = new Set<number>();
-    const runningSessions = await listRunningSessions();
+    const runningSessions = listRunningSessions();
     for (const name of runningSessions) {
         const info = getSessionInfo(name);
         const nuxtPid = info?.nuxtPid ?? null;
@@ -489,7 +489,7 @@ async function cleanupStaleNuxtPortOwners(reason: string) {
 
     console.log(`[Nuxt] Cleaning stale process(es) on port ${getNuxtPort()} (${reason}): ${stalePids.join(', ')}`);
     await killProcessTreeForPids(stalePids, 1200);
-    await killPids(stalePids);
+    killPids(stalePids);
     await delay(500);
     return true;
 }
@@ -518,7 +518,7 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
 
     if (forceClean) {
         console.log('[Nuxt] Force clean start...');
-        await clearViteCache();
+        clearViteCache();
         logTiming('Nuxt cache cleanup complete');
     }
 
@@ -634,7 +634,7 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
                     break;
                 }
 
-                const pids = await getPidsOnPort(getNuxtPort());
+                const pids = getPidsOnPort(getNuxtPort());
                 const suffix = pids.length > 0 ? ` Port owners: ${pids.join(', ')}` : '';
                 throw new Error(
                     `Nuxt process exited before startup completed (code=${nuxtExitCode ?? 'null'}, signal=${nuxtExitSignal ?? 'null'}).${suffix}`,
@@ -649,7 +649,7 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
                         nuxtPid,
                         ...getDescendantPids(nuxtPid),
                     ]);
-                    const pidsOnPort = await getPidsOnPort(getNuxtPort());
+                    const pidsOnPort = getPidsOnPort(getNuxtPort());
                     const ownsRespondingServer = pidsOnPort.some(pid => ownedPids.has(pid));
                     if (pidsOnPort.length > 0 && !ownsRespondingServer) {
                         console.log(`[Nuxt] Port ${getNuxtPort()} is already served by unrelated process(es): ${pidsOnPort.join(', ')}. Reusing existing server.`);
@@ -885,8 +885,8 @@ interface IRendererState {
     url: string;
 }
 
-async function readRendererState(page: Page): Promise<IRendererState> {
-    return await page.evaluate(() => {
+function readRendererState(page: Page): Promise<IRendererState> {
+    return page.evaluate(() => {
         const nuxtEl = document.querySelector('#__nuxt');
         return {
             bodyExists: document.body !== null,
@@ -1288,7 +1288,7 @@ export async function startSession(forceClean = false) {
     console.log(`Starting Electron Puppeteer session '${getCurrentSessionName()}'...\n`);
 
     try {
-        const otherRunning = (await listRunningSessions()).filter(name => name !== getCurrentSessionName());
+        const otherRunning = listRunningSessions().filter(name => name !== getCurrentSessionName());
         if (forceClean && otherRunning.length > 0) {
             console.log(`[Nuxt] ${otherRunning.length} other session(s) running (${otherRunning.join(', ')}), skipping Nuxt restart`);
             forceClean = false;
@@ -1570,7 +1570,7 @@ export async function startSession(forceClean = false) {
             void cleanupAndExit(1);
         });
 
-        const server = createServer(async (req, res) => {
+        const server = createServer((req, res) => {
             if (req.method !== 'POST') {
                 res.writeHead(405);
                 res.end('Method not allowed');
@@ -1591,7 +1591,7 @@ export async function startSession(forceClean = false) {
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({
                         success: true,
-                        result, 
+                        result,
                     }));
                 } catch (error) {
                     res.writeHead(200, { 'Content-Type': 'application/json' });

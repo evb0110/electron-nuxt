@@ -1,0 +1,667 @@
+import {
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import type { IPdfjsEditor } from '@app/types/pdfjs';
+import * as annotationSyncHelpers from '@app/composables/pdf/annotations/annotationSyncHelpers';
+
+vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {
+    DISABLE: -1,
+    NONE: 0,
+    FREETEXT: 1,
+    HIGHLIGHT: 2,
+    STAMP: 3,
+    INK: 4,
+    POPUP: 5,
+}}));
+
+vi.mock('@app/services/pdfjs/runtime-lib', () => ({
+    AnnotationEditorType: {
+        DISABLE: -1,
+        NONE: 0,
+        FREETEXT: 1,
+        HIGHLIGHT: 2,
+        STAMP: 3,
+        INK: 4,
+        POPUP: 5,
+    },
+    PDFDateString: {toDateObject: (value: string | null | undefined) => {
+        if (!value) {
+            return null;
+        }
+        const trimmed = value.startsWith('D:') ? value.slice(2) : value;
+        const year = Number(trimmed.slice(0, 4));
+        const month = Number(trimmed.slice(4, 6));
+        const day = Number(trimmed.slice(6, 8));
+        if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+            return null;
+        }
+        return new Date(Date.UTC(year, Math.max(0, month - 1), day || 1));
+    }},
+}));
+
+vi.mock('@app/utils/browser-logger', () => ({BrowserLogger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+}}));
+
+const __test__ = annotationSyncHelpers;
+
+const computeStableKey = vi.fn((params: {
+    pageIndex: number;
+    id: string;
+    source: string;
+    uid?: string | null;
+    annotationId?: string | null;
+}) => `${params.source}:${params.pageIndex}:${params.id}`);
+
+const resolveKindLabel = vi.fn((subtype: string | null | undefined) => `kind:${subtype ?? 'null'}`);
+
+const summaryDeps = {
+    computeStableKey,
+    resolveKindLabel,
+};
+
+function makeEditor(overrides: Partial<IPdfjsEditor> = {}): IPdfjsEditor {
+    return {
+        id: overrides.id ?? 'editor-1',
+        uid: overrides.uid ?? 'editor-1',
+        ...overrides,
+    };
+}
+
+describe('useAnnotationSync helpers / safeReadEditorData', () => {
+    it('returns object payload from getData', () => {
+        const editor = makeEditor({getData: () => ({
+            modificationDate: 'D:20240501',
+            color: '#fff',
+        })});
+        expect(__test__.safeReadEditorData(editor)).toEqual({
+            modificationDate: 'D:20240501',
+            color: '#fff',
+        });
+    });
+
+    it('returns empty object when getData throws', () => {
+        const editor = makeEditor({getData: () => {
+            throw new Error('boom');
+        }});
+        expect(__test__.safeReadEditorData(editor)).toEqual({});
+    });
+
+    it('returns empty object when getData is missing', () => {
+        const editor = makeEditor({});
+        expect(__test__.safeReadEditorData(editor)).toEqual({});
+    });
+});
+
+describe('useAnnotationSync helpers / resolveMarkupSubtypeOverrideRegistration', () => {
+    it('returns null when annotationId missing', () => {
+        expect(__test__.resolveMarkupSubtypeOverrideRegistration(null, 'Underline')).toBeNull();
+    });
+
+    it('returns null when subtype missing', () => {
+        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', null)).toBeNull();
+    });
+
+    it('returns null for blocklisted subtype Highlight', () => {
+        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'Highlight')).toBeNull();
+    });
+
+    it('returns null for blocklisted subtype Ink', () => {
+        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'Ink')).toBeNull();
+    });
+
+    it('returns null for blocklisted subtype Typewriter', () => {
+        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'Typewriter')).toBeNull();
+    });
+
+    it('returns null for non-markup subtype Stamp', () => {
+        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'Stamp')).toBeNull();
+    });
+
+    it('returns registration for Underline', () => {
+        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'Underline')).toEqual({
+            annotationId: 'id-1',
+            subtype: 'Underline',
+        });
+    });
+
+    it('returns registration for StrikeOut', () => {
+        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'StrikeOut')).toEqual({
+            annotationId: 'id-1',
+            subtype: 'StrikeOut',
+        });
+    });
+
+    it('returns registration for Squiggly', () => {
+        expect(__test__.resolveMarkupSubtypeOverrideRegistration('id-1', 'Squiggly')).toEqual({
+            annotationId: 'id-1',
+            subtype: 'Squiggly',
+        });
+    });
+});
+
+describe('useAnnotationSync helpers / resolveCombinedAnnotationText', () => {
+    it('returns annotation text when visible content present', () => {
+        const text = __test__.resolveCombinedAnnotationText(
+            { contents: 'note body' },
+            { contents: 'popup body' },
+        );
+        expect(text).toBe('note body');
+    });
+
+    it('falls through to popup text when annotation is empty after stripping ZWS', () => {
+        const text = __test__.resolveCombinedAnnotationText(
+            {contents: '​﻿   '},
+            { contents: 'popup body' },
+        );
+        expect(text).toBe('popup body');
+    });
+
+    it('returns empty annotation text when popup is also empty', () => {
+        const text = __test__.resolveCombinedAnnotationText(
+            { contents: '' },
+            { contents: '' },
+        );
+        expect(text).toBe('');
+    });
+
+    it('returns annotation text when no popup is provided', () => {
+        const text = __test__.resolveCombinedAnnotationText(
+            { contents: 'just annotation' },
+            null,
+        );
+        expect(text).toBe('just annotation');
+    });
+
+    it('prefers richText.str over plain contents', () => {
+        const text = __test__.resolveCombinedAnnotationText(
+            {
+                contents: 'plain',
+                richText: {str: 'rich body'},
+            },
+            null,
+        );
+        expect(text).toBe('rich body');
+    });
+});
+
+describe('useAnnotationSync helpers / pickLatestAnnotationTimestamp', () => {
+    it('returns null when both annotations have no dates', () => {
+        expect(__test__.pickLatestAnnotationTimestamp({}, null)).toBeNull();
+    });
+
+    it('returns annotation modification date when popup missing', () => {
+        const result = __test__.pickLatestAnnotationTimestamp(
+            { modificationDate: 'D:20240301' },
+            null,
+        );
+        expect(result).toBe(Date.UTC(2024, 2, 1));
+    });
+
+    it('falls back to creation date when modification missing', () => {
+        const result = __test__.pickLatestAnnotationTimestamp(
+            { creationDate: 'D:20240115' },
+            null,
+        );
+        expect(result).toBe(Date.UTC(2024, 0, 15));
+    });
+
+    it('takes max of own and popup timestamps', () => {
+        const result = __test__.pickLatestAnnotationTimestamp(
+            { modificationDate: 'D:20240301' },
+            { modificationDate: 'D:20240601' },
+        );
+        expect(result).toBe(Date.UTC(2024, 5, 1));
+    });
+
+    it('returns popup when annotation date missing', () => {
+        const result = __test__.pickLatestAnnotationTimestamp(
+            {},
+            { modificationDate: 'D:20240601' },
+        );
+        expect(result).toBe(Date.UTC(2024, 5, 1));
+    });
+});
+
+describe('useAnnotationSync helpers / buildPopupIndex', () => {
+    it('indexes popup annotations by id', () => {
+        const map = __test__.buildPopupIndex([
+            {
+                id: 'p-1',
+                subtype: 'Popup',
+            },
+            {
+                id: 'a-1',
+                subtype: 'Highlight',
+            },
+            {
+                id: 'p-2',
+                subtype: 'Popup',
+            },
+        ]);
+        expect(map.size).toBe(2);
+        expect(map.get('p-1')?.subtype).toBe('Popup');
+        expect(map.get('p-2')?.subtype).toBe('Popup');
+    });
+
+    it('skips popup annotations without an id', () => {
+        const map = __test__.buildPopupIndex([{ subtype: 'Popup' }]);
+        expect(map.size).toBe(0);
+    });
+
+    it('returns empty map when no popups present', () => {
+        const map = __test__.buildPopupIndex([{
+            id: 'a-1',
+            subtype: 'Highlight',
+        }]);
+        expect(map.size).toBe(0);
+    });
+});
+
+describe('useAnnotationSync helpers / tryExtractPdfLinkAnnotation', () => {
+    const pageView = [
+        0,
+        0,
+        100,
+        100,
+    ];
+
+    it('returns null when url is missing', () => {
+        const link = __test__.tryExtractPdfLinkAnnotation(
+            {
+                id: 'l-1',
+                rect: [
+                    0,
+                    0,
+                    10,
+                    10,
+                ],
+            },
+            1,
+            0,
+            pageView,
+            0,
+        );
+        expect(link).toBeNull();
+    });
+
+    it('returns null when rect is missing', () => {
+        const link = __test__.tryExtractPdfLinkAnnotation(
+            {
+                id: 'l-1',
+                url: 'https://example.com',
+            },
+            1,
+            0,
+            pageView,
+            0,
+        );
+        expect(link).toBeNull();
+    });
+
+    it('builds link with synthesized id when annotation id missing', () => {
+        const link = __test__.tryExtractPdfLinkAnnotation(
+            {
+                url: 'https://example.com',
+                rect: [
+                    10,
+                    10,
+                    50,
+                    50,
+                ],
+            },
+            3,
+            7,
+            pageView,
+            0,
+        );
+        expect(link?.id).toBe('link-3-7');
+        expect(link?.pageNumber).toBe(3);
+        expect(link?.url).toBe('https://example.com');
+        expect(link?.rect).toBeDefined();
+    });
+
+    it('preserves explicit annotation id when present', () => {
+        const link = __test__.tryExtractPdfLinkAnnotation(
+            {
+                id: 'link-explicit',
+                url: 'https://example.com',
+                rect: [
+                    10,
+                    10,
+                    50,
+                    50,
+                ],
+            },
+            1,
+            0,
+            pageView,
+            0,
+        );
+        expect(link?.id).toBe('link-explicit');
+    });
+});
+
+describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
+    const pageView = [
+        0,
+        0,
+        100,
+        100,
+    ];
+
+    it('builds a comment summary preserving subtype, page, source=pdf', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                id: 'a-1',
+                subtype: 'Highlight',
+                contents: 'hello',
+                rect: [
+                    10,
+                    10,
+                    50,
+                    50,
+                ],
+            },
+            null,
+            5,
+            0,
+            pageView,
+            0,
+            summaryDeps,
+        );
+
+        expect(summary.id).toBe('a-1');
+        expect(summary.source).toBe('pdf');
+        expect(summary.subtype).toBe('Highlight');
+        expect(summary.pageIndex).toBe(4);
+        expect(summary.pageNumber).toBe(5);
+        expect(summary.text).toBe('hello');
+        expect(summary.uid).toBeNull();
+        expect(summary.annotationId).toBe('a-1');
+        expect(summary.kindLabel).toBe('kind:Highlight');
+        expect(summary.stableKey).toBe('pdf:4:a-1');
+    });
+
+    it('falls through to popup text when annotation is ZWS-only', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                id: 'a-2',
+                subtype: 'FreeText',
+                contents: '​﻿',
+                popupRef: 'p-2',
+                rect: [
+                    10,
+                    10,
+                    50,
+                    50,
+                ],
+            },
+            {
+                id: 'p-2',
+                subtype: 'Popup',
+                contents: 'real note',
+            },
+            1,
+            2,
+            pageView,
+            0,
+            summaryDeps,
+        );
+
+        expect(summary.text).toBe('real note');
+    });
+
+    it('marks hasNote=true for FreeText with linked popup', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                id: 'a-3',
+                subtype: 'FreeText',
+                contents: 'note',
+                popupRef: 'p-3',
+                rect: [
+                    10,
+                    10,
+                    50,
+                    50,
+                ],
+            },
+            {
+                id: 'p-3',
+                subtype: 'Popup',
+            },
+            1,
+            0,
+            pageView,
+            0,
+            summaryDeps,
+        );
+
+        expect(summary.hasNote).toBe(true);
+    });
+
+    it('marks hasNote=false for FreeText without popup link or text', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                id: 'a-4',
+                subtype: 'FreeText',
+                contents: '',
+                rect: [
+                    10,
+                    10,
+                    50,
+                    50,
+                ],
+            },
+            null,
+            1,
+            0,
+            pageView,
+            0,
+            summaryDeps,
+        );
+
+        expect(summary.hasNote).toBe(false);
+    });
+
+    it('synthesizes id when annotation id missing', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                subtype: 'Highlight',
+                contents: 'hi',
+                rect: [
+                    10,
+                    10,
+                    50,
+                    50,
+                ],
+            },
+            null,
+            7,
+            3,
+            pageView,
+            0,
+            summaryDeps,
+        );
+
+        expect(summary.id).toBe('pdf-7-3');
+        expect(summary.annotationId).toBeNull();
+    });
+
+    it('uses popup author when annotation has no author', () => {
+        const summary = __test__.buildPdfAnnotationCommentSummary(
+            {
+                id: 'a-5',
+                subtype: 'Highlight',
+                contents: 'hi',
+                rect: [
+                    10,
+                    10,
+                    50,
+                    50,
+                ],
+            },
+            {
+                id: 'p-5',
+                subtype: 'Popup',
+                title: 'Bob',
+            },
+            1,
+            0,
+            pageView,
+            0,
+            summaryDeps,
+        );
+
+        expect(summary.author).toBe('Bob');
+    });
+});
+
+describe('useAnnotationSync helpers / collectPagePdfSnapshotEntries', () => {
+    const pageView = [
+        0,
+        0,
+        100,
+        100,
+    ];
+
+    it('skips popup-only entries and produces a comment plus a link', () => {
+        const comments: Array<ReturnType<typeof __test__.buildPdfAnnotationCommentSummary>> = [];
+        const links: Array<NonNullable<ReturnType<typeof __test__.tryExtractPdfLinkAnnotation>>> = [];
+
+        __test__.collectPagePdfSnapshotEntries(
+            {
+                annotations: [
+                    {
+                        id: 'p-1',
+                        subtype: 'Popup',
+                    },
+                    {
+                        id: 'a-1',
+                        subtype: 'Highlight',
+                        contents: 'note',
+                        rect: [
+                            10,
+                            10,
+                            50,
+                            50,
+                        ],
+                        popupRef: 'p-1',
+                    },
+                    {
+                        id: 'l-1',
+                        subtype: 'Link',
+                        url: 'https://example.com',
+                        rect: [
+                            10,
+                            10,
+                            50,
+                            50,
+                        ],
+                    },
+                ],
+                pageView,
+                pageRotation: 0,
+            },
+            2,
+            summaryDeps,
+            comments,
+            links,
+        );
+
+        expect(comments).toHaveLength(1);
+        expect(comments[0]?.id).toBe('a-1');
+        expect(comments[0]?.subtype).toBe('Highlight');
+        expect(links).toHaveLength(1);
+        expect(links[0]?.url).toBe('https://example.com');
+    });
+
+    it('skips imported embedded shapes', () => {
+        const comments: Array<ReturnType<typeof __test__.buildPdfAnnotationCommentSummary>> = [];
+        const links: Array<NonNullable<ReturnType<typeof __test__.tryExtractPdfLinkAnnotation>>> = [];
+
+        __test__.collectPagePdfSnapshotEntries(
+            {
+                annotations: [{
+                    id: 'shape-1',
+                    subtype: 'Square',
+                    rect: [
+                        10,
+                        10,
+                        50,
+                        50,
+                    ],
+                }],
+                pageView,
+                pageRotation: 0,
+            },
+            1,
+            summaryDeps,
+            comments,
+            links,
+        );
+
+        expect(comments).toHaveLength(0);
+        expect(links).toHaveLength(0);
+    });
+});
+
+describe('useAnnotationSync helpers / resolveEditorMarkerRect', () => {
+    it('uses pending anchor when editor rect missing', () => {
+        const editor: IPdfjsEditor = {__evbPendingAnchorRect: {
+            left: 0.1,
+            top: 0.1,
+            width: 0.1,
+            height: 0.1,
+        }};
+        const result = __test__.resolveEditorMarkerRect(editor);
+        expect(result.shouldUsePendingAnchor).toBe(true);
+        expect(result.markerRect).toEqual({
+            left: 0.1,
+            top: 0.1,
+            width: 0.1,
+            height: 0.1,
+        });
+    });
+
+    it('uses editor rect when pending anchor is absent', () => {
+        const editor: IPdfjsEditor = {
+            x: 0.2,
+            y: 0.3,
+            width: 0.1,
+            height: 0.1,
+        };
+        const result = __test__.resolveEditorMarkerRect(editor);
+        expect(result.shouldUsePendingAnchor).toBe(false);
+        expect(result.markerRect).toEqual({
+            left: 0.2,
+            top: 0.3,
+            width: 0.1,
+            height: 0.1,
+        });
+    });
+
+    it('keeps editor rect when pending anchor matches closely', () => {
+        const editor: IPdfjsEditor = {
+            x: 0.2,
+            y: 0.3,
+            width: 0.1,
+            height: 0.1,
+            __evbPendingAnchorRect: {
+                left: 0.21,
+                top: 0.31,
+                width: 0.1,
+                height: 0.1,
+            },
+        };
+        const result = __test__.resolveEditorMarkerRect(editor);
+        expect(result.shouldUsePendingAnchor).toBe(false);
+        expect(result.markerRect?.left).toBeCloseTo(0.2, 5);
+    });
+});

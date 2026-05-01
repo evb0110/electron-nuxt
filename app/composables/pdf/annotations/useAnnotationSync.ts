@@ -10,61 +10,36 @@ import type {
     ILinkAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import { markerRectCenterDistance } from '@app/composables/pdf/annotations/annotationRules';
 import type { PDFDocumentProxy } from '@app/types/pdf';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import {
     getCommentText,
     hasEditorCommentPayload,
-    toMarkerRectFromEditor,
     detectEditorSubtype,
 } from '@app/composables/pdf/pdfAnnotationEditorUtils';
 import {
     parsePdfDateTimestamp,
-    getAnnotationCommentText,
-    getAnnotationAuthor,
     annotationKindLabelFromSubtype,
-    isPopupSubtype,
-    isLinkSubtype,
-    isTextMarkupSubtype,
 } from '@app/composables/pdf/pdfAnnotationUtils';
-import {
-    normalizeMarkerRect,
-    normalizePageRotation,
-    toMarkerRectFromEditorRect,
-    toMarkerRectFromPdfRect,
-} from '@app/composables/pdf/annotationGeometry';
-import { isImportedEmbeddedShapeSubtype } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import { toCssColor } from '@app/composables/pdf/annotationCssUtils';
-import {
-    getOptionalFunction,
-    getOptionalNumber,
-    getOptionalNumberArray,
-    getOptionalString,
-} from '@app/services/pdfjs/runtime';
+import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { runGuardedTask } from '@app/utils/async-guard';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
-
-function isMarkupSubtype(value: unknown): value is TMarkupSubtype {
-    return (
-        value === 'Highlight'
-        || value === 'Underline'
-        || value === 'StrikeOut'
-        || value === 'Squiggly'
-    );
-}
+import {
+    collectPagePdfSnapshotEntries,
+    isMarkupSubtype,
+    loadPdfPageAnnotations,
+    resolveEditorMarkerRect,
+    resolveMarkupSubtypeOverrideRegistration,
+    safeReadEditorData,
+} from '@app/composables/pdf/annotations/annotationSyncHelpers';
+import type { TComputeSummaryStableKey } from '@app/composables/pdf/annotations/annotationSyncHelpers';
 
 interface ISyncIdentity {
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
     getEditorPendingKey: (editor: IPdfjsEditor, pageIndex: number) => string;
-    computeSummaryStableKey: (params: {
-        pageIndex: number;
-        id: string;
-        source: IAnnotationCommentSummary['source'];
-        uid?: string | null;
-        annotationId?: string | null;
-    }) => string;
+    computeSummaryStableKey: TComputeSummaryStableKey;
     toSummaryKey: (summary: IAnnotationCommentSummary) => string;
     rememberSummaryText: (summary: IAnnotationCommentSummary) => void;
     hydrateSummaryFromMemory: (summary: IAnnotationCommentSummary) => IAnnotationCommentSummary;
@@ -178,17 +153,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         const identity = getIdentity();
         const markupSubtype = getMarkupSubtype();
 
-        let data: ReturnType<NonNullable<IPdfjsEditor['getData']>> = {};
-        try {
-            data = editor.getData?.() ?? {};
-        } catch (error) {
-            BrowserLogger.debug(
-                'annotations',
-                'Failed to read annotation editor data payload',
-                error,
-            );
-            data = {};
-        }
+        const data = safeReadEditorData(editor);
 
         const text = typeof textOverride === 'string'
             ? textOverride
@@ -200,19 +165,12 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         const uid = editor.uid ?? null;
         const annotationId = editor.annotationElementId ?? null;
 
-        if (
-            annotationId
-            && resolvedSubtype
-            && resolvedSubtype !== 'Highlight'
-            && resolvedSubtype !== 'Ink'
-            && resolvedSubtype !== 'Typewriter'
-        ) {
-            if (isMarkupSubtype(resolvedSubtype)) {
-                markupSubtype.getMarkupSubtypeOverrides().set(
-                    annotationId,
-                    resolvedSubtype,
-                );
-            }
+        const overrideRegistration = resolveMarkupSubtypeOverrideRegistration(annotationId, resolvedSubtype);
+        if (overrideRegistration) {
+            markupSubtype.getMarkupSubtypeOverrides().set(
+                overrideRegistration.annotationId,
+                overrideRegistration.subtype,
+            );
         }
 
         const id = identity.getEditorIdentity(editor, pageIndex);
@@ -220,34 +178,9 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         const hasNote = hasEditorCommentPayload(editor)
             || pendingCommentEditorKeys.has(pendingKey);
 
-        const editorRotation = normalizePageRotation(
-            getOptionalNumber(editor, 'pageRotation')
-            ?? getOptionalNumber(editor, 'rotation')
-            ?? 0,
-        );
-        const directEditorRect = normalizeMarkerRect({
-            left: editor.x ?? Number.NaN,
-            top: editor.y ?? Number.NaN,
-            width: editor.width ?? Number.NaN,
-            height: editor.height ?? Number.NaN,
-        });
-        const markerRectFromEditor = directEditorRect
-            ? toMarkerRectFromEditorRect(directEditorRect, editorRotation)
-            : toMarkerRectFromEditor(editor);
-        const pendingAnchorRect = normalizeMarkerRect(editor.__evbPendingAnchorRect ?? null);
-        const markerDistanceFromPending = markerRectCenterDistance(markerRectFromEditor, pendingAnchorRect);
-        const shouldUsePendingAnchor = Boolean(
-            pendingAnchorRect
-            && (
-                !markerRectFromEditor
-                || markerDistanceFromPending > 0.14
-            ),
-        );
-        const markerRect = shouldUsePendingAnchor
-            ? pendingAnchorRect
-            : markerRectFromEditor;
+        const rectResult = resolveEditorMarkerRect(editor);
 
-        if (shouldUsePendingAnchor) {
+        if (rectResult.shouldUsePendingAnchor) {
             BrowserLogger.debug('note-anchor', 'toEditorSummary', {
                 pageIndex,
                 pageNumber: pageIndex + 1,
@@ -257,11 +190,11 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
                 subtype: resolvedSubtype ?? null,
                 hasNote,
                 textLength: text.length,
-                markerRectFromEditor,
-                pendingAnchorRect,
-                markerDistanceFromPending,
-                shouldUsePendingAnchor,
-                markerRect,
+                markerRectFromEditor: rectResult.markerRectFromEditor,
+                pendingAnchorRect: rectResult.pendingAnchorRect,
+                markerDistanceFromPending: rectResult.markerDistanceFromPending,
+                shouldUsePendingAnchor: rectResult.shouldUsePendingAnchor,
+                markerRect: rectResult.markerRect,
             });
         }
 
@@ -291,7 +224,7 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
             annotationId,
             source: 'editor',
             hasNote,
-            markerRect,
+            markerRect: rectResult.markerRect,
         };
     }
 
@@ -303,150 +236,28 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         const identity = getIdentity();
         const comments: IAnnotationCommentSummary[] = [];
         const links: ILinkAnnotation[] = [];
+        const summaryDeps: IPdfCommentSummaryDeps = {
+            computeStableKey: identity.computeSummaryStableKey,
+            resolveKindLabel: resolveAnnotationKindLabel,
+        };
 
         for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
             if (localToken !== syncToken) {
                 return null;
             }
 
-            let pageAnnotations: Array<{
-                id?: string;
-                pageIndex?: number;
-                rect?: number[];
-                contents?: string;
-                contentsObj?: { str?: string | null };
-                richText?: { str?: string | null };
-                title?: string;
-                titleObj?: { str?: string | null };
-                color?: number[] | string | null;
-                opacity?: number;
-                modificationDate?: string | null;
-                creationDate?: string | null;
-                subtype?: string;
-                popupRef?: string | null;
-            }> = [];
-            let pageView: number[] | null = null;
-            let pageRotation = normalizePageRotation(0);
-
-            try {
-                const page = await doc.getPage(pageNumber);
-                const rawAnnotations: unknown = await page.getAnnotations();
-                pageAnnotations = Array.isArray(rawAnnotations)
-                    ? rawAnnotations as typeof pageAnnotations
-                    : [];
-                pageView = getOptionalNumberArray(page, 'view');
-                pageRotation = normalizePageRotation(getOptionalNumber(page, 'rotate') ?? 0);
-            } catch (error) {
-                BrowserLogger.debug(
-                    'annotations',
-                    `Failed to collect annotations for page ${pageNumber}`,
-                    error,
-                );
+            const pageBundle = await loadPdfPageAnnotations(doc, pageNumber);
+            if (!pageBundle) {
                 continue;
             }
 
-            const popupById = new Map<string, (typeof pageAnnotations)[number]>();
-            pageAnnotations.forEach((annotation) => {
-                if (!isPopupSubtype(annotation.subtype) || !annotation.id) {
-                    return;
-                }
-                popupById.set(annotation.id, annotation);
-            });
-
-            pageAnnotations.forEach((annotation, annotationIndex) => {
-                if (isPopupSubtype(annotation.subtype)) {
-                    return;
-                }
-
-                if (isLinkSubtype(annotation.subtype)) {
-                    const url = getOptionalString(annotation, 'url');
-                    if (url && annotation.rect) {
-                        const rect = toMarkerRectFromPdfRect(annotation.rect, pageView, pageRotation);
-                        if (rect) {
-                            links.push({
-                                id: annotation.id ?? `link-${pageNumber}-${annotationIndex}`,
-                                pageNumber,
-                                url,
-                                rect,
-                            });
-                        }
-                    }
-                    return;
-                }
-
-                if (isImportedEmbeddedShapeSubtype(annotation.subtype)) {
-                    return;
-                }
-
-                const popupAnnotation = annotation.popupRef
-                    ? (popupById.get(annotation.popupRef) ?? null)
-                    : null;
-                const annotationText = getAnnotationCommentText(annotation);
-                const popupText = popupAnnotation
-                    ? getAnnotationCommentText(popupAnnotation)
-                    : '';
-                // Strip ZWS/BOM left by legacy saves so we detect truly-empty /Contents
-                // and fall through to the popup text (see docs/freetext-note-persistence.md)
-                const visibleAnnotationText = annotationText.replace(/[\u200B\uFEFF]/g, '').trim();
-                const text = visibleAnnotationText.length > 0
-                    ? annotationText
-                    : popupText.length > 0
-                        ? popupText
-                        : annotationText;
-                const subtype = annotation.subtype ?? null;
-                const id = annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`;
-                const annotationId = annotation.id ?? null;
-                const hasLinkedPopup = Boolean(annotation.popupRef) || Boolean(popupAnnotation);
-                const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
-                const isFreeTextNote = normalizedSubtype === 'freetext' && hasLinkedPopup;
-
-                comments.push({
-                    id,
-                    stableKey: identity.computeSummaryStableKey({
-                        id,
-                        pageIndex: pageNumber - 1,
-                        source: 'pdf',
-                        uid: null,
-                        annotationId,
-                    }),
-                    sortIndex: null,
-                    pageIndex: pageNumber - 1,
-                    pageNumber,
-                    text,
-                    kindLabel: resolveAnnotationKindLabel(subtype),
-                    subtype,
-                    author: getAnnotationAuthor(annotation)
-                        ?? (popupAnnotation ? getAnnotationAuthor(popupAnnotation) : null),
-                    modifiedAt: (() => {
-                        const own = parsePdfDateTimestamp(annotation.modificationDate)
-                            ?? parsePdfDateTimestamp(annotation.creationDate);
-                        const popup = popupAnnotation
-                            ? (parsePdfDateTimestamp(popupAnnotation.modificationDate)
-                                ?? parsePdfDateTimestamp(popupAnnotation.creationDate))
-                            : null;
-                        if (own && popup) {
-                            return Math.max(own, popup);
-                        }
-                        return own ?? popup;
-                    })(),
-                    color: toCssColor(
-                        annotation.color ?? popupAnnotation?.color ?? null,
-                        annotation.opacity ?? popupAnnotation?.opacity ?? 1,
-                    ),
-                    uid: null,
-                    annotationId,
-                    source: 'pdf',
-                    hasNote: Boolean(
-                        (isTextMarkupSubtype(subtype) || isFreeTextNote)
-                        && (hasLinkedPopup || text.trim().length > 0),
-                    ),
-                    markerRect: toMarkerRectFromPdfRect(
-                        annotation.rect ?? popupAnnotation?.rect,
-                        pageView,
-                        pageRotation,
-                    ),
-                });
-            });
+            collectPagePdfSnapshotEntries(
+                pageBundle,
+                pageNumber,
+                summaryDeps,
+                comments,
+                links,
+            );
         }
 
         return {

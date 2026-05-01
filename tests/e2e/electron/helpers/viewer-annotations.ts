@@ -1224,7 +1224,7 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
         await clickAnnotationTool(page, 'Select');
         await clickToolbarButtonWhenEnabled(page, 'Undo', Math.min(DEFAULT_TIMEOUT_MS, 4_000));
         await waitForCountDrop(Math.min(DEFAULT_TIMEOUT_MS, 4_000));
-        return getFreeTextEditorCount(page);
+        return await getFreeTextEditorCount(page);
     } catch {
         // Fall back to selection-based deletion below.
     }
@@ -1243,7 +1243,7 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
         try {
             await waitForCountDrop(Math.min(DEFAULT_TIMEOUT_MS, 3_500));
             await clickAnnotationTool(page, 'Select');
-            return getFreeTextEditorCount(page);
+            return await getFreeTextEditorCount(page);
         } catch {
             // Escape+Delete didn't work — try programmatic removal via PDF.js
             const removalResult = await page.evaluate(() => {
@@ -1341,7 +1341,7 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
                 try {
                     await waitForCountDrop(DEFAULT_TIMEOUT_MS);
                     await clickAnnotationTool(page, 'Select');
-                    return getFreeTextEditorCount(page);
+                    return await getFreeTextEditorCount(page);
                 } catch {
                     continue;
                 }
@@ -1355,7 +1355,7 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
         await clickAnnotationTool(page, 'Select');
         await clickToolbarButtonWhenEnabled(page, 'Undo', Math.min(DEFAULT_TIMEOUT_MS, 4_000));
         await waitForCountDrop(DEFAULT_TIMEOUT_MS);
-        return getFreeTextEditorCount(page);
+        return await getFreeTextEditorCount(page);
     } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
     }

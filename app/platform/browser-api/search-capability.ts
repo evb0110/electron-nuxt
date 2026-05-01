@@ -342,7 +342,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             if (!(error instanceof BrowserSearchWorkerUnavailableError)) {
                 throw error;
             }
-            return runDirectExtraction(pdfPath, requestId);
+            return await runDirectExtraction(pdfPath, requestId);
         } finally {
             if (requestId) {
                 activeWorkerSearchRequests.delete(requestId);

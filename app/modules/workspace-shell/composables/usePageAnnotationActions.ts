@@ -14,11 +14,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
-import {
-    getPointMinMaxBounds,
-    toShapeRect,
-} from '@app/composables/pdf/pdfShapeResize';
-import { getAllShapePoints } from '@app/composables/pdf/pdfShapeStrokes';
+import { getShapeRect } from '@app/composables/pdf/pdfShapeResize';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
 
 const SUPPORTED_IMAGE_MIME_TYPES = [
@@ -162,45 +158,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             : null,
     );
 
-    function getShapeBounds(shape: IShapeAnnotation) {
-        if (shape.type === 'polyline' || shape.type === 'polygon') {
-            const bounds = getPointMinMaxBounds(getAllShapePoints(shape));
-            if (bounds) {
-                const rect = toShapeRect(bounds, 0.01);
-                return {
-                    x: rect.minX,
-                    y: rect.minY,
-                    width: rect.maxX - rect.minX,
-                    height: rect.maxY - rect.minY,
-                };
-            }
-        }
-
-        if (shape.type === 'line' || shape.type === 'arrow') {
-            const x2 = shape.x2 ?? shape.x;
-            const y2 = shape.y2 ?? shape.y;
-            const rect = toShapeRect({
-                minX: Math.min(shape.x, x2),
-                minY: Math.min(shape.y, y2),
-                maxX: Math.max(shape.x, x2),
-                maxY: Math.max(shape.y, y2),
-            }, 0.01);
-            return {
-                x: rect.minX,
-                y: rect.minY,
-                width: rect.maxX - rect.minX,
-                height: rect.maxY - rect.minY,
-            };
-        }
-
-        return {
-            x: shape.x,
-            y: shape.y,
-            width: Math.max(0.01, shape.width),
-            height: Math.max(0.01, shape.height),
-        };
-    }
-
     function updateShapePropertiesPopoverPosition(shape: IShapeAnnotation) {
         const viewerContainer = pdfViewerRef.value?.getViewerContainer();
         if (!viewerContainer) {
@@ -219,7 +176,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             return false;
         }
 
-        const bounds = getShapeBounds(shape);
+        const bounds = getShapeRect(shape, { rectFallbackMinSize: 0.01 });
         const desiredX = pageRect.left + ((bounds.x + bounds.width) * pageRect.width) + 12;
         const desiredY = pageRect.top + (bounds.y * pageRect.height) - 8;
         const clampedPosition = clampToViewport(

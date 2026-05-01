@@ -55,7 +55,7 @@ function safeRealpathSync(path: string): string {
     }
 }
 
-async function getTempBaseDirs() {
+function getTempBaseDirs() {
     return getTempBaseDirsSync();
 }
 
@@ -118,13 +118,13 @@ export function isAllowedReadPath(filePath: string): boolean {
     }
 }
 
-export async function resolveAllowedReadPath(filePath: string): Promise<string | null> {
+function resolveAllowedReadPathSync(filePath: string): string | null {
     const absolutePath = normalizeCandidatePath(filePath);
     if (!absolutePath) {
         return null;
     }
 
-    const tempBaseDirs = await getTempBaseDirs();
+    const tempBaseDirs = getTempBaseDirs();
     if (!isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)) {
         return null;
     }
@@ -143,13 +143,17 @@ export async function resolveAllowedReadPath(filePath: string): Promise<string |
     }
 }
 
-export async function resolveAllowedWritePath(filePath: string): Promise<string | null> {
+export function resolveAllowedReadPath(filePath: string): Promise<string | null> {
+    return Promise.resolve(resolveAllowedReadPathSync(filePath));
+}
+
+function resolveAllowedWritePathSync(filePath: string): string | null {
     const absolutePath = normalizeCandidatePath(filePath);
     if (!absolutePath) {
         return null;
     }
 
-    const tempBaseDirs = await getTempBaseDirs();
+    const tempBaseDirs = getTempBaseDirs();
     if (!isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)) {
         return null;
     }
@@ -179,4 +183,8 @@ export async function resolveAllowedWritePath(filePath: string): Promise<string 
     }
 
     return absolutePath;
+}
+
+export function resolveAllowedWritePath(filePath: string): Promise<string | null> {
+    return Promise.resolve(resolveAllowedWritePathSync(filePath));
 }

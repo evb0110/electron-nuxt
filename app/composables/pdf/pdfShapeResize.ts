@@ -69,6 +69,57 @@ export function toShapeRect(bounds: IShapeBounds, minSize = 0.01): IShapeBounds 
     };
 }
 
+export interface IShapeRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export function getShapeRect(
+    shape: IShapeAnnotation,
+    options: { rectFallbackMinSize?: number } = {},
+): IShapeRect {
+    const { rectFallbackMinSize = 0 } = options;
+
+    if (shape.type === 'polyline' || shape.type === 'polygon') {
+        const bounds = getPointMinMaxBounds(getAllShapePoints(shape));
+        if (bounds) {
+            const rect = toShapeRect(bounds, 0.01);
+            return {
+                x: rect.minX,
+                y: rect.minY,
+                width: rect.maxX - rect.minX,
+                height: rect.maxY - rect.minY,
+            };
+        }
+    }
+
+    if (shape.type === 'line' || shape.type === 'arrow') {
+        const x2 = shape.x2 ?? shape.x;
+        const y2 = shape.y2 ?? shape.y;
+        const rect = toShapeRect({
+            minX: Math.min(shape.x, x2),
+            minY: Math.min(shape.y, y2),
+            maxX: Math.max(shape.x, x2),
+            maxY: Math.max(shape.y, y2),
+        }, 0.01);
+        return {
+            x: rect.minX,
+            y: rect.minY,
+            width: rect.maxX - rect.minX,
+            height: rect.maxY - rect.minY,
+        };
+    }
+
+    return {
+        x: shape.x,
+        y: shape.y,
+        width: rectFallbackMinSize > 0 ? Math.max(rectFallbackMinSize, shape.width) : shape.width,
+        height: rectFallbackMinSize > 0 ? Math.max(rectFallbackMinSize, shape.height) : shape.height,
+    };
+}
+
 function scalePointToBounds(point: IShapePoint, baselineBounds: IShapeBounds, nextBounds: IShapeBounds) {
     const baselineWidth = Math.max(0.01, baselineBounds.maxX - baselineBounds.minX);
     const baselineHeight = Math.max(0.01, baselineBounds.maxY - baselineBounds.minY);

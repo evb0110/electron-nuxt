@@ -350,15 +350,15 @@ async function performShutdownCleanup() {
     await runShutdownSteps(logger, [
         {
             label: 'updates',
-            run: () => shutdownUpdates(), 
+            run: () => shutdownUpdates(),
         },
         {
             label: 'djvu-conversions',
-            run: () => shutdownDjvuConversions(), 
+            run: () => shutdownDjvuConversions(),
         },
         {
             label: 'djvu-viewing',
-            run: () => performDjvuViewingShutdownCleanup(), 
+            run: () => performDjvuViewingShutdownCleanup(),
         },
         {
             label: 'ocr-job-manager',

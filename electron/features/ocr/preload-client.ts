@@ -61,7 +61,7 @@ export function createOcrPreloadClient(ipcRenderer: IpcRenderer): IOcrCapability
 
         getLanguages: () => invoke<Awaited<ReturnType<IOcrCapability['getLanguages']>>>(OCR_CHANNELS.getLanguages),
 
-        installLanguages: async (languages: string[], requestId: string) => ({
+        installLanguages: (languages: string[], requestId: string) => Promise.resolve({
             started: true,
             jobId: assertRequestId(requestId, 'ocrInstallLanguages.requestId'),
             installed: languages,

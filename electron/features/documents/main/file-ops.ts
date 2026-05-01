@@ -72,11 +72,11 @@ function normalizeNonEmptyPath(filePath: unknown): string {
     return normalizedPath;
 }
 
-async function resolveDirectSourceReadPath(
+function resolveDirectSourceReadPath(
     normalizedPath: string,
     extension: string,
     senderId?: number,
-): Promise<string | null> {
+): string | null {
     if (!ALLOWED_DIRECT_SOURCE_READ_EXTENSIONS.has(extension)) {
         return null;
     }

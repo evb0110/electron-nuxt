@@ -320,7 +320,7 @@ export async function findFreePort(): Promise<number> {
     });
 }
 
-export async function getPidsOnPort(port: number): Promise<number[]> {
+export function getPidsOnPort(port: number): number[] {
     try {
         const output = execSync(`lsof -ti :${port} 2>/dev/null || true`, { encoding: 'utf8' });
         return output
@@ -332,13 +332,13 @@ export async function getPidsOnPort(port: number): Promise<number[]> {
     }
 }
 
-export async function killPids(
+export function killPids(
     pids: number[],
     options: {
         signal?: NodeJS.Signals | number;
         exclude?: Set<number>;
     } = {},
-): Promise<void> {
+): void {
     if (!Array.isArray(pids) || pids.length === 0) {
         return;
     }
@@ -458,7 +458,7 @@ export async function killProcessTree(pid: number, graceMs = 1500): Promise<void
         ...descendants,
         pid,
     ]);
-    await killPids(targets, { signal: 'SIGTERM' });
+    killPids(targets, { signal: 'SIGTERM' });
 
     if (graceMs > 0) {
         const deadline = Date.now() + graceMs;
@@ -473,7 +473,7 @@ export async function killProcessTree(pid: number, graceMs = 1500): Promise<void
 
     const remaining = targets.filter(targetPid => isProcessAlive(targetPid));
     if (remaining.length > 0) {
-        await killPids(remaining, { signal: 'SIGKILL' });
+        killPids(remaining, { signal: 'SIGKILL' });
     }
 }
 
@@ -606,7 +606,7 @@ export function listAllSessionNames() {
     }
 }
 
-export async function listRunningSessions(): Promise<string[]> {
+export function listRunningSessions(): string[] {
     const all = listAllSessionNames();
     const running: string[] = [];
     for (const name of all) {
