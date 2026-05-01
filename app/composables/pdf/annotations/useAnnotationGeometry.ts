@@ -8,9 +8,10 @@ import type {
     IViewportRect,
 } from '@app/composables/pdf/annotations/types';
 import {
-    normalizeMarkerRect,
     markerRectIoU,
     mergeMarkerRects,
+    normalizeMarkerRect,
+    rectsIntersect,
 } from '@app/composables/pdf/annotationGeometry';
 
 interface IDetachedMarkerPlacement {
@@ -159,27 +160,7 @@ export function markerRectToPagePixels(
     };
 }
 
-export function rectsIntersectLocal(
-    leftRect: {
-        left: number;
-        top: number;
-        right: number;
-        bottom: number 
-    },
-    rightRect: {
-        left: number;
-        top: number;
-        right: number;
-        bottom: number 
-    },
-) {
-    return !(
-        leftRect.right < rightRect.left
-        || leftRect.left > rightRect.right
-        || leftRect.bottom < rightRect.top
-        || leftRect.top > rightRect.bottom
-    );
-}
+export const rectsIntersectLocal = rectsIntersect;
 
 export function pickInlineCommentAnchorTarget(targets: HTMLElement[]) {
     if (targets.length === 0) {
