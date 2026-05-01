@@ -118,6 +118,24 @@ function refToTag(ref: PDFRef) {
     return formatPdfJsAnnotationRef(ref);
 }
 
+function lookupAnnotationRefDict(
+    doc: PDFDocument,
+    value: unknown,
+) {
+    const ref = value instanceof PDFRef ? value : null;
+    if (!ref) {
+        return null;
+    }
+
+    const dict = doc.context.lookupMaybe(ref, PDFDict);
+    return dict
+        ? {
+            dict,
+            ref,
+        }
+        : null;
+}
+
 function setRgbColor(
     annotDict: PDFDict,
     doc: PDFDocument,
@@ -612,6 +630,17 @@ function updateEmbeddedShapeAnnotationDict(
     }
 }
 
+function applyEmbeddedShapeUpdate(
+    doc: PDFDocument,
+    annotDict: PDFDict,
+    shape: IShapeAnnotation,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    return updateEmbeddedShapeAnnotationDict(doc, annotDict, shape, pageView, pageRotation)
+        || writeManagedShapeStableKey(annotDict, shape.stableKey);
+}
+
 function applyShapeAnnotations(
     doc: PDFDocument,
     shapes: IShapeAnnotation[],
@@ -691,25 +720,24 @@ function applyShapeAnnotations(
         }
 
         for (let index = 0; index < annots.size(); index += 1) {
-            const value = annots.get(index);
-            if (!(value instanceof PDFRef)) {
+            const annotation = lookupAnnotationRefDict(doc, annots.get(index));
+            if (!annotation) {
                 continue;
             }
 
-            const annotDict = doc.context.lookupMaybe(value, PDFDict);
-            if (!annotDict) {
-                continue;
-            }
-
+            const {
+                dict: annotDict,
+                ref,
+            } = annotation;
             const annotationStableKey = readManagedShapeStableKey(annotDict);
-            const annotationId = refToTag(value);
+            const annotationId = refToTag(ref);
             const isDeletedManagedShape = annotationStableKey
                 ? deletedStableKeys.has(annotationStableKey)
                 : false;
 
             if (deletedIds.has(annotationId) || isDeletedManagedShape) {
-                collectAnnotationRefsToDelete(doc, value).forEach((ref) => {
-                    refsToDeleteByTag.set(refToTag(ref), ref);
+                collectAnnotationRefsToDelete(doc, ref).forEach((deleteRef) => {
+                    refsToDeleteByTag.set(refToTag(deleteRef), deleteRef);
                 });
                 modified = true;
                 continue;
@@ -722,17 +750,14 @@ function applyShapeAnnotations(
                         continue;
                     }
 
-                    collectAnnotationRefsToDelete(doc, value).forEach((ref) => {
-                        refsToDeleteByTag.set(refToTag(ref), ref);
+                    collectAnnotationRefsToDelete(doc, ref).forEach((deleteRef) => {
+                        refsToDeleteByTag.set(refToTag(deleteRef), deleteRef);
                     });
                     modified = true;
                     continue;
                 }
 
-                if (updateEmbeddedShapeAnnotationDict(doc, annotDict, shape, context.pageView, context.pageRotation)) {
-                    modified = true;
-                }
-                if (writeManagedShapeStableKey(annotDict, shape.stableKey)) {
+                if (applyEmbeddedShapeUpdate(doc, annotDict, shape, context.pageView, context.pageRotation)) {
                     modified = true;
                 }
                 consumeShape(shape);
@@ -745,10 +770,7 @@ function applyShapeAnnotations(
                 continue;
             }
 
-            if (updateEmbeddedShapeAnnotationDict(doc, annotDict, shape, context.pageView, context.pageRotation)) {
-                modified = true;
-            }
-            if (writeManagedShapeStableKey(annotDict, shape.stableKey)) {
+            if (applyEmbeddedShapeUpdate(doc, annotDict, shape, context.pageView, context.pageRotation)) {
                 modified = true;
             }
             consumeShape(shape);
@@ -858,16 +880,14 @@ function applyMarkupSubtypeRewrites(
         }
 
         for (let index = 0; index < annots.size(); index += 1) {
-            const value = annots.get(index);
-            const ref = value instanceof PDFRef ? value : null;
-            if (!ref) {
+            const annotation = lookupAnnotationRefDict(doc, annots.get(index));
+            if (!annotation) {
                 continue;
             }
-
-            const dict = doc.context.lookupMaybe(ref, PDFDict);
-            if (!dict) {
-                continue;
-            }
+            const {
+                dict,
+                ref,
+            } = annotation;
 
             const currentSubtype = dict.get(subtypeName);
             if (!(currentSubtype instanceof PDFName) || currentSubtype !== highlightName) {
@@ -961,16 +981,14 @@ function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCommentSu
         }
 
         for (let annotIndex = 0; annotIndex < annots.size(); annotIndex += 1) {
-            const value = annots.get(annotIndex);
-            const ref = value instanceof PDFRef ? value : null;
-            if (!ref) {
+            const annotation = lookupAnnotationRefDict(doc, annots.get(annotIndex));
+            if (!annotation) {
                 continue;
             }
-
-            const dict = doc.context.lookupMaybe(ref, PDFDict);
-            if (!dict) {
-                continue;
-            }
+            const {
+                dict,
+                ref,
+            } = annotation;
 
             const currentSubtype = dict.get(subtypeName);
             if (!(currentSubtype instanceof PDFName) || currentSubtype !== freeTextName) {
