@@ -22,6 +22,10 @@ import {
 } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    isFiniteWorkerMessageNumber,
+    isWorkerMessageRecord,
+} from '@electron/utils/worker-message';
 
 type TCachedIndex = {
     mtimeMs: number;
@@ -83,16 +87,8 @@ function assertNever(value: never): never {
     throw new Error(`Unhandled search worker inbound message: ${JSON.stringify(value)}`);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
-
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
-
 function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
-    if (!isRecord(value)) {
+    if (!isWorkerMessageRecord(value)) {
         return null;
     }
     if (
@@ -102,7 +98,7 @@ function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
     ) {
         return null;
     }
-    const pageCount = isFiniteNumber(value.pageCount) ? value.pageCount : undefined;
+    const pageCount = isFiniteWorkerMessageNumber(value.pageCount) ? value.pageCount : undefined;
     const warmup = typeof value.warmup === 'boolean' ? value.warmup : undefined;
     const matchCase = typeof value.matchCase === 'boolean' ? value.matchCase : undefined;
     const wholeWord = typeof value.wholeWord === 'boolean' ? value.wholeWord : undefined;
@@ -120,7 +116,7 @@ function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
 }
 
 function parseInboundMessage(value: unknown): TSearchWorkerInboundMessage | null {
-    if (!isRecord(value) || typeof value.type !== 'string') {
+    if (!isWorkerMessageRecord(value) || typeof value.type !== 'string') {
         return null;
     }
     switch (value.type) {

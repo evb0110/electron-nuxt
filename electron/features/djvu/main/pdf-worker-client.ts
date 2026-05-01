@@ -11,6 +11,10 @@ import type {
     TDjvuPdfWorkerMessage,
     TDjvuPdfWorkerTask,
 } from '@electron/features/djvu/main/pdf-worker-protocol';
+import {
+    isFiniteWorkerMessageNumber,
+    isWorkerMessageRecord,
+} from '@electron/utils/worker-message';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DJVU_PDF_WORKER_FILENAME = 'djvu-pdf-worker.js';
@@ -36,14 +40,6 @@ function resolveDjvuPdfWorkerPath() {
     return defaultPath;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
-
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
-
 function isPdfWorkerResultData(value: unknown): value is number | Uint8Array | ArrayBuffer {
     return typeof value === 'number'
         || value instanceof Uint8Array
@@ -51,7 +47,7 @@ function isPdfWorkerResultData(value: unknown): value is number | Uint8Array | A
 }
 
 function parseWorkerMessage(message: unknown): TDjvuPdfWorkerMessage | null {
-    if (!isRecord(message) || typeof message.type !== 'string') {
+    if (!isWorkerMessageRecord(message) || typeof message.type !== 'string') {
         return null;
     }
 
@@ -59,8 +55,8 @@ function parseWorkerMessage(message: unknown): TDjvuPdfWorkerMessage | null {
         case 'progress':
             if (
                 message.phase !== 'buildPdf'
-                || !isFiniteNumber(message.page)
-                || !isFiniteNumber(message.total)
+                || !isFiniteWorkerMessageNumber(message.page)
+                || !isFiniteWorkerMessageNumber(message.total)
             ) {
                 return null;
             }

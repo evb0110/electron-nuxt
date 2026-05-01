@@ -1,27 +1,22 @@
-import { join } from 'path';
-import { randomUUID } from 'node:crypto';
 import {
-    rename,
     stat,
     unlink,
 } from 'fs/promises';
-import { existsSync } from 'fs';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    cleanupTempOutput,
+    makeTempPdfOutputPath,
+    replaceTempOutput,
+} from '@electron/features/page-ops/main/temp-output';
 
 const log = createLogger('page-ops-qpdf');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 
 function getQpdfBinary() {
     return getNativeToolPaths().qpdf;
-}
-
-function makeTempPath(workingCopyPath: string) {
-    const dir = join(workingCopyPath, '..');
-    const id = `tmp-${randomUUID()}`;
-    return join(dir, `${id}.pdf`);
 }
 
 function buildComplementRanges(pagesToRemove: number[], totalPages: number) {
@@ -39,30 +34,12 @@ function formatPageList(pages: number[]) {
     return pages.join(',');
 }
 
-async function atomicReplace(tempPath: string, targetPath: string) {
-    try {
-        await rename(tempPath, targetPath);
-    } catch (error) {
-        const err = error as NodeJS.ErrnoException;
-        if (err.code !== 'EEXIST' && err.code !== 'EPERM') {
-            throw error;
-        }
-
-        await unlink(targetPath);
-        await rename(tempPath, targetPath);
-    }
+async function replaceQpdfOutput(tempPath: string, targetPath: string) {
+    await replaceTempOutput(tempPath, targetPath, { replaceExistingTargetOnFailure: true });
 }
 
-async function cleanupTemp(tempPath: string) {
-    try {
-        if (existsSync(tempPath)) {
-            await unlink(tempPath);
-        }
-    } catch (cleanupError) {
-        log.debug(`Failed to cleanup qpdf temp file "${tempPath}": ${
-            getErrorMessage(cleanupError)
-        }`);
-    }
+async function cleanupQpdfTemp(tempPath: string) {
+    await cleanupTempOutput(tempPath, log, 'qpdf temp file');
 }
 
 async function cleanupEmptyTarget(targetPath: string) {
@@ -102,7 +79,7 @@ export async function extractPages(
     pages: number[],
 ) {
     const qpdf = getQpdfBinary();
-    const tempPath = makeTempPath(destPath);
+    const tempPath = makeTempPdfOutputPath(destPath);
     try {
         const args = [
             srcPath,
@@ -117,9 +94,9 @@ export async function extractPages(
             commandLabel: 'qpdf(extract-pages)',
         });
         await assertNonEmptyPdfOutput(tempPath, 'Extracting pages');
-        await atomicReplace(tempPath, destPath);
+        await replaceQpdfOutput(tempPath, destPath);
     } catch (err) {
-        await cleanupTemp(tempPath);
+        await cleanupQpdfTemp(tempPath);
         await cleanupEmptyTarget(destPath);
         throw err;
     }
@@ -136,7 +113,7 @@ export async function deletePages(
     }
 
     const qpdf = getQpdfBinary();
-    const tempPath = makeTempPath(workingCopyPath);
+    const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {
         const args = [
@@ -152,9 +129,9 @@ export async function deletePages(
             commandLabel: 'qpdf(delete-pages)',
         });
         await assertNonEmptyPdfOutput(tempPath, 'Deleting pages');
-        await atomicReplace(tempPath, workingCopyPath);
+        await replaceQpdfOutput(tempPath, workingCopyPath);
     } catch (err) {
-        await cleanupTemp(tempPath);
+        await cleanupQpdfTemp(tempPath);
         throw err;
     }
 
@@ -166,7 +143,7 @@ export async function reorderPages(
     newOrder: number[],
 ) {
     const qpdf = getQpdfBinary();
-    const tempPath = makeTempPath(workingCopyPath);
+    const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {
         const args = [
@@ -182,9 +159,9 @@ export async function reorderPages(
             commandLabel: 'qpdf(reorder-pages)',
         });
         await assertNonEmptyPdfOutput(tempPath, 'Reordering pages');
-        await atomicReplace(tempPath, workingCopyPath);
+        await replaceQpdfOutput(tempPath, workingCopyPath);
     } catch (err) {
-        await cleanupTemp(tempPath);
+        await cleanupQpdfTemp(tempPath);
         throw err;
     }
 
@@ -199,7 +176,7 @@ export async function rotatePages(
     angle: TRotationAngle,
 ) {
     const qpdf = getQpdfBinary();
-    const tempPath = makeTempPath(workingCopyPath);
+    const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {
         const args = [
@@ -212,9 +189,9 @@ export async function rotatePages(
             commandLabel: 'qpdf(rotate-pages)',
         });
         await assertNonEmptyPdfOutput(tempPath, 'Rotating pages');
-        await atomicReplace(tempPath, workingCopyPath);
+        await replaceQpdfOutput(tempPath, workingCopyPath);
     } catch (err) {
-        await cleanupTemp(tempPath);
+        await cleanupQpdfTemp(tempPath);
         throw err;
     }
 }

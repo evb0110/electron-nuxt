@@ -12,6 +12,10 @@ import type {
 } from '@electron/features/search/protocol';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/logger';
+import {
+    isFiniteWorkerMessageNumber,
+    isWorkerMessageRecord,
+} from '@electron/utils/worker-message';
 
 interface IPendingSearchRequest {
     resolve: (response: ISearchResponse) => void;
@@ -75,16 +79,8 @@ const SEARCH_WORKER_TERMINATE_TIMEOUT_MS = (() => {
     return parsed;
 })();
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
-
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
-
 function parseSearchExcerpt(value: unknown) {
-    if (!isRecord(value)) {
+    if (!isWorkerMessageRecord(value)) {
         return null;
     }
     if (
@@ -106,7 +102,7 @@ function parseSearchExcerpt(value: unknown) {
 }
 
 function parseSearchMatch(value: unknown) {
-    if (!isRecord(value)) {
+    if (!isWorkerMessageRecord(value)) {
         return null;
     }
     const excerpt = parseSearchExcerpt(value.excerpt);
@@ -114,11 +110,11 @@ function parseSearchMatch(value: unknown) {
         return null;
     }
     if (
-        !isFiniteNumber(value.pageNumber)
-        || !isFiniteNumber(value.pageMatchIndex)
-        || !isFiniteNumber(value.matchIndex)
-        || !isFiniteNumber(value.startOffset)
-        || !isFiniteNumber(value.endOffset)
+        !isFiniteWorkerMessageNumber(value.pageNumber)
+        || !isFiniteWorkerMessageNumber(value.pageMatchIndex)
+        || !isFiniteWorkerMessageNumber(value.matchIndex)
+        || !isFiniteWorkerMessageNumber(value.startOffset)
+        || !isFiniteWorkerMessageNumber(value.endOffset)
     ) {
         return null;
     }
@@ -133,7 +129,7 @@ function parseSearchMatch(value: unknown) {
 }
 
 function parseSearchResponse(value: unknown) {
-    if (!isRecord(value) || !Array.isArray(value.results) || typeof value.truncated !== 'boolean') {
+    if (!isWorkerMessageRecord(value) || !Array.isArray(value.results) || typeof value.truncated !== 'boolean') {
         return null;
     }
     const results: TSearchMatch[] = [];
@@ -151,12 +147,12 @@ function parseSearchResponse(value: unknown) {
 }
 
 function parseWorkerOutboundMessage(value: unknown): TSearchWorkerOutboundMessage | null {
-    if (!isRecord(value) || typeof value.type !== 'string' || typeof value.requestId !== 'string') {
+    if (!isWorkerMessageRecord(value) || typeof value.type !== 'string' || typeof value.requestId !== 'string') {
         return null;
     }
     switch (value.type) {
         case 'progress':
-            if (!isFiniteNumber(value.processed) || !isFiniteNumber(value.total)) {
+            if (!isFiniteWorkerMessageNumber(value.processed) || !isFiniteWorkerMessageNumber(value.total)) {
                 return null;
             }
             return {

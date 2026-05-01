@@ -1,15 +1,10 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { createDocxFromTextAsync } from '@app/utils/docx';
-import {
-    loadOcrText,
-    extractPdfText,
-} from '@app/utils/ocr/processing';
 import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 import { useAnalytics } from '@app/composables/useAnalytics';
-import { getDocumentRefBaseName } from '@app/utils/document-ref';
-import { getDocumentsCapability } from '@app/utils/platform-documents';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/text-direction';
+import { exportTextAsDocx } from '@app/utils/docx-export';
 
 export const useDocxExport = () => {
     const analytics = useAnalytics();
@@ -29,49 +24,32 @@ export const useDocxExport = () => {
             return false;
         }
 
-        const workingPath = params.workingCopyPath ?? '';
         const selectedLanguages = params.selectedLanguages ?? [];
         isExportingDocx.value = true;
         docxExportError.value = null;
 
         try {
-            const documents = getDocumentsCapability();
-            const outPath = await documents.saveDocxAs(workingPath);
-            if (!outPath) {
-                return false;
-            }
-
-            try {
-                let text = params.workingCopyPath ? await loadOcrText(params.workingCopyPath) : null;
-                if (!text && params.pdfDocument) {
-                    text = await extractPdfText(params.pdfDocument);
-                }
-                if (!text) {
-                    docxExportError.value = t('errors.ocr.noText');
-                    return false;
-                }
-
-                const hasRtl = hasRtlOcrLanguage(selectedLanguages);
-                const docxBytes = await createDocxFromTextAsync(text, hasRtl);
-                await documents.writeDocxFile(outPath, docxBytes);
-                analytics.track('export_completed', {
-                    format: 'docx',
-                    hasRtl,
-                    selectedLanguageCount: selectedLanguages.length,
-                    status: 'success',
-                });
-                toast.add({
-                    color: 'success',
-                    title: t('notifications.docxSavedTitle'),
-                    description: t('notifications.docxSavedDescription', {name: getDocumentRefBaseName(outPath) ?? outPath}),
-                });
-                return true;
-            } finally {
-                await documents.cleanupFile(outPath).catch(() => {});
-            }
-        } catch (error) {
-            docxExportError.value = localizeOcrError(error, 'errors.ocr.exportDocx');
-            return false;
+            const hasRtl = hasRtlOcrLanguage(selectedLanguages);
+            return await exportTextAsDocx({
+                workingCopyPath: params.workingCopyPath,
+                pdfDocument: params.pdfDocument,
+                hasRtl,
+                buildDocx: createDocxFromTextAsync,
+                t,
+                toast,
+                setError: message => {
+                    docxExportError.value = message;
+                },
+                localizeError: error => localizeOcrError(error, 'errors.ocr.exportDocx'),
+                onSuccess: () => {
+                    analytics.track('export_completed', {
+                        format: 'docx',
+                        hasRtl,
+                        selectedLanguageCount: selectedLanguages.length,
+                        status: 'success',
+                    });
+                },
+            });
         } finally {
             isExportingDocx.value = false;
         }
