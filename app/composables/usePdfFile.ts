@@ -1016,26 +1016,34 @@ export const usePdfFile = () => {
             history.value.length > 0 && historyIndex.value < history.value.length - 1,
     );
 
+    async function restoreHistoryEntry(entry: TPdfHistoryEntry | undefined) {
+        if (entry?.kind === 'bytes') {
+            await applySnapshot(entry.snapshot, true);
+            return;
+        }
+
+        if (entry?.kind !== 'path') {
+            return;
+        }
+
+        const nextWorkingPath = await getDocumentsCapability().createWorkingCopyFromPath(
+            entry.path,
+            originalPath.value ?? entry.originalPath ?? undefined,
+        );
+        const previousPath = workingCopyPath.value;
+        const nextState = await readPdfStateFromPath(nextWorkingPath);
+        await applyLoadedPdfState(nextWorkingPath, nextState, {
+            preserveHistory: true,
+            previousPath,
+        });
+    }
+
     async function undo() {
         if (!canUndo.value) {
             return false;
         }
         historyIndex.value -= 1;
-        const entry = history.value[historyIndex.value];
-        if (entry?.kind === 'bytes') {
-            await applySnapshot(entry.snapshot, true);
-        } else if (entry?.kind === 'path') {
-            const nextWorkingPath = await getDocumentsCapability().createWorkingCopyFromPath(
-                entry.path,
-                originalPath.value ?? entry.originalPath ?? undefined,
-            );
-            const previousPath = workingCopyPath.value;
-            const nextState = await readPdfStateFromPath(nextWorkingPath);
-            await applyLoadedPdfState(nextWorkingPath, nextState, {
-                preserveHistory: true,
-                previousPath,
-            });
-        }
+        await restoreHistoryEntry(history.value[historyIndex.value]);
         syncDirtyFromHistory();
         return true;
     }
@@ -1045,21 +1053,7 @@ export const usePdfFile = () => {
             return false;
         }
         historyIndex.value += 1;
-        const entry = history.value[historyIndex.value];
-        if (entry?.kind === 'bytes') {
-            await applySnapshot(entry.snapshot, true);
-        } else if (entry?.kind === 'path') {
-            const nextWorkingPath = await getDocumentsCapability().createWorkingCopyFromPath(
-                entry.path,
-                originalPath.value ?? entry.originalPath ?? undefined,
-            );
-            const previousPath = workingCopyPath.value;
-            const nextState = await readPdfStateFromPath(nextWorkingPath);
-            await applyLoadedPdfState(nextWorkingPath, nextState, {
-                preserveHistory: true,
-                previousPath,
-            });
-        }
+        await restoreHistoryEntry(history.value[historyIndex.value]);
         syncDirtyFromHistory();
         return true;
     }
