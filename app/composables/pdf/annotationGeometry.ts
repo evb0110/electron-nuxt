@@ -1,4 +1,8 @@
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import {
+    normalizeMarkerRectBounds,
+    orderPdfRectBounds,
+} from '@app/utils/pdf-marker-rect';
 import { clamp } from 'es-toolkit/math';
 
 export type TPageRotation = 0 | 90 | 180 | 270;
@@ -201,10 +205,12 @@ export function toMarkerRectFromPdfRect(
     const y1 = rect[1] ?? 0;
     const x2 = rect[2] ?? 0;
     const y2 = rect[3] ?? 0;
-    const minX = Math.min(x1, x2);
-    const maxX = Math.max(x1, x2);
-    const minY = Math.min(y1, y2);
-    const maxY = Math.max(y1, y2);
+    const {
+        minX,
+        maxX,
+        minY,
+        maxY,
+    } = orderPdfRectBounds(x1, y1, x2, y2);
 
     const normalizedRotation = normalizePageRotation(pageRotation);
 
@@ -240,12 +246,12 @@ export function toMarkerRectFromPdfRect(
         normHeight = MIN_POINT_MARKER_SIZE;
     }
 
-    return normalizeMarkerRect({
+    return normalizeMarkerRectBounds({
         left: normLeft,
         top: normTop,
-        width: normWidth,
-        height: normHeight,
-    });
+        right: normLeft + normWidth,
+        bottom: normTop + normHeight,
+    }, { clampSizeToRemaining: true });
 }
 
 export function toPdfRectFromMarkerRect(

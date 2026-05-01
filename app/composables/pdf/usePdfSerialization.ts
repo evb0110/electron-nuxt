@@ -22,6 +22,7 @@ import {
 } from '@app/composables/pdf/pdfSerializationWorkerClient';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { toTransferableUint8Array } from '@app/platform/browser-api/browser-worker-transfer';
+import { decodeBrowserImageBlob } from '@app/platform/browser-api/browser-image-decode';
 import { readDocumentBytes } from '@app/utils/document-bytes';
 import { measureDevPerfAsync } from '@app/utils/dev-perf';
 
@@ -92,21 +93,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             { type: payload.mimeType || 'image/png' },
         );
 
-        if (typeof createImageBitmap === 'function') {
-            return createImageBitmap(imageBlob);
-        }
-
-        const imageUrl = URL.createObjectURL(imageBlob);
-        try {
-            return await new Promise<HTMLImageElement>((resolve, reject) => {
-                const image = new Image();
-                image.onload = () => resolve(image);
-                image.onerror = () => reject(new Error('Failed to decode image for PDF embedding'));
-                image.src = imageUrl;
-            });
-        } finally {
-            URL.revokeObjectURL(imageUrl);
-        }
+        return decodeBrowserImageBlob(imageBlob, { fallbackErrorMessage: 'Failed to decode image for PDF embedding' });
     }
 
     async function rasterizePlacedImage(

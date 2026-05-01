@@ -182,6 +182,82 @@ function markerRectCenterDistanceLocal(
     return Math.hypot(leftCx - rightCx, leftCy - rightCy);
 }
 
+interface IEditorPdfMirrorFacts {
+    leftText: string;
+    rightText: string;
+    hasLeftText: boolean;
+    hasRightText: boolean;
+    hasLeftStableRef: boolean;
+    hasRightStableRef: boolean;
+    stableRefCount: number;
+    iou: number;
+    centerDistance: number;
+    lineMirror: boolean;
+    modifiedClose: boolean;
+}
+
+function extractEditorPdfMirrorFacts(
+    left: IAnnotationCommentSummary,
+    right: IAnnotationCommentSummary,
+): IEditorPdfMirrorFacts {
+    const leftText = left.text.trim();
+    const rightText = right.text.trim();
+    const hasLeftStableRef = Boolean(left.annotationId || left.uid);
+    const hasRightStableRef = Boolean(right.annotationId || right.uid);
+    const leftTs = left.modifiedAt ?? 0;
+    const rightTs = right.modifiedAt ?? 0;
+
+    return {
+        leftText,
+        rightText,
+        hasLeftText: leftText.length > 0,
+        hasRightText: rightText.length > 0,
+        hasLeftStableRef,
+        hasRightStableRef,
+        stableRefCount: Number(hasLeftStableRef) + Number(hasRightStableRef),
+        iou: markerRectIoU(left.markerRect, right.markerRect),
+        centerDistance: markerRectCenterDistanceLocal(left.markerRect, right.markerRect),
+        lineMirror: markerRectLineMirrorSignal(left.markerRect, right.markerRect),
+        modifiedClose: Boolean(leftTs && rightTs && Math.abs(leftTs - rightTs) <= 3_000),
+    };
+}
+
+function bothTextsPresent(facts: IEditorPdfMirrorFacts) {
+    return facts.hasLeftText && facts.hasRightText;
+}
+
+function hasStrongSingleStableRefGeometry(facts: IEditorPdfMirrorFacts) {
+    return (
+        facts.iou >= 0.45
+        || facts.centerDistance <= 0.028
+        || (facts.lineMirror && facts.centerDistance <= 0.038)
+    );
+}
+
+function isBothStableRefMirror(facts: IEditorPdfMirrorFacts) {
+    if (bothTextsPresent(facts)) {
+        return (
+            facts.lineMirror
+            || facts.iou >= 0.18
+            || facts.centerDistance <= 0.08
+            || facts.modifiedClose
+        );
+    }
+    return facts.modifiedClose && (facts.iou >= 0.28 || facts.centerDistance <= 0.04);
+}
+
+function isSingleStableRefMirror(facts: IEditorPdfMirrorFacts) {
+    if (!hasStrongSingleStableRefGeometry(facts)) {
+        return false;
+    }
+
+    if (bothTextsPresent(facts) && facts.leftText !== facts.rightText) {
+        return false;
+    }
+
+    return facts.modifiedClose || facts.iou >= 0.62 || facts.centerDistance <= 0.018;
+}
+
 export function likelyEditorPdfMirror(
     left: IAnnotationCommentSummary,
     right: IAnnotationCommentSummary,
@@ -196,11 +272,8 @@ export function likelyEditorPdfMirror(
         return false;
     }
 
-    const leftText = left.text.trim();
-    const rightText = right.text.trim();
-    const hasLeftText = leftText.length > 0;
-    const hasRightText = rightText.length > 0;
-    if (hasLeftText && hasRightText && leftText !== rightText) {
+    const facts = extractEditorPdfMirrorFacts(left, right);
+    if (bothTextsPresent(facts) && facts.leftText !== facts.rightText) {
         return false;
     }
 
@@ -215,44 +288,15 @@ export function likelyEditorPdfMirror(
         return true;
     }
 
-    const hasLeftStableRef = Boolean(left.annotationId || left.uid);
-    const hasRightStableRef = Boolean(right.annotationId || right.uid);
-    const stableRefCount = Number(hasLeftStableRef) + Number(hasRightStableRef);
-    if (stableRefCount === 0) {
+    if (facts.stableRefCount === 0) {
         return false;
     }
 
-    const iou = markerRectIoU(left.markerRect, right.markerRect);
-    const centerDistance = markerRectCenterDistanceLocal(left.markerRect, right.markerRect);
-    const lineMirror = markerRectLineMirrorSignal(left.markerRect, right.markerRect);
-    const leftTs = left.modifiedAt ?? 0;
-    const rightTs = right.modifiedAt ?? 0;
-    const modifiedClose = Boolean(leftTs && rightTs && Math.abs(leftTs - rightTs) <= 3_000);
-
-    if (hasLeftStableRef && hasRightStableRef) {
-        if (hasLeftText && hasRightText) {
-            return lineMirror || iou >= 0.18 || centerDistance <= 0.08 || modifiedClose;
-        }
-        return modifiedClose && (iou >= 0.28 || centerDistance <= 0.04);
+    if (facts.hasLeftStableRef && facts.hasRightStableRef) {
+        return isBothStableRefMirror(facts);
     }
 
-    const strongGeometry = (
-        iou >= 0.45
-        || centerDistance <= 0.028
-        || (lineMirror && centerDistance <= 0.038)
-    );
-    if (!strongGeometry) {
-        return false;
-    }
-
-    if (hasLeftText && hasRightText) {
-        if (leftText !== rightText) {
-            return false;
-        }
-        return modifiedClose || iou >= 0.62 || centerDistance <= 0.018;
-    }
-
-    return modifiedClose || iou >= 0.62 || centerDistance <= 0.018;
+    return isSingleStableRefMirror(facts);
 }
 
 export function areTextMarkupCommentsLikelySame(

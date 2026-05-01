@@ -148,20 +148,8 @@ export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCo
         return page >= range.start && page <= range.end;
     }
 
-    async function reRenderVisiblePagesAndSyncCurrentPage(
-        syncOptions: ICurrentPageSyncOptions = {},
-    ) {
-        const source = syncOptions.source ?? 're-render';
-        const runId = ++reRenderSyncRunId;
-        if (source === 'zoom-change') {
-            BrowserLogger.warn('pdf-zoom-debug', `[rerender-sync] begin zoom run=${runId}`, {
-                runId,
-                source,
-                resizeAnchor: syncOptions.resizeAnchor ?? null,
-                viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-            });
-        }
-        BrowserLogger.warn('pdf-nav', `[re-render-sync] begin run=${runId} source=${source}`, {
+    function buildRerenderSyncNavLogPayload(runId: number, source: string) {
+        return {
             runId,
             source,
             currentPage: currentPage.value,
@@ -170,7 +158,36 @@ export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCo
                 end: visibleRange.value.end,
             },
             viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-        });
+        };
+    }
+
+    function warnZoomRerenderSync(
+        source: string,
+        message: string,
+        buildPayload: () => Record<string, unknown>,
+    ) {
+        if (source !== 'zoom-change') {
+            return;
+        }
+        BrowserLogger.warn('pdf-zoom-debug', message, buildPayload());
+    }
+
+    async function reRenderVisiblePagesAndSyncCurrentPage(
+        syncOptions: ICurrentPageSyncOptions = {},
+    ) {
+        const source = syncOptions.source ?? 're-render';
+        const runId = ++reRenderSyncRunId;
+        warnZoomRerenderSync(source, `[rerender-sync] begin zoom run=${runId}`, () => ({
+            runId,
+            source,
+            resizeAnchor: syncOptions.resizeAnchor ?? null,
+            viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+        }));
+        BrowserLogger.warn(
+            'pdf-nav',
+            `[re-render-sync] begin run=${runId} source=${source}`,
+            buildRerenderSyncNavLogPayload(runId, source),
+        );
         const visibleRangeForDecision = getVisibleRange();
         const preserveExistingPages = shouldPreserveExistingRerenderContent({
             source,
@@ -189,13 +206,11 @@ export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCo
             maxCanvasPixelsOverride,
         });
         if (runId !== reRenderSyncRunId) {
-            if (source === 'zoom-change') {
-                BrowserLogger.warn('pdf-zoom-debug', `[rerender-sync] stale zoom run=${runId}`, {
-                    runId,
-                    activeRunId: reRenderSyncRunId,
-                    viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-                });
-            }
+            warnZoomRerenderSync(source, `[rerender-sync] stale zoom run=${runId}`, () => ({
+                runId,
+                activeRunId: reRenderSyncRunId,
+                viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+            }));
             BrowserLogger.warn('pdf-nav', 'Skipped stale re-render current-page sync run', {
                 staleRunId: runId,
                 activeRunId: reRenderSyncRunId,
@@ -211,22 +226,13 @@ export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCo
             return;
         }
 
-        if (source === 'zoom-change') {
-            BrowserLogger.warn('pdf-zoom-debug', `[rerender-sync] end zoom run=${runId}`, {
-                runId,
-                viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-                visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
-            });
-        }
-        BrowserLogger.warn('pdf-nav', `[re-render-sync] end run=${runId} source=${source}`, {
+        warnZoomRerenderSync(source, `[rerender-sync] end zoom run=${runId}`, () => ({
             runId,
-            source,
-            currentPage: currentPage.value,
-            visibleRange: {
-                start: visibleRange.value.start,
-                end: visibleRange.value.end,
-            },
             viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+            visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
+        }));
+        BrowserLogger.warn('pdf-nav', `[re-render-sync] end run=${runId} source=${source}`, {
+            ...buildRerenderSyncNavLogPayload(runId, source),
             visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
         });
         await syncCurrentPageFromViewport(syncOptions);
