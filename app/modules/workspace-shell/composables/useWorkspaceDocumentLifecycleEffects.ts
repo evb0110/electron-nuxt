@@ -1,18 +1,13 @@
 import type { Ref } from 'vue';
-import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
+import {
+    type IDocumentTransitionDeps,
+    useDocumentTransitions,
+} from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import { useWorkspaceUiSyncWatchers } from '@app/modules/workspace-shell/composables/workspace-ui-sync';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationEditorState,
-    TAnnotationTool,
-} from '@app/types/annotations';
-import type { TPdfSource } from '@app/types/pdf';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TDocumentRef } from '@contracts/platform-api';
 
-type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
-
-interface IWorkspaceDocumentLifecycleEffectsOptions {
+interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionDeps {
     pendingDjvu: Ref<TDocumentRef | null>;
     openDjvuFile: (
         djvuPath: TDocumentRef,
@@ -23,7 +18,6 @@ interface IWorkspaceDocumentLifecycleEffectsOptions {
         closeFile?: () => void | Promise<void>,
     ) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef) => Promise<void>;
-    currentPage: Ref<number>;
     pdfViewerRef: Ref<{
         scrollToPage: (page: number) => void;
         clearShapes: () => void;
@@ -44,32 +38,6 @@ interface IWorkspaceDocumentLifecycleEffectsOptions {
     emitUpdateTab: (updates: TTabUpdate) => void;
     emitOpenSettings: () => void;
     onOpenDjvuError: (error: unknown) => void;
-    pdfSrc: Ref<TPdfSource | null>;
-    totalPages: Ref<number>;
-    pdfDocument: Ref<unknown | null>;
-    workingCopyPath: Ref<TDocumentRef | null>;
-    pdfError: Ref<unknown>;
-    dragMode: Ref<boolean>;
-    showSidebar: Ref<boolean>;
-    sidebarTab: Ref<TPdfSidebarTab>;
-    annotationTool: Ref<TAnnotationTool>;
-    annotationComments: Ref<IAnnotationCommentSummary[]>;
-    annotationActiveCommentStableKey: Ref<string | null>;
-    annotationEditorState: Ref<IAnnotationEditorState>;
-    annotationPlacingPageNote: Ref<boolean>;
-    bookmarkItems: Ref<unknown[]>;
-    bookmarksDirty: Ref<boolean>;
-    bookmarkEditMode: Ref<boolean>;
-    pageLabels: Ref<string[] | null>;
-    pageLabelRanges: Ref<unknown[]>;
-    pageLabelsDirty: Ref<boolean>;
-    resetAnnotationTracking: () => void;
-    resetSearchCache: () => void;
-    closeSearch: () => void;
-    closeAnnotationContextMenu: () => void;
-    closePageContextMenu: () => void;
-    closeAllAnnotationNotes: (opts?: { saveIfDirty?: boolean }) => Promise<boolean>;
-    loadRecentFiles: () => void;
 }
 
 export function useWorkspaceDocumentLifecycleEffects(options: IWorkspaceDocumentLifecycleEffectsOptions) {
