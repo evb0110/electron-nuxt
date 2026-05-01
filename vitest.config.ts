@@ -24,6 +24,7 @@ export default defineConfig({
             'tests/unit/**/*.test.ts',
             'tests/integration/**/*.test.ts',
         ],
+        exclude: ['tests/unit/electron/bundleIntegrity.test.ts'],
         globals: false,
         setupFiles: ['tests/setup.ts'],
         coverage: {

@@ -36,6 +36,7 @@
     "validate": "pnpm run lint && pnpm run typecheck && pnpm run typecheck:coverage && pnpm run build:strict && pnpm run knip && pnpm run check:architecture",
     "test": "vitest run",
     "test:release": "pnpm test",
+    "test:bundle-integrity": "vitest run --config vitest.bundle-integrity.config.ts",
     "test:smoke": "pnpm run test:release && pnpm run test:e2e:electron",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
