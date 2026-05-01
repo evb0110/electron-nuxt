@@ -1,12 +1,7 @@
-import { join } from 'path';
-import { randomUUID } from 'node:crypto';
 import {
-    rename,
-    unlink,
     readFile,
     writeFile,
 } from 'fs/promises';
-import { existsSync } from 'fs';
 import {
     PDFDocument,
     PDFName,
@@ -16,7 +11,11 @@ import type {
     IPageGeometry,
 } from '@contracts/shared';
 import { createLogger } from '@electron/utils/logger';
-import { getErrorMessage } from '@electron/utils/error';
+import {
+    cleanupTempOutput,
+    makeTempPdfOutputPath,
+    replaceTempOutput,
+} from '@electron/features/page-ops/main/temp-output';
 
 const log = createLogger('page-ops-crop');
 
@@ -55,38 +54,26 @@ function boxesEqual(
         && left.height === right.height;
 }
 
-function makeTempPath(workingCopyPath: string) {
-    const dir = join(workingCopyPath, '..');
-    const id = `tmp-${randomUUID()}`;
-    return join(dir, `${id}.pdf`);
-}
-
-async function atomicReplace(tempPath: string, targetPath: string) {
-    await rename(tempPath, targetPath);
-}
-
-async function cleanupTemp(tempPath: string) {
-    try {
-        if (existsSync(tempPath)) {
-            await unlink(tempPath);
-        }
-    } catch (cleanupError) {
-        log.debug(`Failed to cleanup temp file "${tempPath}": ${
-            getErrorMessage(cleanupError)
-        }`);
-    }
-}
-
 async function savePdfAtomically(pdfDoc: PDFDocument, workingCopyPath: string) {
-    const tempPath = makeTempPath(workingCopyPath);
+    const tempPath = makeTempPdfOutputPath(workingCopyPath);
     try {
         const outputBytes = await pdfDoc.save();
         await writeFile(tempPath, outputBytes);
-        await atomicReplace(tempPath, workingCopyPath);
+        await replaceTempOutput(tempPath, workingCopyPath);
     } catch (err) {
-        await cleanupTemp(tempPath);
+        await cleanupTempOutput(tempPath, log, 'temp file');
         throw err;
     }
+}
+
+async function mutatePdfPages(
+    workingCopyPath: string,
+    mutate: (pages: ReturnType<PDFDocument['getPages']>) => void,
+) {
+    const pdfBytes = await readFile(workingCopyPath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    mutate(pdfDoc.getPages());
+    await savePdfAtomically(pdfDoc, workingCopyPath);
 }
 
 export async function cropPagesLocal(
@@ -96,53 +83,47 @@ export async function cropPagesLocal(
 ) {
     assertValidMargins(margins);
 
-    const pdfBytes = await readFile(workingCopyPath);
-    const pdfDoc = await PDFDocument.load(pdfBytes);
-    const allPages = pdfDoc.getPages();
+    await mutatePdfPages(workingCopyPath, (allPages) => {
+        for (const pageNum of pages) {
+            const page = allPages[pageNum - 1];
+            if (!page) continue;
 
-    for (const pageNum of pages) {
-        const page = allPages[pageNum - 1];
-        if (!page) continue;
+            const mediaBox = page.getMediaBox();
+            const cropX = mediaBox.x + margins.left;
+            const cropY = mediaBox.y + margins.bottom;
+            const cropWidth = mediaBox.width - margins.left - margins.right;
+            const cropHeight = mediaBox.height - margins.top - margins.bottom;
 
-        const mediaBox = page.getMediaBox();
-        const cropX = mediaBox.x + margins.left;
-        const cropY = mediaBox.y + margins.bottom;
-        const cropWidth = mediaBox.width - margins.left - margins.right;
-        const cropHeight = mediaBox.height - margins.top - margins.bottom;
+            if (cropWidth <= 0 || cropHeight <= 0) {
+                log.debug(`Skipping page ${pageNum}: crop dimensions invalid (${cropWidth}x${cropHeight})`);
+                continue;
+            }
 
-        if (cropWidth <= 0 || cropHeight <= 0) {
-            log.debug(`Skipping page ${pageNum}: crop dimensions invalid (${cropWidth}x${cropHeight})`);
-            continue;
+            page.setCropBox(cropX, cropY, cropWidth, cropHeight);
         }
-
-        page.setCropBox(cropX, cropY, cropWidth, cropHeight);
-    }
-    await savePdfAtomically(pdfDoc, workingCopyPath);
+    });
 }
 
 export async function removeCropFromPagesLocal(
     workingCopyPath: string,
     pages: number[],
 ) {
-    const pdfBytes = await readFile(workingCopyPath);
-    const pdfDoc = await PDFDocument.load(pdfBytes);
-    const allPages = pdfDoc.getPages();
+    await mutatePdfPages(workingCopyPath, (allPages) => {
+        for (const pageNum of pages) {
+            const page = allPages[pageNum - 1];
+            if (!page) continue;
 
-    for (const pageNum of pages) {
-        const page = allPages[pageNum - 1];
-        if (!page) continue;
+            const mediaBox = page.getMediaBox();
+            const cropBox = page.getCropBox();
 
-        const mediaBox = page.getMediaBox();
-        const cropBox = page.getCropBox();
+            if (boxesEqual(cropBox, mediaBox)) {
+                page.node.delete(PDFName.of('CropBox'));
+                continue;
+            }
 
-        if (boxesEqual(cropBox, mediaBox)) {
-            page.node.delete(PDFName.of('CropBox'));
-            continue;
+            page.setCropBox(mediaBox.x, mediaBox.y, mediaBox.width, mediaBox.height);
         }
-
-        page.setCropBox(mediaBox.x, mediaBox.y, mediaBox.width, mediaBox.height);
-    }
-    await savePdfAtomically(pdfDoc, workingCopyPath);
+    });
 }
 
 export async function getPageGeometryLocal(

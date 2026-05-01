@@ -15,6 +15,10 @@ import {
     PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
 } from '@electron/image/pdf-combine-shared';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    isFiniteWorkerMessageNumber,
+    isWorkerMessageRecord,
+} from '@electron/utils/worker-message';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -109,26 +113,18 @@ function assertNever(value: never): never {
     throw new Error(`Unhandled image combine worker payload: ${JSON.stringify(value)}`);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
-
-function isFiniteNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
-
 function parseCombineWorkerPayload(message: unknown): TCombineWorkerPayload | null {
-    if (!isRecord(message) || typeof message.type !== 'string') {
+    if (!isWorkerMessageRecord(message) || typeof message.type !== 'string') {
         return null;
     }
 
     switch (message.type) {
         case 'progress':
             if (
-                !isFiniteNumber(message.processed)
-                || !isFiniteNumber(message.total)
-                || !isFiniteNumber(message.percent)
-                || !isFiniteNumber(message.elapsedMs)
+                !isFiniteWorkerMessageNumber(message.processed)
+                || !isFiniteWorkerMessageNumber(message.total)
+                || !isFiniteWorkerMessageNumber(message.percent)
+                || !isFiniteWorkerMessageNumber(message.elapsedMs)
             ) {
                 return null;
             }
@@ -138,7 +134,7 @@ function parseCombineWorkerPayload(message: unknown): TCombineWorkerPayload | nu
                 total: message.total,
                 percent: message.percent,
                 elapsedMs: message.elapsedMs,
-                estimatedRemainingMs: isFiniteNumber(message.estimatedRemainingMs)
+                estimatedRemainingMs: isFiniteWorkerMessageNumber(message.estimatedRemainingMs)
                     ? message.estimatedRemainingMs
                     : null,
             };

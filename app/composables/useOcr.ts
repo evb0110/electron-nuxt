@@ -4,7 +4,6 @@ import { uniq } from 'es-toolkit/array';
 import type { IOcrLanguage } from '@contracts/shared';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { createDocxFromText } from '@app/utils/docx';
-import { getDocumentRefBaseName } from '@app/utils/document-ref';
 import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { waitForVisualFrames } from '@app/utils/async-helpers';
@@ -14,10 +13,6 @@ import {
     type IOcrProgress,
     type IOcrResults,
 } from '@app/utils/ocr/languages';
-import {
-    loadOcrText,
-    extractPdfText,
-} from '@app/utils/ocr/processing';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/text-direction';
 import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
@@ -29,6 +24,7 @@ import {
     saveBrowserOcrPreferences,
 } from '@app/platform/browser-api/browser-ocr-preferences';
 import { getErrorMessage } from '@app/utils/error';
+import { exportTextAsDocx } from '@app/utils/docx-export';
 
 class OcrCanceledError extends Error {
     constructor() {
@@ -466,8 +462,6 @@ export const useOcr = () => {
         workingCopyPath: TDocumentRef | null,
         pdfDocument: PDFDocumentProxy | null = null,
     ): Promise<boolean> {
-        const workingPath = workingCopyPath ?? '';
-
         if (isExporting.value) {
             return false;
         }
@@ -476,37 +470,19 @@ export const useOcr = () => {
         error.value = null;
 
         try {
-            const documents = getDocumentsCapability();
-            const outPath = await documents.saveDocxAs(workingPath);
-            if (!outPath) {
-                return false;
-            }
-
-            try {
-                let text = workingCopyPath ? await loadOcrText(workingCopyPath) : null;
-                if (!text && pdfDocument) {
-                    text = await extractPdfText(pdfDocument);
-                }
-                if (!text) {
-                    error.value = t('errors.ocr.noText');
-                    return false;
-                }
-
-                const hasRtl = hasRtlOcrLanguage(settings.value.selectedLanguages);
-                const docxBytes = createDocxFromText(text, hasRtl);
-                await documents.writeDocxFile(outPath, docxBytes);
-                toast.add({
-                    color: 'success',
-                    title: t('notifications.docxSavedTitle'),
-                    description: t('notifications.docxSavedDescription', {name: getDocumentRefBaseName(outPath) ?? outPath}),
-                });
-                return true;
-            } finally {
-                await documents.cleanupFile(outPath).catch(() => {});
-            }
-        } catch (e) {
-            error.value = localizeOcrError(e, 'errors.ocr.exportDocx');
-            return false;
+            const selectedLanguages = settings.value.selectedLanguages;
+            return await exportTextAsDocx({
+                workingCopyPath,
+                pdfDocument,
+                hasRtl: hasRtlOcrLanguage(selectedLanguages),
+                buildDocx: createDocxFromText,
+                t,
+                toast,
+                setError: message => {
+                    error.value = message;
+                },
+                localizeError: e => localizeOcrError(e, 'errors.ocr.exportDocx'),
+            });
         } finally {
             isExporting.value = false;
         }
