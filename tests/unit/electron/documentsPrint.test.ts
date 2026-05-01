@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => {
         browserWindowInstances,
         openPath: vi.fn(async () => ''),
         randomUUID: vi.fn(() => 'print-job-id'),
+        resolveAllowedReadPath: vi.fn(async (path: string) => path),
         unlink: vi.fn(async () => {}),
         writeFile: vi.fn(async () => {}),
     };
@@ -49,6 +50,8 @@ vi.mock('fs/promises', () => ({
 }));
 
 vi.mock('crypto', () => ({ randomUUID: mocks.randomUUID }));
+
+vi.mock('@electron/utils/path-validator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 
 vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
     debug: vi.fn(),
@@ -70,6 +73,7 @@ describe('documents print', () => {
         mocks.browserWindowInstances.length = 0;
         mocks.appGetPath.mockReturnValue('/tmp');
         mocks.randomUUID.mockReturnValue('print-job-id');
+        mocks.resolveAllowedReadPath.mockImplementation(async (path: string) => path);
     });
 
     it('creates the native print window with PDF plugins enabled', async () => {
