@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
 import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
-import { useWorkspaceFileOperationController } from '@app/modules/workspace-shell/composables/workspace-file-lifecycle-controller';
+import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import type { IAnnotationNoteWindowState } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
 import type { TPdfSource } from '@app/types/pdf';
@@ -142,7 +142,7 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
         resetSearchCache,
     });
 
-    const workspaceFileOperationController = useWorkspaceFileOperationController({
+    const pageFileOperations = usePageFileOperations({
         pdfSrc,
         isAnySaving,
         isHistoryBusy,
@@ -156,11 +156,11 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
         hasAnnotationChanges,
         persistAllAnnotationNotes,
         handleSave,
-        pickFileToOpenWithDjvuCleanup,
-        openFileWithDjvuCleanup,
-        openFileDirectWithDjvuCleanup,
-        openFileDirectBatchWithDjvuCleanup,
-        closeFileWithDjvuCleanup,
+        pickFileToOpen: pickFileToOpenWithDjvuCleanup,
+        openFile: openFileWithDjvuCleanup,
+        openFileDirect: openFileDirectWithDjvuCleanup,
+        openFileDirectBatch: openFileDirectBatchWithDjvuCleanup,
+        closeFile: closeFileWithDjvuCleanup,
         closeAllDropdowns,
         emitOpenInNewTab,
     });
@@ -168,6 +168,6 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
     return {
         ...pageStatusBar,
         ...pageOpsHandlers,
-        ...workspaceFileOperationController,
+        ...pageFileOperations,
     };
 }
