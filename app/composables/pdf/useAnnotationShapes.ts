@@ -463,21 +463,14 @@ export const useAnnotationShapes = () => {
         );
     }
 
-    function reconcilePersistedShapes(loaded: IShapeAnnotation[]) {
-        const currentShapes = getAllShapes().map(shape => cloneShape(shape));
+    function buildMergedPersistedShapes(
+        currentShapes: IShapeAnnotation[],
+        loaded: IShapeAnnotation[],
+        currentDeletedIds: Set<string>,
+        currentDeletedStableKeys: Set<string>,
+    ) {
         const remainingImportedShapes = loaded.map(shape => cloneShape(shape));
-        const currentDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
-        const currentDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
         const nextShapes: IShapeAnnotation[] = [];
-
-        BrowserLogger.debug('pdf-shapes', 'Reconciling persisted shapes', () => ({
-            currentShapeCount: currentShapes.length,
-            loadedShapeCount: loaded.length,
-            currentEmbeddedCount: currentShapes.filter(shape => shape.source === 'embedded').length,
-            loadedEmbeddedCount: loaded.filter(shape => shape.source === 'embedded').length,
-            currentDeletedIds: [...currentDeletedIds],
-            currentDeletedStableKeys: [...currentDeletedStableKeys],
-        }));
 
         for (const currentShape of currentShapes) {
             const currentStableKey = normalizeManagedShapeStableKey(currentShape.stableKey);
@@ -524,6 +517,29 @@ export const useAnnotationShapes = () => {
                 currentDeletedStableKeys,
             )),
         );
+
+        return nextShapes;
+    }
+
+    function reconcilePersistedShapes(loaded: IShapeAnnotation[]) {
+        const currentShapes = getAllShapes().map(shape => cloneShape(shape));
+        const currentDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
+        const currentDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
+        const nextShapes = buildMergedPersistedShapes(
+            currentShapes,
+            loaded,
+            currentDeletedIds,
+            currentDeletedStableKeys,
+        );
+
+        BrowserLogger.debug('pdf-shapes', 'Reconciling persisted shapes', () => ({
+            currentShapeCount: currentShapes.length,
+            loadedShapeCount: loaded.length,
+            currentEmbeddedCount: currentShapes.filter(shape => shape.source === 'embedded').length,
+            loadedEmbeddedCount: loaded.filter(shape => shape.source === 'embedded').length,
+            currentDeletedIds: [...currentDeletedIds],
+            currentDeletedStableKeys: [...currentDeletedStableKeys],
+        }));
 
         const nextDeletedIds = new Set<string>();
         const nextDeletedStableKeys = new Set<string>();
@@ -568,8 +584,12 @@ export const useAnnotationShapes = () => {
         const currentDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
         const currentDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
         const preservedBaselineSignature = baselineSignature.value;
-        const remainingImportedShapes = loaded.map(shape => cloneShape(shape));
-        const nextShapes: IShapeAnnotation[] = [];
+        const nextShapes = buildMergedPersistedShapes(
+            currentShapes,
+            loaded,
+            currentDeletedIds,
+            currentDeletedStableKeys,
+        );
 
         BrowserLogger.debug('pdf-shapes', 'Priming persisted shapes before save', () => ({
             currentShapeCount: currentShapes.length,
@@ -579,52 +599,6 @@ export const useAnnotationShapes = () => {
             currentDeletedIds: [...currentDeletedIds],
             currentDeletedStableKeys: [...currentDeletedStableKeys],
         }));
-
-        for (const currentShape of currentShapes) {
-            const currentStableKey = normalizeManagedShapeStableKey(currentShape.stableKey);
-            const importedIndexByStableKey = currentStableKey
-                ? remainingImportedShapes.findIndex(shape => normalizeManagedShapeStableKey(shape.stableKey) === currentStableKey)
-                : -1;
-
-            if (importedIndexByStableKey !== -1) {
-                const importedShape = remainingImportedShapes.splice(importedIndexByStableKey, 1)[0]!;
-                nextShapes.push(mergeImportedShape(currentShape, importedShape));
-                continue;
-            }
-
-            const currentAnnotationId = normalizePdfJsAnnotationId(currentShape.annotationId);
-            const importedIndexByAnnotationId = currentAnnotationId
-                ? remainingImportedShapes.findIndex(shape => normalizePdfJsAnnotationId(shape.annotationId) === currentAnnotationId)
-                : -1;
-
-            if (importedIndexByAnnotationId !== -1) {
-                const importedShape = remainingImportedShapes.splice(importedIndexByAnnotationId, 1)[0]!;
-                nextShapes.push(mergeImportedShape(currentShape, importedShape));
-                continue;
-            }
-
-            const currentShapeKey = toReconciliationKey(currentShape);
-            const importedIndexByShapeKey = remainingImportedShapes.findIndex(
-                shape => toReconciliationKey(shape) === currentShapeKey,
-            );
-            if (importedIndexByShapeKey !== -1) {
-                const importedShape = remainingImportedShapes.splice(importedIndexByShapeKey, 1)[0]!;
-                nextShapes.push(mergeImportedShape(currentShape, importedShape));
-                continue;
-            }
-
-            if (currentShape.source !== 'embedded') {
-                nextShapes.push(currentShape);
-            }
-        }
-
-        nextShapes.push(
-            ...remainingImportedShapes.filter(shape => !matchesDeletedImportedShape(
-                shape,
-                currentDeletedIds,
-                currentDeletedStableKeys,
-            )),
-        );
 
         replaceShapeState(nextShapes, {
             deletedIds: currentDeletedIds,
