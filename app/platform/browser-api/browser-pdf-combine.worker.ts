@@ -4,6 +4,7 @@ import type {
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browser-pdf-combine-worker.types';
+import { appendPdfImagePage } from '@app/platform/browser-api/pdf-image-pages';
 import { getErrorMessage } from '@app/utils/error';
 
 interface IUtifFrame {
@@ -134,16 +135,7 @@ async function appendWorkerTiffPages(
 
         const pngBytes = await convertWorkerRgbaToPng(width, height, rgba);
         const image = await pdfDocument.embedPng(pngBytes);
-        const page = pdfDocument.addPage([
-            image.width,
-            image.height,
-        ]);
-        page.drawImage(image, {
-            x: 0,
-            y: 0,
-            width: image.width,
-            height: image.height,
-        });
+        appendPdfImagePage(pdfDocument, image);
         addedPages += 1;
     }
 
@@ -178,16 +170,7 @@ async function appendInputToPdfDocument(
 
     if (extension === '.jpg' || extension === '.jpeg') {
         const image = await pdfDocument.embedJpg(input.data);
-        const page = pdfDocument.addPage([
-            image.width,
-            image.height,
-        ]);
-        page.drawImage(image, {
-            x: 0,
-            y: 0,
-            width: image.width,
-            height: image.height,
-        });
+        appendPdfImagePage(pdfDocument, image);
         return;
     }
 
@@ -195,16 +178,7 @@ async function appendInputToPdfDocument(
         ? input.data
         : await convertWorkerImageBytesToPng(input.fileName, input.data);
     const image = await pdfDocument.embedPng(pngBytes);
-    const page = pdfDocument.addPage([
-        image.width,
-        image.height,
-    ]);
-    page.drawImage(image, {
-        x: 0,
-        y: 0,
-        width: image.width,
-        height: image.height,
-    });
+    appendPdfImagePage(pdfDocument, image);
 }
 
 async function handleCombinePdfsRequest(
