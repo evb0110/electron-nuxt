@@ -42,6 +42,11 @@ import {
     removeRecentFile,
 } from '@electron/recent-files';
 import {
+    allowOpenPath,
+    allowOpenPaths,
+    removeAllowedOpenPath,
+} from '@electron/ipc/openPathCapabilities';
+import {
     setMenuDocumentState,
     setMenuTabCount,
     updateRecentFilesMenu,
@@ -105,6 +110,7 @@ export function createDocumentsService(): IDocumentsService {
         getRecentFiles: async () => {
             const startedAt = Date.now();
             const files = await getRecentFiles();
+            allowOpenPaths(files.map(file => file.originalPath));
             if (STARTUP_TRACE_ENABLED) {
                 logger.info(`[startup] IPC recent-files:get resolved (${files.length} file(s), +${Date.now() - startedAt}ms)`);
             }
@@ -112,14 +118,18 @@ export function createDocumentsService(): IDocumentsService {
         },
         addRecentFile: async (_event, originalPath) => {
             await addRecentFile(originalPath);
+            allowOpenPath(originalPath);
             updateRecentFilesMenu();
         },
         removeRecentFile: async (_event, originalPath) => {
             await removeRecentFile(originalPath);
+            removeAllowedOpenPath(originalPath);
             updateRecentFilesMenu();
         },
         clearRecentFiles: async () => {
+            const files = await getRecentFiles();
             await clearRecentFiles();
+            files.forEach(file => removeAllowedOpenPath(file.originalPath));
             updateRecentFilesMenu();
         },
     };

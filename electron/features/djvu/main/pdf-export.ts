@@ -27,6 +27,7 @@ import { measureElectronPerfAsync } from '@electron/utils/dev-perf';
 import { safeSendToWindow } from '@electron/djvu/ipc-shared';
 import { embedBookmarksIntoPdfFile } from '@electron/djvu/pdf-bookmarks';
 import { consumeAllowedDjvuWritePath } from '@electron/djvu/export-paths';
+import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
 import {
     createDjvuPdfBookmarkTask,
     DjvuPdfWorkerStartupError,
@@ -366,6 +367,7 @@ export async function handleDjvuConvertToPdf(
             });
 
             logger.info(`[${jobId}] Conversion to PDF complete: ${normalizedOutputPath}`);
+            allowOpenPath(normalizedOutputPath);
             return {
                 success: true,
                 pdfPath: normalizedOutputPath,
@@ -418,4 +420,38 @@ export function handleDjvuCancel(
     const canceled = requestDjvuCancel(normalizedJobId);
     logger.info(`[${normalizedJobId}] Cancel result: ${canceled}`);
     return { canceled };
+}
+
+export async function shutdownDjvuConversions() {
+    const jobIds = Array.from(new Set([
+        ...activeJobIds,
+        ...queuedConversionJobIds,
+        ...activePdfWorkerByJobId.keys(),
+    ]));
+
+    if (jobIds.length === 0) {
+        return;
+    }
+
+    logger.info(`Canceling ${jobIds.length} active/queued DjVu conversion job(s) during shutdown`);
+    const workerTerminations: Array<Promise<unknown>> = [];
+    for (const jobId of jobIds) {
+        canceledJobIds.add(jobId);
+        removeQueuedConversionJob(jobId);
+        cancelConversion(jobId);
+        const activePdfWorker = activePdfWorkerByJobId.get(jobId);
+        if (activePdfWorker) {
+            activePdfWorkerByJobId.delete(jobId);
+            workerTerminations.push(activePdfWorker.terminate().catch(() => undefined));
+        }
+    }
+
+    queuedConversionJobIds.length = 0;
+    queuedConversionResolvers.clear();
+    activeJobIds.clear();
+    activeJobOwnerById.clear();
+    activePdfWorkerByJobId.clear();
+    activeConversionSlots = 0;
+
+    await Promise.allSettled(workerTerminations);
 }

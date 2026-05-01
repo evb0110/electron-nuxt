@@ -48,6 +48,11 @@ interface IPdfViewerForSave {
     hasShapes?: boolean | Ref<boolean>;
 }
 
+interface IOcrCompletePayload {
+    pdfData: Uint8Array;
+    sourceWorkingCopyPath: TDocumentRef;
+}
+
 interface IPageSaveOrchestrationDeps {
     pdfData: Ref<Uint8Array | null>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
@@ -240,24 +245,30 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         await handleSaveAsWithReload();
     }
 
-    async function handleOcrComplete(ocrPdfData: Uint8Array) {
+    async function handleOcrComplete(payload: IOcrCompletePayload) {
+        if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
+            BrowserLogger.debug('ocr', 'Ignoring stale OCR result for inactive document', {
+                sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
+                currentWorkingCopyPath: workingCopyPath.value,
+            });
+            return;
+        }
+
         const pageToRestore = currentPage.value;
         let restoreError: unknown = null;
-        const warmupWorkingPath = workingCopyPath.value;
+        const warmupWorkingPath = payload.sourceWorkingCopyPath;
         const warmupPageCountHint = totalPages.value > 0 ? totalPages.value : undefined;
 
-        if (workingCopyPath.value) {
-            clearOcrCache(workingCopyPath.value);
-        }
+        clearOcrCache(payload.sourceWorkingCopyPath);
 
         const restorePromise = waitForPdfReload(pageToRestore).catch((error) => {
             restoreError = error;
         });
 
         try {
-            await loadPdfFromData(ocrPdfData, {
+            await loadPdfFromData(payload.pdfData, {
                 pushHistory: true,
-                persistWorkingCopy: !!workingCopyPath.value,
+                persistWorkingCopy: true,
             });
 
             if (warmupWorkingPath) {

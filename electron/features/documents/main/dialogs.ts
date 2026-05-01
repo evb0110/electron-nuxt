@@ -9,6 +9,7 @@ import {
     extname,
     basename,
     isAbsolute,
+    resolve,
 } from 'path';
 import { uniq } from 'es-toolkit/array';
 import {
@@ -34,6 +35,12 @@ import {
     isKnownWorkingCopyOriginalPath,
     workingCopyMap,
 } from '@electron/ipc/workingCopy';
+import {
+    allowOpenPaths,
+    isAllowedOpenPath,
+    logRejectedOpenPath,
+} from '@electron/ipc/openPathCapabilities';
+import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
 
@@ -65,6 +72,7 @@ function toRecentDocumentPaths(paths: string[]) {
 
 async function addRecentInputs(paths: string[]) {
     const uniquePaths = uniq(paths);
+    allowOpenPaths(uniquePaths);
     for (const path of uniquePaths) {
         await addRecentFile(path);
     }
@@ -177,6 +185,11 @@ export async function handleOpenPdfDirect(
     }
 
     const normalizedPath = filePath.trim();
+    if (!isAllowedOpenPath(normalizedPath)) {
+        logRejectedOpenPath(normalizedPath);
+        throw new Error(te('errors.file.invalid'));
+    }
+
     logger.info(`openPdfDirect request: ${normalizedPath}`);
     try {
         const result = await openInputPaths([normalizedPath]);
@@ -198,8 +211,15 @@ export async function handleOpenPdfDirectBatch(
     }
 
     try {
+        const normalizedPaths = normalizeInputPaths(filePaths);
+        const rejectedPath = normalizedPaths.find(path => !isAllowedOpenPath(path));
+        if (rejectedPath) {
+            logRejectedOpenPath(rejectedPath);
+            throw new Error(te('errors.file.invalid'));
+        }
+
         const normalizedRequestId = typeof requestId === 'string' ? requestId.trim() : '';
-        return await openInputPaths(filePaths, {onCombineProgress: normalizedRequestId
+        return await openInputPaths(normalizedPaths, {onCombineProgress: normalizedRequestId
             ? (progress) => {
                 sendOpenBatchProgress(event, {
                     requestId: normalizedRequestId,
@@ -290,17 +310,34 @@ export function handleSetWindowTitle(event: Electron.IpcMainInvokeEvent, title: 
     }
 }
 
-export function handleShowItemInFolder(
+async function resolveRevealablePath(filePath: string) {
+    const resolvedReadPath = await resolveAllowedReadPath(filePath);
+    if (resolvedReadPath) {
+        return resolvedReadPath;
+    }
+
+    const normalizedPath = resolve(filePath);
+    if (!isKnownWorkingCopyOriginalPath(normalizedPath) || !existsSync(normalizedPath)) {
+        return null;
+    }
+    return normalizedPath;
+}
+
+export async function handleShowItemInFolder(
     _event: Electron.IpcMainInvokeEvent,
     filePath: string,
-): boolean {
+): Promise<boolean> {
     const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
     if (!normalizedPath) {
         return false;
     }
 
     try {
-        shell.showItemInFolder(normalizedPath);
+        const revealablePath = await resolveRevealablePath(normalizedPath);
+        if (!revealablePath) {
+            return false;
+        }
+        shell.showItemInFolder(revealablePath);
         return true;
     } catch (error) {
         logger.error(`Failed to show item in folder: ${error instanceof Error ? error.message : String(error)}`);

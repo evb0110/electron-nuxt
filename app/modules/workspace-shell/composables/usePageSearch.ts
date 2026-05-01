@@ -58,6 +58,10 @@ export const usePageSearch = (deps: IPageSearchDeps) => {
         sidebarTab.value = 'thumbnails';
     }
 
+    watch(workingCopyPath, () => {
+        clearSearch();
+    });
+
     async function handleSearch() {
         if (workingCopyPath.value) {
             showSidebar.value = true;

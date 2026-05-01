@@ -29,6 +29,7 @@ import {
     clearAllWorkingCopies,
     cleanupStaleWorkingCopyDirectories,
 } from '@electron/ipc';
+import { allowOpenPaths } from '@electron/ipc/openPathCapabilities';
 import {
     sendToWindow,
     setupMenu,
@@ -36,6 +37,7 @@ import {
 import { initRecentFilesCache } from '@electron/recent-files';
 import { stopServer } from '@electron/server';
 import { performDjvuViewingShutdownCleanup } from '@electron/features/djvu/main/viewing';
+import { shutdownDjvuConversions } from '@electron/features/djvu/main/pdf-export';
 import { shutdownOcrJobManager } from '@electron/ocr/jobManager';
 import {
     createWindow,
@@ -77,6 +79,58 @@ const macOpenFileRouter = createMacOpenFileRouter({ logger });
 const FATAL_UNHANDLED_REJECTION_ENABLED = process.env.EVB_MAIN_FATAL_UNHANDLED_REJECTION === '1';
 const startupTrace = createStartupTrace(logger);
 const logStartupPhase = startupTrace.log;
+let shutdownCoordinator: ReturnType<typeof createShutdownCoordinator> | null = null;
+
+function requestFatalShutdown(reason: string) {
+    if (!shutdownCoordinator) {
+        logger.error(reason);
+        app.exit(1);
+        return;
+    }
+    shutdownCoordinator.requestFatalShutdown(reason);
+}
+
+function isTrustedRendererIpcSender(
+    event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
+    channel: string,
+) {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window || window.isDestroyed() || event.sender.isDestroyed()) {
+        logger.warn(`[ipc] rejected ${channel}: missing or destroyed sender window`);
+        return false;
+    }
+
+    const senderMainFrame = event.sender.mainFrame;
+    if (event.senderFrame && senderMainFrame && event.senderFrame !== senderMainFrame) {
+        logger.warn(`[ipc] rejected ${channel}: non-main frame sender`);
+        return false;
+    }
+
+    const senderUrl = event.senderFrame?.url || event.sender.getURL();
+    let expectedOrigin = '';
+    try {
+        expectedOrigin = new URL(config.server.url).origin;
+    } catch {
+        expectedOrigin = '';
+    }
+    if (!expectedOrigin || !senderUrl) {
+        logger.warn(`[ipc] rejected ${channel}: missing trusted origin or sender URL`);
+        return false;
+    }
+
+    try {
+        const senderOrigin = new URL(senderUrl).origin;
+        if (senderOrigin !== expectedOrigin) {
+            logger.warn(`[ipc] rejected ${channel}: untrusted sender origin ${senderOrigin} (expected ${expectedOrigin})`);
+            return false;
+        }
+    } catch {
+        logger.warn(`[ipc] rejected ${channel}: invalid sender URL ${senderUrl}`);
+        return false;
+    }
+
+    return true;
+}
 
 // macOS can deliver open-file during very early cold-start launch, before the
 // rest of the external-open pipeline is initialized.
@@ -108,10 +162,10 @@ process.on('unhandledRejection', (reason) => {
     if (!FATAL_UNHANDLED_REJECTION_ENABLED || isIgnorableUnhandledRejection(reason)) {
         return;
     }
-    shutdownCoordinator.requestFatalShutdown('Unhandled promise rejection requires fatal shutdown');
+    requestFatalShutdown('Unhandled promise rejection requires fatal shutdown');
 });
 process.on('uncaughtException', (error) => {
-    shutdownCoordinator.requestFatalShutdown(`Uncaught exception in main process: ${error.stack ?? error.message}`);
+    requestFatalShutdown(`Uncaught exception in main process: ${error.stack ?? error.message}`);
 });
 
 if (process.platform === 'darwin' && config.automation.noFocus) {
@@ -333,12 +387,16 @@ async function performShutdownCleanup() {
         defaultViewerPromptTimer = null;
     }
     externalOpenManager.clearTimers();
-    shutdownCoordinator.clearGracefulQuitForceTimer();
+    shutdownCoordinator?.clearGracefulQuitForceTimer();
 
     await runShutdownSteps(logger, [
         {
             label: 'updates',
             run: () => shutdownUpdates(), 
+        },
+        {
+            label: 'djvu-conversions',
+            run: () => shutdownDjvuConversions(), 
         },
         {
             label: 'djvu-viewing',
@@ -359,7 +417,7 @@ async function performShutdownCleanup() {
     ]);
 }
 
-const shutdownCoordinator = createShutdownCoordinator({
+shutdownCoordinator = createShutdownCoordinator({
     app,
     logger,
     runCleanupSteps: performShutdownCleanup,
@@ -446,6 +504,9 @@ async function init() {
         });
 
     ipcMain.on('app:rendererReady', (event) => {
+        if (!isTrustedRendererIpcSender(event, 'app:rendererReady')) {
+            return;
+        }
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!window) {
             return;
@@ -463,12 +524,17 @@ async function init() {
     });
 
     ipcMain.handle('app:claimPendingExternalOpenPaths', (event) => {
+        if (!isTrustedRendererIpcSender(event, 'app:claimPendingExternalOpenPaths')) {
+            return [];
+        }
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!window || window.id !== getMainWindow()?.id) {
             return [];
         }
 
-        return externalOpenManager.claimPendingOpenPaths();
+        const paths = externalOpenManager.claimPendingOpenPaths();
+        allowOpenPaths(paths);
+        return paths;
     });
 
     app.on('browser-window-created', (_event, window) => {
@@ -500,11 +566,11 @@ async function init() {
     });
 
     app.on('before-quit', (event) => {
-        if (shutdownCoordinator.isQuittingAfterCleanup() || shutdownCoordinator.isFatalShutdownInProgress()) {
+        if (shutdownCoordinator?.isQuittingAfterCleanup() || shutdownCoordinator?.isFatalShutdownInProgress()) {
             return;
         }
         event.preventDefault();
-        shutdownCoordinator.requestGracefulQuit();
+        shutdownCoordinator?.requestGracefulQuit();
     });
 
     app.on('activate', () => {
@@ -565,5 +631,5 @@ async function init() {
 }
 
 void init().catch((error) => {
-    shutdownCoordinator.requestFatalShutdown(`Application bootstrap failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    requestFatalShutdown(`Application bootstrap failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
 });

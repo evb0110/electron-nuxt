@@ -6,6 +6,7 @@
  *
  * Communication protocol:
  * - Receives: { type: 'start', jobId, data: { sourcePdfPath, pages, renderDpi } }
+ * - Receives: { type: 'cancel', jobId }
  * - Sends: { type: 'progress', jobId, progress: {...} }
  * - Sends: { type: 'complete', jobId, result: {...} }
  * - Sends: { type: 'log', level, message }
@@ -122,8 +123,30 @@ function parseStartPayload(value: unknown) {
     };
 }
 
-function parseInboundMessage(value: unknown) {
-    if (!isRecord(value) || value.type !== 'start' || typeof value.jobId !== 'string') {
+type TOcrWorkerParsedInboundMessage =
+    | {
+        type: 'start';
+        jobId: string;
+        data: ReturnType<typeof parseStartPayload> & {};
+    }
+    | {
+        type: 'cancel';
+        jobId: string;
+    };
+
+function parseInboundMessage(value: unknown): TOcrWorkerParsedInboundMessage | null {
+    if (!isRecord(value) || typeof value.jobId !== 'string') {
+        return null;
+    }
+
+    if (value.type === 'cancel') {
+        return {
+            type: 'cancel',
+            jobId: value.jobId,
+        };
+    }
+
+    if (value.type !== 'start') {
         return null;
     }
 
@@ -183,6 +206,7 @@ function resolveWorkerPaths(rawWorkerData: unknown) {
 }
 
 const paths = resolveWorkerPaths(workerData);
+const activeJobControllers = new Map<string, AbortController>();
 
 const log: TWorkerLog = (level, message) => {
     const timestamp = new Date().toISOString();
@@ -219,6 +243,7 @@ async function renderPdfPageToPng(
     outputPngPath: string,
     dpi: number,
     popplerEnv?: NodeJS.ProcessEnv,
+    signal?: AbortSignal,
 ) {
     await runCommand(paths.pdftoppmBinary, [
         '-png',
@@ -235,6 +260,7 @@ async function renderPdfPageToPng(
         commandLabel: `pdftoppm(page=${pageNumber},dpi=${dpi})`,
         env: popplerEnv,
         timeoutMs: PDFTOPPM_TIMEOUT_MS,
+        signal,
         log,
     });
 }
@@ -243,6 +269,7 @@ async function preparePdfForPoppler(
     sourcePdfPath: string,
     sessionId: string,
     trackTempFile: (path: string) => string,
+    signal?: AbortSignal,
 ) {
     const normalizedPdfPath = trackTempFile(join(paths.tempDir, `${sessionId}-poppler-input.pdf`));
 
@@ -257,6 +284,7 @@ async function preparePdfForPoppler(
                 3,
             ],
             timeoutMs: QPDF_TIMEOUT_MS,
+            signal,
             log,
         });
 
@@ -302,6 +330,8 @@ async function processOcrJob(
     pages: IOcrPdfPageRequest[],
     renderDpi?: number,
 ) {
+    const abortController = new AbortController();
+    activeJobControllers.set(jobId, abortController);
     const tempFiles = new Set<string>();
     const keepFiles = new Set<string>();
 
@@ -322,7 +352,7 @@ async function processOcrJob(
 
         const ocrPageData: IOcrPageWithWords[] = [];
         const ocrPdfMap: Map<number, string> = new Map();
-        const popplerSourcePdfPath = await preparePdfForPoppler(sourcePdfPath, sessionId, trackTempFile);
+        const popplerSourcePdfPath = await preparePdfForPoppler(sourcePdfPath, sessionId, trackTempFile, abortController.signal);
         const popplerEnv = buildPopplerEnv();
         if (popplerEnv) {
             log(
@@ -358,6 +388,7 @@ async function processOcrJob(
                     pageImagePath,
                     extractionDpi,
                     popplerEnv,
+                    abortController.signal,
                 );
 
                 const imageBuffer = await readFile(pageImagePath);
@@ -386,6 +417,7 @@ async function processOcrJob(
                     paths.tesseractBinary,
                     paths.tessdataPath,
                     tesseractThreads,
+                    abortController.signal,
                 );
 
                 if (ocrResult.success && ocrResult.pageData) {
@@ -523,6 +555,7 @@ async function processOcrJob(
             errors: [`Critical error: ${errMsg}`],
         });
     } finally {
+        activeJobControllers.delete(jobId);
         for (const filePath of tempFiles) {
             if (keepFiles.has(filePath)) {
                 continue;
@@ -551,6 +584,9 @@ parentPort?.on('message', async (rawMessage: unknown) => {
                 message.data.pages,
                 message.data.renderDpi,
             );
+            return;
+        case 'cancel':
+            activeJobControllers.get(message.jobId)?.abort();
             return;
     }
 });

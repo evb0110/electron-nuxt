@@ -6,6 +6,7 @@ interface IRunCommandOptions {
     env?: NodeJS.ProcessEnv;
     timeoutMs?: number;
     allowedExitCodes?: number[];
+    signal?: AbortSignal;
     commandLabel?: string;
     log?: (level: 'debug' | 'warn' | 'error', message: string) => void;
 }
@@ -20,6 +21,7 @@ export async function runCommand(
         env,
         timeoutMs,
         allowedExitCodes,
+        signal,
         commandLabel,
         log,
     } = options;
@@ -29,6 +31,7 @@ export async function runCommand(
         env,
         timeoutMs,
         allowedExitCodes,
+        signal,
         commandLabel,
         log,
         defaultCwdToCommandDir: true,
