@@ -138,6 +138,41 @@ export const usePdfTextLayerRenderer = (deps: {
         return parts.join('|');
     }
 
+    function renderWordBoxesForPageMatch(
+        container: HTMLElement,
+        pageMatchData: IPdfPageMatches | null,
+        currentMatchValue: IPdfSearchMatch | null,
+        pageIndex: number,
+    ) {
+        clearWordBoxes(container);
+
+        if (!pageMatchData || pageMatchData.matches.length === 0) {
+            return;
+        }
+
+        const firstMatch = pageMatchData.matches.at(0);
+        const firstMatchWords = firstMatch?.words ?? [];
+        if (!firstMatch || firstMatchWords.length === 0) {
+            return;
+        }
+
+        const allWords = collectWordsFromPageMatches(pageMatchData);
+        const currentMatchWords = new Set<string>();
+        if (currentMatchValue && currentMatchValue.pageIndex === pageIndex && currentMatchValue.words) {
+            currentMatchValue.words.forEach((word) => {
+                currentMatchWords.add(word.text);
+            });
+        }
+
+        renderPageWordBoxes(
+            container,
+            allWords,
+            firstMatch.pageWidth,
+            firstMatch.pageHeight,
+            currentMatchWords.size > 0 ? currentMatchWords : undefined,
+        );
+    }
+
     function scheduleSearchHighlightRefresh(containerRoot: HTMLElement) {
         const scheduleContinuation = (callback: () => void) => {
             if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
@@ -217,30 +252,7 @@ export const usePdfTextLayerRenderer = (deps: {
                                 clearHighlights(textLayerDiv);
                             }
 
-                            clearWordBoxes(container);
-
-                            if (pageMatchData && pageMatchData.matches.length > 0) {
-                                const firstMatch = pageMatchData.matches.at(0);
-                                const firstMatchWords = firstMatch?.words ?? [];
-                                if (firstMatch && firstMatchWords.length > 0) {
-                                    const allWords = collectWordsFromPageMatches(pageMatchData);
-
-                                    const currentMatchWords = new Set<string>();
-                                    if (currentMatchValue && currentMatchValue.pageIndex === pageIndex && currentMatchValue.words) {
-                                        currentMatchValue.words.forEach((word) => {
-                                            currentMatchWords.add(word.text);
-                                        });
-                                    }
-
-                                    renderPageWordBoxes(
-                                        container,
-                                        allWords,
-                                        firstMatch.pageWidth,
-                                        firstMatch.pageHeight,
-                                        currentMatchWords.size > 0 ? currentMatchWords : undefined,
-                                    );
-                                }
-                            }
+                            renderWordBoxesForPageMatch(container, pageMatchData, currentMatchValue, pageIndex);
 
                             if (canvas) {
                                 maybeLogHighlightDebug(pageIndex + 1, pageMatchData, canvas, textLayerDiv);
@@ -505,29 +517,7 @@ export const usePdfTextLayerRenderer = (deps: {
             || highlightResult.currentMatchRanges.length > 0;
 
         if (!hasInTextHighlights && pageMatchData && pageMatchData.matches.length > 0) {
-            const firstMatch = pageMatchData.matches.at(0);
-            const firstMatchWords = firstMatch?.words ?? [];
-
-            if (firstMatch && firstMatchWords.length > 0) {
-                const allWords = collectWordsFromPageMatches(pageMatchData);
-
-                const currentMatchWords = new Set<string>();
-                if (currentMatch && currentMatch.pageIndex === pageIndex && currentMatch.words) {
-                    currentMatch.words.forEach((word) => {
-                        currentMatchWords.add(word.text);
-                    });
-                }
-
-                renderPageWordBoxes(
-                    container,
-                    allWords,
-                    firstMatch.pageWidth,
-                    firstMatch.pageHeight,
-                    currentMatchWords.size > 0 ? currentMatchWords : undefined,
-                );
-            } else {
-                clearWordBoxes(container);
-            }
+            renderWordBoxesForPageMatch(container, pageMatchData, currentMatch, pageIndex);
         } else {
             clearWordBoxes(container);
         }
