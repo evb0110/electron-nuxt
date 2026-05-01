@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import { waitForVisualFrames } from '@app/utils/async-helpers';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getVisiblePageDebugSnapshot } from '@app/composables/pdf/pdfScrollVisibility';
+import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import type {
     PDFDocumentProxy,
     IScrollSnapshot,
@@ -9,20 +10,7 @@ import type {
 import { isAnchoredCurrentPageSyncSource } from '@app/modules/pdf-viewer-runtime/rerenderStrategy';
 
 const CURRENT_PAGE_SYNC_SAMPLE_COUNT = 3;
-
-export function summarizeViewerMetrics(container: HTMLElement | null) {
-    if (!container) {
-        return null;
-    }
-    return {
-        scrollTop: Math.round(container.scrollTop),
-        scrollLeft: Math.round(container.scrollLeft),
-        clientWidth: Math.round(container.clientWidth),
-        clientHeight: Math.round(container.clientHeight),
-        scrollWidth: Math.round(container.scrollWidth),
-        scrollHeight: Math.round(container.scrollHeight),
-    };
-}
+export { summarizeViewerMetrics };
 
 export interface ICurrentPageSyncOptions {
     source?: string;

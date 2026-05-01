@@ -117,6 +117,7 @@ import {
     captureScrollSnapshot,
     restoreScrollFromSnapshot,
 } from '@app/composables/pdf/pdfPageRenderPipeline';
+import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import { savePdfDocumentWithCommittedEditors } from '@app/composables/pdf/pdfSaveDocument';
 import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
 import type {
@@ -355,18 +356,7 @@ const {
 } = usePdfScroll({ getPinnedMostVisiblePage: () => getPinnedViewportPage() });
 
 function summarizeViewerStateForLog() {
-    const container = viewerContainer.value;
-    if (!container) {
-        return null;
-    }
-    return {
-        scrollTop: Math.round(container.scrollTop),
-        scrollLeft: Math.round(container.scrollLeft),
-        clientWidth: Math.round(container.clientWidth),
-        clientHeight: Math.round(container.clientHeight),
-        scrollWidth: Math.round(container.scrollWidth),
-        scrollHeight: Math.round(container.scrollHeight),
-    };
+    return summarizeViewerMetrics(viewerContainer.value);
 }
 
 function clearPinnedViewportPage(reason = 'cleared') {
