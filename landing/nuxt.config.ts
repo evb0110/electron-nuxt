@@ -1,4 +1,3 @@
-import legacy from '@vitejs/plugin-legacy';
 import {fileURLToPath} from 'node:url';
 
 import {
@@ -95,38 +94,6 @@ export default defineNuxtConfig({
         'circle-flags:nl',
         'simple-icons:github',
     ]}},
-
-    vite: {
-        plugins: legacy({
-            targets: [
-                'chrome >= 49',
-                'firefox >= 52',
-                'safari >= 10.1',
-                'ios >= 10.3',
-                'edge >= 15',
-                'not IE 11',
-            ],
-            // Modern bundle baseline. Bumped again because esbuild's compat
-            // table refuses to transpile for-of array destructuring down to
-            // safari14/chrome87/firefox78/edge88. Safari 16.4 / Chrome 108 /
-            // Firefox 117 / Edge 108 are the first releases esbuild accepts
-            // for that syntax. Older browsers still get the legacy bundle.
-            modernTargets: [
-                'chrome >= 108',
-                'firefox >= 117',
-                'safari >= 16.4',
-                'edge >= 108',
-            ],
-            modernPolyfills: [
-                'es.array.at',
-                'es.array.flat',
-                'es.array.flat-map',
-                'es.object.from-entries',
-                'es.promise.finally',
-            ],
-            additionalModernPolyfills: ['whatwg-fetch'],
-        }) as unknown as any[],
-    },
 
     compatibilityDate: '2025-01-15',
 });
