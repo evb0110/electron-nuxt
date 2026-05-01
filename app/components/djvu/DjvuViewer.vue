@@ -177,6 +177,15 @@ interface IContinuousScrollWindowCacheEntry {
     result: IContinuousScrollWindow;
 }
 
+interface IContinuousScrollBoundsState {
+    visibleStart: number | null;
+    visibleEnd: number | null;
+    overscanStart: number | null;
+    overscanEnd: number | null;
+    mostVisiblePage: number | null;
+    maxVisibleHeight: number;
+}
+
 let continuousScrollWindowCache: IContinuousScrollWindowCacheEntry | null = null;
 
 function getContinuousScrollViewportHeight() {
@@ -266,6 +275,79 @@ function expandContinuousScrollRange(
     };
 }
 
+function createContinuousScrollBoundsState(anchorPage: number): IContinuousScrollBoundsState {
+    return {
+        visibleStart: null,
+        visibleEnd: null,
+        overscanStart: null,
+        overscanEnd: null,
+        mostVisiblePage: anchorPage,
+        maxVisibleHeight: -1,
+    };
+}
+
+function measureIntersectionHeight(
+    top: number,
+    bottom: number,
+    viewportTop: number,
+    viewportBottom: number,
+) {
+    return Math.max(0, Math.min(bottom, viewportBottom) - Math.max(top, viewportTop));
+}
+
+function applyPageIntersectionToContinuousBounds(
+    state: IContinuousScrollBoundsState,
+    pageNumber: number,
+    visibleHeight: number,
+    overscanHeight: number,
+) {
+    if (overscanHeight > 0) {
+        state.overscanStart ??= pageNumber;
+        state.overscanEnd = pageNumber;
+    }
+
+    if (visibleHeight <= 0) {
+        return;
+    }
+
+    state.visibleStart ??= pageNumber;
+    state.visibleEnd = pageNumber;
+    if (visibleHeight > state.maxVisibleHeight) {
+        state.maxVisibleHeight = visibleHeight;
+        state.mostVisiblePage = pageNumber;
+    }
+}
+
+function resolveContinuousScrollBounds(
+    anchorPage: number,
+    viewportTop: number,
+    viewportBottom: number,
+    overscanTop: number,
+    overscanBottom: number,
+) {
+    const state = createContinuousScrollBoundsState(anchorPage);
+    let pageTop = DJVU_BASE_MARGIN;
+
+    for (let pageNumber = 1; pageNumber <= totalPages.value; pageNumber += 1) {
+        const pageSize = pageSizes.value[pageNumber - 1];
+        const pageHeight = pageSize?.height ?? 0;
+        const pageBottom = pageTop + pageHeight;
+        const visibleHeight = measureIntersectionHeight(pageTop, pageBottom, viewportTop, viewportBottom);
+        const overscanHeight = measureIntersectionHeight(pageTop, pageBottom, overscanTop, overscanBottom);
+
+        applyPageIntersectionToContinuousBounds(
+            state,
+            pageNumber,
+            visibleHeight,
+            overscanHeight,
+        );
+
+        pageTop = pageBottom + (pageNumber < totalPages.value ? DJVU_BASE_MARGIN : 0);
+    }
+
+    return state;
+}
+
 function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
     if (!isContinuousScroll.value || totalPages.value <= 0) {
         return null;
@@ -297,64 +379,28 @@ function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
     const viewportBottom = viewportTop + containerHeightValue;
     const overscanTop = Math.max(0, viewportTop - containerHeightValue);
     const overscanBottom = viewportBottom + containerHeightValue;
-
-    let pageTop = DJVU_BASE_MARGIN;
-    let visibleStart: number | null = null;
-    let visibleEnd: number | null = null;
-    let overscanStart: number | null = null;
-    let overscanEnd: number | null = null;
-    let mostVisiblePage: number | null = anchorPage;
-    let maxVisibleHeight = -1;
-
-    for (let pageNumber = 1; pageNumber <= totalPages.value; pageNumber += 1) {
-        const pageSize = pageSizes.value[pageNumber - 1];
-        const pageHeight = pageSize?.height ?? 0;
-        const pageBottom = pageTop + pageHeight;
-        const visibleHeight = Math.max(
-            0,
-            Math.min(pageBottom, viewportBottom) - Math.max(pageTop, viewportTop),
-        );
-        const overscanHeight = Math.max(
-            0,
-            Math.min(pageBottom, overscanBottom) - Math.max(pageTop, overscanTop),
-        );
-
-        if (overscanHeight > 0) {
-            if (overscanStart === null) {
-                overscanStart = pageNumber;
-            }
-            overscanEnd = pageNumber;
-        }
-
-        if (visibleHeight > 0) {
-            if (visibleStart === null) {
-                visibleStart = pageNumber;
-            }
-            visibleEnd = pageNumber;
-
-            if (visibleHeight > maxVisibleHeight) {
-                maxVisibleHeight = visibleHeight;
-                mostVisiblePage = pageNumber;
-            }
-        }
-
-        pageTop = pageBottom + (pageNumber < totalPages.value ? DJVU_BASE_MARGIN : 0);
-    }
+    const bounds = resolveContinuousScrollBounds(
+        anchorPage,
+        viewportTop,
+        viewportBottom,
+        overscanTop,
+        overscanBottom,
+    );
 
     const {
         start,
         end,
     } = expandContinuousScrollRange(
-        visibleStart,
-        visibleEnd,
-        overscanStart,
-        overscanEnd,
+        bounds.visibleStart,
+        bounds.visibleEnd,
+        bounds.overscanStart,
+        bounds.overscanEnd,
         anchorPage,
     );
     return cacheContinuousScrollWindow(
         start,
         end,
-        mostVisiblePage,
+        bounds.mostVisiblePage,
         containerHeightValue,
         usesFallback,
     );
@@ -428,31 +474,46 @@ function fitWidthAvailable() {
     return Math.max(1, containerWidth.value - DJVU_BASE_MARGIN * (columns + 1));
 }
 
+function resolveFitHeightZoom() {
+    const currentPageSize = pageSizes.value[currentPage.value - 1] ?? pageSizes.value[0] ?? null;
+    const baseHeight = currentPageSize?.height;
+    if (!baseHeight || baseHeight <= 0) {
+        return manualZoom.value;
+    }
+
+    const availableHeight = Math.max(1, containerHeight.value - DJVU_BASE_MARGIN * 2);
+    return Math.max(0.1, availableHeight / baseHeight);
+}
+
+function resolveFitWidthBaseWidth() {
+    const baseWidth = isContinuousScroll.value
+        ? (pageSizes.value[currentPage.value - 1]?.width ?? null)
+        : currentSpreadWidth.value;
+    return baseWidth && baseWidth > 0 ? baseWidth : null;
+}
+
+function resolveFitWidthZoom() {
+    const baseWidth = resolveFitWidthBaseWidth();
+    if (baseWidth === null) {
+        return manualZoom.value;
+    }
+
+    return Math.max(0.1, fitWidthAvailable() / baseWidth);
+}
+
 const effectiveZoom = computed(() => {
     if (zoomMode.value === 'custom') {
         return manualZoom.value;
     }
 
     if (zoomMode.value === 'fit-height') {
-        const currentPageSize = pageSizes.value[currentPage.value - 1] ?? pageSizes.value[0] ?? null;
-        const baseHeight = currentPageSize?.height;
-        if (!baseHeight || baseHeight <= 0) {
-            return manualZoom.value;
-        }
-        const availableHeight = Math.max(1, containerHeight.value - DJVU_BASE_MARGIN * 2);
-        return Math.max(0.1, availableHeight / baseHeight);
+        return resolveFitHeightZoom();
     }
 
     // Fit-width: use current page/spread width for the displayed zoom %.
     // In continuous scroll each page is scaled independently in getPageShellStyle;
     // effectiveZoom reflects the current page for the toolbar display.
-    const baseWidth = isContinuousScroll.value
-        ? (pageSizes.value[currentPage.value - 1]?.width ?? null)
-        : currentSpreadWidth.value;
-    if (!baseWidth || baseWidth <= 0) {
-        return manualZoom.value;
-    }
-    return Math.max(0.1, fitWidthAvailable() / baseWidth);
+    return resolveFitWidthZoom();
 });
 
 let activeWorker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>> | null = null;
@@ -575,10 +636,56 @@ function stopWorker() {
     invalidateContinuousScrollWindowCache();
 }
 
+function canLoadPagePreview(state: IDjvuPageState | undefined): state is IDjvuPageState {
+    return Boolean(state && state.status !== 'loading' && state.status !== 'loaded');
+}
+
+function discardStalePageObjectUrl(
+    worker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>>,
+    url: string,
+) {
+    worker.revokeObjectURL(url);
+}
+
+function commitLoadedPagePreview(
+    pageNumber: number,
+    token: number,
+    worker: Awaited<ReturnType<typeof createDjvuWorkerFromPath>>,
+    objectUrl: string,
+) {
+    const currentState = pageStates.value[pageNumber - 1];
+    if (!currentState || currentState.token !== token || worker !== activeWorker) {
+        discardStalePageObjectUrl(worker, objectUrl);
+        return false;
+    }
+
+    revokePageUrl(pageNumber);
+    currentState.objectUrl = objectUrl;
+    currentState.status = 'loaded';
+    return true;
+}
+
+function markPagePreviewLoadFailed(
+    pageNumber: number,
+    token: number,
+    error: unknown,
+) {
+    const currentState = pageStates.value[pageNumber - 1];
+    if (!currentState || currentState.token !== token) {
+        return;
+    }
+
+    currentState.status = 'error';
+    BrowserLogger.warn('djvu-viewer', 'Failed to load DjVu page preview', {
+        pageNumber,
+        error,
+    });
+}
+
 async function ensurePageLoaded(pageNumber: number) {
     const state = pageStates.value[pageNumber - 1];
     const worker = activeWorker;
-    if (!state || !worker || state.status === 'loading' || state.status === 'loaded') {
+    if (!worker || !canLoadPagePreview(state)) {
         return;
     }
 
@@ -588,26 +695,9 @@ async function ensurePageLoaded(pageNumber: number) {
 
     try {
         const pageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
-        const currentState = pageStates.value[pageNumber - 1];
-        if (!currentState || currentState.token !== token || worker !== activeWorker) {
-            worker.revokeObjectURL(pageObject.url);
-            return;
-        }
-
-        revokePageUrl(pageNumber);
-        currentState.objectUrl = pageObject.url;
-        currentState.status = 'loaded';
+        commitLoadedPagePreview(pageNumber, token, worker, pageObject.url);
     } catch (error) {
-        const currentState = pageStates.value[pageNumber - 1];
-        if (!currentState || currentState.token !== token) {
-            return;
-        }
-
-        currentState.status = 'error';
-        BrowserLogger.warn('djvu-viewer', 'Failed to load DjVu page preview', {
-            pageNumber,
-            error,
-        });
+        markPagePreviewLoadFailed(pageNumber, token, error);
     }
 }
 
@@ -735,54 +825,46 @@ function handleViewerScroll() {
     scheduleViewportSync();
 }
 
-function handleViewerWheel(event: WheelEvent) {
-    if (
-        isContinuousScroll.value
-        || isLoading.value
-        || totalPages.value <= 0
-        || event.ctrlKey
-        || event.metaKey
-    ) {
-        return;
-    }
+function shouldIgnorePageFlipWheel(event: WheelEvent) {
+    return (
+        isContinuousScroll.value ||
+        isLoading.value ||
+        totalPages.value <= 0 ||
+        event.ctrlKey ||
+        event.metaKey
+    );
+}
 
-    if (
-        Math.abs(event.deltaX) >
-        Math.abs(event.deltaY) * HORIZONTAL_INTENT_REJECT_RATIO
-    ) {
-        return;
-    }
+function hasHorizontalWheelIntent(event: WheelEvent) {
+    return Math.abs(event.deltaX) > Math.abs(event.deltaY) * HORIZONTAL_INTENT_REJECT_RATIO;
+}
 
-    const container = viewerContainer.value;
-    if (!container) {
-        return;
-    }
-
-    const delta = normalizePageWheelDelta(event.deltaY, event.deltaMode, container);
-    if (Math.abs(delta) < WHEEL_DELTA_EPSILON) {
-        return;
-    }
-
-    const direction: -1 | 1 = delta > 0 ? 1 : -1;
-    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-    const canScrollWithinSpread = maxScrollTop > PAGE_SCROLL_EDGE_EPSILON
+function canScrollCurrentSpread(
+    container: HTMLElement,
+    direction: -1 | 1,
+    maxScrollTop: number,
+) {
+    return maxScrollTop > PAGE_SCROLL_EDGE_EPSILON
         && (
             direction > 0
                 ? container.scrollTop < maxScrollTop - PAGE_SCROLL_EDGE_EPSILON
                 : container.scrollTop > PAGE_SCROLL_EDGE_EPSILON
         );
+}
 
-    event.preventDefault();
+function scrollCurrentSpreadByWheelDelta(
+    container: HTMLElement,
+    delta: number,
+    direction: -1 | 1,
+    maxScrollTop: number,
+) {
+    clearWheelAccumulator();
+    container.scrollTop = direction > 0
+        ? Math.min(maxScrollTop, container.scrollTop + delta)
+        : Math.max(0, container.scrollTop + delta);
+}
 
-    if (canScrollWithinSpread) {
-        clearWheelAccumulator();
-        const nextScrollTop = direction > 0
-            ? Math.min(maxScrollTop, container.scrollTop + delta)
-            : Math.max(0, container.scrollTop + delta);
-        container.scrollTop = nextScrollTop;
-        return;
-    }
-
+function resolvePageFlipWheelStep(event: WheelEvent, delta: number, direction: -1 | 1) {
     const accumulationResult = accumulateWheelForPageFlips({
         state: wheelAccumulator,
         delta,
@@ -792,10 +874,10 @@ function handleViewerWheel(event: WheelEvent) {
         maxSteps: 1,
     });
     wheelAccumulator = accumulationResult.state;
-    if (accumulationResult.stepsToFlip === 0) {
-        return;
-    }
+    return accumulationResult.stepsToFlip;
+}
 
+function flipPageFromWheel(direction: -1 | 1) {
     const targetPage = stepBySpread(
         currentPage.value,
         viewMode.value,
@@ -809,6 +891,54 @@ function handleViewerWheel(event: WheelEvent) {
     }
 
     scrollToPage(targetPage);
+}
+
+function resolvePageFlipWheelContext(event: WheelEvent) {
+    if (shouldIgnorePageFlipWheel(event) || hasHorizontalWheelIntent(event)) {
+        return null;
+    }
+
+    const container = viewerContainer.value;
+    if (!container) {
+        return null;
+    }
+
+    const delta = normalizePageWheelDelta(event.deltaY, event.deltaMode, container);
+    if (Math.abs(delta) < WHEEL_DELTA_EPSILON) {
+        return null;
+    }
+
+    const direction: -1 | 1 = delta > 0 ? 1 : -1;
+    return {
+        container,
+        delta,
+        direction,
+        maxScrollTop: Math.max(0, container.scrollHeight - container.clientHeight),
+    };
+}
+
+function handleViewerWheel(event: WheelEvent) {
+    const context = resolvePageFlipWheelContext(event);
+    if (!context) {
+        return;
+    }
+    event.preventDefault();
+
+    if (canScrollCurrentSpread(context.container, context.direction, context.maxScrollTop)) {
+        scrollCurrentSpreadByWheelDelta(
+            context.container,
+            context.delta,
+            context.direction,
+            context.maxScrollTop,
+        );
+        return;
+    }
+
+    if (resolvePageFlipWheelStep(event, context.delta, context.direction) === 0) {
+        return;
+    }
+
+    flipPageFromWheel(context.direction);
 }
 
 function retryPage(pageNumber: number) {

@@ -12,6 +12,11 @@ import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/platform-shortcuts';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
+type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab';
+const RENDERER_MENU_SHORTCUT_ACTIONS: Partial<Record<string, TTabKeyboardShortcutAction>> = {
+    t: 'new-tab',
+    w: 'close-tab',
+};
 
 interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     tabs: Ref<Array<{ id: string }>>;
@@ -70,36 +75,59 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
         }
     }
 
-    function handleTabKeyboardShortcut(event: KeyboardEvent) {
+    function resolveRendererMenuShortcutAction(event: KeyboardEvent) {
         const mod = event.metaKey || event.ctrlKey;
-        const shouldHandleRendererAccelerators = shouldHandleRendererMenuAccelerators();
+        const key = event.key.toLowerCase();
+        return mod && !event.shiftKey
+            ? RENDERER_MENU_SHORTCUT_ACTIONS[key] ?? null
+            : null;
+    }
 
-        // In Electron these accelerators are handled by the app menu.
-        // Keep renderer-level handlers only as a non-Electron fallback.
-        if (shouldHandleRendererAccelerators && mod && event.key.toLowerCase() === 't' && !event.shiftKey) {
-            event.preventDefault();
-            createTab();
-            return;
-        }
-
-        if (shouldHandleRendererAccelerators && mod && event.key.toLowerCase() === 'w' && !event.shiftKey) {
-            event.preventDefault();
-            if (activeTabId.value) {
-                void handleCloseTab(activeTabId.value);
-            }
-            return;
-        }
-
+    function resolveCtrlTabShortcutAction(event: KeyboardEvent): TTabKeyboardShortcutAction | null {
         if (event.ctrlKey && event.key === 'Tab' && !event.shiftKey) {
-            event.preventDefault();
-            cycleTab(1);
-            return;
+            return 'next-tab';
         }
 
         if (event.ctrlKey && event.key === 'Tab' && event.shiftKey) {
-            event.preventDefault();
-            cycleTab(-1);
+            return 'previous-tab';
         }
+
+        return null;
+    }
+
+    function resolveTabKeyboardShortcutAction(event: KeyboardEvent): TTabKeyboardShortcutAction | null {
+        // In Electron these accelerators are handled by the app menu.
+        // Keep renderer-level handlers only as a non-Electron fallback.
+        if (shouldHandleRendererMenuAccelerators()) {
+            const rendererAction = resolveRendererMenuShortcutAction(event);
+            if (rendererAction) {
+                return rendererAction;
+            }
+        }
+
+        return resolveCtrlTabShortcutAction(event);
+    }
+
+    function runTabKeyboardShortcutAction(action: TTabKeyboardShortcutAction) {
+        if (action === 'new-tab') {
+            createTab();
+        } else if (action === 'close-tab') {
+            if (activeTabId.value) {
+                void handleCloseTab(activeTabId.value);
+            }
+        } else {
+            cycleTab(action === 'next-tab' ? 1 : -1);
+        }
+    }
+
+    function handleTabKeyboardShortcut(event: KeyboardEvent) {
+        const action = resolveTabKeyboardShortcutAction(event);
+        if (!action) {
+            return;
+        }
+
+        event.preventDefault();
+        runTabKeyboardShortcutAction(action);
     }
 
     const stopTabKeyboardShortcutListener = useEventListener(

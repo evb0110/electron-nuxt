@@ -58,6 +58,55 @@ function clearTrackedSelectionLayers() {
     previousSelectionLayer = null;
 }
 
+function isSelectionStartBeingModified(range: Range) {
+    return Boolean(prevRange && (
+        range.compareBoundaryPoints(Range.END_TO_END, prevRange) === 0 ||
+        range.compareBoundaryPoints(Range.START_TO_END, prevRange) === 0
+    ));
+}
+
+function normalizeSelectionAnchorNode(anchor: Node | null) {
+    return anchor?.nodeType === Node.TEXT_NODE
+        ? anchor.parentNode
+        : anchor;
+}
+
+function resolvePreviousSelectableAnchor(anchor: Node | null) {
+    let candidate = anchor;
+    while (candidate && !candidate.previousSibling) {
+        candidate = candidate.parentNode;
+    }
+    if (!candidate) {
+        return null;
+    }
+
+    candidate = candidate.previousSibling;
+    while (candidate && !(candidate as Element).childNodes?.length) {
+        candidate = candidate.previousSibling;
+    }
+    return candidate;
+}
+
+function resolveSelectionSentinelAnchor(range: Range, modifyStart: boolean) {
+    const initialAnchor = modifyStart ? range.startContainer : range.endContainer;
+    const anchor = normalizeSelectionAnchorNode(initialAnchor);
+    return !modifyStart && range.endOffset === 0
+        ? resolvePreviousSelectableAnchor(anchor)
+        : anchor;
+}
+
+function insertSelectionSentinel(
+    endOfContent: HTMLElement,
+    anchor: Node,
+    insertBeforeAnchor: boolean,
+) {
+    const anchorElement = anchor as Element;
+    anchorElement.parentElement?.insertBefore(
+        endOfContent,
+        insertBeforeAnchor ? anchor : anchorElement.nextSibling,
+    );
+}
+
 function updateSelectionSentinel(
     textLayerDiv: HTMLElement,
     entry: ITextLayerEntry,
@@ -68,40 +117,14 @@ function updateSelectionSentinel(
     endOfContent.style.height = textLayerDiv.style.height || '100%';
     endOfContent.style.userSelect = 'text';
 
-    const modifyStart = prevRange && (
-        range.compareBoundaryPoints(Range.END_TO_END, prevRange) === 0 ||
-        range.compareBoundaryPoints(Range.START_TO_END, prevRange) === 0
-    );
-
-    let anchor: Node | null = modifyStart ? range.startContainer : range.endContainer;
-
-    if (anchor?.nodeType === Node.TEXT_NODE) {
-        anchor = anchor.parentNode;
-    }
-
-    if (!modifyStart && range.endOffset === 0 && anchor) {
-        while (anchor && !anchor.previousSibling) {
-            anchor = anchor.parentNode;
-        }
-        if (anchor) {
-            anchor = anchor.previousSibling;
-            while (anchor && !(anchor as Element).childNodes?.length) {
-                anchor = anchor.previousSibling;
-            }
-        }
-    }
+    const modifyStart = isSelectionStartBeingModified(range);
+    const anchor = resolveSelectionSentinelAnchor(range, modifyStart);
 
     if (!anchor) {
         return;
     }
 
-    const anchorParent = (anchor as Element).parentElement;
-    if (anchorParent) {
-        anchorParent.insertBefore(
-            endOfContent,
-            modifyStart ? anchor : (anchor as Element).nextSibling,
-        );
-    }
+    insertSelectionSentinel(endOfContent, anchor, modifyStart);
 }
 
 function enableGlobalSelectionListener() {

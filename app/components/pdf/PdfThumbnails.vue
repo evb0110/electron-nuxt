@@ -48,6 +48,7 @@ import {
 import type { TDocumentRef } from '@contracts/platform-api';
 import type {
     PDFDocumentProxy,
+    PDFPageProxy,
     RenderTask,
 } from 'pdfjs-dist';
 import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
@@ -467,6 +468,68 @@ function resolveCurrentPageSyncScrollTop(container: HTMLElement, page: number) {
     return Math.max(0, Math.min(maxScrollTop, bottom + comfortPadding - container.clientHeight));
 }
 
+function resolveRefinedCurrentPageScrollTop(container: HTMLElement, page: number) {
+    const thumbnail = getThumbnailElement(page);
+    if (!thumbnail || isPageWithinComfortViewport(container, page)) {
+        return null;
+    }
+
+    const thumbnailTop = thumbnail.offsetTop;
+    const thumbnailBottom = thumbnailTop + thumbnail.offsetHeight;
+    const comfortPadding = getComfortPaddingPx(container);
+    const scrollsTowardBottom = thumbnailBottom > (
+        container.scrollTop + container.clientHeight - comfortPadding
+    );
+    const nextScrollTop = scrollsTowardBottom
+        ? thumbnailBottom + comfortPadding - container.clientHeight
+        : thumbnailTop - comfortPadding;
+
+    return Math.max(0, Math.min(getMaxScrollTop(container), nextScrollTop));
+}
+
+function applyThumbnailScrollTop(container: HTMLElement, nextScrollTop: number) {
+    if (Math.abs(nextScrollTop - container.scrollTop) < 1) {
+        return false;
+    }
+
+    lastProgrammaticScrollAtMs = Date.now();
+    container.scrollTop = nextScrollTop;
+    updateViewportMetrics();
+    void scheduleVisibleThumbnailRender();
+    return true;
+}
+
+function resolveCurrentPageSyncRequest(reason: string) {
+    const container = resolveVisibleContainer(`current-page-sync:${reason}`);
+    if (
+        !container ||
+        props.totalPages <= 0 ||
+        isDragging.value ||
+        isExternalDragOver.value ||
+        isCurrentPageAutoSyncSuppressed()
+    ) {
+        return null;
+    }
+
+    const targetScrollTop = resolveCurrentPageSyncScrollTop(container, props.currentPage);
+    return targetScrollTop === null ? null : {
+        container,
+        targetScrollTop,
+    };
+}
+
+async function isCurrentPageSyncRunActive(syncRunId: number) {
+    await nextTick();
+    return syncRunId === currentPageSyncRunId;
+}
+
+function applyRefinedCurrentPageSync(container: HTMLElement) {
+    const refinedScrollTop = resolveRefinedCurrentPageScrollTop(container, props.currentPage);
+    if (refinedScrollTop !== null) {
+        applyThumbnailScrollTop(container, refinedScrollTop);
+    }
+}
+
 function isContainerVisible(container: HTMLElement) {
     const rect = container.getBoundingClientRect();
     return (
@@ -536,77 +599,21 @@ function updateViewportMetrics() {
 }
 
 async function syncCurrentPageIntoView(reason: string) {
-    const container = resolveVisibleContainer(`current-page-sync:${reason}`);
-    if (!container || props.totalPages <= 0) {
-        return;
-    }
-    if (isDragging.value || isExternalDragOver.value || isCurrentPageAutoSyncSuppressed()) {
-        return;
-    }
-
-    const targetScrollTop = resolveCurrentPageSyncScrollTop(container, props.currentPage);
-    if (targetScrollTop === null || Math.abs(targetScrollTop - container.scrollTop) < 1) {
+    const request = resolveCurrentPageSyncRequest(reason);
+    if (!request || !applyThumbnailScrollTop(request.container, request.targetScrollTop)) {
         return;
     }
 
     const syncRunId = ++currentPageSyncRunId;
-    lastProgrammaticScrollAtMs = Date.now();
-    container.scrollTop = targetScrollTop;
-    updateViewportMetrics();
-    void scheduleVisibleThumbnailRender();
-
-    await nextTick();
-    if (syncRunId !== currentPageSyncRunId) {
+    if (!await isCurrentPageSyncRunActive(syncRunId)) {
         return;
     }
 
-    const thumbnail = getThumbnailElement(props.currentPage);
-    if (!thumbnail || isPageWithinComfortViewport(container, props.currentPage)) {
-        return;
-    }
-
-    const thumbnailTop = thumbnail.offsetTop;
-    const thumbnailBottom = thumbnailTop + thumbnail.offsetHeight;
-    const comfortPadding = getComfortPaddingPx(container);
-    const refinedScrollTop = Math.max(
-        0,
-        Math.min(
-            getMaxScrollTop(container),
-            thumbnailBottom > (container.scrollTop + container.clientHeight - comfortPadding)
-                ? thumbnailBottom + comfortPadding - container.clientHeight
-                : thumbnailTop - comfortPadding,
-        ),
-    );
-    if (Math.abs(refinedScrollTop - container.scrollTop) < 1) {
-        return;
-    }
-
-    lastProgrammaticScrollAtMs = Date.now();
-    container.scrollTop = refinedScrollTop;
-    updateViewportMetrics();
-    void scheduleVisibleThumbnailRender();
+    applyRefinedCurrentPageSync(request.container);
 }
 
-const measureThumbnailHeight = useDebounceFn(() => {
-    const container = resolveVisibleContainer('measure-thumbnail-height');
-    if (!container) {
-        return;
-    }
-
-    const item = container.querySelector<HTMLElement>('.pdf-thumbnail');
-    if (!item) {
-        if (measurementState !== 'no-item') {
-            measurementState = 'no-item';
-            BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no thumbnail items', {
-                currentPage: props.currentPage,
-                totalPages: props.totalPages,
-                geometry: describeContainerGeometry(container),
-            });
-        }
-        return;
-    }
-
-    const renderedItem = Array.from(
+function findRenderedMeasurementItem(container: HTMLElement) {
+    return Array.from(
         container.querySelectorAll<HTMLElement>('.pdf-thumbnail'),
     ).find((candidate) => {
         const candidateCanvas = candidate.querySelector<HTMLCanvasElement>('canvas');
@@ -616,43 +623,88 @@ const measureThumbnailHeight = useDebounceFn(() => {
             && candidateCanvas.height > 0
             && candidateCanvas.getBoundingClientRect().height > 0,
         );
-    });
-    const measurementItem = renderedItem ?? item;
-    const canvas = measurementItem.querySelector<HTMLCanvasElement>('canvas');
-    if (
-        !renderedItem
-        || !canvas
-    ) {
-        if (measurementState !== 'no-rendered-canvas') {
-            measurementState = 'no-rendered-canvas';
-            BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no rendered canvas in virtual window yet', {
-                currentPage: props.currentPage,
-                totalPages: props.totalPages,
-                geometry: describeContainerGeometry(container),
-                itemPage: measurementItem.dataset.page ?? null,
-                canvasWidth: canvas?.width ?? null,
-                canvasHeight: canvas?.height ?? null,
-            });
-        }
+    }) ?? null;
+}
+
+function warnMissingMeasurementItem(container: HTMLElement) {
+    if (measurementState === 'no-item') {
         return;
     }
 
-    if (measurementState !== 'ready') {
-        measurementState = 'ready';
-        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail height measurement resumed with rendered canvas', {
-            currentPage: props.currentPage,
-            totalPages: props.totalPages,
-            itemPage: measurementItem.dataset.page ?? null,
-            canvasWidth: canvas.width,
-            canvasHeight: canvas.height,
-        });
+    measurementState = 'no-item';
+    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no thumbnail items', {
+        currentPage: props.currentPage,
+        totalPages: props.totalPages,
+        geometry: describeContainerGeometry(container),
+    });
+}
+
+function warnMissingRenderedCanvas(
+    container: HTMLElement,
+    measurementItem: HTMLElement,
+    canvas: HTMLCanvasElement | null,
+) {
+    if (measurementState === 'no-rendered-canvas') {
+        return;
     }
 
+    measurementState = 'no-rendered-canvas';
+    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Skipping thumbnail height measurement: no rendered canvas in virtual window yet', {
+        currentPage: props.currentPage,
+        totalPages: props.totalPages,
+        geometry: describeContainerGeometry(container),
+        itemPage: measurementItem.dataset.page ?? null,
+        canvasWidth: canvas?.width ?? null,
+        canvasHeight: canvas?.height ?? null,
+    });
+}
+
+function logMeasurementReady(
+    measurementItem: HTMLElement,
+    canvas: HTMLCanvasElement,
+) {
+    if (measurementState === 'ready') {
+        return;
+    }
+
+    measurementState = 'ready';
+    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail height measurement resumed with rendered canvas', {
+        currentPage: props.currentPage,
+        totalPages: props.totalPages,
+        itemPage: measurementItem.dataset.page ?? null,
+        canvasWidth: canvas.width,
+        canvasHeight: canvas.height,
+    });
+}
+
+function measureRenderedThumbnailHeight(container: HTMLElement) {
+    const item = container.querySelector<HTMLElement>('.pdf-thumbnail');
+    if (!item) {
+        warnMissingMeasurementItem(container);
+        return;
+    }
+
+    const renderedItem = findRenderedMeasurementItem(container);
+    const measurementItem = renderedItem ?? item;
+    const canvas = measurementItem.querySelector<HTMLCanvasElement>('canvas');
+    if (!renderedItem || !canvas) {
+        warnMissingRenderedCanvas(container, measurementItem, canvas);
+        return;
+    }
+
+    logMeasurementReady(measurementItem, canvas);
     const measuredHeight = Math.max(1, Math.ceil(measurementItem.getBoundingClientRect().height));
     updateThumbnailItemHeight(measuredHeight, 'dom-measure', {
         geometry: describeContainerGeometry(container),
         itemPage: measurementItem.dataset.page ?? null,
     });
+}
+
+const measureThumbnailHeight = useDebounceFn(() => {
+    const container = resolveVisibleContainer('measure-thumbnail-height');
+    if (container) {
+        measureRenderedThumbnailHeight(container);
+    }
 }, 16);
 
 function handleContainerScroll() {
@@ -729,6 +781,20 @@ function cancelRenderForPage(page: number) {
     renderingCanvases.delete(page);
 }
 
+function cancelStaleThumbnailRender(pageNum: number) {
+    const activeTask = renderTasks.get(pageNum);
+    if (activeTask) {
+        try {
+            activeTask.cancel();
+        } catch {
+            // Ignore cancellation errors
+        }
+        renderTasks.delete(pageNum);
+    }
+    renderingPages.delete(pageNum);
+    renderingCanvases.delete(pageNum);
+}
+
 function pruneDetachedThumbnailState() {
     const mountedPages = new Set(virtualPages.value);
 
@@ -753,136 +819,175 @@ function pruneDetachedThumbnailState() {
     }
 }
 
-async function renderThumbnail(
-    pdfDocument: PDFDocumentProxy,
-    pageNum: number,
-    runId: number,
-) {
-    if (runId !== renderRunId) {
-        return;
-    }
-
-    if (!isPdfDocumentUsable(pdfDocument)) {
-        return;
-    }
-
+function prepareThumbnailCanvas(pageNum: number) {
     const canvas = getCanvas(pageNum);
-    if (!canvas) {
-        return;
-    }
-
-    if (isCurrentThumbnailCanvasRendered(pageNum)) {
-        return;
+    if (!canvas || isCurrentThumbnailCanvasRendered(pageNum)) {
+        return null;
     }
 
     if (renderingPages.has(pageNum)) {
-        const renderingCanvas = renderingCanvases.get(pageNum);
-        if (renderingCanvas === canvas) {
-            return;
+        if (renderingCanvases.get(pageNum) === canvas) {
+            return null;
         }
-
-        const activeTask = renderTasks.get(pageNum);
-        if (activeTask) {
-            try {
-                activeTask.cancel();
-            } catch {
-                // Ignore cancellation errors
-            }
-            renderTasks.delete(pageNum);
-        }
-        renderingPages.delete(pageNum);
-        renderingCanvases.delete(pageNum);
+        cancelStaleThumbnailRender(pageNum);
     }
 
     delete canvas.dataset.thumbnailRendered;
     renderingPages.add(pageNum);
     renderingCanvases.set(pageNum, canvas);
+    return canvas;
+}
+
+function resolveThumbnailRenderMetrics(page: PDFPageProxy, pageNum: number) {
+    const viewport = page.getViewport({ scale: 1 });
+    const scale = THUMBNAIL_WIDTH / viewport.width;
+    const scaledViewport = page.getViewport({ scale });
+    const outputScale = resolveThumbnailOutputScale();
+    const pixelWidth = Math.max(1, Math.round(scaledViewport.width * outputScale));
+    const pixelHeight = Math.max(1, Math.round(scaledViewport.height * outputScale));
+
+    updateThumbnailItemHeight(
+        resolveThumbnailItemHeightFromCanvasHeight(scaledViewport.height),
+        'render-viewport',
+        {
+            page: pageNum,
+            outputScale: roundMetric(outputScale),
+            viewportWidth: roundMetric(scaledViewport.width),
+            viewportHeight: roundMetric(scaledViewport.height),
+        },
+    );
+
+    return {
+        scaledViewport,
+        pixelWidth,
+        pixelHeight,
+        scaleX: pixelWidth / scaledViewport.width,
+        scaleY: pixelHeight / scaledViewport.height,
+    };
+}
+
+function applyThumbnailCanvasSize(
+    canvas: HTMLCanvasElement,
+    metrics: ReturnType<typeof resolveThumbnailRenderMetrics>,
+) {
+    canvas.width = metrics.pixelWidth;
+    canvas.height = metrics.pixelHeight;
+    canvas.style.width = `${metrics.scaledViewport.width}px`;
+    canvas.style.height = `${metrics.scaledViewport.height}px`;
+}
+
+function buildThumbnailRenderTransform(scaleX: number, scaleY: number) {
+    return scaleX !== 1 || scaleY !== 1
+        ? [
+            scaleX,
+            0,
+            0,
+            scaleY,
+            0,
+            0,
+        ]
+        : undefined;
+}
+
+function finalizeRenderedThumbnail(pageNum: number, canvas: HTMLCanvasElement) {
+    if (getCanvas(pageNum) !== canvas) {
+        void scheduleVisibleThumbnailRender();
+        return;
+    }
+
+    canvas.dataset.thumbnailRendered = 'true';
+    renderedCanvases.set(pageNum, canvas);
+    void measureThumbnailHeight();
+    if (renderedCanvases.size === 1) {
+        void scheduleVisibleThumbnailRender();
+    }
+}
+
+function shouldIgnoreThumbnailRenderError(
+    error: unknown,
+    pdfDocument: PDFDocumentProxy,
+    runId: number,
+) {
+    return (
+        (error instanceof Error && error.name === 'RenderingCancelledException') ||
+        runId !== renderRunId ||
+        !isPdfDocumentUsable(pdfDocument)
+    );
+}
+
+async function renderPreparedThumbnail(
+    pdfDocument: PDFDocumentProxy,
+    pageNum: number,
+    runId: number,
+    canvas: HTMLCanvasElement,
+) {
+    const page = await pdfDocument.getPage(pageNum);
+    if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
+        return;
+    }
+
+    const metrics = resolveThumbnailRenderMetrics(page, pageNum);
+    applyThumbnailCanvasSize(canvas, metrics);
+    const context = canvas.getContext('2d');
+    if (!context) {
+        return;
+    }
+
+    const task = page.render({
+        canvasContext: context,
+        viewport: metrics.scaledViewport,
+        canvas,
+        transform: buildThumbnailRenderTransform(metrics.scaleX, metrics.scaleY),
+    });
+    renderTasks.set(pageNum, task);
+    await task.promise;
+    renderTasks.delete(pageNum);
+    finalizeRenderedThumbnail(pageNum, canvas);
+}
+
+function cleanupThumbnailRenderState(pageNum: number, canvas: HTMLCanvasElement) {
+    if (renderingCanvases.get(pageNum) === canvas) {
+        renderingPages.delete(pageNum);
+        renderingCanvases.delete(pageNum);
+    }
+}
+
+function handleThumbnailRenderError(
+    error: unknown,
+    pdfDocument: PDFDocumentProxy,
+    pageNum: number,
+    runId: number,
+) {
+    renderTasks.delete(pageNum);
+    if (shouldIgnoreThumbnailRenderError(error, pdfDocument, runId)) {
+        return;
+    }
+
+    BrowserLogger.error(
+        'pdf-thumbnails',
+        `Failed to render thumbnail for page ${pageNum}`,
+        error,
+    );
+}
+
+async function renderThumbnail(
+    pdfDocument: PDFDocumentProxy,
+    pageNum: number,
+    runId: number,
+) {
+    const canvas = runId === renderRunId && isPdfDocumentUsable(pdfDocument)
+        ? prepareThumbnailCanvas(pageNum)
+        : null;
+    if (!canvas) {
+        return;
+    }
 
     try {
-        const page = await pdfDocument.getPage(pageNum);
-        if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
-            return;
-        }
-        const viewport = page.getViewport({ scale: 1 });
-        const scale = THUMBNAIL_WIDTH / viewport.width;
-        const scaledViewport = page.getViewport({ scale });
-        const outputScale = resolveThumbnailOutputScale();
-        const pixelWidth = Math.max(1, Math.round(scaledViewport.width * outputScale));
-        const pixelHeight = Math.max(1, Math.round(scaledViewport.height * outputScale));
-        const scaleX = pixelWidth / scaledViewport.width;
-        const scaleY = pixelHeight / scaledViewport.height;
-        updateThumbnailItemHeight(
-            resolveThumbnailItemHeightFromCanvasHeight(scaledViewport.height),
-            'render-viewport',
-            {
-                page: pageNum,
-                outputScale: roundMetric(outputScale),
-                viewportWidth: roundMetric(scaledViewport.width),
-                viewportHeight: roundMetric(scaledViewport.height),
-            },
-        );
-
-        canvas.width = pixelWidth;
-        canvas.height = pixelHeight;
-        canvas.style.width = `${scaledViewport.width}px`;
-        canvas.style.height = `${scaledViewport.height}px`;
-
-        const context = canvas.getContext('2d');
-        if (!context) {
-            return;
-        }
-
-        const task = page.render({
-            canvasContext: context,
-            viewport: scaledViewport,
-            canvas,
-            transform: scaleX !== 1 || scaleY !== 1
-                ? [
-                    scaleX,
-                    0,
-                    0,
-                    scaleY,
-                    0,
-                    0,
-                ]
-                : undefined,
-        });
-        renderTasks.set(pageNum, task);
-        await task.promise;
-        renderTasks.delete(pageNum);
-
-        if (getCanvas(pageNum) !== canvas) {
-            void scheduleVisibleThumbnailRender();
-            return;
-        }
-
-        canvas.dataset.thumbnailRendered = 'true';
-        renderedCanvases.set(pageNum, canvas);
-        void measureThumbnailHeight();
-        if (renderedCanvases.size === 1) {
-            void scheduleVisibleThumbnailRender();
-        }
+        await renderPreparedThumbnail(pdfDocument, pageNum, runId, canvas);
     } catch (error) {
-        renderTasks.delete(pageNum);
-        if (
-            error instanceof Error
-            && error.name === 'RenderingCancelledException'
-        ) {
-            return;
-        }
-        if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
-            return;
-        }
-        BrowserLogger.error(
-            'pdf-thumbnails',
-            `Failed to render thumbnail for page ${pageNum}`,
-            error,
-        );
+        handleThumbnailRenderError(error, pdfDocument, pageNum, runId);
     } finally {
-        if (renderingCanvases.get(pageNum) === canvas) {
-            renderingPages.delete(pageNum);
-            renderingCanvases.delete(pageNum);
-        }
+        cleanupThumbnailRenderState(pageNum, canvas);
     }
 }
 

@@ -43,41 +43,34 @@ function sanitizeString(value: unknown, maxLength: number) {
     return normalized ? normalized.slice(0, maxLength) : null;
 }
 
-function sanitizePayloadValue(value: unknown, depth = 0): unknown {
+function sanitizePayloadScalar(value: unknown) {
     if (value === null) {
         return null;
     }
-
     if (typeof value === 'string') {
         return value.slice(0, MAX_STRING_LENGTH);
     }
-
     if (typeof value === 'boolean') {
         return value;
     }
-
     if (typeof value === 'number') {
         return Number.isFinite(value) ? value : null;
     }
+    return undefined;
+}
 
-    if (depth >= MAX_NORMALIZE_DEPTH) {
-        return null;
-    }
+function sanitizePayloadArray(value: unknown[], depth: number) {
+    return value
+        .slice(0, MAX_ARRAY_ITEMS)
+        .map(item => sanitizePayloadValue(item, depth + 1));
+}
 
-    if (Array.isArray(value)) {
-        return value
-            .slice(0, MAX_ARRAY_ITEMS)
-            .map(item => sanitizePayloadValue(item, depth + 1));
-    }
-
-    if (!isRecord(value)) {
-        return null;
-    }
-
+function sanitizePayloadObject(value: Record<string, unknown>, depth: number) {
     const normalizedEntries: TSanitizedPayloadEntry[] = [];
-    for (const entry of Object.entries(value).slice(0, MAX_OBJECT_KEYS)) {
-        const key = entry[0];
-        const entryValue = entry[1];
+    for (const [
+        key,
+        entryValue,
+    ] of Object.entries(value).slice(0, MAX_OBJECT_KEYS)) {
         normalizedEntries.push([
             key.slice(0, 64),
             sanitizePayloadValue(entryValue, depth + 1),
@@ -85,6 +78,29 @@ function sanitizePayloadValue(value: unknown, depth = 0): unknown {
     }
 
     return Object.fromEntries(normalizedEntries);
+}
+
+function sanitizePayloadContainer(value: unknown, depth: number) {
+    if (depth >= MAX_NORMALIZE_DEPTH) {
+        return null;
+    }
+
+    if (Array.isArray(value)) {
+        return sanitizePayloadArray(value, depth);
+    }
+
+    if (!isRecord(value)) {
+        return null;
+    }
+
+    return sanitizePayloadObject(value, depth);
+}
+
+function sanitizePayloadValue(value: unknown, depth = 0): unknown {
+    const scalar = sanitizePayloadScalar(value);
+    return scalar === undefined
+        ? sanitizePayloadContainer(value, depth)
+        : scalar;
 }
 
 function sanitizePayload(value: unknown) {

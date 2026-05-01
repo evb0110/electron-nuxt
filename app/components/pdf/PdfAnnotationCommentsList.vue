@@ -107,6 +107,61 @@ interface IProps {
     authorName?: string | null;
 }
 
+const COMMENT_SUBTYPE_LABELS = [
+    {
+        needle: 'highlight',
+        labelKey: 'annotations.highlightLabel',
+    },
+    {
+        needle: 'underline',
+        labelKey: 'annotations.underlineLabel',
+    },
+    {
+        needle: 'strike',
+        labelKey: 'annotations.strikeOutLabel',
+    },
+    {
+        needle: 'squiggly',
+        labelKey: 'annotations.squiggleLabel',
+    },
+    {
+        needle: 'ink',
+        labelKey: 'annotations.inkLabel',
+    },
+    {
+        needle: 'text',
+        labelKey: 'annotations.stickyNoteLabel',
+    },
+    {
+        needle: 'popup',
+        labelKey: 'annotations.stickyNoteLabel',
+    },
+    {
+        needle: 'note',
+        labelKey: 'annotations.stickyNoteLabel',
+    },
+    {
+        needle: 'square',
+        labelKey: 'annotations.rectangleLabel',
+    },
+    {
+        needle: 'rectangle',
+        labelKey: 'annotations.rectangleLabel',
+    },
+    {
+        needle: 'circle',
+        labelKey: 'annotations.circleLabel',
+    },
+    {
+        needle: 'line',
+        labelKey: 'annotations.lineLabel',
+    },
+    {
+        needle: 'arrow',
+        labelKey: 'annotations.arrowLabel',
+    },
+] as const;
+
 const { t } = useTypedI18n();
 
 const props = defineProps<IProps>();
@@ -154,38 +209,9 @@ function commentTypeLabel(comment: IAnnotationCommentSummary) {
     }
 
     const subtype = (comment.subtype ?? '').toLowerCase();
-    if (subtype.includes('highlight')) {
-        return t('annotations.highlightLabel');
-    }
-    if (subtype.includes('underline')) {
-        return t('annotations.underlineLabel');
-    }
-    if (subtype.includes('strike')) {
-        return t('annotations.strikeOutLabel');
-    }
-    if (subtype.includes('squiggly')) {
-        return t('annotations.squiggleLabel');
-    }
-    if (subtype.includes('ink')) {
-        return t('annotations.inkLabel');
-    }
-    if (subtype.includes('text') || subtype.includes('popup') || subtype.includes('note')) {
-        return t('annotations.stickyNoteLabel');
-    }
-    if (subtype.includes('square') || subtype.includes('rectangle')) {
-        return t('annotations.rectangleLabel');
-    }
-    if (subtype.includes('circle')) {
-        return t('annotations.circleLabel');
-    }
-    if (subtype.includes('line')) {
-        return t('annotations.lineLabel');
-    }
-    if (subtype.includes('arrow')) {
-        return t('annotations.arrowLabel');
-    }
-
-    return t('annotations.annotationLabel');
+    const labelKey = COMMENT_SUBTYPE_LABELS.find(({ needle }) => subtype.includes(needle))?.labelKey
+        ?? 'annotations.annotationLabel';
+    return t(labelKey);
 }
 
 function notePreview(comment: IAnnotationCommentSummary) {

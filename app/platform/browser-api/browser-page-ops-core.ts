@@ -87,25 +87,45 @@ function validatePageNumbers(
         throw new Error(`${label}: must be a non-empty array of page numbers`);
     }
 
+    const pageSet = collectValidatedPageNumberSet(pages, label, options);
+
+    if (options.requirePermutation) {
+        validatePageNumberPermutation(pageSet, label, options.pageCount);
+    }
+}
+
+function collectValidatedPageNumberSet(
+    pages: number[],
+    label: string,
+    options: {
+        pageCount: number;
+        requireUnique?: boolean;
+    },
+) {
     const pageSet = new Set<number>();
     for (const page of pages) {
-        if (!Number.isInteger(page) || page < 1) {
-            throw new Error(`${label}: invalid page number ${page}`);
-        }
-        if (page > options.pageCount) {
-            throw new Error(`${label}: page number ${page} is out of range 1-${options.pageCount}`);
-        }
+        validatePageNumber(page, label, options.pageCount);
         if (options.requireUnique && pageSet.has(page)) {
             throw new Error(`${label}: duplicate page number ${page}`);
         }
         pageSet.add(page);
     }
+    return pageSet;
+}
 
-    if (options.requirePermutation) {
-        for (let pageNumber = 1; pageNumber <= options.pageCount; pageNumber += 1) {
-            if (!pageSet.has(pageNumber)) {
-                throw new Error(`${label}: missing page ${pageNumber} in reorder payload`);
-            }
+function validatePageNumber(page: number, label: string, pageCount: number) {
+    if (!Number.isInteger(page) || page < 1) {
+        throw new Error(`${label}: invalid page number ${page}`);
+    }
+    if (page > pageCount) {
+        throw new Error(`${label}: page number ${page} is out of range 1-${pageCount}`);
+    }
+}
+
+function validatePageNumberPermutation(pageSet: Set<number>, label: string, pageCount: number) {
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        if (!pageSet.has(pageNumber)) {
+            throw new Error(`${label}: missing page ${pageNumber} in reorder payload`);
         }
     }
 }

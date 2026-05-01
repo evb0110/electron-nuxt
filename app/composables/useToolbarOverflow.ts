@@ -10,6 +10,20 @@ const MAX_COLLAPSE_TIER = 5;
 const OVERFLOW_TOLERANCE_PX = 0.5;
 const EXPAND_RETRY_WIDTH_DELTA_PX = 8;
 
+function normalizeCollapseTier(tier: number) {
+    return Math.max(0, Math.min(tier, MAX_COLLAPSE_TIER));
+}
+
+function shouldSkipExpandRetry(options: {
+    tier: number;
+    width: number;
+    failedTier: number | null;
+    failedWidth: number;
+}) {
+    return options.failedTier === options.tier
+        && options.width <= (options.failedWidth + EXPAND_RETRY_WIDTH_DELTA_PX);
+}
+
 export const useToolbarOverflow = () => {
     const toolbarRef = ref<HTMLElement | null>(null);
     const collapseTier = ref(0);
@@ -73,7 +87,7 @@ export const useToolbarOverflow = () => {
         }
 
         try {
-            let tier = Math.max(0, Math.min(collapseTier.value, MAX_COLLAPSE_TIER));
+            let tier = normalizeCollapseTier(collapseTier.value);
             collapseTier.value = tier;
             await waitForLayout();
 
@@ -109,10 +123,12 @@ export const useToolbarOverflow = () => {
 
                 const currentTierWidth = currentToolbar.clientWidth;
 
-                if (
-                    failedExpandTier === tier
-                    && currentTierWidth <= (failedExpandWidth + EXPAND_RETRY_WIDTH_DELTA_PX)
-                ) {
+                if (shouldSkipExpandRetry({
+                    tier,
+                    width: currentTierWidth,
+                    failedTier: failedExpandTier,
+                    failedWidth: failedExpandWidth,
+                })) {
                     return;
                 }
 

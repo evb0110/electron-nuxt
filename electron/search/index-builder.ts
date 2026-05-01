@@ -84,6 +84,12 @@ function isPositiveInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
+function finiteNumberOrUndefined(value: unknown) {
+    return typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : undefined;
+}
+
 /**
  * Load OCR v2 index text for all pages.
  * Returns a Map of pageNumber -> text, or null if no v2 index exists.
@@ -149,6 +155,39 @@ function getIndexPath(pdfPath: string) {
     return `${pdfPath}.index.json`;
 }
 
+function parseSearchIndexPage(page: unknown): IPageIndex | null {
+    if (!isRecord(page)) {
+        return null;
+    }
+    if (!isPositiveInteger(page.pageNumber)) {
+        return null;
+    }
+    if (typeof page.text !== 'string') {
+        return null;
+    }
+
+    return {
+        pageNumber: page.pageNumber,
+        text: page.text,
+        words: Array.isArray(page.words) ? page.words as IOcrWord[] : undefined,
+        pageWidth: finiteNumberOrUndefined(page.pageWidth),
+        pageHeight: finiteNumberOrUndefined(page.pageHeight),
+    };
+}
+
+function parseSearchIndexPages(pages: unknown[]): IPageIndex[] | null {
+    const normalizedPages: IPageIndex[] = [];
+    for (const page of pages) {
+        const normalizedPage = parseSearchIndexPage(page);
+        if (!normalizedPage) {
+            return null;
+        }
+        normalizedPages.push(normalizedPage);
+    }
+    normalizedPages.sort((a, b) => a.pageNumber - b.pageNumber);
+    return normalizedPages;
+}
+
 function parseSearchIndexPayload(payload: unknown): IPdfSearchIndex | null {
     if (!isRecord(payload) || !Array.isArray(payload.pages)) {
         return null;
@@ -157,45 +196,18 @@ function parseSearchIndexPayload(payload: unknown): IPdfSearchIndex | null {
         return null;
     }
 
-    const normalizedPages: IPageIndex[] = [];
-    for (const page of payload.pages) {
-        if (!isRecord(page)) {
-            return null;
-        }
-        if (
-            typeof page.pageNumber !== 'number'
-            || !Number.isInteger(page.pageNumber)
-            || page.pageNumber < 1
-        ) {
-            return null;
-        }
-        if (typeof page.text !== 'string') {
-            return null;
-        }
-
-        normalizedPages.push({
-            pageNumber: page.pageNumber,
-            text: page.text,
-            words: Array.isArray(page.words) ? page.words as IOcrWord[] : undefined,
-            pageWidth: typeof page.pageWidth === 'number' && Number.isFinite(page.pageWidth)
-                ? page.pageWidth
-                : undefined,
-            pageHeight: typeof page.pageHeight === 'number' && Number.isFinite(page.pageHeight)
-                ? page.pageHeight
-                : undefined,
-        });
+    const normalizedPages = parseSearchIndexPages(payload.pages);
+    if (!normalizedPages) {
+        return null;
     }
-    normalizedPages.sort((a, b) => a.pageNumber - b.pageNumber);
+
+    const createdAt = finiteNumberOrUndefined(payload.createdAt);
 
     return {
         pdfPath: payload.pdfPath,
-        createdAt: typeof payload.createdAt === 'number' && Number.isFinite(payload.createdAt)
-            ? payload.createdAt
-            : Date.now(),
+        createdAt: createdAt ?? Date.now(),
         pages: normalizedPages,
-        pageCount: typeof payload.pageCount === 'number' && Number.isInteger(payload.pageCount) && payload.pageCount > 0
-            ? payload.pageCount
-            : undefined,
+        pageCount: isPositiveInteger(payload.pageCount) ? payload.pageCount : undefined,
     };
 }
 

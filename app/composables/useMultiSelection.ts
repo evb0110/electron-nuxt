@@ -1,3 +1,33 @@
+function getSelectionRange<T extends string | number>(
+    id: T,
+    allIds: T[],
+    anchorId: T | null,
+) {
+    if (anchorId === null) {
+        return null;
+    }
+
+    const anchorIndex = allIds.indexOf(anchorId);
+    const targetIndex = allIds.indexOf(id);
+    if (anchorIndex < 0 || targetIndex < 0) {
+        return null;
+    }
+
+    const start = Math.min(anchorIndex, targetIndex);
+    const end = Math.max(anchorIndex, targetIndex);
+    return allIds.slice(start, end + 1);
+}
+
+function toggleIdInSelection<T extends string | number>(selectedIds: Set<T>, id: T) {
+    const next = new Set(selectedIds);
+    if (next.has(id)) {
+        next.delete(id);
+    } else {
+        next.add(id);
+    }
+    return next;
+}
+
 export const useMultiSelection = <T extends string | number>() => {
     const selected = shallowRef<Set<T>>(new Set());
     const anchor = shallowRef<T | null>(null);
@@ -10,33 +40,16 @@ export const useMultiSelection = <T extends string | number>() => {
             meta?: boolean 
         } = {},
     ) {
-        if (opts.shift && anchor.value !== null) {
-            const anchorValue = anchor.value as T;
-            const anchorIndex = allIds.indexOf(anchorValue);
-            const targetIndex = allIds.indexOf(id);
-            if (anchorIndex >= 0 && targetIndex >= 0) {
-                const start = Math.min(anchorIndex, targetIndex);
-                const end = Math.max(anchorIndex, targetIndex);
-                const next = new Set<T>();
-                for (let i = start; i <= end; i += 1) {
-                    const current = allIds[i];
-                    if (current !== undefined) {
-                        next.add(current);
-                    }
-                }
-                selected.value = next;
-                return;
-            }
+        const selectionRange = opts.shift
+            ? getSelectionRange(id, allIds, anchor.value)
+            : null;
+        if (selectionRange) {
+            selected.value = new Set<T>(selectionRange);
+            return;
         }
 
         if (opts.meta) {
-            const next = new Set(selected.value);
-            if (next.has(id)) {
-                next.delete(id);
-            } else {
-                next.add(id);
-            }
-            selected.value = next;
+            selected.value = toggleIdInSelection(selected.value, id);
             anchor.value = id;
             return;
         }
@@ -46,12 +59,12 @@ export const useMultiSelection = <T extends string | number>() => {
     }
 
     function clear() {
-        selected.value = new Set();
+        selected.value = new Set<T>();
         anchor.value = null;
     }
 
     function selectAll(ids: T[]) {
-        selected.value = new Set(ids);
+        selected.value = new Set<T>(ids);
     }
 
     function isSelected(id: T) {

@@ -6,39 +6,54 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, '..');
 const allowlistPath = path.join(projectRoot, 'scripts', 'build-warning-allowlist.json');
 
+function isWarningHeader(line) {
+    return /^\s*WARN\b/u.test(line);
+}
+
+function getWarningHeaderLine(line) {
+    const headerTail = line.replace(/^\s*WARN\s*/u, '').trim();
+    return headerTail.length > 0 ? `WARN ${headerTail}` : 'WARN';
+}
+
+function readWarningBlockLines(lines, startIndex) {
+    const blockLines = [getWarningHeaderLine(lines[startIndex])];
+    let cursor = startIndex + 1;
+
+    while (cursor < lines.length) {
+        const next = lines[cursor];
+        if (isWarningHeader(next)) {
+            break;
+        }
+        if (next.trim().length === 0) {
+            if (blockLines.length > 1) {
+                break;
+            }
+            cursor += 1;
+            continue;
+        }
+
+        blockLines.push(next.trimEnd());
+        cursor += 1;
+    }
+
+    return {
+        block: blockLines.join('\n').trim(),
+        nextIndex: cursor,
+    };
+}
+
 function parseWarningBlocks(logText) {
     const lines = logText.split(/\r?\n/u);
     const warnings = [];
 
     for (let i = 0; i < lines.length; i += 1) {
-        if (!/^\s*WARN\b/u.test(lines[i])) {
+        if (!isWarningHeader(lines[i])) {
             continue;
         }
 
-        const blockLines = [];
-        const headerTail = lines[i].replace(/^\s*WARN\s*/u, '').trim();
-        blockLines.push(headerTail.length > 0 ? `WARN ${headerTail}` : 'WARN');
-
-        let cursor = i + 1;
-        while (cursor < lines.length) {
-            const next = lines[cursor];
-            if (/^\s*WARN\b/u.test(next)) {
-                break;
-            }
-            if (next.trim().length === 0) {
-                if (blockLines.length > 1) {
-                    break;
-                }
-                cursor += 1;
-                continue;
-            }
-
-            blockLines.push(next.trimEnd());
-            cursor += 1;
-        }
-
-        warnings.push(blockLines.join('\n').trim());
-        i = cursor - 1;
+        const warningBlock = readWarningBlockLines(lines, i);
+        warnings.push(warningBlock.block);
+        i = warningBlock.nextIndex - 1;
     }
 
     return warnings;

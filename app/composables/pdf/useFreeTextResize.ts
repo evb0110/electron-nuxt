@@ -12,6 +12,19 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 const FREE_TEXT_FONT_SIZE_MIN = 8;
 const FREE_TEXT_FONT_SIZE_MAX = 96;
 
+type TFreeTextResizableEditor = IPdfjsEditor & {
+    __freeTextResizablePatched?: boolean;
+    __freeTextFontToWidthRatio?: number;
+    makeResizable?: () => void;
+};
+
+type TFreeTextResizeHookEditor = IPdfjsEditor & {
+    __freeTextResizeHookPatched?: boolean;
+    __freeTextFontToWidthRatio?: number;
+    __freeTextResizeSyncRaf?: number;
+    __freeTextIsResizeSync?: boolean;
+};
+
 interface IUseFreeTextResizeOptions {
     getAnnotationUiManager: () => AnnotationEditorUIManager | null;
     getNumPages: () => number;
@@ -50,7 +63,7 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
             : null;
     }
 
-    function getFreeTextEditorFontSize(editor: IPdfjsEditor) {
+    function readSerializedFontSize(editor: IPdfjsEditor) {
         const serialized = (editor as { serialize?: () => unknown }).serialize?.();
         if (
             serialized
@@ -63,28 +76,40 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
                 return fontSize;
             }
         }
+        return null;
+    }
+
+    function readInternalFontSize(internal: HTMLElement) {
+        const inlineFontSize = parseEditorInlineFontSizePx(internal.style.fontSize);
+        if (inlineFontSize) {
+            return inlineFontSize;
+        }
+
+        const computedStyle = getComputedStyle(internal);
+        const computedFontSize = Number.parseFloat(computedStyle.fontSize);
+        if (!Number.isFinite(computedFontSize) || computedFontSize <= 0) {
+            return null;
+        }
+
+        const scaleToken = computedStyle.getPropertyValue('--total-scale-factor').trim();
+        const scale = Number.parseFloat(scaleToken);
+        return Number.isFinite(scale) && scale > 0
+            ? computedFontSize / scale
+            : computedFontSize;
+    }
+
+    function getFreeTextEditorFontSize(editor: IPdfjsEditor) {
+        const serializedFontSize = readSerializedFontSize(editor);
+        if (serializedFontSize) {
+            return serializedFontSize;
+        }
 
         const internal = editor.div?.querySelector<HTMLElement>('.internal');
         if (!internal) {
             return null;
         }
 
-        const inlineFontSize = parseEditorInlineFontSizePx(internal.style.fontSize);
-        if (inlineFontSize) {
-            return inlineFontSize;
-        }
-
-        const computedFontSize = Number.parseFloat(getComputedStyle(internal).fontSize);
-        if (!Number.isFinite(computedFontSize) || computedFontSize <= 0) {
-            return null;
-        }
-
-        const scaleToken = getComputedStyle(internal).getPropertyValue('--total-scale-factor').trim();
-        const scale = Number.parseFloat(scaleToken);
-        if (Number.isFinite(scale) && scale > 0) {
-            return computedFontSize / scale;
-        }
-        return computedFontSize;
+        return readInternalFontSize(internal);
     }
 
     function updateFreeTextResizerSize(editor: IPdfjsEditor) {
@@ -141,21 +166,29 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
             return;
         }
 
-        div.addEventListener('pointerdown', (e: PointerEvent) => {
-            if (e.button !== 0) {
-                return;
-            }
-            if (typeof editor.isInEditMode === 'function' && editor.isInEditMode()) {
-                return;
-            }
-            if (!editor._isDraggable || editor.isSelected) {
+        div.addEventListener('pointerdown', handleFreeTextPreSelectPointerDown(editor), { capture: true });
+    }
+
+    function canPreSelectFreeTextEditor(editor: IPdfjsEditor, event: PointerEvent) {
+        if (event.button !== 0) {
+            return false;
+        }
+        if (typeof editor.isInEditMode === 'function' && editor.isInEditMode()) {
+            return false;
+        }
+        return Boolean(editor._isDraggable && !editor.isSelected);
+    }
+
+    function handleFreeTextPreSelectPointerDown(editor: IPdfjsEditor) {
+        return (event: PointerEvent) => {
+            if (!canPreSelectFreeTextEditor(editor, event)) {
                 return;
             }
             const uiManager = getAnnotationUiManager();
             if (uiManager) {
                 setSelectedEditor(uiManager, editor);
             }
-        }, { capture: true });
+        };
     }
 
     function isActualNaN(value: unknown): boolean {
@@ -182,6 +215,34 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
         }
     }
 
+    function recoverDimensionValue(isBad: boolean, measured: number, parent: number) {
+        if (!isBad) {
+            return null;
+        }
+        if (measured <= 0 || parent <= 0) {
+            return null;
+        }
+        return measured / parent;
+    }
+
+    function assignRecoveredDimension(value: number | null, assign: (value: number) => void) {
+        if (value !== null) {
+            assign(value);
+        }
+    }
+
+    function getRecoverableParentDimensions(editor: IPdfjsEditor) {
+        const editorWithDims = editor as IPdfjsEditor & { parentDimensions?: number[] };
+        const parentDims = editorWithDims.parentDimensions;
+        if (!parentDims || parentDims.length < 2) {
+            return null;
+        }
+        return {
+            parentW: parentDims[0] ?? 0,
+            parentH: parentDims[1] ?? 0,
+        };
+    }
+
     function recoverNaNDimensions(editor: IPdfjsEditor) {
         const div = editor.div;
         if (!div) {
@@ -192,20 +253,19 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
         if (!wBad && !hBad) {
             return;
         }
-        const editorWithDims = editor as IPdfjsEditor & { parentDimensions?: number[] };
-        const parentDims = editorWithDims.parentDimensions;
-        if (!parentDims || parentDims.length < 2) {
+        const parentDims = getRecoverableParentDimensions(editor);
+        if (!parentDims) {
             return;
         }
-        const parentW = parentDims[0] ?? 0;
-        const parentH = parentDims[1] ?? 0;
         const rect = div.getBoundingClientRect();
-        if (wBad && rect.width > 0 && parentW > 0) {
-            editor.width = rect.width / parentW;
-        }
-        if (hBad && rect.height > 0 && parentH > 0) {
-            editor.height = rect.height / parentH;
-        }
+        const width = recoverDimensionValue(wBad, rect.width, parentDims.parentW);
+        const height = recoverDimensionValue(hBad, rect.height, parentDims.parentH);
+        assignRecoveredDimension(width, (value) => {
+            editor.width = value;
+        });
+        assignRecoveredDimension(height, (value) => {
+            editor.height = value;
+        });
     }
 
     function ensureFreeTextEditorInteractivity(editor: IPdfjsEditor) {
@@ -237,22 +297,13 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
     }
 
     function patchFreeTextResizeFontSync(editor: IPdfjsEditor) {
-        const tagged = editor as IPdfjsEditor & {
-            __freeTextResizeHookPatched?: boolean;
-            __freeTextFontToWidthRatio?: number;
-            __freeTextResizeSyncRaf?: number;
-            __freeTextIsResizeSync?: boolean;
-        };
+        const tagged = editor as TFreeTextResizeHookEditor;
         if (tagged.__freeTextResizeHookPatched) {
             return;
         }
 
         function captureRatio() {
-            const fontSize = getFreeTextEditorFontSize(editor);
-            const w = editor.width;
-            if (fontSize && fontSize > 0 && typeof w === 'number' && w > 0.01) {
-                tagged.__freeTextFontToWidthRatio = fontSize / w;
-            }
+            refreshFreeTextFontRatio(editor, tagged);
         }
         captureRatio();
 
@@ -263,22 +314,12 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
                 const isExternalFontChange
                     = type === AnnotationEditorParamsType.FREETEXT_SIZE
                     && !tagged.__freeTextIsResizeSync;
-                if (isExternalFontChange && editor.div) {
-                    const currentFont = getFreeTextEditorFontSize(editor);
-                    if (currentFont && Math.abs(currentFont - Number(value)) < 0.5) {
-                        originalUpdateParams(type, value);
-                        return;
-                    }
-                    editor.div.style.width = '';
-                    editor.div.style.height = '';
+                if (isExternalFontChange && shouldResetFreeTextDimensionsForFontChange(editor, value)) {
+                    resetFreeTextDimensions(editor);
                 }
                 originalUpdateParams(type, value);
                 if (isExternalFontChange) {
-                    const fontSize = getFreeTextEditorFontSize(editor);
-                    const w = editor.width;
-                    if (fontSize && fontSize > 0 && w && w > 0) {
-                        tagged.__freeTextFontToWidthRatio = fontSize / w;
-                    }
+                    refreshFreeTextFontRatio(editor, tagged);
                 }
             };
         }
@@ -289,19 +330,11 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
 
         editor._onResizing = () => {
             originalOnResizing?.();
-            const ratio = tagged.__freeTextFontToWidthRatio;
-            const w = editor.width;
-            if (!ratio || !w || w <= 0) {
+            const targetFont = computeFreeTextResizeTargetFont(tagged, editor);
+            if (targetFont === null) {
                 return;
             }
-            const targetFont = Math.max(
-                FREE_TEXT_FONT_SIZE_MIN,
-                Math.min(FREE_TEXT_FONT_SIZE_MAX, ratio * w),
-            );
-            const internal = editor.div?.querySelector<HTMLElement>('.internal');
-            if (internal) {
-                internal.style.fontSize = `calc(${targetFont}px * var(--total-scale-factor))`;
-            }
+            applyFreeTextInternalFontSize(editor, targetFont);
             updateFreeTextResizerSize(editor);
         };
 
@@ -311,38 +344,70 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
 
         editor._onResized = () => {
             originalOnResized?.();
-            const ratio = tagged.__freeTextFontToWidthRatio;
-            const w = editor.width;
-            if (!ratio || !w || w <= 0) {
+            const nextFont = computeFreeTextResizeTargetFont(tagged, editor);
+            if (nextFont === null) {
                 return;
             }
-            const targetFont = Math.round(
-                Math.max(
-                    FREE_TEXT_FONT_SIZE_MIN,
-                    Math.min(FREE_TEXT_FONT_SIZE_MAX, ratio * w),
-                ),
-            );
-
-            const internal = editor.div?.querySelector<HTMLElement>('.internal');
-            if (internal) {
-                internal.style.fontSize = `calc(${targetFont}px * var(--total-scale-factor))`;
-            }
+            const targetFont = Math.round(nextFont);
+            applyFreeTextInternalFontSize(editor, targetFont);
             updateFreeTextResizerSize(editor);
-
-            if (tagged.__freeTextResizeSyncRaf) {
-                cancelAnimationFrame(tagged.__freeTextResizeSyncRaf);
-            }
-            tagged.__freeTextResizeSyncRaf = requestAnimationFrame(() => {
-                tagged.__freeTextResizeSyncRaf = undefined;
-                syncInternalFontSize(editor, tagged, targetFont);
-                emitAnnotationSetting({
-                    key: 'textSize',
-                    value: targetFont,
-                });
-            });
+            scheduleFreeTextFontSync(editor, tagged, targetFont);
         };
 
         tagged.__freeTextResizeHookPatched = true;
+    }
+
+    function shouldResetFreeTextDimensionsForFontChange(editor: IPdfjsEditor, value: unknown) {
+        if (!editor.div) {
+            return false;
+        }
+        const currentFont = getFreeTextEditorFontSize(editor);
+        return !currentFont || Math.abs(currentFont - Number(value)) >= 0.5;
+    }
+
+    function resetFreeTextDimensions(editor: IPdfjsEditor) {
+        if (!editor.div) {
+            return;
+        }
+        editor.div.style.width = '';
+        editor.div.style.height = '';
+    }
+
+    function computeFreeTextResizeTargetFont(tagged: TFreeTextResizeHookEditor, editor: IPdfjsEditor) {
+        const ratio = tagged.__freeTextFontToWidthRatio;
+        const w = editor.width;
+        if (!ratio || !w || w <= 0) {
+            return null;
+        }
+        return Math.max(
+            FREE_TEXT_FONT_SIZE_MIN,
+            Math.min(FREE_TEXT_FONT_SIZE_MAX, ratio * w),
+        );
+    }
+
+    function applyFreeTextInternalFontSize(editor: IPdfjsEditor, targetFont: number) {
+        const internal = editor.div?.querySelector<HTMLElement>('.internal');
+        if (internal) {
+            internal.style.fontSize = `calc(${targetFont}px * var(--total-scale-factor))`;
+        }
+    }
+
+    function scheduleFreeTextFontSync(
+        editor: IPdfjsEditor,
+        tagged: TFreeTextResizeHookEditor,
+        targetFont: number,
+    ) {
+        if (tagged.__freeTextResizeSyncRaf) {
+            cancelAnimationFrame(tagged.__freeTextResizeSyncRaf);
+        }
+        tagged.__freeTextResizeSyncRaf = requestAnimationFrame(() => {
+            tagged.__freeTextResizeSyncRaf = undefined;
+            syncInternalFontSize(editor, tagged, targetFont);
+            emitAnnotationSetting({
+                key: 'textSize',
+                value: targetFont,
+            });
+        });
     }
 
     function syncInternalFontSize(
@@ -387,32 +452,20 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
         }
     }
 
-    function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
-        if (!editor) {
+    function refreshFreeTextFontRatio(editor: IPdfjsEditor, tagged: TFreeTextResizableEditor) {
+        const fontSize = getFreeTextEditorFontSize(editor);
+        const w = editor.width;
+        if (!fontSize || fontSize <= 0 || typeof w !== 'number' || w <= 0.01) {
             return;
         }
-        if (detectEditorSubtype(editor) !== 'Typewriter') {
-            return;
+        const freshRatio = fontSize / w;
+        const existingRatio = tagged.__freeTextFontToWidthRatio;
+        if (!existingRatio || Math.abs(freshRatio - existingRatio) / freshRatio > 0.5) {
+            tagged.__freeTextFontToWidthRatio = freshRatio;
         }
-        const tagged = editor as IPdfjsEditor & {
-            __freeTextResizablePatched?: boolean;
-            __freeTextFontToWidthRatio?: number;
-            makeResizable?: () => void;
-        };
-        if (tagged.__freeTextResizablePatched) {
-            const fontSize = getFreeTextEditorFontSize(editor);
-            const w = editor.width;
-            if (fontSize && fontSize > 0 && typeof w === 'number' && w > 0.01) {
-                const freshRatio = fontSize / w;
-                const existingRatio = tagged.__freeTextFontToWidthRatio;
-                if (!existingRatio || Math.abs(freshRatio - existingRatio) / freshRatio > 0.5) {
-                    tagged.__freeTextFontToWidthRatio = freshRatio;
-                }
-            }
-            ensureFreeTextEditorInteractivity(editor);
-            return;
-        }
+    }
 
+    function markFreeTextResizable(editor: IPdfjsEditor, tagged: TFreeTextResizableEditor) {
         try {
             Object.defineProperty(editor, 'isResizable', {
                 configurable: true,
@@ -424,7 +477,20 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
         } catch {
             // Ignore if PDF.js internals reject instance patching.
         }
+    }
 
+    function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
+        if (!editor || detectEditorSubtype(editor) !== 'Typewriter') {
+            return;
+        }
+        const tagged = editor as TFreeTextResizableEditor;
+        if (tagged.__freeTextResizablePatched) {
+            refreshFreeTextFontRatio(editor, tagged);
+            ensureFreeTextEditorInteractivity(editor);
+            return;
+        }
+
+        markFreeTextResizable(editor, tagged);
         patchFreeTextResizeFontSync(editor);
         ensureFreeTextEditorInteractivity(editor);
     }
