@@ -191,67 +191,70 @@ export async function listBrowserOcrLanguageCacheEntries(): Promise<IBrowserOcrL
     return entries.sort((a, b) => a.code.localeCompare(b.code));
 }
 
-export async function clearBrowserOcrLanguageCache(codes?: string[]): Promise<void> {
+type TBrowserOcrClearTarget = { kind: 'all' } | {
+    kind: 'codes';
+    codes: string[];
+};
+
+function resolveBrowserOcrClearTarget(codes?: string[]): TBrowserOcrClearTarget {
     const normalizedCodes = (codes ?? [])
         .map(code => code.trim())
         .filter(code => code.length > 0);
 
     if (normalizedCodes.length === 0) {
+        return { kind: 'all' };
+    }
+
+    return {
+        kind: 'codes',
+        codes: normalizedCodes,
+    };
+}
+
+async function clearBrowserOcrOpfsData(target: TBrowserOcrClearTarget): Promise<void> {
+    if (target.kind === 'all') {
         await clearOpfsLanguageDirectory().catch(() => false);
-
-        const tesseractDb = await openTesseractCacheDb();
-        if (tesseractDb) {
-            try {
-                const transaction = tesseractDb.transaction(TESSERACT_CACHE_STORE, 'readwrite');
-                const store = transaction.objectStore(TESSERACT_CACHE_STORE);
-                const keys = await readAllStoreKeys(store, 'Failed to read OCR language store keys');
-                const ocrKeys = keys.filter((key): key is string =>
-                    typeof key === 'string' && key.startsWith(`${TESSERACT_CACHE_PREFIX}/`),
-                );
-
-                if (ocrKeys.length === keys.length) {
-                    await clearStore(store, 'Failed to clear OCR language store');
-                } else {
-                    for (const key of ocrKeys) {
-                        await deleteStoreValue(store, key, 'Failed to delete OCR language record');
-                    }
-                }
-            } finally {
-                tesseractDb.close();
-            }
-        }
-
-        const languageDb = await openBrowserOcrLanguageDb();
-        if (!languageDb) {
-            return;
-        }
-
-        try {
-            const transaction = languageDb.transaction(OCR_LANGUAGE_STORE, 'readwrite');
-            const store = transaction.objectStore(OCR_LANGUAGE_STORE);
-            await clearStore(store, 'Failed to clear OCR language store');
-        } finally {
-            languageDb.close();
-        }
-
         return;
     }
 
-    await Promise.all(normalizedCodes.map(code => deleteOpfsLanguageData(code).catch(() => false)));
+    await Promise.all(target.codes.map(code => deleteOpfsLanguageData(code).catch(() => false)));
+}
 
+async function clearBrowserOcrTesseractCache(target: TBrowserOcrClearTarget): Promise<void> {
     const tesseractDb = await openTesseractCacheDb();
-    if (tesseractDb) {
-        try {
-            const transaction = tesseractDb.transaction(TESSERACT_CACHE_STORE, 'readwrite');
-            const store = transaction.objectStore(TESSERACT_CACHE_STORE);
-            for (const code of normalizedCodes) {
-                await deleteStoreValue(store, makeTesseractCacheKey(code), 'Failed to delete OCR language record');
-            }
-        } finally {
-            tesseractDb.close();
-        }
+    if (!tesseractDb) {
+        return;
     }
 
+    try {
+        const transaction = tesseractDb.transaction(TESSERACT_CACHE_STORE, 'readwrite');
+        const store = transaction.objectStore(TESSERACT_CACHE_STORE);
+
+        if (target.kind === 'all') {
+            const keys = await readAllStoreKeys(store, 'Failed to read OCR language store keys');
+            const ocrKeys = keys.filter((key): key is string =>
+                typeof key === 'string' && key.startsWith(`${TESSERACT_CACHE_PREFIX}/`),
+            );
+
+            if (ocrKeys.length === keys.length) {
+                await clearStore(store, 'Failed to clear OCR language store');
+            } else {
+                for (const key of ocrKeys) {
+                    await deleteStoreValue(store, key, 'Failed to delete OCR language record');
+                }
+            }
+            return;
+        }
+
+        for (const code of target.codes) {
+            await deleteStoreValue(store, makeTesseractCacheKey(code), 'Failed to delete OCR language record');
+        }
+    } finally {
+        tesseractDb.close();
+    }
+}
+
+async function clearBrowserOcrLanguageRecords(target: TBrowserOcrClearTarget): Promise<void> {
     const languageDb = await openBrowserOcrLanguageDb();
     if (!languageDb) {
         return;
@@ -260,12 +263,26 @@ export async function clearBrowserOcrLanguageCache(codes?: string[]): Promise<vo
     try {
         const transaction = languageDb.transaction(OCR_LANGUAGE_STORE, 'readwrite');
         const store = transaction.objectStore(OCR_LANGUAGE_STORE);
-        for (const code of normalizedCodes) {
+
+        if (target.kind === 'all') {
+            await clearStore(store, 'Failed to clear OCR language store');
+            return;
+        }
+
+        for (const code of target.codes) {
             await deleteStoreValue(store, code, 'Failed to delete OCR language record');
         }
     } finally {
         languageDb.close();
     }
+}
+
+export async function clearBrowserOcrLanguageCache(codes?: string[]): Promise<void> {
+    const target = resolveBrowserOcrClearTarget(codes);
+
+    await clearBrowserOcrOpfsData(target);
+    await clearBrowserOcrTesseractCache(target);
+    await clearBrowserOcrLanguageRecords(target);
 }
 
 export async function listInstalledBrowserOcrLanguages(): Promise<Set<string>> {

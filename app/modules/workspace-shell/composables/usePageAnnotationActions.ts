@@ -14,6 +14,10 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placement';
+import {
+    getPointMinMaxBounds,
+    toShapeRect,
+} from '@app/composables/pdf/pdfShapeResize';
 import { getAllShapePoints } from '@app/composables/pdf/pdfShapeStrokes';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
 
@@ -160,19 +164,14 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     function getShapeBounds(shape: IShapeAnnotation) {
         if (shape.type === 'polyline' || shape.type === 'polygon') {
-            const points = getAllShapePoints(shape);
-            if (points.length > 0) {
-                const xs = points.map(point => point.x);
-                const ys = points.map(point => point.y);
-                const minX = Math.min(...xs);
-                const minY = Math.min(...ys);
-                const maxX = Math.max(...xs);
-                const maxY = Math.max(...ys);
+            const bounds = getPointMinMaxBounds(getAllShapePoints(shape));
+            if (bounds) {
+                const rect = toShapeRect(bounds, 0.01);
                 return {
-                    x: minX,
-                    y: minY,
-                    width: Math.max(0.01, maxX - minX),
-                    height: Math.max(0.01, maxY - minY),
+                    x: rect.minX,
+                    y: rect.minY,
+                    width: rect.maxX - rect.minX,
+                    height: rect.maxY - rect.minY,
                 };
             }
         }
@@ -180,13 +179,17 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         if (shape.type === 'line' || shape.type === 'arrow') {
             const x2 = shape.x2 ?? shape.x;
             const y2 = shape.y2 ?? shape.y;
-            const minX = Math.min(shape.x, x2);
-            const minY = Math.min(shape.y, y2);
+            const rect = toShapeRect({
+                minX: Math.min(shape.x, x2),
+                minY: Math.min(shape.y, y2),
+                maxX: Math.max(shape.x, x2),
+                maxY: Math.max(shape.y, y2),
+            }, 0.01);
             return {
-                x: minX,
-                y: minY,
-                width: Math.max(0.01, Math.abs(x2 - shape.x)),
-                height: Math.max(0.01, Math.abs(y2 - shape.y)),
+                x: rect.minX,
+                y: rect.minY,
+                width: rect.maxX - rect.minX,
+                height: rect.maxY - rect.minY,
             };
         }
 

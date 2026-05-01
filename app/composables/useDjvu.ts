@@ -16,6 +16,15 @@ interface IDjvuLoadingProgress {
     total: number;
 }
 
+export type TOpenDjvuFile = (
+    djvuPath: TDocumentRef,
+    loadPdfFromPath: (path: TDocumentRef) => Promise<void>,
+    getCurrentPage?: () => number,
+    setPage?: (page: number) => void,
+    setOriginalPath?: (path: TDocumentRef | null) => void,
+    closeFile?: () => void | Promise<void>,
+) => Promise<void>;
+
 export const useDjvu = () => {
     const { t } = useTypedI18n();
 

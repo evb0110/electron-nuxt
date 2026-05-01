@@ -9,9 +9,16 @@ import { ref } from 'vue';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
-const { mockHasElectronAPI } = vi.hoisted(() => ({mockHasElectronAPI: vi.fn(() => true)}));
+const {
+    mockHasElectronAPI,
+    mockOpenCombineDialog,
+} = vi.hoisted(() => ({
+    mockHasElectronAPI: vi.fn(() => true),
+    mockOpenCombineDialog: vi.fn(async (): Promise<unknown> => null),
+}));
 
 vi.mock('@app/utils/platform', () => ({hasElectronAPI: () => mockHasElectronAPI()}));
+vi.mock('@app/utils/platform-documents', () => ({getDocumentsCapability: () => ({openCombineDialog: mockOpenCombineDialog})}));
 
 function cast<T>(obj: unknown): T {
     return obj as T;
@@ -47,6 +54,8 @@ describe('usePageFileOperations', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         mockHasElectronAPI.mockReturnValue(true);
+        mockOpenCombineDialog.mockReset();
+        mockOpenCombineDialog.mockResolvedValue(null);
     });
 
     it('persists unsaved changes before closing by default', async () => {
@@ -113,6 +122,100 @@ describe('usePageFileOperations', () => {
         expect(deps.pickFileToOpen).toHaveBeenCalledOnce();
         expect(deps.openFile).toHaveBeenCalledWith(openResult);
         expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
+    });
+
+    it('awaits the persistence gate before invoking the open picker', async () => {
+        const callOrder: string[] = [];
+        const isDirty = ref(true);
+        const handleSave = vi.fn(async () => {
+            callOrder.push('save');
+            isDirty.value = false;
+        });
+        const pickFileToOpen = vi.fn(async () => {
+            callOrder.push('pick');
+            return null;
+        });
+        const deps = createDeps({
+            isDirty,
+            handleSave,
+            pickFileToOpen,
+        });
+        const { handleOpenFileFromUi } = usePageFileOperations(deps);
+
+        await handleOpenFileFromUi();
+
+        expect(callOrder).toEqual([
+            'save',
+            'pick',
+        ]);
+    });
+
+    it('returns early without closing dropdowns when the open picker is cancelled', async () => {
+        const deps = createDeps({ pickFileToOpen: vi.fn(async () => null) });
+        const { handleOpenFileFromUi } = usePageFileOperations(deps);
+
+        await handleOpenFileFromUi();
+
+        expect(deps.pickFileToOpen).toHaveBeenCalledOnce();
+        expect(deps.openFile).not.toHaveBeenCalled();
+        expect(deps.emitOpenInNewTab).not.toHaveBeenCalled();
+        expect(deps.closeAllDropdowns).not.toHaveBeenCalled();
+    });
+
+    it('runs the full open flow and closes dropdowns after handling the result', async () => {
+        const openResult = {
+            kind: 'pdf' as const,
+            originalPath: '/tmp/source.pdf',
+            workingPath: '/tmp/working.pdf',
+        };
+        const deps = createDeps({ pickFileToOpen: vi.fn(async () => openResult) });
+        const { handleOpenFileFromUi } = usePageFileOperations(deps);
+
+        await handleOpenFileFromUi();
+
+        expect(deps.openFile).toHaveBeenCalledWith(openResult);
+        expect(deps.emitOpenInNewTab).not.toHaveBeenCalled();
+        expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
+    });
+
+    it('returns early without closing dropdowns when combine picker is cancelled', async () => {
+        mockOpenCombineDialog.mockResolvedValue(null);
+        const deps = createDeps();
+        const { handleCombineImages } = usePageFileOperations(deps);
+
+        await handleCombineImages();
+
+        expect(mockOpenCombineDialog).toHaveBeenCalledOnce();
+        expect(deps.openFile).not.toHaveBeenCalled();
+        expect(deps.emitOpenInNewTab).not.toHaveBeenCalled();
+        expect(deps.closeAllDropdowns).not.toHaveBeenCalled();
+    });
+
+    it('opens combined generated PDF in a new tab only when pdfSrc is set', async () => {
+        const generated = {
+            kind: 'pdf' as const,
+            originalPath: '/tmp/generated.pdf',
+            workingPath: '/tmp/working.pdf',
+            isGenerated: true,
+        };
+        mockOpenCombineDialog.mockResolvedValue(generated);
+
+        const depsWithDoc = createDeps(cast({ pdfSrc: ref<unknown>({}) }));
+        const opsWithDoc = usePageFileOperations(depsWithDoc);
+        await opsWithDoc.handleCombineImages();
+
+        expect(depsWithDoc.emitOpenInNewTab).toHaveBeenCalledWith(generated);
+        expect(depsWithDoc.openFile).not.toHaveBeenCalled();
+        expect(depsWithDoc.closeAllDropdowns).toHaveBeenCalledOnce();
+
+        mockOpenCombineDialog.mockResolvedValue(generated);
+        const depsNoDoc = createDeps(cast({ pdfSrc: ref<unknown>(null) }));
+        const opsNoDoc = usePageFileOperations(depsNoDoc);
+        await opsNoDoc.handleCombineImages();
+
+        expect(depsNoDoc.emitOpenInNewTab).not.toHaveBeenCalled();
+        expect(depsNoDoc.openFile).toHaveBeenCalledWith(generated);
+        expect(depsNoDoc.closeAllDropdowns).toHaveBeenCalledOnce();
     });
 
     it('blocks close when save throws instead of bubbling an uncaught rejection', async () => {

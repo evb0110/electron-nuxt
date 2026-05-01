@@ -262,6 +262,18 @@ export function boxToDisplayNormalizedRect(
     };
 }
 
+function marginsToPdfBox(
+    margins: ICropMargins,
+    mediaBox: IPdfBox,
+): IPdfBox {
+    return {
+        x: mediaBox.x + margins.left,
+        y: mediaBox.y + margins.bottom,
+        width: Math.max(0, mediaBox.width - margins.left - margins.right),
+        height: Math.max(0, mediaBox.height - margins.top - margins.bottom),
+    };
+}
+
 export function marginsToNormalizedRect(
     margins: ICropMargins,
     mediaBox: IPdfBox,
@@ -271,12 +283,7 @@ export function marginsToNormalizedRect(
     width: number;
     height: number;
 } {
-    return boxToNormalizedRect({
-        x: mediaBox.x + margins.left,
-        y: mediaBox.y + margins.bottom,
-        width: Math.max(0, mediaBox.width - margins.left - margins.right),
-        height: Math.max(0, mediaBox.height - margins.top - margins.bottom),
-    }, mediaBox);
+    return boxToNormalizedRect(marginsToPdfBox(margins, mediaBox), mediaBox);
 }
 
 export function marginsToDisplayNormalizedRect(
@@ -284,10 +291,5 @@ export function marginsToDisplayNormalizedRect(
     mediaBox: IPdfBox,
     rotation: number,
 ) {
-    return boxToDisplayNormalizedRect({
-        x: mediaBox.x + margins.left,
-        y: mediaBox.y + margins.bottom,
-        width: Math.max(0, mediaBox.width - margins.left - margins.right),
-        height: Math.max(0, mediaBox.height - margins.top - margins.bottom),
-    }, mediaBox, rotation);
+    return boxToDisplayNormalizedRect(marginsToPdfBox(margins, mediaBox), mediaBox, rotation);
 }

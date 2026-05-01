@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type { TOpenDjvuFile } from '@app/composables/useDjvu';
 import {
     type IDocumentTransitionDeps,
     useDocumentTransitions,
@@ -9,14 +10,7 @@ import type { TDocumentRef } from '@contracts/platform-api';
 
 interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionDeps {
     pendingDjvu: Ref<TDocumentRef | null>;
-    openDjvuFile: (
-        djvuPath: TDocumentRef,
-        loadPdfFromPath: (path: TDocumentRef) => Promise<void>,
-        getCurrentPage?: () => number,
-        setPage?: (page: number) => void,
-        setOriginalPath?: (path: TDocumentRef | null) => void,
-        closeFile?: () => void | Promise<void>,
-    ) => Promise<void>;
+    openDjvuFile: TOpenDjvuFile;
     loadPdfFromPath: (path: TDocumentRef) => Promise<void>;
     pdfViewerRef: Ref<{
         scrollToPage: (page: number) => void;
