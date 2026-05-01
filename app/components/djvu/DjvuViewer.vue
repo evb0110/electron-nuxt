@@ -99,6 +99,12 @@ import {
     isStandaloneSpreadPage,
     stepBySpread,
 } from '@app/utils/pdf-view-mode';
+import {
+    accumulateWheelForPageFlips,
+    type IWheelPageAccumulatorState,
+    resolveWheelPageFlipStepDelta,
+} from '@app/composables/pdf/usePdfSinglePageScroll';
+
 interface IProps {
     src: TDocumentRef | null;
     zoom?: number;
@@ -127,10 +133,7 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 const DJVU_BASE_MARGIN = 16;
 const WHEEL_LINE_DELTA_PX = 16;
-const WHEEL_IDLE_RESET_MS = 140;
 const WHEEL_DELTA_EPSILON = 0.01;
-const PAGE_FLIP_STEP_DELTA_PX = 120;
-const MIN_COARSE_PAGE_FLIP_STEP_DELTA_PX = 40;
 const HORIZONTAL_INTENT_REJECT_RATIO = 2.5;
 const PAGE_SCROLL_EDGE_EPSILON = 1;
 
@@ -399,9 +402,9 @@ let loadGeneration = 0;
 let activeRenderPromise: Promise<void> | null = null;
 let queuedPageNumbers: number[] = [];
 let lastRenderedPageSet = new Set<number>();
-let wheelAccumulator = {
+let wheelAccumulator: IWheelPageAccumulatorState = {
     delta: 0,
-    direction: 0 as -1 | 0 | 1,
+    direction: 0,
     lastEventTimeMs: 0,
 };
 
@@ -724,13 +727,16 @@ function handleViewerWheel(event: WheelEvent) {
         return;
     }
 
-    const stepsToFlip = accumulateWheelForPageFlips(
+    const accumulationResult = accumulateWheelForPageFlips({
+        state: wheelAccumulator,
         delta,
         direction,
-        event.timeStamp,
-        resolveWheelPageFlipStepDelta(event, delta),
-    );
-    if (stepsToFlip === 0) {
+        eventTimeMs: event.timeStamp,
+        stepDelta: resolveWheelPageFlipStepDelta(event, delta),
+        maxSteps: 1,
+    });
+    wheelAccumulator = accumulationResult.state;
+    if (accumulationResult.stepsToFlip === 0) {
         return;
     }
 
@@ -774,53 +780,6 @@ function normalizeWheelDelta(
         return delta * container.clientHeight;
     }
     return delta;
-}
-
-function resolveWheelPageFlipStepDelta(event: WheelEvent, normalizedDelta: number) {
-    const magnitude = Math.abs(normalizedDelta);
-    if (magnitude < WHEEL_DELTA_EPSILON) {
-        return PAGE_FLIP_STEP_DELTA_PX;
-    }
-
-    if (event.deltaMode === 1 || event.deltaMode === 2) {
-        return magnitude;
-    }
-
-    return Math.max(
-        MIN_COARSE_PAGE_FLIP_STEP_DELTA_PX,
-        Math.min(PAGE_FLIP_STEP_DELTA_PX, magnitude),
-    );
-}
-
-function accumulateWheelForPageFlips(
-    delta: number,
-    direction: -1 | 1,
-    eventTimeMs: number,
-    stepDelta: number,
-) {
-    let accumulatedDelta = wheelAccumulator.delta;
-    const isDirectionChanged = wheelAccumulator.direction !== 0 && wheelAccumulator.direction !== direction;
-    const isStale = wheelAccumulator.lastEventTimeMs > 0
-        && eventTimeMs - wheelAccumulator.lastEventTimeMs > WHEEL_IDLE_RESET_MS;
-
-    if (isDirectionChanged || isStale) {
-        accumulatedDelta = 0;
-    }
-
-    accumulatedDelta += delta;
-
-    const safeStepDelta = Math.max(stepDelta, WHEEL_DELTA_EPSILON);
-    const rawSteps = Math.floor(Math.abs(accumulatedDelta) / safeStepDelta);
-    const stepsToFlip = Math.min(rawSteps, 1);
-    const consumedDelta = direction * stepsToFlip * safeStepDelta;
-
-    wheelAccumulator = {
-        delta: accumulatedDelta - consumedDelta,
-        direction,
-        lastEventTimeMs: eventTimeMs,
-    };
-
-    return stepsToFlip;
 }
 
 function syncHorizontalScrollForZoomMode() {
