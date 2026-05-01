@@ -14,6 +14,7 @@ import {
     isImagePath,
     SUPPORTED_IMAGE_EXTENSIONS as SHARED_SUPPORTED_IMAGE_EXTENSIONS,
 } from '@electron/image/pdf-combine-shared';
+import { getErrorMessage } from '@electron/utils/error';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -303,7 +304,7 @@ function createPdfFromInputPathsWorker(
             worker = new Worker(getCombineWorkerPath(), {workerData: { inputPaths }});
         } catch (error) {
             reject(new PdfCombineWorkerStartupError(
-                `Image combine worker failed to start: ${error instanceof Error ? error.message : String(error)}`,
+                `Image combine worker failed to start: ${getErrorMessage(error)}`,
             ));
             return;
         }
@@ -391,7 +392,7 @@ function createPdfFromInputPathsWorker(
                 terminateWorker();
                 if (!workerOnline) {
                     reject(new PdfCombineWorkerStartupError(
-                        `Image combine worker failed before becoming ready: ${error instanceof Error ? error.message : String(error)}`,
+                        `Image combine worker failed before becoming ready: ${getErrorMessage(error)}`,
                     ));
                     return;
                 }
@@ -450,7 +451,7 @@ export async function createPdfFromInputPaths(
         if (!(workerError instanceof PdfCombineWorkerStartupError)) {
             logger.warn(
                 `Image combine worker failed without safe fallback: ${
-                    workerError instanceof Error ? workerError.message : String(workerError)
+                    getErrorMessage(workerError)
                 }`,
             );
             throw workerError;
@@ -464,7 +465,7 @@ export async function createPdfFromInputPaths(
         }
 
         logger.warn(
-            `Image combine worker failed, falling back to in-process conversion: ${workerError instanceof Error ? workerError.message : String(workerError)}`,
+            `Image combine worker failed, falling back to in-process conversion: ${getErrorMessage(workerError)}`,
         );
         return createPdfFromInputPathsLocal(normalizedPaths, options);
     }

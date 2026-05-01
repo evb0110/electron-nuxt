@@ -16,6 +16,7 @@ import {
     getPageGeometryLocal,
     removeCropFromPagesLocal,
 } from '@electron/features/page-ops/main/crop-local';
+import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('page-ops-crop');
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -140,7 +141,7 @@ export async function cropPages(
             margins,
         });
     } catch (error) {
-        log.warn(`Crop worker unavailable, falling back to in-process crop: ${error instanceof Error ? error.message : String(error)}`);
+        log.warn(`Crop worker unavailable, falling back to in-process crop: ${getErrorMessage(error)}`);
         await cropPagesLocal(workingCopyPath, pages, margins);
     }
 }
@@ -156,7 +157,7 @@ export async function removeCropFromPages(
             pages,
         });
     } catch (error) {
-        log.warn(`Crop worker unavailable, falling back to in-process crop reset: ${error instanceof Error ? error.message : String(error)}`);
+        log.warn(`Crop worker unavailable, falling back to in-process crop reset: ${getErrorMessage(error)}`);
         await removeCropFromPagesLocal(workingCopyPath, pages);
     }
 }
@@ -172,7 +173,7 @@ export async function getPageGeometry(
             pageNumber,
         });
     } catch (error) {
-        log.warn(`Crop worker unavailable, falling back to in-process page geometry: ${error instanceof Error ? error.message : String(error)}`);
+        log.warn(`Crop worker unavailable, falling back to in-process page geometry: ${getErrorMessage(error)}`);
         return getPageGeometryLocal(workingCopyPath, pageNumber);
     }
 }

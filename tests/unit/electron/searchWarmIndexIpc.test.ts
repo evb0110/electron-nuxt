@@ -124,7 +124,7 @@ describe('search warm-index IPC', () => {
     });
 
     it('routes warm-index requests through worker warmup mode', async () => {
-        const { registerSearchHandlers } = await import('@electron/search/ipc');
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
         registerSearchHandlers();
         const warmIndexHandler = mocks.handlers.get('pdf:search:warmIndex');
 

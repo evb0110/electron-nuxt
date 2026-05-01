@@ -1,5 +1,5 @@
 
-import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
+import { usePositionedMenu } from '@app/composables/usePositionedMenu';
 
 interface IPageContextMenuState {
     visible: boolean;
@@ -9,41 +9,21 @@ interface IPageContextMenuState {
 }
 
 export const usePageContextMenu = () => {
-    const { clampElementToViewport } = useContextMenuPosition();
-
-    const pageContextMenu = ref<IPageContextMenuState>({
+    const createInitialPageContextMenuState = (): IPageContextMenuState => ({
         visible: false,
         x: 0,
         y: 0,
         pages: [],
     });
-    const contextMenuElement = computed(() => (
-        typeof window === 'undefined'
-            ? null
-            : document.querySelector<HTMLElement>('.page-context-menu')
-    ));
-
-    const pageContextMenuStyle = computed(() => ({
-        left: `${pageContextMenu.value.x}px`,
-        top: `${pageContextMenu.value.y}px`,
-    }));
-
-    function positionPageContextMenu(
-        x: number,
-        y: number,
-        fallbackWidth: number,
-        fallbackHeight: number,
-    ) {
-        const clamped = clampElementToViewport(
-            x,
-            y,
-            contextMenuElement.value,
-            fallbackWidth,
-            fallbackHeight,
-        );
-        pageContextMenu.value.x = clamped.x;
-        pageContextMenu.value.y = clamped.y;
-    }
+    const {
+        menu: pageContextMenu,
+        menuStyle: pageContextMenuStyle,
+        showPositionedMenu,
+        resetMenu,
+    } = usePositionedMenu<IPageContextMenuState>(
+        '.page-context-menu',
+        createInitialPageContextMenuState,
+    );
 
     function showPageContextMenu(payload: {
         clientX: number;
@@ -52,31 +32,17 @@ export const usePageContextMenu = () => {
     }) {
         const fallbackWidth = 300;
         const estimatedHeight = 280;
-        const initialPosition = clampElementToViewport(
-            payload.clientX,
-            payload.clientY,
-            contextMenuElement.value,
+        showPositionedMenu({
+            x: payload.clientX,
+            y: payload.clientY,
             fallbackWidth,
-            estimatedHeight,
-        );
-
-        pageContextMenu.value = {
-            visible: true,
-            x: initialPosition.x,
-            y: initialPosition.y,
-            pages: payload.pages,
-        };
-
-        void nextTick(() => {
-            if (!pageContextMenu.value.visible) {
-                return;
-            }
-            positionPageContextMenu(
-                payload.clientX,
-                payload.clientY,
-                fallbackWidth,
-                estimatedHeight,
-            );
+            fallbackHeight: estimatedHeight,
+            buildState: position => ({
+                visible: true,
+                x: position.x,
+                y: position.y,
+                pages: payload.pages,
+            }),
         });
     }
 
@@ -84,12 +50,7 @@ export const usePageContextMenu = () => {
         if (!pageContextMenu.value.visible) {
             return;
         }
-        pageContextMenu.value = {
-            visible: false,
-            x: 0,
-            y: 0,
-            pages: [],
-        };
+        resetMenu();
     }
 
     return {

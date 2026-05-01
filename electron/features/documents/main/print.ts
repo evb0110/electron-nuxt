@@ -18,6 +18,7 @@ import { randomUUID } from 'crypto';
 import { pathToFileURL } from 'url';
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('documents-print');
 const PRINT_LOAD_SETTLE_DELAY_MS = 300;
@@ -128,7 +129,7 @@ async function openPdfInDefaultApp(path: string): Promise<IOpenPdfInDefaultAppRe
             error: result,
         };
     } catch (error) {
-        logger.warn(`Failed to open PDF in the default app: ${error instanceof Error ? error.message : String(error)}`);
+        logger.warn(`Failed to open PDF in the default app: ${getErrorMessage(error)}`);
         return {
             success: false,
             error: error instanceof Error ? error.message : 'Failed to open the default PDF app',
@@ -207,7 +208,7 @@ async function openNativePrintDialogForPath(
         await new Promise(resolve => setTimeout(resolve, PRINT_LOAD_SETTLE_DELAY_MS));
         return await runNativePrintDialog(printWindow);
     } catch (error) {
-        logger.warn(`Failed to open native print dialog: ${error instanceof Error ? error.message : String(error)}`);
+        logger.warn(`Failed to open native print dialog: ${getErrorMessage(error)}`);
         return {
             success: false,
             error: error instanceof Error ? error.message : 'Failed to open native print dialog',

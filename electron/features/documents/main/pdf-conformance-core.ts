@@ -6,6 +6,7 @@ import {
     PDFDocument,
     PDFName,
 } from 'pdf-lib';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('documents-pdf-conformance');
 
@@ -100,7 +101,7 @@ async function analyzePdfConformanceData(
             saveRestrictions: buildSaveRestrictions(profileBase),
         };
     } catch (error) {
-        logger.warn(`Failed to analyze PDF conformance: ${error instanceof Error ? error.message : String(error)}`);
+        logger.warn(`Failed to analyze PDF conformance: ${getErrorMessage(error)}`);
         return {
             ...fallback,
             isSigned: detectSignatureMarkers(data),

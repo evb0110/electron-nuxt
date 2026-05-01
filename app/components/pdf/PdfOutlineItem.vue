@@ -130,6 +130,7 @@ import type {
 import { resolveBookmarkDestinationPage } from '@app/utils/pdf-outline-helpers';
 import { usePdfOutlineItemState } from '@app/composables/pdf/usePdfOutlineItemState';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { getErrorMessage } from '@app/utils/error';
 
 const { t } = useTypedI18n();
 
@@ -361,7 +362,7 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
             emit('go-to-page', page);
         }
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         const isKnownPdfIssue =
             message.includes('does not point to a /Page dictionary')
             || message.includes('page must be a reference');

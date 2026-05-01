@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 interface IUsePlatformHydratedStateOptions<T> {
     key: string;
     initialValue: () => T;
@@ -68,7 +69,7 @@ export function usePlatformHydratedState<T>(
                 return nextValue;
             } catch (loadError) {
                 error.value = options.getErrorMessage?.(loadError)
-                    ?? (loadError instanceof Error ? loadError.message : String(loadError));
+                    ?? getErrorMessage(loadError);
                 options.onError?.(loadError);
                 shouldRetry = options.shouldRetry?.(loadError) ?? false;
                 if (!shouldRetry && (options.markResolvedOnError?.(loadError) ?? false)) {

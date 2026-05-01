@@ -13,6 +13,7 @@ import {
 } from '@app/platform/browser-api/browser-ocr-language-store';
 import { noopUnsubscribe } from '@app/platform/browser-api/common';
 import { getBrowserOcrLanguageBaseUrl } from '@app/utils/browser-ocr-config';
+import { getErrorMessage } from '@app/utils/error';
 
 const AVAILABLE_BROWSER_OCR_LANGUAGES: IOcrLanguage[] = [
     {
@@ -181,7 +182,7 @@ async function runRecognitionJobs(
                 ) as { data?: { text?: string } };
                 results[page.pageNumber] = result.data?.text ?? '';
             } catch (error) {
-                errors.push(error instanceof Error ? error.message : String(error));
+                errors.push(getErrorMessage(error));
             } finally {
                 activePages.delete(page.pageNumber);
                 processedCount += 1;
@@ -238,7 +239,7 @@ async function installLanguages(languages: string[], requestId: string) {
             installedBrowserOcrLanguages.add(languageCode);
             installed.push(languageCode);
         } catch (error) {
-            errors.push(error instanceof Error ? error.message : String(error));
+            errors.push(getErrorMessage(error));
         }
     }
 

@@ -5,6 +5,7 @@ import type {
     TBrowserPageOpsWorkerRequestType,
     TBrowserPageOpsWorkerResponse,
 } from '@app/platform/browser-api/browser-page-ops-worker.types';
+import { getErrorMessage } from '@app/utils/error';
 
 type TPendingWorkerRequest = {
     resolve: (value: unknown) => void;
@@ -185,7 +186,7 @@ function getBrowserPageOpsWorker() {
         );
     } catch (error) {
         throw new BrowserPageOpsWorkerUnavailableError(
-            error instanceof Error ? error.message : String(error),
+            getErrorMessage(error),
         );
     }
 

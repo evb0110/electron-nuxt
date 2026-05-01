@@ -1,6 +1,7 @@
 import { getPageContainer } from '@app/composables/pdf/pdfPageBufferManager';
 import { logPdfNav } from '@app/utils/pdf-nav-log';
 import { delay } from 'es-toolkit/promise';
+import { getErrorMessage } from '@app/utils/error';
 
 interface ICurrentSearchMatch {pageIndex: number;}
 
@@ -159,7 +160,7 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
                 cancelActiveRequest(SEARCH_SCROLL_SETTLE_MS);
             } catch (error) {
                 logPdfNav(
-                    `[PDF-NAV] requestScrollToMatch failed requestId=${requestId}: ${error instanceof Error ? error.message : String(error)}`,
+                    `[PDF-NAV] requestScrollToMatch failed requestId=${requestId}: ${getErrorMessage(error)}`,
                 );
                 cancelActiveRequest(0);
             }

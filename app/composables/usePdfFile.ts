@@ -23,6 +23,7 @@ import {
     getDocumentsCapability,
     shouldRefreshWorkingCopyAfterSaveAs,
 } from '@app/utils/platform-documents';
+import { getErrorMessage } from '@app/utils/error';
 
 interface IOpenBatchProgressState {
     processed: number;
@@ -246,7 +247,7 @@ export const usePdfFile = () => {
             error.value = e instanceof Error ? e.message : t('errors.file.open');
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'openFileDirect failed', {
                 path,
-                error: e instanceof Error ? e.message : String(e),
+                error: getErrorMessage(e),
             });
         }
     }

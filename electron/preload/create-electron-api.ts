@@ -24,6 +24,7 @@ import {
     createTypedIpcEventSubscriber,
     createTypedIpcInvoker,
 } from '@electron/preload/ipc-client';
+import { getErrorMessage } from '@electron/utils/error';
 
 const preloadStartupStart = Date.now();
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -136,7 +137,7 @@ async function invokeWithStartupTrace<T>(label: string, invoke: () => Promise<T>
     } catch (error) {
         tracePreloadStartup(`${label}:error`, {
             durationMs: Date.now() - startedAt,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         });
         throw error;
     }

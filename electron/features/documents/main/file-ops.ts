@@ -33,6 +33,7 @@ import {
     analyzePdfConformanceFile,
     validatePdfData as validatePdfBytes,
 } from '@electron/features/documents/main/pdf-conformance';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('documents-file-ops');
 const MAX_IPC_WRITE_BYTES = (() => {
@@ -384,6 +385,6 @@ export async function handleCleanupOcrTemp(
             await unlink(resolvedPath);
         }
     } catch (err) {
-        logger.warn(`Failed to delete OCR temp file: ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(`Failed to delete OCR temp file: ${getErrorMessage(err)}`);
     }
 }

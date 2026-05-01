@@ -3,6 +3,7 @@ import {
     workerData,
 } from 'worker_threads';
 import { combinePagesIntoMultiPageTiffLocal } from '@electron/features/image-export/main/tiff-combine-local';
+import { getErrorMessage } from '@electron/utils/error';
 
 interface ITiffCombineWorkerData {
     pagePaths?: unknown;
@@ -47,7 +48,7 @@ async function run() {
         parentPort.postMessage({
             type: 'result',
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         } satisfies TTiffCombineWorkerResult);
     }
 }

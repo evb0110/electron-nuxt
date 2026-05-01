@@ -8,6 +8,7 @@ import type {
     TDjvuPdfWorkerMessage,
     TDjvuPdfWorkerTask,
 } from '@electron/features/djvu/main/pdf-worker-protocol';
+import { getErrorMessage } from '@electron/utils/error';
 
 function getTask(): TDjvuPdfWorkerTask {
     const task = workerData as TDjvuPdfWorkerTask | undefined;
@@ -80,7 +81,7 @@ async function run() {
         parentPort.postMessage({
             type: 'result',
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         } satisfies TDjvuPdfWorkerMessage);
     }
 }

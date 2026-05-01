@@ -5,6 +5,7 @@ import type {
     TBrowserSearchWorkerRequestType,
     TBrowserSearchWorkerResponse,
 } from '@app/platform/browser-api/browser-search-worker.types';
+import { getErrorMessage } from '@app/utils/error';
 
 type TPendingWorkerRequest = {
     resolve: (value: unknown) => void;
@@ -136,7 +137,7 @@ function getBrowserSearchWorker() {
         );
     } catch (error) {
         throw new BrowserSearchWorkerUnavailableError(
-            error instanceof Error ? error.message : String(error),
+            getErrorMessage(error),
         );
     }
 

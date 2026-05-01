@@ -6,6 +6,7 @@ import type {
     TBrowserSearchWorkerRequest,
     TBrowserSearchWorkerResponse,
 } from '@app/platform/browser-api/browser-search-worker.types';
+import { getErrorMessage } from '@app/utils/error';
 
 const canceledRequestIds = new Set<number>();
 
@@ -123,7 +124,7 @@ self.addEventListener('message', async (event: MessageEvent<TBrowserSearchWorker
         const response: TBrowserSearchWorkerResponse = {
             id: request.id,
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         };
         self.postMessage(response);
     }

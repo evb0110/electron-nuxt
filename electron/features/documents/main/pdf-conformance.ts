@@ -20,6 +20,7 @@ import { getDefaultPdfConformanceProfile } from '@electron/features/documents/ma
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('documents-pdf-conformance');
 const QPDF_VALIDATE_TIMEOUT_MS = 30_000;
@@ -66,7 +67,7 @@ function runPdfConformanceWorker(filePath: string) {
             worker = new Worker(getPdfConformanceWorkerPath(), { workerData: { filePath } });
         } catch (error) {
             reject(new PdfConformanceWorkerStartupError(
-                `PDF conformance worker failed to start: ${error instanceof Error ? error.message : String(error)}`,
+                `PDF conformance worker failed to start: ${getErrorMessage(error)}`,
             ));
             return;
         }
@@ -151,7 +152,7 @@ function runPdfConformanceWorker(filePath: string) {
             finalize(() => {
                 if (!workerOnline) {
                     reject(new PdfConformanceWorkerStartupError(
-                        `PDF conformance worker failed before becoming ready: ${error instanceof Error ? error.message : String(error)}`,
+                        `PDF conformance worker failed before becoming ready: ${getErrorMessage(error)}`,
                     ));
                     return;
                 }
@@ -196,7 +197,7 @@ export async function analyzePdfConformanceFile(filePath: string): Promise<IPdfC
         } else {
             logger.warn(
                 `PDF conformance worker failed for ${filePath}: ${
-                    error instanceof Error ? error.message : String(error)
+                    getErrorMessage(error)
                 }`,
             );
         }

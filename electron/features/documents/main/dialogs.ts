@@ -43,6 +43,7 @@ import {
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('documents-dialogs');
 function getOpenDialogParentWindow() {
@@ -196,7 +197,7 @@ export async function handleOpenPdfDirect(
         logger.info(`openPdfDirect result for ${normalizedPath}: ${result?.kind ?? 'null'}`);
         return result;
     } catch (err) {
-        logger.error(`Failed to create working copy: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error(`Failed to create working copy: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);
     }
 }
@@ -228,7 +229,7 @@ export async function handleOpenPdfDirectBatch(
             }
             : undefined});
     } catch (err) {
-        logger.error(`Failed to create working copy from batch: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error(`Failed to create working copy from batch: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);
     }
 }
@@ -340,7 +341,7 @@ export async function handleShowItemInFolder(
         shell.showItemInFolder(revealablePath);
         return true;
     } catch (error) {
-        logger.error(`Failed to show item in folder: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(`Failed to show item in folder: ${getErrorMessage(error)}`);
         return false;
     }
 }
@@ -374,7 +375,7 @@ export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
     try {
         return await openInputPaths(result.filePaths);
     } catch (err) {
-        logger.error(`Failed to create working copy: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error(`Failed to create working copy: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);
     }
 }
@@ -406,7 +407,7 @@ export async function handleOpenCombineDialog(): Promise<IOpenFileResult | null>
     try {
         return await openInputPaths(result.filePaths);
     } catch (err) {
-        logger.error(`Failed to combine files: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error(`Failed to combine files: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);
     }
 }

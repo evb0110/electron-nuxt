@@ -1,7 +1,7 @@
 import type {
     IOcrSettings,
     TOcrPageRange,
-} from '@app/composables/ocrLanguages';
+} from '@app/utils/ocr/languages';
 import {
     safeGetLocalStorageItem,
     safeSetLocalStorageItem,

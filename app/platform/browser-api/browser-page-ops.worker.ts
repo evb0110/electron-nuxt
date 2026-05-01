@@ -13,6 +13,7 @@ import type {
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerResponse,
 } from '@app/platform/browser-api/browser-page-ops-worker.types';
+import { getErrorMessage } from '@app/utils/error';
 
 function toTransferableUint8Array(data: Uint8Array) {
     if (
@@ -157,7 +158,7 @@ self.addEventListener('message', async (event: MessageEvent<TBrowserPageOpsWorke
         const response: TBrowserPageOpsWorkerResponse = {
             id: request.id,
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         };
         self.postMessage(response);
     }

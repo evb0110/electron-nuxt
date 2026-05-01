@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron';
 import { shell } from 'electron';
 import { inspectAllowedExternalUrl } from '@contracts/external-url';
+import { getErrorMessage } from '@electron/utils/error';
 
 interface ILogger {warn(message: string): void;}
 
@@ -59,7 +60,7 @@ export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
             return;
         }
         void shell.openExternal(decision.normalizedUrl).catch((error) => {
-            options.logger.warn(`Failed to open external URL (${source}): ${error instanceof Error ? error.message : String(error)}`);
+            options.logger.warn(`Failed to open external URL (${source}): ${getErrorMessage(error)}`);
         });
     }
 

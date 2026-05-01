@@ -16,6 +16,7 @@ import {
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/composables/workspace-split-payload-cleanup';
 import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
+import { getErrorMessage } from '@app/utils/error';
 
 interface IGroupLike {
     id: string;
@@ -345,7 +346,7 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
             await getWindowTabsCapability().transferAck({
                 transferId: transfer.transferId,
                 success: false,
-                error: error instanceof Error ? error.message : String(error),
+                error: getErrorMessage(error),
             });
         }
     }

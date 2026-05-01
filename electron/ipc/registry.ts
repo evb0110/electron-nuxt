@@ -41,6 +41,16 @@ import {
 import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/logger';
 
+export const CORE_APP_CHANNELS = {
+    rendererReady: 'app:rendererReady',
+    claimPendingExternalOpenPaths: 'app:claimPendingExternalOpenPaths',
+} as const;
+
+interface ICoreIpcHandlerOptions {
+    onRendererReady?: (event: Electron.IpcMainEvent) => void;
+    claimPendingExternalOpenPaths?: (event: Electron.IpcMainInvokeEvent) => string[];
+}
+
 interface IRendererLogEntry {
     level: 'debug' | 'info' | 'warn' | 'error';
     section: string;
@@ -510,9 +520,19 @@ function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetW
     });
 }
 
-function registerCoreIpcHandlers() {
+function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
     const registrar = createValidatedIpcMainRegistrar(ipcMain);
     ipcMain.on('renderer:log', handleRendererLog);
+    ipcMain.on(CORE_APP_CHANNELS.rendererReady, (event) => {
+        if (!isTrustedWebContentsSender(event.sender, event.senderFrame, CORE_APP_CHANNELS.rendererReady)) {
+            return;
+        }
+        options.onRendererReady?.(event);
+    });
+
+    registrar.handle(CORE_APP_CHANNELS.claimPendingExternalOpenPaths, (event) =>
+        options.claimPendingExternalOpenPaths?.(event) ?? [],
+    );
 
     registrar.handle('tabs:transfer', async (event, request: unknown) => {
         if (!isValidTransferRequest(request)) {
@@ -624,8 +644,8 @@ function registerCoreIpcHandlers() {
     });
 }
 
-export function registerIpcHandlers() {
-    registerCoreIpcHandlers();
+export function registerIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
+    registerCoreIpcHandlers(options);
     const validatedRegistrar = createValidatedIpcMainRegistrar(ipcMain);
     registerDocumentsIpcAdapter(validatedRegistrar);
     registerImageExportIpcAdapter(validatedRegistrar);

@@ -16,6 +16,7 @@ import {
 } from '@contracts/settings';
 import type { ISettingsData } from '@contracts/shared';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('settings');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -63,7 +64,7 @@ async function readSettingsFromStorage(storagePath: string) {
         const content = await readFile(storagePath, 'utf-8');
         return cacheSettings(JSON.parse(content) as Partial<ISettingsData>);
     } catch (err) {
-        logger.error(`Failed to load settings: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
         return cacheSettings(DEFAULT_SETTINGS);
     }
 }
@@ -92,7 +93,7 @@ export async function saveSettings(settings: ISettingsData): Promise<void> {
             await writeSettingsAtomically(storagePath, safeSettings);
             settingsCache = safeSettings;
         } catch (err) {
-            logger.error(`Failed to save settings: ${err instanceof Error ? err.message : String(err)}`);
+            logger.error(`Failed to save settings: ${getErrorMessage(err)}`);
             throw err;
         }
     });
@@ -136,7 +137,7 @@ function loadSettingsSync(): ISettingsData {
         const content = readFileSync(storagePath, 'utf-8');
         return cacheSettings(JSON.parse(content) as Partial<ISettingsData>);
     } catch (err) {
-        logger.error(`Failed to load settings: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
         return cacheSettings(DEFAULT_SETTINGS);
     }
 }

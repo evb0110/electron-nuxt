@@ -6,6 +6,7 @@ import type {
     TBrowserPdfCombineWorkerRequestType,
     TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browser-pdf-combine-worker.types';
+import { getErrorMessage } from '@app/utils/error';
 
 type TPendingWorkerRequest = {
     resolve: (value: unknown) => void;
@@ -171,7 +172,7 @@ function getBrowserPdfCombineWorker() {
         );
     } catch (error) {
         throw new BrowserPdfCombineWorkerUnavailableError(
-            error instanceof Error ? error.message : String(error),
+            getErrorMessage(error),
         );
     }
 

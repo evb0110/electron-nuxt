@@ -21,7 +21,7 @@ describe('ocrProcessing', () => {
             getPage,
         };
 
-        const { extractPdfText } = await import('@app/composables/ocrProcessing');
+        const { extractPdfText } = await import('@app/utils/ocr/processing');
         const text = await extractPdfText(pdfDocument);
 
         expect(text).toBe('page-1\n\npage-2\n\npage-3');

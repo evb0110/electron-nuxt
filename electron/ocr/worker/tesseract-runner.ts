@@ -8,6 +8,7 @@ import type { IOcrWord } from '@contracts/shared';
 import type { IOcrFileResult } from '@electron/ocr/worker/types';
 import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseract-language-config';
 import { terminateProcessTree } from '@electron/utils/process-tree';
+import { getErrorMessage } from '@electron/utils/error';
 
 const PNG_SIGNATURE = Buffer.from([
     0x89,
@@ -347,7 +348,7 @@ export async function runOcrFileBased(
                     pdfPath,
                 });
             } catch (parseErr) {
-                const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+                const parseMsg = getErrorMessage(parseErr);
                 await Promise.all([
                     safeUnlink(tsvPath),
                     safeUnlink(pdfPath),

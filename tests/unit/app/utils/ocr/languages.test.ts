@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { parsePageRange } from '@app/composables/ocrLanguages';
+import { parsePageRange } from '@app/utils/ocr/languages';
 
 describe('parsePageRange', () => {
     describe('rangeType "current"', () => {

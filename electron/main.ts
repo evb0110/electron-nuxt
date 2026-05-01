@@ -1,7 +1,6 @@
 import {
     app,
     BrowserWindow,
-    ipcMain,
     nativeImage,
 } from 'electron';
 import type { IAppUpdateStatus } from '@contracts/electron-api';
@@ -57,6 +56,7 @@ import {
     initializeUpdates,
     shutdownUpdates,
 } from '@electron/updates';
+import { getErrorMessage } from '@electron/utils/error';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
 if (process.platform === 'win32') {
@@ -88,48 +88,6 @@ function requestFatalShutdown(reason: string) {
         return;
     }
     shutdownCoordinator.requestFatalShutdown(reason);
-}
-
-function isTrustedRendererIpcSender(
-    event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
-    channel: string,
-) {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    if (!window || window.isDestroyed() || event.sender.isDestroyed()) {
-        logger.warn(`[ipc] rejected ${channel}: missing or destroyed sender window`);
-        return false;
-    }
-
-    const senderMainFrame = event.sender.mainFrame;
-    if (event.senderFrame && senderMainFrame && event.senderFrame !== senderMainFrame) {
-        logger.warn(`[ipc] rejected ${channel}: non-main frame sender`);
-        return false;
-    }
-
-    const senderUrl = event.senderFrame?.url || event.sender.getURL();
-    let expectedOrigin = '';
-    try {
-        expectedOrigin = new URL(config.server.url).origin;
-    } catch {
-        expectedOrigin = '';
-    }
-    if (!expectedOrigin || !senderUrl) {
-        logger.warn(`[ipc] rejected ${channel}: missing trusted origin or sender URL`);
-        return false;
-    }
-
-    try {
-        const senderOrigin = new URL(senderUrl).origin;
-        if (senderOrigin !== expectedOrigin) {
-            logger.warn(`[ipc] rejected ${channel}: untrusted sender origin ${senderOrigin} (expected ${expectedOrigin})`);
-            return false;
-        }
-    } catch {
-        logger.warn(`[ipc] rejected ${channel}: invalid sender URL ${senderUrl}`);
-        return false;
-    }
-
-    return true;
 }
 
 // macOS can deliver open-file during very early cold-start launch, before the
@@ -175,7 +133,7 @@ if (process.platform === 'darwin' && config.automation.noFocus) {
     } catch (error) {
         logger.warn(
             `Failed to switch activation policy for automation mode: ${
-                error instanceof Error ? error.message : String(error)
+                getErrorMessage(error)
             }`,
         );
     }
@@ -459,7 +417,7 @@ async function init() {
         try {
             app.dock?.hide();
         } catch (error) {
-            logger.warn(`Failed to hide dock before window creation in automation mode: ${error instanceof Error ? error.message : String(error)}`);
+            logger.warn(`Failed to hide dock before window creation in automation mode: ${getErrorMessage(error)}`);
         }
         app.hide();
     }
@@ -471,7 +429,7 @@ async function init() {
             app.dock?.setIcon(devDockIcon ?? devDockIconPath);
             app.dock?.setBadge(DEV_DOCK_BADGE_TEXT);
         } catch (err) {
-            logger.warn(`Failed to set dock icon: ${err instanceof Error ? err.message : String(err)}`);
+            logger.warn(`Failed to set dock icon: ${getErrorMessage(err)}`);
         }
     }
     const appVersion = app.getVersion();
@@ -484,7 +442,34 @@ async function init() {
         authors: ['Eugene Barsky'],
     });
 
-    registerIpcHandlers();
+    registerIpcHandlers({
+        onRendererReady: (event) => {
+            const window = BrowserWindow.fromWebContents(event.sender);
+            if (!window) {
+                return;
+            }
+
+            readyWindowIds.add(window.id);
+            markWindowTabTransferReady(window.id);
+
+            externalOpenManager.scheduleFlushPendingFiles();
+            markWindowRendererReady(window.id);
+            if (window.id === getMainWindow()?.id) {
+                logStartupPhase(`Main renderer signaled ready (windowId=${window.id})`);
+                maybePromptForDefaultViewer();
+            }
+        },
+        claimPendingExternalOpenPaths: (event) => {
+            const window = BrowserWindow.fromWebContents(event.sender);
+            if (!window || window.id !== getMainWindow()?.id) {
+                return [];
+            }
+
+            const paths = externalOpenManager.claimPendingOpenPaths();
+            allowOpenPaths(paths);
+            return paths;
+        },
+    });
     logStartupPhase('IPC handlers registered');
 
     void sweepStaleDefaultAppTempPdfs().catch((error: unknown) => {
@@ -500,42 +485,8 @@ async function init() {
             }
         })
         .catch((error) => {
-            logger.warn(`Failed to cleanup stale working-copy directories: ${error instanceof Error ? error.message : String(error)}`);
+            logger.warn(`Failed to cleanup stale working-copy directories: ${getErrorMessage(error)}`);
         });
-
-    ipcMain.on('app:rendererReady', (event) => {
-        if (!isTrustedRendererIpcSender(event, 'app:rendererReady')) {
-            return;
-        }
-        const window = BrowserWindow.fromWebContents(event.sender);
-        if (!window) {
-            return;
-        }
-
-        readyWindowIds.add(window.id);
-        markWindowTabTransferReady(window.id);
-
-        externalOpenManager.scheduleFlushPendingFiles();
-        markWindowRendererReady(window.id);
-        if (window.id === getMainWindow()?.id) {
-            logStartupPhase(`Main renderer signaled ready (windowId=${window.id})`);
-            maybePromptForDefaultViewer();
-        }
-    });
-
-    ipcMain.handle('app:claimPendingExternalOpenPaths', (event) => {
-        if (!isTrustedRendererIpcSender(event, 'app:claimPendingExternalOpenPaths')) {
-            return [];
-        }
-        const window = BrowserWindow.fromWebContents(event.sender);
-        if (!window || window.id !== getMainWindow()?.id) {
-            return [];
-        }
-
-        const paths = externalOpenManager.claimPendingOpenPaths();
-        allowOpenPaths(paths);
-        return paths;
-    });
 
     app.on('browser-window-created', (_event, window) => {
         const markNotReady = () => {
@@ -581,7 +532,7 @@ async function init() {
         if (!hasWindows()) {
             readyWindowIds.clear();
             void createWindow().catch((error) => {
-                logger.error(`Failed to create window on activate: ${error instanceof Error ? error.message : String(error)}`);
+                logger.error(`Failed to create window on activate: ${getErrorMessage(error)}`);
             });
             return;
         }
@@ -601,7 +552,7 @@ async function init() {
                 app.dock.hide();
             }
         } catch (error) {
-            logger.warn(`Failed to hide dock in automation mode: ${error instanceof Error ? error.message : String(error)}`);
+            logger.warn(`Failed to hide dock in automation mode: ${getErrorMessage(error)}`);
         }
         app.hide();
     }
@@ -611,21 +562,21 @@ async function init() {
             initializeUpdates(broadcastUpdateStatus);
             logStartupPhase('Update service initialized');
         } catch (error) {
-            logger.error(`Failed to initialize updates: ${error instanceof Error ? error.message : String(error)}`);
+            logger.error(`Failed to initialize updates: ${getErrorMessage(error)}`);
         }
 
         try {
             await initRecentFilesCache();
             logStartupPhase('Recent files cache initialized');
         } catch (error) {
-            logger.error(`Failed to initialize recent files cache: ${error instanceof Error ? error.message : String(error)}`);
+            logger.error(`Failed to initialize recent files cache: ${getErrorMessage(error)}`);
         }
 
         try {
             setupMenu();
             logStartupPhase('Application menu initialized');
         } catch (error) {
-            logger.error(`Failed to initialize application menu: ${error instanceof Error ? error.message : String(error)}`);
+            logger.error(`Failed to initialize application menu: ${getErrorMessage(error)}`);
         }
     })();
 }

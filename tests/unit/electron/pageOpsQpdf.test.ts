@@ -50,7 +50,7 @@ describe('page-ops qpdf extract', () => {
                 };
             });
 
-            const { extractPages } = await import('@electron/page-ops/qpdf');
+            const { extractPages } = await import('@electron/features/page-ops/main/qpdf');
 
             await expect(extractPages(srcPath, destPath, [
                 1,

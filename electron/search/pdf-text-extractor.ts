@@ -2,6 +2,11 @@ import { existsSync } from 'fs';
 import { createLogger } from '@electron/utils/logger';
 import { runCommand } from '@electron/utils/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
+import {
+    abortErrorFromSignal,
+    isAbortError,
+} from '@electron/utils/abort';
+import { getErrorMessage } from '@electron/utils/error';
 
 const log = createLogger('pdf-text-extractor');
 const PDFTOTEXT_TIMEOUT_MS = (() => {
@@ -29,23 +34,10 @@ interface IExtractTextOptions {
     signal?: AbortSignal;
 }
 
-function createAbortError() {
-    const error = new Error('The operation was aborted');
-    error.name = 'AbortError';
-    return error;
-}
-
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
-        throw createAbortError();
+        throw abortErrorFromSignal(signal);
     }
-}
-
-function isAbortError(error: unknown) {
-    return error instanceof Error && (
-        error.name === 'AbortError'
-        || error.message.toLowerCase().includes('aborted')
-    );
 }
 
 /**
@@ -118,7 +110,7 @@ export async function extractTextFromPdf(
             throw err;
         }
 
-        const errMsg = err instanceof Error ? err.message : String(err);
+        const errMsg = getErrorMessage(err);
         log.debug(`Failed to extract text using ${pdftotext}: ${errMsg}`);
 
         // Provide actionable error message

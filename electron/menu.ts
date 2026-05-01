@@ -17,6 +17,7 @@ import {
     getAllAppWindows,
     getWindowById,
 } from '@electron/window';
+import { getErrorMessage } from '@electron/utils/error';
 
 const appName = te('app.title');
 const logger = createLogger('menu');
@@ -165,7 +166,7 @@ export function sendToWindow(window: BaseWindow | undefined | null, channel: str
         window.webContents.send(channel, ...args);
         return true;
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         // Menu clicks can race with window teardown; avoid surfacing this as a main-process crash.
         logger.warn(`Failed to send "${channel}" to renderer: ${message}`);
         return false;

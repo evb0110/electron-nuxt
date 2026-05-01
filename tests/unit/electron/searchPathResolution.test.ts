@@ -38,7 +38,7 @@ describe('resolveSearchablePdfPath', () => {
     it('returns directly resolved temp path when available', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValueOnce('/tmp/pdf-work-1/work.pdf');
 
-        const { resolveSearchablePdfPath } = await import('@electron/search/ipc');
+        const { resolveSearchablePdfPath } = await import('@electron/features/search/main/ipc');
         const resolved = await resolveSearchablePdfPath('/tmp/pdf-work-1/work.pdf');
 
         expect(resolved).toBe('/tmp/pdf-work-1/work.pdf');
@@ -51,7 +51,7 @@ describe('resolveSearchablePdfPath', () => {
             .mockResolvedValueOnce('/tmp/pdf-work-2/working.pdf');
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/pdf-work-2/working.pdf');
 
-        const { resolveSearchablePdfPath } = await import('@electron/search/ipc');
+        const { resolveSearchablePdfPath } = await import('@electron/features/search/main/ipc');
         const resolved = await resolveSearchablePdfPath('/Users/test/Documents/original.pdf');
 
         expect(resolved).toBe('/tmp/pdf-work-2/working.pdf');
@@ -63,14 +63,14 @@ describe('resolveSearchablePdfPath', () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
 
-        const { resolveSearchablePdfPath } = await import('@electron/search/ipc');
+        const { resolveSearchablePdfPath } = await import('@electron/features/search/main/ipc');
         const resolved = await resolveSearchablePdfPath('/Users/test/Documents/original.pdf');
 
         expect(resolved).toBeNull();
     });
 
     it('resolves the bundled search worker beside main in development', async () => {
-        const { resolveSearchWorkerPath } = await import('@electron/search/ipc');
+        const { resolveSearchWorkerPath } = await import('@electron/features/search/main/ipc');
 
         expect(resolveSearchWorkerPath('/tmp/evb/dist-electron')).toBe('/tmp/evb/dist-electron/search-worker.js');
     });
@@ -79,7 +79,7 @@ describe('resolveSearchablePdfPath', () => {
         mocks.app.isPackaged = true;
         mocks.existsSync.mockImplementation((path: string) => String(path).includes('app.asar.unpacked'));
 
-        const { resolveSearchWorkerPath } = await import('@electron/search/ipc');
+        const { resolveSearchWorkerPath } = await import('@electron/features/search/main/ipc');
 
         expect(resolveSearchWorkerPath('/Applications/EVB Viewer.app/Contents/Resources/app.asar/dist-electron'))
             .toBe('/Applications/EVB Viewer.app/Contents/Resources/app.asar.unpacked/dist-electron/search-worker.js');

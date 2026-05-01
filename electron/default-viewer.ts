@@ -13,6 +13,7 @@ import {
 } from '@electron/settings';
 import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
+import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('default-viewer');
 const KNOWN_USER_DATA_DIR_NAMES = [
@@ -47,7 +48,7 @@ async function persistPromptSuppression(settings: ISettingsData) {
     try {
         await saveSettings(settings);
     } catch (err) {
-        logger.error(`Failed to suppress prompt: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error(`Failed to suppress prompt: ${getErrorMessage(err)}`);
     }
 }
 

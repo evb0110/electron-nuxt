@@ -4,6 +4,8 @@ import type {
     TTabUpdate,
 } from '@app/types/tabs';
 
+// Intentional client-wide singleton: the workspace shell, toolbar, and tab
+// transfer flows share one tab collection within the renderer process.
 const tabs = ref<ITab[]>([]);
 const activeTabId = ref<string | null>(null);
 
