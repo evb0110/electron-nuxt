@@ -20,6 +20,12 @@ interface IDevReloadEventMarker {
     payload?: unknown;
 }
 
+interface IRecentViteFullReloadEvent {
+    timestamp: number;
+    ageMs: number;
+    event: string;
+}
+
 type TDevRecoveryLogger = (
     level: 'debug' | 'info' | 'warn' | 'error',
     message: string,
@@ -135,45 +141,71 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
         log('warn', '[Dev] Previous renderer session reload history (persisted)', {previousReloadHistory});
     }
 
-    function readRecentViteFullReloadEvent() {
-        try {
-            const raw = window.sessionStorage.getItem(DEV_RELOAD_EVENT_KEY);
-            if (!raw) {
-                return null;
-            }
+    function getViteReloadPayloadType(payload: unknown) {
+        return payload
+            && typeof payload === 'object'
+            && 'type' in payload
+            ? (payload as {type?: unknown;}).type
+            : undefined;
+    }
 
+    function isRecentReloadMarker(marker: IDevReloadEventMarker) {
+        if (typeof marker.timestamp !== 'number') {
+            return false;
+        }
+
+        const ageMs = Date.now() - marker.timestamp;
+        return ageMs >= 0 && ageMs <= VITE_FULL_RELOAD_EVENT_MAX_AGE_MS;
+    }
+
+    function normalizeRecentViteReloadMarker(
+        marker: IDevReloadEventMarker,
+    ): IRecentViteFullReloadEvent | null {
+        if (!isRecentReloadMarker(marker)) {
+            return null;
+        }
+
+        const payloadType = getViteReloadPayloadType(marker.payload);
+        const isFullReload = marker.event === 'vite:beforeFullReload'
+            && (payloadType === 'full-reload' || payloadType === undefined);
+        if (!isFullReload) {
+            return null;
+        }
+
+        return {
+            timestamp: marker.timestamp,
+            ageMs: Date.now() - marker.timestamp,
+            event: marker.event ?? 'vite:beforeFullReload',
+        };
+    }
+
+    function readSessionStorageItem(key: string) {
+        try {
+            return window.sessionStorage.getItem(key);
+        } catch {
+            return null;
+        }
+    }
+
+    function parseViteReloadMarker(raw: string | null) {
+        if (!raw) {
+            return null;
+        }
+
+        try {
             const parsed = JSON.parse(raw) as IDevReloadEventMarker;
             if (!parsed || typeof parsed.timestamp !== 'number') {
                 return null;
             }
 
-            const ageMs = Date.now() - parsed.timestamp;
-            if (ageMs < 0 || ageMs > VITE_FULL_RELOAD_EVENT_MAX_AGE_MS) {
-                return null;
-            }
-
-            const payloadType = (
-                parsed.payload
-                && typeof parsed.payload === 'object'
-                && 'type' in parsed.payload
-            )
-                ? (parsed.payload as {type?: unknown;}).type
-                : undefined;
-            const isFullReload = parsed.event === 'vite:beforeFullReload'
-                && (payloadType === 'full-reload' || payloadType === undefined);
-
-            if (!isFullReload) {
-                return null;
-            }
-
-            return {
-                timestamp: parsed.timestamp,
-                ageMs,
-                event: parsed.event ?? 'vite:beforeFullReload',
-            };
+            return normalizeRecentViteReloadMarker(parsed);
         } catch {
             return null;
         }
+    }
+
+    function readRecentViteFullReloadEvent() {
+        return parseViteReloadMarker(readSessionStorageItem(DEV_RELOAD_EVENT_KEY));
     }
 
     function isViteOptimizeDepError(message: string) {

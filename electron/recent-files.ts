@@ -125,6 +125,57 @@ function filterExistingFiles(files: IRecentFile[]): IFilteredRecentFiles {
     };
 }
 
+function emptyRecentFilesData(): IRecentFilesData {
+    return {
+        version: 1,
+        files: [],
+    };
+}
+
+async function tryBootstrapRecentFiles(bootstrapPath: string): Promise<IRecentFilesData | null> {
+    try {
+        const content = await readFile(bootstrapPath, 'utf-8');
+        const bootstrapData = normalizeRecentFilesData(JSON.parse(content));
+        const filtered = filterExistingFiles(bootstrapData.files);
+        if (filtered.files.length === 0) {
+            return null;
+        }
+
+        const migratedData = {
+            ...bootstrapData,
+            files: filtered.files,
+        };
+        await saveRecentFilesData(migratedData);
+        if (STARTUP_TRACE_ENABLED) {
+            logger.info(
+                `[startup] recent-files bootstrap (${filtered.files.length} file(s) from ${bootstrapPath}, `
+                + `removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount})`,
+            );
+        }
+        return migratedData;
+    } catch (bootstrapError) {
+        if ((bootstrapError as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+            logger.warn(
+                `Failed to bootstrap recent files from ${bootstrapPath}: ${
+                    getErrorMessage(bootstrapError)
+                }`,
+            );
+        }
+        return null;
+    }
+}
+
+async function loadBootstrapRecentFilesData(): Promise<IRecentFilesData | null> {
+    for (const bootstrapPath of getBootstrapStoragePaths()) {
+        const bootstrapData = await tryBootstrapRecentFiles(bootstrapPath);
+        if (bootstrapData) {
+            return bootstrapData;
+        }
+    }
+
+    return null;
+}
+
 async function loadRecentFilesData(): Promise<IRecentFilesData> {
     const storagePath = getStoragePath();
     try {
@@ -132,49 +183,11 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
         return normalizeRecentFilesData(JSON.parse(content));
     } catch (err) {
         if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
-            for (const bootstrapPath of getBootstrapStoragePaths()) {
-                try {
-                    const content = await readFile(bootstrapPath, 'utf-8');
-                    const bootstrapData = normalizeRecentFilesData(JSON.parse(content));
-                    const filtered = filterExistingFiles(bootstrapData.files);
-                    if (filtered.files.length === 0) {
-                        continue;
-                    }
-
-                    const migratedData = {
-                        ...bootstrapData,
-                        files: filtered.files,
-                    };
-                    await saveRecentFilesData(migratedData);
-                    if (STARTUP_TRACE_ENABLED) {
-                        logger.info(
-                            `[startup] recent-files bootstrap (${filtered.files.length} file(s) from ${bootstrapPath}, `
-                            + `removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount})`,
-                        );
-                    }
-                    return migratedData;
-                } catch (bootstrapError) {
-                    if ((bootstrapError as NodeJS.ErrnoException)?.code === 'ENOENT') {
-                        continue;
-                    }
-                    logger.warn(
-                        `Failed to bootstrap recent files from ${bootstrapPath}: ${
-                            getErrorMessage(bootstrapError)
-                        }`,
-                    );
-                }
-            }
-
-            return {
-                version: 1,
-                files: [],
-            };
+            const bootstrapData = await loadBootstrapRecentFilesData();
+            return bootstrapData ?? emptyRecentFilesData();
         }
         logger.error(`Failed to load recent files: ${getErrorMessage(err)}`);
-        return {
-            version: 1,
-            files: [],
-        };
+        return emptyRecentFilesData();
     }
 }
 

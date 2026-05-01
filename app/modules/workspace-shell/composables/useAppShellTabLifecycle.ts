@@ -37,6 +37,11 @@ interface IUseAppShellTabLifecycleOptions {
     requestDirtyTabCloseConfirmation: (tabId: string) => Promise<boolean>;
 }
 
+interface ICloseHandoffTarget {
+    groupId: string;
+    tabId: string;
+}
+
 export function useAppShellTabLifecycle(options: IUseAppShellTabLifecycleOptions) {
     const {
         groups,
@@ -62,6 +67,49 @@ export function useAppShellTabLifecycle(options: IUseAppShellTabLifecycleOptions
     let afterTransitionHook: (() => void) | null = null;
 
     const isTabTransitionBusy = computed(() => activeTabTransitions.value > 0);
+
+    function isPlaceholderTabState(tab: ITab) {
+        return !hasDocumentMountHint(tab)
+            && tab.fileName === null
+            && tab.originalPath === null
+            && !tab.isDjvu
+            && !tab.isDirty;
+    }
+
+    function isTransientPlaceholderDowngrade(tabId: string, tab: ITab, nextTabState: ITab) {
+        return hasDocumentMountHint(tab)
+            && isPlaceholderTabState(nextTabState)
+            && (
+                isTabTransitionBusy.value
+                || workspaceSplitCache.has(tabId)
+                || workspaceRestoreTracker.has(tabId)
+                || (activeTabId.value === tabId && !hasTeleportedToolbarContent.value)
+            );
+    }
+
+    function logSuppressedPlaceholderDowngrade(tabId: string, updates: Partial<ITab>, tab: ITab, nextTabState: ITab) {
+        BrowserLogger.warn('toolbar-transition', 'Suppressing transient placeholder tab update during remount handoff', {
+            tabId,
+            updates,
+            activeTabId: activeTabId.value,
+            activeGroupId: activeGroupId.value,
+            isTabTransitionBusy: isTabTransitionBusy.value,
+            hasSplitCache: workspaceSplitCache.has(tabId),
+            isRestoreTracked: workspaceRestoreTracker.has(tabId),
+            previousTabState: {
+                fileName: tab.fileName,
+                originalPath: tab.originalPath,
+                isDirty: tab.isDirty,
+                isDjvu: tab.isDjvu,
+            },
+            nextTabState: {
+                fileName: nextTabState.fileName,
+                originalPath: nextTabState.originalPath,
+                isDirty: nextTabState.isDirty,
+                isDjvu: nextTabState.isDjvu,
+            },
+        });
+    }
 
     function enqueueTabTransition<T>(task: () => Promise<T>): Promise<T> {
         const chained = tabTransitionQueue.then(async () => {
@@ -94,43 +142,8 @@ export function useAppShellTabLifecycle(options: IUseAppShellTabLifecycleOptions
             ...updates,
         };
 
-        const wasDocumentTab = hasDocumentMountHint(tab);
-        const becomesPlaceholder = !hasDocumentMountHint(nextTabState)
-            && nextTabState.fileName === null
-            && nextTabState.originalPath === null
-            && !nextTabState.isDjvu
-            && !nextTabState.isDirty;
-        const shouldSuppressPlaceholderDowngrade = wasDocumentTab
-            && becomesPlaceholder
-            && (
-                isTabTransitionBusy.value
-                || workspaceSplitCache.has(tabId)
-                || workspaceRestoreTracker.has(tabId)
-                || (activeTabId.value === tabId && !hasTeleportedToolbarContent.value)
-            );
-
-        if (shouldSuppressPlaceholderDowngrade) {
-            BrowserLogger.warn('toolbar-transition', 'Suppressing transient placeholder tab update during remount handoff', {
-                tabId,
-                updates,
-                activeTabId: activeTabId.value,
-                activeGroupId: activeGroupId.value,
-                isTabTransitionBusy: isTabTransitionBusy.value,
-                hasSplitCache: workspaceSplitCache.has(tabId),
-                isRestoreTracked: workspaceRestoreTracker.has(tabId),
-                previousTabState: {
-                    fileName: tab.fileName,
-                    originalPath: tab.originalPath,
-                    isDirty: tab.isDirty,
-                    isDjvu: tab.isDjvu,
-                },
-                nextTabState: {
-                    fileName: nextTabState.fileName,
-                    originalPath: nextTabState.originalPath,
-                    isDirty: nextTabState.isDirty,
-                    isDjvu: nextTabState.isDjvu,
-                },
-            });
+        if (isTransientPlaceholderDowngrade(tabId, tab, nextTabState)) {
+            logSuppressedPlaceholderDowngrade(tabId, updates, tab, nextTabState);
             return;
         }
 
@@ -237,41 +250,24 @@ export function useAppShellTabLifecycle(options: IUseAppShellTabLifecycleOptions
         return bestTabId;
     }
 
-    function resolveCloseHandoffTarget(groupId: string, tabId: string) {
-        if (activeGroupId.value !== groupId || activeTabId.value !== tabId) {
-            return null;
-        }
-
-        const sourceGroup = getGroupById(groupId);
-        if (!sourceGroup) {
-            return null;
-        }
-
+    function pickSameGroupCloseReplacement(sourceGroup: IEditorGroupState, tabId: string) {
         const closingTabIndex = sourceGroup.tabIds.indexOf(tabId);
         if (closingTabIndex === -1) {
             return null;
         }
 
-        const sameGroupReplacement = pickBestTabCandidate([
+        return pickBestTabCandidate([
             sourceGroup.tabIds[closingTabIndex + 1],
             sourceGroup.tabIds[closingTabIndex - 1],
             ...sourceGroup.tabIds.filter(candidate => candidate !== tabId),
         ]);
-        if (sameGroupReplacement) {
-            return {
-                groupId: sourceGroup.id,
-                tabId: sameGroupReplacement,
-            };
-        }
+    }
 
-        let bestTarget: {
-            groupId: string;
-            tabId: string;
-            score: number;
-        } | null = null;
+    function pickCrossGroupCloseReplacement(sourceGroupId: string) {
+        let bestTarget: (ICloseHandoffTarget & { score: number }) | null = null;
 
         for (const candidateGroup of groups.value) {
-            if (candidateGroup.id === sourceGroup.id || candidateGroup.tabIds.length === 0) {
+            if (candidateGroup.id === sourceGroupId || candidateGroup.tabIds.length === 0) {
                 continue;
             }
 
@@ -293,14 +289,33 @@ export function useAppShellTabLifecycle(options: IUseAppShellTabLifecycleOptions
             }
         }
 
-        if (!bestTarget) {
+        return bestTarget
+            ? {
+                groupId: bestTarget.groupId,
+                tabId: bestTarget.tabId,
+            }
+            : null;
+    }
+
+    function resolveCloseHandoffTarget(groupId: string, tabId: string) {
+        if (activeGroupId.value !== groupId || activeTabId.value !== tabId) {
             return null;
         }
 
-        return {
-            groupId: bestTarget.groupId,
-            tabId: bestTarget.tabId,
-        };
+        const sourceGroup = getGroupById(groupId);
+        if (!sourceGroup) {
+            return null;
+        }
+
+        const sameGroupReplacement = pickSameGroupCloseReplacement(sourceGroup, tabId);
+        if (sameGroupReplacement) {
+            return {
+                groupId: sourceGroup.id,
+                tabId: sameGroupReplacement,
+            };
+        }
+
+        return pickCrossGroupCloseReplacement(sourceGroup.id);
     }
 
     async function handoffActiveTabBeforeClose(groupId: string, tabId: string) {
@@ -319,87 +334,123 @@ export function useAppShellTabLifecycle(options: IUseAppShellTabLifecycleOptions
         workspaceSplitCache.clear(tabId);
     }
 
+    function closeResolvedTabInState(groupId: string, tabId: string) {
+        const resolvedGroup = getGroupByTabId(tabId) ?? getGroupById(groupId);
+        if (resolvedGroup) {
+            closeTabInState(resolvedGroup.id, tabId);
+        }
+    }
+
+    function shouldDeferCloseHandoff(
+        sourceGroup: IEditorGroupState | null,
+        closeHandoffTarget: ICloseHandoffTarget | null,
+    ) {
+        return Boolean(
+            sourceGroup
+            && closeHandoffTarget
+            && sourceGroup.tabIds.length === 1
+            && closeHandoffTarget.groupId !== sourceGroup.id,
+        );
+    }
+
+    async function activateDeferredCloseHandoff(
+        shouldDeferCrossGroupHandoff: boolean,
+        closeHandoffTarget: ICloseHandoffTarget | null,
+    ) {
+        if (!shouldDeferCrossGroupHandoff || !closeHandoffTarget) {
+            return;
+        }
+
+        const targetTab = getTabById(closeHandoffTarget.tabId);
+        const targetGroup = getGroupById(closeHandoffTarget.groupId)
+            ?? getGroupByTabId(closeHandoffTarget.tabId);
+        if (!targetTab || !targetGroup || !targetGroup.tabIds.includes(targetTab.id)) {
+            return;
+        }
+
+        activateGroup(targetGroup.id);
+        activateTab(targetGroup.id, targetTab.id);
+        await nextTick();
+    }
+
+    function resolveCloseHandoffContext(groupId: string, tabId: string) {
+        const sourceGroupBeforeClose = getGroupById(groupId);
+        const closeHandoffTarget = resolveCloseHandoffTarget(groupId, tabId);
+        return {
+            closeHandoffTarget,
+            shouldDeferCrossGroupHandoff: shouldDeferCloseHandoff(sourceGroupBeforeClose, closeHandoffTarget),
+        };
+    }
+
+    async function resolveClosePersistence(tabId: string, tab: ITab) {
+        if (!tab.isDirty) {
+            return true;
+        }
+
+        const confirmed = await requestDirtyTabCloseConfirmation(tabId);
+        return confirmed ? false : null;
+    }
+
+    function workspaceHasCloseableDocument(workspace: IWorkspaceExpose | undefined): workspace is IWorkspaceExpose {
+        // DjVu workspaces also need proper close handling (temp cleanup, exitDjvuMode).
+        return Boolean(workspace && (workspaceHasPdf(workspace) || workspace.getToolbarSnapshot().isDjvuMode));
+    }
+
+    async function closeWorkspaceDocument(
+        groupId: string,
+        tabId: string,
+        workspace: IWorkspaceExpose,
+        shouldPersistBeforeClose: boolean,
+    ) {
+        workspaceRestoreTracker.start(tabId);
+        try {
+            await workspace.handleCloseFileFromUi({ persist: shouldPersistBeforeClose });
+        } finally {
+            workspaceRestoreTracker.finish(tabId);
+        }
+
+        if (!workspaceHasPdf(workspace) && !workspace.getToolbarSnapshot().isDjvuMode) {
+            closeResolvedTabInState(groupId, tabId);
+        }
+    }
+
+    async function closeTabDuringTransition(groupId: string, tabId: string) {
+        const tab = getTabById(tabId);
+        if (!tab) {
+            return;
+        }
+
+        const {
+            closeHandoffTarget,
+            shouldDeferCrossGroupHandoff,
+        } = resolveCloseHandoffContext(groupId, tabId);
+
+        const shouldPersistBeforeClose = await resolveClosePersistence(tabId, tab);
+        if (shouldPersistBeforeClose === null) {
+            return;
+        }
+
+        if (!shouldDeferCrossGroupHandoff) {
+            await handoffActiveTabBeforeClose(groupId, tabId);
+        }
+
+        const workspace = workspaceRefs.value.get(tabId);
+        if (workspaceHasCloseableDocument(workspace)) {
+            await closeWorkspaceDocument(groupId, tabId, workspace, shouldPersistBeforeClose);
+        } else {
+            closeResolvedTabInState(groupId, tabId);
+        }
+
+        cleanupEmptyGroups();
+        await activateDeferredCloseHandoff(shouldDeferCrossGroupHandoff, closeHandoffTarget);
+    }
+
     async function handleCloseTab(groupId: string, tabId: string) {
         if (isSingletonPlaceholderCloseBlocked(groupId, tabId)) {
             return;
         }
 
-        await enqueueTabTransition(async () => {
-            const tab = getTabById(tabId);
-            if (!tab) {
-                return;
-            }
-
-            const sourceGroupBeforeClose = getGroupById(groupId);
-            const closeHandoffTarget = resolveCloseHandoffTarget(groupId, tabId);
-            const shouldDeferCrossGroupHandoff = Boolean(
-                sourceGroupBeforeClose
-                && closeHandoffTarget
-                && sourceGroupBeforeClose.tabIds.length === 1
-                && closeHandoffTarget.groupId !== sourceGroupBeforeClose.id,
-            );
-
-            const activateDeferredCloseHandoff = async () => {
-                if (!shouldDeferCrossGroupHandoff || !closeHandoffTarget) {
-                    return;
-                }
-
-                const targetTab = getTabById(closeHandoffTarget.tabId);
-                const targetGroup = getGroupById(closeHandoffTarget.groupId)
-                    ?? getGroupByTabId(closeHandoffTarget.tabId);
-                if (!targetTab || !targetGroup || !targetGroup.tabIds.includes(targetTab.id)) {
-                    return;
-                }
-
-                activateGroup(targetGroup.id);
-                activateTab(targetGroup.id, targetTab.id);
-                await nextTick();
-            };
-
-            let shouldPersistBeforeClose = true;
-            if (tab.isDirty) {
-                const confirmed = await requestDirtyTabCloseConfirmation(tabId);
-                if (!confirmed) {
-                    return;
-                }
-                shouldPersistBeforeClose = false;
-            }
-
-            if (!shouldDeferCrossGroupHandoff) {
-                await handoffActiveTabBeforeClose(groupId, tabId);
-            }
-
-            const workspace = workspaceRefs.value.get(tabId);
-            // DjVu workspaces also need proper close handling (temp cleanup, exitDjvuMode)
-            const workspaceHasDocument = workspace
-                && (workspaceHasPdf(workspace) || workspace.getToolbarSnapshot().isDjvuMode);
-            if (workspaceHasDocument) {
-                workspaceRestoreTracker.start(tabId);
-                try {
-                    await workspace.handleCloseFileFromUi({ persist: shouldPersistBeforeClose });
-                } finally {
-                    workspaceRestoreTracker.finish(tabId);
-                }
-
-                if (!workspaceHasPdf(workspace) && !workspace.getToolbarSnapshot().isDjvuMode) {
-                    const resolvedGroup = getGroupByTabId(tabId) ?? getGroupById(groupId);
-                    if (resolvedGroup) {
-                        closeTabInState(resolvedGroup.id, tabId);
-                    }
-                }
-                cleanupEmptyGroups();
-                await activateDeferredCloseHandoff();
-                return;
-            }
-
-            const resolvedGroup = getGroupByTabId(tabId) ?? getGroupById(groupId);
-            if (resolvedGroup) {
-                closeTabInState(resolvedGroup.id, tabId);
-            }
-
-            cleanupEmptyGroups();
-            await activateDeferredCloseHandoff();
-        });
+        await enqueueTabTransition(() => closeTabDuringTransition(groupId, tabId));
     }
 
     return {

@@ -91,7 +91,8 @@
     "health": {
         "ignore": [
             "app/assets/css/vendor/**",
-            "public/**"
+            "public/**",
+            "tests/**"
         ]
     },
     "rules": {

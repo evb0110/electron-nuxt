@@ -22,6 +22,32 @@ function escapeForQuote(value, quote) {
     return escapedBackslash.replace(new RegExp(quote, 'g'), `\\${quote}`);
 }
 
+function visitObjectLiteralKeys(node, visitor) {
+    if (node.type !== 'ObjectExpression') {
+        return;
+    }
+
+    for (const prop of node.properties || []) {
+        const key = prop?.key;
+        if (key?.type === 'Literal' && typeof key.value === 'string' && !prop.computed) {
+            visitor(key);
+        }
+    }
+}
+
+function walkExpressionChild(value, visitor, seen) {
+    if (Array.isArray(value)) {
+        for (const child of value) {
+            walkExpression(child, visitor, seen);
+        }
+        return;
+    }
+
+    if (value && typeof value === 'object' && value.type) {
+        walkExpression(value, visitor, seen);
+    }
+}
+
 function walkExpression(node, visitor, seen) {
     if (!node || typeof node !== 'object') {
         return;
@@ -32,27 +58,13 @@ function walkExpression(node, visitor, seen) {
     seen.add(node);
 
     visitor(node);
-
-    if (node.type === 'ObjectExpression') {
-        for (const prop of node.properties || []) {
-            if (prop && prop.key && prop.key.type === 'Literal' && typeof prop.key.value === 'string' && !prop.computed) {
-                visitor(prop.key);
-            }
-        }
-    }
+    visitObjectLiteralKeys(node, visitor);
 
     for (const key of Object.keys(node)) {
         if (key === 'parent') {
             continue;
         }
-        const value = node[key];
-        if (Array.isArray(value)) {
-            for (const child of value) {
-                walkExpression(child, visitor, seen);
-            }
-        } else if (value && typeof value === 'object' && value.type) {
-            walkExpression(value, visitor, seen);
-        }
+        walkExpressionChild(node[key], visitor, seen);
     }
 }
 

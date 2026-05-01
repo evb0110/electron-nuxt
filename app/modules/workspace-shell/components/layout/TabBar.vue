@@ -102,6 +102,9 @@ const DIRECTION_ORDER: TGroupDirection[] = [
     'up',
     'down',
 ];
+type TDirectionalAvailabilityKind = 'split' | 'splitEmpty' | 'focus' | 'move' | 'copy';
+type TStaticCommandKind = Exclude<TTabContextCommand['kind'], 'split' | 'split-empty' | 'focus' | 'move' | 'copy'>;
+type TDirectionalTabContextCommand = Extract<TTabContextCommand, { direction: TGroupDirection }>;
 
 interface IContextMenuAction {
     key: string;
@@ -154,35 +157,37 @@ function resolveTabTitle(tab: ITab) {
     return getDocumentRefDisplayLabel(tab.originalPath) ?? tab.fileName ?? t('tabs.newTab');
 }
 
-function isDirectionEnabled(
-    kind: 'split' | 'splitEmpty' | 'focus' | 'move' | 'copy',
-    direction: TGroupDirection,
-) {
+function isDirectionEnabled(kind: TDirectionalAvailabilityKind, direction: TGroupDirection) {
     return props.contextAvailability?.[kind][direction] ?? true;
 }
 
+function resolveDirectionalAvailabilityKind(command: TDirectionalTabContextCommand): TDirectionalAvailabilityKind {
+    return command.kind === 'split-empty' ? 'splitEmpty' : command.kind;
+}
+
+function isDirectionalCommand(command: TTabContextCommand): command is TDirectionalTabContextCommand {
+    return 'direction' in command;
+}
+
+function isDirectionalCommandEnabled(command: TDirectionalTabContextCommand) {
+    return isDirectionEnabled(resolveDirectionalAvailabilityKind(command), command.direction);
+}
+
+function isStaticCommandEnabled(command: Exclude<TTabContextCommand, TDirectionalTabContextCommand>) {
+    const staticAvailabilityByKind = {
+        'new-tab': props.contextAvailability?.canCreate ?? true,
+        'close-tab': props.contextAvailability?.canClose ?? true,
+        'move-to-new-window': props.contextAvailability?.canMoveToNewWindow ?? props.tabs.length > 1,
+        'move-to-window': true,
+    } satisfies Record<TStaticCommandKind, boolean>;
+
+    return staticAvailabilityByKind[command.kind];
+}
+
 function isCommandEnabled(command: TTabContextCommand) {
-    if (command.kind === 'new-tab') {
-        return props.contextAvailability?.canCreate ?? true;
-    }
-
-    if (command.kind === 'close-tab') {
-        return props.contextAvailability?.canClose ?? true;
-    }
-
-    if (command.kind === 'move-to-new-window') {
-        return props.contextAvailability?.canMoveToNewWindow ?? props.tabs.length > 1;
-    }
-
-    if (command.kind === 'move-to-window') {
-        return true;
-    }
-
-    if (command.kind === 'split-empty') {
-        return isDirectionEnabled('splitEmpty', command.direction);
-    }
-
-    return isDirectionEnabled(command.kind, command.direction);
+    return isDirectionalCommand(command)
+        ? isDirectionalCommandEnabled(command)
+        : isStaticCommandEnabled(command);
 }
 
 function buildDirectionalActions(

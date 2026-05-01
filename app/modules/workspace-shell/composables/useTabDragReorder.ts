@@ -147,21 +147,24 @@ export const useTabDragReorder = (
         }
     }
 
-    function finishDrag(pointerX: number | null) {
-        const wasDragging = isDragging.value;
-        const from = dragIndex.value;
-        const to = targetIndex;
+    function resolveOutsideMoveDirection(pointerX: number | null, wasDragging: boolean) {
         const containerRect = containerRef.value?.getBoundingClientRect() ?? null;
-        let moveDirection: 'left' | 'right' | null = null;
-
-        if (wasDragging && pointerX !== null && containerRect) {
-            if (pointerX < containerRect.left - OUTSIDE_MOVE_THRESHOLD) {
-                moveDirection = 'left';
-            } else if (pointerX > containerRect.right + OUTSIDE_MOVE_THRESHOLD) {
-                moveDirection = 'right';
-            }
+        if (!wasDragging || pointerX === null || !containerRect) {
+            return null;
         }
 
+        if (pointerX < containerRect.left - OUTSIDE_MOVE_THRESHOLD) {
+            return 'left';
+        }
+
+        if (pointerX > containerRect.right + OUTSIDE_MOVE_THRESHOLD) {
+            return 'right';
+        }
+
+        return null;
+    }
+
+    function resetDragState() {
         clearAllTransforms();
         isDragging.value = false;
         dragIndex.value = -1;
@@ -170,16 +173,35 @@ export const useTabDragReorder = (
         tabElements = [];
         slots = [];
         detachListeners();
+    }
 
+    function completeMoveToDirection(wasDragging: boolean, from: number, moveDirection: 'left' | 'right' | null) {
         if (wasDragging && moveDirection && from >= 0) {
             lastDragEndTime = Date.now();
             onMoveToDirection?.(from, moveDirection);
-            return;
+            return true;
         }
 
+        return false;
+    }
+
+    function completeReorder(wasDragging: boolean, from: number, to: number) {
         if (wasDragging && from !== to && from >= 0 && to >= 0) {
             lastDragEndTime = Date.now();
             onReorder(from, to);
+        }
+    }
+
+    function finishDrag(pointerX: number | null) {
+        const wasDragging = isDragging.value;
+        const from = dragIndex.value;
+        const to = targetIndex;
+        const moveDirection = resolveOutsideMoveDirection(pointerX, wasDragging);
+
+        resetDragState();
+
+        if (!completeMoveToDirection(wasDragging, from, moveDirection)) {
+            completeReorder(wasDragging, from, to);
         }
     }
 

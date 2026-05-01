@@ -158,6 +158,75 @@ export async function runOcrFileBased(
             resolve(result);
         };
 
+        const cleanupTempOutputs = async () => {
+            await Promise.all([
+                safeUnlink(tsvPath),
+                safeUnlink(pdfPath),
+            ]);
+        };
+
+        const finalizeFailureAfterCleanup = async (error: string) => {
+            await cleanupTempOutputs();
+            finalize({
+                success: false,
+                pageData: null,
+                pdfPath: null,
+                error,
+            });
+        };
+
+        const getCloseFailureMessage = (code: number | null, stderrSummary: string) => {
+            if (aborted) {
+                return 'Tesseract aborted';
+            }
+            if (timedOut) {
+                return `Tesseract timed out after ${FILE_BASED_OCR_TIMEOUT_MS}ms`;
+            }
+            if (code !== 0) {
+                return stderrSummary || `Tesseract exited with code ${code}`;
+            }
+            return null;
+        };
+
+        const handleSuccessfulClose = async () => {
+            try {
+                const tsvContent = await readFile(tsvPath, 'utf-8');
+                const words = parseTsvOutput(tsvContent.trim());
+                let pageText = parseTsvText(tsvContent.trim());
+
+                if (languages.includes('ell')) {
+                    for (const word of words) {
+                        word.text = word.text.replace(/\u00B5/g, '\u03BC');
+                    }
+                    pageText = pageText.replace(/\u00B5/g, '\u03BC');
+                }
+
+                try {
+                    await stat(pdfPath);
+                } catch {
+                    await finalizeFailureAfterCleanup('Tesseract did not produce PDF output');
+                    return;
+                }
+
+                await safeUnlink(tsvPath);
+
+                finalize({
+                    success: true,
+                    pageData: {
+                        pageNumber: 0,
+                        words,
+                        text: pageText,
+                        imageWidth,
+                        imageHeight,
+                    },
+                    pdfPath,
+                });
+            } catch (parseErr) {
+                const parseMsg = getErrorMessage(parseErr);
+                await finalizeFailureAfterCleanup(parseMsg);
+            }
+        };
+
         if (signal) {
             abortHandler = () => {
                 aborted = true;
@@ -180,10 +249,7 @@ export async function runOcrFileBased(
             killHandle.unref?.();
 
             forceFinalizeHandle = setTimeout(async () => {
-                await Promise.all([
-                    safeUnlink(tsvPath),
-                    safeUnlink(pdfPath),
-                ]);
+                await cleanupTempOutputs();
                 finalize({
                     success: false,
                     pageData: null,
@@ -209,116 +275,17 @@ export async function runOcrFileBased(
             const stderrSummary = stderrTruncated
                 ? `[stderr truncated to ${FILE_BASED_OCR_MAX_STDERR_BYTES} bytes]\n${stderr}`
                 : stderr;
-
-            if (aborted) {
-                await Promise.all([
-                    safeUnlink(tsvPath),
-                    safeUnlink(pdfPath),
-                ]);
-                finalize({
-                    success: false,
-                    pageData: null,
-                    pdfPath: null,
-                    error: 'Tesseract aborted',
-                });
+            const closeFailureMessage = getCloseFailureMessage(code, stderrSummary);
+            if (closeFailureMessage) {
+                await finalizeFailureAfterCleanup(closeFailureMessage);
                 return;
             }
 
-            if (timedOut) {
-                await Promise.all([
-                    safeUnlink(tsvPath),
-                    safeUnlink(pdfPath),
-                ]);
-                finalize({
-                    success: false,
-                    pageData: null,
-                    pdfPath: null,
-                    error: `Tesseract timed out after ${FILE_BASED_OCR_TIMEOUT_MS}ms`,
-                });
-                return;
-            }
-
-            if (code !== 0) {
-                await Promise.all([
-                    safeUnlink(tsvPath),
-                    safeUnlink(pdfPath),
-                ]);
-                finalize({
-                    success: false,
-                    pageData: null,
-                    pdfPath: null,
-                    error: stderrSummary || `Tesseract exited with code ${code}`,
-                });
-                return;
-            }
-
-            try {
-                const tsvContent = await readFile(tsvPath, 'utf-8');
-                const words = parseTsvOutput(tsvContent.trim());
-                let pageText = parseTsvText(tsvContent.trim());
-
-                if (languages.includes('ell')) {
-                    for (const word of words) {
-                        word.text = word.text.replace(/\u00B5/g, '\u03BC');
-                    }
-                    pageText = pageText.replace(/\u00B5/g, '\u03BC');
-                }
-
-                try {
-                    await stat(pdfPath);
-                } catch {
-                    await Promise.all([
-                        safeUnlink(tsvPath),
-                        safeUnlink(pdfPath),
-                    ]);
-                    finalize({
-                        success: false,
-                        pageData: null,
-                        pdfPath: null,
-                        error: 'Tesseract did not produce PDF output',
-                    });
-                    return;
-                }
-
-                await safeUnlink(tsvPath);
-
-                finalize({
-                    success: true,
-                    pageData: {
-                        pageNumber: 0,
-                        words,
-                        text: pageText,
-                        imageWidth,
-                        imageHeight,
-                    },
-                    pdfPath,
-                });
-            } catch (parseErr) {
-                const parseMsg = getErrorMessage(parseErr);
-                await Promise.all([
-                    safeUnlink(tsvPath),
-                    safeUnlink(pdfPath),
-                ]);
-                finalize({
-                    success: false,
-                    pageData: null,
-                    pdfPath: null,
-                    error: parseMsg,
-                });
-            }
+            await handleSuccessfulClose();
         });
 
         proc.on('error', async (err) => {
-            await Promise.all([
-                safeUnlink(tsvPath),
-                safeUnlink(pdfPath),
-            ]);
-            finalize({
-                success: false,
-                pageData: null,
-                pdfPath: null,
-                error: err.message,
-            });
+            await finalizeFailureAfterCleanup(err.message);
         });
     });
 }
@@ -351,38 +318,60 @@ function parseTsvOutput(tsvContent: string): IOcrWord[] {
     return words;
 }
 
-function parseTsvText(tsvContent: string): string {
-    const outputLines: string[] = [];
-    let currentLineKey: string | null = null;
-    let currentWords: string[] = [];
+function getTsvLineKey(parts: string[]) {
+    const blockNum = parts[2] || '0';
+    const parNum = parts[3] || '0';
+    const lineNum = parts[4] || '0';
+    return `${blockNum}-${parNum}-${lineNum}`;
+}
 
-    for (const {
-        parts,
-        text,
-    } of iterateTsvWordRows(tsvContent)) {
-        const blockNum = parts[2] || '0';
-        const parNum = parts[3] || '0';
-        const lineNum = parts[4] || '0';
-        const lineKey = `${blockNum}-${parNum}-${lineNum}`;
-
-        if (!text) continue;
-
-        if (currentLineKey !== null && lineKey !== currentLineKey) {
-            if (currentWords.length > 0) {
-                outputLines.push(currentWords.join(' '));
-            }
-            currentWords = [];
-        }
-
-        currentLineKey = lineKey;
-        currentWords.push(text);
-    }
-
+function flushTsvTextLine(outputLines: string[], currentWords: string[]) {
     if (currentWords.length > 0) {
         outputLines.push(currentWords.join(' '));
     }
+}
 
-    return outputLines.join('\n').trim();
+interface ITsvTextState {
+    currentLineKey: string | null;
+    currentWords: string[];
+    outputLines: string[];
+}
+
+function appendTsvTextRow(
+    state: ITsvTextState,
+    row: {
+        parts: string[];
+        text: string;
+    },
+) {
+    if (!row.text) {
+        return;
+    }
+
+    const lineKey = getTsvLineKey(row.parts);
+    if (state.currentLineKey !== null && lineKey !== state.currentLineKey) {
+        flushTsvTextLine(state.outputLines, state.currentWords);
+        state.currentWords = [];
+    }
+
+    state.currentLineKey = lineKey;
+    state.currentWords.push(row.text);
+}
+
+function parseTsvText(tsvContent: string): string {
+    const state: ITsvTextState = {
+        currentLineKey: null,
+        currentWords: [],
+        outputLines: [],
+    };
+
+    for (const row of iterateTsvWordRows(tsvContent)) {
+        appendTsvTextRow(state, row);
+    }
+
+    flushTsvTextLine(state.outputLines, state.currentWords);
+
+    return state.outputLines.join('\n').trim();
 }
 
 function* iterateTsvWordRows(tsvContent: string): Generator<{

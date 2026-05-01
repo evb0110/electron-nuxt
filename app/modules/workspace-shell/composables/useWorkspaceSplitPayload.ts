@@ -27,6 +27,8 @@ interface IUseWorkspaceSplitPayloadOptions {
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
 }
 
+type TPdfSnapshotSplitPayload = Extract<TSplitPayload, { kind: 'pdfSnapshot' }>;
+
 function normalizeSplitPayloadPage(page: number | undefined) {
     if (typeof page !== 'number' || !Number.isFinite(page)) {
         return null;
@@ -44,8 +46,85 @@ function normalizeSplitPayloadTotalPages(total: number | undefined, fallbackPage
 }
 
 export function useWorkspaceSplitPayload(options: IUseWorkspaceSplitPayloadOptions) {
+    function createPdfSnapshotPayload(snapshotPath: TDocumentRef, isDirty: boolean): TPdfSnapshotSplitPayload {
+        const normalizedCurrentPage = normalizeSplitPayloadPage(options.currentPage.value) ?? 1;
+        return {
+            kind: 'pdfSnapshot',
+            fileName: options.fileName.value ?? 'document.pdf',
+            originalPath: options.originalPath.value,
+            snapshotPath,
+            isDirty,
+            currentPage: normalizedCurrentPage,
+            totalPages: normalizeSplitPayloadTotalPages(options.totalPages.value, normalizedCurrentPage),
+        };
+    }
+
+    async function captureCleanWorkingCopySnapshot(): Promise<TPdfSnapshotSplitPayload | null> {
+        if (!options.workingCopyPath.value || options.hasPendingTabChanges.value) {
+            return null;
+        }
+
+        try {
+            const snapshotPath = await getDocumentsCapability().createWorkingCopyFromPath(
+                options.workingCopyPath.value,
+                options.originalPath.value ?? undefined,
+            );
+            return createPdfSnapshotPayload(snapshotPath, false);
+        } catch (error) {
+            BrowserLogger.warn('workspace', 'Failed to create split payload from working copy path', {
+                path: options.workingCopyPath.value,
+                error,
+            });
+            return null;
+        }
+    }
+
+    async function resolvePdfSnapshotData() {
+        const viewerSnapshot = await options.pdfViewerRef.value?.saveDocument?.() ?? null;
+        if (viewerSnapshot) {
+            return viewerSnapshot;
+        }
+
+        if (options.pdfData.value) {
+            return options.pdfData.value;
+        }
+
+        if (!options.workingCopyPath.value) {
+            return null;
+        }
+
+        try {
+            return await readDocumentBytes(options.workingCopyPath.value);
+        } catch (error) {
+            BrowserLogger.warn('workspace', 'Failed to read working copy for split payload', {
+                path: options.workingCopyPath.value,
+                error,
+            });
+            return null;
+        }
+    }
+
+    async function capturePdfSnapshotPayload(): Promise<TSplitPayload> {
+        const cleanWorkingCopySnapshot = await captureCleanWorkingCopySnapshot();
+        if (cleanWorkingCopySnapshot) {
+            return cleanWorkingCopySnapshot;
+        }
+
+        const snapshot = await resolvePdfSnapshotData();
+        if (!snapshot) {
+            return { kind: 'empty' };
+        }
+
+        const snapshotPath = await getDocumentsCapability().createWorkingCopyFromData(
+            options.fileName.value ?? 'document.pdf',
+            snapshot,
+            options.originalPath.value ?? undefined,
+        );
+        return createPdfSnapshotPayload(snapshotPath, options.hasPendingTabChanges.value);
+    }
+
     async function captureSplitPayload(): Promise<TSplitPayload> {
-        // DjVu check must precede pdfSrc guard: DjVu mode has pdfSrc=null
+        // DjVu check must precede pdfSrc guard: DjVu mode has pdfSrc=null.
         if (options.isDjvuMode.value && options.djvuSourcePath.value) {
             return {
                 kind: 'djvu',
@@ -57,67 +136,7 @@ export function useWorkspaceSplitPayload(options: IUseWorkspaceSplitPayloadOptio
             return { kind: 'empty' };
         }
 
-        const normalizedCurrentPage = normalizeSplitPayloadPage(options.currentPage.value) ?? 1;
-        const documents = getDocumentsCapability();
-        const normalizedFileName = options.fileName.value ?? 'document.pdf';
-
-        if (options.workingCopyPath.value && !options.hasPendingTabChanges.value) {
-            try {
-                const snapshotPath = await documents.createWorkingCopyFromPath(
-                    options.workingCopyPath.value,
-                    options.originalPath.value ?? undefined,
-                );
-                return {
-                    kind: 'pdfSnapshot',
-                    fileName: normalizedFileName,
-                    originalPath: options.originalPath.value,
-                    snapshotPath,
-                    isDirty: false,
-                    currentPage: normalizedCurrentPage,
-                    totalPages: normalizeSplitPayloadTotalPages(options.totalPages.value, normalizedCurrentPage),
-                };
-            } catch (error) {
-                BrowserLogger.warn('workspace', 'Failed to create split payload from working copy path', {
-                    path: options.workingCopyPath.value,
-                    error,
-                });
-            }
-        }
-
-        let snapshot = await options.pdfViewerRef.value?.saveDocument?.() ?? null;
-        if (!snapshot && options.pdfData.value) {
-            snapshot = options.pdfData.value;
-        }
-
-        if (!snapshot && options.workingCopyPath.value) {
-            try {
-                snapshot = await readDocumentBytes(options.workingCopyPath.value);
-            } catch (error) {
-                BrowserLogger.warn('workspace', 'Failed to read working copy for split payload', {
-                    path: options.workingCopyPath.value,
-                    error,
-                });
-            }
-        }
-
-        if (!snapshot) {
-            return { kind: 'empty' };
-        }
-
-        const snapshotPath = await documents.createWorkingCopyFromData(
-            normalizedFileName,
-            snapshot,
-            options.originalPath.value ?? undefined,
-        );
-        return {
-            kind: 'pdfSnapshot',
-            fileName: normalizedFileName,
-            originalPath: options.originalPath.value,
-            snapshotPath,
-            isDirty: options.hasPendingTabChanges.value,
-            currentPage: normalizedCurrentPage,
-            totalPages: normalizeSplitPayloadTotalPages(options.totalPages.value, normalizedCurrentPage),
-        };
+        return capturePdfSnapshotPayload();
     }
 
     async function restoreSplitPayload(payload: TSplitPayload): Promise<void> {

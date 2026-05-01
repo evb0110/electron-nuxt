@@ -153,6 +153,25 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         return normalized;
     }
 
+    function findJoinedSupportedPath(args: string[], startIndex: number, firstToken: string) {
+        let candidate = firstToken;
+        for (let cursor = startIndex + 1; cursor < args.length && cursor <= startIndex + 7; cursor += 1) {
+            const nextToken = normalizeCommandLineArg(args[cursor] ?? '');
+            if (!nextToken) {
+                break;
+            }
+            candidate = `${candidate} ${nextToken}`;
+            if (isSupportedFile(candidate)) {
+                return {
+                    path: candidate,
+                    endIndex: cursor,
+                };
+            }
+        }
+
+        return null;
+    }
+
     function collectSupportedPathsFromArgs(args: string[]) {
         const files: string[] = [];
         for (let i = 0; i < args.length; i += 1) {
@@ -166,27 +185,55 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
                 continue;
             }
 
-            let candidate = normalized;
-            for (let j = i + 1; j < args.length && j <= i + 7; j += 1) {
-                const nextToken = normalizeCommandLineArg(args[j] ?? '');
-                if (!nextToken) {
-                    break;
-                }
-                candidate = `${candidate} ${nextToken}`;
-                if (isSupportedFile(candidate)) {
-                    files.push(candidate);
-                    i = j;
-                    break;
-                }
+            const joinedPath = findJoinedSupportedPath(args, i, normalized);
+            if (joinedPath) {
+                files.push(joinedPath.path);
+                i = joinedPath.endIndex;
             }
         }
         return files;
     }
 
-    function queueOpenRequest(paths: string[]) {
-        const normalizedPaths = uniq(paths
+    function normalizeOpenRequestPaths(paths: string[]) {
+        return uniq(paths
             .map(path => path.trim())
             .filter(path => path.length > 0));
+    }
+
+    function enqueueExternalOpenPath(normalizedPath: string) {
+        let wasCoalesced = false;
+        let droppedCount = 0;
+
+        if (pendingExternalOpenPathSet.has(normalizedPath)) {
+            wasCoalesced = true;
+            const existingIndex = pendingExternalOpenPaths.indexOf(normalizedPath);
+            if (existingIndex >= 0) {
+                pendingExternalOpenPaths.splice(existingIndex, 1);
+            } else {
+                pendingExternalOpenPathSet.delete(normalizedPath);
+            }
+        }
+
+        pendingExternalOpenPaths.push(normalizedPath);
+        pendingExternalOpenPathSet.add(normalizedPath);
+
+        while (pendingExternalOpenPaths.length > EXTERNAL_OPEN_PENDING_MAX_PATHS) {
+            const droppedPath = pendingExternalOpenPaths.shift();
+            if (!droppedPath) {
+                break;
+            }
+            pendingExternalOpenPathSet.delete(droppedPath);
+            droppedCount += 1;
+        }
+
+        return {
+            coalescedCount: wasCoalesced ? 1 : 0,
+            droppedCount,
+        };
+    }
+
+    function queueOpenRequest(paths: string[]) {
+        const normalizedPaths = normalizeOpenRequestPaths(paths);
         if (normalizedPaths.length === 0) {
             return;
         }
@@ -194,27 +241,9 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         let coalescedCount = 0;
         let droppedCount = 0;
         for (const normalizedPath of normalizedPaths) {
-            if (pendingExternalOpenPathSet.has(normalizedPath)) {
-                coalescedCount += 1;
-                const existingIndex = pendingExternalOpenPaths.indexOf(normalizedPath);
-                if (existingIndex >= 0) {
-                    pendingExternalOpenPaths.splice(existingIndex, 1);
-                } else {
-                    pendingExternalOpenPathSet.delete(normalizedPath);
-                }
-            }
-
-            pendingExternalOpenPaths.push(normalizedPath);
-            pendingExternalOpenPathSet.add(normalizedPath);
-
-            while (pendingExternalOpenPaths.length > EXTERNAL_OPEN_PENDING_MAX_PATHS) {
-                const droppedPath = pendingExternalOpenPaths.shift();
-                if (!droppedPath) {
-                    break;
-                }
-                pendingExternalOpenPathSet.delete(droppedPath);
-                droppedCount += 1;
-            }
+            const result = enqueueExternalOpenPath(normalizedPath);
+            coalescedCount += result.coalescedCount;
+            droppedCount += result.droppedCount;
         }
 
         if (coalescedCount > 0) {

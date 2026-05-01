@@ -90,7 +90,7 @@
         @copy-text="$emit('context-copy-text')"
         @copy-selection-text="$emit('context-copy-selection-text')"
         @delete="$emit('context-delete')"
-        @markup="(tool: TAnnotationTool) => $emit('context-markup', tool)"
+        @markup="handleContextMarkup"
         @create-free-note="$emit('context-create-free-note')"
         @create-selection-note="$emit('context-create-selection-note')"
         @insert-image-from-file="$emit('context-insert-image-from-file')"
@@ -115,7 +115,7 @@
         :shape="selectedShapeForProperties"
         :x="shapePropertiesX"
         :y="shapePropertiesY"
-        @update="(updates: Partial<IShapeAnnotation>) => $emit('shape-update', updates)"
+        @update="handleShapeUpdate"
         @close="$emit('shape-close')"
         @delete="$emit('shape-delete')"
     />
@@ -139,6 +139,16 @@ import { NOTE_WINDOW } from '@app/constants/pdf-layout';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { clamp } from 'es-toolkit/math';
 import { createRafBurstScheduler } from '@app/modules/workspace-shell/components/overlayRafBurstScheduler';
+
+const INLINE_NOTE_SUBTYPES = new Set([
+    'text',
+    'note-linked',
+    'note-inline',
+]);
+const FREE_TEXT_NOTE_SUBTYPES = new Set([
+    'freetext',
+    'typewriter',
+]);
 
 interface IAnnotationNoteWindowEntry {
     comment: IAnnotationCommentSummary;
@@ -289,23 +299,35 @@ function parseStableKeyIdentity(stableKey: string) {
     };
 }
 
+function isInlineNoteSubtype(subtype: string) {
+    return INLINE_NOTE_SUBTYPES.has(subtype);
+}
+
+function isFreeTextNoteSubtype(subtype: string) {
+    return FREE_TEXT_NOTE_SUBTYPES.has(subtype);
+}
+
+function resolveKnownFloatingEligibility(comment: IAnnotationCommentSummary, subtype: string) {
+    if (isTextMarkupSubtype(comment.subtype) && comment.hasNote) {
+        return true;
+    }
+    if (isInlineNoteSubtype(subtype)) {
+        return comment.hasNote;
+    }
+    if (isFreeTextNoteSubtype(subtype)) {
+        return true;
+    }
+    return null;
+}
+
 function isFloatingIndicatorEligible(comment: IAnnotationCommentSummary) {
     const subtype = (comment.subtype ?? '').trim().toLowerCase();
     if (subtype === 'link') {
         return false;
     }
-    if (isTextMarkupSubtype(comment.subtype) && comment.hasNote) {
-        return true;
-    }
-    if (
-        subtype === 'text'
-        || subtype === 'note-linked'
-        || subtype === 'note-inline'
-    ) {
-        return comment.hasNote;
-    }
-    if (subtype === 'freetext' || subtype === 'typewriter') {
-        return true;
+    const knownEligibility = resolveKnownFloatingEligibility(comment, subtype);
+    if (knownEligibility !== null) {
+        return knownEligibility;
     }
     return comment.source === 'editor' && !comment.annotationId;
 }
@@ -329,6 +351,69 @@ function toPageNormalizedPoint(element: HTMLElement) {
         x: clamp(((rect.left + (rect.width / 2)) - pageRect.left) / pageRect.width, 0, 1),
         y: clamp(((rect.top + (rect.height / 2)) - pageRect.top) / pageRect.height, 0, 1),
     };
+}
+
+function collectDirectStableKeys(
+    marker: HTMLElement,
+    identity: IInlineTriggerIdentity,
+    markerButtonsByStableKey: Map<string, HTMLElement>,
+) {
+    const directStableKey = marker.dataset.commentStableKey?.trim()
+        || marker.dataset.stableKey?.trim();
+    if (directStableKey) {
+        identity.stableKeys.add(directStableKey);
+        markerButtonsByStableKey.set(directStableKey, marker);
+    }
+    parseStableKeysAttr(marker.getAttribute('data-comment-stable-keys')).forEach((stableKey) => {
+        identity.stableKeys.add(stableKey);
+    });
+}
+
+function collectMarkerAnnotationId(marker: HTMLElement, identity: IInlineTriggerIdentity) {
+    const annotationId = marker.dataset.annotationId?.trim()
+        ?? marker.getAttribute('data-annotation-id')?.trim()
+        ?? marker.closest<HTMLElement>('[data-annotation-id]')?.getAttribute('data-annotation-id')?.trim()
+        ?? '';
+    if (annotationId) {
+        identity.annotationIds.add(annotationId);
+    }
+}
+
+function collectMarkerPoint(marker: HTMLElement, identity: IInlineTriggerIdentity) {
+    const point = toPageNormalizedPoint(marker);
+    if (point) {
+        identity.markerPoints.push(point);
+    }
+}
+
+function collectClosestStableKeys(
+    marker: HTMLElement,
+    identity: IInlineTriggerIdentity,
+    markerButtonsByStableKey: Map<string, HTMLElement>,
+) {
+    const fromTarget = marker.closest<HTMLElement>('[data-comment-stable-keys], [data-comment-stable-key]');
+    if (!fromTarget) {
+        return;
+    }
+    const stableKey = fromTarget.dataset.commentStableKey?.trim();
+    if (stableKey) {
+        identity.stableKeys.add(stableKey);
+        markerButtonsByStableKey.set(stableKey, marker);
+    }
+    parseStableKeysAttr(fromTarget.getAttribute('data-comment-stable-keys')).forEach((nextStableKey) => {
+        identity.stableKeys.add(nextStableKey);
+    });
+}
+
+function collectMarkerIdentity(
+    marker: HTMLElement,
+    identity: IInlineTriggerIdentity,
+    markerButtonsByStableKey: Map<string, HTMLElement>,
+) {
+    collectDirectStableKeys(marker, identity, markerButtonsByStableKey);
+    collectMarkerAnnotationId(marker, identity);
+    collectMarkerPoint(marker, identity);
+    collectClosestStableKeys(marker, identity, markerButtonsByStableKey);
 }
 
 function collectViewportDomSnapshot(viewportRoot: HTMLElement | null | undefined): IViewportDomSnapshot | null {
@@ -357,40 +442,7 @@ function collectViewportDomSnapshot(viewportRoot: HTMLElement | null | undefined
         '.pdf-inline-comment-anchor-marker, .pdf-inline-comment-marker, .pdf-comment-marker-button, .annotationCommentButton, .popupTriggerArea, [data-comment-stable-keys], [data-comment-stable-key], [data-stable-key]',
     );
     markers.forEach((marker) => {
-        const directStableKey = marker.dataset.commentStableKey?.trim()
-            || marker.dataset.stableKey?.trim();
-        if (directStableKey) {
-            identity.stableKeys.add(directStableKey);
-            markerButtonsByStableKey.set(directStableKey, marker);
-        }
-        parseStableKeysAttr(marker.getAttribute('data-comment-stable-keys')).forEach((stableKey) => {
-            identity.stableKeys.add(stableKey);
-        });
-
-        const annotationId = marker.dataset.annotationId?.trim()
-            ?? marker.getAttribute('data-annotation-id')?.trim()
-            ?? marker.closest<HTMLElement>('[data-annotation-id]')?.getAttribute('data-annotation-id')?.trim()
-            ?? '';
-        if (annotationId) {
-            identity.annotationIds.add(annotationId);
-        }
-
-        const point = toPageNormalizedPoint(marker);
-        if (point) {
-            identity.markerPoints.push(point);
-        }
-
-        const fromTarget = marker.closest<HTMLElement>('[data-comment-stable-keys], [data-comment-stable-key]');
-        if (fromTarget) {
-            const stableKey = fromTarget.dataset.commentStableKey?.trim();
-            if (stableKey) {
-                identity.stableKeys.add(stableKey);
-                markerButtonsByStableKey.set(stableKey, marker);
-            }
-            parseStableKeysAttr(fromTarget.getAttribute('data-comment-stable-keys')).forEach((nextStableKey) => {
-                identity.stableKeys.add(nextStableKey);
-            });
-        }
+        collectMarkerIdentity(marker, identity, markerButtonsByStableKey);
     });
 
     identity.stableKeys.forEach((stableKey) => {
@@ -414,55 +466,66 @@ function collectViewportDomSnapshot(viewportRoot: HTMLElement | null | undefined
     };
 }
 
+function hasStringInSet(value: string | null | undefined, set: Set<string>) {
+    const normalized = value?.trim() ?? '';
+    return normalized.length > 0 && set.has(normalized);
+}
+
+function identityHasDirectMatch(
+    inlineIdentity: IInlineTriggerIdentity,
+    note: IAnnotationNoteWindowEntry,
+) {
+    return Boolean(
+        hasStringInSet(note.comment.stableKey, inlineIdentity.stableKeys)
+        || hasStringInSet(note.comment.annotationId, inlineIdentity.annotationIds)
+        || hasStringInSet(note.comment.uid, inlineIdentity.uids),
+    );
+}
+
+function hasDerivedStableKey(set: Set<string>, kind: 'ann' | 'uid', pageIndex: number, id: string | null | undefined) {
+    const normalizedId = id?.trim() ?? '';
+    return normalizedId.length > 0 && set.has(`${kind}:${pageIndex}:${normalizedId}`);
+}
+
+function identityHasDerivedStableKey(
+    inlineIdentity: IInlineTriggerIdentity,
+    note: IAnnotationNoteWindowEntry,
+) {
+    const pageIndex = note.comment.pageIndex;
+    if (!Number.isFinite(pageIndex)) {
+        return false;
+    }
+    return (
+        hasDerivedStableKey(inlineIdentity.stableKeys, 'ann', pageIndex, note.comment.annotationId)
+        || hasDerivedStableKey(inlineIdentity.stableKeys, 'uid', pageIndex, note.comment.uid)
+    );
+}
+
+function hasNearbyInlineMarker(
+    inlineIdentity: IInlineTriggerIdentity,
+    note: IAnnotationNoteWindowEntry,
+) {
+    const markerRect = getNoteMarkerRect(note);
+    if (!markerRect) {
+        return false;
+    }
+    const noteAnchorX = clamp(markerRect.left + markerRect.width, 0, 1);
+    const noteAnchorY = clamp(markerRect.top, 0, 1);
+    return inlineIdentity.markerPoints.some((point) => (
+        point.pageNumber === note.comment.pageNumber
+        && Math.hypot(point.x - noteAnchorX, point.y - noteAnchorY) <= 0.08
+    ));
+}
+
 function inlineIdentityMatchesNote(
     inlineIdentity: IInlineTriggerIdentity,
     note: IAnnotationNoteWindowEntry,
 ) {
-    const stableKey = note.comment.stableKey;
-    if (stableKey && inlineIdentity.stableKeys.has(stableKey)) {
-        return true;
-    }
-
-    const annotationId = note.comment.annotationId?.trim() ?? '';
-    if (annotationId && inlineIdentity.annotationIds.has(annotationId)) {
-        return true;
-    }
-
-    const uid = note.comment.uid?.trim() ?? '';
-    if (uid && inlineIdentity.uids.has(uid)) {
-        return true;
-    }
-
-    const pageIndex = note.comment.pageIndex;
-    if (annotationId && Number.isFinite(pageIndex)) {
-        const annStableKey = `ann:${pageIndex}:${annotationId}`;
-        if (inlineIdentity.stableKeys.has(annStableKey)) {
-            return true;
-        }
-    }
-    if (uid && Number.isFinite(pageIndex)) {
-        const uidStableKey = `uid:${pageIndex}:${uid}`;
-        if (inlineIdentity.stableKeys.has(uidStableKey)) {
-            return true;
-        }
-    }
-
-    const markerRect = getNoteMarkerRect(note);
-    if (markerRect) {
-        const noteAnchorX = clamp(markerRect.left + markerRect.width, 0, 1);
-        const noteAnchorY = clamp(markerRect.top, 0, 1);
-        const hasNearbyInlineMarker = inlineIdentity.markerPoints.some((point) => {
-            if (point.pageNumber !== note.comment.pageNumber) {
-                return false;
-            }
-            return Math.hypot(point.x - noteAnchorX, point.y - noteAnchorY) <= 0.08;
-        });
-        if (hasNearbyInlineMarker) {
-            return true;
-        }
-    }
-
-    return false;
+    return (
+        identityHasDirectMatch(inlineIdentity, note)
+        || identityHasDerivedStableKey(inlineIdentity, note)
+        || hasNearbyInlineMarker(inlineIdentity, note)
+    );
 }
 
 const minimizedIndicatorTargets = computed<Record<string, HTMLElement>>(() => {
@@ -499,6 +562,32 @@ interface IConnectorLine {
 
 const connectorLines = shallowRef<IConnectorLine[]>([]);
 
+function getElementCenter(element: HTMLElement) {
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+        return null;
+    }
+    return {
+        cx: rect.left + rect.width / 2,
+        cy: rect.top + rect.height / 2,
+    };
+}
+
+function getRectCenterInPage(pageContainer: HTMLElement, note: IAnnotationNoteWindowEntry) {
+    const markerRect = getNoteMarkerRect(note);
+    if (!markerRect) {
+        return null;
+    }
+    const pageRect = pageContainer.getBoundingClientRect();
+    if (pageRect.width <= 0 || pageRect.height <= 0) {
+        return null;
+    }
+    return {
+        cx: pageRect.left + ((markerRect.left + markerRect.width / 2) * pageRect.width),
+        cy: pageRect.top + ((markerRect.top + markerRect.height / 2) * pageRect.height),
+    };
+}
+
 function getMarkerCenter(
     stableKey: string,
     note: IAnnotationNoteWindowEntry,
@@ -514,27 +603,13 @@ function getMarkerCenter(
 
     const markerEl = snapshot.markerButtonsByStableKey.get(stableKey) ?? null;
     if (markerEl) {
-        const r = markerEl.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0) {
-            return {
-                cx: r.left + r.width / 2,
-                cy: r.top + r.height / 2,
-            };
+        const elementCenter = getElementCenter(markerEl);
+        if (elementCenter) {
+            return elementCenter;
         }
     }
 
-    const markerRect = getNoteMarkerRect(note);
-    if (!markerRect) {
-        return null;
-    }
-    const pageRect = pageContainer.getBoundingClientRect();
-    if (pageRect.width <= 0 || pageRect.height <= 0) {
-        return null;
-    }
-    return {
-        cx: pageRect.left + ((markerRect.left + markerRect.width / 2) * pageRect.width),
-        cy: pageRect.top + ((markerRect.top + markerRect.height / 2) * pageRect.height),
-    };
+    return getRectCenterInPage(pageContainer, note);
 }
 
 function computeConnectorLines(): IConnectorLine[] {
@@ -672,6 +747,14 @@ function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
         isMinimized: note.isMinimized,
     });
     emit('restore-note', note.comment.stableKey);
+}
+
+function handleContextMarkup(tool: TAnnotationTool) {
+    emit('context-markup', tool);
+}
+
+function handleShapeUpdate(updates: Partial<IShapeAnnotation>) {
+    emit('shape-update', updates);
 }
 
 const overlayRefreshScheduler = createRafBurstScheduler(() => {

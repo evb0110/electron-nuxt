@@ -44,6 +44,20 @@ interface IUseDocumentWorkspaceSplitRestoreOptions {
     clearSidebarToggleCheckpointTimers: () => void;
 }
 
+function shouldRestoreCachedSplitPayload(options: IUseDocumentWorkspaceSplitRestoreOptions) {
+    return options.workspaceSplitCache.has(options.tabId)
+        && !options.hasPdf.value
+        && !options.pendingDocumentOpen.value;
+}
+
+function normalizeRestoredPage(page: number | undefined) {
+    if (!page || !Number.isFinite(page)) {
+        return null;
+    }
+
+    return Math.max(1, Math.floor(page));
+}
+
 export function useDocumentWorkspaceSplitRestore(options: IUseDocumentWorkspaceSplitRestoreOptions) {
     const hasQueuedSplitRestore = computed(() => options.workspaceSplitCache.has(options.tabId));
     const isExternallyRestoring = computed(() => options.workspaceRestoreTracker.has(options.tabId));
@@ -60,8 +74,29 @@ export function useDocumentWorkspaceSplitRestore(options: IUseDocumentWorkspaceS
         && !options.pendingDocumentOpen.value
     ));
 
+    function preseedPdfSnapshotPaging(payload: Extract<TSplitPayload, { kind: 'pdfSnapshot' }>) {
+        const restoredPage = normalizeRestoredPage(payload.currentPage);
+        if (restoredPage) {
+            options.currentPage.value = restoredPage;
+        }
+
+        const restoredTotalPages = normalizeRestoredPage(payload.totalPages);
+        if (!restoredTotalPages) {
+            return;
+        }
+
+        const normalizedTotalPages = Math.max(options.currentPage.value, restoredTotalPages);
+        options.totalPages.value = Math.max(options.totalPages.value, normalizedTotalPages);
+    }
+
+    function preseedCachedSplitPayload(payload: TSplitPayload) {
+        if (payload.kind === 'pdfSnapshot') {
+            preseedPdfSnapshotPaging(payload);
+        }
+    }
+
     async function restoreCachedSplitPayloadIfNeeded() {
-        if (!options.workspaceSplitCache.has(options.tabId) || options.hasPdf.value || options.pendingDocumentOpen.value) {
+        if (!shouldRestoreCachedSplitPayload(options)) {
             return;
         }
 
@@ -72,18 +107,7 @@ export function useDocumentWorkspaceSplitRestore(options: IUseDocumentWorkspaceS
 
         options.isRestoringSplitPayload.value = true;
         try {
-            if (payload.kind === 'pdfSnapshot') {
-                if (payload.currentPage && Number.isFinite(payload.currentPage)) {
-                    options.currentPage.value = Math.max(1, Math.floor(payload.currentPage));
-                }
-                if (payload.totalPages && Number.isFinite(payload.totalPages)) {
-                    const normalizedTotalPages = Math.max(
-                        options.currentPage.value,
-                        Math.floor(payload.totalPages),
-                    );
-                    options.totalPages.value = Math.max(options.totalPages.value, normalizedTotalPages);
-                }
-            }
+            preseedCachedSplitPayload(payload);
             BrowserLogger.warn('toolbar-transition', 'Restoring cached split payload', {
                 tabId: options.tabId,
                 payloadKind: payload.kind,

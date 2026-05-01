@@ -317,81 +317,104 @@ function updateActiveItemFromCurrentPage() {
     }
 }
 
-async function loadOutline() {
-    const pdfDocument = props.pdfDocument;
-    outlineRunId += 1;
-    const runId = outlineRunId;
+function resetOutlineInteractionState() {
     closeBookmarkContextMenu();
     editing.cancelEditingBookmark();
     dragDrop.resetDragState();
     styleRangeStartId.value = null;
     selection.clearSelection();
     expandedBookmarkIds.value = new Set();
+}
 
-    if (!pdfDocument || !isPdfDocumentUsable(pdfDocument)) {
-        isLoading.value = false;
-        bookmarks.value = [];
-        activeItemId.value = null;
-        selection.clearSelection();
-        setBookmarkBaseline();
+function clearLoadedOutline() {
+    isLoading.value = false;
+    bookmarks.value = [];
+    activeItemId.value = null;
+    selection.clearSelection();
+    setBookmarkBaseline();
+}
+
+function isStaleOutlineRun(runId: number, pdfDocument: PDFDocumentProxy) {
+    return (
+        runId !== outlineRunId ||
+        props.pdfDocument !== pdfDocument ||
+        !isPdfDocumentUsable(pdfDocument)
+    );
+}
+
+async function resolveBookmarksFromPdf(pdfDocument: PDFDocumentProxy) {
+    const result = await pdfDocument.getOutline();
+    const rawOutline = parseOutlineItems(result);
+    const destinationCache = new Map<string, unknown[] | null>();
+    const refIndexCache = new Map<string, number | null>();
+
+    resetBookmarkIdCounter();
+    return buildResolvedOutline(
+        rawOutline,
+        pdfDocument,
+        destinationCache,
+        refIndexCache,
+        createBookmarkId,
+    );
+}
+
+function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
+    bookmarks.value = resolved;
+    updateActiveItemFromCurrentPage();
+    if (activeItemId.value) {
+        selection.applySingleSelection(activeItemId.value);
+    }
+    setBookmarkBaseline();
+}
+
+function handleOutlineLoadError(
+    error: unknown,
+    runId: number,
+    pdfDocument: PDFDocumentProxy,
+) {
+    if (isStaleOutlineRun(runId, pdfDocument)) {
         return;
     }
 
+    BrowserLogger.error('pdf-outline', 'Failed to load bookmarks', error);
+    bookmarks.value = [];
+    activeItemId.value = null;
+    selection.clearSelection();
+    setBookmarkBaseline();
+}
+
+function finishOutlineLoading(runId: number) {
+    if (runId === outlineRunId) {
+        isLoading.value = false;
+    }
+}
+
+async function loadUsableOutline(pdfDocument: PDFDocumentProxy, runId: number) {
     isLoading.value = true;
     try {
-        const result = await pdfDocument.getOutline();
-        if (
-            runId !== outlineRunId
-            || props.pdfDocument !== pdfDocument
-            || !isPdfDocumentUsable(pdfDocument)
-        ) {
-            return;
+        const resolved = await resolveBookmarksFromPdf(pdfDocument);
+        if (!isStaleOutlineRun(runId, pdfDocument)) {
+            applyLoadedBookmarks(resolved);
         }
-
-        const rawOutline = parseOutlineItems(result);
-        const destinationCache = new Map<string, unknown[] | null>();
-        const refIndexCache = new Map<string, number | null>();
-
-        resetBookmarkIdCounter();
-        const resolved = await buildResolvedOutline(
-            rawOutline,
-            pdfDocument,
-            destinationCache,
-            refIndexCache,
-            createBookmarkId,
-        );
-        if (
-            runId !== outlineRunId
-            || props.pdfDocument !== pdfDocument
-            || !isPdfDocumentUsable(pdfDocument)
-        ) {
-            return;
-        }
-
-        bookmarks.value = resolved;
-        updateActiveItemFromCurrentPage();
-        if (activeItemId.value) {
-            selection.applySingleSelection(activeItemId.value);
-        }
-        setBookmarkBaseline();
     } catch (error) {
-        if (
-            runId !== outlineRunId
-            || props.pdfDocument !== pdfDocument
-            || !isPdfDocumentUsable(pdfDocument)
-        ) {
-            return;
-        }
-        BrowserLogger.error('pdf-outline', 'Failed to load bookmarks', error);
-        bookmarks.value = [];
-        activeItemId.value = null;
-        selection.clearSelection();
-        setBookmarkBaseline();
+        handleOutlineLoadError(error, runId, pdfDocument);
     } finally {
-        if (runId === outlineRunId) {
-            isLoading.value = false;
-        }
+        finishOutlineLoading(runId);
     }
+}
+
+async function loadOutline() {
+    const pdfDocument = props.pdfDocument;
+    outlineRunId += 1;
+    const runId = outlineRunId;
+    resetOutlineInteractionState();
+
+    if (!pdfDocument || !isPdfDocumentUsable(pdfDocument)) {
+        clearLoadedOutline();
+        return;
+    }
+
+    await loadUsableOutline(pdfDocument, runId);
 }
 
 function setDisplayMode(mode: TBookmarkDisplayMode) {

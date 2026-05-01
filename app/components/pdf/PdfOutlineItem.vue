@@ -317,36 +317,19 @@ function handleDragEnd() {
     emit('drag-end');
 }
 
-async function handleClick(event?: MouseEvent | KeyboardEvent) {
-    if (event instanceof MouseEvent && event.button !== 0) {
-        return;
-    }
-
+function resolveBookmarkSelectionIntent(event?: MouseEvent | KeyboardEvent) {
     const isMouseEvent = event instanceof MouseEvent;
-    const multiSelect = Boolean(isMouseEvent && (event.metaKey || event.ctrlKey));
-    const rangeSelect = Boolean(isMouseEvent && event.shiftKey);
-    const wasActive = isActive.value;
-    emit('activate', {
-        id: props.item.id,
-        hasChildren: hasChildren.value,
-        wasActive,
-        multiSelect,
-        rangeSelect,
-    });
+    return {
+        multiSelect: Boolean(isMouseEvent && (event.metaKey || event.ctrlKey)),
+        rangeSelect: Boolean(isMouseEvent && event.shiftKey),
+    };
+}
 
-    if (isEditing.value) {
-        return;
-    }
+function shouldSkipBookmarkNavigation(multiSelect: boolean, rangeSelect: boolean) {
+    return isEditing.value || (treeContext.isEditMode.value && (multiSelect || rangeSelect));
+}
 
-    if (treeContext.isEditMode.value && (multiSelect || rangeSelect)) {
-        return;
-    }
-
-    if (wasActive && hasChildren.value) {
-        emit('toggle-expand', props.item.id);
-        return;
-    }
-
+async function navigateToBookmarkDestination() {
     if (typeof props.item.pageIndex === 'number') {
         emit('go-to-page', props.item.pageIndex + 1);
         return;
@@ -362,15 +345,68 @@ async function handleClick(event?: MouseEvent | KeyboardEvent) {
             emit('go-to-page', page);
         }
     } catch (error) {
-        const message = getErrorMessage(error);
-        const isKnownPdfIssue =
-            message.includes('does not point to a /Page dictionary')
-            || message.includes('page must be a reference');
-
-        if (!isKnownPdfIssue) {
+        if (!isKnownBookmarkDestinationIssue(error)) {
             BrowserLogger.error('pdf-outline', 'Failed to navigate to bookmark destination', error);
         }
     }
+}
+
+function isKnownBookmarkDestinationIssue(error: unknown) {
+    const message = getErrorMessage(error);
+    return (
+        message.includes('does not point to a /Page dictionary') ||
+        message.includes('page must be a reference')
+    );
+}
+
+function emitBookmarkActivation(multiSelect: boolean, rangeSelect: boolean) {
+    const wasActive = isActive.value;
+    emit('activate', {
+        id: props.item.id,
+        hasChildren: hasChildren.value,
+        wasActive,
+        multiSelect,
+        rangeSelect,
+    });
+    return wasActive;
+}
+
+function shouldToggleBookmarkFromActivation(wasActive: boolean) {
+    return wasActive && hasChildren.value;
+}
+
+function shouldIgnoreBookmarkClick(event?: MouseEvent | KeyboardEvent) {
+    return event instanceof MouseEvent && event.button !== 0;
+}
+
+async function continueBookmarkClickNavigation(
+    wasActive: boolean,
+    multiSelect: boolean,
+    rangeSelect: boolean,
+) {
+    if (shouldSkipBookmarkNavigation(multiSelect, rangeSelect)) {
+        return;
+    }
+
+    if (shouldToggleBookmarkFromActivation(wasActive)) {
+        emit('toggle-expand', props.item.id);
+        return;
+    }
+
+    await navigateToBookmarkDestination();
+}
+
+async function handleClick(event?: MouseEvent | KeyboardEvent) {
+    if (shouldIgnoreBookmarkClick(event)) {
+        return;
+    }
+
+    const {
+        multiSelect,
+        rangeSelect,
+    } = resolveBookmarkSelectionIntent(event);
+    const wasActive = emitBookmarkActivation(multiSelect, rangeSelect);
+    await continueBookmarkClickNavigation(wasActive, multiSelect, rangeSelect);
 }
 </script>
 

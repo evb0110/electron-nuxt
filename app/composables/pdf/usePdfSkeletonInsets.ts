@@ -15,6 +15,19 @@ interface IPdfSkeletonContext {
     scaledPageHeight: ComputedRef<number | null>;
 }
 
+interface ITextContentBounds {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+}
+
+interface ITextViewport {
+    width: number;
+    height: number;
+    convertToViewportPoint: (x: number, y: number) => number[];
+}
+
 const PDF_SKELETON_CONTEXT_KEY: InjectionKey<IPdfSkeletonContext> = Symbol('PdfSkeletonContext');
 
 export const usePdfSkeletonContext = () => {
@@ -75,87 +88,97 @@ export const usePdfSkeletonInsets = (
         };
     }
 
-    function extractInsetsFromTextContent(
-        viewport: {
-            width: number;
-            height: number;
-            convertToViewportPoint: (x: number, y: number) => number[];
-        },
-        textContent: { items: Array<Record<string, unknown>> },
-    ): IContentInsets | null {
-        if (!textContent?.items?.length) {
+    function createEmptyContentBounds(): ITextContentBounds {
+        return {
+            minX: Number.POSITIVE_INFINITY,
+            minY: Number.POSITIVE_INFINITY,
+            maxX: Number.NEGATIVE_INFINITY,
+            maxY: Number.NEGATIVE_INFINITY,
+        };
+    }
+
+    function areContentBoundsFinite(bounds: ITextContentBounds) {
+        return (
+            Number.isFinite(bounds.minX) &&
+            Number.isFinite(bounds.minY) &&
+            Number.isFinite(bounds.maxX) &&
+            Number.isFinite(bounds.maxY)
+        );
+    }
+
+    function extractTextItemBounds(
+        viewport: ITextViewport,
+        item: Record<string, unknown>,
+    ): ITextContentBounds | null {
+        if (!item || !Array.isArray(item.transform)) {
             return null;
         }
 
-        let minX = Number.POSITIVE_INFINITY;
-        let minY = Number.POSITIVE_INFINITY;
-        let maxX = Number.NEGATIVE_INFINITY;
-        let maxY = Number.NEGATIVE_INFINITY;
+        const transform = item.transform as number[];
+        const originX = transform[4] ?? 0;
+        const originY = transform[5] ?? 0;
+        const itemWidth = typeof item.width === 'number' ? item.width : 0;
+        const itemHeight = typeof item.height === 'number'
+            ? item.height
+            : Math.abs(transform[3] ?? 0);
+        const points = [
+            viewport.convertToViewportPoint(originX, originY),
+            viewport.convertToViewportPoint(originX + itemWidth, originY),
+            viewport.convertToViewportPoint(originX, originY + itemHeight),
+            viewport.convertToViewportPoint(originX + itemWidth, originY + itemHeight),
+        ];
+        const xs = points.map(point => point[0] ?? 0);
+        const ys = points.map(point => point[1] ?? 0);
+        const bounds = {
+            minX: Math.min(...xs),
+            minY: Math.min(...ys),
+            maxX: Math.max(...xs),
+            maxY: Math.max(...ys),
+        };
+
+        return areContentBoundsFinite(bounds) ? bounds : null;
+    }
+
+    function mergeContentBounds(
+        target: ITextContentBounds,
+        source: ITextContentBounds,
+    ) {
+        target.minX = Math.min(target.minX, source.minX);
+        target.minY = Math.min(target.minY, source.minY);
+        target.maxX = Math.max(target.maxX, source.maxX);
+        target.maxY = Math.max(target.maxY, source.maxY);
+    }
+
+    function mergeTextContentBounds(
+        viewport: ITextViewport,
+        textContent: { items: Array<Record<string, unknown>> },
+    ) {
+        const bounds = createEmptyContentBounds();
 
         for (const item of textContent.items) {
-            if (!item || !Array.isArray(item.transform)) {
-                continue;
+            const itemBounds = extractTextItemBounds(viewport, item);
+            if (itemBounds) {
+                mergeContentBounds(bounds, itemBounds);
             }
-
-            const transform = item.transform as number[];
-            const originX = transform[4] ?? 0;
-            const originY = transform[5] ?? 0;
-
-            const itemWidth = typeof item.width === 'number' ? (item.width) : 0;
-            const itemHeight = typeof item.height === 'number'
-                ? (item.height)
-                : Math.abs(transform[3] ?? 0);
-
-            const points = [
-                viewport.convertToViewportPoint(originX, originY),
-                viewport.convertToViewportPoint(originX + itemWidth, originY),
-                viewport.convertToViewportPoint(originX, originY + itemHeight),
-                viewport.convertToViewportPoint(originX + itemWidth, originY + itemHeight),
-            ];
-
-            const xs = points.map(point => point[0] ?? 0);
-            const ys = points.map(point => point[1] ?? 0);
-
-            const localMinX = Math.min(...xs);
-            const localMaxX = Math.max(...xs);
-            const localMinY = Math.min(...ys);
-            const localMaxY = Math.max(...ys);
-
-            if (
-                !Number.isFinite(localMinX) ||
-                !Number.isFinite(localMinY) ||
-                !Number.isFinite(localMaxX) ||
-                !Number.isFinite(localMaxY)
-            ) {
-                continue;
-            }
-
-            minX = Math.min(minX, localMinX);
-            minY = Math.min(minY, localMinY);
-            maxX = Math.max(maxX, localMaxX);
-            maxY = Math.max(maxY, localMaxY);
         }
 
-        if (
-            !Number.isFinite(minX) ||
-            !Number.isFinite(minY) ||
-            !Number.isFinite(maxX) ||
-            !Number.isFinite(maxY)
-        ) {
-            return null;
-        }
+        return areContentBoundsFinite(bounds) ? bounds : null;
+    }
 
-        const paddingX = Math.min((maxX - minX) * 0.05, 32);
-        const paddingY = Math.min((maxY - minY) * 0.05, 32);
+    function buildInsetsFromContentBounds(
+        viewport: ITextViewport,
+        bounds: ITextContentBounds,
+    ): IContentInsets | null {
+        const paddingX = Math.min((bounds.maxX - bounds.minX) * 0.05, 32);
+        const paddingY = Math.min((bounds.maxY - bounds.minY) * 0.05, 32);
 
-        const left = clamp(minX - paddingX, 0, viewport.width);
-        const right = clamp(viewport.width - (maxX + paddingX), 0, viewport.width);
-        const top = clamp(minY - paddingY, 0, viewport.height);
-        const bottom = clamp(viewport.height - (maxY + paddingY), 0, viewport.height);
+        const left = clamp(bounds.minX - paddingX, 0, viewport.width);
+        const right = clamp(viewport.width - (bounds.maxX + paddingX), 0, viewport.width);
+        const top = clamp(bounds.minY - paddingY, 0, viewport.height);
+        const bottom = clamp(viewport.height - (bounds.maxY + paddingY), 0, viewport.height);
 
         const contentWidth = viewport.width - left - right;
         const contentHeight = viewport.height - top - bottom;
-
         if (contentWidth <= 0 || contentHeight <= 0) {
             return null;
         }
@@ -164,8 +187,20 @@ export const usePdfSkeletonInsets = (
             top,
             right,
             bottom,
-            left, 
+            left,
         };
+    }
+
+    function extractInsetsFromTextContent(
+        viewport: ITextViewport,
+        textContent: { items: Array<Record<string, unknown>> },
+    ): IContentInsets | null {
+        if (!textContent?.items?.length) {
+            return null;
+        }
+
+        const bounds = mergeTextContentBounds(viewport, textContent);
+        return bounds ? buildInsetsFromContentBounds(viewport, bounds) : null;
     }
 
     async function computeSkeletonInsets(

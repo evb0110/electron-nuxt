@@ -62,6 +62,10 @@ interface IUseAppShellDirectionalTabsOptions {
     handleCloseTab: (groupId: string, tabId: string) => Promise<void>;
 }
 
+type TDirectionalTabContextCommand = Extract<TTabContextCommand, { direction: TGroupDirection }>;
+type TStaticTabContextCommand = Exclude<TTabContextCommand, TDirectionalTabContextCommand>;
+type TStaticTabContextCommandWithoutTargetWindow = Exclude<TStaticTabContextCommand, { kind: 'move-to-window' }>;
+
 function createDirectionalAvailability(value: boolean): TDirectionalCommandAvailability {
     return {
         left: value,
@@ -69,6 +73,10 @@ function createDirectionalAvailability(value: boolean): TDirectionalCommandAvail
         up: value,
         down: value,
     };
+}
+
+function hasTabs(group: IEditorGroupState | null | undefined) {
+    return Boolean(group && group.tabIds.length > 0);
 }
 
 export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsOptions) {
@@ -104,6 +112,60 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
 
     function getDirectionalTargetGroup(sourceGroupId: string, direction: TGroupDirection) {
         return findDirectionalGroup(sourceGroupId, direction, false);
+    }
+
+    function buildDirectionalCommandAvailability(
+        group: IEditorGroupState,
+        hasActiveTab: boolean,
+        transitionsBusy: boolean,
+    ) {
+        const focus = createDirectionalAvailability(false);
+        const move = createDirectionalAvailability(false);
+        const copy = createDirectionalAvailability(false);
+
+        for (const direction of DIRECTION_ORDER) {
+            const focusTarget = findDirectionalGroup(group.id, direction, true);
+            const directionalTarget = getDirectionalTargetGroup(group.id, direction);
+            const hasUsableDirectionalGroup = hasTabs(directionalTarget);
+            const canUseDirectionalGroup = hasActiveTab && hasUsableDirectionalGroup && !transitionsBusy;
+
+            focus[direction] = groups.value.length > 1 && hasTabs(focusTarget) && !transitionsBusy;
+            move[direction] = canUseDirectionalGroup;
+            copy[direction] = canUseDirectionalGroup;
+        }
+
+        return {
+            focus,
+            move,
+            copy,
+        };
+    }
+
+    function buildTabContextAvailabilityForGroup(
+        group: IEditorGroupState,
+        transitionsBusy: boolean,
+    ): ITabContextAvailability {
+        const activeTabIdForGroup = group.activeTabId;
+        const hasActiveTab = Boolean(activeTabIdForGroup);
+        const closeBlocked = activeTabIdForGroup
+            ? isSingletonPlaceholderCloseBlocked(group.id, activeTabIdForGroup)
+            : false;
+        const {
+            focus,
+            move,
+            copy,
+        } = buildDirectionalCommandAvailability(group, hasActiveTab, transitionsBusy);
+
+        return {
+            split: createDirectionalAvailability(hasActiveTab && !transitionsBusy),
+            splitEmpty: createDirectionalAvailability(!transitionsBusy),
+            focus,
+            move,
+            copy,
+            canClose: hasActiveTab && !transitionsBusy && !closeBlocked,
+            canCreate: !transitionsBusy,
+            canMoveToNewWindow: canTransferTabsAcrossWindows.value && tabs.value.length > 1 && !transitionsBusy,
+        };
     }
 
     function scheduleSplitCacheCleanup(tabId: string) {
@@ -150,36 +212,7 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
         const transitionsBusy = isTabTransitionBusy.value;
 
         for (const group of groups.value) {
-            const activeTabIdForGroup = group.activeTabId;
-            const hasActiveTab = Boolean(activeTabIdForGroup);
-            const closeBlocked = activeTabIdForGroup
-                ? isSingletonPlaceholderCloseBlocked(group.id, activeTabIdForGroup)
-                : false;
-            const focus = createDirectionalAvailability(false);
-            const move = createDirectionalAvailability(false);
-            const copy = createDirectionalAvailability(false);
-
-            for (const direction of DIRECTION_ORDER) {
-                const focusTarget = findDirectionalGroup(group.id, direction, true);
-                const directionalTarget = getDirectionalTargetGroup(group.id, direction);
-                const hasUsableDirectionalGroup = Boolean(directionalTarget && directionalTarget.tabIds.length > 0);
-                focus[direction] = groups.value.length > 1
-                    ? Boolean(focusTarget && focusTarget.tabIds.length > 0) && !transitionsBusy
-                    : false;
-                move[direction] = hasActiveTab && hasUsableDirectionalGroup && !transitionsBusy;
-                copy[direction] = hasActiveTab && hasUsableDirectionalGroup && !transitionsBusy;
-            }
-
-            result[group.id] = {
-                split: createDirectionalAvailability(hasActiveTab && !transitionsBusy),
-                splitEmpty: createDirectionalAvailability(!transitionsBusy),
-                focus,
-                move,
-                copy,
-                canClose: hasActiveTab && !transitionsBusy && !closeBlocked,
-                canCreate: !transitionsBusy,
-                canMoveToNewWindow: canTransferTabsAcrossWindows.value && tabs.value.length > 1 && !transitionsBusy,
-            };
+            result[group.id] = buildTabContextAvailabilityForGroup(group, transitionsBusy);
         }
 
         return result;
@@ -356,6 +389,49 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
         });
     }
 
+    function isDirectionalContextCommand(command: TTabContextCommand): command is TDirectionalTabContextCommand {
+        return 'direction' in command;
+    }
+
+    function getStaticContextCommandRunner(
+        groupId: string,
+        tabId: string,
+        command: TStaticTabContextCommand,
+    ) {
+        if (command.kind === 'move-to-window') {
+            return () => moveTabToWindow(command.targetWindowId, tabId);
+        }
+
+        const handlers = {
+            'new-tab': () => {
+                createTab({
+                    groupId,
+                    activate: true,
+                });
+                return Promise.resolve();
+            },
+            'close-tab': () => handleCloseTab(groupId, tabId),
+            'move-to-new-window': () => moveTabToNewWindow(tabId),
+        } satisfies Record<TStaticTabContextCommandWithoutTargetWindow['kind'], () => Promise<void>>;
+
+        return handlers[command.kind];
+    }
+
+    async function runDirectionalContextCommand(command: TDirectionalTabContextCommand) {
+        const handlers = {
+            split: splitEditor,
+            'split-empty': splitEditorEmpty,
+            focus: (direction: TGroupDirection) => {
+                focusEditorGroup(direction);
+                return Promise.resolve();
+            },
+            move: moveActiveTab,
+            copy: copyActiveTab,
+        } satisfies Record<TDirectionalTabContextCommand['kind'], (direction: TGroupDirection) => Promise<void>>;
+
+        await handlers[command.kind](command.direction);
+    }
+
     async function handleTabContextCommand(
         groupId: string,
         tabId: string,
@@ -368,51 +444,20 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
 
         activateGroup(groupId);
         activateTab(groupId, tabId);
+        await runTabContextCommand(groupId, tabId, command);
+    }
 
-        if (command.kind === 'new-tab') {
-            createTab({
-                groupId,
-                activate: true,
-            });
+    async function runTabContextCommand(
+        groupId: string,
+        tabId: string,
+        command: TTabContextCommand,
+    ) {
+        if (isDirectionalContextCommand(command)) {
+            await runDirectionalContextCommand(command);
             return;
         }
 
-        if (command.kind === 'close-tab') {
-            await handleCloseTab(groupId, tabId);
-            return;
-        }
-
-        if (command.kind === 'move-to-new-window') {
-            await moveTabToNewWindow(tabId);
-            return;
-        }
-
-        if (command.kind === 'move-to-window') {
-            await moveTabToWindow(command.targetWindowId, tabId);
-            return;
-        }
-
-        if (command.kind === 'split') {
-            await splitEditor(command.direction);
-            return;
-        }
-
-        if (command.kind === 'split-empty') {
-            await splitEditorEmpty(command.direction);
-            return;
-        }
-
-        if (command.kind === 'focus') {
-            focusEditorGroup(command.direction);
-            return;
-        }
-
-        if (command.kind === 'move') {
-            await moveActiveTab(command.direction);
-            return;
-        }
-
-        await copyActiveTab(command.direction);
+        await getStaticContextCommandRunner(groupId, tabId, command)();
     }
 
     function handleTabMoveDirection(

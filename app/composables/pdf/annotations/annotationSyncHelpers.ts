@@ -209,6 +209,49 @@ export function pickLatestAnnotationTimestamp(
     return own ?? popup;
 }
 
+function resolvePdfCommentIds(
+    annotation: IPdfAnnotationRecord,
+    pageNumber: number,
+    annotationIndex: number,
+) {
+    const id = annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`;
+    return {
+        id,
+        annotationId: annotation.id ?? null,
+    };
+}
+
+function resolvePdfCommentAuthor(
+    annotation: IPdfAnnotationRecord,
+    popupAnnotation: IPdfAnnotationRecord | null,
+) {
+    return getAnnotationAuthor(annotation)
+        ?? (popupAnnotation ? getAnnotationAuthor(popupAnnotation) : null);
+}
+
+function resolvePdfCommentColor(
+    annotation: IPdfAnnotationRecord,
+    popupAnnotation: IPdfAnnotationRecord | null,
+) {
+    return toCssColor(
+        annotation.color ?? popupAnnotation?.color ?? null,
+        annotation.opacity ?? popupAnnotation?.opacity ?? 1,
+    );
+}
+
+function hasPdfAnnotationNote(
+    subtype: string | null,
+    hasLinkedPopup: boolean,
+    text: string,
+) {
+    const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
+    const isFreeTextNote = normalizedSubtype === FREE_TEXT_SUBTYPE_LOWER && hasLinkedPopup;
+    return Boolean(
+        (isTextMarkupSubtype(subtype) || isFreeTextNote)
+        && (hasLinkedPopup || text.trim().length > 0),
+    );
+}
+
 export function buildPopupIndex(
     pageAnnotations: readonly IPdfAnnotationRecord[],
 ): Map<string, IPdfAnnotationRecord> {
@@ -256,11 +299,11 @@ export function buildPdfAnnotationCommentSummary(
 ): IAnnotationCommentSummary {
     const text = resolveCombinedAnnotationText(annotation, popupAnnotation);
     const subtype = annotation.subtype ?? null;
-    const id = annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`;
-    const annotationId = annotation.id ?? null;
+    const {
+        id,
+        annotationId,
+    } = resolvePdfCommentIds(annotation, pageNumber, annotationIndex);
     const hasLinkedPopup = Boolean(annotation.popupRef) || Boolean(popupAnnotation);
-    const normalizedSubtype = (subtype ?? '').trim().toLowerCase();
-    const isFreeTextNote = normalizedSubtype === FREE_TEXT_SUBTYPE_LOWER && hasLinkedPopup;
 
     return {
         id,
@@ -277,20 +320,13 @@ export function buildPdfAnnotationCommentSummary(
         text,
         kindLabel: deps.resolveKindLabel(subtype),
         subtype,
-        author: getAnnotationAuthor(annotation)
-            ?? (popupAnnotation ? getAnnotationAuthor(popupAnnotation) : null),
+        author: resolvePdfCommentAuthor(annotation, popupAnnotation),
         modifiedAt: pickLatestAnnotationTimestamp(annotation, popupAnnotation),
-        color: toCssColor(
-            annotation.color ?? popupAnnotation?.color ?? null,
-            annotation.opacity ?? popupAnnotation?.opacity ?? 1,
-        ),
+        color: resolvePdfCommentColor(annotation, popupAnnotation),
         uid: null,
         annotationId,
         source: 'pdf',
-        hasNote: Boolean(
-            (isTextMarkupSubtype(subtype) || isFreeTextNote)
-            && (hasLinkedPopup || text.trim().length > 0),
-        ),
+        hasNote: hasPdfAnnotationNote(subtype, hasLinkedPopup, text),
         markerRect: toMarkerRectFromPdfRect(
             annotation.rect ?? popupAnnotation?.rect,
             pageView,
