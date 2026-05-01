@@ -1,6 +1,12 @@
 const DEFAULT_IMAGE_DPI = 72;
 const METERS_PER_INCH = 0.0254;
 const CM_PER_INCH = 2.54;
+const PNG_SIGNATURE_LENGTH = 8;
+const PNG_CHUNK_HEADER_LENGTH = 8;
+const PNG_CHUNK_CRC_LENGTH = 4;
+const PNG_PHYS_CHUNK_LENGTH = 9;
+const JPEG_APP0_MARKER = 0xE0;
+const JPEG_START_OF_SCAN_MARKER = 0xDA;
 
 function readUint32BE(buf: Uint8Array, offset: number) {
     return ((buf[offset]! << 24) | (buf[offset + 1]! << 16) | (buf[offset + 2]! << 8) | buf[offset + 3]!) >>> 0;
@@ -10,36 +16,69 @@ function readUint16BE(buf: Uint8Array, offset: number) {
     return (buf[offset]! << 8) | buf[offset + 1]!;
 }
 
-function readPngDpi(data: Uint8Array): number | null {
-    if (data.length < 8) {
+interface IPngChunk {
+    offset: number;
+    length: number;
+}
+
+function isPngPhysChunk(data: Uint8Array, offset: number) {
+    return (
+        data[offset + 4] === 0x70
+        && data[offset + 5] === 0x48
+        && data[offset + 6] === 0x59
+        && data[offset + 7] === 0x73
+    );
+}
+
+function parsePngPhysDpi(data: Uint8Array, offset: number): number | null {
+    const xPixelsPerUnit = readUint32BE(data, offset + PNG_CHUNK_HEADER_LENGTH);
+    const yPixelsPerUnit = readUint32BE(data, offset + PNG_CHUNK_HEADER_LENGTH + 4);
+    const unit = data[offset + PNG_CHUNK_HEADER_LENGTH + 8]!;
+
+    if (unit !== 1 || (xPixelsPerUnit <= 0 && yPixelsPerUnit <= 0)) {
         return null;
     }
 
-    let offset = 8;
+    const pixelsPerMeter = Math.max(xPixelsPerUnit, yPixelsPerUnit);
+    const dpi = Math.round(pixelsPerMeter * METERS_PER_INCH);
+    return dpi > 0 ? dpi : null;
+}
 
-    while (offset + 12 <= data.length) {
-        const chunkLength = readUint32BE(data, offset);
+function getNextPngChunk(data: Uint8Array, offset: number): IPngChunk | null {
+    if (offset + PNG_CHUNK_HEADER_LENGTH + PNG_CHUNK_CRC_LENGTH > data.length) {
+        return null;
+    }
 
-        if (
-            data[offset + 4] === 0x70
-            && data[offset + 5] === 0x48
-            && data[offset + 6] === 0x59
-            && data[offset + 7] === 0x73
-            && chunkLength === 9
-            && offset + 8 + 9 <= data.length
-        ) {
-            const xPixelsPerUnit = readUint32BE(data, offset + 8);
-            const yPixelsPerUnit = readUint32BE(data, offset + 12);
-            const unit = data[offset + 16]!;
+    const length = readUint32BE(data, offset);
+    const chunkEnd = offset + PNG_CHUNK_HEADER_LENGTH + length + PNG_CHUNK_CRC_LENGTH;
+    if (chunkEnd > data.length) {
+        return null;
+    }
 
-            if (unit === 1 && (xPixelsPerUnit > 0 || yPixelsPerUnit > 0)) {
-                const pixelsPerMeter = Math.max(xPixelsPerUnit, yPixelsPerUnit);
-                const dpi = Math.round(pixelsPerMeter * METERS_PER_INCH);
-                return dpi > 0 ? dpi : null;
-            }
+    return {
+        offset,
+        length,
+    };
+}
+
+function readPngDpi(data: Uint8Array): number | null {
+    if (data.length < PNG_SIGNATURE_LENGTH) {
+        return null;
+    }
+
+    let offset = PNG_SIGNATURE_LENGTH;
+
+    while (offset < data.length) {
+        const chunk = getNextPngChunk(data, offset);
+        if (!chunk) {
+            return null;
         }
 
-        offset += 12 + chunkLength;
+        if (isPngPhysChunk(data, chunk.offset) && chunk.length === PNG_PHYS_CHUNK_LENGTH) {
+            return parsePngPhysDpi(data, chunk.offset);
+        }
+
+        offset += PNG_CHUNK_HEADER_LENGTH + chunk.length + PNG_CHUNK_CRC_LENGTH;
     }
 
     return null;
@@ -55,10 +94,7 @@ function isJfifSegment(data: Uint8Array, offset: number) {
     );
 }
 
-function readJfifDensityDpi(data: Uint8Array, offset: number) {
-    const units = data[offset + 11]!;
-    const xDensity = readUint16BE(data, offset + 12);
-    const yDensity = readUint16BE(data, offset + 14);
+function parseJfifDensityDpi(units: number, xDensity: number, yDensity: number) {
     const density = Math.max(xDensity, yDensity);
     if (density <= 0) {
         return null;
@@ -74,8 +110,16 @@ function readJfifDensityDpi(data: Uint8Array, offset: number) {
     return null;
 }
 
+function readJfifDensityDpi(data: Uint8Array, offset: number) {
+    return parseJfifDensityDpi(
+        data[offset + 11]!,
+        readUint16BE(data, offset + 12),
+        readUint16BE(data, offset + 14),
+    );
+}
+
 function readJpegSegmentDpi(data: Uint8Array, offset: number, marker: number) {
-    if (marker !== 0xE0) {
+    if (marker !== JPEG_APP0_MARKER) {
         return null;
     }
 
@@ -103,7 +147,7 @@ function readJpegDpi(data: Uint8Array): number | null {
             return dpi;
         }
 
-        if (marker === 0xDA) break;
+        if (marker === JPEG_START_OF_SCAN_MARKER) break;
 
         const segLength = readUint16BE(data, offset + 2);
         offset += 2 + segLength;
@@ -118,17 +162,31 @@ interface ITiffResolutionTags {
     t296?: unknown;
 }
 
+function extractNumber(value: unknown): number | null {
+    return typeof value === 'number' && value > 0 ? value : null;
+}
+
 function extractTiffRational(value: unknown): number | null {
-    if (typeof value === 'number' && value > 0) {
-        return value;
+    const numericValue = extractNumber(value);
+    if (numericValue !== null) {
+        return numericValue;
     }
-    if (Array.isArray(value) && value.length >= 1 && typeof value[0] === 'number' && value[0] > 0) {
-        if (value.length >= 2 && typeof value[1] === 'number' && value[1] > 0) {
-            return value[0] / value[1];
-        }
-        return value[0];
+
+    if (!Array.isArray(value)) {
+        return null;
     }
-    return null;
+
+    const numerator = extractNumber(value[0]);
+    if (numerator === null) {
+        return null;
+    }
+
+    const denominator = extractNumber(value[1]);
+    if (denominator !== null) {
+        return numerator / denominator;
+    }
+
+    return numerator;
 }
 
 function extractTiffUnit(value: unknown): number {

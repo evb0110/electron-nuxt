@@ -5,7 +5,7 @@ import type {
     IAnnotationMarkerRect,
 } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import { isTextMarkupSubtype } from '@app/composables/pdf/pdfAnnotationUtils';
+import { isTextMarkupSubtype } from '@app/services/pdf/annotation-subtype';
 import {
     normalizeMarkerRect,
     markerRectIoU,

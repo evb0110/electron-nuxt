@@ -10,11 +10,13 @@ import { markerRectCenterDistance } from '@app/composables/pdf/annotations/annot
 import {
     getAnnotationAuthor,
     getAnnotationCommentText,
+    parsePdfDateTimestamp,
+} from '@app/services/pdf/annotation-metadata';
+import {
     isLinkSubtype,
     isPopupSubtype,
     isTextMarkupSubtype,
-    parsePdfDateTimestamp,
-} from '@app/composables/pdf/pdfAnnotationUtils';
+} from '@app/services/pdf/annotation-subtype';
 import {
     normalizeMarkerRect,
     normalizePageRotation,

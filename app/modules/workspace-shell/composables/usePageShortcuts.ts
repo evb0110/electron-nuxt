@@ -37,6 +37,39 @@ interface IPageShortcutsDeps {
     handleToggleSidebar: () => void;
 }
 
+function isEditingText(target: EventTarget | null) {
+    if (typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) {
+        return false;
+    }
+    return Boolean(
+        target.isContentEditable
+        || target.closest('[contenteditable="true"], [contenteditable=""]')
+        || target.closest('input, textarea, select'),
+    );
+}
+
+function isZoomInKey(event: KeyboardEvent) {
+    return event.key === '=' || event.key === '+' || event.code === 'NumpadAdd';
+}
+
+function isZoomOutKey(event: KeyboardEvent) {
+    return event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract';
+}
+
+function isActualSizeKey(event: KeyboardEvent) {
+    return event.key === '0' || event.code === 'Digit0' || event.code === 'Numpad0';
+}
+
+function eventHasCommandModifier(event: KeyboardEvent) {
+    return event.ctrlKey || event.metaKey;
+}
+
+function targetAsElement(target: EventTarget | null) {
+    return typeof HTMLElement !== 'undefined' && target instanceof HTMLElement
+        ? target
+        : null;
+}
+
 export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     const {
         isActive,
@@ -51,29 +84,6 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         closeShapeProperties,
         openSearch,
     } = deps;
-
-    function isEditingText(target: EventTarget | null) {
-        if (typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) {
-            return false;
-        }
-        return Boolean(
-            target.isContentEditable
-            || target.closest('[contenteditable="true"], [contenteditable=""]')
-            || target.closest('input, textarea, select'),
-        );
-    }
-
-    function isZoomInKey(event: KeyboardEvent) {
-        return event.key === '=' || event.key === '+' || event.code === 'NumpadAdd';
-    }
-
-    function isZoomOutKey(event: KeyboardEvent) {
-        return event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract';
-    }
-
-    function isActualSizeKey(event: KeyboardEvent) {
-        return event.key === '0' || event.code === 'Digit0' || event.code === 'Numpad0';
-    }
 
     function handleEscape() {
         if (shapePropertiesPopoverVisible.value) {
@@ -90,6 +100,89 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         }
     }
 
+    function handleDeleteShortcut(event: KeyboardEvent) {
+        if ((event.key !== 'Delete' && event.key !== 'Backspace') || !pdfSrc.value) {
+            return false;
+        }
+        event.preventDefault();
+        deps.pdfViewerRef.value?.deleteSelectedShape();
+        return true;
+    }
+
+    function handlePrintShortcut(event: KeyboardEvent, key: string, shouldHandleRendererAccelerators: boolean) {
+        if (key !== 'p' || event.shiftKey || !shouldHandleRendererAccelerators) {
+            return false;
+        }
+        event.preventDefault();
+        deps.handlePrint();
+        return true;
+    }
+
+    function preventReactiveLetterShortcut(event: KeyboardEvent, key: string, shouldHandleRendererAccelerators: boolean) {
+        if (key === 'b' || key === 'f') {
+            event.preventDefault();
+        }
+        if (key === 's' && !event.shiftKey && shouldHandleRendererAccelerators) {
+            event.preventDefault();
+        }
+    }
+
+    function handleZoomShortcut(event: KeyboardEvent, shouldHandleRendererAccelerators: boolean) {
+        if (!shouldHandleRendererAccelerators) {
+            return false;
+        }
+        if (isZoomInKey(event)) {
+            event.preventDefault();
+            deps.handleZoomIn();
+            return true;
+        }
+        if (isZoomOutKey(event)) {
+            event.preventDefault();
+            deps.handleZoomOut();
+            return true;
+        }
+        if (isActualSizeKey(event)) {
+            event.preventDefault();
+            deps.handleActualSize();
+            return true;
+        }
+        return false;
+    }
+
+    function handleKeyboardShortcut(event: KeyboardEvent) {
+        editableBlocked.value = isEditingText(event.target);
+        if (!isActive.value || editableBlocked.value) {
+            return;
+        }
+
+        const hasMod = eventHasCommandModifier(event);
+        if (hasMod && event.altKey) {
+            return;
+        }
+
+        if (event.key === 'Escape') {
+            handleEscape();
+            return;
+        }
+
+        if (handleDeleteShortcut(event)) {
+            return;
+        }
+
+        if (!hasMod || !pdfSrc.value) {
+            return;
+        }
+
+        const key = event.key.toLowerCase();
+        const shouldHandleRendererAccelerators = shouldHandleRendererMenuAccelerators();
+
+        preventReactiveLetterShortcut(event, key, shouldHandleRendererAccelerators);
+        if (handlePrintShortcut(event, key, shouldHandleRendererAccelerators)) {
+            return;
+        }
+        handleZoomShortcut(event, shouldHandleRendererAccelerators);
+    }
+
     // Tracks whether the most recent keydown targeted an editable element,
     // so the reactive `whenever` watchers can skip those events.
     const editableBlocked = ref(false);
@@ -100,66 +193,7 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
             if (e.type !== 'keydown') {
                 return;
             }
-
-            editableBlocked.value = isEditingText(e.target);
-            if (!isActive.value || editableBlocked.value) {
-                return;
-            }
-
-            const hasMod = e.ctrlKey || e.metaKey;
-            if (hasMod && e.altKey) {
-                return;
-            }
-
-            // Escape — fully imperative (no modifier key)
-            if (e.key === 'Escape') {
-                handleEscape();
-                return;
-            }
-
-            if ((e.key === 'Delete' || e.key === 'Backspace') && pdfSrc.value) {
-                e.preventDefault();
-                deps.pdfViewerRef.value?.deleteSelectedShape();
-                return;
-            }
-
-            if (!hasMod || !pdfSrc.value) {
-                return;
-            }
-
-            const key = e.key.toLowerCase();
-            const shouldHandleRendererAccelerators = shouldHandleRendererMenuAccelerators();
-
-            // preventDefault for reactive letter shortcuts
-            if (key === 'b' || key === 'f') {
-                e.preventDefault();
-            }
-            if (key === 's' && !e.shiftKey && shouldHandleRendererAccelerators) {
-                e.preventDefault();
-            }
-            if (key === 'p' && !e.shiftKey && shouldHandleRendererAccelerators) {
-                e.preventDefault();
-                deps.handlePrint();
-                return;
-            }
-
-            // Zoom — fully imperative (special key chars not compatible with reactive combos)
-            if (shouldHandleRendererAccelerators) {
-                if (isZoomInKey(e)) {
-                    e.preventDefault();
-                    deps.handleZoomIn();
-                    return;
-                }
-                if (isZoomOutKey(e)) {
-                    e.preventDefault();
-                    deps.handleZoomOut();
-                    return;
-                }
-                if (isActualSizeKey(e)) {
-                    e.preventDefault();
-                    deps.handleActualSize();
-                }
-            }
+            handleKeyboardShortcut(e);
         },
     });
 
@@ -187,9 +221,7 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
             return;
         }
 
-        const target = (typeof HTMLElement !== 'undefined' && event.target instanceof HTMLElement)
-            ? event.target
-            : null;
+        const target = targetAsElement(event.target);
 
         if (shapePropertiesPopoverVisible.value && !target?.closest('.annotation-properties')) {
             closeShapeProperties();
