@@ -17,6 +17,10 @@ function isStringArray(value: unknown): value is string[] {
     return Array.isArray(value) && value.every(item => typeof item === 'string');
 }
 
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
 export function createTimeoutError(message: string) {
     const error = new Error(message);
     error.name = 'TimeoutError';
@@ -31,6 +35,94 @@ export function isScopedJobOwnedBySender(scopedJobId: string, webContentsId: num
     return scopedJobId.startsWith(`${webContentsId}:`);
 }
 
+function parseWorkerLogMessage(message: Record<string, unknown>): TOcrWorkerOutboundMessage | null {
+    if (
+        (message.level === 'debug' || message.level === 'warn' || message.level === 'error')
+        && typeof message.message === 'string'
+    ) {
+        return {
+            type: 'log',
+            level: message.level,
+            message: message.message,
+        };
+    }
+    return null;
+}
+
+function parseWorkerProgressMessage(message: Record<string, unknown>): TOcrWorkerOutboundMessage | null {
+    const progress = message.progress;
+    if (!isRecord(progress) || typeof message.jobId !== 'string' || typeof progress.requestId !== 'string') {
+        return null;
+    }
+
+    if (
+        !isFiniteNumber(progress.currentPage)
+        || !isFiniteNumber(progress.processedCount)
+        || !isFiniteNumber(progress.totalPages)
+    ) {
+        return null;
+    }
+
+    return {
+        type: 'progress',
+        jobId: message.jobId,
+        progress: {
+            requestId: progress.requestId,
+            currentPage: progress.currentPage,
+            processedCount: progress.processedCount,
+            totalPages: progress.totalPages,
+        },
+    };
+}
+
+function parseSuccessfulCompleteResult(result: Record<string, unknown>) {
+    const normalizedPdfPath = typeof result.pdfPath === 'string'
+        ? result.pdfPath.trim()
+        : '';
+    if (normalizedPdfPath.length === 0 || typeof result.requiresCleanupAck !== 'boolean') {
+        return null;
+    }
+
+    return {
+        success: true as const,
+        pdfPath: normalizedPdfPath,
+        requiresCleanupAck: result.requiresCleanupAck,
+        errors: result.errors as string[],
+    };
+}
+
+function parseFailedCompleteResult(result: Record<string, unknown>) {
+    return {
+        success: false as const,
+        errors: result.errors as string[],
+    };
+}
+
+function parseWorkerCompleteResult(result: unknown) {
+    if (!isRecord(result) || typeof result.success !== 'boolean' || !isStringArray(result.errors)) {
+        return null;
+    }
+
+    return result.success
+        ? parseSuccessfulCompleteResult(result)
+        : parseFailedCompleteResult(result);
+}
+
+function parseWorkerCompleteMessage(message: Record<string, unknown>): TOcrWorkerOutboundMessage | null {
+    if (typeof message.jobId !== 'string') {
+        return null;
+    }
+
+    const result = parseWorkerCompleteResult(message.result);
+    return result
+        ? {
+            type: 'complete',
+            jobId: message.jobId,
+            result,
+        }
+        : null;
+}
+
 export function parseWorkerMessage(message: unknown): TOcrWorkerOutboundMessage | null {
     if (!isRecord(message) || typeof message.type !== 'string') {
         return null;
@@ -38,81 +130,11 @@ export function parseWorkerMessage(message: unknown): TOcrWorkerOutboundMessage 
 
     switch (message.type) {
         case 'log':
-            if (
-                (message.level === 'debug' || message.level === 'warn' || message.level === 'error')
-                && typeof message.message === 'string'
-            ) {
-                return {
-                    type: 'log',
-                    level: message.level,
-                    message: message.message,
-                };
-            }
-            return null;
+            return parseWorkerLogMessage(message);
         case 'progress':
-            if (!isRecord(message.progress)) {
-                return null;
-            }
-            if (
-                typeof message.jobId === 'string'
-                && typeof message.progress.requestId === 'string'
-                && typeof message.progress.currentPage === 'number'
-                && Number.isFinite(message.progress.currentPage)
-                && typeof message.progress.processedCount === 'number'
-                && Number.isFinite(message.progress.processedCount)
-                && typeof message.progress.totalPages === 'number'
-                && Number.isFinite(message.progress.totalPages)
-            ) {
-                return {
-                    type: 'progress',
-                    jobId: message.jobId,
-                    progress: {
-                        requestId: message.progress.requestId,
-                        currentPage: message.progress.currentPage,
-                        processedCount: message.progress.processedCount,
-                        totalPages: message.progress.totalPages,
-                    },
-                };
-            }
-            return null;
+            return parseWorkerProgressMessage(message);
         case 'complete':
-            if (!isRecord(message.result)) {
-                return null;
-            }
-            if (typeof message.jobId !== 'string' || typeof message.result.success !== 'boolean' || !isStringArray(message.result.errors)) {
-                return null;
-            }
-
-            if (message.result.success) {
-                const normalizedPdfPath = typeof message.result.pdfPath === 'string'
-                    ? message.result.pdfPath.trim()
-                    : '';
-                if (normalizedPdfPath.length === 0) {
-                    return null;
-                }
-                if (typeof message.result.requiresCleanupAck !== 'boolean') {
-                    return null;
-                }
-                return {
-                    type: 'complete',
-                    jobId: message.jobId,
-                    result: {
-                        success: true,
-                        pdfPath: normalizedPdfPath,
-                        requiresCleanupAck: message.result.requiresCleanupAck,
-                        errors: message.result.errors,
-                    },
-                };
-            }
-
-            return {
-                type: 'complete',
-                jobId: message.jobId,
-                result: {
-                    success: false,
-                    errors: message.result.errors,
-                },
-            };
+            return parseWorkerCompleteMessage(message);
         default:
             return null;
     }

@@ -25,33 +25,165 @@ function isFinitePositive(value: number | null | undefined): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 
+function clampPageNumber(pageNumber: number, totalPages: number) {
+    return Math.max(1, Math.min(totalPages, Math.floor(pageNumber)));
+}
+
+function resolveSinglePageRowBounds(pageNumber: number) {
+    return {
+        start: pageNumber,
+        end: pageNumber,
+    };
+}
+
+function resolveFacingRowBounds(pageNumber: number, totalPages: number) {
+    const rowStart = pageNumber % 2 === 0 ? pageNumber - 1 : pageNumber;
+    const rowEnd = rowStart === totalPages ? rowStart : Math.min(totalPages, rowStart + 1);
+    return {
+        start: rowStart,
+        end: rowEnd,
+    };
+}
+
+function resolveFacingFirstSingleRowBounds(pageNumber: number, totalPages: number) {
+    if (pageNumber === 1 || (pageNumber === totalPages && totalPages % 2 === 0)) {
+        return resolveSinglePageRowBounds(pageNumber);
+    }
+
+    const rowStart = pageNumber % 2 === 0 ? pageNumber : pageNumber - 1;
+    return {
+        start: rowStart,
+        end: Math.min(totalPages, rowStart + 1),
+    };
+}
+
+function resolveSpreadRowBounds(
+    pageNumber: number,
+    viewMode: TPdfViewMode,
+    totalPages: number,
+) {
+    const clampedPageNumber = clampPageNumber(pageNumber, totalPages);
+    if (viewMode === 'single' || totalPages <= 1) {
+        return resolveSinglePageRowBounds(clampedPageNumber);
+    }
+
+    return viewMode === 'facing'
+        ? resolveFacingRowBounds(clampedPageNumber, totalPages)
+        : resolveFacingFirstSingleRowBounds(clampedPageNumber, totalPages);
+}
+
+function getPagesInRowBounds(bounds: {
+    start: number;
+    end: number
+}) {
+    return Array.from(
+        { length: Math.max(0, bounds.end - bounds.start + 1) },
+        (_, index) => bounds.start + index,
+    );
+}
+
 function getSpreadRowPages(
     pageNumber: number,
     viewMode: TPdfViewMode,
     totalPages: number,
 ) {
-    if (viewMode === 'single' || totalPages <= 1) {
-        return [pageNumber];
+    return getPagesInRowBounds(resolveSpreadRowBounds(pageNumber, viewMode, totalPages));
+}
+
+function normalizeSpacing(value: number, fallback = 0) {
+    return Number.isFinite(value) ? Math.max(0, value) : fallback;
+}
+
+function resolveSafeLayoutSpacing(options: {
+    gap: number;
+    paddingTop: number;
+    paddingBottom?: number;
+}) {
+    const paddingTop = normalizeSpacing(options.paddingTop);
+    return {
+        gap: normalizeSpacing(options.gap),
+        paddingTop,
+        paddingBottom: typeof options.paddingBottom === 'number'
+            ? normalizeSpacing(options.paddingBottom, paddingTop)
+            : paddingTop,
+    };
+}
+
+function scalePageDimensions(metrics: IPdfPageMetric[], scale: number) {
+    return {
+        pageWidths: metrics.map(metric => metric.width * scale),
+        pageHeights: metrics.map(metric => metric.height * scale),
+    };
+}
+
+function buildPageHeightPrefixSums(pageHeights: number[]) {
+    const pageHeightPrefixSums: number[] = Array.from({ length: pageHeights.length }, () => 0);
+    let maxPageHeight = 0;
+
+    for (let index = 0; index < pageHeights.length; index += 1) {
+        const height = pageHeights[index] ?? 0;
+        pageHeightPrefixSums[index] = height + (pageHeightPrefixSums[index - 1] ?? 0);
+        maxPageHeight = Math.max(maxPageHeight, height);
     }
 
-    if (viewMode === 'facing-first-single' && pageNumber === 1) {
-        return [pageNumber];
+    return {
+        pageHeightPrefixSums,
+        maxPageHeight,
+    };
+}
+
+function buildLayoutRows(options: {
+    totalPages: number;
+    viewMode: TPdfViewMode;
+    pageHeights: number[];
+    gap: number;
+    paddingTop: number;
+    paddingBottom: number;
+}) {
+    const pageTops: number[] = [];
+    const pageRowIndices: number[] = Array.from({ length: options.totalPages }, () => 0);
+    const rowStartPages: number[] = [];
+    const rowEndPages: number[] = [];
+    const rowHeights: number[] = [];
+    const rowHeightPrefixSums: number[] = [];
+    let offset = options.paddingTop;
+    let rowIndex = 0;
+
+    for (let pageNumber = 1; pageNumber <= options.totalPages;) {
+        const rowStartPage = pageNumber;
+        const rowPages = getSpreadRowPages(pageNumber, options.viewMode, options.totalPages);
+        const rowHeight = rowPages.reduce(
+            (height, rowPage) => Math.max(height, options.pageHeights[rowPage - 1] ?? 0),
+            0,
+        );
+
+        rowStartPages.push(rowStartPage);
+        rowEndPages.push(rowPages[rowPages.length - 1] ?? rowStartPage);
+        rowHeights.push(rowHeight);
+        rowHeightPrefixSums.push(rowHeight + (rowHeightPrefixSums[rowHeightPrefixSums.length - 1] ?? 0));
+
+        for (const rowPage of rowPages) {
+            pageTops[rowPage - 1] = offset;
+            pageRowIndices[rowPage - 1] = rowIndex;
+        }
+
+        pageNumber = (rowPages[rowPages.length - 1] ?? rowStartPage) + 1;
+        offset += rowHeight;
+        if (pageNumber <= options.totalPages) {
+            offset += options.gap;
+        }
+        rowIndex += 1;
     }
 
-    if (
-        pageNumber === totalPages
-        && (
-            (viewMode === 'facing' && totalPages % 2 === 1)
-            || (viewMode === 'facing-first-single' && totalPages % 2 === 0)
-        )
-    ) {
-        return [pageNumber];
-    }
-
-    return [
-        pageNumber,
-        Math.min(pageNumber + 1, totalPages),
-    ];
+    return {
+        pageTops,
+        pageRowIndices,
+        rowStartPages,
+        rowEndPages,
+        rowHeights,
+        rowHeightPrefixSums,
+        contentHeight: offset + options.paddingBottom,
+    };
 }
 
 export function getPageRowBoundsForViewMode(options: {
@@ -59,50 +191,7 @@ export function getPageRowBoundsForViewMode(options: {
     viewMode: TPdfViewMode;
     totalPages: number;
 }) {
-    const clampedPageNumber = Math.max(
-        1,
-        Math.min(options.totalPages, Math.floor(options.pageNumber)),
-    );
-    if (options.viewMode === 'single' || options.totalPages <= 1) {
-        return {
-            start: clampedPageNumber,
-            end: clampedPageNumber,
-        };
-    }
-
-    if (options.viewMode === 'facing') {
-        const rowStart = clampedPageNumber % 2 === 0
-            ? clampedPageNumber - 1
-            : clampedPageNumber;
-        const rowEnd = Math.min(options.totalPages, rowStart + 1);
-        return {
-            start: rowStart,
-            end: rowStart === options.totalPages ? rowStart : rowEnd,
-        };
-    }
-
-    if (clampedPageNumber === 1) {
-        return {
-            start: 1,
-            end: 1,
-        };
-    }
-
-    if (clampedPageNumber === options.totalPages && options.totalPages % 2 === 0) {
-        return {
-            start: clampedPageNumber,
-            end: clampedPageNumber,
-        };
-    }
-
-    const rowStart = clampedPageNumber % 2 === 0
-        ? clampedPageNumber
-        : clampedPageNumber - 1;
-
-    return {
-        start: rowStart,
-        end: Math.min(options.totalPages, rowStart + 1),
-    };
+    return resolveSpreadRowBounds(options.pageNumber, options.viewMode, options.totalPages);
 }
 
 export function normalizePageMetrics(options: {
@@ -218,60 +307,31 @@ export function buildPageLayoutMetrics(options: {
         return null;
     }
 
-    const safeGap = Number.isFinite(gap) ? Math.max(0, gap) : 0;
-    const safePaddingTop = Number.isFinite(paddingTop) ? Math.max(0, paddingTop) : 0;
-    const safePaddingBottom = typeof paddingBottom === 'number' && Number.isFinite(paddingBottom)
-        ? Math.max(0, paddingBottom)
-        : safePaddingTop;
-    const pageWidths = metrics.map(metric => metric.width * scale);
-    const pageHeights = metrics.map(metric => metric.height * scale);
-    const pageHeightPrefixSums: number[] = Array.from({ length: totalPages }, () => 0);
-    const pageTops: number[] = [];
-    const pageRowIndices: number[] = Array.from({ length: totalPages }, () => 0);
-    const rowStartPages: number[] = [];
-    const rowEndPages: number[] = [];
-    const rowHeights: number[] = [];
-    const rowHeightPrefixSums: number[] = [];
-    let maxPageHeight = 0;
-
-    for (let index = 0; index < pageHeights.length; index += 1) {
-        const height = pageHeights[index] ?? 0;
-        pageHeightPrefixSums[index] = height + (pageHeightPrefixSums[index - 1] ?? 0);
-        maxPageHeight = Math.max(maxPageHeight, height);
-    }
-
-    let offset = safePaddingTop;
-    let rowIndex = 0;
-    for (let pageNumber = 1; pageNumber <= totalPages;) {
-        const rowStartPage = pageNumber;
-        const rowPages = getSpreadRowPages(pageNumber, viewMode, totalPages);
-        let rowHeight = 0;
-        for (const rowPage of rowPages) {
-            rowHeight = Math.max(rowHeight, pageHeights[rowPage - 1] ?? 0);
-        }
-
-        rowStartPages.push(rowStartPage);
-        rowEndPages.push(rowPages[rowPages.length - 1] ?? rowStartPage);
-        rowHeights.push(rowHeight);
-        rowHeightPrefixSums.push(
-            rowHeight + (rowHeightPrefixSums[rowHeightPrefixSums.length - 1] ?? 0),
-        );
-
-        for (const rowPage of rowPages) {
-            pageTops[rowPage - 1] = offset;
-            pageRowIndices[rowPage - 1] = rowIndex;
-        }
-
-        pageNumber = rowPages[rowPages.length - 1] ?? rowStartPage;
-        pageNumber += 1;
-        offset += rowHeight;
-        if (pageNumber <= totalPages) {
-            offset += safeGap;
-        }
-        rowIndex += 1;
-    }
-
-    offset += safePaddingBottom;
+    const {
+        gap: safeGap,
+        paddingTop: safePaddingTop,
+        paddingBottom: safePaddingBottom,
+    } = resolveSafeLayoutSpacing({
+        gap,
+        paddingTop,
+        paddingBottom,
+    });
+    const {
+        pageWidths,
+        pageHeights,
+    } = scalePageDimensions(metrics, scale);
+    const {
+        pageHeightPrefixSums,
+        maxPageHeight,
+    } = buildPageHeightPrefixSums(pageHeights);
+    const rows = buildLayoutRows({
+        totalPages,
+        viewMode,
+        pageHeights,
+        gap: safeGap,
+        paddingTop: safePaddingTop,
+        paddingBottom: safePaddingBottom,
+    });
 
     return {
         totalPages,
@@ -282,13 +342,13 @@ export function buildPageLayoutMetrics(options: {
         pageWidths,
         pageHeights,
         pageHeightPrefixSums,
-        pageTops,
-        pageRowIndices,
-        rowStartPages,
-        rowEndPages,
-        rowHeights,
-        rowHeightPrefixSums,
-        contentHeight: offset,
+        pageTops: rows.pageTops,
+        pageRowIndices: rows.pageRowIndices,
+        rowStartPages: rows.rowStartPages,
+        rowEndPages: rows.rowEndPages,
+        rowHeights: rows.rowHeights,
+        rowHeightPrefixSums: rows.rowHeightPrefixSums,
+        contentHeight: rows.contentHeight,
     };
 }
 
