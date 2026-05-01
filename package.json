@@ -37,7 +37,7 @@
     "fallow:dupes": "fallow dupes --production --threshold 10 --fail-on-issues --summary",
     "fallow:health": "fallow health --summary || true",
     "typecheck:coverage": "node --max-old-space-size=8192 node_modules/type-coverage/bin/type-coverage --config .typecoveragerc.json",
-    "validate": "pnpm run lint && pnpm run typecheck && pnpm run typecheck:coverage && pnpm run build:strict && pnpm run fallow && pnpm run check:architecture",
+    "validate": "pnpm run lint && pnpm run typecheck && pnpm run typecheck:coverage && pnpm run build:strict && pnpm run fallow:all && pnpm run check:architecture",
     "test": "vitest run",
     "test:release": "pnpm test",
     "test:bundle-integrity": "vitest run --config vitest.bundle-integrity.config.ts",
@@ -116,7 +116,7 @@
     "unhead": "2.1.9",
     "vue": "3.5.33",
     "vue-bundle-renderer": "2.2.0",
-    "vue-router": "4.6.4"
+    "vue-router": "^5.0.6"
   },
   "devDependencies": {
     "@iconify-json/circle-flags": "^1.2.10",
