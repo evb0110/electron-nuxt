@@ -12,7 +12,9 @@ Default mode:
 - Validate native tool resources for the current host platform/arch
 
 --all mode:
-- Validate the full source matrix: darwin/win32/linux x x64/arm64
+- Validate source readiness for the full release matrix. Generated non-host
+  native tool folders may be absent locally when a CI bundling script owns that
+  target; host resources are still required.
 EOF
 }
 
@@ -40,28 +42,6 @@ fi
 missing=0
 tag_file="$(mktemp)"
 trap 'rm -f "$tag_file"' EXIT
-
-check_file() {
-  local path="$1"
-  local label="$2"
-  if [ ! -f "$path" ]; then
-    echo "  MISSING $label: $path"
-    missing=1
-  else
-    echo "  OK      $label: $path"
-  fi
-}
-
-check_dir() {
-  local path="$1"
-  local label="$2"
-  if [ ! -d "$path" ]; then
-    echo "  MISSING $label: $path"
-    missing=1
-  else
-    echo "  OK      $label: $path"
-  fi
-}
 
 resolve_host_tag() {
   local uname_s
@@ -94,6 +74,65 @@ resolve_host_tag() {
   echo "${platform}-${arch}"
 }
 
+host_tag="$(resolve_host_tag)"
+
+has_ci_bundler_for_tag() {
+  local tag="$1"
+  case "$tag" in
+    darwin-arm64|darwin-x64)
+      [ -f "scripts/bundle-tesseract-macos.sh" ] \
+        && [ -f "scripts/bundle-leptonica-unpaper-macos.sh" ] \
+        && [ -f "scripts/bundle-pdf-tools-macos.sh" ] \
+        && [ -f "scripts/bundle-djvu-macos.sh" ]
+      ;;
+    linux-arm64|linux-x64)
+      [ -f "scripts/bundle-tools-linux.sh" ]
+      ;;
+    win32-arm64|win32-x64)
+      [ -f "scripts/bundle-tools-windows.sh" ]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+mark_missing() {
+  local path="$1"
+  local label="$2"
+  local tag="$3"
+
+  if [ "$check_all" -eq 1 ] && [ "$tag" != "$host_tag" ] && has_ci_bundler_for_tag "$tag"; then
+    echo "  CI-GEN  $label: $path"
+    return
+  fi
+
+  echo "  MISSING $label: $path"
+  missing=1
+}
+
+check_file_for_tag() {
+  local path="$1"
+  local label="$2"
+  local tag="$3"
+  if [ ! -f "$path" ]; then
+    mark_missing "$path" "$label" "$tag"
+  else
+    echo "  OK      $label: $path"
+  fi
+}
+
+check_dir_for_tag() {
+  local path="$1"
+  local label="$2"
+  local tag="$3"
+  if [ ! -d "$path" ]; then
+    mark_missing "$path" "$label" "$tag"
+  else
+    echo "  OK      $label: $path"
+  fi
+}
+
 check_tag() {
   local tag="$1"
   local platform="${tag%-*}"
@@ -103,16 +142,16 @@ check_tag() {
   fi
 
   echo "== Checking $tag =="
-  check_file "resources/tesseract/$tag/bin/tesseract$exe_suffix" "tesseract"
-  check_file "resources/poppler/$tag/bin/pdftoppm$exe_suffix" "pdftoppm"
-  check_file "resources/poppler/$tag/bin/pdftotext$exe_suffix" "pdftotext"
+  check_file_for_tag "resources/tesseract/$tag/bin/tesseract$exe_suffix" "tesseract" "$tag"
+  check_file_for_tag "resources/poppler/$tag/bin/pdftoppm$exe_suffix" "pdftoppm" "$tag"
+  check_file_for_tag "resources/poppler/$tag/bin/pdftotext$exe_suffix" "pdftotext" "$tag"
   if [ "$platform" = "win32" ]; then
-    check_file "resources/poppler/$tag/bin/pdftocairo$exe_suffix" "pdftocairo"
-    check_dir "resources/poppler/$tag/share/poppler" "poppler data directory"
+    check_file_for_tag "resources/poppler/$tag/bin/pdftocairo$exe_suffix" "pdftocairo" "$tag"
+    check_dir_for_tag "resources/poppler/$tag/share/poppler" "poppler data directory" "$tag"
   fi
-  check_file "resources/qpdf/$tag/bin/qpdf$exe_suffix" "qpdf"
-  check_file "resources/djvulibre/$tag/bin/ddjvu$exe_suffix" "ddjvu"
-  check_file "resources/djvulibre/$tag/bin/djvused$exe_suffix" "djvused"
+  check_file_for_tag "resources/qpdf/$tag/bin/qpdf$exe_suffix" "qpdf" "$tag"
+  check_file_for_tag "resources/djvulibre/$tag/bin/ddjvu$exe_suffix" "ddjvu" "$tag"
+  check_file_for_tag "resources/djvulibre/$tag/bin/djvused$exe_suffix" "djvused" "$tag"
 }
 
 if [ "$check_all" -eq 1 ]; then
