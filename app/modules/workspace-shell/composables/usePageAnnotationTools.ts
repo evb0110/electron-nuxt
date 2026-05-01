@@ -53,6 +53,33 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     const annotationSavedRevision = ref(0);
     const annotationDirty = computed(() => annotationRevision.value !== annotationSavedRevision.value);
 
+    type TShapeSettingUpdateResolver = (value: IAnnotationSettings[keyof IAnnotationSettings]) => Record<string, unknown>;
+
+    const inkShapeSettingUpdates: Partial<Record<keyof IAnnotationSettings, TShapeSettingUpdateResolver>> = {
+        inkColor: value => ({ color: String(value) }),
+        inkThickness: value => ({ strokeWidth: Number(value) }),
+        inkOpacity: value => ({ opacity: Number(value) }),
+    };
+
+    const shapeSettingUpdates: Partial<Record<keyof IAnnotationSettings, TShapeSettingUpdateResolver>> = {
+        shapeColor: value => ({ color: String(value) }),
+        shapeStrokeWidth: value => ({ strokeWidth: Number(value) }),
+        shapeOpacity: value => ({ opacity: Number(value) }),
+        shapeFillColor: (value) => {
+            const fill = String(value);
+            return { fillColor: fill === 'transparent' ? undefined : fill };
+        },
+    };
+
+    function getSelectedShapeSettingUpdate(
+        key: keyof IAnnotationSettings,
+        value: IAnnotationSettings[keyof IAnnotationSettings],
+        isInkShape: boolean,
+    ): Record<string, unknown> | null {
+        const resolver = (isInkShape ? inkShapeSettingUpdates[key] : null) ?? shapeSettingUpdates[key];
+        return resolver?.(value) ?? null;
+    }
+
     function handleAnnotationToolChange(tool: TAnnotationTool) {
         annotationTool.value = tool;
         dragMode.value = false;
@@ -103,41 +130,13 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         }
 
         const selectedShape = pdfViewerRef.value?.getSelectedShape();
-        const isInkShape = selectedShape?.pdfSubtype === 'Ink';
-
-        if (payload.key === 'inkColor' && isInkShape) {
-            pdfViewerRef.value?.updateShape(selectedShapeId, { color: String(payload.value) });
-            return;
-        }
-
-        if (payload.key === 'inkThickness' && isInkShape) {
-            pdfViewerRef.value?.updateShape(selectedShapeId, { strokeWidth: Number(payload.value) });
-            return;
-        }
-
-        if (payload.key === 'inkOpacity' && isInkShape) {
-            pdfViewerRef.value?.updateShape(selectedShapeId, { opacity: Number(payload.value) });
-            return;
-        }
-
-        if (payload.key === 'shapeColor') {
-            pdfViewerRef.value?.updateShape(selectedShapeId, { color: String(payload.value) });
-            return;
-        }
-
-        if (payload.key === 'shapeStrokeWidth') {
-            pdfViewerRef.value?.updateShape(selectedShapeId, { strokeWidth: Number(payload.value) });
-            return;
-        }
-
-        if (payload.key === 'shapeOpacity') {
-            pdfViewerRef.value?.updateShape(selectedShapeId, { opacity: Number(payload.value) });
-            return;
-        }
-
-        if (payload.key === 'shapeFillColor') {
-            const fill = String(payload.value);
-            pdfViewerRef.value?.updateShape(selectedShapeId, { fillColor: fill === 'transparent' ? undefined : fill });
+        const updates = getSelectedShapeSettingUpdate(
+            payload.key,
+            payload.value,
+            selectedShape?.pdfSubtype === 'Ink',
+        );
+        if (updates) {
+            pdfViewerRef.value?.updateShape(selectedShapeId, updates);
         }
     }
 

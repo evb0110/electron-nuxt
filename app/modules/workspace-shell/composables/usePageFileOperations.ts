@@ -85,6 +85,71 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return String(error);
     }
 
+    function hasBusyOperation() {
+        return isAnySaving.value || isHistoryBusy.value || isExportingDocx.value || isAnyAnnotationNoteSaving.value;
+    }
+
+    function hasPendingPersistenceChanges() {
+        return annotationDirty.value
+            || isDirty.value
+            || hasAnnotationChanges()
+            || pageLabelsDirty.value
+            || bookmarksDirty.value;
+    }
+
+    function logPersistenceGateStart() {
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Ensuring document is persisted before switch', {
+            busyState: getBusyState(),
+            annotationNoteWindows: annotationNoteWindows.value.length,
+            annotationDirty: annotationDirty.value,
+            isDirty: isDirty.value,
+            pageLabelsDirty: pageLabelsDirty.value,
+            bookmarksDirty: bookmarksDirty.value,
+        });
+    }
+
+    function logPendingChangesAfterSave() {
+        BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: pending changes remain after save attempt', {
+            annotationDirty: annotationDirty.value,
+            isDirty: isDirty.value,
+            pageLabelsDirty: pageLabelsDirty.value,
+            bookmarksDirty: bookmarksDirty.value,
+        });
+    }
+
+    async function persistOpenAnnotationNotes() {
+        if (annotationNoteWindows.value.length === 0) {
+            return true;
+        }
+
+        const savedAllNotes = await persistAllAnnotationNotes(true);
+        if (!savedAllNotes) {
+            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: failed to persist annotation note windows');
+        }
+        return savedAllNotes;
+    }
+
+    async function savePendingChangesBeforeSwitch() {
+        if (!hasPendingPersistenceChanges()) {
+            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Switch allowed: no pending changes');
+            return true;
+        }
+
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Pending changes detected, triggering save before switch');
+        try {
+            await handleSave();
+        } catch (saveError) {
+            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: save before switch threw', {error: stringifyError(saveError)});
+            return false;
+        }
+
+        const canProceed = !hasPendingPersistenceChanges();
+        if (!canProceed) {
+            logPendingChangesAfterSave();
+        }
+        return canProceed;
+    }
+
     async function waitForDocumentSource() {
         await waitUntilIdle(
             () => !pdfSrc.value,
@@ -102,66 +167,20 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             return true;
         }
 
-        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Ensuring document is persisted before switch', {
-            busyState: getBusyState(),
-            annotationNoteWindows: annotationNoteWindows.value.length,
-            annotationDirty: annotationDirty.value,
-            isDirty: isDirty.value,
-            pageLabelsDirty: pageLabelsDirty.value,
-            bookmarksDirty: bookmarksDirty.value,
-        });
+        logPersistenceGateStart();
 
         try {
             await waitUntilAllIdle();
-            if (isAnySaving.value || isHistoryBusy.value || isExportingDocx.value || isAnyAnnotationNoteSaving.value) {
+            if (hasBusyOperation()) {
                 BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: workspace remained busy after idle wait', {busyState: getBusyState()});
                 return false;
             }
 
-            if (annotationNoteWindows.value.length > 0) {
-                const savedAllNotes = await persistAllAnnotationNotes(true);
-                if (!savedAllNotes) {
-                    BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: failed to persist annotation note windows');
-                    return false;
-                }
-            }
-
-            const hasPendingChanges = (
-                annotationDirty.value
-                || isDirty.value
-                || hasAnnotationChanges()
-                || pageLabelsDirty.value
-                || bookmarksDirty.value
-            );
-            if (!hasPendingChanges) {
-                BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Switch allowed: no pending changes');
-                return true;
-            }
-
-            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Pending changes detected, triggering save before switch');
-            try {
-                await handleSave();
-            } catch (saveError) {
-                BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: save before switch threw', {error: stringifyError(saveError)});
+            if (!await persistOpenAnnotationNotes()) {
                 return false;
             }
 
-            const canProceed = !(
-                annotationDirty.value
-                || isDirty.value
-                || hasAnnotationChanges()
-                || pageLabelsDirty.value
-                || bookmarksDirty.value
-            );
-            if (!canProceed) {
-                BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: pending changes remain after save attempt', {
-                    annotationDirty: annotationDirty.value,
-                    isDirty: isDirty.value,
-                    pageLabelsDirty: pageLabelsDirty.value,
-                    bookmarksDirty: bookmarksDirty.value,
-                });
-            }
-            return canProceed;
+            return await savePendingChangesBeforeSwitch();
         } catch (persistError) {
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: persistence gate threw unexpectedly', {error: stringifyError(persistError)});
             return false;
@@ -277,7 +296,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             }
         } else {
             await waitUntilAllIdle();
-            if (isAnySaving.value || isHistoryBusy.value || isExportingDocx.value || isAnyAnnotationNoteSaving.value) {
+            if (hasBusyOperation()) {
                 return;
             }
         }

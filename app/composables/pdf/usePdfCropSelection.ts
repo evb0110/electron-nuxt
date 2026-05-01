@@ -46,6 +46,20 @@ export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
         };
     }
 
+    function containsClientPoint(rect: IClientRect, clientX: number, clientY: number) {
+        return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+    }
+
+    function toPageTarget(element: HTMLElement, clientRect: IClientRect): IPageTarget | null {
+        const pageNum = parseInt(element.dataset.page ?? '', 10);
+        return Number.isFinite(pageNum)
+            ? {
+                pageNumber: pageNum,
+                clientRect,
+            }
+            : null;
+    }
+
     function findPageTargetAtPoint(clientX: number, clientY: number): IPageTarget | null {
         const container = options.viewerContainer.value;
         if (!container) {
@@ -54,14 +68,8 @@ export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
         const pageContainers = container.querySelectorAll<HTMLElement>('.page_container[data-page]');
         for (const el of pageContainers) {
             const rect = toClientRect(el.getBoundingClientRect());
-            if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
-                const pageNum = parseInt(el.dataset.page ?? '', 10);
-                return Number.isFinite(pageNum)
-                    ? {
-                        pageNumber: pageNum,
-                        clientRect: rect,
-                    }
-                    : null;
+            if (containsClientPoint(rect, clientX, clientY)) {
+                return toPageTarget(el, rect);
             }
         }
         return null;

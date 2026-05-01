@@ -39,6 +39,8 @@ function normalizeComparableNumber(value: number | null | undefined) {
     return Number(value.toFixed(6));
 }
 
+const MIN_DRAWN_SHAPE_SIZE = 0.005;
+
 export interface IShapeContextProvide {
     selectedShapeId: Ref<string | null>;
     drawingShape: Ref<IShapeAnnotation | null>;
@@ -208,6 +210,123 @@ export const useAnnotationShapes = () => {
             length += Math.hypot(current.x - previous.x, current.y - previous.y);
         }
         return length;
+    }
+
+    function isLineLikeShape(shape: IShapeAnnotation) {
+        return shape.type === 'line' || shape.type === 'arrow';
+    }
+
+    function createInitialDrawPoint(x: number, y: number): IShapePoint {
+        return {
+            x,
+            y,
+        };
+    }
+
+    function resolveDrawingFillColor(tool: TDrawableShapeType, settings: IAnnotationSettings) {
+        if (tool === 'draw' || settings.shapeFillColor === 'transparent') {
+            return undefined;
+        }
+        return settings.shapeFillColor;
+    }
+
+    function resolveDrawingShapeType(tool: TDrawableShapeType) {
+        return tool === 'draw' ? 'polyline' : tool;
+    }
+
+    function resolveDrawingStyle(tool: TDrawableShapeType, settings: IAnnotationSettings) {
+        if (tool === 'draw') {
+            return {
+                color: settings.inkColor,
+                opacity: settings.inkOpacity,
+                strokeWidth: settings.inkThickness,
+                fillColor: undefined,
+            };
+        }
+
+        return {
+            color: settings.shapeColor,
+            opacity: settings.shapeOpacity,
+            strokeWidth: settings.shapeStrokeWidth,
+            fillColor: resolveDrawingFillColor(tool, settings),
+        };
+    }
+
+    function createLineDrawingGeometry(tool: TDrawableShapeType, x: number, y: number) {
+        if (tool !== 'line' && tool !== 'arrow') {
+            return {};
+        }
+
+        return {
+            x2: x,
+            y2: y,
+        };
+    }
+
+    function createInkDrawingGeometry(tool: TDrawableShapeType, x: number, y: number) {
+        if (tool !== 'draw') {
+            return {};
+        }
+
+        return {
+            points: [createInitialDrawPoint(x, y)],
+            strokes: [[createInitialDrawPoint(x, y)]],
+            pdfSubtype: 'Ink' as const,
+        };
+    }
+
+    function createArrowDrawingGeometry(tool: TDrawableShapeType) {
+        if (tool !== 'arrow') {
+            return {};
+        }
+
+        return { lineEndStyle: 'closedArrow' as const };
+    }
+
+    function createDrawingShape(
+        pageIndex: number,
+        tool: TDrawableShapeType,
+        x: number,
+        y: number,
+        settings: IAnnotationSettings,
+    ): IShapeAnnotation {
+        const style = resolveDrawingStyle(tool, settings);
+        return {
+            id: generateShapeId(),
+            type: resolveDrawingShapeType(tool),
+            pageIndex,
+            x,
+            y,
+            width: 0,
+            height: 0,
+            ...createLineDrawingGeometry(tool, x, y),
+            ...style,
+            ...createInkDrawingGeometry(tool, x, y),
+            source: 'local',
+            stableKey: generateManagedShapeStableKey(),
+            ...createArrowDrawingGeometry(tool),
+        };
+    }
+
+    function isDrawableFinishedShape(shape: IShapeAnnotation) {
+        if (shape.type === 'polyline') {
+            const points = shape.strokes?.[0] ?? shape.points ?? [];
+            return points.length >= 2 && getShapePathLength(points) >= MIN_DRAWN_SHAPE_SIZE;
+        }
+
+        if (isLineLikeShape(shape)) {
+            const dx = (shape.x2 ?? shape.x) - shape.x;
+            const dy = (shape.y2 ?? shape.y) - shape.y;
+            return Math.hypot(dx, dy) >= MIN_DRAWN_SHAPE_SIZE;
+        }
+
+        return shape.width >= MIN_DRAWN_SHAPE_SIZE && shape.height >= MIN_DRAWN_SHAPE_SIZE;
+    }
+
+    function resetDrawingState() {
+        isDrawing.value = false;
+        drawingShape.value = null;
+        drawOrigin = null;
     }
 
     function toComparableShape(shape: IShapeAnnotation) {
@@ -701,38 +820,7 @@ export const useAnnotationShapes = () => {
             x,
             y, 
         };
-        const shape: IShapeAnnotation = {
-            id: generateShapeId(),
-            type: tool === 'draw' ? 'polyline' : tool,
-            pageIndex,
-            x,
-            y,
-            width: 0,
-            height: 0,
-            x2: tool === 'line' || tool === 'arrow' ? x : undefined,
-            y2: tool === 'line' || tool === 'arrow' ? y : undefined,
-            color: tool === 'draw' ? settings.inkColor : settings.shapeColor,
-            fillColor: tool === 'draw' || settings.shapeFillColor === 'transparent' ? undefined : settings.shapeFillColor,
-            opacity: tool === 'draw' ? settings.inkOpacity : settings.shapeOpacity,
-            strokeWidth: tool === 'draw' ? settings.inkThickness : settings.shapeStrokeWidth,
-            points: tool === 'draw'
-                ? [{
-                    x,
-                    y,
-                }]
-                : undefined,
-            strokes: tool === 'draw'
-                ? [[{
-                    x,
-                    y,
-                }]]
-                : undefined,
-            source: 'local',
-            stableKey: generateManagedShapeStableKey(),
-            pdfSubtype: tool === 'draw' ? 'Ink' : undefined,
-            lineEndStyle: tool === 'arrow' ? 'closedArrow' : undefined,
-        };
-        drawingShape.value = shape;
+        drawingShape.value = createDrawingShape(pageIndex, tool, x, y, settings);
         isDrawing.value = true;
     }
 
@@ -755,7 +843,7 @@ export const useAnnotationShapes = () => {
                 points,
                 strokes,
             };
-        } else if (shape.type === 'line' || shape.type === 'arrow') {
+        } else if (isLineLikeShape(shape)) {
             drawingShape.value = {
                 ...shape,
                 x2: x,
@@ -782,26 +870,10 @@ export const useAnnotationShapes = () => {
         }
 
         const shape = drawingShape.value;
-        isDrawing.value = false;
-        drawingShape.value = null;
-        drawOrigin = null;
+        resetDrawingState();
 
-        const isLineLike = shape.type === 'line' || shape.type === 'arrow';
-        if (shape.type === 'polyline') {
-            const points = shape.strokes?.[0] ?? shape.points ?? [];
-            if (points.length < 2 || getShapePathLength(points) < 0.005) {
-                return null;
-            }
-        } else if (isLineLike) {
-            const dx = (shape.x2 ?? shape.x) - shape.x;
-            const dy = (shape.y2 ?? shape.y) - shape.y;
-            if (Math.hypot(dx, dy) < 0.005) {
-                return null;
-            }
-        } else {
-            if (shape.width < 0.005 || shape.height < 0.005) {
-                return null;
-            }
+        if (!isDrawableFinishedShape(shape)) {
+            return null;
         }
 
         addShape(shape);
@@ -809,9 +881,7 @@ export const useAnnotationShapes = () => {
     }
 
     function cancelDrawing() {
-        isDrawing.value = false;
-        drawingShape.value = null;
-        drawOrigin = null;
+        resetDrawingState();
     }
 
     const hasShapes = computed(() => (

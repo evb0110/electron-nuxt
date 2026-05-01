@@ -141,6 +141,28 @@ async function getInitialImagePlacementDimensions(
     });
 }
 
+function getPageContainer(container: HTMLElement | null, pageNumber: number) {
+    return container?.querySelector<HTMLElement>(
+        `.page_container[data-page="${pageNumber}"]`,
+    ) ?? null;
+}
+
+function resolvePlacementPageNumber(
+    requestedPageNumber: number | null | undefined,
+    fallbackPageNumber: number,
+    pageCount: number,
+) {
+    if (!Number.isFinite(requestedPageNumber)) {
+        return Math.max(1, fallbackPageNumber);
+    }
+
+    return Math.max(1, Math.min(pageCount, Math.floor(Number(requestedPageNumber))));
+}
+
+function resolvePlacementCoordinate(value: number | null | undefined) {
+    return clamp(Number.isFinite(value) ? Number(value) : 0.5, 0, 1);
+}
+
 export function usePdfImagePlacement(options: IUsePdfImagePlacementOptions) {
     const {
         viewerContainer,
@@ -179,21 +201,18 @@ export function usePdfImagePlacement(options: IUsePdfImagePlacementOptions) {
         pageY?: number | null;
     }): IImagePlacementTarget {
         const container = viewerContainer.value;
-        const requestedPageNumber = Number.isFinite(optionsOverride?.pageNumber)
-            ? Math.max(1, Math.min(numPages.value, Math.floor(Number(optionsOverride?.pageNumber))))
-            : currentPage.value;
-        const pageNumber = Math.max(1, requestedPageNumber);
-        const pageContainer = container?.querySelector<HTMLElement>(
-            `.page_container[data-page="${pageNumber}"]`,
-        ) ?? null;
+        const pageNumber = resolvePlacementPageNumber(
+            optionsOverride?.pageNumber,
+            currentPage.value,
+            numPages.value,
+        );
+        const pageContainer = getPageContainer(container, pageNumber);
         const pageRect = pageContainer?.getBoundingClientRect() ?? null;
-        const pageX = Number.isFinite(optionsOverride?.pageX) ? Number(optionsOverride?.pageX) : 0.5;
-        const pageY = Number.isFinite(optionsOverride?.pageY) ? Number(optionsOverride?.pageY) : 0.5;
 
         return {
             pageNumber,
-            pageX: clamp(pageX, 0, 1),
-            pageY: clamp(pageY, 0, 1),
+            pageX: resolvePlacementCoordinate(optionsOverride?.pageX),
+            pageY: resolvePlacementCoordinate(optionsOverride?.pageY),
             pageWidthPx: pageRect?.width ?? null,
             pageHeightPx: pageRect?.height ?? null,
         };
@@ -251,9 +270,7 @@ export function usePdfImagePlacement(options: IUsePdfImagePlacementOptions) {
     }
 
     function getPendingImagePlacementTargetPixels(placement: IPdfImagePlacementDraft) {
-        const pageContainer = viewerContainer.value?.querySelector<HTMLElement>(
-            `.page_container[data-page="${placement.pageNumber}"]`,
-        ) ?? null;
+        const pageContainer = getPageContainer(viewerContainer.value, placement.pageNumber);
         const canvas = pageContainer?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
         const devicePixelRatioValue = resolveDevicePixelRatio();
         const renderedPagePixelWidth = canvas?.width

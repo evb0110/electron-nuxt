@@ -277,7 +277,10 @@
 <script setup lang="ts">
 import { useTimeoutFn } from '@vueuse/core';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TDocumentRef } from '@contracts/platform-api';
+import type {
+    IDebugLogEntry,
+    TDocumentRef,
+} from '@contracts/platform-api';
 import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getSettingsCapability } from '@app/utils/platform-settings';
@@ -400,6 +403,41 @@ function scheduleCopyLogsStateReset() {
     startCopyLogsStateReset();
 }
 
+function getSelectedLanguagesForDiagnostics() {
+    return settings.value.selectedLanguages.length > 0
+        ? settings.value.selectedLanguages.join(',')
+        : '-';
+}
+
+function formatDebugLogEntry(entry: IDebugLogEntry) {
+    return `[${entry.timestamp}] [${entry.source}] ${entry.message}`;
+}
+
+function buildOcrDiagnosticsLog(debugLogs: IDebugLogEntry[]) {
+    return [
+        'EVB Viewer OCR diagnostics',
+        `generatedAt=${new Date().toISOString()}`,
+        `currentPage=${props.currentPage}`,
+        `totalPages=${props.totalPages}`,
+        `selectedLanguages=${getSelectedLanguagesForDiagnostics()}`,
+        `isRunning=${progress.value.isRunning}`,
+        `uiError=${effectiveError.value}`,
+        '',
+        '--- debug:log stream ---',
+        ...(debugLogs.length > 0
+            ? debugLogs.map(formatDebugLogEntry)
+            : ['(no buffered logs available)']),
+    ];
+}
+
+function getClipboardWriter() {
+    const writeText = globalThis.navigator?.clipboard?.writeText;
+    if (typeof writeText !== 'function') {
+        throw new Error('Clipboard API is unavailable');
+    }
+    return writeText.bind(globalThis.navigator.clipboard);
+}
+
 async function handleCopyLogs() {
     if (!effectiveError.value || isCopyingLogs.value) {
         return;
@@ -410,30 +448,8 @@ async function handleCopyLogs() {
 
     try {
         const debugLogs = await getSettingsCapability().getDebugLogs();
-        const selectedLanguages = settings.value.selectedLanguages.length > 0
-            ? settings.value.selectedLanguages.join(',')
-            : '-';
-
-        const lines = [
-            'EVB Viewer OCR diagnostics',
-            `generatedAt=${new Date().toISOString()}`,
-            `currentPage=${props.currentPage}`,
-            `totalPages=${props.totalPages}`,
-            `selectedLanguages=${selectedLanguages}`,
-            `isRunning=${progress.value.isRunning}`,
-            `uiError=${effectiveError.value}`,
-            '',
-            '--- debug:log stream ---',
-            ...(debugLogs.length > 0
-                ? debugLogs.map(entry => `[${entry.timestamp}] [${entry.source}] ${entry.message}`)
-                : ['(no buffered logs available)']),
-        ];
-
-        if (!globalThis.navigator?.clipboard || typeof globalThis.navigator.clipboard.writeText !== 'function') {
-            throw new Error('Clipboard API is unavailable');
-        }
-
-        await globalThis.navigator.clipboard.writeText(lines.join('\n'));
+        const writeClipboardText = getClipboardWriter();
+        await writeClipboardText(buildOcrDiagnosticsLog(debugLogs).join('\n'));
         copyLogsState.value = 'copied';
     } catch (copyErr) {
         copyLogsState.value = 'failed';

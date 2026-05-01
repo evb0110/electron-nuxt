@@ -7,30 +7,66 @@ export interface IFatalRuntimeError {
     occurredAt: number;
 }
 
-function stringifyRuntimeError(value: unknown): string | null {
-    if (value instanceof Error) {
-        if (value.message.trim().length > 0) {
-            return `${value.name}: ${value.message}`;
-        }
-        return value.name || 'Error';
+function stringifyErrorObject(error: Error): string {
+    if (error.message.trim().length > 0) {
+        return `${error.name}: ${error.message}`;
     }
+    return error.name || 'Error';
+}
 
-    if (typeof value === 'string') {
-        const normalized = value.trim();
-        return normalized.length > 0
-            ? normalized
-            : null;
-    }
+function normalizeRuntimeErrorString(value: string): string | null {
+    const normalized = value.trim();
+    return normalized.length > 0
+        ? normalized
+        : null;
+}
 
-    if (value === null || value === undefined) {
-        return null;
-    }
-
+function stringifyRuntimeErrorValue(value: unknown): string {
     try {
         return JSON.stringify(value);
     } catch {
         return String(value);
     }
+}
+
+function isNullishRuntimeError(value: unknown) {
+    return value === null || value === undefined;
+}
+
+const RUNTIME_ERROR_STRINGIFIERS = [
+    {
+        matches: (value: unknown) => value instanceof Error,
+        stringify: (value: unknown) => stringifyErrorObject(value as Error),
+    },
+    {
+        matches: (value: unknown) => typeof value === 'string',
+        stringify: (value: unknown) => normalizeRuntimeErrorString(value as string),
+    },
+    {
+        matches: isNullishRuntimeError,
+        stringify: () => null,
+    },
+];
+
+function stringifyRuntimeError(value: unknown): string | null {
+    const stringifier = RUNTIME_ERROR_STRINGIFIERS.find(candidate => candidate.matches(value));
+    return stringifier
+        ? stringifier.stringify(value)
+        : stringifyRuntimeErrorValue(value);
+}
+
+function isSameFatalRuntimeError(
+    current: IFatalRuntimeError | null,
+    kind: TFatalRuntimeErrorKind,
+    detail: string | null,
+    source: string,
+) {
+    return Boolean(
+        current
+        && current.kind === kind
+        && current.detail === detail
+        && current.source === source,
+    );
 }
 
 export function useFatalRuntimeError() {
@@ -42,13 +78,7 @@ export function useFatalRuntimeError() {
         source: string,
     ) {
         const detail = stringifyRuntimeError(error);
-        const current = fatalRuntimeError.value;
-        if (
-            current
-            && current.kind === kind
-            && current.detail === detail
-            && current.source === source
-        ) {
+        if (isSameFatalRuntimeError(fatalRuntimeError.value, kind, detail, source)) {
             return;
         }
 

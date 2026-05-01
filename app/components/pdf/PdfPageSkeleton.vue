@@ -53,17 +53,23 @@ interface IProps {
     contentHeight: number | null;
 }
 
+const emptyPadding: IPadding = {
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+};
+
+function resolvePadding(padding: IPadding | null) {
+    return padding ?? emptyPadding;
+}
+
 const {
     padding,
     contentHeight,
 } = defineProps<IProps>();
 
-const resolvedPadding = computed<IPadding>(() => ({
-    top: padding?.top ?? 0,
-    right: padding?.right ?? 0,
-    bottom: padding?.bottom ?? 0,
-    left: padding?.left ?? 0,
-}));
+const resolvedPadding = computed<IPadding>(() => resolvePadding(padding));
 
 const paddingStyle = computed(() => ({padding: `${resolvedPadding.value.top}px ${resolvedPadding.value.right}px ${resolvedPadding.value.bottom}px ${resolvedPadding.value.left}px`}));
 

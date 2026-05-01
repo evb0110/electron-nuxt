@@ -15,23 +15,27 @@ function serializeError(error: unknown) {
     return error;
 }
 
+function getTrimmedName(name: unknown) {
+    return typeof name === 'string' && name.trim().length > 0
+        ? name.trim()
+        : null;
+}
+
+function getComponentTypeName(component: object) {
+    const maybeNamed = component as {
+        __name?: unknown;
+        name?: unknown;
+    };
+    return getTrimmedName(maybeNamed.name) ?? getTrimmedName(maybeNamed.__name);
+}
+
 function getComponentName(instance: ComponentPublicInstance | null) {
     const component = instance?.$?.type;
     if (!component || typeof component !== 'object') {
         return null;
     }
 
-    const maybeNamed = component as {
-        __name?: unknown;
-        name?: unknown;
-    };
-    if (typeof maybeNamed.name === 'string' && maybeNamed.name.trim().length > 0) {
-        return maybeNamed.name.trim();
-    }
-    if (typeof maybeNamed.__name === 'string' && maybeNamed.__name.trim().length > 0) {
-        return maybeNamed.__name.trim();
-    }
-    return null;
+    return getComponentTypeName(component);
 }
 
 export default defineNuxtPlugin((nuxtApp) => {

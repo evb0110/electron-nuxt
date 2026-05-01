@@ -79,6 +79,56 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             .sort((left, right) => left - right);
     }
 
+    function getSelectedPageCount(pageNumbers?: number[]) {
+        return pageNumbers?.length ?? totalPages.value;
+    }
+
+    function trackExportCompleted(payload: {
+        startedAt: number;
+        format: 'images' | 'multipage_tiff';
+        selectedPageCount: number;
+        status: 'success' | 'canceled';
+        outputCount?: number;
+    }) {
+        analytics.track('export_completed', {
+            durationMs: Math.max(0, Date.now() - payload.startedAt),
+            format: payload.format,
+            ...(payload.outputCount === undefined ? {} : { outputCount: payload.outputCount }),
+            selectedPageCount: payload.selectedPageCount,
+            status: payload.status,
+        });
+    }
+
+    async function cleanupExportedImages(
+        documents: ReturnType<typeof getDocumentsCapability>,
+        outputPaths: string[],
+    ) {
+        await Promise.allSettled(
+            outputPaths.map(async (path) => {
+                await documents.cleanupFile(path);
+            }),
+        );
+    }
+
+    async function handleImageExportResult(
+        documents: ReturnType<typeof getDocumentsCapability>,
+        result: Awaited<ReturnType<ReturnType<typeof getDocumentsCapability>['exportPdfToImages']>>,
+        selectedPageCount: number,
+    ) {
+        if (!result.success) {
+            setExportOverlay(null);
+            return;
+        }
+
+        if (result.outputPaths) {
+            await cleanupExportedImages(documents, result.outputPaths);
+            showExportSuccess('images', result.outputPaths.length || selectedPageCount);
+            return;
+        }
+
+        showExportSuccess('images', selectedPageCount);
+    }
+
     function resolveExportScopeDialog(selection: number[] | undefined | null) {
         const resolver = exportScopeDialogResolver;
         exportScopeDialogResolver = null;
@@ -125,7 +175,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             return;
         }
 
-        const selectedPageCount = pageNumbers?.length ?? totalPages.value;
+        const selectedPageCount = getSelectedPageCount(pageNumbers);
         isExportInProgress.value = true;
         showExportRunning('images', selectedPageCount);
         try {
@@ -133,26 +183,15 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             const startedAt = Date.now();
             const result = await documents.exportPdfToImages(workingCopyPath.value, pageNumbers);
             if (result.success || result.canceled) {
-                analytics.track('export_completed', {
-                    durationMs: Math.max(0, Date.now() - startedAt),
+                trackExportCompleted({
+                    startedAt,
                     format: 'images',
                     outputCount: result.outputPaths?.length ?? 0,
-                    selectedPageCount: pageNumbers?.length ?? totalPages.value,
+                    selectedPageCount,
                     status: result.success ? 'success' : 'canceled',
                 });
             }
-            if (result.success && result.outputPaths) {
-                await Promise.allSettled(
-                    result.outputPaths.map(async (path) => {
-                        await documents.cleanupFile(path);
-                    }),
-                );
-                showExportSuccess('images', result.outputPaths.length || selectedPageCount);
-            } else if (result.success) {
-                showExportSuccess('images', selectedPageCount);
-            } else {
-                setExportOverlay(null);
-            }
+            await handleImageExportResult(documents, result, selectedPageCount);
         } catch (error) {
             setExportOverlay(null);
             BrowserLogger.error('workspace', 'export images failed', error);
@@ -166,7 +205,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             return;
         }
 
-        const selectedPageCount = pageNumbers?.length ?? totalPages.value;
+        const selectedPageCount = getSelectedPageCount(pageNumbers);
         isExportInProgress.value = true;
         showExportRunning('multipage-tiff', selectedPageCount);
         try {
@@ -174,10 +213,10 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             const startedAt = Date.now();
             const result = await documents.exportPdfToMultiPageTiff(workingCopyPath.value, pageNumbers);
             if (result.success || result.canceled) {
-                analytics.track('export_completed', {
-                    durationMs: Math.max(0, Date.now() - startedAt),
+                trackExportCompleted({
+                    startedAt,
                     format: 'multipage_tiff',
-                    selectedPageCount: pageNumbers?.length ?? totalPages.value,
+                    selectedPageCount,
                     status: result.success ? 'success' : 'canceled',
                 });
             }

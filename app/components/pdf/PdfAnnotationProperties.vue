@@ -110,16 +110,24 @@ const emit = defineEmits<{
     (e: 'delete'): void;
 }>();
 
-const shapeLabel = computed(() => {
-    switch (props.shape?.type) {
-        case 'rectangle': return t('annotationProperties.rectangle');
-        case 'circle': return t('annotationProperties.ellipse');
-        case 'line': return t('annotationProperties.line');
-        case 'arrow': return t('annotationProperties.arrow');
-        case 'polyline': return t('annotationProperties.line');
-        case 'polygon': return t('annotationProperties.shape');
-        default: return t('annotationProperties.shape');
+function getShapeLabel(type: IShapeAnnotation['type'] | undefined) {
+    if (type === 'rectangle') {
+        return t('annotationProperties.rectangle');
     }
+    if (type === 'circle') {
+        return t('annotationProperties.ellipse');
+    }
+    if (type === 'line' || type === 'polyline') {
+        return t('annotationProperties.line');
+    }
+    if (type === 'arrow') {
+        return t('annotationProperties.arrow');
+    }
+    return t('annotationProperties.shape');
+}
+
+const shapeLabel = computed(() => {
+    return getShapeLabel(props.shape?.type);
 });
 
 const hasFill = computed(() => {

@@ -69,9 +69,62 @@ export const usePdfScale = (
         return normalizedMetricsCacheValue;
     }
 
+    function resolveFitHeightBaseDimension(
+        normalizedPageMetrics: IPdfPageMetric[],
+        documentBaseHeight: number,
+    ) {
+        // Fit-height should be anchored to the active page instead of the
+        // tallest page in the document so toggling continuous scroll does
+        // not nudge the zoom level on mixed-height PDFs.
+        const page = toValue(currentPage);
+        const pageHeight = normalizedPageMetrics[page - 1]?.height ?? null;
+        return (pageHeight != null && pageHeight > 0) ? pageHeight : documentBaseHeight;
+    }
+
+    function getFitRawSize(container: HTMLElement, mode: TFitMode) {
+        return mode === 'height'
+            ? container.clientHeight
+            : container.clientWidth;
+    }
+
+    function getFitAvailableSize(rawSize: number, mode: TFitMode) {
+        if (mode === 'height') {
+            return rawSize - BASE_MARGIN * 2;
+        }
+
+        const columns = getViewColumnCount(toValue(viewMode), toValue(numPages));
+        return rawSize - BASE_MARGIN * (columns + 1);
+    }
+
+    function hasUnchangedFitDimensions(rawSize: number, baseDimension: number) {
+        return lastContainerSize.value !== null
+            && lastBaseDimension.value !== null
+            && Math.abs(rawSize - lastContainerSize.value) < 1
+            && Math.abs(baseDimension - lastBaseDimension.value) < 0.001;
+    }
+
+    function rememberFitDimensions(rawSize: number, baseDimension: number) {
+        lastContainerSize.value = rawSize;
+        lastBaseDimension.value = baseDimension;
+    }
+
+    function logMissingFitDimensions(
+        container: HTMLElement | null,
+        normalizedPageMetrics: IPdfPageMetric[],
+        spreadBaseWidth: number | null,
+        documentBaseHeight: number | null,
+    ) {
+        BrowserLogger.warn('pdf-nav', '[scale] skipped computeFitWidthScale: missing container/base dimensions', {
+            hasContainer: Boolean(container),
+            basePageWidth: toValue(basePageWidth),
+            basePageHeight: toValue(basePageHeight),
+            normalizedPageMetricsCount: normalizedPageMetrics.length,
+            spreadBaseWidth,
+            documentBaseHeight,
+        });
+    }
+
     function computeFitWidthScale(container: HTMLElement | null): boolean {
-        const fallbackWidth = toValue(basePageWidth);
-        const fallbackHeight = toValue(basePageHeight);
         const totalPages = toValue(numPages);
         const normalizedPageMetrics = getNormalizedPageMetrics();
         const height = resolveDocumentBaseMetric(normalizedPageMetrics, 'height');
@@ -82,21 +135,12 @@ export const usePdfScale = (
         );
 
         if (!container || !width || !height) {
-            BrowserLogger.warn('pdf-nav', '[scale] skipped computeFitWidthScale: missing container/base dimensions', {
-                hasContainer: Boolean(container),
-                basePageWidth: fallbackWidth,
-                basePageHeight: fallbackHeight,
-                normalizedPageMetricsCount: normalizedPageMetrics.length,
-                spreadBaseWidth: width,
-                documentBaseHeight: height,
-            });
+            logMissingFitDimensions(container, normalizedPageMetrics, width, height);
             return false;
         }
 
         const mode = toValue(fitMode);
-        const rawSize = mode === 'height'
-            ? container.clientHeight
-            : container.clientWidth;
+        const rawSize = getFitRawSize(container, mode);
 
         if (rawSize <= 0) {
             BrowserLogger.warn('pdf-nav', `[scale] skipped computeFitWidthScale: rawSize<=0 mode=${mode}`, {
@@ -107,12 +151,7 @@ export const usePdfScale = (
             return false;
         }
 
-        const columns = mode === 'height'
-            ? 1
-            : getViewColumnCount(toValue(viewMode), toValue(numPages));
-        const availableSize = mode === 'height'
-            ? rawSize - BASE_MARGIN * 2
-            : rawSize - BASE_MARGIN * (columns + 1);
+        const availableSize = getFitAvailableSize(rawSize, mode);
         if (availableSize <= 0) {
             BrowserLogger.warn('pdf-nav', `[scale] skipped computeFitWidthScale: availableSize<=0 mode=${mode}`, {
                 rawSize,
@@ -121,25 +160,11 @@ export const usePdfScale = (
             });
             return false;
         }
-        const baseDimension = (() => {
-            if (mode !== 'height') {
-                return width;
-            }
+        const baseDimension = mode === 'height'
+            ? resolveFitHeightBaseDimension(normalizedPageMetrics, height)
+            : width;
 
-            // Fit-height should be anchored to the active page instead of the
-            // tallest page in the document so toggling continuous scroll does
-            // not nudge the zoom level on mixed-height PDFs.
-            const page = toValue(currentPage);
-            const pageHeight = normalizedPageMetrics[page - 1]?.height ?? null;
-            return (pageHeight != null && pageHeight > 0) ? pageHeight : height;
-        })();
-
-        if (
-            lastContainerSize.value !== null
-            && lastBaseDimension.value !== null
-            && Math.abs(rawSize - lastContainerSize.value) < 1
-            && Math.abs(baseDimension - lastBaseDimension.value) < 0.001
-        ) {
+        if (hasUnchangedFitDimensions(rawSize, baseDimension)) {
             BrowserLogger.warn('pdf-nav', `[scale] skipped computeFitWidthScale: dimensions unchanged mode=${mode}`, {
                 rawSize,
                 previousRawSize: lastContainerSize.value,
@@ -149,8 +174,7 @@ export const usePdfScale = (
             return false;
         }
 
-        lastContainerSize.value = rawSize;
-        lastBaseDimension.value = baseDimension;
+        rememberFitDimensions(rawSize, baseDimension);
 
         const newScale = availableSize / baseDimension;
 
@@ -169,8 +193,8 @@ export const usePdfScale = (
             rawSize,
             availableSize,
             baseDimension,
-            basePageWidth: fallbackWidth,
-            basePageHeight: fallbackHeight,
+            basePageWidth: toValue(basePageWidth),
+            basePageHeight: toValue(basePageHeight),
             spreadBaseWidth: width,
             documentBaseHeight: height,
             zoom: toValue(zoom),
