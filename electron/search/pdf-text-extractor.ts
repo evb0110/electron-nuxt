@@ -1,6 +1,6 @@
 import { existsSync } from 'fs';
 import { createLogger } from '@electron/utils/logger';
-import { runCommand } from '@electron/utils/exec';
+import { runElectronCommand } from '@electron/utils/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import {
     abortErrorFromSignal,
@@ -68,7 +68,7 @@ export async function extractTextFromPdf(
         throwIfAborted(signal);
         // Use pdftotext -layout to preserve some structure
         // Each page is separated by form feed character (0x0C)
-        const result = await runCommand(pdftotext, [
+        const result = await runElectronCommand(pdftotext, [
             '-layout',
             pdfPath,
             '-',

@@ -5,7 +5,7 @@ import {
 import { join } from 'path';
 import { PDFDocument } from 'pdf-lib';
 import type { TWorkerLog } from '@electron/ocr/worker/types';
-import { runCommand } from '@electron/ocr/worker/run-command';
+import { runOcrCommand } from '@electron/ocr/worker/run-command';
 
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 
@@ -15,7 +15,7 @@ export async function getPageCount(
     fallback: number,
 ): Promise<number> {
     try {
-        const result = await runCommand(qpdfBinary, [
+        const result = await runOcrCommand(qpdfBinary, [
             '--show-npages',
             pdfPath,
         ], {
@@ -67,7 +67,7 @@ export async function assembleSearchablePdf(
 
     const mergedPdfPath = trackTempFile(join(tempDir, `${sessionId}-merged.pdf`));
 
-    await runCommand(qpdfBinary, [
+    await runOcrCommand(qpdfBinary, [
         originalPdfPath,
         '--overlay',
         overlayPdfPath,

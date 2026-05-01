@@ -2,7 +2,7 @@ import {
     buildDjvuRuntimeEnv,
     getDjvuToolPaths,
 } from '@electron/djvu/paths';
-import { runCommand } from '@electron/native-tools/command-runner';
+import { runNativeCommand } from '@electron/native-tools/command-runner';
 import { createLogger } from '@electron/utils/logger';
 
 const logger = createLogger('djvu-metadata');
@@ -44,7 +44,7 @@ const DJVU_MAX_PAGES = (() => {
 
 async function runDjvused(args: string[]): Promise<IRunResult> {
     const { djvused } = getDjvuToolPaths();
-    const result = await runCommand(djvused, args, {
+    const result = await runNativeCommand(djvused, args, {
         env: buildDjvuRuntimeEnv(),
         timeoutMs: DJVU_METADATA_TIMEOUT_MS,
         maxStdoutBytes: DJVU_METADATA_MAX_STDOUT_BYTES,

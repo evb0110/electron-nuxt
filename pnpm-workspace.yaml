@@ -1,10 +1,12 @@
 packages:
   - '.'
+  - 'packages/*'
 
 # Release automation and Electron smoke need the real Electron binary on every
 # fresh install. Keep this allowlist minimal.
 onlyBuiltDependencies:
   - electron
+  - fallow
   - tesseract.js
 
 # These packages are intentionally safe to leave blocked in CI and fresh local

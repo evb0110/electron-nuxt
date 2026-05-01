@@ -41,7 +41,7 @@ import {
 import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/logger';
 
-export const CORE_APP_CHANNELS = {
+const CORE_APP_CHANNELS = {
     rendererReady: 'app:rendererReady',
     claimPendingExternalOpenPaths: 'app:claimPendingExternalOpenPaths',
 } as const;

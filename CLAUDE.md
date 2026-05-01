@@ -23,8 +23,9 @@ If the `electron-puppeteer` skill breaks, fix it and update `SKILL.md` — don't
 ## Cross-Arch Packaging
 For native-tool or packaging changes, run `pnpm run check:resources:matrix` and verify with `scripts/verify-packaged-native-tools.sh`. No `eval` workers in production paths.
 
-## Dead Code (Knip)
-Run `pnpm validate` (includes `pnpm knip`) after major changes. Remove unused code instead of suppressing with `_` prefixes.
+## Code Health (Fallow)
+Run `pnpm validate` (includes `pnpm fallow`) after major changes. Remove unused code instead of suppressing with `_` prefixes.
+Use `pnpm run fallow:all` when intentionally checking dead code, duplicates, and complexity together.
 
 ## FreeText Note Persistence
 FreeText+Popup annotation persistence is non-trivial due to PDF.js reading `/Contents` from the parent dict. Review the project note-persistence documentation before modifying annotation serialization or note window code.
@@ -33,7 +34,7 @@ FreeText+Popup annotation persistence is non-trivial due to PDF.js reading `/Con
 ```bash
 pnpm run gate:commit           # Fast staged-file checks used by pre-commit
 pnpm lint && pnpm typecheck    # Baseline local verification
-pnpm validate                  # Full validation (includes knip)
+pnpm validate                  # Full validation (includes fallow)
 pnpm run gate:pre-release      # Full pre-release validation + full tests
 pnpm run check:resources:matrix # Cross-arch resource check
 ```

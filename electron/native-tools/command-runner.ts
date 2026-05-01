@@ -73,7 +73,7 @@ function appendWithCap(current: string, chunk: Buffer, maxBytes: number) {
     };
 }
 
-export async function runCommand(
+export async function runNativeCommand(
     command: string,
     args: string[],
     options: IRunCommandOptions = {},

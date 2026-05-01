@@ -12,7 +12,7 @@ import { createLogger } from '@electron/utils/logger';
 import {
     createCombinedPdf,
     isImagePath,
-    SUPPORTED_IMAGE_EXTENSIONS as SHARED_SUPPORTED_IMAGE_EXTENSIONS,
+    PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
 } from '@electron/image/pdf-combine-shared';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -92,7 +92,7 @@ const PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
     return Math.min(parsed, 256) * 1024 * 1024;
 })();
 
-export const SUPPORTED_IMAGE_EXTENSIONS = SHARED_SUPPORTED_IMAGE_EXTENSIONS;
+export const SUPPORTED_IMAGE_EXTENSIONS = PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS;
 
 const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
     SUPPORTED_IMAGE_EXTENSIONS,

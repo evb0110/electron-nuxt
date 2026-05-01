@@ -84,7 +84,7 @@ vi.mock('@electron/image/pdf-conversion', () => ({
     ],
 }));
 vi.mock('@electron/i18n', () => ({te: (key: string) => key}));
-vi.mock('@electron/ocr/worker/run-command', () => ({runCommand: (...args: unknown[]) => mocks.runCommand(...args)}));
+vi.mock('@electron/ocr/worker/run-command', () => ({runOcrCommand: (...args: unknown[]) => mocks.runCommand(...args)}));
 vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: () => mocks.getOcrToolPaths()}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),

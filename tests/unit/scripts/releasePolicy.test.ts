@@ -103,7 +103,7 @@ describe('release policy', () => {
         ]);
         expect(commands.join('\n')).not.toContain('validate');
         expect(commands.join('\n')).not.toContain('build:strict');
-        expect(commands.join('\n')).not.toContain('knip');
+        expect(commands.join('\n')).not.toContain('fallow');
         expect(commands.join('\n')).not.toContain('typecheck:coverage');
         expect(commands.join('\n')).not.toContain('check:architecture');
     });

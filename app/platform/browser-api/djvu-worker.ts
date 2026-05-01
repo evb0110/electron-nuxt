@@ -1,5 +1,4 @@
 import type { TDocumentRef } from '@contracts/platform-api';
-import { getPlatformAPI } from '@app/utils/platform';
 import {
     browserDocumentStore,
     isBrowserDocumentRef,
@@ -21,7 +20,7 @@ function toOwnedArrayBuffer(bytes: Uint8Array) {
 export async function createDjvuWorkerFromPath(djvuPath: TDocumentRef) {
     const djvuGlobal = await loadDjvuJs();
     const worker = new djvuGlobal.Worker();
-    const bytes = await getPlatformAPI().documents.readFile(djvuPath);
+    const bytes = await browserDocumentStore.read(djvuPath);
     const buffer = toOwnedArrayBuffer(bytes);
 
     await worker.createDocument(buffer, {});

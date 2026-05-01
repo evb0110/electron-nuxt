@@ -26,7 +26,7 @@
 </template>
 
 <script setup lang="ts">
-export interface ISettingsShortcutItem {
+interface ISettingsShortcutItem {
     label: string;
     keys: string[];
 }

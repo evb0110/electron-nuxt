@@ -139,10 +139,6 @@ export class StreamingImagePdfWriter {
         this.bookmarks = options.bookmarks ?? [];
     }
 
-    public get size() {
-        return this.bytesWritten;
-    }
-
     public async start() {
         await this.writeBytes(new Uint8Array([
             0x25,

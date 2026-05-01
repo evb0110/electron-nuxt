@@ -28,7 +28,7 @@ interface ICreateCombinedPdfOptions {
 
 const UTIF = utifModule;
 
-export const SUPPORTED_IMAGE_EXTENSIONS = [
+export const PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS = [
     '.png',
     '.jpg',
     '.jpeg',
@@ -40,7 +40,7 @@ export const SUPPORTED_IMAGE_EXTENSIONS = [
 ] as const;
 
 const SUPPORTED_IMAGE_EXTENSION_SET = new Set<string>(
-    SUPPORTED_IMAGE_EXTENSIONS,
+    PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
 );
 
 function appendEmbeddedImagePage(
