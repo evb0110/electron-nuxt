@@ -430,6 +430,28 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         return staleRenderedPages.has(pageNumber);
     }
 
+    function cleanupPageIfCurrentRender(pageNumber: number, version: number) {
+        if (renderingPages.get(pageNumber) !== version) {
+            return;
+        }
+
+        if (shouldKeepStaleRenderedPage(pageNumber)) {
+            renderingPages.delete(pageNumber);
+            return;
+        }
+
+        cleanupPage(pageNumber);
+    }
+
+    function getTrackedPageNumbersForCleanup() {
+        const pagesToCleanup = new Set<number>();
+        renderedPages.forEach((page) => pagesToCleanup.add(page));
+        renderingPages.forEach((_, page) => pagesToCleanup.add(page));
+        pageCanvases.forEach((_, page) => pagesToCleanup.add(page));
+        textLayerCleanupFns.forEach((_, page) => pagesToCleanup.add(page));
+        return pagesToCleanup;
+    }
+
     function setupPagePlaceholders() {
         const containerRoot = options.container.value;
         const baseWidth = toValue(basePageWidth);
@@ -694,13 +716,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             }
 
                             if (renderVersion !== version) {
-                                if (renderingPages.get(pageNumber) === version) {
-                                    if (shouldKeepStaleRenderedPage(pageNumber)) {
-                                        renderingPages.delete(pageNumber);
-                                    } else {
-                                        cleanupPage(pageNumber);
-                                    }
-                                }
+                                cleanupPageIfCurrentRender(pageNumber, version);
                                 return;
                             }
 
@@ -754,13 +770,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         let annotationLayerInstance = null;
                         if (annotationLayerDiv && toValue(showAnnotations)) {
                             if (renderVersion !== version) {
-                                if (renderingPages.get(pageNumber) === version) {
-                                    if (shouldKeepStaleRenderedPage(pageNumber)) {
-                                        renderingPages.delete(pageNumber);
-                                    } else {
-                                        cleanupPage(pageNumber);
-                                    }
-                                }
+                                cleanupPageIfCurrentRender(pageNumber, version);
                                 return;
                             }
 
@@ -782,13 +792,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             }
 
                             if (renderVersion !== version) {
-                                if (renderingPages.get(pageNumber) === version) {
-                                    if (shouldKeepStaleRenderedPage(pageNumber)) {
-                                        renderingPages.delete(pageNumber);
-                                    } else {
-                                        cleanupPage(pageNumber);
-                                    }
-                                }
+                                cleanupPageIfCurrentRender(pageNumber, version);
                                 return;
                             }
                         }
@@ -871,13 +875,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                                     totalPages: numPages.value,
                                 },
                             );
-                            if (renderingPages.get(pageNumber) === version) {
-                                if (shouldKeepStaleRenderedPage(pageNumber)) {
-                                    renderingPages.delete(pageNumber);
-                                } else {
-                                    cleanupPage(pageNumber);
-                                }
-                            }
+                            cleanupPageIfCurrentRender(pageNumber, version);
                             return;
                         }
 
@@ -885,13 +883,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             'pdf-renderer',
                             formatRenderError(error, pageNumber),
                         );
-                        if (renderingPages.get(pageNumber) === version) {
-                            if (shouldKeepStaleRenderedPage(pageNumber)) {
-                                renderingPages.delete(pageNumber);
-                            } else {
-                                cleanupPage(pageNumber);
-                            }
-                        }
+                        cleanupPageIfCurrentRender(pageNumber, version);
                     } finally {
                         const activeRenderTask = activeRenderTasks.get(pageNumber);
                         if (activeRenderTask && activeRenderTask.version === version) {
@@ -1053,13 +1045,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 return;
             }
 
-            const pagesToCleanup = new Set<number>();
-            renderedPages.forEach((page) => pagesToCleanup.add(page));
-            renderingPages.forEach((_, page) => pagesToCleanup.add(page));
-            pageCanvases.forEach((_, page) => pagesToCleanup.add(page));
-            textLayerCleanupFns.forEach((_, page) => pagesToCleanup.add(page));
-
-            pagesToCleanup.forEach((page) => cleanupPage(page));
+            getTrackedPageNumbersForCleanup().forEach((page) => cleanupPage(page));
 
             setupPagePlaceholders();
 
@@ -1138,13 +1124,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     function cleanupAllPages() {
         bumpRenderVersion();
 
-        const pagesToCleanup = new Set<number>();
-        renderedPages.forEach((page) => pagesToCleanup.add(page));
-        renderingPages.forEach((_, page) => pagesToCleanup.add(page));
-        pageCanvases.forEach((_, page) => pagesToCleanup.add(page));
-        textLayerCleanupFns.forEach((_, page) => pagesToCleanup.add(page));
-
-        pagesToCleanup.forEach((page) => cleanupPage(page));
+        getTrackedPageNumbersForCleanup().forEach((page) => cleanupPage(page));
 
         for (const [
             , canvas,
