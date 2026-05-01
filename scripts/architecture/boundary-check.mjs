@@ -22,6 +22,78 @@ const APP_MODULE_PUBLIC_ENTRYPOINTS = new Set([
 
 const ELECTRON_FEATURE_PUBLIC_ENTRYPOINTS = new Set(APP_MODULE_PUBLIC_ENTRYPOINTS);
 
+const ROOT_BOUNDARY_RULES = [
+    {
+        sourceRoot: 'electron',
+        targetRoot: 'app',
+        rule: 'electron-to-app',
+        message: 'Electron code must not import app runtime code.',
+    },
+    {
+        sourceRoot: 'landing',
+        targetRoot: 'app',
+        rule: 'landing-to-app',
+        message: 'Landing code must not import app runtime code.',
+    },
+    {
+        sourceRoot: 'landing',
+        targetRoot: 'electron',
+        rule: 'landing-to-electron',
+        message: 'Landing code must not import electron runtime code.',
+    },
+    {
+        sourceRoot: 'electron',
+        targetRoot: 'landing',
+        rule: 'electron-to-landing',
+        message: 'Electron code must not import landing runtime code.',
+    },
+    {
+        sourceRoot: 'packages',
+        targetRoot: 'app',
+        rule: 'packages-to-app',
+        message: 'Shared packages must not import app runtime code.',
+    },
+    {
+        sourceRoot: 'packages',
+        targetRoot: 'electron',
+        rule: 'packages-to-electron',
+        message: 'Shared packages must not import electron runtime code.',
+    },
+    {
+        sourceRoot: 'packages',
+        targetRoot: 'landing',
+        rule: 'packages-to-landing',
+        message: 'Shared packages must not import landing runtime code.',
+    },
+    {
+        sourceRoot: 'app/services',
+        targetRoot: 'app/composables',
+        rule: 'services-to-composables',
+        message: 'app/services must not depend on app/composables.',
+    },
+    {
+        sourceRoot: 'scripts',
+        targetRoot: 'electron',
+        rule: 'scripts-to-electron',
+        message: 'scripts/** must not import electron runtime code.',
+    },
+];
+
+const FEATURE_BOUNDARY_RULES = [
+    {
+        prefix: 'app/modules',
+        rule: 'app-cross-feature-deep-import',
+        allowedEntrypoints: APP_MODULE_PUBLIC_ENTRYPOINTS,
+        message: 'Cross-feature imports in app/modules must use public entrypoints only.',
+    },
+    {
+        prefix: 'electron/features',
+        rule: 'electron-cross-feature-deep-import',
+        allowedEntrypoints: ELECTRON_FEATURE_PUBLIC_ENTRYPOINTS,
+        message: 'Cross-feature imports in electron/features must use public entrypoints only.',
+    },
+];
+
 function matchesRoot(filePath, root) {
     return filePath === root || filePath.startsWith(`${root}/`);
 }
@@ -60,135 +132,56 @@ function createViolation({
     };
 }
 
-function checkEdge(edge) {
-    const violations = [];
+function checkRootBoundaryRule(edge, boundaryRule) {
     const {
         source,
         target,
         specifier,
     } = edge;
 
-    if (matchesRoot(source, 'electron') && matchesRoot(target, 'app')) {
-        violations.push(createViolation({
-            rule: 'electron-to-app',
+    return matchesRoot(source, boundaryRule.sourceRoot) && matchesRoot(target, boundaryRule.targetRoot)
+        ? createViolation({
+            rule: boundaryRule.rule,
             source,
             target,
             specifier,
-            message: 'Electron code must not import app runtime code.',
-        }));
+            message: boundaryRule.message,
+        })
+        : null;
+}
+
+function checkFeatureBoundaryRule(edge, featureRule) {
+    const sourceOwner = getFeatureOwner(edge.source, featureRule.prefix);
+    const targetOwner = getFeatureOwner(edge.target, featureRule.prefix);
+    if (!sourceOwner || !targetOwner || sourceOwner === targetOwner) {
+        return null;
     }
 
-    if (matchesRoot(source, 'landing') && matchesRoot(target, 'app')) {
-        violations.push(createViolation({
-            rule: 'landing-to-app',
-            source,
-            target,
-            specifier,
-            message: 'Landing code must not import app runtime code.',
-        }));
+    const relativePath = relativeWithinOwner(edge.target, featureRule.prefix, targetOwner);
+    if (isAllowedPublicEntrypoint(relativePath, featureRule.allowedEntrypoints)) {
+        return null;
     }
 
-    if (matchesRoot(source, 'landing') && matchesRoot(target, 'electron')) {
-        violations.push(createViolation({
-            rule: 'landing-to-electron',
-            source,
-            target,
-            specifier,
-            message: 'Landing code must not import electron runtime code.',
-        }));
-    }
+    return createViolation({
+        rule: featureRule.rule,
+        source: edge.source,
+        target: edge.target,
+        specifier: edge.specifier,
+        message: featureRule.message,
+    });
+}
 
-    if (matchesRoot(source, 'electron') && matchesRoot(target, 'landing')) {
-        violations.push(createViolation({
-            rule: 'electron-to-landing',
-            source,
-            target,
-            specifier,
-            message: 'Electron code must not import landing runtime code.',
-        }));
-    }
+function collectViolationsFromRules(edge, rules, checkRule) {
+    return rules
+        .map(rule => checkRule(edge, rule))
+        .filter(Boolean);
+}
 
-    if (matchesRoot(source, 'packages') && matchesRoot(target, 'app')) {
-        violations.push(createViolation({
-            rule: 'packages-to-app',
-            source,
-            target,
-            specifier,
-            message: 'Shared packages must not import app runtime code.',
-        }));
-    }
-
-    if (matchesRoot(source, 'packages') && matchesRoot(target, 'electron')) {
-        violations.push(createViolation({
-            rule: 'packages-to-electron',
-            source,
-            target,
-            specifier,
-            message: 'Shared packages must not import electron runtime code.',
-        }));
-    }
-
-    if (matchesRoot(source, 'packages') && matchesRoot(target, 'landing')) {
-        violations.push(createViolation({
-            rule: 'packages-to-landing',
-            source,
-            target,
-            specifier,
-            message: 'Shared packages must not import landing runtime code.',
-        }));
-    }
-
-    if (matchesRoot(source, 'app/services') && matchesRoot(target, 'app/composables')) {
-        violations.push(createViolation({
-            rule: 'services-to-composables',
-            source,
-            target,
-            specifier,
-            message: 'app/services must not depend on app/composables.',
-        }));
-    }
-
-    if (matchesRoot(source, 'scripts') && matchesRoot(target, 'electron')) {
-        violations.push(createViolation({
-            rule: 'scripts-to-electron',
-            source,
-            target,
-            specifier,
-            message: 'scripts/** must not import electron runtime code.',
-        }));
-    }
-
-    const sourceAppModule = getFeatureOwner(source, 'app/modules');
-    const targetAppModule = getFeatureOwner(target, 'app/modules');
-    if (sourceAppModule && targetAppModule && sourceAppModule !== targetAppModule) {
-        const relativePath = relativeWithinOwner(target, 'app/modules', targetAppModule);
-        if (!isAllowedPublicEntrypoint(relativePath, APP_MODULE_PUBLIC_ENTRYPOINTS)) {
-            violations.push(createViolation({
-                rule: 'app-cross-feature-deep-import',
-                source,
-                target,
-                specifier,
-                message: 'Cross-feature imports in app/modules must use public entrypoints only.',
-            }));
-        }
-    }
-
-    const sourceElectronFeature = getFeatureOwner(source, 'electron/features');
-    const targetElectronFeature = getFeatureOwner(target, 'electron/features');
-    if (sourceElectronFeature && targetElectronFeature && sourceElectronFeature !== targetElectronFeature) {
-        const relativePath = relativeWithinOwner(target, 'electron/features', targetElectronFeature);
-        if (!isAllowedPublicEntrypoint(relativePath, ELECTRON_FEATURE_PUBLIC_ENTRYPOINTS)) {
-            violations.push(createViolation({
-                rule: 'electron-cross-feature-deep-import',
-                source,
-                target,
-                specifier,
-                message: 'Cross-feature imports in electron/features must use public entrypoints only.',
-            }));
-        }
-    }
-
-    return violations;
+function checkEdge(edge) {
+    return [
+        ...collectViolationsFromRules(edge, ROOT_BOUNDARY_RULES, checkRootBoundaryRule),
+        ...collectViolationsFromRules(edge, FEATURE_BOUNDARY_RULES, checkFeatureBoundaryRule),
+    ];
 }
 
 function formatViolations(violations) {

@@ -183,90 +183,126 @@ function isInternalLikeSpecifier(specifier) {
     return INTERNAL_LIKE_PREFIXES.some(prefix => specifier.startsWith(prefix));
 }
 
+const PACKAGE_ALIAS_RULES = [
+    {
+        exact: '@contracts',
+        prefix: '@contracts/',
+        exactTarget: 'packages/contracts/index',
+        prefixTarget: 'packages/contracts/',
+    },
+    {
+        exact: '@i18n-core',
+        prefix: '@i18n-core/',
+        exactTarget: 'packages/i18n-core/index',
+        prefixTarget: 'packages/i18n-core/',
+    },
+    {
+        exact: '@i18n-app',
+        prefix: '@i18n-app/',
+        exactTarget: 'packages/i18n-app/index',
+        prefixTarget: 'packages/i18n-app/',
+    },
+    {
+        exact: '@release-selection',
+        prefix: '@release-selection/',
+        exactTarget: 'packages/release-selection/index',
+        prefixTarget: 'packages/release-selection/',
+    },
+    {
+        prefix: '@app/',
+        prefixTarget: 'app/',
+    },
+    {
+        prefix: '@electron/',
+        prefixTarget: 'electron/',
+    },
+];
+
+const ROOT_SPECIFIER_PREFIXES = [
+    'app/',
+    'electron/',
+    'landing/',
+    'packages/contracts/',
+    'packages/i18n-core/',
+    'packages/i18n-app/',
+    'packages/release-selection/',
+];
+
+function resolvePackageAliasSpecifier(projectRoot, specifier) {
+    const aliasRule = PACKAGE_ALIAS_RULES.find(rule => (
+        specifier === rule.exact
+        || (rule.prefix && specifier.startsWith(rule.prefix))
+    ));
+    if (!aliasRule) {
+        return null;
+    }
+
+    const candidate = specifier === aliasRule.exact
+        ? aliasRule.exactTarget
+        : specifier.replace(aliasRule.prefix, aliasRule.prefixTarget);
+    return resolveWithExtensions(projectRoot, candidate);
+}
+
+function resolveNuxtAliasSpecifier(projectRoot, sourceFile, specifier) {
+    const sourceRoot = getNuxtSourceRootForFile(sourceFile);
+    if (!sourceRoot) {
+        return null;
+    }
+
+    if (specifier.startsWith('~/')) {
+        const target = sourceRoot === 'landing'
+            ? `landing/app/${specifier.slice(2)}`
+            : `app/${specifier.slice(2)}`;
+        return resolveWithExtensions(projectRoot, target);
+    }
+
+    if (specifier.startsWith('~~/')) {
+        const target = sourceRoot === 'landing'
+            ? `landing/${specifier.slice(3)}`
+            : specifier.slice(3);
+        return resolveWithExtensions(projectRoot, target);
+    }
+
+    return null;
+}
+
+function resolveRelativeSpecifier(projectRoot, sourceFile, specifier) {
+    if (!specifier.startsWith('./') && !specifier.startsWith('../')) {
+        return null;
+    }
+
+    const sourceDir = path.dirname(sourceFile);
+    const resolved = toPosixPath(path.normalize(path.join(sourceDir, specifier)));
+    return resolveWithExtensions(projectRoot, resolved);
+}
+
+function resolveRootSpecifier(projectRoot, specifier) {
+    return ROOT_SPECIFIER_PREFIXES.some(prefix => specifier.startsWith(prefix))
+        ? resolveWithExtensions(projectRoot, specifier)
+        : null;
+}
+
 async function resolveSpecifier({
     sourceFile,
     specifier,
     projectRoot,
 }) {
-    if (specifier.startsWith('@app/')) {
-        return resolveWithExtensions(projectRoot, specifier.replace('@app/', 'app/'));
+    const resolvedPackageAlias = await resolvePackageAliasSpecifier(projectRoot, specifier);
+    if (resolvedPackageAlias) {
+        return resolvedPackageAlias;
     }
 
-    if (specifier === '@contracts') {
-        return resolveWithExtensions(projectRoot, 'packages/contracts/index');
+    const resolvedNuxtAlias = await resolveNuxtAliasSpecifier(projectRoot, sourceFile, specifier);
+    if (resolvedNuxtAlias) {
+        return resolvedNuxtAlias;
     }
 
-    if (specifier.startsWith('@contracts/')) {
-        return resolveWithExtensions(projectRoot, specifier.replace('@contracts/', 'packages/contracts/'));
+    const resolvedRelative = await resolveRelativeSpecifier(projectRoot, sourceFile, specifier);
+    if (resolvedRelative) {
+        return resolvedRelative;
     }
 
-    if (specifier.startsWith('@electron/')) {
-        return resolveWithExtensions(projectRoot, specifier.replace('@electron/', 'electron/'));
-    }
-
-    if (specifier === '@i18n-core') {
-        return resolveWithExtensions(projectRoot, 'packages/i18n-core/index');
-    }
-
-    if (specifier.startsWith('@i18n-core/')) {
-        return resolveWithExtensions(projectRoot, specifier.replace('@i18n-core/', 'packages/i18n-core/'));
-    }
-
-    if (specifier === '@i18n-app') {
-        return resolveWithExtensions(projectRoot, 'packages/i18n-app/index');
-    }
-
-    if (specifier.startsWith('@i18n-app/')) {
-        return resolveWithExtensions(projectRoot, specifier.replace('@i18n-app/', 'packages/i18n-app/'));
-    }
-
-    if (specifier === '@release-selection') {
-        return resolveWithExtensions(projectRoot, 'packages/release-selection/index');
-    }
-
-    if (specifier.startsWith('@release-selection/')) {
-        return resolveWithExtensions(projectRoot, specifier.replace('@release-selection/', 'packages/release-selection/'));
-    }
-
-    if (specifier.startsWith('~/')) {
-        const sourceRoot = getNuxtSourceRootForFile(sourceFile);
-        if (sourceRoot === 'landing') {
-            return resolveWithExtensions(projectRoot, `landing/app/${specifier.slice(2)}`);
-        }
-        if (sourceRoot === 'app') {
-            return resolveWithExtensions(projectRoot, `app/${specifier.slice(2)}`);
-        }
-    }
-
-    if (specifier.startsWith('~~/')) {
-        const sourceRoot = getNuxtSourceRootForFile(sourceFile);
-        if (sourceRoot === 'landing') {
-            return resolveWithExtensions(projectRoot, `landing/${specifier.slice(3)}`);
-        }
-        if (sourceRoot === 'app') {
-            return resolveWithExtensions(projectRoot, specifier.slice(3));
-        }
-    }
-
-    if (specifier.startsWith('./') || specifier.startsWith('../')) {
-        const sourceDir = path.dirname(sourceFile);
-        const resolved = toPosixPath(path.normalize(path.join(sourceDir, specifier)));
-        return resolveWithExtensions(projectRoot, resolved);
-    }
-
-    if (
-        specifier.startsWith('app/')
-        || specifier.startsWith('electron/')
-        || specifier.startsWith('landing/')
-        || specifier.startsWith('packages/contracts/')
-        || specifier.startsWith('packages/i18n-core/')
-        || specifier.startsWith('packages/i18n-app/')
-        || specifier.startsWith('packages/release-selection/')
-    ) {
-        return resolveWithExtensions(projectRoot, specifier);
-    }
-
-    return null;
+    return resolveRootSpecifier(projectRoot, specifier);
 }
 
 function collectRootsFromArgv(argv) {
