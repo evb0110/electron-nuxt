@@ -47,6 +47,28 @@ export function getShapeBounds(shape: IShapeAnnotation): IShapeBounds {
     };
 }
 
+export function getPointMinMaxBounds(points: IShapePoint[]) {
+    if (points.length === 0) {
+        return null;
+    }
+
+    return {
+        minX: Math.min(...points.map(point => point.x)),
+        minY: Math.min(...points.map(point => point.y)),
+        maxX: Math.max(...points.map(point => point.x)),
+        maxY: Math.max(...points.map(point => point.y)),
+    };
+}
+
+export function toShapeRect(bounds: IShapeBounds, minSize = 0.01): IShapeBounds {
+    return {
+        minX: bounds.minX,
+        minY: bounds.minY,
+        maxX: bounds.minX + Math.max(minSize, bounds.maxX - bounds.minX),
+        maxY: bounds.minY + Math.max(minSize, bounds.maxY - bounds.minY),
+    };
+}
+
 function scalePointToBounds(point: IShapePoint, baselineBounds: IShapeBounds, nextBounds: IShapeBounds) {
     const baselineWidth = Math.max(0.01, baselineBounds.maxX - baselineBounds.minX);
     const baselineHeight = Math.max(0.01, baselineBounds.maxY - baselineBounds.minY);

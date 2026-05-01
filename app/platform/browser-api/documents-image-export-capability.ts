@@ -10,11 +10,11 @@ import {
     createPdfjsDocumentInitFromBrowserDocument,
     ensurePdfExtension,
     getPdfjsLib,
-    getWindowWithPickers,
     toUint8Array,
 } from '@app/platform/browser-api/common';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import {
+    pickSaveTarget,
     saveBlobToPickerOrDownload,
     saveBytesToPickerOrDownload,
 } from '@app/platform/browser-api/documents-file-capability';
@@ -38,12 +38,6 @@ interface ITiffPageDescriptor {
     width: number;
     height: number;
     dataLength: number;
-}
-
-interface ISaveTarget {
-    canceled: boolean;
-    fileName: string;
-    handle?: FileSystemFileHandle | null;
 }
 
 const BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES = 64 * 1024 * 1024;
@@ -87,43 +81,6 @@ function mergeUint8Arrays(parts: Uint8Array[]) {
     return output;
 }
 
-async function pickSaveTarget(options: {
-    suggestedName: string;
-    pickerTypes: Array<{
-        description?: string;
-        accept: Record<string, string[]>;
-    }>;
-}): Promise<ISaveTarget> {
-    const pickerWindow = getWindowWithPickers();
-    if (!pickerWindow?.showSaveFilePicker) {
-        return {
-            canceled: false,
-            fileName: options.suggestedName,
-            handle: null,
-        };
-    }
-
-    try {
-        const handle = await pickerWindow.showSaveFilePicker({
-            suggestedName: options.suggestedName,
-            types: options.pickerTypes,
-        });
-        return {
-            canceled: false,
-            fileName: handle.name || options.suggestedName,
-            handle,
-        };
-    } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
-            return {
-                canceled: true,
-                fileName: options.suggestedName,
-                handle: null,
-            };
-        }
-        throw error;
-    }
-}
 
 async function renderPdfPage(
     pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,

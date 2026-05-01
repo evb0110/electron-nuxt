@@ -27,6 +27,7 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
 }));
 const saveBlobToPickerOrDownloadMock = vi.hoisted(() => vi.fn());
 const saveBytesToPickerOrDownloadMock = vi.hoisted(() => vi.fn());
+const pickSaveTargetMock = vi.hoisted(() => vi.fn());
 const getDocumentMock = vi.hoisted(() => vi.fn());
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 
@@ -38,6 +39,7 @@ vi.mock('@app/platform/browser-document-store', () => ({
 vi.mock('@app/platform/browser-api/browser-yield', () => ({ yieldToBrowser: yieldToBrowserMock }));
 
 vi.mock('@app/platform/browser-api/documents-file-capability', () => ({
+    pickSaveTarget: (...args: unknown[]) => pickSaveTargetMock(...args),
     saveBlobToPickerOrDownload: (...args: unknown[]) => saveBlobToPickerOrDownloadMock(...args),
     saveBytesToPickerOrDownload: (...args: unknown[]) => saveBytesToPickerOrDownloadMock(...args),
 }));
@@ -141,6 +143,11 @@ describe('createBrowserImageExportCapability', () => {
             fileName: 'sample.tiff',
             handle: null,
         });
+        pickSaveTargetMock.mockImplementation(async (options: {suggestedName: string}) => ({
+            canceled: false,
+            fileName: options.suggestedName,
+            handle: null,
+        }));
         const mockDocument = { createElement: (tagName: string) => {
             if (tagName !== 'canvas') {
                 throw new Error(`Unexpected element request: ${tagName}`);

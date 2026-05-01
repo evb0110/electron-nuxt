@@ -7,6 +7,13 @@ export function normalizeSelectedPageNumbers(selectedPages: number[], totalPages
         .sort((left, right) => left - right);
 }
 
+export function arePageNumberListsEqual(left: number[], right: number[]) {
+    if (left.length !== right.length) {
+        return false;
+    }
+    return left.every((value, index) => value === right[index]);
+}
+
 export function expandPageRange(range: IPdfPageRange | null): number[] | null {
     if (!range) {
         return null;

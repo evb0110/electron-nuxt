@@ -12,6 +12,7 @@ import {
 } from '@electron/native-tools/tool-registry';
 import { terminateProcessTree } from '@electron/utils/process-tree';
 import { getErrorMessage } from '@electron/utils/error';
+import { appendTextChunkWithByteCap } from '@electron/native-tools/output-buffer';
 
 interface IRunCommandOptions {
     cwd?: string;
@@ -45,33 +46,6 @@ const DEFAULT_MAX_STDERR_BYTES = (() => {
     return parsed;
 })();
 
-function appendWithCap(current: string, chunk: Buffer, maxBytes: number) {
-    const chunkText = chunk.toString();
-    if (maxBytes <= 0) {
-        return {
-            value: '',
-            truncated: true,
-        };
-    }
-
-    const nextValue = current + chunkText;
-    if (Buffer.byteLength(nextValue, 'utf8') <= maxBytes) {
-        return {
-            value: nextValue,
-            truncated: false,
-        };
-    }
-
-    const targetTailBytes = Math.max(1, Math.floor(maxBytes * 0.9));
-    let tail = nextValue;
-    while (Buffer.byteLength(tail, 'utf8') > targetTailBytes && tail.length > 1) {
-        tail = tail.slice(Math.floor(tail.length * 0.1));
-    }
-    return {
-        value: tail,
-        truncated: true,
-    };
-}
 
 export async function runNativeCommand(
     command: string,
@@ -236,14 +210,14 @@ export async function runNativeCommand(
         }
 
         proc.stdout?.on('data', (data: Buffer) => {
-            const appended = appendWithCap(stdout, data, maxStdoutBytes);
-            stdout = appended.value;
+            const appended = appendTextChunkWithByteCap(stdout, data, maxStdoutBytes);
+            stdout = appended.text;
             stdoutTruncated = stdoutTruncated || appended.truncated;
         });
 
         proc.stderr?.on('data', (data: Buffer) => {
-            const appended = appendWithCap(stderr, data, maxStderrBytes);
-            stderr = appended.value;
+            const appended = appendTextChunkWithByteCap(stderr, data, maxStderrBytes);
+            stderr = appended.text;
             stderrTruncated = stderrTruncated || appended.truncated;
         });
 

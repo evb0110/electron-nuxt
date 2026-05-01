@@ -14,6 +14,8 @@ import type {
 import {
     buildPdfSaveRestrictions,
     createDefaultPdfConformanceProfile,
+    detectPdfaLevelFromPdfText,
+    hasPdfSignatureMarkersInPdfText,
 } from '@contracts/electron-api';
 import type { IRecentFile } from '@contracts/shared';
 import {
@@ -156,19 +158,11 @@ function containsPdfEncryptMarker(bytes: Uint8Array) {
 }
 
 function detectBrowserPdfaLevel(bytes: Uint8Array) {
-    const text = decodePdfBinary(bytes);
-    const partMatch = text.match(/<pdfaid:part>\s*([^<\s]+)\s*<\/pdfaid:part>/iu);
-    if (!partMatch?.[1]) {
-        return null;
-    }
-
-    const conformanceMatch = text.match(/<pdfaid:conformance>\s*([^<\s]+)\s*<\/pdfaid:conformance>/iu);
-    const conformance = conformanceMatch?.[1]?.trim().toUpperCase() ?? '';
-    return `PDF/A-${partMatch[1].trim()}${conformance}`;
+    return detectPdfaLevelFromPdfText(decodePdfBinary(bytes));
 }
 
 function detectBrowserSignatureMarkers(bytes: Uint8Array) {
-    return /\/(?:ByteRange|FT\s*\/Sig|Type\s*\/Sig)\b/u.test(decodePdfBinary(bytes));
+    return hasPdfSignatureMarkersInPdfText(decodePdfBinary(bytes));
 }
 
 async function readPdfMarkerRegions(path: string) {

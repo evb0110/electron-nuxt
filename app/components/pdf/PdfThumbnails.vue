@@ -53,6 +53,10 @@ import type {
 import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { formatPageIndicator } from '@app/utils/pdf-page-labels';
+import {
+    arePageNumberListsEqual,
+    normalizeSelectedPageNumbers,
+} from '@app/utils/pdf-page-selection';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdf-layout';
 import { buildThumbnailRenderQueue } from '@app/components/pdf/pdfThumbnailRenderQueue';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
@@ -213,27 +217,6 @@ const {
         }),
 });
 
-function normalizeSelectedPages(pages: number[]) {
-    const unique = new Set<number>();
-    for (const page of pages) {
-        if (Number.isInteger(page) && page >= 1 && page <= props.totalPages) {
-            unique.add(page);
-        }
-    }
-    return Array.from(unique).sort((left, right) => left - right);
-}
-
-function arePageListsEqual(left: number[], right: number[]) {
-    if (left.length !== right.length) {
-        return false;
-    }
-    for (let index = 0; index < left.length; index += 1) {
-        if (left[index] !== right[index]) {
-            return false;
-        }
-    }
-    return true;
-}
 
 function isSelected(page: number) {
     return selectedPagesSet.value.has(page);
@@ -249,8 +232,9 @@ function handleThumbnailClick(event: MouseEvent, page: number) {
         shift: event.shiftKey,
         meta: event.metaKey || event.ctrlKey,
     });
-    const normalized = normalizeSelectedPages(
+    const normalized = normalizeSelectedPageNumbers(
         Array.from(multiSelection.selected.value),
+        props.totalPages,
     );
     emit('update:selected-pages', normalized);
     emit('go-to-page', page);
@@ -262,8 +246,9 @@ function handleThumbnailContextMenu(event: MouseEvent, page: number) {
         multiSelection.anchor.value = page;
         emit('update:selected-pages', [page]);
     }
-    const pages = normalizeSelectedPages(
+    const pages = normalizeSelectedPageNumbers(
         Array.from(multiSelection.selected.value),
+        props.totalPages,
     );
     emit('page-context-menu', {
         clientX: event.clientX,
@@ -691,8 +676,8 @@ function handleContainerPointerDown() {
 watch(
     () => props.selectedPages,
     (pages) => {
-        const normalized = normalizeSelectedPages(pages ?? []);
-        if (!arePageListsEqual(normalized, pages ?? [])) {
+        const normalized = normalizeSelectedPageNumbers(pages ?? [], props.totalPages);
+        if (!arePageNumberListsEqual(normalized, pages ?? [])) {
             emit('update:selected-pages', normalized);
             return;
         }

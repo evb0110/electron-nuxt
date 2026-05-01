@@ -138,6 +138,7 @@ import {
     normalizePageLabelRanges,
     parsePageRangeInput,
 } from '@app/utils/pdf-page-labels';
+import { arePageNumberListsEqual } from '@app/utils/pdf-page-selection';
 
 interface IProps {
     totalPages: number;
@@ -319,7 +320,7 @@ function buildRangePages(range: IPdfPageRange) {
 }
 
 function setSelectedPagesSilently(pages: number[]) {
-    if (arePageListsEqual(props.selectedPages, pages)) {
+    if (arePageNumberListsEqual(props.selectedPages, pages)) {
         return;
     }
     ignoreSelectionWatch.value = true;
@@ -334,17 +335,6 @@ function setPageRangeInputSilently(value: string) {
     pageRangeInput.value = value;
 }
 
-function arePageListsEqual(left: number[], right: number[]) {
-    if (left.length !== right.length) {
-        return false;
-    }
-    for (let index = 0; index < left.length; index += 1) {
-        if (left[index] !== right[index]) {
-            return false;
-        }
-    }
-    return true;
-}
 
 function getConfiguredPageLabelStyle(): TPageLabelStyle {
     return pageLabelStyle.value === '' ? null : pageLabelStyle.value;

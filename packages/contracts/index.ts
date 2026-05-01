@@ -113,6 +113,11 @@ export type {
 } from './release';
 
 export {
+    AVAILABLE_OCR_LANGUAGES,
+    AVAILABLE_OCR_LANGUAGE_CODES,
+} from './ocr-languages';
+
+export {
     DEFAULT_SETTINGS,
     normalizeLocale,
     normalizeTheme,

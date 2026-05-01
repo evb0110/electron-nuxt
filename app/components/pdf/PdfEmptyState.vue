@@ -123,9 +123,12 @@
 <script setup lang="ts">
 import type { TDocumentRef } from '@contracts/platform-api';
 import { formatRelativeTime } from '@app/utils/formatters';
+import {
+    displayProcessedCount,
+    formatEtaDuration,
+} from '@app/utils/progress-formatting';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { isBrowserDocumentRef } from '@app/utils/document-ref';
-import { clamp } from 'es-toolkit/math';
 
 interface IRecentFile {
     originalPath: TDocumentRef;
@@ -185,29 +188,6 @@ function getParentFolder(filePath: string) {
     return folderParts.join('/');
 }
 
-function displayProcessedCount(processed: number, total: number) {
-    if (total <= 0) {
-        return 0;
-    }
-
-    return clamp(Math.round(processed), 0, total);
-}
-
-function formatEtaDuration(etaMs: number | null) {
-    if (!Number.isFinite(etaMs) || etaMs === null || etaMs <= 0) {
-        return null;
-    }
-
-    const totalSeconds = Math.max(1, Math.round(etaMs / 1000));
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-
-    if (minutes > 0) {
-        return `${minutes}:${String(seconds).padStart(2, '0')}`;
-    }
-
-    return `0:${String(seconds).padStart(2, '0')}`;
-}
 </script>
 
 <style lang="scss" scoped>

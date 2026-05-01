@@ -27,7 +27,7 @@ export function isTextNoteComment(comment: IAnnotationCommentSummary) {
     );
 }
 
-export function compareComments(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
+export function compareAnnotationCommentSummaries(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
     if (left.pageIndex !== right.pageIndex) {
         return left.pageIndex - right.pageIndex;
     }
@@ -54,6 +54,10 @@ export function compareComments(left: IAnnotationCommentSummary, right: IAnnotat
     }
 
     return left.stableKey.localeCompare(right.stableKey);
+}
+
+export function compareComments(left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) {
+    return compareAnnotationCommentSummaries(left, right);
 }
 
 export function matchesCommentQuery(

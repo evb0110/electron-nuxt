@@ -4,6 +4,7 @@ import type {
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import { compareAnnotationCommentSummaries } from '@app/utils/pdf-annotation-comments';
 
 export function isNoteEligible(
     subtype: string | null | undefined,
@@ -42,29 +43,7 @@ export function compareAnnotations(
     left: IAnnotationCommentSummary,
     right: IAnnotationCommentSummary,
 ): number {
-    if (left.pageIndex !== right.pageIndex) {
-        return left.pageIndex - right.pageIndex;
-    }
-
-    const leftSort = typeof left.sortIndex === 'number' ? left.sortIndex : null;
-    const rightSort = typeof right.sortIndex === 'number' ? right.sortIndex : null;
-    if (leftSort !== null && rightSort !== null && leftSort !== rightSort) {
-        return leftSort - rightSort;
-    }
-    if (leftSort !== null && rightSort === null) {
-        return -1;
-    }
-    if (leftSort === null && rightSort !== null) {
-        return 1;
-    }
-
-    const leftTime = left.modifiedAt ?? 0;
-    const rightTime = right.modifiedAt ?? 0;
-    if (leftTime !== rightTime) {
-        return rightTime - leftTime;
-    }
-
-    return left.stableKey.localeCompare(right.stableKey);
+    return compareAnnotationCommentSummaries(left, right);
 }
 
 export function isSelectionMarkupTool(tool: TAnnotationTool): boolean {
