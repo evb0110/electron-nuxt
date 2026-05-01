@@ -35,7 +35,7 @@
     "fallow:all": "pnpm run fallow && pnpm run fallow:dupes && pnpm run fallow:health",
     "fallow:dupes": "fallow dupes --threshold 10 --fail-on-issues --summary",
     "fallow:health": "fallow health --summary || true",
-    "typecheck:coverage": "type-coverage --config .typecoveragerc.json",
+    "typecheck:coverage": "node --max-old-space-size=8192 node_modules/type-coverage/bin/type-coverage --config .typecoveragerc.json",
     "validate": "pnpm run lint && pnpm run typecheck && pnpm run typecheck:coverage && pnpm run build:strict && pnpm run fallow && pnpm run check:architecture",
     "test": "vitest run",
     "test:release": "pnpm test",
