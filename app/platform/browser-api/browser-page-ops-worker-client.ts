@@ -6,18 +6,17 @@ import type {
     TBrowserPageOpsWorkerResponse,
 } from '@app/platform/browser-api/browser-page-ops-worker.types';
 import { toTransferableUint8Array } from '@app/platform/browser-api/browser-worker-transfer';
+import {
+    settleBrowserWorkerResult,
+    type TPendingBrowserWorkerRequest,
+} from '@app/platform/browser-api/browser-worker-requests';
 import { getErrorMessage } from '@app/utils/error';
-
-type TPendingWorkerRequest = {
-    resolve: (value: unknown) => void;
-    reject: (error: Error) => void;
-};
 
 type TAnyBrowserPageOpsWorkerRequest = {
     [K in TBrowserPageOpsWorkerRequestType]: TBrowserPageOpsWorkerRequest<K>;
 }[TBrowserPageOpsWorkerRequestType];
 
-const pendingWorkerRequests = new Map<number, TPendingWorkerRequest>();
+const pendingWorkerRequests = new Map<number, TPendingBrowserWorkerRequest>();
 const BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS = 15_000;
 
 let browserPageOpsWorker: Worker | null = null;
@@ -112,21 +111,7 @@ function resetWorker(error?: Error) {
 function handleWorkerMessage(
     event: MessageEvent<TBrowserPageOpsWorkerResponse>,
 ) {
-    const result = event.data;
-    const pending = pendingWorkerRequests.get(result.id);
-    if (!pending) {
-        return;
-    }
-
-    pendingWorkerRequests.delete(result.id);
-    if (result.ok) {
-        pending.resolve(result.data);
-        scheduleIdleWorkerTermination();
-        return;
-    }
-
-    pending.reject(new Error(result.error));
-    scheduleIdleWorkerTermination();
+    settleBrowserWorkerResult(pendingWorkerRequests, event.data, scheduleIdleWorkerTermination);
 }
 
 function handleWorkerError(event: ErrorEvent) {
