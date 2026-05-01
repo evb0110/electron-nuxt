@@ -179,6 +179,18 @@ interface IContinuousScrollWindowCacheEntry {
 
 let continuousScrollWindowCache: IContinuousScrollWindowCacheEntry | null = null;
 
+function getContinuousScrollViewportHeight() {
+    return Math.max(0, containerHeight.value || viewerContainer.value?.clientHeight || 0);
+}
+
+function clampPageRangeStart(pageNumber: number) {
+    return clamp(pageNumber, 1, totalPages.value);
+}
+
+function clampPageRangeEnd(pageNumber: number) {
+    return clamp(pageNumber, 1, totalPages.value);
+}
+
 function cacheContinuousScrollWindow(
     start: number,
     end: number,
@@ -206,13 +218,10 @@ function cacheContinuousScrollWindow(
     return result;
 }
 
-function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
-    if (!isContinuousScroll.value || totalPages.value <= 0) {
-        return null;
-    }
-
-    const containerHeightValue = Math.max(0, containerHeight.value || viewerContainer.value?.clientHeight || 0);
-    const usesFallback = containerHeightValue <= 0;
+function getCachedContinuousScrollWindow(
+    containerHeightValue: number,
+    usesFallback: boolean,
+) {
     const cached = continuousScrollWindowCache;
     if (
         cached &&
@@ -229,11 +238,52 @@ function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
         }
     }
 
-    const viewportHeight = Math.max(0, containerHeight.value || viewerContainer.value?.clientHeight || 0);
+    return null;
+}
+
+function resolveFallbackContinuousScrollRange(anchorPage: number) {
+    return {
+        start: Math.max(1, anchorPage - 2),
+        end: Math.min(totalPages.value, anchorPage + 2),
+    };
+}
+
+function expandContinuousScrollRange(
+    visibleStart: number | null,
+    visibleEnd: number | null,
+    overscanStart: number | null,
+    overscanEnd: number | null,
+    anchorPage: number,
+) {
+    const baseStart = visibleStart ?? overscanStart ?? anchorPage;
+    const baseEnd = visibleEnd ?? overscanEnd ?? anchorPage;
+    const minStart = Math.max(1, (visibleStart ?? anchorPage) - 2);
+    const minEnd = Math.min(totalPages.value, (visibleEnd ?? anchorPage) + 2);
+
+    return {
+        start: clampPageRangeStart(Math.min(baseStart, minStart)),
+        end: clampPageRangeEnd(Math.max(baseEnd, minEnd)),
+    };
+}
+
+function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
+    if (!isContinuousScroll.value || totalPages.value <= 0) {
+        return null;
+    }
+
+    const containerHeightValue = getContinuousScrollViewportHeight();
+    const usesFallback = containerHeightValue <= 0;
+    const cached = getCachedContinuousScrollWindow(containerHeightValue, usesFallback);
+    if (cached) {
+        return cached;
+    }
+
     const anchorPage = clamp(currentPage.value, 1, totalPages.value);
-    if (viewportHeight <= 0) {
-        const start = Math.max(1, anchorPage - 2);
-        const end = Math.min(totalPages.value, anchorPage + 2);
+    if (containerHeightValue <= 0) {
+        const {
+            start,
+            end,
+        } = resolveFallbackContinuousScrollRange(anchorPage);
         return cacheContinuousScrollWindow(
             start,
             end,
@@ -244,9 +294,9 @@ function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
     }
 
     const viewportTop = Math.max(0, scrollTop.value);
-    const viewportBottom = viewportTop + viewportHeight;
-    const overscanTop = Math.max(0, viewportTop - viewportHeight);
-    const overscanBottom = viewportBottom + viewportHeight;
+    const viewportBottom = viewportTop + containerHeightValue;
+    const overscanTop = Math.max(0, viewportTop - containerHeightValue);
+    const overscanBottom = viewportBottom + containerHeightValue;
 
     let pageTop = DJVU_BASE_MARGIN;
     let visibleStart: number | null = null;
@@ -291,12 +341,16 @@ function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
         pageTop = pageBottom + (pageNumber < totalPages.value ? DJVU_BASE_MARGIN : 0);
     }
 
-    const baseStart = visibleStart ?? overscanStart ?? anchorPage;
-    const baseEnd = visibleEnd ?? overscanEnd ?? anchorPage;
-    const minStart = Math.max(1, (visibleStart ?? anchorPage) - 2);
-    const minEnd = Math.min(totalPages.value, (visibleEnd ?? anchorPage) + 2);
-    const start = clamp(Math.min(baseStart, minStart), 1, totalPages.value);
-    const end = clamp(Math.max(baseEnd, minEnd), 1, totalPages.value);
+    const {
+        start,
+        end,
+    } = expandContinuousScrollRange(
+        visibleStart,
+        visibleEnd,
+        overscanStart,
+        overscanEnd,
+        anchorPage,
+    );
     return cacheContinuousScrollWindow(
         start,
         end,

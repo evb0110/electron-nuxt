@@ -79,6 +79,17 @@ function getPluralCategory(locale: string, count: number): TPluralCategory {
     return getPluralRules(locale).select(count);
 }
 
+function fallbackForm(forms: string[], template: string, ...indices: number[]) {
+    for (const index of indices) {
+        const form = forms[index];
+        if (form !== undefined) {
+            return form;
+        }
+    }
+
+    return template;
+}
+
 function getFirstDefinedForm(forms: TPluralForms<string>): string {
     return forms.zero
         ?? forms.one
@@ -112,35 +123,25 @@ function selectLegacyPipeForm(template: string, count: number, locale: string): 
     const category = getPluralCategory(locale, count);
     if (forms.length === 2) {
         return category === 'one'
-            ? (forms[0] ?? template)
-            : (forms[1] ?? forms[0] ?? template);
+            ? fallbackForm(forms, template, 0)
+            : fallbackForm(forms, template, 1, 0);
     }
 
     if (forms.length === 3) {
-        if (category === 'one') {
-            return forms[0] ?? template;
-        }
-
-        if (category === 'few') {
-            return forms[1] ?? forms[0] ?? template;
-        }
-
-        return forms[2] ?? forms[1] ?? forms[0] ?? template;
+        return category === 'one'
+            ? fallbackForm(forms, template, 0)
+            : category === 'few'
+                ? fallbackForm(forms, template, 1, 0)
+                : fallbackForm(forms, template, 2, 1, 0);
     }
 
-    if (category === 'zero') {
-        return forms[0] ?? template;
-    }
-
-    if (category === 'one') {
-        return forms[1] ?? forms[0] ?? template;
-    }
-
-    if (category === 'two' || category === 'few') {
-        return forms[2] ?? forms[1] ?? forms[0] ?? template;
-    }
-
-    return forms.at(-1) ?? template;
+    return category === 'zero'
+        ? fallbackForm(forms, template, 0)
+        : category === 'one'
+            ? fallbackForm(forms, template, 1, 0)
+            : category === 'two' || category === 'few'
+                ? fallbackForm(forms, template, 2, 1, 0)
+                : forms.at(-1) ?? template;
 }
 
 export function formatTranslationLeaf(
