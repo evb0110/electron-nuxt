@@ -98,8 +98,12 @@ export function collectAnnotationRefsToDelete(doc: PDFDocument, targetRef: PDFRe
             }
 
             const parentValue = dict.get(PDFName.of('Parent'));
-            if (parentValue instanceof PDFRef && enqueueRef(parentValue)) {
-                pending.push(parentValue);
+            if (parentValue instanceof PDFRef) {
+                const parentDict = doc.context.lookupMaybe(parentValue, PDFDict);
+                const parentSubtype = normalizeAnnotationSubtypeToken(getPdfDictSubtype(parentDict ?? null));
+                if ((parentSubtype === 'freetext' || parentSubtype === 'popup') && enqueueRef(parentValue)) {
+                    pending.push(parentValue);
+                }
             }
         });
     }

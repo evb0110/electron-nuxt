@@ -10,9 +10,11 @@ export function buildContentSecurityPolicy(isDev: boolean) {
 
     // Nuxt SPA renderer injects inline payload/config scripts in both dev and production.
     // Blocking inline scripts breaks bootstrap at startup (`window.__NUXT__` never initializes).
-    const scriptSrc = isDev
-        ? 'script-src \'self\' \'unsafe-inline\' \'wasm-unsafe-eval\''
-        : 'script-src \'self\' \'unsafe-inline\'';
+    // 'wasm-unsafe-eval' is required in production too: pdf.js's renderer WebWorker compiles
+    // bundled WASM (jbig2, openjpeg, qcms, quickjs-eval) on demand for PDFs containing
+    // JBIG2/JPEG2000-encoded images, ICC color profiles, or JS actions. Without this directive
+    // those PDFs silently fail to render those streams.
+    const scriptSrc = 'script-src \'self\' \'unsafe-inline\' \'wasm-unsafe-eval\'';
     const styleSrc = 'style-src \'self\' \'unsafe-inline\'';
 
     return [
