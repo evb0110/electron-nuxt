@@ -1,8 +1,14 @@
 declare module 'utif' {
+    export interface IUtifFrame {
+        width?: number;
+        height?: number;
+        [key: string]: unknown;
+    }
+
     export function encode(ifds: Record<string, unknown>[]): Uint8Array | ArrayBufferLike;
-    export function decode(data: Uint8Array): unknown[];
-    export function decodeImage(data: Uint8Array, ifd: unknown): void;
-    export function toRGBA8(ifd: unknown): Uint8Array;
+    export function decode(data: Uint8Array): IUtifFrame[];
+    export function decodeImage(data: Uint8Array, ifd: IUtifFrame): void;
+    export function toRGBA8(ifd: IUtifFrame): Uint8Array;
     export function encodeImage(
         rgba: Uint8Array | ArrayBuffer,
         width: number,

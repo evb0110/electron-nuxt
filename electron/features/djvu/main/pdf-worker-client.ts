@@ -1,20 +1,19 @@
-import { existsSync } from 'fs';
-import {
-    dirname,
-    join,
-} from 'path';
+import { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { Worker } from 'worker_threads';
 import type { IPdfBookmarkEntry } from '@contracts/pdf';
 import type {
     IDjvuPdfWorkerProgressMessage,
-    TDjvuPdfWorkerMessage,
     TDjvuPdfWorkerTask,
 } from '@electron/features/djvu/main/pdf-worker-protocol';
 import {
     isFiniteWorkerMessageNumber,
     isWorkerMessageRecord,
 } from '@electron/utils/worker-message';
+import {
+    type IStreamingWorkerTaskHandle,
+    resolveUnpackedWorkerPath,
+    startStreamingWorkerTask,
+} from '@electron/utils/worker-task';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DJVU_PDF_WORKER_FILENAME = 'djvu-pdf-worker.js';
@@ -26,18 +25,23 @@ export class DjvuPdfWorkerStartupError extends Error {
     }
 }
 
-interface IDjvuPdfWorkerTaskHandle<T> {
-    worker: Worker;
-    promise: Promise<T>;
-}
-
-function resolveDjvuPdfWorkerPath() {
-    const defaultPath = join(__dirname, DJVU_PDF_WORKER_FILENAME);
-    const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
-    if (unpackedPath !== defaultPath && existsSync(unpackedPath)) {
-        return unpackedPath;
+function parseProgressMessage(message: unknown): IDjvuPdfWorkerProgressMessage | null {
+    if (!isWorkerMessageRecord(message) || message.type !== 'progress') {
+        return null;
     }
-    return defaultPath;
+    if (
+        message.phase !== 'buildPdf'
+        || !isFiniteWorkerMessageNumber(message.page)
+        || !isFiniteWorkerMessageNumber(message.total)
+    ) {
+        return null;
+    }
+    return {
+        type: 'progress',
+        phase: 'buildPdf',
+        page: message.page,
+        total: message.total,
+    };
 }
 
 function isPdfWorkerResultData(value: unknown): value is number | Uint8Array | ArrayBuffer {
@@ -46,141 +50,41 @@ function isPdfWorkerResultData(value: unknown): value is number | Uint8Array | A
         || value instanceof ArrayBuffer;
 }
 
-function parseWorkerMessage(message: unknown): TDjvuPdfWorkerMessage | null {
-    if (!isWorkerMessageRecord(message) || typeof message.type !== 'string') {
-        return null;
-    }
-
-    switch (message.type) {
-        case 'progress':
-            if (
-                message.phase !== 'buildPdf'
-                || !isFiniteWorkerMessageNumber(message.page)
-                || !isFiniteWorkerMessageNumber(message.total)
-            ) {
-                return null;
-            }
-            return {
-                type: 'progress',
-                phase: 'buildPdf',
-                page: message.page,
-                total: message.total,
-            };
-        case 'result':
-            if (message.ok === true) {
-                if (!isPdfWorkerResultData(message.data)) {
-                    return null;
-                }
-                return {
-                    type: 'result',
-                    ok: true,
-                    data: message.data,
-                };
-            }
-            if (message.ok === false && typeof message.error === 'string') {
-                return {
-                    type: 'result',
-                    ok: false,
-                    error: message.error,
-                };
-            }
-            return null;
-        default:
-            return null;
-    }
-}
-
 function createDjvuPdfWorkerTask<T>(
     task: TDjvuPdfWorkerTask,
     options: {
         onProgress?: (message: IDjvuPdfWorkerProgressMessage) => void;
         decodeResult: (data: unknown) => T | null;
     },
-): IDjvuPdfWorkerTaskHandle<T> {
-    const workerPath = resolveDjvuPdfWorkerPath();
-    if (!existsSync(workerPath)) {
-        throw new DjvuPdfWorkerStartupError(`DjVu PDF worker unavailable at path: ${workerPath}`);
-    }
-
-    const worker = new Worker(workerPath, { workerData: task });
-    const promise = new Promise<T>((resolve, reject) => {
-        let settled = false;
-        let online = false;
-
-        const finalize = (callback: () => void) => {
-            if (settled) {
-                return;
+): IStreamingWorkerTaskHandle<T> {
+    return startStreamingWorkerTask<T>({
+        workerPath: resolveUnpackedWorkerPath(__dirname, DJVU_PDF_WORKER_FILENAME),
+        workerData: task,
+        invalidPayloadMessage: 'DjVu PDF worker returned an invalid payload',
+        invalidResultMessage: 'DjVu PDF worker returned an invalid result',
+        createStartupError: (message) => new DjvuPdfWorkerStartupError(`DjVu PDF worker startup failed: ${message}`),
+        createWorkerExitError: (code) => new Error(`DjVu PDF worker exited with code ${code}`),
+        onProgressMessage: (payload) => {
+            const progress = parseProgressMessage(payload);
+            if (!progress) {
+                return false;
             }
-            settled = true;
-            worker.removeAllListeners();
-            void worker.terminate().catch(() => {});
-            callback();
-        };
-
-        worker.once('online', () => {
-            online = true;
-        });
-
-        worker.on('message', (rawMessage: unknown) => {
-            const message = parseWorkerMessage(rawMessage);
-            if (!message) {
-                finalize(() => {
-                    reject(new Error('DjVu PDF worker returned an invalid payload'));
-                });
-                return;
+            options.onProgress?.(progress);
+            return true;
+        },
+        decodeResult: (data) => {
+            if (!isPdfWorkerResultData(data)) {
+                return null;
             }
-
-            if (message.type === 'progress') {
-                options.onProgress?.(message);
-                return;
-            }
-
-            finalize(() => {
-                if (!message.ok) {
-                    reject(new Error(message.error));
-                    return;
-                }
-
-                const decoded = options.decodeResult(message.data);
-                if (decoded === null) {
-                    reject(new Error('DjVu PDF worker returned an invalid result'));
-                    return;
-                }
-                resolve(decoded);
-            });
-        });
-
-        worker.once('error', (error) => {
-            const resolvedError = error instanceof Error ? error : new Error(String(error));
-            finalize(() => {
-                if (!online) {
-                    reject(new DjvuPdfWorkerStartupError(`DjVu PDF worker startup failed: ${resolvedError.message}`));
-                    return;
-                }
-                reject(resolvedError);
-            });
-        });
-
-        worker.once('exit', (code) => {
-            if (settled || code === 0) {
-                return;
-            }
-            finalize(() => {
-                reject(new Error(`DjVu PDF worker exited with code ${code}`));
-            });
-        });
+            return options.decodeResult(data);
+        },
     });
-
-    return {
-        worker,
-        promise,
-    };
 }
 
 export function createDjvuPdfEstimateTask(
     imagePath: string,
     dpi: number,
-): IDjvuPdfWorkerTaskHandle<number> {
+): IStreamingWorkerTaskHandle<number> {
     return createDjvuPdfWorkerTask({
         type: 'estimatePdfSize',
         imagePath,
@@ -192,7 +96,7 @@ export function createDjvuPdfBookmarkTask(
     inputPdfPath: string,
     outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
-): IDjvuPdfWorkerTaskHandle<void> {
+): IStreamingWorkerTaskHandle<void> {
     return createDjvuPdfWorkerTask({
         type: 'embedBookmarksInFile',
         inputPdfPath,

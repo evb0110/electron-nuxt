@@ -12,6 +12,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import { appendTextChunkWithByteCap } from '@electron/native-tools/output-buffer';
 import { parseIntegerEnv } from '@electron/utils/env';
 import { buildTesseractEnv } from '@electron/ocr/tesseract-env';
+import { createTesseractFinalize } from '@electron/ocr/tesseract-finalize';
 
 const PNG_SIGNATURE = Buffer.from([
     0x89,
@@ -109,12 +110,13 @@ export async function runOcrFileBased(
 
         let stderr = '';
         let stderrTruncated = false;
-        let settled = false;
         let timedOut = false;
         let aborted = false;
-        let timeoutHandle: NodeJS.Timeout | null = null;
-        let killHandle: NodeJS.Timeout | null = null;
-        let forceFinalizeHandle: NodeJS.Timeout | null = null;
+        const handles = {
+            timeoutHandle: null as NodeJS.Timeout | null,
+            killHandle: null as NodeJS.Timeout | null,
+            forceFinalizeHandle: null as NodeJS.Timeout | null,
+        };
         let abortHandler: (() => void) | null = null;
 
         const requestTermination = () => {
@@ -134,29 +136,11 @@ export async function runOcrFileBased(
             }
         };
 
-        const finalize = (result: IOcrFileResult) => {
-            if (settled) {
-                return;
-            }
-
-            settled = true;
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-                timeoutHandle = null;
-            }
-            if (killHandle) {
-                clearTimeout(killHandle);
-                killHandle = null;
-            }
-            if (forceFinalizeHandle) {
-                clearTimeout(forceFinalizeHandle);
-                forceFinalizeHandle = null;
-            }
+        const finalize = createTesseractFinalize<IOcrFileResult>(handles, resolve, () => {
             if (signal && abortHandler) {
                 signal.removeEventListener('abort', abortHandler);
             }
-            resolve(result);
-        };
+        });
 
         const cleanupTempOutputs = async () => {
             await Promise.all([
@@ -235,20 +219,20 @@ export async function runOcrFileBased(
             signal.addEventListener('abort', abortHandler, { once: true });
         }
 
-        timeoutHandle = setTimeout(() => {
+        handles.timeoutHandle = setTimeout(() => {
             timedOut = true;
             requestTermination();
 
-            killHandle = setTimeout(() => {
+            handles.killHandle = setTimeout(() => {
                 try {
                     proc.kill('SIGKILL');
                 } catch {
                     // Process may have exited already.
                 }
             }, FILE_BASED_OCR_KILL_GRACE_MS);
-            killHandle.unref?.();
+            handles.killHandle.unref?.();
 
-            forceFinalizeHandle = setTimeout(async () => {
+            handles.forceFinalizeHandle = setTimeout(async () => {
                 await cleanupTempOutputs();
                 finalize({
                     success: false,
@@ -257,9 +241,9 @@ export async function runOcrFileBased(
                     error: `Tesseract timed out after ${FILE_BASED_OCR_TIMEOUT_MS}ms`,
                 });
             }, FILE_BASED_OCR_KILL_GRACE_MS + 1_000);
-            forceFinalizeHandle.unref?.();
+            handles.forceFinalizeHandle.unref?.();
         }, FILE_BASED_OCR_TIMEOUT_MS);
-        timeoutHandle.unref?.();
+        handles.timeoutHandle.unref?.();
 
         if (signal?.aborted) {
             abortHandler?.();

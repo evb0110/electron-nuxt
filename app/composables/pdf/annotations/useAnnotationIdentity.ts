@@ -258,6 +258,19 @@ function isSingleStableRefMirror(facts: IEditorPdfMirrorFacts) {
     return facts.modifiedClose || facts.iou >= 0.62 || facts.centerDistance <= 0.018;
 }
 
+export function commentsShareStableIdentifier(
+    left: Pick<IAnnotationCommentSummary, 'annotationId' | 'uid'>,
+    right: Pick<IAnnotationCommentSummary, 'annotationId' | 'uid'>,
+) {
+    if (left.annotationId && right.annotationId && left.annotationId === right.annotationId) {
+        return true;
+    }
+    if (left.uid && right.uid && left.uid === right.uid) {
+        return true;
+    }
+    return false;
+}
+
 export function likelyEditorPdfMirror(
     left: IAnnotationCommentSummary,
     right: IAnnotationCommentSummary,
@@ -281,10 +294,7 @@ export function likelyEditorPdfMirror(
         return false;
     }
 
-    if (left.annotationId && right.annotationId && left.annotationId === right.annotationId) {
-        return true;
-    }
-    if (left.uid && right.uid && left.uid === right.uid) {
+    if (commentsShareStableIdentifier(left, right)) {
         return true;
     }
 

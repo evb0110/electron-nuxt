@@ -1290,53 +1290,29 @@ async function waitForHydration(
     page: Page;
     hydrated: boolean;
 }> {
-    let currentPage = page;
     let navigationCount = 0;
     const MAX_NAVIGATIONS = 3;
 
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-        if (watcher.sawOutdatedOptimizeDep()) {
+    return pollHydration(browser, page, watcher, {
+        delayMs: 500,
+        onOutdated: () => {
             console.log('[Puppeteer] Detected Vite 504 (Outdated Optimize Dep), reloading...');
-            break;
-        }
-
-        try {
-            if (await checkHydration(currentPage)) {
-                return {
-                    page: currentPage,
-                    hydrated: true,
-                };
-            }
-        } catch (error) {
-            if (!isTransientPageContextError(error)) {
-                throw error;
-            }
-            currentPage = await reattachToAppPage(browser, currentPage, watcher.attach);
-            await delay(250);
-            continue;
-        }
-
-        if (attempt > 0 && attempt % 5 === 0) {
+        },
+        onInterval: async (current) => {
             const freshPage = await findAppPage(browser);
-            if (freshPage && freshPage !== currentPage) {
+            if (freshPage && freshPage !== current) {
                 navigationCount += 1;
                 console.log(`[Puppeteer] Page navigated (${navigationCount}/${MAX_NAVIGATIONS}), re-attaching...`);
                 if (navigationCount > MAX_NAVIGATIONS) {
                     console.log('[Puppeteer] Too many navigations, proceeding with current page');
-                    break;
+                    return null;
                 }
-                currentPage = freshPage;
-                watcher.attach(currentPage);
+                watcher.attach(freshPage);
+                return freshPage;
             }
-        }
-
-        await delay(500);
-    }
-
-    return {
-        page: currentPage,
-        hydrated: false,
-    };
+            return current;
+        },
+    });
 }
 
 async function reloadAndWaitForHydration(
@@ -1358,8 +1334,29 @@ async function reloadAndWaitForHydration(
 
     await delay(1500);
     currentPage = await reattachToAppPage(browser, currentPage, watcher.attach);
+    return pollHydration(browser, currentPage, watcher, {
+        delayMs: 350,
+        onInterval: async (page) => reattachToAppPage(browser, page, watcher.attach),
+    });
+}
+
+async function pollHydration(
+    browser: Browser,
+    page: Page,
+    watcher: TOptimizeDepWatcher,
+    options: {
+        delayMs: number;
+        onInterval: (page: Page, attempt: number) => Promise<Page | null>;
+        onOutdated?: () => void;
+    },
+): Promise<{
+    page: Page;
+    hydrated: boolean;
+}> {
+    let currentPage = page;
     for (let attempt = 0; attempt < 30; attempt += 1) {
         if (watcher.sawOutdatedOptimizeDep()) {
+            options.onOutdated?.();
             break;
         }
         try {
@@ -1378,9 +1375,13 @@ async function reloadAndWaitForHydration(
             continue;
         }
         if (attempt > 0 && attempt % 5 === 0) {
-            currentPage = await reattachToAppPage(browser, currentPage, watcher.attach);
+            const next = await options.onInterval(currentPage, attempt);
+            if (next === null) {
+                break;
+            }
+            currentPage = next;
         }
-        await delay(350);
+        await delay(options.delayMs);
     }
 
     return {

@@ -164,7 +164,7 @@
 import type { TPdfViewMode } from '@contracts/shared';
 import type { TPrintOrientation } from '@app/utils/pdf-print';
 import { parsePrintPageRangeInput } from '@app/utils/pdf-print';
-import { usePdfPageScopeSelection } from '@app/composables/pdf/usePdfPageScopeSelection';
+import { usePdfPageScopeDialogSetup } from '@app/composables/pdf/usePdfPageScopeDialogSetup';
 
 const open = defineModel<boolean>('open', { required: true });
 
@@ -198,12 +198,7 @@ const {
     normalizedSelectedPages,
     resetScopeForOpen,
     resolveScopedPageNumbers,
-} = usePdfPageScopeSelection({
-    totalPages: () => props.totalPages,
-    currentPage: () => props.currentPage,
-    selectedPages: () => props.selectedPages,
-    resolveRangePages: () => rangePages.value,
-});
+} = usePdfPageScopeDialogSetup(props, () => rangePages.value);
 
 const printPageCount = computed(() => {
     if (scope.value === 'all') {

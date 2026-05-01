@@ -1,6 +1,13 @@
 import type { TLocale } from '@i18n-core';
 import type { TDocumentRef } from './document';
 
+export function normalizeNonEmptyStringPaths(paths: readonly unknown[]): string[] {
+    return paths
+        .filter((path): path is string => typeof path === 'string')
+        .map((path) => path.trim())
+        .filter((path) => path.length > 0);
+}
+
 export interface IRecentFile {
     originalPath: TDocumentRef;
     fileName: string;
