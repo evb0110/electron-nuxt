@@ -41,6 +41,8 @@ interface IUseAppShellWorkspaceRoutingOptions {
     mergeWindowInto: (windowId: number) => Promise<void>;
 }
 
+type TOpenDocumentTarget = TDocumentRef | TOpenFileResult;
+
 function decodeDocumentFileName(segment: string) {
     try {
         return decodeURIComponent(segment);
@@ -58,7 +60,7 @@ function getDocumentRefFileName(ref: TDocumentRef) {
     return decodeDocumentFileName(lastSegment);
 }
 
-function buildPendingTabDocumentHint(pathOrResult: TDocumentRef | TOpenFileResult): Partial<ITab> {
+function buildPendingTabDocumentHint(pathOrResult: TOpenDocumentTarget): Partial<ITab> {
     if (typeof pathOrResult === 'string') {
         const fileName = getDocumentRefFileName(pathOrResult);
         return {
@@ -122,6 +124,20 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         return Boolean(snapshot?.isDjvuMode || snapshot?.isOpeningDocument);
     }
 
+    function canReuseTabForDocument(tab: ITab | null, workspace: IWorkspaceExpose | null) {
+        return Boolean(
+            tab
+            && !hasDocumentMountHint(tab)
+            && (!workspace || !workspaceOccupiesTab(workspace)),
+        );
+    }
+
+    function normalizeOpenPaths(paths: TDocumentRef[]) {
+        return uniq(paths
+            .map(path => path.trim())
+            .filter(path => path.length > 0));
+    }
+
     async function resolveWorkspaceForTab(tabId: string | null) {
         if (!tabId) {
             return null;
@@ -129,7 +145,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         return workspaceRefs.value.get(tabId) ?? waitForWorkspace(tabId);
     }
 
-    function seedTabDocumentHint(tabId: string | null | undefined, pathOrResult: TDocumentRef | TOpenFileResult) {
+    function seedTabDocumentHint(tabId: string | null | undefined, pathOrResult: TOpenDocumentTarget) {
         if (!tabId) {
             return;
         }
@@ -142,7 +158,19 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         updateTab(tab.id, buildPendingTabDocumentHint(pathOrResult));
     }
 
-    async function openInExistingTab(tabId: string, pathOrResult: TDocumentRef | TOpenFileResult) {
+    async function openDocumentInWorkspace(
+        workspace: IWorkspaceExpose,
+        pathOrResult: TOpenDocumentTarget,
+    ) {
+        if (typeof pathOrResult === 'string') {
+            await workspace.handleOpenFileDirectWithPersist(pathOrResult);
+            return;
+        }
+
+        await workspace.handleOpenFileWithResult(pathOrResult);
+    }
+
+    async function openInExistingTab(tabId: string, pathOrResult: TOpenDocumentTarget) {
         seedTabDocumentHint(tabId, pathOrResult);
         const workspace = activeTabId.value === tabId
             ? activeWorkspace.value ?? await resolveWorkspaceForTab(tabId)
@@ -155,12 +183,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
             return false;
         }
 
-        if (typeof pathOrResult === 'string') {
-            await workspace.handleOpenFileDirectWithPersist(pathOrResult);
-            return true;
-        }
-
-        await workspace.handleOpenFileWithResult(pathOrResult);
+        await openDocumentInWorkspace(workspace, pathOrResult);
         return true;
     }
 
@@ -183,7 +206,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         await fallbackWorkspace.handleOpenFileFromUi();
     }
 
-    async function handleOpenInNewTab(pathOrResult: TDocumentRef | TOpenFileResult, groupId?: string) {
+    async function handleOpenInNewTab(pathOrResult: TOpenDocumentTarget, groupId?: string) {
         const targetGroupId = groupId ?? activeGroupId.value ?? undefined;
         const tab = createTab({
             groupId: targetGroupId,
@@ -196,72 +219,47 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
             return;
         }
 
-        if (typeof pathOrResult === 'string') {
-            await workspace.handleOpenFileDirectWithPersist(pathOrResult);
+        await openDocumentInWorkspace(workspace, pathOrResult);
+    }
+
+    async function openDocumentInAppropriateTab(pathOrResult: TOpenDocumentTarget) {
+        const tabId = activeTabId.value;
+        const tab = getTabById(tabId);
+        const workspace = activeWorkspace.value;
+        if (tab && canReuseTabForDocument(tab, workspace)) {
+            const opened = await openInExistingTab(tab.id, pathOrResult);
+            if (opened) {
+                return;
+            }
+        }
+
+        const resolvedWorkspace = workspace ?? await resolveWorkspaceForTab(tabId);
+        if (resolvedWorkspace && !workspaceOccupiesTab(resolvedWorkspace)) {
+            seedTabDocumentHint(tabId, pathOrResult);
+            await openDocumentInWorkspace(resolvedWorkspace, pathOrResult);
             return;
         }
 
-        await workspace.handleOpenFileWithResult(pathOrResult);
+        await handleOpenInNewTab(pathOrResult, activeGroupId.value ?? undefined);
     }
 
     async function openResultInAppropriateTab(result: TOpenFileResult) {
-        const tabId = activeTabId.value;
-        const tab = getTabById(tabId);
-        const workspace = activeWorkspace.value;
-        if (tab && !hasDocumentMountHint(tab) && (!workspace || !workspaceOccupiesTab(workspace))) {
-            const opened = await openInExistingTab(tab.id, result);
-            if (opened) {
-                return;
-            }
-        }
-
-        const resolvedWorkspace = workspace ?? await resolveWorkspaceForTab(tabId);
-        if (resolvedWorkspace && !workspaceOccupiesTab(resolvedWorkspace)) {
-            seedTabDocumentHint(tabId, result);
-            await resolvedWorkspace.handleOpenFileWithResult(result);
-            return;
-        }
-
-        await handleOpenInNewTab(result, activeGroupId.value ?? undefined);
+        await openDocumentInAppropriateTab(result);
     }
 
     async function openPathInAppropriateTab(path: TDocumentRef) {
-        const tabId = activeTabId.value;
-        const tab = getTabById(tabId);
-        const workspace = activeWorkspace.value;
-        if (tab && !hasDocumentMountHint(tab) && (!workspace || !workspaceOccupiesTab(workspace))) {
-            const opened = await openInExistingTab(tab.id, path);
-            if (opened) {
-                return;
-            }
-        }
-
-        const resolvedWorkspace = workspace ?? await resolveWorkspaceForTab(tabId);
-        if (resolvedWorkspace && !workspaceOccupiesTab(resolvedWorkspace)) {
-            seedTabDocumentHint(tabId, path);
-            await resolvedWorkspace.handleOpenFileDirectWithPersist(path);
-            return;
-        }
-        await handleOpenInNewTab(path, activeGroupId.value ?? undefined);
+        await openDocumentInAppropriateTab(path);
     }
 
     async function openPathsInAppropriateTab(paths: TDocumentRef[]) {
-        const normalizedPaths = uniq(paths
-            .map(path => path.trim())
-            .filter(path => path.length > 0));
+        const normalizedPaths = normalizeOpenPaths(paths);
         if (normalizedPaths.length === 0) {
             return;
         }
 
         const initialActiveWorkspace = activeWorkspace.value;
         const initialActiveTab = getTabById(activeTabId.value);
-        let canReuseActiveTab = false;
-        if (initialActiveTab && !hasDocumentMountHint(initialActiveTab)) {
-            canReuseActiveTab = (
-                !initialActiveWorkspace
-                || !workspaceOccupiesTab(initialActiveWorkspace)
-            );
-        }
+        let canReuseActiveTab = canReuseTabForDocument(initialActiveTab, initialActiveWorkspace);
 
         for (const [
             index,
@@ -278,13 +276,9 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
             } catch (error) {
                 const activeTab = getTabById(activeTabId.value);
                 const currentActiveWorkspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
-                canReuseActiveTab = false;
-                if (activeTab && currentActiveWorkspace) {
-                    canReuseActiveTab = (
-                        !hasDocumentMountHint(activeTab)
-                        && !workspaceOccupiesTab(currentActiveWorkspace)
-                    );
-                }
+                canReuseActiveTab = activeTab && currentActiveWorkspace
+                    ? canReuseTabForDocument(activeTab, currentActiveWorkspace)
+                    : false;
                 BrowserLogger.warn('workspace-routing', 'Failed to open dropped/external path in its own tab', {
                     path,
                     pathIndex: index,
@@ -295,9 +289,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
     }
 
     async function beginOpenPathsInAppropriateTab(paths: TDocumentRef[]) {
-        const normalizedPaths = uniq(paths
-            .map(path => path.trim())
-            .filter(path => path.length > 0));
+        const normalizedPaths = normalizeOpenPaths(paths);
         if (normalizedPaths.length === 0) {
             return;
         }
@@ -305,13 +297,7 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         const startupOpenTasks: Array<Promise<void>> = [];
         const initialActiveWorkspace = activeWorkspace.value;
         const initialActiveTab = getTabById(activeTabId.value);
-        let canReuseActiveTab = false;
-        if (initialActiveTab && !hasDocumentMountHint(initialActiveTab)) {
-            canReuseActiveTab = (
-                !initialActiveWorkspace
-                || !workspaceOccupiesTab(initialActiveWorkspace)
-            );
-        }
+        let canReuseActiveTab = canReuseTabForDocument(initialActiveTab, initialActiveWorkspace);
 
         for (const [
             index,
