@@ -80,6 +80,28 @@ function readLegacyPid(filePath: string) {
     }
 }
 
+function stopLegacyProcess(pid: number | null) {
+    if (!pid || !isProcessAlive(pid)) {
+        return;
+    }
+    try {
+        process.kill(pid, 'SIGTERM');
+    } catch {}
+}
+
+function cleanupLegacySessionFile(filePath: string, logCleanup = false) {
+    try {
+        if (!existsSync(filePath)) {
+            return;
+        }
+        stopLegacyProcess(readLegacyPid(filePath));
+        unlinkSync(filePath);
+        if (logCleanup) {
+            console.log('[Migration] Cleaned up legacy session file');
+        }
+    } catch {}
+}
+
 function parsePingResult(value: unknown) {
     if (!isRecord(value) || typeof value.uptime !== 'number' || !Number.isFinite(value.uptime)) {
         return null;
@@ -110,30 +132,8 @@ function migrateLegacySessionFiles() {
     const legacySessionFile = join(projectRoot, '.devkit', 'electron-session.json');
     const legacyStartingFile = join(projectRoot, '.devkit', 'electron-session-starting.json');
 
-    try {
-        if (existsSync(legacySessionFile)) {
-            const pid = readLegacyPid(legacySessionFile);
-            if (pid && isProcessAlive(pid)) {
-                try {
-                    process.kill(pid, 'SIGTERM');
-                } catch {}
-            }
-            unlinkSync(legacySessionFile);
-            console.log('[Migration] Cleaned up legacy session file');
-        }
-    } catch {}
-
-    try {
-        if (existsSync(legacyStartingFile)) {
-            const pid = readLegacyPid(legacyStartingFile);
-            if (pid && isProcessAlive(pid)) {
-                try {
-                    process.kill(pid, 'SIGTERM');
-                } catch {}
-            }
-            unlinkSync(legacyStartingFile);
-        }
-    } catch {}
+    cleanupLegacySessionFile(legacySessionFile, true);
+    cleanupLegacySessionFile(legacyStartingFile);
 }
 
 function printUsage() {
@@ -196,9 +196,16 @@ Examples:
 `);
 }
 
-export async function runCli() {
-    const rawArgs = process.argv.slice(2);
+interface IParsedCliArgs {
+    sessionName: string;
+    stopAll: boolean;
+    keepNuxt: boolean;
+    rawCommand: string | null;
+    command: TCliCommand | null;
+    args: string[];
+}
 
+function parseCliArgs(rawArgs: string[]): IParsedCliArgs {
     let sessionName = 'default';
     let stopAll = false;
     let keepNuxt = false;
@@ -219,247 +226,235 @@ export async function runCli() {
         }
     }
 
-    setCurrentSessionName(sessionName);
     const [
-        rawCommand,
+        rawCommand = null,
         ...args
     ] = filteredArgs;
 
-    migrateLegacySessionFiles();
+    return {
+        sessionName,
+        stopAll,
+        keepNuxt,
+        rawCommand,
+        command: rawCommand && isCliCommand(rawCommand) ? rawCommand : null,
+        args,
+    };
+}
 
-    if (!rawCommand) {
+function resolveCliCommand(parsed: IParsedCliArgs) {
+    if (!parsed.rawCommand) {
         printUsage();
         process.exit(0);
     }
-    if (!isCliCommand(rawCommand)) {
-        console.error(`Unknown command: ${rawCommand}`);
+    if (!parsed.command) {
+        console.error(`Unknown command: ${parsed.rawCommand}`);
         process.exit(1);
     }
-    const command = rawCommand;
+    return parsed.command;
+}
+
+function printJson(result: unknown) {
+    console.log(JSON.stringify(result, null, 2));
+}
+
+async function printJsonCommand(command: Parameters<typeof sendCommand>[0], args: string[], timeoutMs?: number) {
+    printJson(await sendCommand(command, args, timeoutMs));
+}
+
+function requireFirstArg(args: string[], errorMessage: string) {
+    const value = args[0];
+    if (!value) {
+        console.error(errorMessage);
+        process.exit(1);
+    }
+    return value;
+}
+
+function requireJoinedArgs(args: string[], errorMessage: string) {
+    const code = args.join(' ');
+    if (!code) {
+        console.error(errorMessage);
+        process.exit(1);
+    }
+    return code;
+}
+
+async function printSessionHealthStatus(port: number, uptime: number) {
+    try {
+        const healthResult = parseHealthResult(await sendCommand('health'));
+        if (healthResult?.ready) {
+            console.log(`Session '${getCurrentSessionName()}' running (port: ${port}, uptime: ${Math.round(uptime)}s) - App ready \u2713`);
+            return;
+        }
+        const openFileDirect = healthResult?.health?.openFileDirect ?? 'unknown';
+        const electronAPI = healthResult?.health?.electronAPI ?? 'unknown';
+        console.log(`Session '${getCurrentSessionName()}' running (port: ${port}, uptime: ${Math.round(uptime)}s) - \u26a0\ufe0f  App not ready (openFileDirect=${openFileDirect}, electronAPI=${electronAPI})`);
+    } catch {
+        console.log(`Session '${getCurrentSessionName()}' running (port: ${port}, uptime: ${Math.round(uptime)}s) - \u26a0\ufe0f  Electron DISCONNECTED`);
+        console.log(`  Use \`pnpm electron:run --session=${getCurrentSessionName()} restart\` to recover.`);
+    }
+}
+
+async function printStatus() {
+    const info = getSessionInfo();
+    if (!info) {
+        console.log(`No session '${getCurrentSessionName()}' running.`);
+        process.exit(1);
+    }
 
     try {
-        switch (command) {
-            case 'start':
-                console.log(`Starting session '${getCurrentSessionName()}'...`);
-                await startSession(false);
-                break;
-
-            case 'cleanstart':
-                console.log(`Starting fresh session '${getCurrentSessionName()}'...`);
-                await startSession(true);
-                break;
-
-            case 'startd':
-                await startSessionDetached();
-                break;
-
-            case 'stop':
-                await stopSession({
-                    stopAll,
-                    keepNuxt,
-                });
-                break;
-
-            case 'status': {
-                const info = getSessionInfo();
-                if (!info) {
-                    console.log(`No session '${getCurrentSessionName()}' running.`);
-                    process.exit(1);
-                }
-                try {
-                    const pingResult = parsePingResult(await sendCommand('ping'));
-                    if (!pingResult) {
-                        throw new Error('Malformed ping response payload');
-                    }
-                    try {
-                        const healthResult = parseHealthResult(await sendCommand('health'));
-                        if (healthResult?.ready) {
-                            console.log(`Session '${getCurrentSessionName()}' running (port: ${info.port}, uptime: ${Math.round(pingResult.uptime)}s) - App ready \u2713`);
-                        } else {
-                            const openFileDirect = healthResult?.health?.openFileDirect ?? 'unknown';
-                            const electronAPI = healthResult?.health?.electronAPI ?? 'unknown';
-                            console.log(`Session '${getCurrentSessionName()}' running (port: ${info.port}, uptime: ${Math.round(pingResult.uptime)}s) - \u26a0\ufe0f  App not ready (openFileDirect=${openFileDirect}, electronAPI=${electronAPI})`);
-                        }
-                    } catch {
-                        console.log(`Session '${getCurrentSessionName()}' running (port: ${info.port}, uptime: ${Math.round(pingResult.uptime)}s) - \u26a0\ufe0f  Electron DISCONNECTED`);
-                        console.log(`  Use \`pnpm electron:run --session=${getCurrentSessionName()} restart\` to recover.`);
-                    }
-                } catch {
-                    console.log('Session file exists but server not responding.');
-                    console.log('  Cleaning up stale session file...');
-                    try {
-                        unlinkSync(sessionFilePath());
-                    } catch {}
-                    process.exit(1);
-                }
-                break;
-            }
-
-            case 'restart':
-                console.log(`Restarting session '${getCurrentSessionName()}'...`);
-                await stopSingleSession(getCurrentSessionName());
-                await delay(1000);
-                await startSession(false);
-                break;
-
-            case 'restartd':
-                console.log(`Restarting session '${getCurrentSessionName()}' in background...`);
-                await stopSingleSession(getCurrentSessionName());
-                await delay(1000);
-                await startSessionDetached();
-                break;
-
-            case 'list': {
-                const names = listAllSessionNames();
-                if (names.length === 0) {
-                    console.log('No sessions found.');
-                    break;
-                }
-
-                console.log('Sessions:\n');
-                for (const name of names) {
-                    await cleanupStaleSessionArtifacts(name);
-                    const info = getSessionInfo(name);
-                    const starting = getSessionStartingInfo(name);
-
-                    if (info && isProcessAlive(info.pid)) {
-                        const running = await isSessionRunning(name);
-                        const status = running ? 'running' : 'starting';
-                        console.log(`  ${name}`);
-                        console.log(`    Status:  ${status}`);
-                        console.log(`    PID:     ${info.pid}`);
-                        console.log(`    Ports:   server=${info.port}, cdp=${info.cdpPort}`);
-                        console.log('');
-                    } else if (starting && isProcessAlive(starting.pid)) {
-                        console.log(`  ${name}`);
-                        console.log('    Status:  starting');
-                        console.log(`    PID:     ${starting.pid}`);
-                        console.log('');
-                    } else {
-                        try {
-                            unlinkSync(sessionFilePath(name));
-                        } catch {}
-                        clearSessionStarting(name);
-                    }
-                }
-                break;
-            }
-
-            case 'screenshot': {
-                const result = await sendCommand('screenshot', args);
-                console.log(JSON.stringify(result, null, 2));
-                break;
-            }
-
-            case 'screenshots': {
-                const result = await sendCommand('screenshots', args, 600_000);
-                console.log(JSON.stringify(result, null, 2));
-                break;
-            }
-
-            case 'console': {
-                const result = await sendCommand('console', args);
-                console.log(JSON.stringify(result, null, 2));
-                break;
-            }
-
-            case 'devtools': {
-                const result = await sendCommand('devtools', args);
-                console.log(JSON.stringify(result, null, 2));
-                break;
-            }
-
-            case 'click': {
-                const result = await sendCommand('click', args);
-                console.log(JSON.stringify(result, null, 2));
-                break;
-            }
-
-            case 'type': {
-                const result = await sendCommand('type', args);
-                console.log(JSON.stringify(result, null, 2));
-                break;
-            }
-
-            case 'content': {
-                const result = await sendCommand('content', args);
-                console.log(result);
-                break;
-            }
-
-            case 'waitfor': {
-                const result = await sendCommand('waitfor', args, COMMAND_EXECUTION_TIMEOUT_MS);
-                console.log(JSON.stringify(result, null, 2));
-                break;
-            }
-
-            case 'resize': {
-                const result = await sendCommand('resize', args);
-                console.log(JSON.stringify(result, null, 2));
-                break;
-            }
-
-            case 'viewport': {
-                const result = await sendCommand('viewport', args);
-                console.log(JSON.stringify(result, null, 2));
-                break;
-            }
-
-            case 'run': {
-                const code = args.join(' ');
-                if (!code) {
-                    console.error('No code provided');
-                    process.exit(1);
-                }
-                const result = await sendCommand('run', [code], COMMAND_EXECUTION_TIMEOUT_MS);
-                if (result !== undefined) {
-                    console.log(JSON.stringify(result, null, 2));
-                }
-                break;
-            }
-
-            case 'run-file': {
-                const filePath = args[0];
-                if (!filePath) {
-                    console.error('JS file path required');
-                    process.exit(1);
-                }
-                const code = readFileSync(filePath, 'utf8');
-                const result = await sendCommand('run', [code], COMMAND_EXECUTION_TIMEOUT_MS);
-                if (result !== undefined) {
-                    console.log(JSON.stringify(result, null, 2));
-                }
-                break;
-            }
-
-            case 'eval': {
-                const code = args.join(' ');
-                if (!code) {
-                    console.error('No code provided');
-                    process.exit(1);
-                }
-                const result = await sendCommand('eval', [code], COMMAND_EXECUTION_TIMEOUT_MS);
-                console.log(JSON.stringify(result, null, 2));
-                break;
-            }
-
-            case 'openPdf': {
-                const pdfPath = args[0];
-                if (!pdfPath) {
-                    console.error('PDF path required');
-                    process.exit(1);
-                }
-                const result = await sendCommand('openPdf', [pdfPath], COMMAND_EXECUTION_TIMEOUT_MS);
-                console.log(JSON.stringify(result, null, 2));
-                break;
-            }
-
-            case 'health': {
-                const result = await sendCommand('health');
-                console.log(JSON.stringify(result, null, 2));
-                break;
-            }
+        const pingResult = parsePingResult(await sendCommand('ping'));
+        if (!pingResult) {
+            throw new Error('Malformed ping response payload');
         }
+        await printSessionHealthStatus(info.port, pingResult.uptime);
+    } catch {
+        console.log('Session file exists but server not responding.');
+        console.log('  Cleaning up stale session file...');
+        try {
+            unlinkSync(sessionFilePath());
+        } catch {}
+        process.exit(1);
+    }
+}
+
+async function printSessionListItem(name: string) {
+    await cleanupStaleSessionArtifacts(name);
+    const info = getSessionInfo(name);
+    const starting = getSessionStartingInfo(name);
+
+    if (info && isProcessAlive(info.pid)) {
+        const running = await isSessionRunning(name);
+        const status = running ? 'running' : 'starting';
+        console.log(`  ${name}`);
+        console.log(`    Status:  ${status}`);
+        console.log(`    PID:     ${info.pid}`);
+        console.log(`    Ports:   server=${info.port}, cdp=${info.cdpPort}`);
+        console.log('');
+        return;
+    }
+
+    if (starting && isProcessAlive(starting.pid)) {
+        console.log(`  ${name}`);
+        console.log('    Status:  starting');
+        console.log(`    PID:     ${starting.pid}`);
+        console.log('');
+        return;
+    }
+
+    try {
+        unlinkSync(sessionFilePath(name));
+    } catch {}
+    clearSessionStarting(name);
+}
+
+async function printSessionList() {
+    const names = listAllSessionNames();
+    if (names.length === 0) {
+        console.log('No sessions found.');
+        return;
+    }
+
+    console.log('Sessions:\n');
+    for (const name of names) {
+        await printSessionListItem(name);
+    }
+}
+
+async function restartSession(detached: boolean) {
+    console.log(detached
+        ? `Restarting session '${getCurrentSessionName()}' in background...`
+        : `Restarting session '${getCurrentSessionName()}'...`);
+    await stopSingleSession(getCurrentSessionName());
+    await delay(1000);
+    if (detached) {
+        await startSessionDetached();
+    } else {
+        await startSession(false);
+    }
+}
+
+type TCliCommandHandler = (args: string[], parsed: IParsedCliArgs) => Promise<void>;
+
+const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
+    async start() {
+        console.log(`Starting session '${getCurrentSessionName()}'...`);
+        await startSession(false);
+    },
+    async cleanstart() {
+        console.log(`Starting fresh session '${getCurrentSessionName()}'...`);
+        await startSession(true);
+    },
+    async startd() {
+        await startSessionDetached();
+    },
+    async stop(args, parsed) {
+        void args;
+        await stopSession({
+            stopAll: parsed.stopAll,
+            keepNuxt: parsed.keepNuxt,
+        });
+    },
+    async status() {
+        await printStatus();
+    },
+    async restart() {
+        await restartSession(false);
+    },
+    async restartd() {
+        await restartSession(true);
+    },
+    async list() {
+        await printSessionList();
+    },
+    screenshot: args => printJsonCommand('screenshot', args),
+    screenshots: args => printJsonCommand('screenshots', args, 600_000),
+    console: args => printJsonCommand('console', args),
+    devtools: args => printJsonCommand('devtools', args),
+    click: args => printJsonCommand('click', args),
+    type: args => printJsonCommand('type', args),
+    async content(args) {
+        console.log(await sendCommand('content', args));
+    },
+    waitfor: args => printJsonCommand('waitfor', args, COMMAND_EXECUTION_TIMEOUT_MS),
+    resize: args => printJsonCommand('resize', args),
+    viewport: args => printJsonCommand('viewport', args),
+    async run(args) {
+        const code = requireJoinedArgs(args, 'No code provided');
+        const result = await sendCommand('run', [code], COMMAND_EXECUTION_TIMEOUT_MS);
+        if (result !== undefined) {
+            printJson(result);
+        }
+    },
+    async 'run-file'(args) {
+        const filePath = requireFirstArg(args, 'JS file path required');
+        const code = readFileSync(filePath, 'utf8');
+        const result = await sendCommand('run', [code], COMMAND_EXECUTION_TIMEOUT_MS);
+        if (result !== undefined) {
+            printJson(result);
+        }
+    },
+    async eval(args) {
+        const code = requireJoinedArgs(args, 'No code provided');
+        printJson(await sendCommand('eval', [code], COMMAND_EXECUTION_TIMEOUT_MS));
+    },
+    async openPdf(args) {
+        const pdfPath = requireFirstArg(args, 'PDF path required');
+        printJson(await sendCommand('openPdf', [pdfPath], COMMAND_EXECUTION_TIMEOUT_MS));
+    },
+    async health() {
+        printJson(await sendCommand('health'));
+    },
+};
+
+export async function runCli() {
+    const parsed = parseCliArgs(process.argv.slice(2));
+    setCurrentSessionName(parsed.sessionName);
+    migrateLegacySessionFiles();
+    const command = resolveCliCommand(parsed);
+
+    try {
+        await CLI_COMMAND_HANDLERS[command](parsed.args, parsed);
     } catch (error) {
         console.error('Error:', error instanceof Error ? error.message : error);
         process.exit(1);
