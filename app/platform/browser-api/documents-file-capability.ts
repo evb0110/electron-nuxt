@@ -46,6 +46,7 @@ import {
     cloneCombineWorkerInput,
     runBrowserPdfCombineWorkerRequest,
 } from '@app/platform/browser-api/browser-pdf-combine-worker-client';
+import { appendPdfImagePage } from '@app/platform/browser-api/pdf-image-pages';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import { emitBrowserOpenPdfDirectBatchProgress } from '@app/platform/browser-api/documents-menu-capability';
 import { stripPdfEncryption } from '@app/utils/pdf-decrypt';
@@ -826,16 +827,7 @@ async function embedTiffPages(
 
         const pngBytes = await encodeRgbaToPngBytes(width, height, rgba);
         const image = await pdfDocument.embedPng(pngBytes);
-        const page = pdfDocument.addPage([
-            image.width,
-            image.height,
-        ]);
-        page.drawImage(image, {
-            x: 0,
-            y: 0,
-            width: image.width,
-            height: image.height,
-        });
+        appendPdfImagePage(pdfDocument, image);
         addedPages += 1;
     }
 
@@ -857,31 +849,13 @@ async function embedImagePage(
 
     if (extension === '.jpg' || extension === '.jpeg') {
         const image = await pdfDocument.embedJpg(bytes);
-        const page = pdfDocument.addPage([
-            image.width,
-            image.height,
-        ]);
-        page.drawImage(image, {
-            x: 0,
-            y: 0,
-            width: image.width,
-            height: image.height,
-        });
+        appendPdfImagePage(pdfDocument, image);
         return;
     }
 
     const pngBytes = await normalizeImageBytesToPng(fileName, bytes);
     const image = await pdfDocument.embedPng(pngBytes);
-    const page = pdfDocument.addPage([
-        image.width,
-        image.height,
-    ]);
-    page.drawImage(image, {
-        x: 0,
-        y: 0,
-        width: image.width,
-        height: image.height,
-    });
+    appendPdfImagePage(pdfDocument, image);
 }
 
 export async function createCombinedPdfFromPaths(
