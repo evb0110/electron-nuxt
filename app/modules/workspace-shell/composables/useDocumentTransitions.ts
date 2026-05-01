@@ -8,9 +8,9 @@ import type { TPdfSource } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
-type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
+export type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 
-interface IDocumentTransitionDeps {
+export interface IDocumentTransitionDeps {
     pdfSrc: Ref<TPdfSource | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     isDjvuMode: Ref<boolean>;
