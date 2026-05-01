@@ -142,21 +142,29 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
         BrowserLogger.error('pdf-viewer', `Failed to ${stage}`, error);
     }
 
+    function hasRenderedInitialContent() {
+        return hasRenderedPageCanvas() || hasRenderedTextLayerContent();
+    }
+
+    function refreshVisibleRangeForRecovery() {
+        options.computeFitWidthScale(options.viewerContainer.value);
+        options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+    }
+
     async function recoverInitialRenderIfNeeded() {
         if (!options.pdfDocument.value || options.isLoading.value || options.numPages.value <= 0) {
             return;
         }
-        if (hasRenderedPageCanvas() || hasRenderedTextLayerContent()) {
+        if (hasRenderedInitialContent()) {
             return;
         }
         await nextTick();
         await delay(40);
-        if (hasRenderedPageCanvas() || hasRenderedTextLayerContent()) {
+        if (hasRenderedInitialContent()) {
             return;
         }
 
-        options.computeFitWidthScale(options.viewerContainer.value);
-        options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+        refreshVisibleRangeForRecovery();
         try {
             await options.reRenderVisiblePagesAndSyncCurrentPage();
         } catch (error) {
@@ -168,12 +176,11 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
 
         await nextTick();
         await delay(80);
-        if (hasRenderedPageCanvas() || hasRenderedTextLayerContent()) {
+        if (hasRenderedInitialContent()) {
             return;
         }
 
-        options.computeFitWidthScale(options.viewerContainer.value);
-        options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+        refreshVisibleRangeForRecovery();
         try {
             await options.renderVisiblePages(options.getVisibleRange());
             await options.syncCurrentPageFromViewport({ source: 'recover-initial-render' });

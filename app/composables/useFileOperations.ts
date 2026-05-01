@@ -323,6 +323,48 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         await restorePreparedPersistedShapeState?.(snapshot);
     }
 
+    function trackSaveCompleted(
+        mode: 'save' | 'save_as',
+        persisted: IPdfPersistResult,
+        serializedChanges: boolean,
+    ) {
+        analytics.track('save_completed', {
+            didSaveAs: persisted.didSaveAs,
+            mode,
+            saveMode: persisted.saveMode,
+            serializedChanges,
+        });
+    }
+
+    async function persistSerializedSaveResult(
+        saveResult: IPdfSaveResult,
+        shapeStateDirty: boolean,
+        reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
+        mode: 'save' | 'save_as',
+        persist: (
+            data: Uint8Array,
+            opts: { saveMode: TPdfSaveMode },
+        ) => Promise<IPdfPersistResult>,
+    ) {
+        let preparedShapeStateSnapshot: unknown = null;
+        try {
+            preparedShapeStateSnapshot = await primePersistedShapeStateForSave(
+                saveResult.finalBytes,
+                shapeStateDirty,
+            );
+            armPersistedShapeStateAdoption(shapeStateDirty);
+            const persisted = await persist(saveResult.finalBytes, { saveMode: saveResult.saveMode });
+            if (finalizeSuccessfulSave(persisted, { markShapeStateSaved: !reloadWaiter })) {
+                preparedShapeStateSnapshot = null;
+                trackSaveCompleted(mode, persisted, true);
+                return true;
+            }
+            return false;
+        } finally {
+            await restorePreparedShapeState(preparedShapeStateSnapshot);
+        }
+    }
+
     async function handleSave() {
         if (isSaving.value || isSavingAs.value) {
             return false;
@@ -366,27 +408,13 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                             saveMode: 'rewrite',
                         });
                         if (saveResult) {
-                            let preparedShapeStateSnapshot: unknown = null;
-                            try {
-                                preparedShapeStateSnapshot = await primePersistedShapeStateForSave(
-                                    saveResult.finalBytes,
-                                    shapeStateDirty,
-                                );
-                                armPersistedShapeStateAdoption(shapeStateDirty);
-                                const persisted = await saveFile(saveResult.finalBytes, { saveMode: saveResult.saveMode });
-                                if (finalizeSuccessfulSave(persisted, { markShapeStateSaved: !reloadWaiter })) {
-                                    saveSucceeded = true;
-                                    preparedShapeStateSnapshot = null;
-                                    analytics.track('save_completed', {
-                                        didSaveAs: persisted.didSaveAs,
-                                        mode: 'save',
-                                        saveMode: persisted.saveMode,
-                                        serializedChanges: true,
-                                    });
-                                }
-                            } finally {
-                                await restorePreparedShapeState(preparedShapeStateSnapshot);
-                            }
+                            saveSucceeded = await persistSerializedSaveResult(
+                                saveResult,
+                                shapeStateDirty,
+                                reloadWaiter,
+                                'save',
+                                saveFile,
+                            );
                         }
                     }
                     await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
@@ -402,12 +430,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                         markShapeStateSaved: !reloadWaiter,
                     })) {
                         saveSucceeded = true;
-                        analytics.track('save_completed', {
-                            didSaveAs: persisted.didSaveAs,
-                            mode: 'save',
-                            saveMode: persisted.saveMode,
-                            serializedChanges: false,
-                        });
+                        trackSaveCompleted('save', persisted, false);
                     }
                 }
                 await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
@@ -424,27 +447,13 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     saveMode: 'rewrite',
                 });
                 if (saveResult) {
-                    let preparedShapeStateSnapshot: unknown = null;
-                    try {
-                        preparedShapeStateSnapshot = await primePersistedShapeStateForSave(
-                            saveResult.finalBytes,
-                            shapeStateDirty,
-                        );
-                        armPersistedShapeStateAdoption(shapeStateDirty);
-                        const persisted = await saveFile(saveResult.finalBytes, { saveMode: saveResult.saveMode });
-                        if (finalizeSuccessfulSave(persisted, { markShapeStateSaved: !reloadWaiter })) {
-                            saveSucceeded = true;
-                            preparedShapeStateSnapshot = null;
-                            analytics.track('save_completed', {
-                                didSaveAs: persisted.didSaveAs,
-                                mode: 'save',
-                                saveMode: persisted.saveMode,
-                                serializedChanges: true,
-                            });
-                        }
-                    } finally {
-                        await restorePreparedShapeState(preparedShapeStateSnapshot);
-                    }
+                    saveSucceeded = await persistSerializedSaveResult(
+                        saveResult,
+                        shapeStateDirty,
+                        reloadWaiter,
+                        'save',
+                        saveFile,
+                    );
                 }
             }
             await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
@@ -489,27 +498,13 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                         saveMode: 'save_as_rewrite',
                     });
                     if (saveResult) {
-                        let preparedShapeStateSnapshot: unknown = null;
-                        try {
-                            preparedShapeStateSnapshot = await primePersistedShapeStateForSave(
-                                saveResult.finalBytes,
-                                shapeStateDirty,
-                            );
-                            armPersistedShapeStateAdoption(shapeStateDirty);
-                            const persisted = await saveWorkingCopyAs(saveResult.finalBytes, { saveMode: saveResult.saveMode });
-                            if (finalizeSuccessfulSave(persisted, { markShapeStateSaved: !reloadWaiter })) {
-                                saveSucceeded = true;
-                                preparedShapeStateSnapshot = null;
-                                analytics.track('save_completed', {
-                                    didSaveAs: persisted.didSaveAs,
-                                    mode: 'save_as',
-                                    saveMode: persisted.saveMode,
-                                    serializedChanges: true,
-                                });
-                            }
-                        } finally {
-                            await restorePreparedShapeState(preparedShapeStateSnapshot);
-                        }
+                        saveSucceeded = await persistSerializedSaveResult(
+                            saveResult,
+                            shapeStateDirty,
+                            reloadWaiter,
+                            'save_as',
+                            saveWorkingCopyAs,
+                        );
                     }
                 }
             } else {
@@ -522,12 +517,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                         markShapeStateSaved: !reloadWaiter,
                     })) {
                         saveSucceeded = true;
-                        analytics.track('save_completed', {
-                            didSaveAs: persisted.didSaveAs,
-                            mode: 'save_as',
-                            saveMode: persisted.saveMode,
-                            serializedChanges: false,
-                        });
+                        trackSaveCompleted('save_as', persisted, false);
                     }
                 }
             }
