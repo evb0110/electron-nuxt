@@ -1,5 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
-import UTIF from 'utif';
+import { iterateDecodedTiffFrames } from '@contracts/tiff-decode';
 import type {
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerResponse,
@@ -12,20 +12,6 @@ import {
 } from '@app/platform/browser-api/browser-platform-helpers';
 import { toTransferableUint8Array } from '@app/platform/browser-api/browser-worker-transfer';
 import { getErrorMessage } from '@app/utils/error';
-
-interface IUtifFrame {
-    width?: number;
-    height?: number;
-    [key: string]: unknown;
-}
-
-interface IUtifModule {
-    decode(data: Uint8Array | ArrayBufferLike): IUtifFrame[];
-    decodeImage(data: Uint8Array | ArrayBufferLike, ifd: IUtifFrame): void;
-    toRGBA8(ifd: IUtifFrame): Uint8Array;
-}
-
-const UTIF_MODULE = UTIF as IUtifModule;
 
 async function convertWorkerImageBytesToPng(fileName: string, bytes: Uint8Array) {
     if (
@@ -87,23 +73,13 @@ async function appendWorkerTiffPages(
     pdfDocument: PDFDocument,
     input: TBrowserPdfCombineWorkerRequest<'combinePdfs'>['payload']['inputs'][number],
 ) {
-    const ifds = UTIF_MODULE.decode(input.data);
     let addedPages = 0;
 
-    for (const ifd of ifds) {
-        UTIF_MODULE.decodeImage(input.data, ifd);
-
-        const width = typeof ifd.width === 'number' ? ifd.width : 0;
-        const height = typeof ifd.height === 'number' ? ifd.height : 0;
-        if (width <= 0 || height <= 0) {
-            continue;
-        }
-
-        const rgba = UTIF_MODULE.toRGBA8(ifd);
-        if (!rgba || rgba.byteLength === 0) {
-            continue;
-        }
-
+    for (const {
+        width,
+        height,
+        rgba,
+    } of iterateDecodedTiffFrames(input.data)) {
         const pngBytes = await convertWorkerRgbaToPng(width, height, rgba);
         const image = await pdfDocument.embedPng(pngBytes);
         appendPdfImagePage(pdfDocument, image);

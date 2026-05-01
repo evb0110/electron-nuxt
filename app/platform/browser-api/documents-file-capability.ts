@@ -1,9 +1,5 @@
-import {
-    PDFDict,
-    PDFDocument,
-    PDFName,
-} from 'pdf-lib';
-import UTIF from 'utif';
+import { PDFDocument } from 'pdf-lib';
+import { loadPdfStructure } from '@contracts/pdf-conformance-load';
 import type {
     IDocumentsFileCapability,
     IPdfConformanceProfile,
@@ -11,6 +7,7 @@ import type {
     TDocumentRef,
     TOpenFileResult,
 } from '@contracts/platform-api';
+import { iterateDecodedTiffFrames } from '@contracts/tiff-decode';
 import {
     buildPdfSaveRestrictions,
     createDefaultPdfConformanceProfile,
@@ -18,6 +15,7 @@ import {
     hasPdfSignatureMarkersInPdfText,
 } from '@contracts/electron-api';
 import type { IRecentFile } from '@contracts/shared';
+import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     BROWSER_MAX_FULL_READ_BYTES,
@@ -66,18 +64,6 @@ interface IPickedBrowserFile {
     handle?: FileSystemFileHandle | null;
 }
 
-interface IUtifFrame {
-    width?: number;
-    height?: number;
-    [key: string]: unknown;
-}
-
-interface IUtifModule {
-    decode(data: Uint8Array | ArrayBufferLike): IUtifFrame[];
-    decodeImage(data: Uint8Array | ArrayBufferLike, ifd: IUtifFrame): void;
-    toRGBA8(ifd: IUtifFrame): Uint8Array;
-}
-
 interface ICreateBrowserDocumentsFileCapabilityOptions {clearSearchCaches: () => void;}
 interface IBrowserBatchOpenProgressOptions {requestId?: string;}
 
@@ -91,7 +77,6 @@ const BROWSER_LARGE_SAVE_HANDLE_HINT = 'Use a browser with local file system acc
 const BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_OPEN_PICKER_MODE_SESSION_KEY = 'evb-viewer:browser:open-picker-mode';
 const BROWSER_OPEN_PICKER_MODE_INPUT = 'input';
-const UTIF_MODULE = UTIF as IUtifModule;
 
 function isFileSystemAccessDeniedError(error: unknown) {
     return error instanceof DOMException
@@ -305,20 +290,18 @@ async function analyzeBrowserPdfConformance(path: string): Promise<IPdfConforman
 
     try {
         await yieldToBrowser();
-        const doc = await PDFDocument.load(bytes, {
-            ignoreEncryption: true,
-            updateMetadata: false,
-        });
-        const catalog = doc.catalog;
-        const acroForm = catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
-        const structTreeRoot = catalog.lookupMaybe(PDFName.of('StructTreeRoot'), PDFDict);
-        const hasXfa = acroForm instanceof PDFDict && acroForm.has(PDFName.of('XFA'));
+        const {
+            doc,
+            acroForm,
+            structTreeRoot,
+            hasXfa,
+        } = await loadPdfStructure(bytes);
         const baseProfile = {
             isSigned: detectBrowserSignatureMarkers(bytes),
             isEncrypted: doc.isEncrypted,
-            isTagged: structTreeRoot instanceof PDFDict,
+            isTagged: structTreeRoot !== null,
             pdfaLevel: detectBrowserPdfaLevel(bytes),
-            hasAcroForm: acroForm instanceof PDFDict,
+            hasAcroForm: acroForm !== null,
             hasXfa,
             canIncrementalSave: !doc.isEncrypted && !hasXfa,
         };
@@ -686,18 +669,7 @@ async function normalizeImageBytesToPng(fileName: string, bytes: Uint8Array) {
         }
 
         context.drawImage(image, 0, 0);
-        const pngBlob = await new Promise<Blob>((resolve, reject) => {
-            canvas.toBlob((nextBlob) => {
-                if (!nextBlob) {
-                    reject(new Error('Failed to convert image to PNG'));
-                    return;
-                }
-
-                resolve(nextBlob);
-            }, 'image/png');
-        });
-
-        return new Uint8Array(await pngBlob.arrayBuffer());
+        return await canvasToPngBytes(canvas);
     } finally {
         URL.revokeObjectURL(objectUrl);
     }
@@ -711,6 +683,21 @@ function createClampedImageData(rgba: Uint8Array, width: number, height: number)
     const clamped = new Uint8ClampedArray(rgba.byteLength);
     clamped.set(rgba);
     return new ImageData(clamped, width, height);
+}
+
+async function canvasToPngBytes(canvas: HTMLCanvasElement) {
+    const pngBlob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((nextBlob) => {
+            if (!nextBlob) {
+                reject(new Error('Failed to convert image to PNG'));
+                return;
+            }
+
+            resolve(nextBlob);
+        }, 'image/png');
+    });
+
+    return new Uint8Array(await pngBlob.arrayBuffer());
 }
 
 async function encodeRgbaToPngBytes(
@@ -731,18 +718,7 @@ async function encodeRgbaToPngBytes(
     }
 
     context.putImageData(createClampedImageData(rgba, width, height), 0, 0);
-    const pngBlob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((nextBlob) => {
-            if (!nextBlob) {
-                reject(new Error('Failed to convert image to PNG'));
-                return;
-            }
-
-            resolve(nextBlob);
-        }, 'image/png');
-    });
-
-    return new Uint8Array(await pngBlob.arrayBuffer());
+    return canvasToPngBytes(canvas);
 }
 
 async function embedTiffPages(
@@ -750,23 +726,13 @@ async function embedTiffPages(
     fileName: string,
     bytes: Uint8Array,
 ) {
-    const ifds = UTIF_MODULE.decode(bytes);
     let addedPages = 0;
 
-    for (const ifd of ifds) {
-        UTIF_MODULE.decodeImage(bytes, ifd);
-
-        const width = typeof ifd.width === 'number' ? ifd.width : 0;
-        const height = typeof ifd.height === 'number' ? ifd.height : 0;
-        if (width <= 0 || height <= 0) {
-            continue;
-        }
-
-        const rgba = UTIF_MODULE.toRGBA8(ifd);
-        if (!rgba || rgba.byteLength === 0) {
-            continue;
-        }
-
+    for (const {
+        width,
+        height,
+        rgba,
+    } of iterateDecodedTiffFrames(bytes)) {
         const pngBytes = await encodeRgbaToPngBytes(width, height, rgba);
         const image = await pdfDocument.embedPng(pngBytes);
         appendPdfImagePage(pdfDocument, image);
@@ -945,10 +911,7 @@ async function openDocumentPaths(
     progressOptions?: IBrowserBatchOpenProgressOptions,
 ) {
     const startedAt = Date.now();
-    const normalizedPaths = paths
-        .filter((path) => typeof path === 'string')
-        .map((path) => path.trim())
-        .filter((path) => path.length > 0);
+    const normalizedPaths = normalizeNonEmptyStringPaths(paths);
 
     if (normalizedPaths.length === 0) {
         return null;

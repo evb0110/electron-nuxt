@@ -6,6 +6,7 @@ import type {
     TAnalyticsScreenCategory,
 } from '@app/types/analytics';
 import { isBrowserPlatformActive } from '@app/utils/platform';
+import { normalizeAnalyticsScalar } from '@contracts/analytics';
 
 const ANALYTICS_SESSION_STORAGE_KEY = 'evb-viewer:analytics-session-id';
 const MAX_BATCH_SIZE = 20;
@@ -64,20 +65,12 @@ function normalizePayloadValue(
     value: unknown,
     depth = 0,
 ): TAnalyticsPayloadValue | undefined {
-    if (value === null) {
-        return null;
-    }
-
-    if (typeof value === 'string') {
-        return value.slice(0, MAX_STRING_LENGTH);
-    }
-
-    if (typeof value === 'boolean') {
-        return value;
-    }
-
-    if (typeof value === 'number') {
-        return Number.isFinite(value) ? value : undefined;
+    const scalar = normalizeAnalyticsScalar(value, {
+        maxStringLength: MAX_STRING_LENGTH,
+        nonFiniteFallback: undefined,
+    });
+    if (scalar !== undefined || value === undefined) {
+        return scalar;
     }
 
     if (depth >= MAX_NORMALIZE_DEPTH) {

@@ -6,7 +6,7 @@ import {
     PDFDocument,
     type PDFImage,
 } from 'pdf-lib';
-import * as utifModule from 'utif';
+import { iterateDecodedTiffFrames } from '@contracts/tiff-decode';
 import {
     pixelsToPdfPoints,
     readImageDpi,
@@ -25,8 +25,6 @@ interface ICreateCombinedPdfOptions {
     onProgress?: (progress: ICreateCombinedPdfProgress) => void;
     unsupportedFileError: (sourcePath: string) => string;
 }
-
-const UTIF = utifModule;
 
 export const PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS = [
     '.png',
@@ -147,25 +145,16 @@ async function appendTiffPages(
     targetPdf: PDFDocument,
     sourcePath: string,
 ): Promise<number> {
-    const tiffBytes = await readFile(sourcePath);
-    const ifds = UTIF.decode(tiffBytes);
+    const tiffBytes = new Uint8Array(await readFile(sourcePath));
     let addedPages = 0;
 
-    for (const ifd of ifds) {
-        UTIF.decodeImage(tiffBytes, ifd);
-
-        const width = typeof ifd.width === 'number' ? ifd.width : 0;
-        const height = typeof ifd.height === 'number' ? ifd.height : 0;
-        if (width <= 0 || height <= 0) {
-            continue;
-        }
-
-        const rgba = UTIF.toRGBA8(ifd);
-        if (!rgba || rgba.length === 0) {
-            continue;
-        }
-
-        const dpi = readTiffFrameDpi(ifd as Record<string, unknown>) ?? 72;
+    for (const {
+        frame,
+        width,
+        height,
+        rgba,
+    } of iterateDecodedTiffFrames(tiffBytes)) {
+        const dpi = readTiffFrameDpi(frame as Record<string, unknown>) ?? 72;
         const pngBytes = encode({
             width,
             height,

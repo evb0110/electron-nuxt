@@ -11,15 +11,15 @@ import type {
 } from '@app/types/annotations';
 import type {
     IPdfBookmarkEntry,
-    IPdfPersistResult,
     IPdfPageLabelRange,
-    IPdfSaveResult,
     IScrollSnapshot,
-    TPdfSaveMode,
 } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
-import { useFileOperations } from '@app/composables/useFileOperations';
+import {
+    useFileOperations,
+    type IFileOperationsDeps,
+} from '@app/composables/useFileOperations';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getSearchCapability } from '@app/utils/platform-search';
 import {
@@ -53,7 +53,16 @@ interface IOcrCompletePayload {
     sourceWorkingCopyPath: TDocumentRef;
 }
 
-interface IPageSaveOrchestrationDeps {
+type TSharedSaveOperationDeps = Pick<
+    IFileOperationsDeps,
+    | 'readWorkingCopyBytes'
+    | 'validatePdfData'
+    | 'saveFile'
+    | 'saveWorkingCopy'
+    | 'saveWorkingCopyAs'
+>;
+
+interface IPageSaveOrchestrationDeps extends TSharedSaveOperationDeps {
     pdfData: Ref<Uint8Array | null>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     pdfViewerRef: Ref<IPdfViewerForSave | null>;
@@ -77,11 +86,6 @@ interface IPageSaveOrchestrationDeps {
     markBookmarksSaved: () => void;
     isDirty: Ref<boolean>;
     hasPendingUnsavedChanges?: ComputedRef<boolean>;
-    readWorkingCopyBytes: () => Promise<Uint8Array | null>;
-    validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfSaveResult['validation']>;
-    saveFile: (data: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
-    saveWorkingCopy: (opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
-    saveWorkingCopyAs: (data?: Uint8Array, opts?: { saveMode?: TPdfSaveMode }) => Promise<IPdfPersistResult>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
     consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
     consumePendingEmbeddedAnnotationDeletes: () => IAnnotationCommentSummary[] | null;

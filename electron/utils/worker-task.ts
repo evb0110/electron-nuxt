@@ -15,7 +15,7 @@ type TResultWorkerPayload<T> =
         error: string;
     };
 
-interface IRunResultWorkerTaskOptions {
+interface IRunResultWorkerTaskOptions<T = unknown> {
     workerPath: string;
     workerData: unknown;
     invalidPayloadMessage: string;
@@ -23,6 +23,14 @@ interface IRunResultWorkerTaskOptions {
     createStartupError?: (message: string) => Error;
     createStartupExitError?: (code: number) => Error;
     createWorkerExitError: (code: number) => Error;
+    onProgressMessage?: (payload: unknown) => boolean;
+    decodeResult?: (data: unknown) => T | null;
+    invalidResultMessage?: string;
+}
+
+export interface IStreamingWorkerTaskHandle<T> {
+    worker: Worker;
+    promise: Promise<T>;
 }
 
 export function resolveUnpackedWorkerPath(baseDir: string, workerFileName: string) {
@@ -45,20 +53,110 @@ function toError(error: unknown) {
     return error instanceof Error ? error : new Error(String(error));
 }
 
-export async function runResultWorkerTask<T>({
-    workerPath,
-    workerData,
-    invalidPayloadMessage,
-    createStartError,
-    createStartupError,
-    createStartupExitError,
-    createWorkerExitError,
-}: IRunResultWorkerTaskOptions): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-        let settled = false;
-        let online = false;
-        let worker: Worker;
+interface IAttachWorkerHandlersOptions<T> {
+    worker: Worker;
+    options: IRunResultWorkerTaskOptions<T>;
+    resolve: (value: T) => void;
+    reject: (reason: unknown) => void;
+}
 
+function attachWorkerHandlers<T>({
+    worker,
+    options,
+    resolve,
+    reject,
+}: IAttachWorkerHandlersOptions<T>) {
+    const {
+        invalidPayloadMessage,
+        createStartupError,
+        createStartupExitError,
+        createWorkerExitError,
+        onProgressMessage,
+        decodeResult,
+        invalidResultMessage,
+    } = options;
+    let settled = false;
+    let online = false;
+
+    const finalize = (callback: () => void) => {
+        if (settled) {
+            return;
+        }
+        settled = true;
+        worker.removeAllListeners();
+        void worker.terminate().catch(() => {});
+        callback();
+    };
+
+    worker.once('online', () => {
+        online = true;
+    });
+
+    const handleMessage = (payload: unknown) => {
+        if (onProgressMessage?.(payload)) {
+            return;
+        }
+        finalize(() => {
+            if (!isResultWorkerPayload<T>(payload)) {
+                reject(new Error(invalidPayloadMessage));
+                return;
+            }
+            if (!payload.ok) {
+                reject(new Error(payload.error));
+                return;
+            }
+            if (decodeResult) {
+                const decoded = decodeResult(payload.data);
+                if (decoded === null) {
+                    reject(new Error(invalidResultMessage ?? invalidPayloadMessage));
+                    return;
+                }
+                resolve(decoded);
+                return;
+            }
+            resolve(payload.data as T);
+        });
+    };
+
+    if (onProgressMessage) {
+        worker.on('message', handleMessage);
+    } else {
+        worker.once('message', handleMessage);
+    }
+
+    worker.once('error', (error) => {
+        finalize(() => {
+            if (!online && createStartupError) {
+                reject(createStartupError(getErrorMessage(error)));
+                return;
+            }
+            reject(toError(error));
+        });
+    });
+
+    worker.once('exit', (code) => {
+        if (settled || code === 0) {
+            return;
+        }
+        finalize(() => {
+            if (!online && createStartupExitError) {
+                reject(createStartupExitError(code));
+                return;
+            }
+            reject(createWorkerExitError(code));
+        });
+    });
+}
+
+export async function runResultWorkerTask<T>(options: IRunResultWorkerTaskOptions<T>): Promise<T> {
+    const {
+        workerPath,
+        workerData,
+        createStartError,
+        createStartupError,
+    } = options;
+    return new Promise<T>((resolve, reject) => {
+        let worker: Worker;
         try {
             worker = new Worker(workerPath, { workerData });
         } catch (error) {
@@ -68,56 +166,37 @@ export async function runResultWorkerTask<T>({
             reject(buildStartError ? buildStartError(getErrorMessage(error)) : toError(error));
             return;
         }
-
-        const finalize = (callback: () => void) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            worker.removeAllListeners();
-            void worker.terminate().catch(() => {});
-            callback();
-        };
-
-        worker.once('online', () => {
-            online = true;
-        });
-
-        worker.once('message', (payload: unknown) => {
-            finalize(() => {
-                if (!isResultWorkerPayload<T>(payload)) {
-                    reject(new Error(invalidPayloadMessage));
-                    return;
-                }
-                if (!payload.ok) {
-                    reject(new Error(payload.error));
-                    return;
-                }
-                resolve(payload.data as T);
-            });
-        });
-
-        worker.once('error', (error) => {
-            finalize(() => {
-                if (!online && createStartupError) {
-                    reject(createStartupError(getErrorMessage(error)));
-                    return;
-                }
-                reject(toError(error));
-            });
-        });
-
-        worker.once('exit', (code) => {
-            if (settled || code === 0) {
-                return;
-            }
-            finalize(() => {
-                if (!online && createStartupExitError) {
-                    reject(createStartupExitError(code));
-                    return;
-                }
-                reject(createWorkerExitError(code));
-            });
+        attachWorkerHandlers<T>({
+            worker,
+            options,
+            resolve,
+            reject, 
         });
     });
+}
+
+export function startStreamingWorkerTask<T>(
+    options: IRunResultWorkerTaskOptions<T> & { createStartupError: (message: string) => Error },
+): IStreamingWorkerTaskHandle<T> {
+    const {
+        workerPath,
+        workerData,
+        createStartupError,
+    } = options;
+    if (!existsSync(workerPath)) {
+        throw createStartupError(`Worker unavailable at path: ${workerPath}`);
+    }
+    const worker = new Worker(workerPath, { workerData });
+    const promise = new Promise<T>((resolve, reject) => {
+        attachWorkerHandlers<T>({
+            worker,
+            options,
+            resolve,
+            reject, 
+        });
+    });
+    return {
+        worker,
+        promise, 
+    };
 }

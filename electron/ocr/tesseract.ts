@@ -5,6 +5,7 @@ import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseract-language
 import { appendTextChunkWithByteCap } from '@electron/native-tools/output-buffer';
 import { parseIntegerEnv } from '@electron/utils/env';
 import { buildTesseractEnv } from '@electron/ocr/tesseract-env';
+import { createTesseractFinalize } from '@electron/ocr/tesseract-finalize';
 
 type TTesseractSpawnOptions = {threads?: number;};
 
@@ -48,32 +49,14 @@ export async function runOcr(
         let stdout = '';
         let stderr = '';
         let stderrTruncated = false;
-        let settled = false;
         let timedOut = false;
-        let timeoutHandle: NodeJS.Timeout | null = null;
-        let killHandle: NodeJS.Timeout | null = null;
-        let forceFinalizeHandle: NodeJS.Timeout | null = null;
-
-        const finalize = (result: IOcrResult) => {
-            if (settled) {
-                return;
-            }
-
-            settled = true;
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-                timeoutHandle = null;
-            }
-            if (killHandle) {
-                clearTimeout(killHandle);
-                killHandle = null;
-            }
-            if (forceFinalizeHandle) {
-                clearTimeout(forceFinalizeHandle);
-                forceFinalizeHandle = null;
-            }
-            resolve(result);
+        const handles = {
+            timeoutHandle: null as NodeJS.Timeout | null,
+            killHandle: null as NodeJS.Timeout | null,
+            forceFinalizeHandle: null as NodeJS.Timeout | null,
         };
+
+        const finalize = createTesseractFinalize<IOcrResult>(handles, resolve);
 
         const killProcessImmediately = () => {
             try {
@@ -90,7 +73,7 @@ export async function runOcr(
             }
         };
 
-        timeoutHandle = setTimeout(() => {
+        handles.timeoutHandle = setTimeout(() => {
             timedOut = true;
             try {
                 proc.kill('SIGTERM');
@@ -98,25 +81,25 @@ export async function runOcr(
                 // Process may already be gone.
             }
 
-            killHandle = setTimeout(() => {
+            handles.killHandle = setTimeout(() => {
                 try {
                     proc.kill('SIGKILL');
                 } catch {
                     // Process may already be gone.
                 }
             }, TESSERACT_KILL_GRACE_MS);
-            killHandle.unref?.();
+            handles.killHandle.unref?.();
 
-            forceFinalizeHandle = setTimeout(() => {
+            handles.forceFinalizeHandle = setTimeout(() => {
                 finalize({
                     success: false,
                     text: '',
                     error: `Tesseract timed out after ${TESSERACT_TIMEOUT_MS}ms`,
                 });
             }, TESSERACT_KILL_GRACE_MS + 1_000);
-            forceFinalizeHandle.unref?.();
+            handles.forceFinalizeHandle.unref?.();
         }, TESSERACT_TIMEOUT_MS);
-        timeoutHandle.unref?.();
+        handles.timeoutHandle.unref?.();
 
         proc.stdout?.on('data', (data: Buffer) => {
             const appended = appendTextChunkWithByteCap(stdout, data, TESSERACT_MAX_STDOUT_BYTES);

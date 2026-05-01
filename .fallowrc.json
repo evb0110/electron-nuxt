@@ -86,7 +86,10 @@
         "ignoreImports": true,
         "minLines": 8,
         "minTokens": 80,
-        "threshold": 10
+        "threshold": 10,
+        "ignore": [
+            "packages/i18n-app/messages/**"
+        ]
     },
     "health": {
         "ignore": [

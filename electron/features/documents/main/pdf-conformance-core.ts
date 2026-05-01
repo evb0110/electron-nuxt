@@ -7,11 +7,7 @@ import {
 } from '@contracts/electron-api';
 import type { IPdfConformanceProfile } from '@contracts/electron-api';
 import { createLogger } from '@electron/utils/logger';
-import {
-    PDFDict,
-    PDFDocument,
-    PDFName,
-} from 'pdf-lib';
+import { loadPdfStructure } from '@contracts/pdf-conformance-load';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('documents-pdf-conformance');
@@ -26,22 +22,21 @@ async function analyzePdfConformanceData(
     const fallback = createDefaultPdfConformanceProfile();
 
     try {
-        const doc = await PDFDocument.load(data, {
-            ignoreEncryption: true,
-            updateMetadata: false,
-        });
-        const catalog = doc.catalog;
-        const acroForm = catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
-        const structTreeRoot = catalog.lookupMaybe(PDFName.of('StructTreeRoot'), PDFDict);
+        const {
+            doc,
+            acroForm,
+            structTreeRoot,
+            hasXfa,
+        } = await loadPdfStructure(data);
 
         const profileBase = {
             isSigned: hasPdfSignatureMarkersInPdfText(decodePdfBytes(data)),
             isEncrypted: doc.isEncrypted,
-            isTagged: structTreeRoot instanceof PDFDict,
+            isTagged: structTreeRoot !== null,
             pdfaLevel: detectPdfaLevelFromPdfText(decodePdfBytes(data)),
-            hasAcroForm: acroForm instanceof PDFDict,
-            hasXfa: acroForm instanceof PDFDict && acroForm.has(PDFName.of('XFA')),
-            canIncrementalSave: !doc.isEncrypted && !(acroForm instanceof PDFDict && acroForm.has(PDFName.of('XFA'))),
+            hasAcroForm: acroForm !== null,
+            hasXfa,
+            canIncrementalSave: !doc.isEncrypted && !hasXfa,
         };
 
         return {

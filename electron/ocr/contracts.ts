@@ -191,6 +191,22 @@ function asRequestId(value: unknown, fieldName: string) {
     return asString(value, fieldName, MAX_REQUEST_ID_LENGTH);
 }
 
+function asPagesArray<T extends { languages: string[] }>(
+    pagesPayload: unknown,
+    fieldName: string,
+    mapPage: (page: unknown, itemFieldName: string) => T,
+): T[] {
+    if (!Array.isArray(pagesPayload) || pagesPayload.length === 0) {
+        throw new OcrPayloadValidationError(`${fieldName} must be a non-empty array`);
+    }
+    if (pagesPayload.length > MAX_BATCH_PAGES) {
+        throw new OcrPayloadValidationError(`${fieldName} exceeds maximum size (${MAX_BATCH_PAGES})`);
+    }
+    const pages = pagesPayload.map((page, index) => mapPage(page, `${fieldName}[${index}]`));
+    assertUniqueLanguageBudget(pages, fieldName);
+    return pages;
+}
+
 export function validateRecognizeRequest(payload: unknown): IOcrRecognizePageRequest {
     return asRecognizePageRequest(payload, 'request');
 }
@@ -199,15 +215,7 @@ export function validateRecognizeBatchPayload(
     pagesPayload: unknown,
     requestIdPayload: unknown,
 ): IOcrRecognizeBatchPayload {
-    if (!Array.isArray(pagesPayload) || pagesPayload.length === 0) {
-        throw new OcrPayloadValidationError('pages must be a non-empty array');
-    }
-    if (pagesPayload.length > MAX_BATCH_PAGES) {
-        throw new OcrPayloadValidationError(`pages exceeds maximum size (${MAX_BATCH_PAGES})`);
-    }
-
-    const pages = pagesPayload.map((page, index) => asRecognizePageRequest(page, `pages[${index}]`));
-    assertUniqueLanguageBudget(pages, 'pages');
+    const pages = asPagesArray(pagesPayload, 'pages', asRecognizePageRequest);
     return {
         pages,
         requestId: asRequestId(requestIdPayload, 'requestId'),
@@ -220,15 +228,7 @@ export function validateCreateSearchablePdfPayload(
     requestIdPayload: unknown,
     renderDpiPayload?: unknown,
 ): IOcrCreateSearchablePdfPayload {
-    if (!Array.isArray(pagesPayload) || pagesPayload.length === 0) {
-        throw new OcrPayloadValidationError('pages must be a non-empty array');
-    }
-    if (pagesPayload.length > MAX_BATCH_PAGES) {
-        throw new OcrPayloadValidationError(`pages exceeds maximum size (${MAX_BATCH_PAGES})`);
-    }
-
-    const pages = pagesPayload.map((page, index) => asCreatePdfPageRequest(page, `pages[${index}]`));
-    assertUniqueLanguageBudget(pages, 'pages');
+    const pages = asPagesArray(pagesPayload, 'pages', asCreatePdfPageRequest);
 
     return {
         sourcePdfPath: asString(sourcePdfPathPayload, 'sourcePdfPath', 4_096),

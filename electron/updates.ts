@@ -339,15 +339,19 @@ function scheduleNextPoll() {
     const jitter = Math.round(baseInterval * ((Math.random() * 2 * MAX_JITTER_RATIO) - MAX_JITTER_RATIO));
     const delay = Math.max(MIN_POLL_INTERVAL_MS, baseInterval + jitter);
 
-    pollTimer = setTimeout(() => {
+    pollTimer = schedulePollTimer(delay, 'Automatic update poll failed');
+}
+
+function schedulePollTimer(delayMs: number, failureLogPrefix: string) {
+    return setTimeout(() => {
         void checkForUpdates('auto')
             .catch((error) => {
-                logger.error(`Automatic update poll failed: ${getErrorMessage(error)}`);
+                logger.error(`${failureLogPrefix}: ${getErrorMessage(error)}`);
             })
             .finally(() => {
                 scheduleNextPoll();
             });
-    }, delay);
+    }, delayMs);
 }
 
 function setAutoUpdaterListeners() {
@@ -700,15 +704,7 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
     }
 
     const initialDelayMs = Math.max(config.updates.initialDelayMs, 1000);
-    pollTimer = setTimeout(() => {
-        void checkForUpdates('auto')
-            .catch((error) => {
-                logger.error(`Initial automatic update check failed: ${getErrorMessage(error)}`);
-            })
-            .finally(() => {
-                scheduleNextPoll();
-            });
-    }, initialDelayMs);
+    pollTimer = schedulePollTimer(initialDelayMs, 'Initial automatic update check failed');
 }
 
 export async function triggerManualUpdateCheck() {

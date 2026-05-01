@@ -133,6 +133,12 @@ export type { IRuntimeIdentityPayload } from './runtime-identity';
 
 export { isTimeoutError } from './timeout-error';
 
+export { normalizeAnalyticsScalar } from './analytics';
+export type {
+    INormalizeAnalyticsScalarOptions,
+    TAnalyticsScalarResult,
+} from './analytics';
+
 export { getErrorMessage } from './error';
 
 export type {

@@ -14,6 +14,7 @@ import type {
     IAnnotationNoteWindowState,
 } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
 import { isNoteEligibleComment } from '@app/composables/pdf/annotations/annotationRules';
+import { commentsShareStableIdentifier } from '@app/composables/pdf/annotations/useAnnotationIdentity';
 import { runGuardedTask } from '@app/utils/async-guard';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
@@ -123,10 +124,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         if (left.pageIndex !== right.pageIndex) {
             return false;
         }
-        if (left.annotationId && right.annotationId && left.annotationId === right.annotationId) {
-            return true;
-        }
-        if (left.uid && right.uid && left.uid === right.uid) {
+        if (commentsShareStableIdentifier(left, right)) {
             return true;
         }
         if (

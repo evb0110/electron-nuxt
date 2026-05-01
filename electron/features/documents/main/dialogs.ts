@@ -43,6 +43,7 @@ import {
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import { te } from '@electron/i18n';
 import { createLogger } from '@electron/utils/logger';
+import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { getErrorMessage } from '@electron/utils/error';
 
 const logger = createLogger('documents-dialogs');
@@ -89,13 +90,6 @@ function sendOpenBatchProgress(
     } catch (error) {
         logger.debug(`Failed to send open-batch progress update: ${String(error)}`);
     }
-}
-
-function normalizeInputPaths(paths: string[]) {
-    return paths
-        .filter((path): path is string => typeof path === 'string')
-        .map(path => path.trim())
-        .filter(path => path.length > 0);
 }
 
 function errorWithDetails(fallbackMessage: string, details: unknown): Error {
@@ -153,7 +147,7 @@ async function openInputPaths(
     paths: string[],
     options: IOpenInputPathsOptions = {},
 ): Promise<IOpenFileResult | null> {
-    const normalizedPaths = normalizeInputPaths(paths);
+    const normalizedPaths = normalizeNonEmptyStringPaths(paths);
     logger.info(`openInputPaths normalized ${normalizedPaths.length} path(s): ${normalizedPaths.join(' | ')}`);
     if (normalizedPaths.length === 0) {
         return null;
@@ -253,7 +247,7 @@ export async function handleOpenPdfDirectBatch(
     }
 
     try {
-        const normalizedPaths = normalizeInputPaths(filePaths);
+        const normalizedPaths = normalizeNonEmptyStringPaths(filePaths);
         const rejectedPath = normalizedPaths.find(path => !isAllowedOpenPath(path));
         if (rejectedPath) {
             logRejectedOpenPath(rejectedPath);

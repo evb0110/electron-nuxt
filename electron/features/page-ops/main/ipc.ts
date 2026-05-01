@@ -21,6 +21,7 @@ import {
     resolve,
 } from 'path';
 import type { ICropMargins } from '@contracts/shared';
+import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import { PAGE_OPS_CHANNELS } from '@electron/features/page-ops/contract';
 import { te } from '@electron/i18n';
 import {
@@ -329,10 +330,7 @@ async function prepareInsertionSourcePdf(
     workingCopyPath: string,
     sourcePaths: string[],
 ) {
-    const normalizedPaths = sourcePaths
-        .filter((path): path is string => typeof path === 'string')
-        .map(path => path.trim())
-        .filter(path => path.length > 0);
+    const normalizedPaths = normalizeNonEmptyStringPaths(sourcePaths);
 
     if (normalizedPaths.length === 0) {
         throw new Error('At least one source file is required');

@@ -11,6 +11,7 @@ import {
     type TAnalyticsPayloadValue,
     type TAnalyticsScreenCategory,
 } from '@app/types/analytics';
+import { normalizeAnalyticsScalar } from '@contracts/analytics';
 import { getAnalyticsDb } from '../../db';
 import { viewerAnalyticsEvent } from '../../db/schema';
 import {
@@ -44,19 +45,10 @@ function sanitizeString(value: unknown, maxLength: number) {
 }
 
 function sanitizePayloadScalar(value: unknown) {
-    if (value === null) {
-        return null;
-    }
-    if (typeof value === 'string') {
-        return value.slice(0, MAX_STRING_LENGTH);
-    }
-    if (typeof value === 'boolean') {
-        return value;
-    }
-    if (typeof value === 'number') {
-        return Number.isFinite(value) ? value : null;
-    }
-    return undefined;
+    return normalizeAnalyticsScalar(value, {
+        maxStringLength: MAX_STRING_LENGTH,
+        nonFiniteFallback: null,
+    });
 }
 
 function sanitizePayloadArray(value: unknown[], depth: number) {

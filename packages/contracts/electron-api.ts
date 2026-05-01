@@ -1,10 +1,6 @@
 import type { TGroupDirection } from './editor-groups';
 import type { TDocumentRef } from './document';
-import type {
-    IPdfSearchProgress,
-    IPdfSearchRequestOptions,
-    IPdfSearchResponse,
-} from './search';
+import type { ISearchPreloadClient } from './search';
 import type {
     ICropMargins,
     IOcrLanguage,
@@ -465,20 +461,7 @@ export interface IOcrCapability {
     };
 }
 
-export interface ISearchCapability {
-    run: (
-        pdfPath: string,
-        query: string,
-        options?: IPdfSearchRequestOptions,
-    ) => Promise<IPdfSearchResponse>;
-    warmIndex: (
-        pdfPath: string,
-        options?: IPdfSearchRequestOptions,
-    ) => Promise<boolean>;
-    cancel: (requestId?: string) => Promise<{ canceled: boolean }>;
-    onProgress: (callback: (progress: IPdfSearchProgress) => void) => () => void;
-    resetCache: () => Promise<boolean>;
-}
+export interface ISearchCapability extends ISearchPreloadClient {}
 
 export interface ISettingsCapability {
     get: () => Promise<ISettingsData>;

@@ -3,7 +3,6 @@ import { useOcrTextContent } from '@app/composables/pdf/useOcrTextContent';
 import { usePageContextMenu } from '@app/composables/pdf/usePageContextMenu';
 import { usePageLabelState } from '@app/composables/pdf/usePageLabelState';
 import { useBookmarkState } from '@app/composables/pdf/useBookmarkState';
-import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
 import { usePdfHistory } from '@app/composables/usePdfHistory';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
@@ -44,32 +43,18 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     } = deps;
     const { t } = useTypedI18n();
 
+    const fileLifecycle = useWorkspaceFileLifecycleController();
     const {
         isDjvuMode,
         djvuSourcePath,
-        conversionState,
-        djvuIsLoadingPages,
-        djvuLoadingProgress,
-        djvuShowBanner,
-        showConvertDialog,
-        djvuError,
-        djvuOpeningPath,
         openDjvuFile,
-        openConvertDialog,
-        djvuDismissBanner,
-        handleDjvuConvert,
-        handleDjvuCancel,
-        recentFiles,
         loadRecentFiles,
-        removeRecentFile,
-        clearRecentFiles,
         pickFileToOpenWithDjvuCleanup,
         openFileWithDjvuCleanup,
         openFileDirectWithDjvuCleanup,
         openFileDirectBatchWithDjvuCleanup,
         closeFileWithDjvuCleanup,
         hasPdf,
-        initFromStorage,
         pdfSrc,
         pdfData,
         workingCopyPath,
@@ -77,7 +62,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         fileName,
         isDirty,
         pdfError,
-        isElectron,
         pendingDjvu,
         openBatchProgress,
         loadPdfFromPath,
@@ -94,24 +78,17 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         fileHistorySessionVersion,
         undo,
         redo,
-    } = useWorkspaceFileLifecycleController();
+    } = fileLifecycle;
 
+    const sidebarSearch = useWorkspaceSidebarSearchSyncController({workingCopyPath});
     const {
         pdfViewerRef,
-        zoomDropdownOpen,
-        pageDropdownOpen,
-        ocrPopupOpen,
-        overflowMenuOpen,
-        appMenuOpen,
         closeAllDropdowns,
-        closeOtherDropdowns,
         handleDropdownOpenChange,
         openDropdown,
         selectedThumbnailPages,
-        thumbnailInvalidationRequest,
         setSelectedThumbnailPages,
         requestThumbnailInvalidation,
-        handleSelectedThumbnailPagesUpdate,
         zoom,
         effectiveZoom,
         zoomMode,
@@ -126,32 +103,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         showSidebar,
         showSettings,
         sidebarTab,
-        searchQuery,
-        searchOptions,
-        results,
-        pageMatches,
-        currentResultIndex,
-        currentResult,
-        isSearching,
-        searchError,
-        totalMatches,
-        searchProgress,
-        isTruncated,
-        minQueryLength,
         openSearch,
         openAnnotations,
         closeSearch,
-        handleSearch,
-        handleSearchNext,
-        handleSearchPrevious,
-        handleGoToResult,
         resetSearchCache,
-        sidebarWidth,
-        sidebarWrapperStyle,
-        isResizingSidebar,
-        startSidebarResize,
-        cleanupSidebarResizeListeners,
-    } = useWorkspaceSidebarSearchSyncController({workingCopyPath});
+    } = sidebarSearch;
 
     const { settings: appSettings } = useSettings();
     const isSaving = ref(false);
@@ -160,13 +116,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     let metadataHistory: ReturnType<typeof useWorkspaceMetadataHistory> | null = null;
 
-    const {
-        pageLabels,
-        pageLabelRanges,
-        pageLabelsDirty,
-        markPageLabelsSaved,
-        handlePageLabelRangesUpdate,
-    } = usePageLabelState({
+    const pageLabelState = usePageLabelState({
         pdfDocument,
         totalPages,
         markDirty,
@@ -174,19 +124,25 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         onPageLabelsDirty: () => metadataHistory?.recordCurrentState(),
         onPageLabelsSaved: () => metadataHistory?.resetToCurrentState(),
     });
-
     const {
-        bookmarkItems,
-        bookmarksDirty,
-        bookmarkEditMode,
-        markBookmarksSaved,
-        handleBookmarksChange,
-    } = useBookmarkState({
+        pageLabels,
+        pageLabelRanges,
+        pageLabelsDirty,
+        markPageLabelsSaved,
+    } = pageLabelState;
+
+    const bookmarkState = useBookmarkState({
         markDirty,
         onBookmarksSynchronized: () => metadataHistory?.resetToCurrentState(),
         onBookmarksDirty: () => metadataHistory?.recordCurrentState(),
         onBookmarksSaved: () => metadataHistory?.resetToCurrentState(),
     });
+    const {
+        bookmarkItems,
+        bookmarksDirty,
+        bookmarkEditMode,
+        markBookmarksSaved,
+    } = bookmarkState;
     metadataHistory = useWorkspaceMetadataHistory({
         bookmarkItems,
         bookmarksDirty,
@@ -208,27 +164,17 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         redoMetadata: () => metadataHistory?.redoMetadata() ?? false,
     });
 
-    const {
-        isExportInProgress,
-        exportOverlay,
-        exportScopeDialogOpen,
-        exportScopeDialogMode,
-        exportScopeDialogSelectedPages,
-        handleExportScopeDialogSubmit,
-        handleExportScopeDialogOpenChange,
-        handleExportImages,
-        handleExportMultiPageTiff,
-    } = useWorkspaceExport({
+    const exportControls = useWorkspaceExport({
         workingCopyPath,
         totalPages,
     });
+    const { handleExportImages } = exportControls;
 
+    const pageContextMenuControls = usePageContextMenu();
     const {
         pageContextMenu,
-        pageContextMenuStyle,
-        showPageContextMenu,
         closePageContextMenu,
-    } = usePageContextMenu();
+    } = pageContextMenuControls;
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
     const {
@@ -238,16 +184,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         clearDocxExportError,
     } = useDocxExport();
 
+    const annotationSession = useWorkspaceAnnotationSession({
+        pdfViewerRef,
+        pdfDocument,
+        dragMode,
+        markDirty,
+    });
     const {
         annotationContextMenu,
-        annotationContextMenuStyle,
-        annotationContextMenuCanCopy,
-        annotationContextMenuCanCopySelection,
-        annotationContextMenuCanCreateFree,
-        annotationContextMenuCanInsertImage,
-        annotationContextMenuIsImage,
-        contextMenuAnnotationLabel,
-        contextMenuDeleteActionLabel,
         closeAnnotationContextMenu,
         showAnnotationContextMenu,
         hasAnnotationChanges,
@@ -260,38 +204,20 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationEditorState,
         annotationDirty,
         handleAnnotationToolChange,
-        handleAnnotationToolAutoReset,
-        handleAnnotationToolCancel,
-        handleAnnotationSettingChange,
-        handleAnnotationState,
-        handleAnnotationModified,
         markAnnotationDirty,
         markAnnotationSaved,
         resetAnnotationTracking,
         annotationNoteWindows,
-        annotationNotePositions,
-        sortedAnnotationNoteWindows,
         hasOpenAnnotationNotes,
         isAnyAnnotationNoteSaving,
-        updateAnnotationNoteText,
-        updateAnnotationNotePosition,
-        minimizeAnnotationNote,
-        restoreAnnotationNote,
         persistAllAnnotationNotes,
-        closeAnnotationNote,
         closeAllAnnotationNotes,
         openAnnotationNoteWindow,
         removeAnnotationNoteWindow,
         setAnnotationNoteWindowError,
-        bringAnnotationNoteToFront,
         isSameAnnotationComment,
         consumePendingEmbeddedTextUpdates,
-    } = useWorkspaceAnnotationSession({
-        pdfViewerRef,
-        pdfDocument,
-        dragMode,
-        markDirty,
-    });
+    } = annotationSession;
 
     const pendingEmbeddedAnnotationDeletes = new Map<string, IAnnotationCommentSummary>();
 
@@ -313,22 +239,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pendingEmbeddedAnnotationDeletes.clear();
     });
 
-    const { serializePdfForSave } = usePdfSerialization({
-        pdfData,
-        workingCopyPath,
-        annotationComments,
-        totalPages,
-        pageLabelsDirty,
-        pageLabelRanges,
-        bookmarksDirty,
-        bookmarkItems,
-        untitledBookmarkLabel: t('bookmarks.untitled'),
-        getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
-        getAllShapes: () => pdfViewerRef.value?.getAllShapes() ?? [],
-        getDeletedEmbeddedShapeAnnotationIds: () => pdfViewerRef.value?.getDeletedEmbeddedShapeAnnotationIds() ?? [],
-        getDeletedEmbeddedShapeStableKeys: () => pdfViewerRef.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
-    });
-
     const hasPendingUnsavedChanges = computed(() => (
         annotationDirty.value
         || isDirty.value
@@ -338,16 +248,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     ));
     const hasPendingTabChanges = hasPendingUnsavedChanges;
 
-    const {
-        handleSave,
-        handleSaveAs,
-        handleExportDocx,
-        handleOcrComplete,
-        isAnySaving,
-        isExportingDocx,
-        canSave,
-        embedPlacedImageToPage,
-    } = usePageSaveOrchestration({
+    const pageSaveOrchestration = usePageSaveOrchestration({
         pdfData,
         pdfDocument,
         pdfViewerRef,
@@ -392,18 +293,16 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         waitForPdfReload: (page: number) => waitForPdfReload(page),
         resetSearchCache,
     });
-
     const {
-        isFitWidthActive,
-        isFitHeightActive,
-        isAnnotationUndoContext,
-        annotationCursorMode,
-        canUndo,
-        canRedo,
-        handleFitMode,
-        enableDragMode,
-        handleGoToPage,
-    } = useWorkspaceViewState({
+        handleSave,
+        isAnySaving,
+        isExportingDocx,
+        canSave,
+        embedPlacedImageToPage,
+        serializePdfForSave,
+    } = pageSaveOrchestration;
+
+    const viewState = useWorkspaceViewState({
         fitMode,
         zoomMode,
         zoom,
@@ -418,13 +317,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         canRedoHistory: workspaceUndoTimeline.canRedoTimeline,
         pdfViewerRef,
     });
-
     const {
-        preparePdfReloadWaiter,
-        waitForPdfReload,
-        handleUndo,
-        handleRedo,
-    } = usePdfHistory({
+        isAnnotationUndoContext,
+        canUndo,
+        canRedo,
+    } = viewState;
+
+    const pdfHistory = usePdfHistory({
         pdfDocument,
         pdfViewerRef,
         currentPage,
@@ -441,41 +340,17 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         undoHistory: workspaceUndoTimeline.undoTimeline,
         redoHistory: workspaceUndoTimeline.redoTimeline,
     });
+    const {
+        preparePdfReloadWaiter,
+        waitForPdfReload,
+    } = pdfHistory;
 
     const hasOpenDocument = computed(() => (
         hasPdf.value
         || (isDjvuMode.value && Boolean(djvuSourcePath.value))
     ));
 
-    const {
-        shapePropertiesPopover,
-        selectedShapeForProperties,
-        handleCommentSelection,
-        handleQuickNoteAction,
-        handleStartPlaceNote,
-        handleAnnotationFocusComment,
-        handleAnnotationCommentClick,
-        handleOpenAnnotationNote,
-        closeShapeProperties,
-        handleDeleteSelectedShape,
-        handleShapePropertyUpdate,
-        handleShapeContextMenu,
-        handleViewerAnnotationContextMenu,
-        openContextMenuNote,
-        copyContextMenuNoteText,
-        copyContextMenuSelectionText,
-        deleteContextMenuComment,
-        createContextMenuFreeNote,
-        createContextMenuSelectionNote,
-        insertContextMenuImageFromFile,
-        pasteContextMenuImageFromClipboard,
-        createContextMenuMarkup,
-        handleCopyAnnotationComment,
-        handleDeleteAnnotationComment,
-        handleFinalizePlacedImage,
-        insertImageFromFileAt,
-        pasteImageFromClipboardAt,
-    } = usePageAnnotationActions({
+    const annotationActions = usePageAnnotationActions({
         pdfViewerRef,
         annotationTool,
         annotationKeepActive,
@@ -505,47 +380,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         queuePendingEmbeddedAnnotationDelete,
         embedPlacedImageToPage,
     });
-
     const {
-        statusFilePath,
-        statusFileSizeLabel,
-        statusZoomLabel,
-        statusCanShowInFolder,
-        statusShowInFolderTooltip,
-        statusShowInFolderAriaLabel,
-        statusSaveDotClass,
-        statusSaveDotCanSave,
-        statusSaveDotTooltip,
-        statusSaveDotAriaLabel,
-        handleStatusSaveClick,
-        handleStatusShowInFolderClick,
-        isPageOperationInProgress,
-        pageOpBatchProgress,
-        pageOpsDelete,
-        pageOpsExtract,
-        pageOpsInsert,
-        pageOpsReorder,
-        handlePageContextMenuDelete,
-        handlePageContextMenuExtract,
-        handlePageContextMenuExport,
-        handlePageRotate,
-        handlePageContextMenuRotateCw,
-        handlePageContextMenuRotateCcw,
-        handlePageContextMenuInsertBefore,
-        handlePageContextMenuInsertAfter,
-        handlePageFileDrop,
-        handlePageContextMenuSelectAll,
-        handlePageContextMenuInvertSelection,
-        handleCropPages,
-        handleRemoveCrop,
-        handleOpenFileFromUi,
-        handleCombineImages,
-        handleOpenFileDirectWithPersist,
-        handleOpenFileDirectBatchWithPersist,
-        handleOpenFileWithResult,
-        handleCloseFileFromUi,
-        openRecentFile,
-    } = useWorkspaceDocumentControls({
+        insertImageFromFileAt,
+        pasteImageFromClipboardAt,
+        shapePropertiesPopover,
+        closeShapeProperties,
+    } = annotationActions;
+
+    const documentControls = useWorkspaceDocumentControls({
         hasDocument: hasOpenDocument,
         pdfData,
         pdfSrc,
@@ -655,31 +497,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         getPrintableSourceData,
     });
 
-    const {
-        handleQuickPrint,
-        isPreparingPrint,
-    } = workspacePrint;
+    const { handleQuickPrint } = workspacePrint;
 
     function handlePrint() {
         void handleQuickPrint();
     }
 
-    const {
-        isCapturingRegion,
-        handleCaptureRegion,
-        cropDialogOpen,
-        cropDialogLoading,
-        cropDialogMargins,
-        cropDialogMediaBox,
-        cropDialogCurrentBox,
-        cropDialogPageNumber,
-        cropDialogRotation,
-        isCropSelecting,
-        handleCrop,
-        handleDropdownOpen,
-        captureSplitPayload,
-        restoreSplitPayload,
-    } = useWorkspaceInteractionControls({
+    const interactionControls = useWorkspaceInteractionControls({
         isActive,
         appSettings,
         annotationSettings,
@@ -775,245 +599,41 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     });
 
     return {
-        pdfSrc,
+        ...fileLifecycle,
+        ...sidebarSearch,
+        ...annotationSession,
+        ...annotationActions,
+        ...documentControls,
+        ...exportControls,
+        ...pageContextMenuControls,
+        ...interactionControls,
+        ...pageLabelState,
+        ...bookmarkState,
+        ...viewState,
+        ...pdfHistory,
+        ...pageSaveOrchestration,
+        ...workspacePrint,
+        appSettings,
+        pdfDocument,
         pdfData,
-        workingCopyPath,
-        originalPath,
-        fileName,
-        isDirty,
-        pdfError,
-        isElectron,
-        openBatchProgress,
-        loadPdfFromData,
-
-        isDjvuMode,
-        djvuSourcePath,
-        conversionState,
-        djvuIsLoadingPages,
-        djvuLoadingProgress,
-        djvuShowBanner,
-        djvuError,
-        djvuOpeningPath,
-        showConvertDialog,
-        openConvertDialog,
-        djvuDismissBanner,
-        handleDjvuConvert,
-        handleDjvuCancel,
-
-        recentFiles,
-        removeRecentFile,
-        clearRecentFiles,
-
-        pdfViewerRef,
-        zoomDropdownOpen,
-        pageDropdownOpen,
-        ocrPopupOpen,
-        overflowMenuOpen,
-        appMenuOpen,
-        selectedThumbnailPages,
-        thumbnailInvalidationRequest,
-        handleSelectedThumbnailPagesUpdate,
-        handleDropdownOpen,
-        closeAllDropdowns,
-        closeOtherDropdowns,
-
+        currentPage,
+        totalPages,
         zoom,
         effectiveZoom,
         zoomMode,
         fitMode,
         viewMode,
-        currentPage,
-        totalPages,
-        pdfDocument,
         isLoading,
         dragMode,
         continuousScroll,
-        appSettings,
         showSidebar,
         sidebarTab,
         isSaving,
         isSavingAs,
         isHistoryBusy,
-        isExportInProgress,
-        exportOverlay,
-        exportScopeDialogOpen,
-        exportScopeDialogMode,
-        exportScopeDialogSelectedPages,
-
-        pageLabels,
-        pageLabelRanges,
-        handlePageLabelRangesUpdate,
-        bookmarkEditMode,
-        handleBookmarksChange,
-
-        annotationContextMenu,
-        annotationContextMenuStyle,
-        annotationContextMenuCanCopy,
-        annotationContextMenuCanCopySelection,
-        annotationContextMenuCanCreateFree,
-        annotationContextMenuCanInsertImage,
-        annotationContextMenuIsImage,
-        contextMenuAnnotationLabel,
-        contextMenuDeleteActionLabel,
-
-        pageContextMenu,
-        pageContextMenuStyle,
-        showPageContextMenu,
-
-        annotationTool,
-        annotationKeepActive,
-        annotationPlacingPageNote,
-        annotationSettings,
-        annotationComments,
-        annotationActiveCommentStableKey,
-        handleAnnotationToolChange,
-        handleAnnotationToolAutoReset,
-        handleAnnotationToolCancel,
-        handleAnnotationSettingChange,
-        handleAnnotationState,
-        handleAnnotationModified,
-
-        searchQuery,
-        searchOptions,
-        results,
-        pageMatches,
-        currentResultIndex,
-        currentResult,
-        isSearching,
-        searchError,
-        totalMatches,
-        searchProgress,
-        isTruncated,
-        minQueryLength,
-        handleSearch,
-        handleSearchNext,
-        handleSearchPrevious,
-        handleGoToResult,
-
-        handleSave,
-        handleSaveAs,
-        handlePrint,
-        handleExportDocx,
-        handleExportImages,
-        handleExportMultiPageTiff,
-        handleExportScopeDialogSubmit,
-        handleExportScopeDialogOpenChange,
-        handleOcrComplete,
         docxExportError,
-        isAnySaving,
-        isExportingDocx,
-        isPreparingPrint,
-        canSave,
-
-        isFitWidthActive,
-        isFitHeightActive,
-        annotationCursorMode,
-        canUndo,
-        canRedo,
-        handleUndo,
-        handleRedo,
-        handleCaptureRegion,
-        isCapturingRegion,
-        handleCrop,
-        isCropSelecting,
-        cropDialogOpen,
-        cropDialogLoading,
-        cropDialogMargins,
-        cropDialogMediaBox,
-        cropDialogCurrentBox,
-        cropDialogPageNumber,
-        cropDialogRotation,
-        handleCropPages,
-        handleRemoveCrop,
-
-        annotationNotePositions,
-        sortedAnnotationNoteWindows,
-        updateAnnotationNoteText,
-        updateAnnotationNotePosition,
-        minimizeAnnotationNote,
-        restoreAnnotationNote,
-        closeAnnotationNote,
-        bringAnnotationNoteToFront,
-
-        shapePropertiesPopover,
-        selectedShapeForProperties,
-        handleCommentSelection,
-        handleQuickNoteAction,
-        handleStartPlaceNote,
-        handleAnnotationFocusComment,
-        handleAnnotationCommentClick,
-        handleOpenAnnotationNote,
-        closeShapeProperties,
-        handleDeleteSelectedShape,
-        handleShapePropertyUpdate,
-        handleShapeContextMenu,
-        handleViewerAnnotationContextMenu,
-        openContextMenuNote,
-        copyContextMenuNoteText,
-        copyContextMenuSelectionText,
-        deleteContextMenuComment,
-        createContextMenuFreeNote,
-        createContextMenuSelectionNote,
-        insertContextMenuImageFromFile,
-        pasteContextMenuImageFromClipboard,
-        createContextMenuMarkup,
-        handleCopyAnnotationComment,
-        handleDeleteAnnotationComment,
-        handleFinalizePlacedImage,
         handleInsertImageFromFile: () => insertImageFromFileAt(currentPage.value, 0.5, 0.5),
         handlePasteImageFromClipboard: () => pasteImageFromClipboardAt(currentPage.value, 0.5, 0.5),
-
-        statusFilePath,
-        statusFileSizeLabel,
-        statusZoomLabel,
-        statusCanShowInFolder,
-        statusShowInFolderTooltip,
-        statusShowInFolderAriaLabel,
-        statusSaveDotClass,
-        statusSaveDotCanSave,
-        statusSaveDotTooltip,
-        statusSaveDotAriaLabel,
-        handleStatusSaveClick,
-        handleStatusShowInFolderClick,
-
-        isPageOperationInProgress,
-        pageOpBatchProgress,
-        pageOpsDelete,
-        pageOpsExtract,
-        pageOpsInsert,
-        pageOpsReorder,
-        handlePageContextMenuDelete,
-        handlePageContextMenuExtract,
-        handlePageContextMenuExport,
-        handlePageRotate,
-        handlePageContextMenuRotateCw,
-        handlePageContextMenuRotateCcw,
-        handlePageContextMenuInsertBefore,
-        handlePageContextMenuInsertAfter,
-        handlePageFileDrop,
-        handlePageContextMenuSelectAll,
-        handlePageContextMenuInvertSelection,
-
-        handleOpenFileFromUi,
-        handleCombineImages,
-        handleOpenFileDirectWithPersist,
-        handleOpenFileDirectBatchWithPersist,
-        handleOpenFileWithResult,
-        handleCloseFileFromUi,
-        openRecentFile,
-        captureSplitPayload,
-        restoreSplitPayload,
-
-        sidebarWidth,
-        sidebarWrapperStyle,
-        isResizingSidebar,
-        startSidebarResize,
-        cleanupSidebarResizeListeners,
-
-        handleFitMode,
-        enableDragMode,
-        handleGoToPage,
-        initFromStorage,
-        hasPdf,
+        handlePrint,
     };
 };
