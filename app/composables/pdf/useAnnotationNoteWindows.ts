@@ -336,6 +336,93 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         };
     }
 
+    function getAnnotationNoteSaveCandidates(
+        current: IAnnotationCommentSummary,
+    ) {
+        const latestComment = findMatchingAnnotationComment(current) ?? current;
+
+        // Prefer the latest synchronized summary first; stale note-window identity
+        // can miss live editors and trigger unnecessary embedded fallback reloads.
+        return latestComment === current
+            ? [current]
+            : [
+                latestComment,
+                current,
+            ];
+    }
+
+    function saveAnnotationNoteToViewer(
+        current: IAnnotationCommentSummary,
+        nextText: string,
+    ) {
+        for (const candidate of getAnnotationNoteSaveCandidates(current)) {
+            if (!updateAnnotationCommentInViewer(candidate, nextText)) {
+                continue;
+            }
+            return candidate;
+        }
+
+        return null;
+    }
+
+    function deferEmbeddedAnnotationNoteUpdate(
+        stableKey: string,
+        targetComment: IAnnotationCommentSummary,
+        nextText: string,
+    ) {
+        pendingEmbeddedTextUpdates.set(stableKey, nextText);
+        BrowserLogger.debug('annotations', 'Deferred embedded note text update to serialization pipeline', {
+            stableKey,
+            source: targetComment.source,
+            annotationId: targetComment.annotationId ?? null,
+        });
+    }
+
+    function setAnnotationNoteEmbeddedFallback(note: IAnnotationNoteWindowState) {
+        note.saveMode = 'embedded';
+        return true;
+    }
+
+    function markAnnotationNotePersistFailed(
+        note: IAnnotationNoteWindowState,
+        stableKey: string,
+        targetComment: IAnnotationCommentSummary,
+        force: boolean,
+    ) {
+        BrowserLogger.warn('annotations', 'Failed to persist annotation note', {
+            stableKey,
+            force,
+            source: targetComment.source,
+            annotationId: targetComment.annotationId ?? null,
+        });
+        note.error = t('errors.annotation.updateNote');
+        return false;
+    }
+
+    function updateAnnotationNoteSavedState(
+        note: IAnnotationNoteWindowState,
+        targetComment: IAnnotationCommentSummary,
+        nextText: string,
+    ) {
+        note.saveMode = note.saveMode === 'embedded' ? 'embedded' : 'auto';
+
+        const localUpdated: IAnnotationCommentSummary = {
+            ...targetComment,
+            text: nextText,
+            modifiedAt: Date.now(),
+        };
+        note.comment = localUpdated;
+        note.text = nextText;
+        note.lastSavedText = nextText;
+
+        const latest = findMatchingAnnotationComment(targetComment);
+        if (latest && latest.text === nextText) {
+            note.comment = latest;
+            note.text = latest.text || '';
+            note.lastSavedText = latest.text || '';
+        }
+    }
+
     function persistAnnotationNote(stableKey: string, force = false) {
         const note = findAnnotationNoteWindow(stableKey);
         if (!note) {
@@ -343,7 +430,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
 
         const current = note.comment;
-        const latestComment = findMatchingAnnotationComment(current) ?? current;
         const nextText = note.text;
         // Even forced persistence should skip true no-op updates.
         // Otherwise Save/Save As can materialize and reload the PDF despite no text change.
@@ -362,29 +448,12 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         note.saving = true;
         note.error = null;
         try {
-            let targetComment = latestComment;
-            let saved = false;
+            const latestComment = findMatchingAnnotationComment(current) ?? current;
+            const savedTargetComment = saveAnnotationNoteToViewer(current, nextText);
+            let targetComment = savedTargetComment ?? latestComment;
 
-            // Prefer the latest synchronized summary first; stale note-window identity
-            // can miss live editors and trigger unnecessary embedded fallback reloads.
-            const saveCandidates = targetComment === current
-                ? [current]
-                : [
-                    targetComment,
-                    current,
-                ];
-            for (const candidate of saveCandidates) {
-                if (!updateAnnotationCommentInViewer(candidate, nextText)) {
-                    continue;
-                }
-                targetComment = candidate;
-                saved = true;
-                break;
-            }
-
-            if (!saved && !force) {
-                note.saveMode = 'embedded';
-                return true;
+            if (!savedTargetComment && !force) {
+                return setAnnotationNoteEmbeddedFallback(note);
             }
 
             // When force=true (called from handleSave), defer embedded text
@@ -392,47 +461,24 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             // entire document. handleSave will call rewriteEmbeddedNoteTexts()
             // which applies these deferred text changes without triggering a
             // visible re-render.
-            if (!saved && force) {
-                pendingEmbeddedTextUpdates.set(stableKey, nextText);
-                BrowserLogger.debug('annotations', 'Deferred embedded note text update to serialization pipeline', {
-                    stableKey,
-                    source: targetComment.source,
-                    annotationId: targetComment.annotationId ?? null,
-                });
-                saved = true;
-                note.saveMode = 'embedded';
+            if (!savedTargetComment && force) {
+                deferEmbeddedAnnotationNoteUpdate(stableKey, targetComment, nextText);
+                setAnnotationNoteEmbeddedFallback(note);
             }
 
-            if (!saved) {
-                BrowserLogger.warn('annotations', 'Failed to persist annotation note', {
+            if (!savedTargetComment && note.saveMode !== 'embedded') {
+                return markAnnotationNotePersistFailed(
+                    note,
                     stableKey,
+                    targetComment,
                     force,
-                    source: targetComment.source,
-                    annotationId: targetComment.annotationId ?? null,
-                });
-                note.error = t('errors.annotation.updateNote');
-                return false;
+                );
             }
 
-            note.saveMode =
-                saved && note.saveMode === 'embedded' ? 'embedded' : 'auto';
-
-            const localUpdated: IAnnotationCommentSummary = {
-                ...targetComment,
-                text: nextText,
-                modifiedAt: Date.now(),
-            };
-            note.comment = localUpdated;
-            note.text = nextText;
-            note.lastSavedText = nextText;
-
-            const latest = findMatchingAnnotationComment(targetComment);
-            if (latest && latest.text === nextText) {
-                note.comment = latest;
-                note.text = latest.text || '';
-                note.lastSavedText = latest.text || '';
-                return true;
+            if (savedTargetComment) {
+                targetComment = savedTargetComment;
             }
+            updateAnnotationNoteSavedState(note, targetComment, nextText);
             return true;
         } finally {
             const latestNote = findAnnotationNoteWindow(stableKey);
@@ -521,15 +567,18 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
     }
 
-    watch(annotationComments, (comments) => {
-        if (annotationNoteWindows.value.length === 0) {
-            return;
-        }
+    interface IAnnotationNoteCommentIndexes {
+        byStableKey: Map<string, IAnnotationCommentSummary>;
+        byAnnotationIdPage: Map<string, IAnnotationCommentSummary>;
+        byUidPage: Map<string, IAnnotationCommentSummary>;
+        byIdPageSource: Map<string, IAnnotationCommentSummary>;
+        byPage: Map<number, IAnnotationCommentSummary[]>;
+        byPageText: Map<number, Map<string, IAnnotationCommentSummary[]>>;
+    }
 
-        const noteComments = comments.filter(comment =>
-            isCommentEligibleForNoteWindow(comment),
-        );
-
+    function buildAnnotationNoteCommentIndexes(
+        comments: IAnnotationCommentSummary[],
+    ): IAnnotationNoteCommentIndexes {
         const byStableKey = new Map<string, IAnnotationCommentSummary>();
         const byAnnotationIdPage = new Map<string, IAnnotationCommentSummary>();
         const byUidPage = new Map<string, IAnnotationCommentSummary>();
@@ -537,7 +586,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         const byPage = new Map<number, IAnnotationCommentSummary[]>();
         const byPageText = new Map<number, Map<string, IAnnotationCommentSummary[]>>();
 
-        for (const comment of noteComments) {
+        for (const comment of comments) {
             if (comment.stableKey) {
                 byStableKey.set(comment.stableKey, comment);
             }
@@ -581,108 +630,171 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             }
         }
 
-        function findUpdatedComment(noteComment: IAnnotationCommentSummary) {
-            if (noteComment.stableKey) {
-                const match = byStableKey.get(noteComment.stableKey);
-                if (match) {
-                    return match;
-                }
+        return {
+            byStableKey,
+            byAnnotationIdPage,
+            byUidPage,
+            byIdPageSource,
+            byPage,
+            byPageText,
+        };
+    }
+
+    function findUpdatedAnnotationNoteComment(
+        noteComment: IAnnotationCommentSummary,
+        indexes: IAnnotationNoteCommentIndexes,
+    ) {
+        if (noteComment.stableKey) {
+            const match = indexes.byStableKey.get(noteComment.stableKey);
+            if (match) {
+                return match;
             }
-            if (noteComment.annotationId) {
-                const match = byAnnotationIdPage.get(
-                    `${noteComment.annotationId}:${noteComment.pageIndex}`,
-                );
-                if (match) {
-                    return match;
-                }
-            }
-            if (noteComment.uid) {
-                const match = byUidPage.get(
-                    `${noteComment.uid}:${noteComment.pageIndex}`,
-                );
-                if (match) {
-                    return match;
-                }
-            }
-            return (
-                byIdPageSource.get(
-                    `${noteComment.id}:${noteComment.pageIndex}:${noteComment.source}`,
-                ) ?? null
-            );
         }
-
-        function findLogicalFallback(noteComment: IAnnotationCommentSummary) {
-            const exactText = noteComment.text.trim().toLowerCase();
-            const pageMatches = byPage.get(noteComment.pageIndex) ?? [];
-            if (pageMatches.length === 0) {
-                return null;
+        if (noteComment.annotationId) {
+            const match = indexes.byAnnotationIdPage.get(
+                `${noteComment.annotationId}:${noteComment.pageIndex}`,
+            );
+            if (match) {
+                return match;
             }
-
-            const logical = pageMatches.find(candidate => commentsLikelyReferToSameNote(noteComment, candidate));
-            if (logical) {
-                return logical;
+        }
+        if (noteComment.uid) {
+            const match = indexes.byUidPage.get(
+                `${noteComment.uid}:${noteComment.pageIndex}`,
+            );
+            if (match) {
+                return match;
             }
+        }
+        return (
+            indexes.byIdPageSource.get(
+                `${noteComment.id}:${noteComment.pageIndex}:${noteComment.source}`,
+            ) ?? null
+        );
+    }
 
-            if (!exactText) {
-                return null;
-            }
-
-            const textMatches = byPageText
-                .get(noteComment.pageIndex)
-                ?.get(exactText) ?? [];
-            if (textMatches.length === 1) {
-                return textMatches[0] ?? null;
-            }
-
+    function findLogicalAnnotationNoteFallback(
+        noteComment: IAnnotationCommentSummary,
+        indexes: IAnnotationNoteCommentIndexes,
+    ) {
+        const exactText = noteComment.text.trim().toLowerCase();
+        const pageMatches = indexes.byPage.get(noteComment.pageIndex) ?? [];
+        if (pageMatches.length === 0) {
             return null;
         }
 
+        const logical = pageMatches.find(candidate => commentsLikelyReferToSameNote(noteComment, candidate));
+        if (logical) {
+            return logical;
+        }
+
+        if (!exactText) {
+            return null;
+        }
+
+        const textMatches = indexes.byPageText
+            .get(noteComment.pageIndex)
+            ?.get(exactText) ?? [];
+        if (textMatches.length === 1) {
+            return textMatches[0] ?? null;
+        }
+
+        return null;
+    }
+
+    function findCurrentAnnotationNoteComment(
+        noteComment: IAnnotationCommentSummary,
+        indexes: IAnnotationNoteCommentIndexes,
+    ) {
+        return (
+            findUpdatedAnnotationNoteComment(noteComment, indexes)
+            ?? findLogicalAnnotationNoteFallback(noteComment, indexes)
+        );
+    }
+
+    function normalizeAnnotationNoteSavedText(text: string) {
+        // Strip ZWS/BOM so the stale-empty guard compares real content only
+        // (legacy saves stored ZWS in /Contents — see docs/freetext-note-persistence.md)
+        return text.replace(/[\u200B\uFEFF]/g, '').trim();
+    }
+
+    function isStaleEmptyAnnotationNoteSync(
+        note: IAnnotationNoteWindowState,
+        updated: IAnnotationCommentSummary,
+    ) {
+        const savedText = normalizeAnnotationNoteSavedText(note.lastSavedText);
+        const updatedText = normalizeAnnotationNoteSavedText(updated.text);
+        const currentTimestamp = note.comment.modifiedAt ?? 0;
+        const updatedTimestamp = updated.modifiedAt ?? 0;
+
+        return (
+            !note.saving
+            && savedText.length > 0
+            && updatedText.length === 0
+            && updatedTimestamp <= currentTimestamp
+        );
+    }
+
+    function preferUpdatedAnnotationNoteComment(
+        noteComment: IAnnotationCommentSummary,
+        updated: IAnnotationCommentSummary,
+    ) {
+        const preferred = selectPreferredAnnotationComment(noteComment, updated);
+
+        if (updated.markerRect && updated.markerRect !== preferred.markerRect) {
+            return {
+                ...preferred,
+                markerRect: updated.markerRect,
+            };
+        }
+
+        return preferred;
+    }
+
+    function syncAnnotationNoteWindowComment(
+        note: IAnnotationNoteWindowState,
+        updated: IAnnotationCommentSummary,
+    ) {
+        const previousStableKey = note.comment.stableKey;
+        const preferred = preferUpdatedAnnotationNoteComment(note.comment, updated);
+        const currentTimestamp = note.comment.modifiedAt ?? 0;
+        const updatedTimestamp = updated.modifiedAt ?? 0;
+
+        if (isStaleEmptyAnnotationNoteSync(note, updated)) {
+            note.comment = {
+                ...preferred,
+                text: note.lastSavedText,
+                modifiedAt: currentTimestamp || updatedTimestamp || null,
+            };
+            return;
+        }
+
+        note.comment = preferred;
+        migrateAnnotationNoteWindowKey(previousStableKey, note.comment.stableKey);
+        const hasUnsavedLocalChanges = note.text !== note.lastSavedText;
+        if (!note.saving && !hasUnsavedLocalChanges) {
+            const nextText = updated.text || '';
+            note.text = nextText;
+            note.lastSavedText = nextText;
+        }
+    }
+
+    watch(annotationComments, (comments) => {
+        if (annotationNoteWindows.value.length === 0) {
+            return;
+        }
+
+        const noteComments = comments.filter(comment =>
+            isCommentEligibleForNoteWindow(comment),
+        );
+        const indexes = buildAnnotationNoteCommentIndexes(noteComments);
+
         annotationNoteWindows.value.forEach((note) => {
-            const previousStableKey = note.comment.stableKey;
-            const updated =
-                findUpdatedComment(note.comment)
-                ?? findLogicalFallback(note.comment);
+            const updated = findCurrentAnnotationNoteComment(note.comment, indexes);
             if (!updated) {
                 return;
             }
-            let preferred = selectPreferredAnnotationComment(note.comment, updated);
-
-            if (updated.markerRect && updated.markerRect !== preferred.markerRect) {
-                preferred = {
-                    ...preferred,
-                    markerRect: updated.markerRect,
-                };
-            }
-
-            // Strip ZWS/BOM so the stale-empty guard compares real content only
-            // (legacy saves stored ZWS in /Contents — see docs/freetext-note-persistence.md)
-            const savedText = note.lastSavedText.replace(/[\u200B\uFEFF]/g, '').trim();
-            const updatedText = updated.text.replace(/[\u200B\uFEFF]/g, '').trim();
-            const currentTimestamp = note.comment.modifiedAt ?? 0;
-            const updatedTimestamp = updated.modifiedAt ?? 0;
-            const staleEmptySync =
-                !note.saving &&
-        savedText.length > 0 &&
-        updatedText.length === 0 &&
-        updatedTimestamp <= currentTimestamp;
-
-            if (staleEmptySync) {
-                note.comment = {
-                    ...preferred,
-                    text: note.lastSavedText,
-                    modifiedAt: currentTimestamp || updatedTimestamp || null,
-                };
-                return;
-            }
-
-            note.comment = preferred;
-            migrateAnnotationNoteWindowKey(previousStableKey, note.comment.stableKey);
-            const hasUnsavedLocalChanges = note.text !== note.lastSavedText;
-            if (!note.saving && !hasUnsavedLocalChanges) {
-                const nextText = updated.text || '';
-                note.text = nextText;
-                note.lastSavedText = nextText;
-            }
+            syncAnnotationNoteWindowComment(note, updated);
         });
     });
 

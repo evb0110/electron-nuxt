@@ -34,6 +34,23 @@ type TCachedIndex = {
     validatedTextBudget: boolean;
 };
 
+type TSearchRequestContext = {
+    requestId: string;
+    pdfPath: string;
+    normalizedQuery: string;
+    pageCount?: number;
+    shouldWarmup: boolean;
+    matchCase: boolean;
+    wholeWord: boolean;
+    useRegex: boolean;
+    signal: AbortSignal;
+};
+
+type TSearchExecutionResult = {
+    results: ISearchMatch[];
+    truncated: boolean;
+};
+
 const PROGRESS_THROTTLE_MS = 60;
 const SEARCH_INDEX_CACHE_MAX_ENTRIES = (() => {
     const parsed = Number.parseInt(process.env.EVB_SEARCH_INDEX_CACHE_MAX_ENTRIES ?? '2', 10);
@@ -369,6 +386,47 @@ function sendProgress(
     });
 }
 
+function postEmptySearchComplete(requestId: string) {
+    postMessage({
+        type: 'complete',
+        requestId,
+        response: {
+            results: [],
+            truncated: false,
+        },
+    });
+}
+
+function postSearchComplete(
+    requestId: string,
+    result: TSearchExecutionResult,
+) {
+    postMessage({
+        type: 'complete',
+        requestId,
+        response: result,
+    });
+}
+
+function postSearchCancelled(requestId: string) {
+    postMessage({
+        type: 'cancelled',
+        requestId,
+    });
+}
+
+function postSearchError(
+    requestId: string,
+    error: unknown,
+) {
+    const errMsg = getErrorMessage(error);
+    postMessage({
+        type: 'error',
+        requestId,
+        error: `Search failed: ${errMsg}`,
+    });
+}
+
 async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
     const now = Date.now();
     pruneIndexCache(now);
@@ -509,7 +567,7 @@ async function ensureSearchIndex(
     return entry;
 }
 
-async function processSearchRequest(request: ISearchWorkerRequest) {
+async function createSearchRequestContext(request: ISearchWorkerRequest): Promise<TSearchRequestContext> {
     const {
         requestId,
         pdfPath,
@@ -525,151 +583,210 @@ async function processSearchRequest(request: ISearchWorkerRequest) {
     requestAbortControllers.set(requestId, abortController);
     const { signal } = abortController;
     pruneCancelledRequests();
+    progressSentAt.delete(requestId);
+    throwIfCancelled(requestId, signal);
 
+    if (!pdfPath || !(await fileExists(pdfPath))) {
+        throw new Error(`PDF not found: ${pdfPath}`);
+    }
+    throwIfCancelled(requestId, signal);
+
+    return {
+        requestId,
+        pdfPath,
+        normalizedQuery: query.trim(),
+        pageCount,
+        shouldWarmup: warmup === true,
+        matchCase,
+        wholeWord,
+        useRegex,
+        signal,
+    };
+}
+
+async function getRequestSearchIndex(context: TSearchRequestContext) {
+    const {
+        requestId,
+        pdfPath,
+        pageCount,
+        signal,
+    } = context;
+
+    const indexEntry = await ensureSearchIndex(requestId, pdfPath, {
+        pageCount,
+        signal,
+    });
+    throwIfCancelled(requestId, signal);
+    return indexEntry;
+}
+
+function getTotalPages(
+    indexEntry: TCachedIndex,
+    pageCount?: number,
+) {
+    return typeof pageCount === 'number' && pageCount > 0
+        ? pageCount
+        : (indexEntry.index.pageCount ?? indexEntry.index.pages.length);
+}
+
+function isPageSearchable(
+    page: IPdfSearchIndex['pages'][number],
+    totalPages: number,
+) {
+    return page.pageNumber >= 1 && page.pageNumber <= totalPages;
+}
+
+function appendPageMatches(
+    params: {
+        context: TSearchRequestContext;
+        page: IPdfSearchIndex['pages'][number];
+        results: ISearchMatch[];
+        globalMatchIndex: number;
+    },
+) {
+    const {
+        context,
+        page,
+        results,
+    } = params;
+    const pageText = page.text;
+    let { globalMatchIndex } = params;
+    let truncated = false;
+
+    if (!pageText) {
+        return {
+            globalMatchIndex,
+            truncated,
+        };
+    }
+
+    let pageMatchIndex = 0;
+    const pageMatches = findPageMatches(pageText, context.normalizedQuery, {
+        matchCase: context.matchCase,
+        wholeWord: context.wholeWord,
+        useRegex: context.useRegex,
+    });
+
+    for (const pageMatch of pageMatches) {
+        throwIfCancelled(context.requestId, context.signal);
+        const startOffset = pageMatch.startOffset;
+        const endOffset = pageMatch.endOffset;
+
+        results.push({
+            pageNumber: page.pageNumber,
+            pageMatchIndex,
+            matchIndex: globalMatchIndex,
+            startOffset,
+            endOffset,
+            excerpt: buildExcerpt(pageText, startOffset, endOffset),
+        });
+
+        pageMatchIndex += 1;
+        globalMatchIndex += 1;
+
+        if (results.length >= SEARCH_RESULT_LIMIT) {
+            truncated = true;
+            break;
+        }
+    }
+
+    return {
+        globalMatchIndex,
+        truncated,
+    };
+}
+
+function searchIndex(
+    context: TSearchRequestContext,
+    indexEntry: TCachedIndex,
+): TSearchExecutionResult {
+    const totalPages = getTotalPages(indexEntry, context.pageCount);
+    sendProgress(context.requestId, 0, totalPages, true);
+
+    const results: ISearchMatch[] = [];
+    let globalMatchIndex = 0;
+    let processedCount = 0;
+    let truncated = false;
+
+    for (let pageIdx = 0; pageIdx < indexEntry.index.pages.length; pageIdx += 1) {
+        throwIfCancelled(context.requestId, context.signal);
+
+        const page = indexEntry.index.pages[pageIdx];
+        if (!page || !isPageSearchable(page, totalPages)) {
+            continue;
+        }
+
+        const pageResult = appendPageMatches({
+            context,
+            page,
+            results,
+            globalMatchIndex,
+        });
+        globalMatchIndex = pageResult.globalMatchIndex;
+        truncated = pageResult.truncated;
+
+        processedCount += 1;
+        sendProgress(context.requestId, processedCount, totalPages);
+
+        if (truncated) {
+            break;
+        }
+    }
+
+    if (processedCount < totalPages) {
+        sendProgress(context.requestId, totalPages, totalPages, true);
+    } else {
+        sendProgress(context.requestId, processedCount, totalPages, true);
+    }
+    throwIfCancelled(context.requestId, context.signal);
+
+    return {
+        results,
+        truncated,
+    };
+}
+
+function handleSearchRequestError(
+    requestId: string,
+    error: unknown,
+) {
+    if (isAbortError(error) || isCancelled(requestId)) {
+        postSearchCancelled(requestId);
+        return;
+    }
+
+    postSearchError(requestId, error);
+}
+
+function cleanupSearchRequest(requestId: string) {
+    requestAbortControllers.delete(requestId);
+    progressSentAt.delete(requestId);
+    cancelledRequests.delete(requestId);
+}
+
+async function processSearchRequest(request: ISearchWorkerRequest) {
     try {
-        progressSentAt.delete(requestId);
-        throwIfCancelled(requestId, signal);
+        const context = await createSearchRequestContext(request);
 
-        if (!pdfPath || !(await fileExists(pdfPath))) {
-            throw new Error(`PDF not found: ${pdfPath}`);
-        }
-        throwIfCancelled(requestId, signal);
-
-        const normalizedQuery = query.trim();
-        const shouldWarmup = warmup === true;
-        if (normalizedQuery.length === 0 && !shouldWarmup) {
-            throwIfCancelled(requestId, signal);
-            postMessage({
-                type: 'complete',
-                requestId,
-                response: {
-                    results: [],
-                    truncated: false,
-                },
-            });
+        if (context.normalizedQuery.length === 0 && !context.shouldWarmup) {
+            throwIfCancelled(context.requestId, context.signal);
+            postEmptySearchComplete(context.requestId);
             return;
         }
 
-        const indexEntry = await ensureSearchIndex(requestId, pdfPath, {
-            pageCount,
-            signal,
-        });
-        throwIfCancelled(requestId, signal);
+        const indexEntry = await getRequestSearchIndex(context);
 
-        if (shouldWarmup) {
-            throwIfCancelled(requestId, signal);
-            postMessage({
-                type: 'complete',
-                requestId,
-                response: {
-                    results: [],
-                    truncated: false,
-                },
-            });
+        if (context.shouldWarmup) {
+            throwIfCancelled(context.requestId, context.signal);
+            postEmptySearchComplete(context.requestId);
             return;
         }
 
-        const totalPages = typeof pageCount === 'number' && pageCount > 0
-            ? pageCount
-            : (indexEntry.index.pageCount ?? indexEntry.index.pages.length);
-
-        sendProgress(requestId, 0, totalPages, true);
-
-        const results: ISearchMatch[] = [];
-        let globalMatchIndex = 0;
-        let processedCount = 0;
-        let truncated = false;
-
-        for (let pageIdx = 0; pageIdx < indexEntry.index.pages.length; pageIdx += 1) {
-            throwIfCancelled(requestId, signal);
-
-            const page = indexEntry.index.pages[pageIdx];
-            if (!page) {
-                continue;
-            }
-            if (page.pageNumber < 1) {
-                continue;
-            }
-            if (page.pageNumber > totalPages) {
-                continue;
-            }
-
-            const pageText = page.text;
-
-            if (pageText) {
-                let pageMatchIndex = 0;
-                const pageMatches = findPageMatches(pageText, normalizedQuery, {
-                    matchCase,
-                    wholeWord,
-                    useRegex,
-                });
-
-                for (const pageMatch of pageMatches) {
-                    throwIfCancelled(requestId, signal);
-                    const startOffset = pageMatch.startOffset;
-                    const endOffset = pageMatch.endOffset;
-
-                    results.push({
-                        pageNumber: page.pageNumber,
-                        pageMatchIndex,
-                        matchIndex: globalMatchIndex,
-                        startOffset,
-                        endOffset,
-                        excerpt: buildExcerpt(pageText, startOffset, endOffset),
-                    });
-
-                    pageMatchIndex += 1;
-                    globalMatchIndex += 1;
-
-                    if (results.length >= SEARCH_RESULT_LIMIT) {
-                        truncated = true;
-                        break;
-                    }
-                }
-            }
-
-            processedCount += 1;
-            sendProgress(requestId, processedCount, totalPages);
-
-            if (truncated) {
-                break;
-            }
-        }
-
-        if (processedCount < totalPages) {
-            sendProgress(requestId, totalPages, totalPages, true);
-        } else {
-            sendProgress(requestId, processedCount, totalPages, true);
-        }
-        throwIfCancelled(requestId, signal);
-
-        postMessage({
-            type: 'complete',
-            requestId,
-            response: {
-                results,
-                truncated,
-            },
-        });
+        postSearchComplete(context.requestId, searchIndex(context, indexEntry));
     } catch (error) {
-        if (isAbortError(error) || isCancelled(requestId)) {
-            postMessage({
-                type: 'cancelled',
-                requestId,
-            });
-            return;
-        }
-
-        const errMsg = getErrorMessage(error);
-        postMessage({
-            type: 'error',
-            requestId,
-            error: `Search failed: ${errMsg}`,
-        });
+        handleSearchRequestError(request.requestId, error);
     } finally {
-        requestAbortControllers.delete(request.requestId);
-        progressSentAt.delete(request.requestId);
-        cancelledRequests.delete(request.requestId);
+        cleanupSearchRequest(request.requestId);
     }
 }
 
