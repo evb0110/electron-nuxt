@@ -1,4 +1,5 @@
 import type { IScrollSnapshot } from '@app/types/pdf';
+import { errorToLogText } from '@app/composables/pdf/annotationCssUtils';
 import { getPageContainerByNumber } from '@app/composables/pdf/pdfScrollVisibility';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { clamp } from 'es-toolkit/math';
@@ -537,20 +538,5 @@ export function restoreScrollFromSnapshot(
 }
 
 export function formatRenderError(error: unknown, pageNumber: number) {
-    const message = error instanceof Error
-        ? error.message
-        : typeof error === 'string'
-            ? error
-            : (() => {
-                try {
-                    return JSON.stringify(error);
-                } catch {
-                    return String(error);
-                }
-            })();
-
-    const stack = error instanceof Error ? error.stack ?? '' : '';
-    return stack
-        ? `Failed to render PDF page: ${pageNumber} ${message}\n${stack}`
-        : `Failed to render PDF page: ${pageNumber} ${message}`;
+    return `Failed to render PDF page: ${pageNumber} ${errorToLogText(error)}`;
 }
