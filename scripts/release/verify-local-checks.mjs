@@ -22,6 +22,20 @@ export function getLocalReleaseCheckCommands() {
         {
             args: [
                 'run',
+                'typecheck:coverage',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
+                'build:strict',
+            ],
+            command: 'pnpm',
+        },
+        {
+            args: [
+                'run',
                 'check:electron:install',
             ],
             command: 'pnpm',
