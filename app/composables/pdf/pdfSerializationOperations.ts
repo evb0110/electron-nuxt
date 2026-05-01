@@ -630,145 +630,157 @@ function applyEmbeddedShapeUpdate(
         || writeManagedShapeStableKey(annotDict, shape.stableKey);
 }
 
-function applyShapeAnnotations(
-    doc: PDFDocument,
-    shapes: IShapeAnnotation[],
-    deletedShapeAnnotationIds: string[],
-    deletedShapeStableKeys: string[],
-    rewriteShapeState: boolean,
-) {
-    if (
-        !rewriteShapeState
-        && shapes.length === 0
-        && deletedShapeAnnotationIds.length === 0
-        && deletedShapeStableKeys.length === 0
-    ) {
-        return false;
-    }
+interface IShapeConsumptionState {
+    byAnnotationId: Map<string, IShapeAnnotation>;
+    byStableKey: Map<string, IShapeAnnotation>;
+    remaining: IShapeAnnotation[];
+}
 
-    const pages = doc.getPages();
-    const shapesByAnnotationId = new Map<string, IShapeAnnotation>();
-    const shapesByStableKey = new Map<string, IShapeAnnotation>();
-    const remainingShapes = shapes.slice();
+interface IDeletedShapeRefs {
+    annotationIds: Set<string>;
+    stableKeys: Set<string>;
+}
 
-    function consumeShape(shape: IShapeAnnotation) {
-        const remainingIndex = remainingShapes.indexOf(shape);
-        if (remainingIndex !== -1) {
-            remainingShapes.splice(remainingIndex, 1);
-        }
-
-        const annotationId = normalizePdfJsAnnotationId(shape.annotationId);
-        if (annotationId) {
-            shapesByAnnotationId.delete(annotationId);
-        }
-
-        const stableKey = normalizeManagedShapeStableKey(shape.stableKey);
-        if (stableKey) {
-            shapesByStableKey.delete(stableKey);
-        }
-    }
+function createShapeConsumptionState(shapes: IShapeAnnotation[]): IShapeConsumptionState {
+    const state: IShapeConsumptionState = {
+        byAnnotationId: new Map(),
+        byStableKey: new Map(),
+        remaining: shapes.slice(),
+    };
 
     shapes.forEach((shape) => {
         const stableKey = normalizeManagedShapeStableKey(shape.stableKey);
         if (stableKey) {
-            shapesByStableKey.set(stableKey, shape);
+            state.byStableKey.set(stableKey, shape);
         }
 
         const annotationId = normalizePdfJsAnnotationId(shape.annotationId);
         if (annotationId) {
-            shapesByAnnotationId.set(annotationId, shape);
+            state.byAnnotationId.set(annotationId, shape);
         }
     });
 
-    const refsToDeleteByTag = new Map<string, PDFRef>();
-    const deletedIds = new Set<string>();
+    return state;
+}
+
+function consumeShape(shapeState: IShapeConsumptionState, shape: IShapeAnnotation) {
+    const remainingIndex = shapeState.remaining.indexOf(shape);
+    if (remainingIndex !== -1) {
+        shapeState.remaining.splice(remainingIndex, 1);
+    }
+
+    const annotationId = normalizePdfJsAnnotationId(shape.annotationId);
+    if (annotationId) {
+        shapeState.byAnnotationId.delete(annotationId);
+    }
+
+    const stableKey = normalizeManagedShapeStableKey(shape.stableKey);
+    if (stableKey) {
+        shapeState.byStableKey.delete(stableKey);
+    }
+}
+
+function collectDeletedShapeRefs(
+    deletedShapeAnnotationIds: string[],
+    deletedShapeStableKeys: string[],
+): IDeletedShapeRefs {
+    const annotationIds = new Set<string>();
     deletedShapeAnnotationIds.forEach((annotationId) => {
         const normalizedId = normalizePdfJsAnnotationId(annotationId);
         if (normalizedId) {
-            deletedIds.add(normalizedId);
+            annotationIds.add(normalizedId);
         }
     });
-    const deletedStableKeys = new Set<string>();
+
+    const stableKeys = new Set<string>();
     deletedShapeStableKeys.forEach((stableKey) => {
         const normalizedStableKey = normalizeManagedShapeStableKey(stableKey);
         if (normalizedStableKey) {
-            deletedStableKeys.add(normalizedStableKey);
+            stableKeys.add(normalizedStableKey);
         }
     });
+
+    return {
+        annotationIds,
+        stableKeys,
+    };
+}
+
+function collectShapeAnnotationRefsToDelete(
+    doc: PDFDocument,
+    refsToDeleteByTag: Map<string, PDFRef>,
+    ref: PDFRef,
+) {
+    collectAnnotationRefsToDelete(doc, ref).forEach((deleteRef) => {
+        refsToDeleteByTag.set(refToTag(deleteRef), deleteRef);
+    });
+}
+
+function updateExistingShapeAnnotation(
+    doc: PDFDocument,
+    annotDict: PDFDict,
+    shape: IShapeAnnotation,
+    context: NonNullable<ReturnType<typeof resolveShapePageContext>>,
+) {
+    return applyEmbeddedShapeUpdate(doc, annotDict, shape, context.pageView, context.pageRotation);
+}
+
+function applyExistingShapeAnnotationDecision(
+    doc: PDFDocument,
+    shapeState: IShapeConsumptionState,
+    deletedRefs: IDeletedShapeRefs,
+    refsToDeleteByTag: Map<string, PDFRef>,
+    rewriteShapeState: boolean,
+    context: NonNullable<ReturnType<typeof resolveShapePageContext>>,
+    annotation: NonNullable<ReturnType<typeof lookupAnnotationRefDict>>,
+) {
+    const {
+        dict: annotDict,
+        ref,
+    } = annotation;
+    const annotationStableKey = readManagedShapeStableKey(annotDict);
+    const annotationId = refToTag(ref);
+    const isDeletedManagedShape = annotationStableKey
+        ? deletedRefs.stableKeys.has(annotationStableKey)
+        : false;
+
+    if (deletedRefs.annotationIds.has(annotationId) || isDeletedManagedShape) {
+        collectShapeAnnotationRefsToDelete(doc, refsToDeleteByTag, ref);
+        return true;
+    }
+
+    if (annotationStableKey) {
+        const shape = shapeState.byStableKey.get(annotationStableKey) ?? null;
+        if (!shape) {
+            if (!rewriteShapeState) {
+                return false;
+            }
+
+            collectShapeAnnotationRefsToDelete(doc, refsToDeleteByTag, ref);
+            return true;
+        }
+
+        const modified = updateExistingShapeAnnotation(doc, annotDict, shape, context);
+        consumeShape(shapeState, shape);
+        return modified;
+    }
+
+    const shape = shapeState.byAnnotationId.get(annotationId) ?? null;
+    if (!shape) {
+        return false;
+    }
+
+    const modified = updateExistingShapeAnnotation(doc, annotDict, shape, context);
+    consumeShape(shapeState, shape);
+    return modified;
+}
+
+function appendRemainingShapeAnnotations(
+    doc: PDFDocument,
+    pages: ReturnType<PDFDocument['getPages']>,
+    remainingShapes: IShapeAnnotation[],
+) {
     let modified = false;
-
-    for (const page of pages) {
-        const context = resolveShapePageContext(page);
-        if (!context) {
-            continue;
-        }
-
-        const annots = page.node.Annots();
-        if (!(annots instanceof PDFArray)) {
-            continue;
-        }
-
-        for (let index = 0; index < annots.size(); index += 1) {
-            const annotation = lookupAnnotationRefDict(doc, annots.get(index));
-            if (!annotation) {
-                continue;
-            }
-
-            const {
-                dict: annotDict,
-                ref,
-            } = annotation;
-            const annotationStableKey = readManagedShapeStableKey(annotDict);
-            const annotationId = refToTag(ref);
-            const isDeletedManagedShape = annotationStableKey
-                ? deletedStableKeys.has(annotationStableKey)
-                : false;
-
-            if (deletedIds.has(annotationId) || isDeletedManagedShape) {
-                collectAnnotationRefsToDelete(doc, ref).forEach((deleteRef) => {
-                    refsToDeleteByTag.set(refToTag(deleteRef), deleteRef);
-                });
-                modified = true;
-                continue;
-            }
-
-            if (annotationStableKey) {
-                const shape = shapesByStableKey.get(annotationStableKey) ?? null;
-                if (!shape) {
-                    if (!rewriteShapeState) {
-                        continue;
-                    }
-
-                    collectAnnotationRefsToDelete(doc, ref).forEach((deleteRef) => {
-                        refsToDeleteByTag.set(refToTag(deleteRef), deleteRef);
-                    });
-                    modified = true;
-                    continue;
-                }
-
-                if (applyEmbeddedShapeUpdate(doc, annotDict, shape, context.pageView, context.pageRotation)) {
-                    modified = true;
-                }
-                consumeShape(shape);
-                continue;
-            }
-
-            const shape = shapesByAnnotationId.get(annotationId)
-                ?? null;
-            if (!shape) {
-                continue;
-            }
-
-            if (applyEmbeddedShapeUpdate(doc, annotDict, shape, context.pageView, context.pageRotation)) {
-                modified = true;
-            }
-            consumeShape(shape);
-        }
-    }
-
-    if (refsToDeleteByTag.size > 0) {
-        modified = removeAnnotationRefsFromPages(doc, [...refsToDeleteByTag.values()]) || modified;
-    }
 
     for (const shape of remainingShapes) {
         const page = pages[shape.pageIndex];
@@ -791,6 +803,68 @@ function applyShapeAnnotations(
         appendAnnotationRefToPage(page, doc, annotRef);
         modified = true;
     }
+
+    return modified;
+}
+
+function applyShapeAnnotations(
+    doc: PDFDocument,
+    shapes: IShapeAnnotation[],
+    deletedShapeAnnotationIds: string[],
+    deletedShapeStableKeys: string[],
+    rewriteShapeState: boolean,
+) {
+    if (
+        !rewriteShapeState
+        && shapes.length === 0
+        && deletedShapeAnnotationIds.length === 0
+        && deletedShapeStableKeys.length === 0
+    ) {
+        return false;
+    }
+
+    const pages = doc.getPages();
+    const shapeState = createShapeConsumptionState(shapes);
+    const refsToDeleteByTag = new Map<string, PDFRef>();
+    const deletedRefs = collectDeletedShapeRefs(deletedShapeAnnotationIds, deletedShapeStableKeys);
+    let modified = false;
+
+    for (const page of pages) {
+        const context = resolveShapePageContext(page);
+        if (!context) {
+            continue;
+        }
+
+        const annots = page.node.Annots();
+        if (!(annots instanceof PDFArray)) {
+            continue;
+        }
+
+        for (let index = 0; index < annots.size(); index += 1) {
+            const annotation = lookupAnnotationRefDict(doc, annots.get(index));
+            if (!annotation) {
+                continue;
+            }
+
+            if (applyExistingShapeAnnotationDecision(
+                doc,
+                shapeState,
+                deletedRefs,
+                refsToDeleteByTag,
+                rewriteShapeState,
+                context,
+                annotation,
+            )) {
+                modified = true;
+            }
+        }
+    }
+
+    if (refsToDeleteByTag.size > 0) {
+        modified = removeAnnotationRefsFromPages(doc, [...refsToDeleteByTag.values()]) || modified;
+    }
+
+    modified = appendRemainingShapeAnnotations(doc, pages, shapeState.remaining) || modified;
 
     return modified;
 }

@@ -328,16 +328,119 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         return best.editor;
     }
 
+    function findStrictDeleteTarget(comment: IAnnotationCommentSummary) {
+        const strictResolved = getIdentity().resolveCommentFromCache(comment);
+        if (!strictResolved) {
+            return null;
+        }
+
+        const hasStablePdfRef = Boolean(strictResolved.annotationId);
+        const strictEditor = findEditorForComment(strictResolved);
+        return hasStablePdfRef || strictEditor ? strictResolved : null;
+    }
+
+    function findDirectStableRefDeleteTarget(
+        comment: IAnnotationCommentSummary,
+        candidates: IAnnotationCommentSummary[],
+        targetText: string,
+        identity: ICrudIdentity,
+    ) {
+        if (!targetText) {
+            return null;
+        }
+
+        return candidates
+            .filter((c) => {
+                const ct = c.text.trim().toLowerCase();
+                return ct.length > 0 && ct === targetText && Boolean(c.annotationId || c.uid);
+            })
+            .sort((l, r) => {
+                const li = markerRectIoU(comment.markerRect, l.markerRect);
+                const ri = markerRectIoU(comment.markerRect, r.markerRect);
+                if (li !== ri) {
+                    return ri - li;
+                }
+                const ld = markerRectCenterDistance(comment.markerRect, l.markerRect);
+                const rd = markerRectCenterDistance(comment.markerRect, r.markerRect);
+                if (ld !== rd) {
+                    return ld - rd;
+                }
+                return identity.commentMergePriority(r) - identity.commentMergePriority(l);
+            })[0] ?? null;
+    }
+
+    function scoreDeleteCandidate(
+        comment: IAnnotationCommentSummary,
+        candidate: IAnnotationCommentSummary,
+        targetText: string,
+        targetSubtype: string,
+    ) {
+        const ct = candidate.text.trim().toLowerCase();
+        const cs = (candidate.subtype ?? '').trim().toLowerCase();
+        const textExact = targetText.length > 0 && ct.length > 0 && targetText === ct;
+        let score = 0;
+
+        if (textExact) {
+            score += 6;
+        }
+        else if (targetText.length > 0 && ct.length > 0 && (ct.includes(targetText) || targetText.includes(ct))) {
+            score += 2;
+        }
+        else if (targetText.length > 0 && ct.length > 0) {
+            score -= 1;
+        }
+        else if (targetText.length === 0 && ct.length === 0) {
+            score += 0.5;
+        }
+
+        if (targetSubtype && cs && targetSubtype === cs) score += 1.5;
+        if (comment.hasNote === candidate.hasNote) score += 0.5;
+        if (candidate.source === comment.source) score += 0.5;
+        if (!comment.annotationId && candidate.annotationId) score += 2.1;
+        if (!comment.uid && candidate.uid) score += 1.4;
+        if (comment.source === 'editor' && candidate.source === 'pdf' && Boolean(candidate.annotationId || candidate.uid)) {
+            score += 0.75;
+        }
+        if (textExact && Boolean(candidate.annotationId || candidate.uid)) score += 0.9;
+
+        const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
+        if (iou > 0) {
+            score += iou * 6;
+        }
+        else if (normalizeMarkerRect(comment.markerRect) && normalizeMarkerRect(candidate.markerRect) && !textExact) {
+            score -= 0.5;
+        }
+
+        return {
+            candidate,
+            score,
+            textExact,
+            iou,
+        };
+    }
+
+    function pickScoredDeleteTarget(
+        scored: Array<ReturnType<typeof scoreDeleteCandidate>>,
+    ) {
+        const best = scored[0];
+        if (!best) {
+            return null;
+        }
+
+        const second = scored[1];
+        const isClearlyBetter = !second
+            || (best.score - second.score >= 0.6)
+            || (best.textExact && !second.textExact)
+            || ((best.iou - (second.iou ?? 0)) >= 0.08);
+        const acceptable = best.score >= 2.5 || best.textExact || best.iou >= 0.12;
+        return acceptable && isClearlyBetter ? best.candidate : null;
+    }
+
     function resolveCommentForDelete(comment: IAnnotationCommentSummary) {
         const identity = getIdentity();
-
-        const strictResolved = identity.resolveCommentFromCache(comment);
+        const strictResolved = findStrictDeleteTarget(comment);
         if (strictResolved) {
-            const hasStablePdfRef = Boolean(strictResolved.annotationId);
-            const strictEditor = findEditorForComment(strictResolved);
-            if (hasStablePdfRef || strictEditor) {
-                return strictResolved;
-            }
+            return strictResolved;
         }
 
         const candidates = annotationCommentsCache.value.filter(
@@ -348,89 +451,17 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         }
 
         const targetText = comment.text.trim().toLowerCase();
-        const directStableRefMatch = targetText
-            ? candidates
-                .filter((c) => {
-                    const ct = c.text.trim().toLowerCase();
-                    return ct.length > 0 && ct === targetText && Boolean(c.annotationId || c.uid);
-                })
-                .sort((l, r) => {
-                    const li = markerRectIoU(comment.markerRect, l.markerRect);
-                    const ri = markerRectIoU(comment.markerRect, r.markerRect);
-                    if (li !== ri) {
-                        return ri - li;
-                    }
-                    const ld = markerRectCenterDistance(comment.markerRect, l.markerRect);
-                    const rd = markerRectCenterDistance(comment.markerRect, r.markerRect);
-                    if (ld !== rd) {
-                        return ld - rd;
-                    }
-                    return identity.commentMergePriority(r) - identity.commentMergePriority(l);
-                })[0] ?? null
-            : null;
+        const directStableRefMatch = findDirectStableRefDeleteTarget(comment, candidates, targetText, identity);
         if (directStableRefMatch) {
             return directStableRefMatch;
         }
 
         const targetSubtype = (comment.subtype ?? '').trim().toLowerCase();
-        const scored = candidates.map((candidate) => {
-            const ct = candidate.text.trim().toLowerCase();
-            const cs = (candidate.subtype ?? '').trim().toLowerCase();
-            const textExact = targetText.length > 0 && ct.length > 0 && targetText === ct;
-            let score = 0;
-            if (textExact) {
-                score += 6;
-            }
-            else if (targetText.length > 0 && ct.length > 0 && (ct.includes(targetText) || targetText.includes(ct))) {
-                score += 2;
-            }
-            else if (targetText.length > 0 && ct.length > 0) {
-                score -= 1;
-            }
-            else if (targetText.length === 0 && ct.length === 0) {
-                score += 0.5;
-            }
+        const scored = candidates
+            .map(candidate => scoreDeleteCandidate(comment, candidate, targetText, targetSubtype))
+            .sort((l, r) => r.score - l.score);
 
-            if (targetSubtype && cs && targetSubtype === cs) score += 1.5;
-            if (comment.hasNote === candidate.hasNote) score += 0.5;
-            if (candidate.source === comment.source) score += 0.5;
-            if (!comment.annotationId && candidate.annotationId) score += 2.1;
-            if (!comment.uid && candidate.uid) score += 1.4;
-            if (comment.source === 'editor' && candidate.source === 'pdf' && Boolean(candidate.annotationId || candidate.uid)) {
-                score += 0.75;
-            }
-            if (textExact && Boolean(candidate.annotationId || candidate.uid)) score += 0.9;
-
-            const iou = markerRectIoU(comment.markerRect, candidate.markerRect);
-            if (iou > 0) {
-                score += iou * 6;
-            }
-            else if (normalizeMarkerRect(comment.markerRect) && normalizeMarkerRect(candidate.markerRect) && !textExact) {
-                score -= 0.5;
-            }
-
-            return {
-                candidate,
-                score,
-                textExact,
-                iou, 
-            };
-        }).sort((l, r) => r.score - l.score);
-
-        const best = scored[0];
-        if (!best) {
-            return null;
-        }
-        const second = scored[1];
-        const isClearlyBetter = !second
-            || (best.score - second.score >= 0.6)
-            || (best.textExact && !second.textExact)
-            || ((best.iou - (second.iou ?? 0)) >= 0.08);
-        const acceptable = best.score >= 2.5 || best.textExact || best.iou >= 0.12;
-        if (!acceptable || !isClearlyBetter) {
-            return null;
-        }
-        return best.candidate;
+        return pickScoredDeleteTarget(scored);
     }
 
     function resolveStablePdfDeleteFallback(comment: IAnnotationCommentSummary) {
@@ -640,6 +671,111 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         return true;
     }
 
+    function toDeleteTargetState(comment: IAnnotationCommentSummary) {
+        const pageNumber = Math.max(1, Math.min(comment.pageNumber, numPages.value));
+        return {
+            comment,
+            pageNumber,
+            pageIndex: Math.max(0, pageNumber - 1),
+            candidateIds: getCommentCandidateIds(comment),
+        };
+    }
+
+    function shouldAttemptPopupModeForDelete(comment: IAnnotationCommentSummary) {
+        return comment.source === 'pdf' || Boolean(comment.annotationId);
+    }
+
+    function findEditorByDeleteCandidateIds(
+        uiManager: AnnotationEditorUIManager,
+        pageIndex: number,
+        candidateIds: string[],
+    ) {
+        for (const id of candidateIds) {
+            const byGlobalId = getEditorById(uiManager, id);
+            if (byGlobalId) {
+                return byGlobalId;
+            }
+        }
+
+        for (const id of candidateIds) {
+            const fromLayer = getEditorByUidFromLayer(uiManager, pageIndex, id);
+            if (fromLayer) {
+                return fromLayer;
+            }
+        }
+
+        return null;
+    }
+
+    async function selectDeleteCandidates(
+        uiManager: AnnotationEditorUIManager,
+        pageIndex: number,
+        candidateIds: string[],
+    ) {
+        let attemptedCommentSelection = false;
+        for (const id of candidateIds) {
+            attemptedCommentSelection = selectCommentByUid(uiManager, pageIndex, id) || attemptedCommentSelection;
+        }
+        await nextTick();
+        return attemptedCommentSelection;
+    }
+
+    function findPopupModeDeleteEditor(
+        pageIndex: number,
+        comment: IAnnotationCommentSummary,
+    ) {
+        if (!shouldAttemptPopupModeForDelete(comment) || !comment.annotationId) {
+            return null;
+        }
+
+        const annotationStorage = pdfDocument.value?.annotationStorage as
+            | { getEditor?: (annotationElementId: string) => IPdfjsEditor | null }
+            | undefined;
+        return annotationStorage?.getEditor?.(comment.annotationId)
+            ?? findEditorByAnnotationElementId(pageIndex, comment.annotationId);
+    }
+
+    async function resolveDeleteEditor(
+        uiManager: AnnotationEditorUIManager,
+        originalComment: IAnnotationCommentSummary,
+        target: ReturnType<typeof toDeleteTargetState>,
+    ) {
+        let editor = findEditorForComment(target.comment);
+        let attemptedCommentSelection = false;
+
+        if (!editor) {
+            try { await uiManager.waitForEditorsRendered(target.pageNumber); }
+            catch (waitError) { logCrudDebug('Timed out waiting for editors before comment delete', waitError); }
+            editor = findEditorForComment(target.comment) ?? findEditorForComment(originalComment);
+        }
+
+        if (!editor && target.candidateIds.length > 0) {
+            editor = findEditorByDeleteCandidateIds(uiManager, target.pageIndex, target.candidateIds);
+        }
+
+        if (!editor && target.candidateIds.length > 0) {
+            attemptedCommentSelection = await selectDeleteCandidates(uiManager, target.pageIndex, target.candidateIds);
+            editor = findEditorForComment(target.comment) ?? findEditorForComment(originalComment);
+        }
+
+        return {
+            editor: editor
+                ?? findPopupModeDeleteEditor(target.pageIndex, target.comment)
+                ?? findEditorByMarkerRect(target.comment, target.pageIndex),
+            attemptedCommentSelection,
+        };
+    }
+
+    function findStablePdfFallbackDeleteEditor(
+        target: ReturnType<typeof toDeleteTargetState>,
+    ) {
+        return findEditorForComment(target.comment)
+            ?? (target.comment.annotationId
+                ? findEditorByAnnotationElementId(target.pageIndex, target.comment.annotationId)
+                : null)
+            ?? findEditorByMarkerRect(target.comment, target.pageIndex);
+    }
+
     async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
         const uiManager = annotationUiManager.value;
         if (!uiManager) {
@@ -652,20 +788,13 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         const toolManager = getToolManager();
 
         let resolvedComment = resolveCommentForDelete(comment) ?? comment;
-        let pageNumber = Math.max(1, Math.min(resolvedComment.pageNumber, numPages.value));
-        let pageIndex = Math.max(0, pageNumber - 1);
-        let candidateIds = getCommentCandidateIds(resolvedComment);
+        let deleteTarget = toDeleteTargetState(resolvedComment);
 
         function syncDeleteTargetState(nextComment: IAnnotationCommentSummary) {
             resolvedComment = nextComment;
-            pageNumber = Math.max(1, Math.min(nextComment.pageNumber, numPages.value));
-            pageIndex = Math.max(0, pageNumber - 1);
-            candidateIds = getCommentCandidateIds(nextComment);
+            deleteTarget = toDeleteTargetState(nextComment);
         }
 
-        const shouldAttemptPopupMode = () => (
-            resolvedComment.source === 'pdf' || Boolean(resolvedComment.annotationId)
-        );
         const refreshDeleteTargetFromSync = async () => {
             await commentSync.syncAnnotationComments();
             const syncedMatch = resolveCommentForDelete(resolvedComment) ?? resolveCommentForDelete(comment);
@@ -684,64 +813,23 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
             editor = findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
         }
 
-        if (!editor && shouldAttemptPopupMode() && previousMode !== AnnotationEditorType.POPUP) {
-            const switchError = await toolManager.updateModeWithRetry(uiManager, AnnotationEditorType.POPUP, pageNumber);
+        if (!editor && shouldAttemptPopupModeForDelete(resolvedComment) && previousMode !== AnnotationEditorType.POPUP) {
+            const switchError = await toolManager.updateModeWithRetry(uiManager, AnnotationEditorType.POPUP, deleteTarget.pageNumber);
             if (!switchError) switchedToPopupMode = true;
         }
 
-        if (!editor) {
-            try { await uiManager.waitForEditorsRendered(pageNumber); }
-            catch (waitError) { logCrudDebug('Timed out waiting for editors before comment delete', waitError); }
-            editor = findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
-        }
-
-        if (!editor && candidateIds.length > 0) {
-            for (const id of candidateIds) {
-                const byGlobalId = getEditorById(uiManager, id);
-                if (byGlobalId) { editor = byGlobalId; break; }
-            }
-        }
-
-        if (!editor && candidateIds.length > 0) {
-            for (const id of candidateIds) {
-                const fromLayer = getEditorByUidFromLayer(uiManager, pageIndex, id);
-                if (fromLayer) { editor = fromLayer; break; }
-            }
-        }
-
         let attemptedCommentSelection = false;
-        if (!editor && candidateIds.length > 0) {
-            for (const id of candidateIds) {
-                attemptedCommentSelection = selectCommentByUid(uiManager, pageIndex, id) || attemptedCommentSelection;
-            }
-            await nextTick();
-            editor = findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
-        }
-
-        if (!editor && shouldAttemptPopupMode() && resolvedComment.annotationId) {
-            const annotationStorage = pdfDocument.value?.annotationStorage as
-                | { getEditor?: (annotationElementId: string) => IPdfjsEditor | null }
-                | undefined;
-            editor = annotationStorage?.getEditor?.(resolvedComment.annotationId) ?? null;
-        }
-
-        if (!editor && shouldAttemptPopupMode() && resolvedComment.annotationId) {
-            editor = findEditorByAnnotationElementId(pageIndex, resolvedComment.annotationId);
-        }
-
         if (!editor) {
-            editor = findEditorByMarkerRect(resolvedComment, pageIndex);
+            const resolved = await resolveDeleteEditor(uiManager, comment, deleteTarget);
+            editor = resolved.editor;
+            attemptedCommentSelection = resolved.attemptedCommentSelection;
         }
 
         if (!editor) {
             const stablePdfFallback = resolveStablePdfDeleteFallback(resolvedComment);
             if (stablePdfFallback) {
                 syncDeleteTargetState(stablePdfFallback);
-                editor = findEditorForComment(resolvedComment)
-                    ?? (resolvedComment.annotationId
-                        ? findEditorByAnnotationElementId(pageIndex, resolvedComment.annotationId)
-                        : null)
-                    ?? findEditorByMarkerRect(resolvedComment, pageIndex);
+                editor = findStablePdfFallbackDeleteEditor(deleteTarget);
             }
         }
 
@@ -758,11 +846,11 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
                 annotationId: resolvedComment.annotationId ?? null,
                 uid: resolvedComment.uid ?? null,
                 id: resolvedComment.id,
-                pageNumber,
-                candidateIds,
+                pageNumber: deleteTarget.pageNumber,
+                candidateIds: deleteTarget.candidateIds,
             });
             if (switchedToPopupMode) {
-                await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
+                await toolManager.updateModeWithRetry(uiManager, previousMode, deleteTarget.pageNumber);
             }
             return false;
         }
@@ -772,7 +860,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
                 editor,
                 Number.isFinite(editor.parentPageIndex)
                     ? (editor.parentPageIndex as number)
-                    : resolvedComment.pageIndex,
+                    : deleteTarget.comment.pageIndex,
             )
             : null;
         let deleted = deletedViaSelectionFallback;
@@ -798,7 +886,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         }
         finally {
             if (switchedToPopupMode) {
-                await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
+                await toolManager.updateModeWithRetry(uiManager, previousMode, deleteTarget.pageNumber);
             }
         }
 
@@ -809,9 +897,9 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         if (pendingKey) {
             commentSync.pendingCommentEditorKeys.delete(pendingKey);
         }
-        else if (candidateIds.length > 0) {
+        else if (deleteTarget.candidateIds.length > 0) {
             for (const key of Array.from(commentSync.pendingCommentEditorKeys)) {
-                if (candidateIds.some(c => key.endsWith(`:${c}`))) {
+                if (deleteTarget.candidateIds.some(c => key.endsWith(`:${c}`))) {
                     commentSync.pendingCommentEditorKeys.delete(key);
                 }
             }
