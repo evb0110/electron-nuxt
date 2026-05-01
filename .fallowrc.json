@@ -35,6 +35,7 @@
         "electron/ipc/pdfExport.ts",
         "app/assets/css/*.scss",
         "landing/**",
+        "nuxt-output/**",
         "public/**"
     ],
     "ignoreDependencies": [
@@ -70,6 +71,7 @@
         "radix3",
         "sass-embedded",
         "source-map-js",
+        "type-coverage",
         "ufo",
         "uncrypto",
         "unhead",

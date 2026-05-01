@@ -1,9 +1,10 @@
 # Build Warning Baseline
 
 ## Status
-- Date: April 13, 2026
+- Date: May 1, 2026
 - Policy: CI fails on unknown build warnings (`pnpm run build:strict`)
-- Current baseline: zero allowlisted warnings
+- Current baseline: upstream Vite/Nuxt sourcemap warnings from Tailwind CSS generation,
+  Nuxt module preload polyfill, and Nuxt server dev-only transform.
 
 ## Historical Context
 The project previously emitted warnings from upstream `pdfjs-dist/web/pdf_viewer.css`:
@@ -14,6 +15,16 @@ Those warnings are mitigated by a generated sanitized stylesheet:
 - Source: `node_modules/pdfjs-dist/web/pdf_viewer.css`
 - Generated file: `app/assets/css/vendor/pdfjs-viewer-sanitized.css`
 - Generator: `scripts/sync-pdfjs-viewer-css.mjs`
+
+The current allowlist accepts only sourcemap warnings emitted by these build
+plugins:
+- `@tailwindcss/vite:generate:build`
+- `nuxt:module-preload-polyfill`
+- `nuxt:server-devonly:transform`
+
+Owner: frontend build tooling. Expiry: remove once Nuxt/Vite/Tailwind stop
+emitting these warnings or the project disables sourcemaps for the affected
+transform stage.
 
 ## Enforcement
 Run:
