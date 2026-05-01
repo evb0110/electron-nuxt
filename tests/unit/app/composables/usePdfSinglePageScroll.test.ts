@@ -501,6 +501,163 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
         expect(currentPage.value).toBe(1);
     });
 
+    it('throttles rapid same-direction flips on small pages (trackpad inertia guard)', () => {
+        // Fixture with three small pages that each fit the viewport so no
+        // tall-page interior scrolling can bypass the cooldown.
+        const {
+            container,
+            currentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 260,
+                    offsetHeight: 100,
+                },
+            ],
+            clientHeight: 100,
+            scrollHeight: 360,
+            getMostVisiblePage: (viewer) => {
+                if (!viewer) {
+                    return 1;
+                }
+                if (viewer.scrollTop >= 240) {
+                    return 3;
+                }
+                if (viewer.scrollTop >= 120) {
+                    return 2;
+                }
+                return 1;
+            },
+        });
+
+        // Two rapid wheel events 30ms apart simulate macOS trackpad inertia.
+        // Without a cooldown the second event would advance to page 3.
+        singlePageScroll.handleWheel(createWheelEvent(120, 10));
+        expect(currentPage.value).toBe(2);
+        const scrollTopAfterFirstFlip = container.scrollTop;
+
+        singlePageScroll.handleWheel(createWheelEvent(120, 40));
+        expect(currentPage.value).toBe(2);
+        expect(container.scrollTop).toBe(scrollTopAfterFirstFlip);
+
+        // After the cooldown elapses the next event should advance.
+        singlePageScroll.handleWheel(createWheelEvent(120, 250));
+        expect(currentPage.value).toBe(3);
+    });
+
+    it('bypasses cooldown when wheel direction reverses', () => {
+        const {
+            currentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 260,
+                    offsetHeight: 100,
+                },
+            ],
+            clientHeight: 100,
+            scrollHeight: 360,
+            getMostVisiblePage: (viewer) => {
+                if (!viewer) {
+                    return 1;
+                }
+                if (viewer.scrollTop >= 240) {
+                    return 3;
+                }
+                if (viewer.scrollTop >= 120) {
+                    return 2;
+                }
+                return 1;
+            },
+        });
+
+        singlePageScroll.handleWheel(createWheelEvent(120, 10));
+        expect(currentPage.value).toBe(2);
+
+        // Reversing direction immediately should NOT be blocked by cooldown —
+        // the user explicitly changed intent.
+        singlePageScroll.handleWheel(createWheelEvent(-120, 30));
+        expect(currentPage.value).toBe(1);
+    });
+
+    it('snaps fit-height pages to top so margins frame the page (no "1.5 pages" bleed)', () => {
+        // Fit-height layout: each page is shorter than the container by 2x
+        // margin (40 px), the canonical case where the previous 'center' anchor
+        // produced a scrollTop offset by half-margin (20 px) and bled the
+        // adjacent page into view. Container=100, margin=20, page height=60,
+        // so a perfectly framed snap is scrollTop=offsetTop−margin.
+        const {
+            container,
+            currentPage,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 60,
+                },
+                {
+                    offsetTop: 100,
+                    offsetHeight: 60,
+                },
+                {
+                    offsetTop: 180,
+                    offsetHeight: 60,
+                },
+            ],
+            clientHeight: 100,
+            scrollHeight: 260,
+            getMostVisiblePage: (viewer) => {
+                if (!viewer) {
+                    return 1;
+                }
+                if (viewer.scrollTop >= 160) {
+                    return 3;
+                }
+                if (viewer.scrollTop >= 80) {
+                    return 2;
+                }
+                return 1;
+            },
+        });
+
+        // Wheel down → flip to page 2. With 'top' anchor, scrollTop should be
+        // baseTop = offsetTop(2) − margin = 100 − 20 = 80. Viewport [80, 180]
+        // shows the 20px gutter, then page 2 (100..160), then 20px gutter
+        // below the page. With the buggy 'center' anchor it would have been
+        // 80 − (100 − 60)/2 = 60, viewport [60, 160] — which would put the
+        // bottom 20px of page 1 (which ends at 80) inside the top of the
+        // viewport.
+        singlePageScroll.handleWheel(createWheelEvent(120, 10));
+        expect(currentPage.value).toBe(2);
+        expect(container.scrollTop).toBe(80);
+
+        // Wheel up → flip back to page 1. 'top' anchor: scrollTop = max(0,
+        // 20 − 20) = 0. (Both 'top' and the old 'center' resolve to 0 here
+        // because of the clamp, but the assertion documents the contract.)
+        singlePageScroll.handleWheel(createWheelEvent(-120, 30));
+        expect(currentPage.value).toBe(1);
+        expect(container.scrollTop).toBe(0);
+    });
+
     it('emits current page updates while search navigation suppression is active', () => {
         const {
             container,
@@ -538,5 +695,75 @@ describe('usePdfSinglePageScroll wheel behavior', () => {
 
         expect(currentPage.value).toBe(1);
         expect(emitCurrentPage).toHaveBeenCalledWith(1);
+    });
+
+    it('scrollToPage in single-page mode snaps fit-height pages to top (no "1.5 pages" bleed)', () => {
+        // Fit-height geometry: page (60 tall) + 20-margin gutters within a
+        // 100-tall viewport. The pre-fix 'center' anchor would set
+        // scrollTop = baseTop − (containerHeight − pageHeight)/2
+        //           = (140 − 20) − (100 − 60)/2
+        //           = 120 − 20 = 100
+        // which leaves the bottom 20 px of the previous page visible at the
+        // top of the viewport. The 'top' anchor sets
+        // scrollTop = baseTop = 120, framing page 2 cleanly.
+        const {
+            container,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            continuousScroll: false,
+            clientHeight: 100,
+            scrollHeight: 280,
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 60,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 60,
+                },
+                {
+                    offsetTop: 220,
+                    offsetHeight: 60,
+                },
+            ],
+        });
+
+        singlePageScroll.scrollToPage(2);
+
+        expect(container.scrollTop).toBe(120);
+    });
+
+    it('scrollToPage in single-page mode keeps tall pages centered (which clamps to top edge)', () => {
+        // Tall page: pageHeight (200) > containerHeight (100). centerOffset =
+        // max(0, (100 − 200)/2) = 0, so 'center' degenerates to topTarget =
+        // baseTop = 140 − 20 = 120. Verifies the anchor logic doesn't break
+        // tall-page navigation.
+        const {
+            container,
+            singlePageScroll,
+        } = createSinglePageScrollHarness({
+            continuousScroll: false,
+            clientHeight: 100,
+            scrollHeight: 580,
+            pageGeometries: [
+                {
+                    offsetTop: 20,
+                    offsetHeight: 100,
+                },
+                {
+                    offsetTop: 140,
+                    offsetHeight: 200,
+                },
+                {
+                    offsetTop: 360,
+                    offsetHeight: 200,
+                },
+            ],
+        });
+
+        singlePageScroll.scrollToPage(2);
+
+        expect(container.scrollTop).toBe(120);
     });
 });

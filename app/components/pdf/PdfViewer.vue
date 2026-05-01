@@ -1810,15 +1810,15 @@ defineExpose({
         overflow-x: auto;
     }
 
-    &.pdfViewer--single-page {
-        scroll-snap-type: y mandatory;
-        scroll-snap-stop: always;
-    }
-
-    &.pdfViewer--single-page.pdfViewer--zoom-snap-suppressed {
-        scroll-snap-type: none;
-        scroll-snap-stop: normal;
-    }
+    /*
+     * Single-page mode is driven entirely by JS (see usePdfSinglePageScroll).
+     * CSS scroll-snap was previously enabled here but collided with the JS
+     * snap targets — `scroll-snap-align: center` resolves to a different
+     * scrollTop than the JS `centerTarget` calculation (margin handling
+     * differs), causing the engine to override JS-set positions. The most
+     * visible symptom was that wheel-up appeared to do nothing because the
+     * snap engine pulled the position back. JS owns paging end-to-end now.
+     */
 
     &.pdfViewer--hidden {
         opacity: 0;
@@ -1950,11 +1950,11 @@ defineExpose({
     }
 }
 
-/* ── Single-Page Snap (after dark mode to satisfy specificity order) ── */
-
-.pdfViewer.pdfViewer--single-page .page_container {
-    scroll-snap-align: center;
-}
+/*
+ * Single-page CSS scroll-snap was removed — paging is JS-driven via
+ * usePdfSinglePageScroll. Keeping a CSS snap point on each .page_container
+ * fought the JS centerTarget math and produced asymmetric wheel behavior.
+ */
 
 .page {
     margin: 1px auto -3px !important;

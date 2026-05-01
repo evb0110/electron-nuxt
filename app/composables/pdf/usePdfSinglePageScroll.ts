@@ -24,6 +24,13 @@ const MAX_PAGE_FLIPS_PER_EVENT = 3;
 const HORIZONTAL_INTENT_REJECT_RATIO = 2.5;
 const PAGE_SCROLL_EDGE_EPSILON = 1;
 const WHEEL_DELTA_EPSILON = 0.01;
+// Minimum gap between consecutive same-direction page flips driven by the
+// wheel handler. Prevents trackpad inertia from blasting through pages — one
+// swipe gesture should advance one page, matching Adobe Acrobat / Preview.
+// Bypassed on direction reversal and when tall-page interior scrolling has
+// happened since the last flip (so reaching the edge of a tall page still
+// flips on the next wheel tick).
+const SAME_DIRECTION_FLIP_COOLDOWN_MS = 180;
 
 export type TPageSnapAnchor = 'center' | 'top' | 'bottom';
 export type TWheelDirection = -1 | 1;
@@ -247,6 +254,12 @@ export function usePdfSinglePageScroll(
         lastEventTimeMs: 0,
     });
 
+    // Cooldown tracking: throttles rapid same-direction wheel flips while
+    // still allowing immediate edge-flips after tall-page interior scrolling.
+    let lastWheelFlipAtMs = 0;
+    let lastWheelFlipDirection: TWheelDirection | 0 = 0;
+    let interiorScrollSinceLastFlip = false;
+
     const debouncedRenderOnScroll = useDebounceFn(() => {
         if (isDisposed) {
             return;
@@ -396,7 +409,17 @@ export function usePdfSinglePageScroll(
         if (page === currentPage.value && isTallPage(page)) {
             return;
         }
-        snapToPage(page, 'center');
+        // For pages that fit within the viewport (fit-height, fit-width, or
+        // any zoom where the page is shorter than the container), 'top' is the
+        // only anchor that leaves the page cleanly framed: viewport shows
+        // [margin gutter, full page, margin gutter]. The 'center' anchor
+        // computes scrollTop = baseTop − (containerHeight − pageHeight)/2,
+        // which is offset by half-margin and produces the classic "1.5 pages
+        // visible" symptom (bottom edge of previous page bleeds into view).
+        // Tall pages keep 'center' so they are vertically positioned within
+        // the viewport rather than scrolled to the top edge.
+        const anchor: TPageSnapAnchor = isTallPage(page) ? 'center' : 'top';
+        snapToPage(page, anchor);
     }, 120);
 
     function handleWheel(event: WheelEvent) {
@@ -447,8 +470,28 @@ export function usePdfSinglePageScroll(
                         ? Math.min(bounds.max, container.scrollTop + delta)
                         : Math.max(bounds.min, container.scrollTop + delta);
                 container.scrollTop = nextTop;
+                // Record interior progress so the eventual edge-flip is not
+                // gated by the same-direction cooldown.
+                interiorScrollSinceLastFlip = true;
                 return;
             }
+        }
+
+        // Cooldown gate: when a same-direction flip just happened and the user
+        // hasn't either reversed direction or scrolled within a tall page,
+        // swallow this wheel packet to avoid trackpad inertia rapid-firing
+        // through pages. preventDefault was already called above, so the
+        // browser also won't perform a native scroll.
+        const sinceLastFlipMs = event.timeStamp - lastWheelFlipAtMs;
+        const inSameDirectionCooldown =
+            lastWheelFlipAtMs > 0
+            && lastWheelFlipDirection === direction
+            && !interiorScrollSinceLastFlip
+            && sinceLastFlipMs >= 0
+            && sinceLastFlipMs < SAME_DIRECTION_FLIP_COOLDOWN_MS;
+        if (inSameDirectionCooldown) {
+            clearWheelAccumulator();
+            return;
         }
 
         const accumulationResult = accumulateWheelForPageFlips({
@@ -476,11 +519,23 @@ export function usePdfSinglePageScroll(
             return;
         }
 
-        const anchor = isTallPage(targetPage)
+        // Anchor selection:
+        //   - Tall target page: align to 'top' on forward, 'bottom' on
+        //     backward — standard reading flow (next page starts at top of
+        //     viewport, previous page's tail visible when scrolling back).
+        //   - Non-tall target page (page fits viewport): always 'top'. This
+        //     leaves the page framed with clean margin gutters. The previous
+        //     'center' anchor computed `baseTop − (containerHeight −
+        //     pageHeight)/2`, which is half a margin off and bleeds the
+        //     adjacent page into the viewport ("1.5 pages visible" symptom).
+        const anchor: TPageSnapAnchor = isTallPage(targetPage)
             ? resolveSnapAnchorForWheelDirection(direction)
-            : 'center';
+            : 'top';
         snapToPage(targetPage, anchor);
         suppressSnapFor(250);
+        lastWheelFlipAtMs = event.timeStamp;
+        lastWheelFlipDirection = direction;
+        interiorScrollSinceLastFlip = false;
     }
 
     function handleScroll() {
@@ -537,7 +592,17 @@ export function usePdfSinglePageScroll(
             const page = updateCurrentPage(viewerContainer.value, numPages.value);
             emitCurrentPage(page);
         } else {
-            snapToPage(pageNumber, 'center');
+            // Same anchor logic as the wheel and debounced snap paths: tall
+            // pages can use 'center' (which clamps to topTarget when the page
+            // exceeds the viewport — so it is effectively 'top'), but pages
+            // that fit in the viewport MUST use 'top'. The legacy 'center'
+            // anchor on a non-tall page produces scrollTop = baseTop −
+            // (containerHeight − pageHeight)/2, off by half a margin, which is
+            // the "1.5 pages visible" symptom (bottom of the previous page
+            // bleeds in). pdf.js's scrollMode setter snaps to top-left of the
+            // current page; mirror that behavior uniformly.
+            const anchor: TPageSnapAnchor = isTallPage(pageNumber) ? 'center' : 'top';
+            snapToPage(pageNumber, anchor);
         }
 
         queueMicrotask(() => {
@@ -559,6 +624,9 @@ export function usePdfSinglePageScroll(
         isProgrammaticNavigationActive.value = false;
         searchNavigationTargetPage.value = null;
         snapSuppressUntil.value = 0;
+        lastWheelFlipAtMs = 0;
+        lastWheelFlipDirection = 0;
+        interiorScrollSinceLastFlip = false;
     }
 
     tryOnScopeDispose(() => {
