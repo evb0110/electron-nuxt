@@ -1,27 +1,13 @@
-import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
-import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
 import {
     WHEEL_DETAIL_LOG_THROTTLE_MS,
     WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS,
     WHEEL_ZOOM_GESTURE_GRACE_MS,
     WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
 } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerWheelZoom.constants';
-import type { IViewerStateForLog } from '@app/modules/pdf-viewer-runtime/composables/pdfViewerZoomTypes';
+import type { IZoomVirtualizationLogOptions } from '@app/modules/pdf-viewer-runtime/composables/pdfViewerZoomTypes';
 
-interface IUsePdfViewerZoomInteractionLockOptions {
-    currentPage: Ref<number>;
-    visibleRange: Ref<{
-        start: number;
-        end: number;
-    }>;
-    virtualizedContinuousMode: Ref<boolean>;
-    virtualWindowStart: Ref<number>;
-    virtualWindowEnd: Ref<number>;
-    topVirtualSpacerStyle: Ref<Record<string, string> | null>;
-    bottomVirtualSpacerStyle: Ref<Record<string, string> | null>;
-    zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
-    summarizeViewerStateForLog: () => IViewerStateForLog | null;
+interface IUsePdfViewerZoomInteractionLockOptions extends IZoomVirtualizationLogOptions {
     getActiveSessionId: () => number | null;
     isWheelZoomGestureLocked: (nowMs?: number) => boolean;
 }
