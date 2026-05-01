@@ -5,13 +5,14 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import type { Ref } from 'vue';
 import type { ISettingsData } from '@contracts/shared';
+import { installNuxtStateTestStubs } from './nuxtStateTestStubs';
 
 const mockGet = vi.fn<() => Promise<ISettingsData>>();
 const mockSave = vi.fn<(settings: ISettingsData) => Promise<void>>();
-const cookieStore = new Map<string, ReturnType<typeof ref>>();
-const stateStore = new Map<string, ReturnType<typeof ref>>();
+const cookieStore = new Map<string, Ref<unknown>>();
+const stateStore = new Map<string, Ref<unknown>>();
 const mockPlatformApi = { settings: {
     get: mockGet,
     save: mockSave,
@@ -20,28 +21,7 @@ const mockPlatformApi = { settings: {
 vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
 
 function installNuxtStateStubs() {
-    vi.stubGlobal('useCookie', <T>(key: string, options?: { default?: () => T; }) => {
-        const existing = cookieStore.get(key);
-        if (existing) {
-            return existing;
-        }
-
-        const cookie = ref(options?.default ? options.default() : null);
-        cookieStore.set(key, cookie);
-        return cookie;
-    });
-
-    vi.stubGlobal('useState', <T>(key: string, init: () => T) => {
-        const existing = stateStore.get(key);
-        if (existing) {
-            return existing;
-        }
-
-        const state = ref(init());
-        stateStore.set(key, state);
-        return state;
-    });
-
+    installNuxtStateTestStubs(cookieStore, stateStore);
     vi.stubGlobal('toRaw', <T>(value: T) => value);
 }
 

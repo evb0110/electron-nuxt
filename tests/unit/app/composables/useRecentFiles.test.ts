@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import type { IRecentFile } from '@contracts/shared';
+import { installNuxtStateTestStubs } from './nuxtStateTestStubs';
 
 const cookieStore = new Map<string, ReturnType<typeof ref>>();
 const stateStore = new Map<string, ReturnType<typeof ref>>();
@@ -91,33 +92,10 @@ vi.mock('@app/utils/platform', () => ({
     },
 }));
 
-function installNuxtStateStubs() {
-    vi.stubGlobal('useCookie', <T>(key: string, options?: { default?: () => T; }) => {
-        const existing = cookieStore.get(key);
-        if (existing) {
-            return existing;
-        }
-
-        const cookie = ref(options?.default ? options.default() : null);
-        cookieStore.set(key, cookie);
-        return cookie;
-    });
-
-    vi.stubGlobal('useState', <T>(key: string, init: () => T) => {
-        const existing = stateStore.get(key);
-        if (existing) {
-            return existing;
-        }
-
-        const state = ref(init());
-        stateStore.set(key, state);
-        return state;
-    });
-
+function installRecentFilesStubs() {
+    installNuxtStateTestStubs(cookieStore, stateStore);
     vi.stubGlobal('useRoute', () => ({path: routePath.value}));
-
     vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
-
     vi.stubGlobal('onMounted', (_callback: () => void) => undefined);
 }
 
@@ -136,7 +114,7 @@ describe('useRecentFiles', () => {
         electronRecentFilesClear.mockResolvedValue();
         electronOpenPdfDirect.mockResolvedValue();
         browserRecentFilesGet.mockResolvedValue([]);
-        installNuxtStateStubs();
+        installRecentFilesStubs();
     });
 
     it('keeps desktop recent files unresolved until Electron results load', async () => {

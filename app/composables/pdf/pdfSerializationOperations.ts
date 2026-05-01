@@ -298,6 +298,66 @@ function toFlatPdfPoints(points: ReadonlyArray<{
     return values;
 }
 
+function setPdfRect(annotDict: PDFDict, doc: PDFDocument, rect: [number, number, number, number]) {
+    annotDict.set(PDFName.of('Rect'), doc.context.obj(rect));
+}
+
+function applyRectAnnotationStyle(
+    annotDict: PDFDict,
+    doc: PDFDocument,
+    shape: IShapeAnnotation,
+) {
+    updateShapeStyle(annotDict, doc, shape);
+    setRgbColor(annotDict, doc, 'IC', shape.fillColor);
+}
+
+function resolveShapePdfRect(
+    shape: IShapeAnnotation,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    return toPdfRectFromMarkerRect(getShapeMarkerRect(shape), pageView, pageRotation);
+}
+
+function resolvePdfLineGeometry(
+    shape: IShapeAnnotation,
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const pdfPoints = toPdfLinePoints(shape, pageView, pageRotation);
+    if (!pdfPoints) {
+        return null;
+    }
+
+    const rect = toPdfBoundsRect(pdfPoints, shape.strokeWidth);
+    if (!rect) {
+        return null;
+    }
+
+    return {
+        linePoints: toFlatPdfPoints(pdfPoints),
+        rect,
+    };
+}
+
+function applyLineAnnotationGeometry(
+    annotDict: PDFDict,
+    doc: PDFDocument,
+    geometry: NonNullable<ReturnType<typeof resolvePdfLineGeometry>>,
+) {
+    setPdfRect(annotDict, doc, geometry.rect);
+    annotDict.set(PDFName.of('L'), doc.context.obj(geometry.linePoints));
+}
+
+function applyLineAnnotationStyle(
+    annotDict: PDFDict,
+    doc: PDFDocument,
+    shape: IShapeAnnotation,
+) {
+    updateShapeStyle(annotDict, doc, shape);
+    setLineEndings(annotDict, doc, shape);
+}
+
 function applyVertexAnnotationStyle(
     annotDict: PDFDict,
     doc: PDFDocument,
@@ -324,7 +384,7 @@ function createRectAnnotationDict(
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ) {
-    const rect = toPdfRectFromMarkerRect(getShapeMarkerRect(shape), pageView, pageRotation);
+    const rect = resolveShapePdfRect(shape, pageView, pageRotation);
     if (!rect) {
         return null;
     }
@@ -334,8 +394,7 @@ function createRectAnnotationDict(
         Subtype: subtype,
         Rect: doc.context.obj(rect),
     });
-    updateShapeStyle(annotDict, doc, shape);
-    setRgbColor(annotDict, doc, 'IC', shape.fillColor);
+    applyRectAnnotationStyle(annotDict, doc, shape);
     return annotDict;
 }
 
@@ -346,14 +405,13 @@ function updateRectAnnotationDict(
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ) {
-    const rect = toPdfRectFromMarkerRect(getShapeMarkerRect(shape), pageView, pageRotation);
+    const rect = resolveShapePdfRect(shape, pageView, pageRotation);
     if (!rect) {
         return false;
     }
 
-    annotDict.set(PDFName.of('Rect'), doc.context.obj(rect));
-    updateShapeStyle(annotDict, doc, shape);
-    setRgbColor(annotDict, doc, 'IC', shape.fillColor);
+    setPdfRect(annotDict, doc, rect);
+    applyRectAnnotationStyle(annotDict, doc, shape);
     return true;
 }
 
@@ -363,29 +421,18 @@ function createLineAnnotationDict(
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ) {
-    const pdfPoints = toPdfLinePoints(shape, pageView, pageRotation);
-    if (!pdfPoints) {
-        return null;
-    }
-
-    const rect = toPdfBoundsRect(pdfPoints, shape.strokeWidth);
-    if (!rect) {
+    const geometry = resolvePdfLineGeometry(shape, pageView, pageRotation);
+    if (!geometry) {
         return null;
     }
 
     const annotDict = doc.context.obj({
         Type: 'Annot',
         Subtype: 'Line',
-        Rect: doc.context.obj(rect),
-        L: doc.context.obj([
-            pdfPoints[0].x,
-            pdfPoints[0].y,
-            pdfPoints[1].x,
-            pdfPoints[1].y,
-        ]),
+        Rect: doc.context.obj(geometry.rect),
+        L: doc.context.obj(geometry.linePoints),
     });
-    updateShapeStyle(annotDict, doc, shape);
-    setLineEndings(annotDict, doc, shape);
+    applyLineAnnotationStyle(annotDict, doc, shape);
     return annotDict;
 }
 
@@ -396,25 +443,13 @@ function updateLineAnnotationDict(
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ) {
-    const pdfPoints = toPdfLinePoints(shape, pageView, pageRotation);
-    if (!pdfPoints) {
+    const geometry = resolvePdfLineGeometry(shape, pageView, pageRotation);
+    if (!geometry) {
         return false;
     }
 
-    const rect = toPdfBoundsRect(pdfPoints, shape.strokeWidth);
-    if (!rect) {
-        return false;
-    }
-
-    annotDict.set(PDFName.of('Rect'), doc.context.obj(rect));
-    annotDict.set(PDFName.of('L'), doc.context.obj([
-        pdfPoints[0].x,
-        pdfPoints[0].y,
-        pdfPoints[1].x,
-        pdfPoints[1].y,
-    ]));
-    updateShapeStyle(annotDict, doc, shape);
-    setLineEndings(annotDict, doc, shape);
+    applyLineAnnotationGeometry(annotDict, doc, geometry);
+    applyLineAnnotationStyle(annotDict, doc, shape);
     return true;
 }
 
