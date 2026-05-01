@@ -25,6 +25,10 @@ import {
     readManagedShapeStableKey,
 } from '@app/composables/pdf/pdfSerializationRefs';
 import { getAllShapePoints } from '@app/composables/pdf/pdfShapeStrokes';
+import {
+    readPdfRectFromDict,
+    resolvePdfPageView,
+} from '@app/composables/pdf/pdfPageBoxes';
 
 const IMPORTED_SHAPE_SUBTYPES = new Set<TEmbeddedPdfShapeSubtype>([
     'Square',
@@ -35,7 +39,6 @@ const IMPORTED_SHAPE_SUBTYPES = new Set<TEmbeddedPdfShapeSubtype>([
     'Ink',
 ]);
 
-const RECT_NAME = PDFName.of('Rect');
 const BORDER_NAME = PDFName.of('Border');
 const BORDER_STYLE_NAME = PDFName.of('BS');
 const WIDTH_NAME = PDFName.of('W');
@@ -46,11 +49,6 @@ const LINE_POINTS_NAME = PDFName.of('L');
 const VERTICES_NAME = PDFName.of('Vertices');
 const INK_LIST_NAME = PDFName.of('InkList');
 const LINE_ENDINGS_NAME = PDFName.of('LE');
-const CROP_BOX_NAME = PDFName.of('CropBox');
-const MEDIA_BOX_NAME = PDFName.of('MediaBox');
-
-type TPdfPage = ReturnType<PDFDocument['getPages']>[number];
-
 function normalizeImportedShapeSubtype(
     subtype: string | null | undefined,
 ): TEmbeddedPdfShapeSubtype | null {
@@ -82,67 +80,6 @@ function numbersFromPdfArray(array: PDFArray) {
         values.push(value);
     }
     return values;
-}
-
-function readPdfRectFromDict(dict: PDFDict) {
-    const rect = dict.lookupMaybe(RECT_NAME, PDFArray);
-    if (!(rect instanceof PDFArray) || rect.size() < 4) {
-        return null;
-    }
-
-    const values = numbersFromPdfArray(rect);
-    if (!values || values.length < 4) {
-        return null;
-    }
-
-    return [
-        values[0]!,
-        values[1]!,
-        values[2]!,
-        values[3]!,
-    ] as [number, number, number, number];
-}
-
-function resolvePdfPageView(page: TPdfPage) {
-    const fallbackSize = page.getSize();
-    if (fallbackSize.width <= 0 || fallbackSize.height <= 0) {
-        return null;
-    }
-
-    const fallbackView: [number, number, number, number] = [
-        0,
-        0,
-        fallbackSize.width,
-        fallbackSize.height,
-    ];
-
-    const box = (
-        page.node.lookupMaybe(CROP_BOX_NAME, PDFArray)
-        ?? page.node.lookupMaybe(MEDIA_BOX_NAME, PDFArray)
-    );
-    if (!(box instanceof PDFArray) || box.size() < 4) {
-        return fallbackView;
-    }
-
-    const values = numbersFromPdfArray(box);
-    if (!values || values.length < 4) {
-        return fallbackView;
-    }
-
-    const minX = Math.min(values[0]!, values[2]!);
-    const minY = Math.min(values[1]!, values[3]!);
-    const maxX = Math.max(values[0]!, values[2]!);
-    const maxY = Math.max(values[1]!, values[3]!);
-    if ((maxX - minX) <= 0 || (maxY - minY) <= 0) {
-        return fallbackView;
-    }
-
-    return [
-        minX,
-        minY,
-        maxX,
-        maxY,
-    ] as [number, number, number, number];
 }
 
 function rgbComponentToHex(value: number) {
