@@ -303,67 +303,101 @@ function getAvailableLanguages(tessdataPath: string): string[] {
     }
 }
 
+async function validateRequiredTool(
+    name: string,
+    path: string,
+    errors: string[],
+    notFoundMessage: (path: string) => string,
+) {
+    const found = await checkToolExists(path);
+    if (!found) {
+        errors.push(notFoundMessage(path));
+    }
+    return found;
+}
+
+async function validateTesseractTool(path: string, errors: string[]) {
+    const found = await validateRequiredTool(
+        'Tesseract',
+        path,
+        errors,
+        toolPath => `Tesseract binary not found: ${toolPath}`,
+    );
+    const version = found ? await getToolVersion(path) : undefined;
+    return {
+        found,
+        version,
+    };
+}
+
+function validateTessdata(path: string, errors: string[]) {
+    const found = existsSync(path);
+    const languages = found ? getAvailableLanguages(path) : undefined;
+    if (!found) {
+        errors.push(`Tessdata directory not found: ${path}`);
+    } else if (languages && languages.length === 0) {
+        errors.push(`No language models found in tessdata: ${path}`);
+    }
+    return {
+        found,
+        languages,
+    };
+}
+
+function validatePopplerRuntime(paths: IOcrToolPaths, errors: string[]) {
+    const dataDirFound = !!paths.popplerDataDir && existsSync(paths.popplerDataDir);
+    const fontConfigDirFound = !!paths.popplerFontConfigDir && existsSync(paths.popplerFontConfigDir);
+    if (process.platform === 'win32' && !dataDirFound) {
+        errors.push(`Poppler data directory not found: ${paths.popplerDataDir || '(unset)'} (expected <resources>/poppler/<platform>/share/poppler)`);
+    }
+    return {
+        dataDirFound,
+        dataDir: paths.popplerDataDir,
+        fontConfigDirFound,
+        fontConfigDir: paths.popplerFontConfigDir,
+        valid: process.platform !== 'win32' || dataDirFound,
+    };
+}
+
 export async function validateOcrTools(): Promise<IToolValidationResult> {
     const paths = await getOcrToolPaths();
     const errors: string[] = [];
 
-    // Check tesseract
-    const tesseractFound = await checkToolExists(paths.tesseract);
-    const tesseractVersion = tesseractFound ? await getToolVersion(paths.tesseract) : undefined;
-    if (!tesseractFound) {
-        errors.push(`Tesseract binary not found: ${paths.tesseract}`);
-    }
-
-    // Check tessdata
-    const tessdataFound = existsSync(paths.tessdata);
-    const languages = tessdataFound ? getAvailableLanguages(paths.tessdata) : undefined;
-    if (!tessdataFound) {
-        errors.push(`Tessdata directory not found: ${paths.tessdata}`);
-    } else if (languages && languages.length === 0) {
-        errors.push(`No language models found in tessdata: ${paths.tessdata}`);
-    }
-
-    // Check pdftoppm
-    const pdftoppmFound = await checkToolExists(paths.pdftoppm);
-    if (!pdftoppmFound) {
-        errors.push(`pdftoppm not found: ${paths.pdftoppm} (install Poppler or bundle it)`);
-    }
-
-    // Check pdftotext
-    const pdftotextFound = await checkToolExists(paths.pdftotext);
-    if (!pdftotextFound) {
-        errors.push(`pdftotext not found: ${paths.pdftotext} (install Poppler or bundle it)`);
-    }
-
-    const popplerDataDirFound = !!paths.popplerDataDir && existsSync(paths.popplerDataDir);
-    const popplerFontConfigDirFound = !!paths.popplerFontConfigDir && existsSync(paths.popplerFontConfigDir);
-    if (process.platform === 'win32') {
-        if (!popplerDataDirFound) {
-            errors.push(`Poppler data directory not found: ${paths.popplerDataDir || '(unset)'} (expected <resources>/poppler/<platform>/share/poppler)`);
-        }
-    }
-
-    // Check qpdf
-    const qpdfFound = await checkToolExists(paths.qpdf);
-    if (!qpdfFound) {
-        errors.push(`qpdf not found: ${paths.qpdf} (install qpdf or bundle it)`);
-    }
-
-    const popplerRuntimeValid = process.platform !== 'win32' || popplerDataDirFound;
-    const valid = tesseractFound && tessdataFound && pdftoppmFound && qpdfFound && popplerRuntimeValid;
+    const tesseract = await validateTesseractTool(paths.tesseract, errors);
+    const tessdata = validateTessdata(paths.tessdata, errors);
+    const pdftoppmFound = await validateRequiredTool(
+        'pdftoppm',
+        paths.pdftoppm,
+        errors,
+        path => `pdftoppm not found: ${path} (install Poppler or bundle it)`,
+    );
+    const pdftotextFound = await validateRequiredTool(
+        'pdftotext',
+        paths.pdftotext,
+        errors,
+        path => `pdftotext not found: ${path} (install Poppler or bundle it)`,
+    );
+    const popplerRuntime = validatePopplerRuntime(paths, errors);
+    const qpdfFound = await validateRequiredTool(
+        'qpdf',
+        paths.qpdf,
+        errors,
+        path => `qpdf not found: ${path} (install qpdf or bundle it)`,
+    );
+    const valid = tesseract.found && tessdata.found && pdftoppmFound && qpdfFound && popplerRuntime.valid;
 
     return {
         valid,
         tools: {
             tesseract: {
-                found: tesseractFound,
+                found: tesseract.found,
                 path: paths.tesseract,
-                version: tesseractVersion,
+                version: tesseract.version,
             },
             tessdata: {
-                found: tessdataFound,
+                found: tessdata.found,
                 path: paths.tessdata,
-                languages,
+                languages: tessdata.languages,
             },
             pdftoppm: {
                 found: pdftoppmFound,
@@ -374,10 +408,10 @@ export async function validateOcrTools(): Promise<IToolValidationResult> {
                 path: paths.pdftotext,
             },
             popplerRuntime: {
-                dataDirFound: popplerDataDirFound,
-                dataDir: paths.popplerDataDir,
-                fontConfigDirFound: popplerFontConfigDirFound,
-                fontConfigDir: paths.popplerFontConfigDir,
+                dataDirFound: popplerRuntime.dataDirFound,
+                dataDir: popplerRuntime.dataDir,
+                fontConfigDirFound: popplerRuntime.fontConfigDirFound,
+                fontConfigDir: popplerRuntime.fontConfigDir,
             },
             qpdf: {
                 found: qpdfFound,

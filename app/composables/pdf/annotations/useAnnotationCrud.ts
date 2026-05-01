@@ -958,6 +958,69 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         });
     }
 
+    function createDeleteTargetState(comment: IAnnotationCommentSummary) {
+        let resolvedComment = resolveCommentForDelete(comment) ?? comment;
+        let deleteTarget = toDeleteTargetState(resolvedComment);
+
+        return {
+            get resolvedComment() {
+                return resolvedComment;
+            },
+            get deleteTarget() {
+                return deleteTarget;
+            },
+            sync(nextComment: IAnnotationCommentSummary) {
+                resolvedComment = nextComment;
+                deleteTarget = toDeleteTargetState(nextComment);
+            },
+        };
+    }
+
+    async function refreshDeleteTargetFromSync(
+        commentSync: ICrudSync,
+        state: ReturnType<typeof createDeleteTargetState>,
+        originalComment: IAnnotationCommentSummary,
+    ) {
+        await commentSync.syncAnnotationComments();
+        const syncedMatch = resolveCommentForDelete(state.resolvedComment) ?? resolveCommentForDelete(originalComment);
+        if (syncedMatch) {
+            state.sync(syncedMatch);
+        }
+    }
+
+    function getDeletePendingKey(
+        identity: ICrudIdentity,
+        editor: IPdfjsEditor | null,
+        deleteTarget: ReturnType<typeof toDeleteTargetState>,
+    ) {
+        if (!editor) {
+            return null;
+        }
+        return identity.getEditorPendingKey(
+            editor,
+            Number.isFinite(editor.parentPageIndex)
+                ? (editor.parentPageIndex as number)
+                : deleteTarget.comment.pageIndex,
+        );
+    }
+
+    function deleteViaSelectedCommentFallback(
+        uiManager: AnnotationEditorUIManager,
+        attemptedCommentSelection: boolean,
+        hasEditor: boolean,
+    ) {
+        if (hasEditor || !attemptedCommentSelection) {
+            return false;
+        }
+        try {
+            uiManager.delete();
+            return true;
+        } catch (selectionDeleteError) {
+            logCrudDebug('uiManager.delete failed for selected comment fallback', selectionDeleteError);
+            return false;
+        }
+    }
+
     async function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
         const uiManager = annotationUiManager.value;
         if (!uiManager) {
@@ -969,86 +1032,60 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         const inlineIndicators = getInlineIndicators();
         const toolManager = getToolManager();
 
-        let resolvedComment = resolveCommentForDelete(comment) ?? comment;
-        let deleteTarget = toDeleteTargetState(resolvedComment);
+        const deleteState = createDeleteTargetState(comment);
 
-        function syncDeleteTargetState(nextComment: IAnnotationCommentSummary) {
-            resolvedComment = nextComment;
-            deleteTarget = toDeleteTargetState(nextComment);
-        }
-
-        const refreshDeleteTargetFromSync = async () => {
-            await commentSync.syncAnnotationComments();
-            const syncedMatch = resolveCommentForDelete(resolvedComment) ?? resolveCommentForDelete(comment);
-            if (!syncedMatch) {
-                return;
-            }
-            syncDeleteTargetState(syncedMatch);
-        };
-
-        let editor = findEditorForComment(resolvedComment);
+        let editor = findEditorForComment(deleteState.resolvedComment);
         let switchedToPopupMode = false;
         const previousMode = uiManager.getMode();
 
         if (!editor) {
-            await refreshDeleteTargetFromSync();
-            editor = findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
+            await refreshDeleteTargetFromSync(commentSync, deleteState, comment);
+            editor = findEditorForComment(deleteState.resolvedComment) ?? findEditorForComment(comment);
         }
 
-        if (!editor && shouldAttemptPopupModeForDelete(resolvedComment) && previousMode !== AnnotationEditorType.POPUP) {
+        if (!editor && shouldAttemptPopupModeForDelete(deleteState.resolvedComment) && previousMode !== AnnotationEditorType.POPUP) {
             switchedToPopupMode = await switchToPopupModeForDelete(
                 toolManager,
                 uiManager,
-                resolvedComment,
-                deleteTarget.pageNumber,
+                deleteState.resolvedComment,
+                deleteState.deleteTarget.pageNumber,
                 previousMode,
             );
         }
 
         let attemptedCommentSelection = false;
         if (!editor) {
-            const resolved = await resolveDeleteEditor(uiManager, comment, deleteTarget);
+            const resolved = await resolveDeleteEditor(uiManager, comment, deleteState.deleteTarget);
             editor = resolved.editor;
             attemptedCommentSelection = resolved.attemptedCommentSelection;
         }
 
         if (!editor) {
-            const stablePdfFallback = resolveStablePdfDeleteFallback(resolvedComment);
+            const stablePdfFallback = resolveStablePdfDeleteFallback(deleteState.resolvedComment);
             if (stablePdfFallback) {
-                syncDeleteTargetState(stablePdfFallback);
-                editor = findStablePdfFallbackDeleteEditor(deleteTarget);
+                deleteState.sync(stablePdfFallback);
+                editor = findStablePdfFallbackDeleteEditor(deleteState.deleteTarget);
             }
         }
 
-        let deletedViaSelectionFallback = false;
-        if (!editor && attemptedCommentSelection) {
-            try { uiManager.delete(); deletedViaSelectionFallback = true; }
-            catch (selectionDeleteError) { logCrudDebug('uiManager.delete failed for selected comment fallback', selectionDeleteError); }
-        }
+        const deletedViaSelectionFallback = deleteViaSelectedCommentFallback(uiManager, attemptedCommentSelection, Boolean(editor));
 
         if (!editor && !deletedViaSelectionFallback) {
-            logUnresolvedDeleteTarget(resolvedComment, deleteTarget);
-            await restorePopupModeAfterDelete(toolManager, uiManager, switchedToPopupMode, previousMode, deleteTarget.pageNumber);
+            logUnresolvedDeleteTarget(deleteState.resolvedComment, deleteState.deleteTarget);
+            await restorePopupModeAfterDelete(toolManager, uiManager, switchedToPopupMode, previousMode, deleteState.deleteTarget.pageNumber);
             return false;
         }
 
-        const pendingKey = editor
-            ? identity.getEditorPendingKey(
-                editor,
-                Number.isFinite(editor.parentPageIndex)
-                    ? (editor.parentPageIndex as number)
-                    : deleteTarget.comment.pageIndex,
-            )
-            : null;
+        const pendingKey = getDeletePendingKey(identity, editor, deleteState.deleteTarget);
         const deleted = deleteSelectedAnnotationComment(uiManager, editor, deletedViaSelectionFallback);
-        await restorePopupModeAfterDelete(toolManager, uiManager, switchedToPopupMode, previousMode, deleteTarget.pageNumber);
+        await restorePopupModeAfterDelete(toolManager, uiManager, switchedToPopupMode, previousMode, deleteState.deleteTarget.pageNumber);
 
         if (!deleted) {
             return false;
         }
 
-        removePendingDeleteKeys(commentSync, pendingKey, deleteTarget.candidateIds);
-        identity.forgetSummaryText(resolvedComment);
+        removePendingDeleteKeys(commentSync, pendingKey, deleteState.deleteTarget.candidateIds);
+        identity.forgetSummaryText(deleteState.resolvedComment);
         identity.forgetSummaryText(comment);
         emitAnnotationCommentMutation(commentSync, inlineIndicators);
         return true;
@@ -1250,6 +1287,76 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         }
     }
 
+    function getPlacementClickMeta(event: MouseEvent) {
+        return {
+            button: event.button,
+            buttons: event.buttons,
+            detail: event.detail,
+            ctrlKey: event.ctrlKey,
+            shiftKey: event.shiftKey,
+            altKey: event.altKey,
+            metaKey: event.metaKey,
+        };
+    }
+
+    function handleCommentPlacementClick(event: MouseEvent, clickTarget: HTMLElement, highlight: ICrudHighlight) {
+        const attemptId = nextNotePlacementAttemptId();
+        runGuardedTask(
+            () => highlight.placeCommentAtClientPoint(event.clientX, event.clientY, clickTarget, {
+                attemptId,
+                source: 'annotation-comment-click',
+                clickCapturedAtMs: Date.now(),
+                clickMeta: getPlacementClickMeta(event),
+            }),
+            {
+                scope: 'annotations',
+                message: 'Failed to place annotation comment at pointer location',
+            },
+        );
+    }
+
+    async function prepareClickedEditorForCommentInteraction(clickTarget: HTMLElement, clickedEditorMatch: IEditorTargetMatch | null) {
+        if (!clickedEditorMatch) {
+            return;
+        }
+        if (annotationTool.value !== 'none') {
+            emitAnnotationToolCancel();
+            await nextTick();
+        }
+
+        await ensureEditorInteractionModeFromTarget(clickTarget);
+    }
+
+    function resolveInlineTargetComment(
+        inlineTarget: HTMLElement,
+        inlineIndicators: ICrudInlineIndicators,
+        event: MouseEvent,
+    ) {
+        return inlineIndicators.findCommentFromInlineTarget(inlineTarget)
+            ?? findAnnotationSummaryFromTarget(inlineTarget)
+            ?? findAnnotationSummaryFromPoint(inlineTarget, event.clientX, event.clientY);
+    }
+
+    function emitResolvedCommentClickAndClearSelection(
+        summary: IAnnotationCommentSummary,
+        inlineIndicators: ICrudInlineIndicators,
+        options?: { openEligibleNote: boolean },
+    ) {
+        emitResolvedCommentClick(summary, inlineIndicators, options);
+        clearStickyHighlightSelectionState(findEditorForComment(summary));
+    }
+
+    function consumeResolvedCommentClick(
+        event: MouseEvent,
+        summary: IAnnotationCommentSummary,
+        inlineIndicators: ICrudInlineIndicators,
+        options?: { openEligibleNote: boolean },
+    ) {
+        event.preventDefault();
+        event.stopPropagation();
+        emitResolvedCommentClickAndClearSelection(summary, inlineIndicators, options);
+    }
+
     function handleAnnotationEditorDblClick(event: MouseEvent) {
         if (!(event.target instanceof HTMLElement)) {
             return;
@@ -1287,39 +1394,11 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         const clickedEditorMatch = findEditorFromTarget(clickTarget);
 
         if (highlight.isPlacingComment.value) {
-            const attemptId = nextNotePlacementAttemptId();
-            const placementClickMeta = {
-                button: event.button,
-                buttons: event.buttons,
-                detail: event.detail,
-                ctrlKey: event.ctrlKey,
-                shiftKey: event.shiftKey,
-                altKey: event.altKey,
-                metaKey: event.metaKey,
-            };
-            runGuardedTask(
-                () => highlight.placeCommentAtClientPoint(event.clientX, event.clientY, clickTarget, {
-                    attemptId,
-                    source: 'annotation-comment-click',
-                    clickCapturedAtMs: Date.now(),
-                    clickMeta: placementClickMeta,
-                }),
-                {
-                    scope: 'annotations',
-                    message: 'Failed to place annotation comment at pointer location', 
-                },
-            );
+            handleCommentPlacementClick(event, clickTarget, highlight);
             return;
         }
 
-        if (clickedEditorMatch) {
-            if (annotationTool.value !== 'none') {
-                emitAnnotationToolCancel();
-                await nextTick();
-            }
-
-            await ensureEditorInteractionModeFromTarget(clickTarget);
-        }
+        await prepareClickedEditorForCommentInteraction(clickTarget, clickedEditorMatch);
 
         const indicatorSummary = resolveCommentFromIndicatorClickTarget(
             event.target,
@@ -1327,10 +1406,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
             event.clientY,
         );
         if (indicatorSummary) {
-            event.preventDefault();
-            event.stopPropagation();
-            emitResolvedCommentClick(indicatorSummary, inlineIndicators);
-            clearStickyHighlightSelectionState(findEditorForComment(indicatorSummary));
+            consumeResolvedCommentClick(event, indicatorSummary, inlineIndicators);
             return;
         }
 
@@ -1342,12 +1418,9 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         if (inlineTarget) {
             event.preventDefault();
             event.stopPropagation();
-            const summary = inlineIndicators.findCommentFromInlineTarget(inlineTarget)
-                ?? findAnnotationSummaryFromTarget(inlineTarget)
-                ?? findAnnotationSummaryFromPoint(inlineTarget, event.clientX, event.clientY);
+            const summary = resolveInlineTargetComment(inlineTarget, inlineIndicators, event);
             if (summary) {
-                emitResolvedCommentClick(summary, inlineIndicators);
-                clearStickyHighlightSelectionState(findEditorForComment(summary));
+                emitResolvedCommentClickAndClearSelection(summary, inlineIndicators);
             }
             else {
                 clearStickyHighlightSelectionState();
