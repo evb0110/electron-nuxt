@@ -833,82 +833,79 @@ export const usePdfFile = () => {
         }
     }
 
+    function createPersistResult(
+        success: boolean,
+        saveMode: TPdfSaveMode,
+        didSaveAs: boolean,
+        outPath: TDocumentRef | null = success && !didSaveAs ? originalPath.value : null,
+    ): IPdfPersistResult {
+        return {
+            success,
+            outPath,
+            saveMode,
+            didSaveAs,
+        };
+    }
+
+    function createFailedPersistResult(
+        saveMode: TPdfSaveMode,
+        didSaveAs: boolean,
+    ): IPdfPersistResult {
+        return createPersistResult(false, saveMode, didSaveAs);
+    }
+
+    async function runPersistOperation(
+        saveMode: TPdfSaveMode,
+        didSaveAs: boolean,
+        operation: (workingPath: TDocumentRef) => Promise<IPdfPersistResult>,
+    ): Promise<IPdfPersistResult> {
+        const workingPath = workingCopyPath.value;
+        if (!workingPath) {
+            return createFailedPersistResult(saveMode, didSaveAs);
+        }
+
+        try {
+            return await operation(workingPath);
+        } catch (e) {
+            error.value = e instanceof Error ? e.message : t('errors.file.save');
+            return createFailedPersistResult(saveMode, didSaveAs);
+        }
+    }
+
     async function saveFile(
         data: Uint8Array,
         opts?: { saveMode?: TPdfSaveMode },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
-        if (!workingCopyPath.value) {
-            return {
-                success: false,
-                outPath: null,
-                saveMode: requestedSaveMode,
-                didSaveAs: false,
-            };
-        }
-        try {
+        return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
             if (shouldForceSaveAs(requestedSaveMode)) {
-                return await saveWorkingCopyAs(data, { saveMode: 'save_as_rewrite' });
+                return saveWorkingCopyAs(data, { saveMode: 'save_as_rewrite' });
             }
 
             // First update the working copy with latest data
-            await getDocumentsCapability().writeFile(workingCopyPath.value, data);
+            await getDocumentsCapability().writeFile(workingPath, data);
             // Then save working copy back to original location
-            await getDocumentsCapability().saveFile(workingCopyPath.value);
+            await getDocumentsCapability().saveFile(workingPath);
             await commitPersistedPdfState(data);
             lastSaveMode.value = requestedSaveMode;
-            return {
-                success: true,
-                outPath: originalPath.value,
-                saveMode: requestedSaveMode,
-                didSaveAs: false,
-            };
-        } catch (e) {
-            error.value = e instanceof Error ? e.message : t('errors.file.save');
-            return {
-                success: false,
-                outPath: null,
-                saveMode: requestedSaveMode,
-                didSaveAs: false,
-            };
-        }
+            return createPersistResult(true, requestedSaveMode, false);
+        });
     }
 
     async function saveWorkingCopy(
         opts?: { saveMode?: TPdfSaveMode },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'rewrite';
-        if (!workingCopyPath.value) {
-            return {
-                success: false,
-                outPath: null,
-                saveMode: requestedSaveMode,
-                didSaveAs: false,
-            };
-        }
-        try {
+        return runPersistOperation(requestedSaveMode, false, async (workingPath) => {
             if (shouldForceSaveAs(requestedSaveMode)) {
-                return await saveWorkingCopyAs(undefined, { saveMode: 'save_as_rewrite' });
+                return saveWorkingCopyAs(undefined, { saveMode: 'save_as_rewrite' });
             }
 
-            await getDocumentsCapability().saveFile(workingCopyPath.value);
+            await getDocumentsCapability().saveFile(workingPath);
             await commitPersistedPdfState();
             lastSaveMode.value = requestedSaveMode;
-            return {
-                success: true,
-                outPath: originalPath.value,
-                saveMode: requestedSaveMode,
-                didSaveAs: false,
-            };
-        } catch (e) {
-            error.value = e instanceof Error ? e.message : t('errors.file.save');
-            return {
-                success: false,
-                outPath: null,
-                saveMode: requestedSaveMode,
-                didSaveAs: false,
-            };
-        }
+            return createPersistResult(true, requestedSaveMode, false);
+        });
     }
 
     async function saveWorkingCopyAs(
@@ -916,20 +913,12 @@ export const usePdfFile = () => {
         opts?: { saveMode?: TPdfSaveMode },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
-        if (!workingCopyPath.value) {
-            return {
-                success: false,
-                outPath: null,
-                saveMode: requestedSaveMode,
-                didSaveAs: true,
-            };
-        }
-        try {
-            const previousWorkingPath = workingCopyPath.value;
+        return runPersistOperation(requestedSaveMode, true, async (workingPath) => {
+            const previousWorkingPath = workingPath;
             if (data) {
-                await getDocumentsCapability().writeFile(workingCopyPath.value, data);
+                await getDocumentsCapability().writeFile(workingPath, data);
             }
-            const savedPath = await getDocumentsCapability().savePdfAs(workingCopyPath.value);
+            const savedPath = await getDocumentsCapability().savePdfAs(workingPath);
             if (savedPath) {
                 if (shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
                     const nextWorkingPath =
@@ -944,21 +933,8 @@ export const usePdfFile = () => {
                 await commitPersistedPdfState(data ?? undefined);
                 lastSaveMode.value = requestedSaveMode;
             }
-            return {
-                success: Boolean(savedPath),
-                outPath: savedPath,
-                saveMode: requestedSaveMode,
-                didSaveAs: true,
-            };
-        } catch (e) {
-            error.value = e instanceof Error ? e.message : t('errors.file.save');
-            return {
-                success: false,
-                outPath: null,
-                saveMode: requestedSaveMode,
-                didSaveAs: true,
-            };
-        }
+            return createPersistResult(Boolean(savedPath), requestedSaveMode, true, savedPath);
+        });
     }
 
     function closeFile() {

@@ -55,6 +55,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
+function parseOptionalPageCount(raw: unknown) {
+    if (raw === undefined) {
+        return undefined;
+    }
+
+    if (
+        typeof raw !== 'number'
+        || !Number.isSafeInteger(raw)
+        || raw < 1
+        || raw > SEARCH_PAGE_COUNT_MAX
+    ) {
+        throw new Error(`Invalid pageCount: must be an integer between 1 and ${SEARCH_PAGE_COUNT_MAX}`);
+    }
+
+    return raw;
+}
+
+function parseOptionalRequestId(raw: unknown) {
+    return typeof raw === 'string' && raw.trim().length > 0
+        ? raw.trim()
+        : undefined;
+}
+
 function parseSearchRequestPayload(raw: unknown): {
     pdfPath: string;
     query: string;
@@ -78,22 +101,8 @@ function parseSearchRequestPayload(raw: unknown): {
     }
     const query = raw.query;
 
-    let pageCount: number | undefined;
-    if (raw.pageCount !== undefined) {
-        if (
-            typeof raw.pageCount !== 'number'
-            || !Number.isSafeInteger(raw.pageCount)
-            || raw.pageCount < 1
-            || raw.pageCount > SEARCH_PAGE_COUNT_MAX
-        ) {
-            throw new Error(`Invalid pageCount: must be an integer between 1 and ${SEARCH_PAGE_COUNT_MAX}`);
-        }
-        pageCount = raw.pageCount;
-    }
-
-    const requestId = typeof raw.requestId === 'string' && raw.requestId.trim().length > 0
-        ? raw.requestId.trim()
-        : undefined;
+    const pageCount = parseOptionalPageCount(raw.pageCount);
+    const requestId = parseOptionalRequestId(raw.requestId);
     const matchCase = typeof raw.matchCase === 'boolean' ? raw.matchCase : undefined;
     const wholeWord = typeof raw.wholeWord === 'boolean' ? raw.wholeWord : undefined;
     const useRegex = typeof raw.useRegex === 'boolean' ? raw.useRegex : undefined;
@@ -123,22 +132,8 @@ function parseWarmIndexPayload(raw: unknown): {
         throw new Error('Invalid PDF path');
     }
 
-    let pageCount: number | undefined;
-    if (raw.pageCount !== undefined) {
-        if (
-            typeof raw.pageCount !== 'number'
-            || !Number.isSafeInteger(raw.pageCount)
-            || raw.pageCount < 1
-            || raw.pageCount > SEARCH_PAGE_COUNT_MAX
-        ) {
-            throw new Error(`Invalid pageCount: must be an integer between 1 and ${SEARCH_PAGE_COUNT_MAX}`);
-        }
-        pageCount = raw.pageCount;
-    }
-
-    const requestId = typeof raw.requestId === 'string' && raw.requestId.trim().length > 0
-        ? raw.requestId.trim()
-        : undefined;
+    const pageCount = parseOptionalPageCount(raw.pageCount);
+    const requestId = parseOptionalRequestId(raw.requestId);
 
     return {
         pdfPath,

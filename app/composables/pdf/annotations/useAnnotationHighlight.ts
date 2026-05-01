@@ -301,10 +301,8 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             ? Number(pageContainer.dataset.page)
             : currentPage.value;
         const pageIndex = Math.max(0, pageNumber - 1);
-
-        const editorsBefore = getEditorsOnPage(uiManager, pageIndex);
-        const editorsBeforeRefs = new Set<IPdfjsEditor>(editorsBefore);
-        const editorsBeforeIds = new Set<string>(editorsBefore.map(editor => identity.getEditorIdentity(editor, pageIndex)));
+        const getEditorsForPage = (editorPageIndex: number) => getEditorsOnPage(uiManager, editorPageIndex);
+        const editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
 
         selection?.removeAllRanges();
         cachedSelectionRange = null;
@@ -316,17 +314,6 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         let deferredNoteSummary: IAnnotationCommentSummary | null = null;
         let modeRestoredResolve: () => void = () => {};
         const modeRestoredPromise = new Promise<void>((resolve) => { modeRestoredResolve = resolve; });
-
-        const pickCreatedEditorCandidate = () => {
-            const editorsAfter = getEditorsOnPage(uiManager, pageIndex);
-            return editorsAfter.find((editor) => {
-                if (!editorsBeforeRefs.has(editor)) {
-                    return true;
-                }
-                const editorIdentity = identity.getEditorIdentity(editor, pageIndex);
-                return !editorsBeforeIds.has(editorIdentity);
-            }) ?? editorsAfter.at(-1) ?? null;
-        };
 
         const resolveCreatedEditor = async (createdEditor: IPdfjsEditor | null) => {
             if (createdEditor) {
@@ -342,7 +329,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 BrowserLogger.debug('annotations', `Editor render wait failed while resolving created highlight: ${errorToLogText(error)}`);
             }
             await nextTick();
-            return pickCreatedEditorCandidate();
+            return pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
         };
 
         const applySubtypeOverrideToEditor = (editor: IPdfjsEditor | null) => {
@@ -425,7 +412,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             if (!targetEditor && !withComment && markupSubtypeOverride) {
                 let attempts = 0;
                 const applySubtypeLater = () => {
-                    const lateEditor = pickCreatedEditorCandidate();
+                    const lateEditor = pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
                     if (applySubtypeOverrideToEditor(lateEditor)) {
                         return;
                     }
@@ -445,7 +432,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 } else {
                     let attempts = 0;
                     const tryEmitLater = () => {
-                        const lateEditor = pickCreatedEditorCandidate();
+                        const lateEditor = pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
                         if (!lateEditor) {
                             attempts += 1;
                             if (attempts < 12) {
@@ -1035,6 +1022,33 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         };
     }
 
+    function captureEditorSnapshot(
+        pageIndex: number,
+        getEditorsForPage: (pageIndex: number) => IPdfjsEditor[],
+        getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string,
+    ) {
+        const editorsBefore = getEditorsForPage(pageIndex);
+        return {
+            editorsBeforeRefs: new Set<IPdfjsEditor>(editorsBefore),
+            editorsBeforeIds: new Set<string>(editorsBefore.map(editor => getEditorIdentity(editor, pageIndex))),
+        };
+    }
+
+    function pickCreatedEditorCandidate(
+        pageIndex: number,
+        snapshot: ReturnType<typeof captureEditorSnapshot>,
+        getEditorsForPage: (pageIndex: number) => IPdfjsEditor[],
+        getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string,
+    ) {
+        const editorsAfter = getEditorsForPage(pageIndex);
+        return editorsAfter.find((editor) => {
+            if (!snapshot.editorsBeforeRefs.has(editor)) {
+                return true;
+            }
+            return !snapshot.editorsBeforeIds.has(getEditorIdentity(editor, pageIndex));
+        }) ?? editorsAfter.at(-1) ?? null;
+    }
+
     function buildRangeFromPagePoint(target: IPagePointTarget) {
         const pageRect = target.pageContainer.getBoundingClientRect();
         const clientX = pageRect.left + (target.pageX * pageRect.width);
@@ -1116,25 +1130,14 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         }
 
         const pageIndex = Math.max(0, pageNumber - 1);
-        const editorsBefore = getEditorsOnPage(uiManager, pageIndex);
-        const editorsBeforeRefs = new Set<IPdfjsEditor>(editorsBefore);
-        const editorsBeforeIds = new Set<string>(editorsBefore.map(editor => identity.getEditorIdentity(editor, pageIndex)));
-
-        const pickCreatedEditorCandidate = () => {
-            const editorsAfter = getEditorsOnPage(uiManager, pageIndex);
-            return editorsAfter.find((editor) => {
-                if (!editorsBeforeRefs.has(editor)) {
-                    return true;
-                }
-                return !editorsBeforeIds.has(identity.getEditorIdentity(editor, pageIndex));
-            }) ?? editorsAfter.at(-1) ?? null;
-        };
+        const getEditorsForPage = (editorPageIndex: number) => getEditorsOnPage(uiManager, editorPageIndex);
+        const editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
 
         const resolveCreatedEditor = async (createdEditor: IPdfjsEditor | null) => {
             if (createdEditor) {
                 return createdEditor;
             }
-            const immediate = pickCreatedEditorCandidate();
+            const immediate = pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
             if (immediate) {
                 return immediate;
             }
@@ -1143,7 +1146,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             } catch { /* ignore */ }
             await delay(60);
             await nextTick();
-            return pickCreatedEditorCandidate();
+            return pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
         };
 
         const previousMode = uiManager.getMode();

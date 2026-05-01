@@ -152,6 +152,34 @@ function validateReorderPermutation(newOrder: number[]) {
     }
 }
 
+function validateInsertPageArgs(
+    workingCopyPath: unknown,
+    totalPages: unknown,
+    afterPage: unknown,
+) {
+    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+
+    if (typeof totalPages !== 'number' || !Number.isSafeInteger(totalPages) || totalPages < 1) {
+        throw new Error('Invalid totalPages');
+    }
+    const normalizedTotalPages = totalPages;
+    if (
+        typeof afterPage !== 'number'
+        || !Number.isSafeInteger(afterPage)
+        || afterPage < 0
+        || afterPage > normalizedTotalPages
+    ) {
+        throw new Error('Invalid afterPage');
+    }
+    const normalizedAfterPage = afterPage;
+
+    return {
+        normalizedWorkingCopyPath,
+        totalPages: normalizedTotalPages,
+        afterPage: normalizedAfterPage,
+    };
+}
+
 async function handlePageOpsDelete(
     _event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
@@ -248,14 +276,8 @@ async function handlePageOpsInsert(
     totalPages: number,
     afterPage: number,
 ) {
-    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
-
-    if (!Number.isSafeInteger(totalPages) || totalPages < 1) {
-        throw new Error('Invalid totalPages');
-    }
-    if (!Number.isSafeInteger(afterPage) || afterPage < 0 || afterPage > totalPages) {
-        throw new Error('Invalid afterPage');
-    }
+    const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
+    const { normalizedWorkingCopyPath } = insertArgs;
 
     const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
     const dialogOptions = {
@@ -285,7 +307,12 @@ async function handlePageOpsInsert(
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
-        await insertPagesFromSourcePaths(queuedWorkingCopyPath, totalPages, result.filePaths, afterPage);
+        await insertPagesFromSourcePaths(
+            queuedWorkingCopyPath,
+            insertArgs.totalPages,
+            result.filePaths,
+            insertArgs.afterPage,
+        );
     });
     return {success: true};
 }
@@ -432,21 +459,20 @@ async function handlePageOpsInsertFile(
     sourcePaths: string[],
     _requestId?: string,
 ) {
-    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
-
-    if (!Number.isSafeInteger(totalPages) || totalPages < 1) {
-        throw new Error('Invalid totalPages');
-    }
-    if (!Number.isSafeInteger(afterPage) || afterPage < 0 || afterPage > totalPages) {
-        throw new Error('Invalid afterPage');
-    }
+    const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
+    const { normalizedWorkingCopyPath } = insertArgs;
     if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) {
         throw new Error('Invalid source paths');
     }
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
-        await insertPagesFromSourcePaths(queuedWorkingCopyPath, totalPages, sourcePaths, afterPage);
+        await insertPagesFromSourcePaths(
+            queuedWorkingCopyPath,
+            insertArgs.totalPages,
+            sourcePaths,
+            insertArgs.afterPage,
+        );
     });
     return {success: true};
 }

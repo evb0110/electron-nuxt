@@ -108,6 +108,18 @@ function errorWithDetails(fallbackMessage: string, details: unknown): Error {
 
 interface IOpenInputPathsOptions {onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;}
 
+interface IOpenDocumentDialogOptions {
+    title: string;
+    extensions: string[];
+}
+
+interface ISaveDialogOptions {
+    title: string;
+    defaultPath: string;
+    filterName: string;
+    extension: string;
+}
+
 async function openInputPaths(
     paths: string[],
     options: IOpenInputPathsOptions = {},
@@ -346,27 +358,62 @@ export async function handleShowItemInFolder(
     }
 }
 
-export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
+async function showOpenDocumentDialog(options: IOpenDocumentDialogOptions) {
     const parentWindow = getOpenDialogParentWindow();
     const dialogOptions = {
-        title: te('dialogs.openDocument'),
+        title: options.title,
         filters: [{
             name: te('dialogs.documentsFilter'),
-            extensions: [
-                'pdf',
-                'djvu',
-                'djv',
-                ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
-            ],
+            extensions: options.extensions,
         }],
         properties: [
             'openFile',
             'multiSelections',
         ],
     } satisfies Electron.OpenDialogOptions;
+
+    return parentWindow
+        ? dialog.showOpenDialog(parentWindow, dialogOptions)
+        : dialog.showOpenDialog(dialogOptions);
+}
+
+async function showSaveDialogWithExtension(
+    event: Electron.IpcMainInvokeEvent,
+    options: ISaveDialogOptions,
+) {
+    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    const dialogOptions = {
+        title: options.title,
+        defaultPath: options.defaultPath,
+        filters: [{
+            name: options.filterName,
+            extensions: [options.extension],
+        }],
+    };
     const result = parentWindow
-        ? await dialog.showOpenDialog(parentWindow, dialogOptions)
-        : await dialog.showOpenDialog(dialogOptions);
+        ? await dialog.showSaveDialog(parentWindow, dialogOptions)
+        : await dialog.showSaveDialog(dialogOptions);
+
+    if (result.canceled || !result.filePath) {
+        return null;
+    }
+
+    const extension = `.${options.extension}`;
+    return extname(result.filePath).toLowerCase() === extension
+        ? result.filePath
+        : `${result.filePath}${extension}`;
+}
+
+export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
+    const result = await showOpenDocumentDialog({
+        title: te('dialogs.openDocument'),
+        extensions: [
+            'pdf',
+            'djvu',
+            'djv',
+            ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
+        ],
+    });
 
     if (result.canceled || result.filePaths.length === 0) {
         return null;
@@ -381,24 +428,13 @@ export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
 }
 
 export async function handleOpenCombineDialog(): Promise<IOpenFileResult | null> {
-    const parentWindow = getOpenDialogParentWindow();
-    const dialogOptions = {
+    const result = await showOpenDocumentDialog({
         title: te('dialogs.combineFiles'),
-        filters: [{
-            name: te('dialogs.documentsFilter'),
-            extensions: [
-                'pdf',
-                ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
-            ],
-        }],
-        properties: [
-            'openFile',
-            'multiSelections',
+        extensions: [
+            'pdf',
+            ...SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
         ],
-    } satisfies Electron.OpenDialogOptions;
-    const result = parentWindow
-        ? await dialog.showOpenDialog(parentWindow, dialogOptions)
-        : await dialog.showOpenDialog(dialogOptions);
+    });
 
     if (result.canceled || result.filePaths.length === 0) {
         return null;
@@ -468,26 +504,14 @@ export async function handleSavePdfAs(
         ? basename(originalPath)
         : basename(normalizedWorkingPath);
 
-    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
-    const dialogOptions = {
+    const targetPath = await showSaveDialogWithExtension(event, {
         title: te('dialogs.savePdfAs'),
         defaultPath: suggestedName.endsWith('.pdf') ? suggestedName : `${suggestedName}.pdf`,
-        filters: [{
-            name: te('dialogs.pdfFiles'),
-            extensions: ['pdf'],
-        }],
-    };
-    const result = parentWindow
-        ? await dialog.showSaveDialog(parentWindow, dialogOptions)
-        : await dialog.showSaveDialog(dialogOptions);
-
-    if (result.canceled || !result.filePath) {
+        filterName: te('dialogs.pdfFiles'),
+        extension: 'pdf',
+    });
+    if (!targetPath) {
         return null;
-    }
-
-    let targetPath = result.filePath;
-    if (extname(targetPath).toLowerCase() !== '.pdf') {
-        targetPath += '.pdf';
     }
 
     await copyFile(normalizedWorkingPath, targetPath);
@@ -506,26 +530,14 @@ export async function handleSavePdfDialog(
     const normalizedSuggestedName = typeof suggestedName === 'string' && suggestedName.trim().length > 0
         ? suggestedName.trim()
         : 'document.pdf';
-    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
-    const dialogOptions = {
+    const targetPath = await showSaveDialogWithExtension(event, {
         title: te('dialogs.savePdf'),
         defaultPath: normalizedSuggestedName.endsWith('.pdf') ? normalizedSuggestedName : `${normalizedSuggestedName}.pdf`,
-        filters: [{
-            name: te('dialogs.pdfFiles'),
-            extensions: ['pdf'],
-        }],
-    };
-    const result = parentWindow
-        ? await dialog.showSaveDialog(parentWindow, dialogOptions)
-        : await dialog.showSaveDialog(dialogOptions);
-
-    if (result.canceled || !result.filePath) {
+        filterName: te('dialogs.pdfFiles'),
+        extension: 'pdf',
+    });
+    if (!targetPath) {
         return null;
-    }
-
-    let targetPath = result.filePath;
-    if (extname(targetPath).toLowerCase() !== '.pdf') {
-        targetPath += '.pdf';
     }
 
     // Save dialog approval is the capability boundary for DjVu export writes.
@@ -544,26 +556,14 @@ export async function handleSaveDocxAs(
         ? basename(normalizedWorkingPath, extname(normalizedWorkingPath))
         : 'ocr-text';
 
-    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
-    const dialogOptions = {
+    const targetPath = await showSaveDialogWithExtension(event, {
         title: te('dialogs.saveOcrTextAs'),
         defaultPath: `${suggestedBase}.docx`,
-        filters: [{
-            name: te('dialogs.wordDocuments'),
-            extensions: ['docx'],
-        }],
-    };
-    const result = parentWindow
-        ? await dialog.showSaveDialog(parentWindow, dialogOptions)
-        : await dialog.showSaveDialog(dialogOptions);
-
-    if (result.canceled || !result.filePath) {
+        filterName: te('dialogs.wordDocuments'),
+        extension: 'docx',
+    });
+    if (!targetPath) {
         return null;
-    }
-
-    let targetPath = result.filePath;
-    if (extname(targetPath).toLowerCase() !== '.docx') {
-        targetPath += '.docx';
     }
 
     allowDocxWritePath(targetPath);

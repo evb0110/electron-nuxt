@@ -18,6 +18,8 @@ interface IPendingSearchRequest {
     reject: (error: Error) => void;
 }
 
+type TPendingSearchSettler = (pending: IPendingSearchRequest) => void;
+
 interface ISenderSearchState {
     senderId: number;
     worker: Worker;
@@ -398,22 +400,21 @@ export class SearchWorkerService {
         requestId: string,
         response: ISearchResponse,
     ) {
-        const pending = state.pendingByRequestId.get(requestId);
-        if (!pending) {
-            return;
-        }
-
-        this.clearRequestTimeout(state, requestId);
-        this.markStateActivity(state);
-        state.pendingByRequestId.delete(requestId);
-        pending.resolve(response);
-        this.scheduleIdleCleanup(state);
+        this.settlePendingRequest(state, requestId, pending => pending.resolve(response));
     }
 
     private rejectPendingRequest(
         state: ISenderSearchState,
         requestId: string,
         error: Error,
+    ) {
+        this.settlePendingRequest(state, requestId, pending => pending.reject(error));
+    }
+
+    private settlePendingRequest(
+        state: ISenderSearchState,
+        requestId: string,
+        settle: TPendingSearchSettler,
     ) {
         const pending = state.pendingByRequestId.get(requestId);
         if (!pending) {
@@ -423,7 +424,7 @@ export class SearchWorkerService {
         this.clearRequestTimeout(state, requestId);
         this.markStateActivity(state);
         state.pendingByRequestId.delete(requestId);
-        pending.reject(error);
+        settle(pending);
         this.scheduleIdleCleanup(state);
     }
 

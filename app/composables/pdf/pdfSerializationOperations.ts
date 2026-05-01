@@ -924,6 +924,26 @@ function applySubtypeRewriteToDict(
     return true;
 }
 
+function forEachPageAnnotationContext(
+    doc: PDFDocument,
+    callback: (
+        pageIndex: number,
+        context: NonNullable<ReturnType<typeof resolvePageAnnotationContext>>,
+    ) => void,
+) {
+    const pages = doc.getPages();
+    for (const [
+        pageIndex,
+        page,
+    ] of pages.entries()) {
+        const context = resolvePageAnnotationContext(page);
+        if (!context) {
+            continue;
+        }
+        callback(pageIndex, context);
+    }
+}
+
 function applyMarkupSubtypeRewrites(
     doc: PDFDocument,
     overrides: Array<readonly [string, TMarkupSubtype]>,
@@ -938,16 +958,8 @@ function applyMarkupSubtypeRewrites(
     const highlightName = PDFName.of('Highlight');
     let rewritten = false;
 
-    const pages = doc.getPages();
-    for (const [
-        pageIndex,
-        page,
-    ] of pages.entries()) {
+    forEachPageAnnotationContext(doc, (pageIndex, context) => {
         const pageHints = inputs.hintsByPage.get(pageIndex) ?? [];
-        const context = resolvePageAnnotationContext(page);
-        if (!context) {
-            continue;
-        }
 
         for (const {
             dict,
@@ -974,7 +986,7 @@ function applyMarkupSubtypeRewrites(
                 rewritten = true;
             }
         }
-    }
+    });
 
     return rewritten;
 }
@@ -1066,19 +1078,10 @@ function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCommentSu
     let modified = false;
     let blankApRef: PDFRef | null = null;
 
-    const pages = doc.getPages();
-    for (const [
-        pageIndex,
-        page,
-    ] of pages.entries()) {
+    forEachPageAnnotationContext(doc, (pageIndex, context) => {
         const pageComments = comments.filter(comment => comment.pageIndex === pageIndex && isAnnotationMarkerRect(comment.markerRect));
         if (pageComments.length === 0) {
-            continue;
-        }
-
-        const context = resolvePageAnnotationContext(page);
-        if (!context) {
-            continue;
+            return;
         }
 
         for (const {
@@ -1122,7 +1125,7 @@ function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCommentSu
             dict.set(apName, doc.context.obj({ N: blankApRef }));
             modified = true;
         }
-    }
+    });
 
     return modified;
 }

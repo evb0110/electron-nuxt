@@ -4,6 +4,10 @@ import {
 } from 'fs';
 import { readFile } from 'fs/promises';
 import * as utifModule from 'utif';
+import {
+    buildTiffImageIfd,
+    encodeTiffIfds,
+} from '@contracts/tiff-encoding';
 
 interface IUtifFrame {
     width?: number;
@@ -47,14 +51,6 @@ interface ITiffPageDescriptor {
     dataLength: number;
 }
 
-const TIFF_TYPE_BYTES: Record<number, number> = {
-    1: 1,
-    2: 1,
-    3: 2,
-    4: 4,
-    5: 8,
-    12: 8,
-};
 const UTIF_BASE = utifModule as IUtifModule;
 const UTIF = UTIF_BASE as IUtifEncoderModule;
 
@@ -182,103 +178,6 @@ function alignOffset(offset: number, alignment: number): number {
     return remainder === 0 ? offset : offset + (alignment - remainder);
 }
 
-function buildTiffIfd(
-    page: Pick<ITiffPageDescriptor, 'width' | 'height' | 'dataLength'>,
-    dataOffset: number,
-): Record<string, unknown> {
-    return {
-        t256: [page.width],
-        t257: [page.height],
-        t258: [
-            8,
-            8,
-            8,
-            8,
-        ],
-        t259: [1],
-        t262: [2],
-        t273: [dataOffset],
-        t277: [4],
-        t278: [page.height],
-        t279: [page.dataLength],
-        t282: [1],
-        t283: [1],
-        t284: [1],
-        t286: [0],
-        t287: [0],
-        t296: [1],
-        t305: ['EVB Viewer'],
-        t338: [1],
-    };
-}
-
-function getTiffValueCount(value: unknown): number {
-    if (Array.isArray(value)) {
-        return value.length;
-    }
-
-    if (
-        ArrayBuffer.isView(value)
-        && 'BYTES_PER_ELEMENT' in value
-        && typeof value.BYTES_PER_ELEMENT === 'number'
-        && value.BYTES_PER_ELEMENT > 0
-    ) {
-        return Math.floor(value.byteLength / value.BYTES_PER_ELEMENT);
-    }
-
-    return 1;
-}
-
-function measureTiffIfdSize(ifd: Record<string, unknown>) {
-    const keys = Object.keys(ifd);
-    let extraDataLength = 0;
-
-    for (const key of keys) {
-        const tag = Number.parseInt(key.slice(1), 10);
-        const type = UTIF.ttypes[tag];
-        if (!type) {
-            throw new Error(`Unsupported TIFF tag type for tag ${tag}`);
-        }
-
-        const rawValue = ifd[key];
-        const valueLength = type === 2
-            ? `${String(Array.isArray(rawValue) ? rawValue[0] ?? '' : rawValue ?? '')}\0`.length
-            : getTiffValueCount(rawValue);
-        const dataLength = (TIFF_TYPE_BYTES[type] ?? 0) * valueLength;
-        if (dataLength > 4) {
-            extraDataLength += dataLength + (dataLength & 1);
-        }
-    }
-
-    return 2 + (keys.length * 12) + 4 + extraDataLength;
-}
-
-function encodeTiffIfds(ifds: Array<Record<string, unknown>>) {
-    const capacity = ifds.reduce((total, ifd) => total + measureTiffIfdSize(ifd), 8);
-    const data = new Uint8Array(capacity);
-    const bin = UTIF._binBE;
-
-    data[0] = 77;
-    data[1] = 77;
-    data[3] = 42;
-
-    let ifdOffset = 8;
-    bin.writeUint(data, 4, ifdOffset);
-
-    for (let index = 0; index < ifds.length; index += 1) {
-        const [
-            nextIfdPointerOffset,
-            nextIfdOffset,
-        ] = UTIF._writeIFD(bin, data, ifdOffset, ifds[index]!);
-        ifdOffset = nextIfdOffset;
-        if (index < ifds.length - 1) {
-            bin.writeUint(data, nextIfdPointerOffset, ifdOffset);
-        }
-    }
-
-    return data.slice(0, ifdOffset);
-}
-
 function resolvePageDataOffsets(
     pages: Array<Pick<ITiffPageDescriptor, 'dataLength'>>,
     firstDataOffset: number,
@@ -358,8 +257,8 @@ export async function combinePagesIntoMultiPageTiffLocal(pagePaths: string[], ou
 
     for (let attempt = 0; attempt < 8; attempt += 1) {
         const pageOffsets = resolvePageDataOffsets(pages, firstDataOffset);
-        const ifds = pages.map((page, index) => buildTiffIfd(page, pageOffsets[index]!));
-        header = encodeTiffIfds(ifds);
+        const ifds = pages.map((page, index) => buildTiffImageIfd(page, pageOffsets[index]!));
+        header = encodeTiffIfds(ifds, UTIF);
         const nextFirstDataOffset = alignOffset(header.length, 8);
         if (nextFirstDataOffset === firstDataOffset) {
             break;

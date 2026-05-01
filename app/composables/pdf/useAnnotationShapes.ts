@@ -535,7 +535,7 @@ export const useAnnotationShapes = () => {
         };
     }
 
-    function reconcilePersistedShapes(loaded: IShapeAnnotation[]) {
+    function preparePersistedShapeMerge(loaded: IShapeAnnotation[]) {
         const currentShapes = getAllShapes().map(shape => cloneShape(shape));
         const currentDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
         const currentDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
@@ -545,6 +545,22 @@ export const useAnnotationShapes = () => {
             currentDeletedIds,
             currentDeletedStableKeys,
         );
+
+        return {
+            currentShapes,
+            currentDeletedIds,
+            currentDeletedStableKeys,
+            nextShapes,
+        };
+    }
+
+    function reconcilePersistedShapes(loaded: IShapeAnnotation[]) {
+        const {
+            currentShapes,
+            currentDeletedIds,
+            currentDeletedStableKeys,
+            nextShapes,
+        } = preparePersistedShapeMerge(loaded);
 
         BrowserLogger.debug('pdf-shapes', 'Reconciling persisted shapes', () => createPersistedShapeLoadDebugPayload(
             currentShapes,
@@ -592,16 +608,13 @@ export const useAnnotationShapes = () => {
     }
 
     function primePersistedShapes(loaded: IShapeAnnotation[]) {
-        const currentShapes = getAllShapes().map(shape => cloneShape(shape));
-        const currentDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
-        const currentDeletedStableKeys = new Set(deletedEmbeddedShapeStableKeys.value);
         const preservedBaselineSignature = baselineSignature.value;
-        const nextShapes = buildMergedPersistedShapes(
+        const {
             currentShapes,
-            loaded,
             currentDeletedIds,
             currentDeletedStableKeys,
-        );
+            nextShapes,
+        } = preparePersistedShapeMerge(loaded);
 
         BrowserLogger.debug('pdf-shapes', 'Priming persisted shapes before save', () => createPersistedShapeLoadDebugPayload(
             currentShapes,
