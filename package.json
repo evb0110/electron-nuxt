@@ -68,7 +68,7 @@
     "check:architecture": "pnpm run check:architecture:dep-graph && pnpm run check:architecture:boundaries",
     "preversion": "pnpm run check:resources:matrix",
     "gate:commit": "pnpm exec lint-staged",
-    "gate:pre-release": "pnpm run validate && pnpm run test:smoke",
+    "gate:pre-release": "pnpm run validate && pnpm run test:smoke && pnpm run test:bundle-integrity",
     "prepare": "husky"
   },
   "lint-staged": {

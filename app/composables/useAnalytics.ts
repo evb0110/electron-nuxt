@@ -1,12 +1,12 @@
-import type {
-    IAnalyticsDocumentContext,
-    IAnalyticsEventEnvelope,
-    TAnalyticsEventName,
-    TAnalyticsPayloadValue,
-    TAnalyticsScreenCategory,
-} from '@app/types/analytics';
 import { isBrowserPlatformActive } from '@app/utils/platform';
-import { normalizeAnalyticsScalar } from '@contracts/analytics';
+import {
+    type IAnalyticsDocumentContext,
+    type IAnalyticsEventEnvelope,
+    type TAnalyticsEventName,
+    type TAnalyticsPayloadValue,
+    type TAnalyticsScreenCategory,
+    normalizeAnalyticsScalar,
+} from '@contracts/analytics';
 
 const ANALYTICS_SESSION_STORAGE_KEY = 'evb-viewer:analytics-session-id';
 const MAX_BATCH_SIZE = 20;

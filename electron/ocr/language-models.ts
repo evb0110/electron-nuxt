@@ -462,17 +462,24 @@ async function precheckLanguageDownload(
 async function writeDownloadResponseBody(
     response: Response,
     tempPath: string,
+    signal?: AbortSignal,
 ) {
     if (response.body && typeof Readable.fromWeb === 'function') {
         const readable = Readable.fromWeb(response.body as NodeReadableStream);
         const writable = createWriteStream(tempPath, { flags: 'wx' });
-        await pipeline(readable, writable);
+        await pipeline(readable, writable, { signal });
         return;
     }
 
     // Fallback for environments where Readable.fromWeb is unavailable.
+    if (signal?.aborted) {
+        throw signal.reason ?? createAbortError();
+    }
     const arrayBuffer = await response.arrayBuffer();
-    await writeFile(tempPath, Buffer.from(arrayBuffer));
+    if (signal?.aborted) {
+        throw signal.reason ?? createAbortError();
+    }
+    await writeFile(tempPath, Buffer.from(arrayBuffer), { signal });
 }
 
 async function downloadLanguageModelAttempt(
@@ -499,7 +506,7 @@ async function downloadLanguageModelAttempt(
         }
 
         await mkdir(runtimeDir, { recursive: true });
-        await writeDownloadResponseBody(response, tempPath);
+        await writeDownloadResponseBody(response, tempPath, timedSignal.signal);
         throwIfAborted(signal);
 
         const downloadedSize = statSync(tempPath).size;

@@ -20,7 +20,7 @@ permissions:
   contents: write
 
 env:
-  NODE_VERSION: lts/*
+  NODE_VERSION: '24'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:

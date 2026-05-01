@@ -1942,7 +1942,7 @@ defineExpose({
     left: 0;
     right: 0;
     bottom: 7%;
-    border-bottom: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, #2563eb);
+    border-bottom: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, var(--ui-primary));
     pointer-events: none;
 }
 
@@ -1953,7 +1953,7 @@ defineExpose({
     left: 0;
     right: 0;
     top: 50%;
-    border-top: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, #dc2626);
+    border-top: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, var(--ui-error));
     pointer-events: none;
 }
 
@@ -2021,7 +2021,7 @@ defineExpose({
                 top: 50%;
                 left: 50%;
                 transform: translate(-50%, -50%);
-                background: var(--resizer-bg-color, #0060df);
+                background: var(--resizer-bg-color, var(--ui-primary));
                 border-radius: 2px;
                 pointer-events: none;
             }

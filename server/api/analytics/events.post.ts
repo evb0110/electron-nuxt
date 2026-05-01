@@ -10,8 +10,8 @@ import {
     type TAnalyticsEventName,
     type TAnalyticsPayloadValue,
     type TAnalyticsScreenCategory,
-} from '@app/types/analytics';
-import { normalizeAnalyticsScalar } from '@contracts/analytics';
+    normalizeAnalyticsScalar,
+} from '@contracts/analytics';
 import { getAnalyticsDb } from '../../db';
 import { viewerAnalyticsEvent } from '../../db/schema';
 import {

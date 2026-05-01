@@ -77,6 +77,42 @@ const ROOT_BOUNDARY_RULES = [
         rule: 'scripts-to-electron',
         message: 'scripts/** must not import electron runtime code.',
     },
+    {
+        sourceRoot: 'server',
+        targetRoot: 'electron',
+        rule: 'server-to-electron',
+        message: 'server/** must not import electron runtime code.',
+    },
+    {
+        sourceRoot: 'server',
+        targetRoot: 'landing',
+        rule: 'server-to-landing',
+        message: 'server/** must not import landing runtime code.',
+    },
+    {
+        sourceRoot: 'app',
+        targetRoot: 'server',
+        rule: 'app-to-server',
+        message: 'app/** must not import server runtime code.',
+    },
+    {
+        sourceRoot: 'electron',
+        targetRoot: 'server',
+        rule: 'electron-to-server',
+        message: 'electron/** must not import server runtime code.',
+    },
+    {
+        sourceRoot: 'landing',
+        targetRoot: 'server',
+        rule: 'landing-to-server',
+        message: 'landing/** must not import server runtime code.',
+    },
+    {
+        sourceRoot: 'packages',
+        targetRoot: 'server',
+        rule: 'packages-to-server',
+        message: 'Shared packages must not import server runtime code.',
+    },
 ];
 
 const FEATURE_BOUNDARY_RULES = [

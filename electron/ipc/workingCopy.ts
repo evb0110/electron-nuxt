@@ -360,7 +360,9 @@ export function cleanupWorkingCopy(workingPath: string) {
     }
 
     workingCopyMap.delete(normalizedPath);
-    void cleanupWorkingCopyDirectory(normalizedPath);
+    cleanupWorkingCopyDirectory(normalizedPath).catch((err) => {
+        logger.warn(`Failed to cleanup working copy directory "${normalizedPath}": ${getErrorMessage(err)}`);
+    });
 }
 
 export async function clearAllWorkingCopies() {
