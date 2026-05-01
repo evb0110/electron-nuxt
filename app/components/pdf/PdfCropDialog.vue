@@ -175,7 +175,6 @@
 </template>
 
 <script setup lang="ts">
-import { uniq } from 'es-toolkit/array';
 import type {
     ICropApplyPayload,
     ICropMargins,
@@ -193,6 +192,11 @@ import {
     unitToPoints,
 } from '@app/utils/pdf-crop-coordinates';
 import { parsePageRangeInput } from '@app/utils/pdf-page-labels';
+import {
+    createAllPageNumbers,
+    expandPageRange,
+    normalizeSelectedPageNumbers,
+} from '@app/utils/pdf-page-selection';
 
 const open = defineModel<boolean>('open', { required: true });
 
@@ -227,9 +231,7 @@ const scope = ref<TCropScope>('current');
 const rangeInput = ref('');
 
 const normalizedSelectedPages = computed(() =>
-    uniq(props.selectedPages)
-        .filter(page => Number.isInteger(page) && page >= 1 && page <= props.totalPages)
-        .sort((left, right) => left - right),
+    normalizeSelectedPageNumbers(props.selectedPages, props.totalPages),
 );
 
 const currentStep = computed(() => unitStep(unit.value));
@@ -300,23 +302,15 @@ const isValid = computed(() => {
 });
 
 const rangePages = computed(() => {
-    const parsed = parsePageRangeInput(rangeInput.value, props.totalPages);
-    if (!parsed) {
-        return null;
-    }
-    const pages: number[] = [];
-    for (let page = parsed.startPage; page <= parsed.endPage; page += 1) {
-        pages.push(page);
-    }
-    return pages;
+    return expandPageRange(parsePageRangeInput(rangeInput.value, props.totalPages));
 });
 
 const resolvedPages = computed((): number[] => {
     switch (scope.value) {
-        case 'all': return Array.from({ length: props.totalPages }, (_, i) => i + 1);
+        case 'all': return createAllPageNumbers(props.totalPages);
         case 'current': return [props.currentPage];
-        case 'even': return Array.from({ length: props.totalPages }, (_, i) => i + 1).filter(p => p % 2 === 0);
-        case 'odd': return Array.from({ length: props.totalPages }, (_, i) => i + 1).filter(p => p % 2 !== 0);
+        case 'even': return createAllPageNumbers(props.totalPages).filter(page => page % 2 === 0);
+        case 'odd': return createAllPageNumbers(props.totalPages).filter(page => page % 2 !== 0);
         case 'range': return rangePages.value ?? [];
         case 'selected': return normalizedSelectedPages.value;
         default: return [];
