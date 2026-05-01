@@ -5,6 +5,7 @@ import type {
     TBrowserPageOpsWorkerRequestType,
     TBrowserPageOpsWorkerResponse,
 } from '@app/platform/browser-api/browser-page-ops-worker.types';
+import { toTransferableUint8Array } from '@app/platform/browser-api/browser-worker-transfer';
 import { getErrorMessage } from '@app/utils/error';
 
 type TPendingWorkerRequest = {
@@ -54,25 +55,6 @@ function scheduleIdleWorkerTermination() {
 
         resetWorker();
     }, BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS);
-}
-
-function toTransferableUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
-    if (
-        data.buffer instanceof ArrayBuffer
-        && data.byteOffset === 0
-        && data.byteLength === data.buffer.byteLength
-    ) {
-        return data as Uint8Array<ArrayBuffer>;
-    }
-
-    if (
-        data.byteOffset === 0
-        && data.byteLength === data.buffer.byteLength
-    ) {
-        return new Uint8Array(data);
-    }
-
-    return data.slice();
 }
 
 function buildWorkerRequestWithTransfers(
