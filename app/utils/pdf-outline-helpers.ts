@@ -307,6 +307,20 @@ export function collectBookmarkIds(item: IBookmarkItem, ids: Set<string>) {
     }
 }
 
+export function flattenBookmarks(items: IBookmarkItem[]) {
+    const flattened: IBookmarkItem[] = [];
+
+    function visit(source: IBookmarkItem[]) {
+        for (const item of source) {
+            flattened.push(item);
+            visit(item.items);
+        }
+    }
+
+    visit(items);
+    return flattened;
+}
+
 export function normalizeBookmarkColor(color: string | null | undefined): string | null {
     if (typeof color !== 'string') {
         return null;

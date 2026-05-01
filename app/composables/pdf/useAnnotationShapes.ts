@@ -521,6 +521,22 @@ export const useAnnotationShapes = () => {
         return nextShapes;
     }
 
+    function createPersistedShapeLoadDebugPayload(
+        currentShapes: IShapeAnnotation[],
+        loaded: IShapeAnnotation[],
+        currentDeletedIds: Set<string>,
+        currentDeletedStableKeys: Set<string>,
+    ) {
+        return {
+            currentShapeCount: currentShapes.length,
+            loadedShapeCount: loaded.length,
+            currentEmbeddedCount: currentShapes.filter(shape => shape.source === 'embedded').length,
+            loadedEmbeddedCount: loaded.filter(shape => shape.source === 'embedded').length,
+            currentDeletedIds: [...currentDeletedIds],
+            currentDeletedStableKeys: [...currentDeletedStableKeys],
+        };
+    }
+
     function reconcilePersistedShapes(loaded: IShapeAnnotation[]) {
         const currentShapes = getAllShapes().map(shape => cloneShape(shape));
         const currentDeletedIds = new Set(deletedEmbeddedAnnotationIds.value);
@@ -532,14 +548,12 @@ export const useAnnotationShapes = () => {
             currentDeletedStableKeys,
         );
 
-        BrowserLogger.debug('pdf-shapes', 'Reconciling persisted shapes', () => ({
-            currentShapeCount: currentShapes.length,
-            loadedShapeCount: loaded.length,
-            currentEmbeddedCount: currentShapes.filter(shape => shape.source === 'embedded').length,
-            loadedEmbeddedCount: loaded.filter(shape => shape.source === 'embedded').length,
-            currentDeletedIds: [...currentDeletedIds],
-            currentDeletedStableKeys: [...currentDeletedStableKeys],
-        }));
+        BrowserLogger.debug('pdf-shapes', 'Reconciling persisted shapes', () => createPersistedShapeLoadDebugPayload(
+            currentShapes,
+            loaded,
+            currentDeletedIds,
+            currentDeletedStableKeys,
+        ));
 
         const nextDeletedIds = new Set<string>();
         const nextDeletedStableKeys = new Set<string>();
@@ -591,14 +605,12 @@ export const useAnnotationShapes = () => {
             currentDeletedStableKeys,
         );
 
-        BrowserLogger.debug('pdf-shapes', 'Priming persisted shapes before save', () => ({
-            currentShapeCount: currentShapes.length,
-            loadedShapeCount: loaded.length,
-            currentEmbeddedCount: currentShapes.filter(shape => shape.source === 'embedded').length,
-            loadedEmbeddedCount: loaded.filter(shape => shape.source === 'embedded').length,
-            currentDeletedIds: [...currentDeletedIds],
-            currentDeletedStableKeys: [...currentDeletedStableKeys],
-        }));
+        BrowserLogger.debug('pdf-shapes', 'Priming persisted shapes before save', () => createPersistedShapeLoadDebugPayload(
+            currentShapes,
+            loaded,
+            currentDeletedIds,
+            currentDeletedStableKeys,
+        ));
 
         replaceShapeState(nextShapes, {
             deletedIds: currentDeletedIds,
