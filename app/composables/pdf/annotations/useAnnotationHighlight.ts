@@ -105,6 +105,29 @@ interface IGeometryResolution {
     candidates: IPageCandidateLogEntry[] | null;
 }
 
+interface IPagePointResolutionInputs {
+    targetPageContainer: HTMLElement | null;
+    documentPointContainer: HTMLElement | null;
+    geometryResolution: IGeometryResolution;
+    byTargetPage: number | null;
+    byElementFromPointPage: number | null;
+    byGeometryPage: number | null;
+}
+
+interface IPagePointResolutionSelection {
+    pageContainer: HTMLElement | null;
+    selectedSource: string;
+    targetConflictsWithElementPoint: boolean;
+    targetConflictsWithGeometry: boolean;
+    hasTargetConflict: boolean;
+}
+
+interface IPagePointPageNumbers {
+    byTargetPage: number | null;
+    byElementFromPointPage: number | null;
+    byGeometryPage: number | null;
+}
+
 
 export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) {
     const {
@@ -723,19 +746,15 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         };
     }
 
-    function resolvePagePointTarget(
-        clientX: number,
-        clientY: number,
-        targetElement?: HTMLElement | null,
-        diagnostics?: INotePlacementDiagnosticsContext,
-    ): IPagePointTarget | null {
-        const targetPageContainer = resolvePageContainerFromTarget(targetElement);
-        const documentPointResolution = resolvePageContainerFromDocumentPoint(clientX, clientY);
-        const geometryResolution = resolvePageContainerByGeometry(clientX, clientY, {collectCandidates: Boolean(diagnostics)});
-        const byTargetPage = parsePageNumberFromContainer(targetPageContainer);
-        const byElementFromPointPage = parsePageNumberFromContainer(documentPointResolution.pageContainer);
-        const byGeometryPage = parsePageNumberFromContainer(geometryResolution.pageContainer);
-
+    function selectPagePointResolution(inputs: IPagePointResolutionInputs): IPagePointResolutionSelection {
+        const {
+            targetPageContainer,
+            documentPointContainer,
+            geometryResolution,
+            byTargetPage,
+            byElementFromPointPage,
+            byGeometryPage,
+        } = inputs;
         const targetConflictsWithElementPoint = (
             byTargetPage !== null
             && byElementFromPointPage !== null
@@ -754,8 +773,8 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             pageContainer = targetPageContainer;
             selectedSource = 'target-element';
         }
-        else if (documentPointResolution.pageContainer) {
-            pageContainer = documentPointResolution.pageContainer;
+        else if (documentPointContainer) {
+            pageContainer = documentPointContainer;
             selectedSource = 'document.elementFromPoint';
         }
         else if (geometryResolution.pageContainer) {
@@ -769,48 +788,78 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             selectedSource = 'target-element-conflicted-fallback';
         }
 
-        if (diagnostics && hasTargetConflict) {
-            const viewer = viewerContainer.value;
-            BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page target conflict detected', {
-                attemptId: diagnostics.attemptId ?? null,
-                source: diagnostics.source ?? null,
-                selectedSource,
-                byTargetPage,
-                byElementFromPointPage,
-                byGeometryPage,
-                targetConflictsWithElementPoint,
-                targetConflictsWithGeometry,
-                clickTarget: summarizeElementForLog(targetElement ?? null),
-                pointElement: summarizeElementForLog(documentPointResolution.pointElement),
-                renderedPageCandidates: geometryResolution.candidates,
-                visiblePageWindow: summarizeVisiblePageWindowForLog(),
-                viewerScrollTop: viewer?.scrollTop ?? null,
-                viewerScrollLeft: viewer?.scrollLeft ?? null,
-                clickMeta: diagnostics.clickMeta ?? null,
-            });
-        }
+        return {
+            pageContainer,
+            selectedSource,
+            targetConflictsWithElementPoint,
+            targetConflictsWithGeometry,
+            hasTargetConflict,
+        };
+    }
 
-        if (!pageContainer) {
-            if (diagnostics) {
-                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Failed to resolve quick-note page container', {
-                    attemptId: diagnostics.attemptId ?? null,
-                    source: diagnostics.source ?? null,
-                    clientX: roundForLog(clientX),
-                    clientY: roundForLog(clientY),
-                    currentPage: currentPage.value,
-                    byTargetPage,
-                    byElementFromPointPage,
-                    byGeometryPage,
-                    selectedSource,
-                    clickTarget: summarizeElementForLog(targetElement ?? null),
-                    pointElement: summarizeElementForLog(documentPointResolution.pointElement),
-                    renderedPageCandidates: geometryResolution.candidates,
-                    visiblePageWindow: summarizeVisiblePageWindowForLog(),
-                    clickMeta: diagnostics.clickMeta ?? null,
-                });
-            }
-            return null;
-        }
+    function logPagePointConflict(
+        diagnostics: INotePlacementDiagnosticsContext,
+        targetElement: HTMLElement | null,
+        pointElement: HTMLElement | null,
+        geometryResolution: IGeometryResolution,
+        selection: IPagePointResolutionSelection,
+        pageNumbers: IPagePointPageNumbers,
+    ) {
+        const viewer = viewerContainer.value;
+        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page target conflict detected', {
+            attemptId: diagnostics.attemptId ?? null,
+            source: diagnostics.source ?? null,
+            selectedSource: selection.selectedSource,
+            byTargetPage: pageNumbers.byTargetPage,
+            byElementFromPointPage: pageNumbers.byElementFromPointPage,
+            byGeometryPage: pageNumbers.byGeometryPage,
+            targetConflictsWithElementPoint: selection.targetConflictsWithElementPoint,
+            targetConflictsWithGeometry: selection.targetConflictsWithGeometry,
+            clickTarget: summarizeElementForLog(targetElement),
+            pointElement: summarizeElementForLog(pointElement),
+            renderedPageCandidates: geometryResolution.candidates,
+            visiblePageWindow: summarizeVisiblePageWindowForLog(),
+            viewerScrollTop: viewer?.scrollTop ?? null,
+            viewerScrollLeft: viewer?.scrollLeft ?? null,
+            clickMeta: diagnostics.clickMeta ?? null,
+        });
+    }
+
+    function logPagePointResolutionFailure(
+        diagnostics: INotePlacementDiagnosticsContext,
+        clientX: number,
+        clientY: number,
+        targetElement: HTMLElement | null,
+        pointElement: HTMLElement | null,
+        geometryResolution: IGeometryResolution,
+        selection: IPagePointResolutionSelection,
+        pageNumbers: IPagePointPageNumbers,
+    ) {
+        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Failed to resolve quick-note page container', {
+            attemptId: diagnostics.attemptId ?? null,
+            source: diagnostics.source ?? null,
+            clientX: roundForLog(clientX),
+            clientY: roundForLog(clientY),
+            currentPage: currentPage.value,
+            byTargetPage: pageNumbers.byTargetPage,
+            byElementFromPointPage: pageNumbers.byElementFromPointPage,
+            byGeometryPage: pageNumbers.byGeometryPage,
+            selectedSource: selection.selectedSource,
+            clickTarget: summarizeElementForLog(targetElement),
+            pointElement: summarizeElementForLog(pointElement),
+            renderedPageCandidates: geometryResolution.candidates,
+            visiblePageWindow: summarizeVisiblePageWindowForLog(),
+            clickMeta: diagnostics.clickMeta ?? null,
+        });
+    }
+
+    function buildPagePointTargetFromContainer(
+        pageContainer: HTMLElement,
+        clientX: number,
+        clientY: number,
+        selectedSource: string,
+        diagnostics?: INotePlacementDiagnosticsContext,
+    ): IPagePointTarget | null {
         const rect = pageContainer.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) {
             if (diagnostics) {
@@ -845,6 +894,64 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             pageX,
             pageY,
         };
+    }
+
+    function resolvePagePointTarget(
+        clientX: number,
+        clientY: number,
+        targetElement?: HTMLElement | null,
+        diagnostics?: INotePlacementDiagnosticsContext,
+    ): IPagePointTarget | null {
+        const targetPageContainer = resolvePageContainerFromTarget(targetElement);
+        const documentPointResolution = resolvePageContainerFromDocumentPoint(clientX, clientY);
+        const geometryResolution = resolvePageContainerByGeometry(clientX, clientY, {collectCandidates: Boolean(diagnostics)});
+        const pageNumbers: IPagePointPageNumbers = {
+            byTargetPage: parsePageNumberFromContainer(targetPageContainer),
+            byElementFromPointPage: parsePageNumberFromContainer(documentPointResolution.pageContainer),
+            byGeometryPage: parsePageNumberFromContainer(geometryResolution.pageContainer),
+        };
+
+        const selection = selectPagePointResolution({
+            targetPageContainer,
+            documentPointContainer: documentPointResolution.pageContainer,
+            geometryResolution,
+            ...pageNumbers,
+        });
+
+        if (diagnostics && selection.hasTargetConflict) {
+            logPagePointConflict(
+                diagnostics,
+                targetElement ?? null,
+                documentPointResolution.pointElement,
+                geometryResolution,
+                selection,
+                pageNumbers,
+            );
+        }
+
+        if (!selection.pageContainer) {
+            if (diagnostics) {
+                logPagePointResolutionFailure(
+                    diagnostics,
+                    clientX,
+                    clientY,
+                    targetElement ?? null,
+                    documentPointResolution.pointElement,
+                    geometryResolution,
+                    selection,
+                    pageNumbers,
+                );
+            }
+            return null;
+        }
+
+        return buildPagePointTargetFromContainer(
+            selection.pageContainer,
+            clientX,
+            clientY,
+            selection.selectedSource,
+            diagnostics,
+        );
     }
 
     function findClosestTextSpanInPage(pageContainer: HTMLElement, targetX: number, targetY: number): {

@@ -320,14 +320,8 @@ import type {
     TShapeResizeHandle,
 } from '@app/types/annotations';
 import { usePdfShapeOverlayInteractions } from '@app/composables/pdf/pdfShapeOverlayInteractions';
-import {
-    getPointMinMaxBounds,
-    toShapeRect,
-} from '@app/composables/pdf/pdfShapeResize';
-import {
-    getAllShapePoints,
-    getShapeStrokePointSets,
-} from '@app/composables/pdf/pdfShapeStrokes';
+import { getShapeRect } from '@app/composables/pdf/pdfShapeResize';
+import { getShapeStrokePointSets } from '@app/composables/pdf/pdfShapeStrokes';
 
 interface IProps {
     pageIndex: number;
@@ -409,10 +403,6 @@ function interactionStrokeWidth(shape: IShapeAnnotation) {
         return Math.max(shape.strokeWidth + 14, 20);
     }
     return Math.max(shape.strokeWidth + 10, 14);
-}
-
-function isLineLikeShape(shape: IShapeAnnotation) {
-    return shape.type === 'line' || shape.type === 'arrow';
 }
 
 function hasArrowHead(style: IShapeAnnotation['lineEndStyle']) {
@@ -502,40 +492,7 @@ const selectedShapeBounds = computed(() => {
     if (!shape) {
         return null;
     }
-    if (isLineLikeShape(shape)) {
-        const x2 = shape.x2 ?? shape.x;
-        const y2 = shape.y2 ?? shape.y;
-        const rect = toShapeRect({
-            minX: Math.min(shape.x, x2),
-            minY: Math.min(shape.y, y2),
-            maxX: Math.max(shape.x, x2),
-            maxY: Math.max(shape.y, y2),
-        }, 0.01);
-        return {
-            x: rect.minX,
-            y: rect.minY,
-            width: rect.maxX - rect.minX,
-            height: rect.maxY - rect.minY,
-        };
-    }
-    if (shape.type === 'polyline' || shape.type === 'polygon') {
-        const bounds = getPointMinMaxBounds(getAllShapePoints(shape));
-        if (bounds) {
-            const rect = toShapeRect(bounds, 0.01);
-            return {
-                x: rect.minX,
-                y: rect.minY,
-                width: rect.maxX - rect.minX,
-                height: rect.maxY - rect.minY,
-            };
-        }
-    }
-    return {
-        x: shape.x,
-        y: shape.y,
-        width: shape.width,
-        height: shape.height,
-    };
+    return getShapeRect(shape);
 });
 
 const selectedShape = computed(() => (

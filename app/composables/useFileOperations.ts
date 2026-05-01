@@ -457,6 +457,47 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return true;
     }
 
+    function computeShouldSerializeFlag(
+        shapeStateDirty: boolean,
+        hasPendingTexts: boolean,
+        hasPendingDeletes: boolean,
+    ) {
+        return annotationDirty.value
+            || hasAnnotationChanges()
+            || shapeStateDirty
+            || pageLabelsDirty.value
+            || bookmarksDirty.value
+            || hasPendingTexts
+            || hasPendingDeletes;
+    }
+
+    async function runSerializedSaveFlow(
+        rawData: Uint8Array | null,
+        pendingTexts: Map<string, string> | null,
+        pendingDeletes: IAnnotationCommentSummary[] | null,
+        shapeStateDirty: boolean,
+        reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
+        mode: 'save' | 'save_as',
+        saveMode: TPdfSaveMode,
+        persist: (
+            data: Uint8Array,
+            opts: { saveMode: TPdfSaveMode },
+        ) => Promise<IPdfPersistResult>,
+    ) {
+        const saveSucceeded = await saveSerializedChanges(
+            rawData,
+            pendingTexts,
+            pendingDeletes,
+            shapeStateDirty,
+            reloadWaiter,
+            mode,
+            saveMode,
+            persist,
+        );
+        await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
+        return saveSucceeded;
+    }
+
     async function handleSave() {
         if (hasSaveOperationInProgress()) {
             return false;
@@ -488,10 +529,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         try {
             if (workingCopyPath.value) {
                 const shapeStateDirty = hasShapeChanges?.() ?? false;
-                const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || shapeStateDirty || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
+                const shouldSerialize = computeShouldSerializeFlag(shapeStateDirty, hasPendingTexts, hasPendingDeletes);
                 if (shouldSerialize) {
                     const rawData = await getSerializationBasePdfBytes();
-                    saveSucceeded = await saveSerializedChanges(
+                    saveSucceeded = await runSerializedSaveFlow(
                         rawData,
                         pendingTexts,
                         pendingDeletes,
@@ -501,7 +542,6 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                         'rewrite',
                         saveFile,
                     );
-                    await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
                     finalizedReloadWaiter = true;
                     return saveSucceeded;
                 }
@@ -519,7 +559,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
 
             const shapeStateDirty = hasShapeChanges?.() ?? false;
             const rawData = await saveDocumentWithRetry();
-            saveSucceeded = await saveSerializedChanges(
+            saveSucceeded = await runSerializedSaveFlow(
                 rawData,
                 pendingTexts,
                 pendingDeletes,
@@ -529,7 +569,6 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 'rewrite',
                 saveFile,
             );
-            await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
             finalizedReloadWaiter = true;
             return saveSucceeded;
         } finally {
@@ -559,7 +598,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         isSavingAs.value = true;
         try {
             const shapeStateDirty = hasShapeChanges?.() ?? false;
-            const shouldSerialize = annotationDirty.value || hasAnnotationChanges() || shapeStateDirty || pageLabelsDirty.value || bookmarksDirty.value || hasPendingTexts || hasPendingDeletes;
+            const shouldSerialize = computeShouldSerializeFlag(shapeStateDirty, hasPendingTexts, hasPendingDeletes);
             if (shouldSerialize) {
                 const rawData = await getSerializationBasePdfBytes();
                 saveSucceeded = await saveSerializedChanges(

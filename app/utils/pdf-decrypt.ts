@@ -332,7 +332,7 @@ export async function stripPdfEncryption(data: Uint8Array): Promise<Uint8Array> 
     doc.context.delete(encryptRef);
 
     try {
-        return doc.save();
+        return await doc.save();
     } catch {
         return data;
     }

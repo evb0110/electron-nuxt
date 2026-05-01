@@ -67,6 +67,10 @@ const strictTypeRules = {
         },
     ],
     '@typescript-eslint/await-thenable': 'error',
+    '@typescript-eslint/return-await': [
+        'error',
+        'in-try-catch',
+    ],
     '@typescript-eslint/only-throw-error': 'error',
     '@typescript-eslint/ban-ts-comment': [
         'error',
@@ -359,6 +363,7 @@ export default withNuxt(
                 },
             ],
             '@typescript-eslint/require-await': 'error',
+            'no-return-await': 'off',
             '@typescript-eslint/no-restricted-imports': [
                 'error',
                 {paths: [{
@@ -403,7 +408,8 @@ export default withNuxt(
                     },
                 },
             ],
-            '@typescript-eslint/require-await': 'off',
+            '@typescript-eslint/require-await': 'error',
+            'no-return-await': 'off',
             '@typescript-eslint/no-explicit-any': 'off',
             '@typescript-eslint/no-unsafe-assignment': 'off',
             '@typescript-eslint/no-unsafe-member-access': 'off',
@@ -415,7 +421,6 @@ export default withNuxt(
             '@typescript-eslint/await-thenable': 'off',
             '@typescript-eslint/only-throw-error': 'off',
             'prefer-promise-reject-errors': 'off',
-            'no-return-await': 'off',
             'no-empty': 'off',
             'no-restricted-imports': 'off',
         },
@@ -454,7 +459,8 @@ export default withNuxt(
                     },
                 },
             ],
-            '@typescript-eslint/require-await': 'off',
+            '@typescript-eslint/require-await': 'error',
+            'no-return-await': 'off',
             '@typescript-eslint/no-unsafe-assignment': 'off',
             '@typescript-eslint/no-unsafe-member-access': 'off',
             '@typescript-eslint/no-unsafe-call': 'off',
@@ -503,6 +509,7 @@ export default withNuxt(
                 },
             ],
             '@typescript-eslint/require-await': 'off',
+            'no-return-await': 'off',
             '@typescript-eslint/no-unsafe-assignment': 'off',
             '@typescript-eslint/no-unsafe-member-access': 'off',
             '@typescript-eslint/no-unsafe-call': 'off',
@@ -533,6 +540,7 @@ export default withNuxt(
             '@typescript-eslint/no-unsafe-return': 'off',
             '@typescript-eslint/no-unsafe-argument': 'off',
             '@typescript-eslint/require-await': 'error',
+            'no-return-await': 'off',
             '@typescript-eslint/array-type': [
                 'error',
                 {

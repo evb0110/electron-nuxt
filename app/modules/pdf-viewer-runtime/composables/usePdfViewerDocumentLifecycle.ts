@@ -21,6 +21,21 @@ interface IPageRange {
     end: number;
 }
 
+interface IReloadPlan {
+    pageToRestore: number;
+    resolvedPageToRestore: number;
+    displayZoomToRestore: number | null;
+    pagesToInvalidate: number[] | null;
+    isSelectiveReload: boolean;
+    shouldPreserveReloadDisplayZoom: boolean;
+    shouldPinReloadPage: boolean;
+}
+
+interface IVisualReloadTransition {
+    token: number | null;
+    settle: (reason: string) => void;
+}
+
 interface ICommentSyncLike {
     incrementSyncToken: () => void;
     scheduleAnnotationCommentsSync: (immediate?: boolean) => void;
@@ -220,12 +235,160 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
         return false;
     }
 
+    function clearAnnotationCacheForEmptySource() {
+        options.commentSync.incrementSyncToken();
+        options.annotationCommentsCache.value = [];
+        options.activeCommentStableKey.value = null;
+        options.emit('annotation-comments', []);
+    }
+
+    function computeReloadPlan(isReload: boolean): IReloadPlan {
+        const pageToRestore = isReload ? options.currentPage.value : 1;
+        const resolvedPageToRestore = Math.max(1, Math.floor(pageToRestore));
+        const displayZoomToRestore = isReload && options.zoomMode.value === 'custom'
+            ? options.effectiveScale.value
+            : null;
+        const pagesToInvalidate = options.consumePendingInvalidation();
+        const isSelectiveReload = isReload && pagesToInvalidate !== null;
+        const shouldPreserveReloadDisplayZoom = isReload
+            && !isSelectiveReload
+            && displayZoomToRestore !== null;
+        const shouldPinReloadPage = isReload && !isSelectiveReload && resolvedPageToRestore > 1;
+        return {
+            pageToRestore,
+            resolvedPageToRestore,
+            displayZoomToRestore,
+            pagesToInvalidate,
+            isSelectiveReload,
+            shouldPreserveReloadDisplayZoom,
+            shouldPinReloadPage,
+        };
+    }
+
+    function createVisualReloadTransition(shouldPinReloadPage: boolean): IVisualReloadTransition {
+        const token = shouldPinReloadPage
+            ? options.beginVisualReloadTransition('reload-recovery')
+            : null;
+        let settled = false;
+        const settle = (reason: string) => {
+            if (token === null || settled) {
+                return;
+            }
+            settled = true;
+            options.endVisualReloadTransition(token, reason);
+        };
+        return {
+            token,
+            settle,
+        };
+    }
+
+    function applyPreLoadStateReset(plan: IReloadPlan, isReload: boolean) {
+        options.emit('update:document', null);
+        if (!isReload) options.emit('update:totalPages', 0);
+        options.emit('update:currentPage', plan.pageToRestore);
+
+        if (plan.isSelectiveReload && plan.pagesToInvalidate) {
+            options.invalidateRenderedPages(plan.pagesToInvalidate);
+        } else {
+            options.cleanupRenderedPages();
+            if (plan.shouldPreserveReloadDisplayZoom) {
+                options.invalidateScaleCache();
+            } else {
+                options.resetScale();
+            }
+            options.resetInsets();
+            options.currentPage.value = plan.pageToRestore;
+            options.visibleRange.value = {
+                start: plan.pageToRestore,
+                end: plan.pageToRestore,
+            };
+        }
+        options.editor.destroyAnnotationEditor();
+    }
+
+    function restoreSelectiveReloadBaseDimensions(
+        plan: IReloadPlan,
+        savedBaseWidth: number | null,
+        savedBaseHeight: number | null,
+    ) {
+        if (
+            plan.isSelectiveReload &&
+            savedBaseWidth !== null &&
+            savedBaseHeight !== null
+        ) {
+            options.basePageWidth.value = savedBaseWidth;
+            options.basePageHeight.value = savedBaseHeight;
+        }
+    }
+
+    function applyPostLoadDocumentMetadata(plan: IReloadPlan) {
+        options.emit('update:document', options.pdfDocument.value);
+        options.editor.initAnnotationEditor();
+
+        options.currentPage.value = Math.min(plan.resolvedPageToRestore, options.numPages.value);
+        options.emit('update:totalPages', options.numPages.value);
+        options.emit('update:currentPage', options.currentPage.value);
+    }
+
+    function resolveMetricHydrationStartPage(plan: IReloadPlan, isReload: boolean) {
+        return isReload && !plan.isSelectiveReload && options.currentPage.value > 1
+            ? 1
+            : options.currentPage.value;
+    }
+
+    function scheduleSkeletonInsetsCompute(documentVersion: number) {
+        runGuardedTask(
+            async () => {
+                const firstPage = await options.getPage(1);
+                await options.computeSkeletonInsets(
+                    firstPage,
+                    documentVersion,
+                    options.getRenderVersion,
+                );
+            },
+            {
+                scope: 'pdf-viewer',
+                message: 'Failed to compute PDF skeleton insets',
+            },
+        );
+    }
+
+    function pinCurrentPageToRestoreTarget(plan: IReloadPlan) {
+        options.currentPage.value = Math.min(plan.resolvedPageToRestore, options.numPages.value);
+        options.emit('update:currentPage', options.currentPage.value);
+    }
+
+    function scheduleWarmBufferedRender(
+        plan: IReloadPlan,
+        settleVisualReloadTransition: (reason: string) => void,
+    ) {
+        runGuardedTask(
+            async () => {
+                try {
+                    await options.renderVisiblePages(options.getVisibleRange());
+                    if (!plan.shouldPinReloadPage) {
+                        return;
+                    }
+
+                    pinCurrentPageToRestoreTarget(plan);
+                    options.scrollToPage(options.currentPage.value);
+                    await nextTick();
+                    options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
+                } finally {
+                    settleVisualReloadTransition('warm-render-complete');
+                }
+            },
+            {
+                scope: 'pdf-viewer',
+                message: 'Failed to warm buffered PDF pages after initial render',
+            },
+        );
+    }
+
     async function loadFromSource(isReload = false) {
         if (!options.src.value) {
-            options.commentSync.incrementSyncToken();
-            options.annotationCommentsCache.value = [];
-            options.activeCommentStableKey.value = null;
-            options.emit('annotation-comments', []);
+            clearAnnotationCacheForEmptySource();
             return;
         }
 
@@ -237,128 +400,59 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
         });
 
         try {
-            const pageToRestore = isReload ? options.currentPage.value : 1;
-            const resolvedPageToRestore = Math.max(1, Math.floor(pageToRestore));
-            const displayZoomToRestore = isReload && options.zoomMode.value === 'custom'
-                ? options.effectiveScale.value
-                : null;
-            const pagesToInvalidate = options.consumePendingInvalidation();
-            const isSelectiveReload = isReload && pagesToInvalidate !== null;
-            const shouldPreserveReloadDisplayZoom = isReload
-                && !isSelectiveReload
-                && displayZoomToRestore !== null;
-            const shouldPinReloadPage = isReload && !isSelectiveReload && resolvedPageToRestore > 1;
-            const visualReloadTransitionToken = shouldPinReloadPage
-                ? options.beginVisualReloadTransition('reload-recovery')
-                : null;
+            const plan = computeReloadPlan(isReload);
+            const visualReload = createVisualReloadTransition(plan.shouldPinReloadPage);
+            const settleVisualReloadTransition = visualReload.settle;
             let visualReloadTransitionHandledByWarmRender = false;
-            let visualReloadTransitionSettled = false;
 
-            const settleVisualReloadTransition = (reason: string) => {
-                if (visualReloadTransitionToken === null || visualReloadTransitionSettled) {
-                    return;
-                }
-
-                visualReloadTransitionSettled = true;
-                options.endVisualReloadTransition(visualReloadTransitionToken, reason);
-            };
-
-            if (shouldPinReloadPage) {
+            if (plan.shouldPinReloadPage) {
                 // Geometry-changing reloads can briefly report a stale viewport page
                 // while placeholders, resize observers, and buffered renders settle.
-                options.pinCurrentPageDuringRecovery(resolvedPageToRestore, {
+                options.pinCurrentPageDuringRecovery(plan.resolvedPageToRestore, {
                     durationMs: 900,
                     reason: 'reload-recovery',
                 });
             }
 
-            const savedBaseWidth = isSelectiveReload ? options.basePageWidth.value : null;
-            const savedBaseHeight = isSelectiveReload ? options.basePageHeight.value : null;
-            const savedVisibleRange = isSelectiveReload
+            const savedBaseWidth = plan.isSelectiveReload ? options.basePageWidth.value : null;
+            const savedBaseHeight = plan.isSelectiveReload ? options.basePageHeight.value : null;
+            const savedVisibleRange = plan.isSelectiveReload
                 ? { ...options.visibleRange.value }
                 : null;
 
-            options.emit('update:document', null);
-            if (!isReload) options.emit('update:totalPages', 0);
-            options.emit('update:currentPage', pageToRestore);
-
-            if (isSelectiveReload && pagesToInvalidate) {
-                options.invalidateRenderedPages(pagesToInvalidate);
-            } else {
-                options.cleanupRenderedPages();
-                if (shouldPreserveReloadDisplayZoom) {
-                    options.invalidateScaleCache();
-                } else {
-                    options.resetScale();
-                }
-                options.resetInsets();
-                options.currentPage.value = pageToRestore;
-                options.visibleRange.value = {
-                    start: pageToRestore,
-                    end: pageToRestore,
-                };
-            }
-            options.editor.destroyAnnotationEditor();
+            applyPreLoadStateReset(plan, isReload);
 
             const loaded = await options.loadPdf(
                 options.src.value,
-                isSelectiveReload ? { preservePageStructure: true } : undefined,
+                plan.isSelectiveReload ? { preservePageStructure: true } : undefined,
             );
             if (!loaded) {
                 settleVisualReloadTransition('load-aborted');
                 return;
             }
 
-            if (
-                isSelectiveReload &&
-                savedBaseWidth !== null &&
-                savedBaseHeight !== null
-            ) {
-                options.basePageWidth.value = savedBaseWidth;
-                options.basePageHeight.value = savedBaseHeight;
-            }
+            restoreSelectiveReloadBaseDimensions(plan, savedBaseWidth, savedBaseHeight);
 
-            options.emit('update:document', options.pdfDocument.value);
-            options.editor.initAnnotationEditor();
-
-            options.currentPage.value = Math.min(resolvedPageToRestore, options.numPages.value);
-            options.emit('update:totalPages', options.numPages.value);
-            options.emit('update:currentPage', options.currentPage.value);
-            const metricHydrationStartPage = isReload && !isSelectiveReload && options.currentPage.value > 1
-                ? 1
-                : options.currentPage.value;
+            applyPostLoadDocumentMetadata(plan);
             await options.ensurePageMetricsInRange(
-                metricHydrationStartPage,
+                resolveMetricHydrationStartPage(plan, isReload),
                 options.currentPage.value,
             );
 
-            if (!isSelectiveReload) {
-                runGuardedTask(
-                    async () => {
-                        const firstPage = await options.getPage(1);
-                        await options.computeSkeletonInsets(
-                            firstPage,
-                            loaded.version,
-                            options.getRenderVersion,
-                        );
-                    },
-                    {
-                        scope: 'pdf-viewer',
-                        message: 'Failed to compute PDF skeleton insets',
-                    },
-                );
+            if (!plan.isSelectiveReload) {
+                scheduleSkeletonInsetsCompute(loaded.version);
             }
 
             await nextTick();
             await options.beforeInitialRender?.();
 
-            if (!isSelectiveReload) {
+            if (!plan.isSelectiveReload) {
                 options.computeFitWidthScale(options.viewerContainer.value);
-                if (displayZoomToRestore !== null) {
+                if (plan.displayZoomToRestore !== null) {
                     const nextZoom = resolveCustomReloadZoomMultiplier({
                         currentZoom: options.zoom.value,
                         currentEffectiveScale: options.effectiveScale.value,
-                        targetDisplayZoom: displayZoomToRestore,
+                        targetDisplayZoom: plan.displayZoomToRestore,
                     });
                     if (nextZoom !== null && Math.abs(nextZoom - options.zoom.value) > 0.001) {
                         options.suppressNextZoomRerender(nextZoom);
@@ -383,7 +477,7 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
                 } satisfies IPageRange;
 
                 await options.renderVisiblePages(initialRange, { bufferOverride: 0 });
-                if (!isSelectiveReload && isReload && options.currentPage.value > 1) {
+                if (!plan.isSelectiveReload && isReload && options.currentPage.value > 1) {
                     // Crop and other geometry-changing reloads can shift placeholder
                     // offsets enough that the pre-render jump lands on the wrong page.
                     // Re-apply the intended page target once the first real page render
@@ -392,9 +486,8 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
                     await nextTick();
                     options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
                 }
-                if (shouldPinReloadPage) {
-                    options.currentPage.value = Math.min(resolvedPageToRestore, options.numPages.value);
-                    options.emit('update:currentPage', options.currentPage.value);
+                if (plan.shouldPinReloadPage) {
+                    pinCurrentPageToRestoreTarget(plan);
                 } else {
                     await options.syncCurrentPageFromViewport({ source: 'load-from-source' });
                 }
@@ -402,31 +495,10 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
                 settleVisualReloadTransition('initial-render-error');
                 logAsyncStageError('render visible pages after source load', error);
             }
-            if (visualReloadTransitionToken !== null) {
+            if (visualReload.token !== null) {
                 visualReloadTransitionHandledByWarmRender = true;
             }
-            runGuardedTask(
-                async () => {
-                    try {
-                        await options.renderVisiblePages(options.getVisibleRange());
-                        if (!shouldPinReloadPage) {
-                            return;
-                        }
-
-                        options.currentPage.value = Math.min(resolvedPageToRestore, options.numPages.value);
-                        options.emit('update:currentPage', options.currentPage.value);
-                        options.scrollToPage(options.currentPage.value);
-                        await nextTick();
-                        options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
-                    } finally {
-                        settleVisualReloadTransition('warm-render-complete');
-                    }
-                },
-                {
-                    scope: 'pdf-viewer',
-                    message: 'Failed to warm buffered PDF pages after initial render',
-                },
-            );
+            scheduleWarmBufferedRender(plan, settleVisualReloadTransition);
             options.applySearchHighlights();
             options.commentSync.scheduleAnnotationCommentsSync(true);
             scheduleRecoverInitialRender();

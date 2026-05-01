@@ -606,7 +606,7 @@ async function buildPdfWithOptionalBookmarks(options: {
             options.onBookmarksStart?.();
         }
         await writer.finish();
-        return sink.finish();
+        return await sink.finish();
     } catch (error) {
         await sink.abort().catch((abortError: unknown) => {
             BrowserLogger.warn('djvu-browser', 'Failed to abort browser PDF sink', abortError);

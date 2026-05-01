@@ -97,7 +97,7 @@ export const usePdfWordBoxes = () => {
     ): Promise<IOcrIndexV2Page | null> {
         try {
             const pageFile = `page-${String(pageNumber).padStart(4, '0')}.json`;
-            return readOptionalOcrArtifactJson<IOcrIndexV2Page>(workingCopyPath, pageFile);
+            return await readOptionalOcrArtifactJson<IOcrIndexV2Page>(workingCopyPath, pageFile);
         } catch (error) {
             BrowserLogger.warn('ocr-debug', 'Failed to load OCR page data', error);
             return null;

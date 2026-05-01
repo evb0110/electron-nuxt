@@ -72,7 +72,7 @@ async function safeDeleteDjvuTempPdf(tempPdfPath: string) {
     }
 }
 
-export async function performDjvuViewingShutdownCleanup() {
+export function performDjvuViewingShutdownCleanup() {
     allowedDjvuViewingPathsBySender.clear();
     senderCleanupRegistered.clear();
 }

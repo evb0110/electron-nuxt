@@ -312,9 +312,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
             case 'run': {
                 const code = parseRequiredStringArg(args, 0, 'No code provided');
 
-                const screenshotFn = async (name: string) => {
-                    return await takeScreenshot(name, false);
-                };
+                const screenshotFn = (name: string) => takeScreenshot(name, false);
                 const sleepFn = async (ms: number) => {
                     const duration = Number.isFinite(ms) ? Math.max(0, ms) : 0;
                     await delay(duration);
@@ -325,7 +323,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                     `return (async () => { ${code} })()`,
                 );
 
-                return await Promise.race([
+                return Promise.race([
                     asyncFn(page, screenshotFn, sleepFn, sleepFn),
                     delay(COMMAND_EXECUTION_TIMEOUT_MS).then(() => {
                         throw new Error(`run command timed out after ${Math.round(COMMAND_EXECUTION_TIMEOUT_MS / 1000)}s`);
@@ -335,7 +333,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
 
             case 'eval': {
                 const code = parseRequiredStringArg(args, 0, 'No code provided');
-                return await Promise.race([
+                return Promise.race([
                     page.evaluate(code),
                     delay(COMMAND_EXECUTION_TIMEOUT_MS).then(() => {
                         throw new Error(`eval command timed out after ${Math.round(COMMAND_EXECUTION_TIMEOUT_MS / 1000)}s`);
@@ -448,7 +446,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                 await page.type(selector, text);
                 return {
                     typed: text,
-                    into: selector, 
+                    into: selector,
                 };
             }
 
@@ -458,7 +456,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                 if (!el) {
                     return null;
                 }
-                return await el.evaluate(element => element.textContent);
+                return el.evaluate(element => element.textContent);
             }
 
             case 'waitfor': {
@@ -480,12 +478,12 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                 }
                 await page.setViewport({
                     width,
-                    height, 
+                    height,
                 });
                 return {
                     resized: {
                         width,
-                        height, 
+                        height,
                     },
                     viewport: page.viewport(),
                 };
@@ -577,7 +575,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                         })[0] ?? null;
                 };
 
-                const readViewerState = async (token?: string) => await page.evaluate((requestedPathBasename: string, requestedToken?: string) => {
+                const readViewerState = (token?: string) => page.evaluate((requestedPathBasename: string, requestedToken?: string) => {
                     const hosts = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'));
                     const viewers = hosts.map((host, viewerIndex) => {
                         const setupState = (host as HTMLElement & {__vueParentComponent?: {setupState?: {
