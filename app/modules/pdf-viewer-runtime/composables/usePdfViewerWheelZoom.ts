@@ -164,9 +164,7 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
         };
     }
 
-    function handleViewerModifierWheelZoom(event: WheelEvent) {
-        const nowMs = Date.now();
-        const debugId = ++zoomDebugWheelEventId;
+    function getModifierWheelIntent(event: WheelEvent, nowMs: number) {
         const activeSession = getActiveWheelZoomSession(nowMs);
         const isContinuationPacket = Boolean(
             activeSession
@@ -175,17 +173,165 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
         const hasModifierZoomSignal = event.ctrlKey
             || event.metaKey
             || Math.abs(event.deltaZ) > Number.EPSILON;
-        const shouldTreatAsZoomSignal = hasModifierZoomSignal || isContinuationPacket;
+
+        return {
+            activeSession,
+            hasModifierZoomSignal,
+            isContinuationPacket,
+            shouldTreatAsZoomSignal: hasModifierZoomSignal || isContinuationPacket,
+        };
+    }
+
+    function getWheelZoomEventAnchor(event: WheelEvent, container: HTMLElement) {
+        const containerRect = container.getBoundingClientRect();
+
+        return {
+            x: clamp(
+                event.clientX - containerRect.left,
+                0,
+                Math.max(container.clientWidth, 0),
+            ),
+            y: clamp(
+                event.clientY - containerRect.top,
+                0,
+                Math.max(container.clientHeight, 0),
+            ),
+        };
+    }
+
+    function normalizeFallbackWheelZoomDelta(event: WheelEvent, container: HTMLElement) {
+        if (event.deltaMode === 1) {
+            return event.deltaZ * WHEEL_LINE_DELTA_PX;
+        }
+        if (event.deltaMode === 2) {
+            return event.deltaZ * Math.max(container.clientHeight, 1);
+        }
+        return event.deltaZ;
+    }
+
+    function resolveWheelZoomDelta(event: WheelEvent, container: HTMLElement) {
+        const delta = normalizeWheelZoomDelta(event, container);
+        if (Math.abs(delta) >= Number.EPSILON || Math.abs(event.deltaZ) <= Number.EPSILON) {
+            return delta;
+        }
+
+        return normalizeFallbackWheelZoomDelta(event, container);
+    }
+
+    function resolveWheelZoomTarget(
+        delta: number,
+        session: ReturnType<typeof ensureWheelZoomSession>['session'],
+    ) {
+        session.cumulativeDelta += delta;
+        const zoomFactor = Math.exp(-session.cumulativeDelta * WHEEL_ZOOM_SENSITIVITY);
+        if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
+            return {
+                valid: false as const,
+                zoomFactor,
+            };
+        }
+
+        const nextEffectiveZoom = clampZoomLevel(session.startZoom * zoomFactor);
+        const baselineScale = resolveZoomBaselineScale();
+
+        return {
+            valid: true as const,
+            baselineScale,
+            nextEffectiveZoom,
+            nextZoom: clampZoomLevel(nextEffectiveZoom / baselineScale),
+            zoomFactor,
+        };
+    }
+
+    function updateWheelZoomSessionAfterEmit(
+        session: ReturnType<typeof ensureWheelZoomSession>['session'],
+        nextEffectiveZoom: number,
+        nowMs: number,
+    ) {
+        session.lastEmittedZoom = nextEffectiveZoom;
+        session.lastPacketAtMs = nowMs;
+        session.lockUntilMs = nowMs + WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS;
+        session.emittedCount += 1;
+    }
+
+    function setPendingZoomAnchors(
+        container: HTMLElement,
+        debugId: number,
+        sessionId: number,
+        anchorX: number,
+        anchorY: number,
+        nowMs: number,
+    ) {
+        const snapshotForImmediateRestore = captureScrollSnapshot(container, {
+            anchorViewportX: anchorX,
+            anchorViewportY: anchorY,
+        });
+        if (snapshotForImmediateRestore) {
+            pendingImmediateZoomRestoreIntent.value = {
+                id: debugId,
+                sessionId,
+                snapshot: snapshotForImmediateRestore,
+                capturedAtMs: nowMs,
+            };
+        }
+
+        pendingZoomViewportAnchor.value = {
+            id: debugId,
+            sessionId,
+            x: anchorX,
+            y: anchorY,
+            capturedAtMs: nowMs,
+        };
+    }
+
+    function suppressSinglePageSnapForWheelZoom() {
+        singlePageScroll.suppressSnapFor(
+            Math.max(
+                WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
+                WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS,
+            ),
+        );
+    }
+
+    function readViewerScrollPosition() {
+        const container = viewerContainer.value;
+        const currentTop = container ? Math.round(container.scrollTop) : null;
+        const currentLeft = container ? Math.round(container.scrollLeft) : null;
+        const deltaTop = currentTop === null ? null : currentTop - lastViewerScrollTop;
+        const deltaLeft = currentLeft === null ? null : currentLeft - lastViewerScrollLeft;
+
+        if (currentTop !== null) {
+            lastViewerScrollTop = currentTop;
+        }
+        if (currentLeft !== null) {
+            lastViewerScrollLeft = currentLeft;
+        }
+
+        return {
+            deltaTop,
+            deltaLeft,
+        };
+    }
+
+    function hasUnexpectedScrollDrift(deltaTop: number | null, deltaLeft: number | null) {
+        return (typeof deltaTop === 'number' && Math.abs(deltaTop) >= 10)
+            || (typeof deltaLeft === 'number' && Math.abs(deltaLeft) >= 10);
+    }
+
+    function handleViewerModifierWheelZoom(event: WheelEvent) {
+        const nowMs = Date.now();
+        const debugId = ++zoomDebugWheelEventId;
+        const wheelIntent = getModifierWheelIntent(event, nowMs);
         BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-zoom-received', WHEEL_DETAIL_LOG_THROTTLE_MS, `[wheel-zoom] received id=${debugId}`, {
             id: debugId,
-            hasModifierZoomSignal,
-            shouldTreatAsZoomSignal,
-            isContinuationPacket,
-            activeSessionId: activeSession?.id ?? null,
+            hasModifierZoomSignal: wheelIntent.hasModifierZoomSignal,
+            shouldTreatAsZoomSignal: wheelIntent.shouldTreatAsZoomSignal,
+            isContinuationPacket: wheelIntent.isContinuationPacket,
+            activeSessionId: wheelIntent.activeSession?.id ?? null,
             viewer: summarizeViewerStateForLog(),
             wheel: summarizeWheelEventForDebug(event),
         });
-        if (!shouldTreatAsZoomSignal) {
+        if (!wheelIntent.shouldTreatAsZoomSignal) {
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
                 'wheel-zoom-ignored-no-modifier',
@@ -229,33 +375,16 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
             return true;
         }
 
-        const containerRect = container.getBoundingClientRect();
-        const eventAnchorX = clamp(
-            event.clientX - containerRect.left,
-            0,
-            Math.max(container.clientWidth, 0),
-        );
-        const eventAnchorY = clamp(
-            event.clientY - containerRect.top,
-            0,
-            Math.max(container.clientHeight, 0),
-        );
+        const eventAnchor = getWheelZoomEventAnchor(event, container);
         const {
             session,
             reused: reusedGestureAnchor,
-        } = ensureWheelZoomSession(nowMs, eventAnchorX, eventAnchorY, debugId);
+        } = ensureWheelZoomSession(nowMs, eventAnchor.x, eventAnchor.y, debugId);
         session.packetCount += 1;
         const anchorX = session.anchorX;
         const anchorY = session.anchorY;
 
-        let delta = normalizeWheelZoomDelta(event, container);
-        if (Math.abs(delta) < Number.EPSILON && Math.abs(event.deltaZ) > Number.EPSILON) {
-            delta = event.deltaMode === 1
-                ? event.deltaZ * WHEEL_LINE_DELTA_PX
-                : event.deltaMode === 2
-                    ? event.deltaZ * Math.max(container.clientHeight, 1)
-                    : event.deltaZ;
-        }
+        const delta = resolveWheelZoomDelta(event, container);
         if (Math.abs(delta) < Number.EPSILON) {
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
@@ -270,9 +399,8 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
             return true;
         }
 
-        session.cumulativeDelta += delta;
-        const zoomFactor = Math.exp(-session.cumulativeDelta * WHEEL_ZOOM_SENSITIVITY);
-        if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
+        const zoomTarget = resolveWheelZoomTarget(delta, session);
+        if (!zoomTarget.valid) {
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
                 'wheel-zoom-ignored-invalid-factor',
@@ -281,16 +409,15 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
                 {
                     id: debugId,
                     deltaCumulative: session.cumulativeDelta,
-                    zoomFactor,
+                    zoomFactor: zoomTarget.zoomFactor,
                     sessionId: session.id,
                 },
             );
             return true;
         }
 
-        const nextEffectiveZoom = clampZoomLevel(session.startZoom * zoomFactor);
         const previousEmittedZoom = session.lastEmittedZoom;
-        if (Math.abs(nextEffectiveZoom - previousEmittedZoom) < 0.001) {
+        if (Math.abs(zoomTarget.nextEffectiveZoom - previousEmittedZoom) < 0.001) {
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
                 'wheel-zoom-ignored-no-change',
@@ -302,56 +429,32 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
                     currentZoomMultiplier: zoom.value,
                     currentEffectiveZoom: effectiveScale.value,
                     previousEmittedZoom,
-                    nextEffectiveZoom,
+                    nextEffectiveZoom: zoomTarget.nextEffectiveZoom,
                     delta,
-                    zoomFactor,
+                    zoomFactor: zoomTarget.zoomFactor,
                     cumulativeDelta: session.cumulativeDelta,
                 },
             );
             return true;
         }
-        session.lastEmittedZoom = nextEffectiveZoom;
-        session.lastPacketAtMs = nowMs;
-        session.lockUntilMs = nowMs + WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS;
-        session.emittedCount += 1;
-        const baselineScale = resolveZoomBaselineScale();
-        const nextZoom = clampZoomLevel(nextEffectiveZoom / baselineScale);
-        const snapshotForImmediateRestore = captureScrollSnapshot(container, {
-            anchorViewportX: anchorX,
-            anchorViewportY: anchorY,
-        });
-        if (snapshotForImmediateRestore) {
-            pendingImmediateZoomRestoreIntent.value = {
-                id: debugId,
-                sessionId: session.id,
-                snapshot: snapshotForImmediateRestore,
-                capturedAtMs: nowMs,
-            };
-        }
-
-        pendingZoomViewportAnchor.value = {
-            id: debugId,
-            sessionId: session.id,
-            x: anchorX,
-            y: anchorY,
-            capturedAtMs: nowMs,
-        };
+        updateWheelZoomSessionAfterEmit(session, zoomTarget.nextEffectiveZoom, nowMs);
+        setPendingZoomAnchors(container, debugId, session.id, anchorX, anchorY, nowMs);
         BrowserLogger.warnThrottled('pdf-zoom-debug', 'wheel-zoom-emit', WHEEL_DETAIL_LOG_THROTTLE_MS, `[wheel-zoom] emit id=${debugId}`, {
             id: debugId,
             sessionId: session.id,
             gestureAnchorReused: reusedGestureAnchor,
             sessionStartZoom: session.startZoom,
             sessionCumulativeDelta: session.cumulativeDelta,
-            eventAnchorX,
-            eventAnchorY,
+            eventAnchorX: eventAnchor.x,
+            eventAnchorY: eventAnchor.y,
             delta,
-            zoomFactor,
+            zoomFactor: zoomTarget.zoomFactor,
             currentZoomMultiplier: zoom.value,
             currentEffectiveZoom: effectiveScale.value,
-            baselineScale,
+            baselineScale: zoomTarget.baselineScale,
             previousEmittedZoom,
-            nextEffectiveZoom,
-            nextZoom,
+            nextEffectiveZoom: zoomTarget.nextEffectiveZoom,
+            nextZoom: zoomTarget.nextZoom,
             anchor: pendingZoomViewportAnchor.value,
             viewerBeforeEmit: summarizeViewerStateForLog(),
             wheel: summarizeWheelEventForDebug(event),
@@ -360,8 +463,8 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
         if (zoomMode.value !== 'custom') {
             emit('update:zoomMode', 'custom');
         }
-        emit('update:effectiveZoom', nextEffectiveZoom);
-        emit('update:zoom', nextZoom);
+        emit('update:effectiveZoom', zoomTarget.nextEffectiveZoom);
+        emit('update:zoom', zoomTarget.nextZoom);
         markExpectedZoomScroll(WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS);
         return true;
     }
@@ -401,24 +504,14 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
         }
 
         if (handleViewerModifierWheelZoom(event)) {
-            singlePageScroll.suppressSnapFor(
-                Math.max(
-                    WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
-                    WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS,
-                ),
-            );
+            suppressSinglePageSnapForWheelZoom();
             cancelPendingSearchScroll();
             return;
         }
 
         if (zoomInteractionLocked || isWithinModifierZoomGraceWindow) {
             event.preventDefault();
-            singlePageScroll.suppressSnapFor(
-                Math.max(
-                    WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
-                    WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS,
-                ),
-            );
+            suppressSinglePageSnapForWheelZoom();
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
                 'wheel-suppressed-non-modifier',
@@ -444,19 +537,10 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
 
     function handleViewerScroll(event: Event) {
         const nowMs = Date.now();
-        const container = viewerContainer.value;
-        const currentTop = container ? Math.round(container.scrollTop) : null;
-        const currentLeft = container ? Math.round(container.scrollLeft) : null;
-        const deltaTop = currentTop === null ? null : currentTop - lastViewerScrollTop;
-        const deltaLeft = currentLeft === null ? null : currentLeft - lastViewerScrollLeft;
-
-        if (currentTop !== null) {
-            lastViewerScrollTop = currentTop;
-        }
-        if (currentLeft !== null) {
-            lastViewerScrollLeft = currentLeft;
-        }
-
+        const {
+            deltaTop,
+            deltaLeft,
+        } = readViewerScrollPosition();
         const activeZoomIntent = pendingZoomViewportAnchor.value;
         const activeSession = getActiveWheelZoomSession(nowMs);
         const zoomInteractionLocked = isZoomInteractionLocked(nowMs);
@@ -477,10 +561,7 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
         if (
             zoomInteractionLocked
             && !zoomScrollExpected
-            && (
-                (typeof deltaTop === 'number' && Math.abs(deltaTop) >= 10)
-                || (typeof deltaLeft === 'number' && Math.abs(deltaLeft) >= 10)
-            )
+            && hasUnexpectedScrollDrift(deltaTop, deltaLeft)
         ) {
             BrowserLogger.warnThrottled(
                 'pdf-zoom-debug',
@@ -502,12 +583,7 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
         }
 
         if (zoomInteractionLocked || zoomScrollExpected) {
-            singlePageScroll.suppressSnapFor(
-                Math.max(
-                    WHEEL_ZOOM_SESSION_IDLE_MS + WHEEL_ZOOM_SESSION_LOCK_EXTENSION_MS,
-                    WHEEL_ZOOM_EXPECTED_SCROLL_WINDOW_MS,
-                ),
-            );
+            suppressSinglePageSnapForWheelZoom();
         }
 
         singlePageScroll.handleScroll();

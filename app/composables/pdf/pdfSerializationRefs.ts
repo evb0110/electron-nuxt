@@ -190,6 +190,19 @@ function refsEqualByTag(left: PDFRef | null, right: PDFRef | null) {
     return left.toString() === right.toString();
 }
 
+function getAnnotationRelatedRef(dict: PDFDict, key: 'Parent' | 'Popup') {
+    const value = dict.get(PDFName.of(key));
+    return value instanceof PDFRef ? value : null;
+}
+
+function annotationHasRelatedRef(
+    dict: PDFDict,
+    ref: PDFRef | null,
+) {
+    return refsEqualByTag(getAnnotationRelatedRef(dict, 'Parent'), ref)
+        || refsEqualByTag(getAnnotationRelatedRef(dict, 'Popup'), ref);
+}
+
 function canResolveExplicitRefOnPage(
     doc: PDFDocument,
     page: ReturnType<PDFDocument['getPages']>[number],
@@ -213,14 +226,8 @@ function canResolveExplicitRefOnPage(
         return false;
     }
 
-    const explicitParent = (() => {
-        const value = explicitDict.get(PDFName.of('Parent'));
-        return value instanceof PDFRef ? value : null;
-    })();
-    const explicitPopup = (() => {
-        const value = explicitDict.get(PDFName.of('Popup'));
-        return value instanceof PDFRef ? value : null;
-    })();
+    const explicitParent = getAnnotationRelatedRef(explicitDict, 'Parent');
+    const explicitPopup = getAnnotationRelatedRef(explicitDict, 'Popup');
 
     for (let index = 0; index < annots.size(); index += 1) {
         const value = annots.get(index);
@@ -236,16 +243,7 @@ function canResolveExplicitRefOnPage(
             continue;
         }
 
-        const parent = (() => {
-            const parentValue = dict.get(PDFName.of('Parent'));
-            return parentValue instanceof PDFRef ? parentValue : null;
-        })();
-        const popup = (() => {
-            const popupValue = dict.get(PDFName.of('Popup'));
-            return popupValue instanceof PDFRef ? popupValue : null;
-        })();
-
-        if (refsEqualByTag(parent, explicitRef) || refsEqualByTag(popup, explicitRef)) {
+        if (annotationHasRelatedRef(dict, explicitRef)) {
             return true;
         }
     }
