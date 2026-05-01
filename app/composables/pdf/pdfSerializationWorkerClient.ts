@@ -6,6 +6,11 @@ import {
     updateEmbeddedAnnotationText,
 } from '@app/composables/pdf/pdfSerializationOperations';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
+import {
+    settleBrowserWorkerResult,
+    type TBrowserWorkerResult,
+    type TPendingBrowserWorkerRequest,
+} from '@app/platform/browser-api/browser-worker-requests';
 
 interface ISerializationWorkerRequestMap {
     save: {
@@ -31,24 +36,9 @@ type TSerializationWorkerRequest<K extends TSerializationWorkerRequestType = TSe
     payload: ISerializationWorkerRequestMap[K];
 };
 
-type TSerializationWorkerResult =
-    | {
-        id: number;
-        ok: true;
-        data: Uint8Array | null;
-    }
-    | {
-        id: number;
-        ok: false;
-        error: string;
-    };
+type TSerializationWorkerResult = TBrowserWorkerResult<Uint8Array | null>;
 
-type TPendingWorkerRequest = {
-    resolve: (value: Uint8Array | null) => void;
-    reject: (error: Error) => void;
-};
-
-const pendingWorkerRequests = new Map<number, TPendingWorkerRequest>();
+const pendingWorkerRequests = new Map<number, TPendingBrowserWorkerRequest<Uint8Array | null>>();
 const SERIALIZATION_WORKER_IDLE_TTL_MS = 15_000;
 
 let serializationWorker: Worker | null = null;
@@ -162,21 +152,7 @@ function resetWorker(error?: Error) {
 function handleWorkerMessage(
     event: MessageEvent<TSerializationWorkerResult>,
 ) {
-    const result = event.data;
-    const pending = pendingWorkerRequests.get(result.id);
-    if (!pending) {
-        return;
-    }
-
-    pendingWorkerRequests.delete(result.id);
-    if (result.ok) {
-        pending.resolve(result.data);
-        scheduleIdleWorkerTermination();
-        return;
-    }
-
-    pending.reject(new Error(result.error));
-    scheduleIdleWorkerTermination();
+    settleBrowserWorkerResult(pendingWorkerRequests, event.data, scheduleIdleWorkerTermination);
 }
 
 function handleWorkerError(event: ErrorEvent) {
