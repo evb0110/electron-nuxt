@@ -205,7 +205,7 @@ function startFocusGuard(durationMs = 1200) {
     const FAST_DURATION = 400;
     const SLOW_INTERVAL = 60;
 
-    const tick = async () => {
+    const reclaimFocusUntilDeadline = async () => {
         if (token !== focusGuardToken) {
             return;
         }
@@ -229,14 +229,14 @@ function startFocusGuard(durationMs = 1200) {
         const elapsed = durationMs - (deadline - now);
         const interval = elapsed < FAST_DURATION ? FAST_INTERVAL : SLOW_INTERVAL;
         focusGuardTimer = setTimeout(() => {
-            void tick();
+            void reclaimFocusUntilDeadline();
         }, interval);
     };
 
-    void tick();
+    void reclaimFocusUntilDeadline();
 }
 
-function applyPosition(position: IAnnotationNotePosition | null) {
+function syncPosition(position: IAnnotationNotePosition | null) {
     const nextSize = clampSize(
         position?.width ?? width.value ?? NOTE_WINDOW.DEFAULT_WIDTH,
         position?.height ?? height.value ?? NOTE_WINDOW.DEFAULT_HEIGHT,
@@ -402,7 +402,7 @@ useResizeObserver(noteWindowRef, (entries) => {
 }, { box: 'border-box' });
 
 onMounted(() => {
-    applyPosition(position);
+    syncPosition(position);
     void focusTextInput();
     startFocusGuard();
 });
@@ -422,14 +422,14 @@ watch(
         if (isDragging.value) {
             return;
         }
-        applyPosition(nextPosition);
+        syncPosition(nextPosition);
     },
 );
 
 watch(
     () => comment.stableKey,
     () => {
-        applyPosition(position);
+        syncPosition(position);
         void focusTextInput();
         startFocusGuard();
     },

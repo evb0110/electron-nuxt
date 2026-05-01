@@ -113,6 +113,52 @@ function assertNever(value: never): never {
     throw new Error(`Unhandled image combine worker payload: ${JSON.stringify(value)}`);
 }
 
+function parseCombineWorkerProgressPayload(
+    message: Record<string, unknown>,
+): TCombineWorkerPayload | null {
+    if (
+        !isFiniteWorkerMessageNumber(message.processed)
+        || !isFiniteWorkerMessageNumber(message.total)
+        || !isFiniteWorkerMessageNumber(message.percent)
+        || !isFiniteWorkerMessageNumber(message.elapsedMs)
+    ) {
+        return null;
+    }
+
+    return {
+        type: 'progress',
+        processed: message.processed,
+        total: message.total,
+        percent: message.percent,
+        elapsedMs: message.elapsedMs,
+        estimatedRemainingMs: isFiniteWorkerMessageNumber(message.estimatedRemainingMs)
+            ? message.estimatedRemainingMs
+            : null,
+    };
+}
+
+function parseCombineWorkerResultPayload(
+    message: Record<string, unknown>,
+): TCombineWorkerPayload | null {
+    if (message.ok === true) {
+        return {
+            type: 'result',
+            ok: true,
+            data: message.data,
+        };
+    }
+
+    if (message.ok === false && typeof message.error === 'string') {
+        return {
+            type: 'result',
+            ok: false,
+            error: message.error,
+        };
+    }
+
+    return null;
+}
+
 function parseCombineWorkerPayload(message: unknown): TCombineWorkerPayload | null {
     if (!isWorkerMessageRecord(message) || typeof message.type !== 'string') {
         return null;
@@ -120,40 +166,9 @@ function parseCombineWorkerPayload(message: unknown): TCombineWorkerPayload | nu
 
     switch (message.type) {
         case 'progress':
-            if (
-                !isFiniteWorkerMessageNumber(message.processed)
-                || !isFiniteWorkerMessageNumber(message.total)
-                || !isFiniteWorkerMessageNumber(message.percent)
-                || !isFiniteWorkerMessageNumber(message.elapsedMs)
-            ) {
-                return null;
-            }
-            return {
-                type: 'progress',
-                processed: message.processed,
-                total: message.total,
-                percent: message.percent,
-                elapsedMs: message.elapsedMs,
-                estimatedRemainingMs: isFiniteWorkerMessageNumber(message.estimatedRemainingMs)
-                    ? message.estimatedRemainingMs
-                    : null,
-            };
+            return parseCombineWorkerProgressPayload(message);
         case 'result':
-            if (message.ok === true) {
-                return {
-                    type: 'result',
-                    ok: true,
-                    data: message.data,
-                };
-            }
-            if (message.ok === false && typeof message.error === 'string') {
-                return {
-                    type: 'result',
-                    ok: false,
-                    error: message.error,
-                };
-            }
-            return null;
+            return parseCombineWorkerResultPayload(message);
         default:
             return null;
     }

@@ -73,6 +73,7 @@
 
 <script setup lang="ts">
 import { clamp } from 'es-toolkit/math';
+import { useEventListener } from '@vueuse/core';
 import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
@@ -463,7 +464,7 @@ function isEditableTarget(target: EventTarget | null) {
     ].includes(target.tagName);
 }
 
-function handleWindowKeyDown(event: KeyboardEvent) {
+useEventListener('keydown', (event: KeyboardEvent) => {
     if (!placement || busy || event.defaultPrevented || isEditableTarget(event.target)) {
         return;
     }
@@ -483,17 +484,12 @@ function handleWindowKeyDown(event: KeyboardEvent) {
         event.preventDefault();
         emit('finalize');
     }
-}
-
-onMounted(() => {
-    window.addEventListener('keydown', handleWindowKeyDown);
 });
 
 onBeforeUnmount(() => {
     stopInteraction();
     clearGlobalInteractionCursor();
     removeVirtualCursor();
-    window.removeEventListener('keydown', handleWindowKeyDown);
 });
 </script>
 

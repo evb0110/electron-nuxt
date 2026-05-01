@@ -33,6 +33,20 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 
 const MARKUP_EDITOR_CLASS_PREFIX = 'pdf-markup-subtype-';
 const MARKUP_DRAW_LAYER_CLASS_PREFIX = 'pdf-markup-subtype-draw-';
+const MAX_HIGHLIGHT_DRAW_LAYER_FALLBACK_DISTANCE = 40;
+
+type TAnnotationEditorMode = Parameters<AnnotationEditorUIManager['updateMode']>[0];
+
+const ANNOTATION_TOOL_MODES: Partial<Record<TAnnotationTool, TAnnotationEditorMode>> = {
+    text: AnnotationEditorType.FREETEXT,
+    stamp: AnnotationEditorType.STAMP,
+};
+
+interface IHighlightDrawLayerCandidate {
+    distance: number;
+    overlapScore: number;
+    svg: SVGElement;
+}
 
 interface IUseAnnotationToolStateOptions {
     annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
@@ -85,26 +99,7 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
     }
 
     function getAnnotationMode(tool: TAnnotationTool) {
-        switch (tool) {
-            case 'highlight':
-            case 'underline':
-            case 'strikethrough':
-                return AnnotationEditorType.NONE;
-            case 'text':
-                return AnnotationEditorType.FREETEXT;
-            case 'draw':
-            case 'rectangle':
-            case 'circle':
-            case 'line':
-            case 'arrow':
-            case 'select':
-                return AnnotationEditorType.NONE;
-            case 'stamp':
-                return AnnotationEditorType.STAMP;
-            case 'none':
-            default:
-                return AnnotationEditorType.NONE;
-        }
+        return ANNOTATION_TOOL_MODES[tool] ?? AnnotationEditorType.NONE;
     }
 
     function resolveMarkupSubtypeColor(subtype: TMarkupSubtype) {
@@ -275,50 +270,60 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
         return clipMatch?.[1] ?? null;
     }
 
+    function isRenderableRect(rect: DOMRect) {
+        return rect.width > 0 && rect.height > 0;
+    }
+
+    function toHighlightDrawLayerCandidate(editorRect: DOMRect, svg: SVGElement): IHighlightDrawLayerCandidate | null {
+        const rect = svg.getBoundingClientRect();
+        if (!isRenderableRect(rect)) {
+            return null;
+        }
+        const overlapScore = rectIoU(editorRect, rect);
+        return {
+            distance: overlapScore > 0 ? 0 : rectCenterDistance(editorRect, rect),
+            overlapScore,
+            svg,
+        };
+    }
+
+    function pickBetterHighlightDrawLayerCandidate(
+        current: IHighlightDrawLayerCandidate | null,
+        candidate: IHighlightDrawLayerCandidate,
+    ) {
+        if (!current) {
+            return candidate;
+        }
+        if (current.overlapScore > 0 || candidate.overlapScore > 0) {
+            return candidate.overlapScore > current.overlapScore ? candidate : current;
+        }
+        return candidate.distance < current.distance ? candidate : current;
+    }
+
     function findClosestHighlightDrawLayerSvg(pageContainer: HTMLElement, editorDiv: HTMLElement) {
         const editorRect = editorDiv.getBoundingClientRect();
-        if (editorRect.width <= 0 || editorRect.height <= 0) {
+        if (!isRenderableRect(editorRect)) {
             return null;
         }
         const candidates = Array.from(pageContainer.querySelectorAll<SVGElement>('svg.highlight'));
-        let bestOverlap: {
-            score: number;
-            svg: SVGElement 
-        } | null = null;
-        let bestDistance: {
-            distance: number;
-            svg: SVGElement 
-        } | null = null;
+        let bestCandidate: IHighlightDrawLayerCandidate | null = null;
 
         for (const candidate of candidates) {
-            const rect = candidate.getBoundingClientRect();
-            if (rect.width <= 0 || rect.height <= 0) {
+            const scoredCandidate = toHighlightDrawLayerCandidate(editorRect, candidate);
+            if (!scoredCandidate) {
                 continue;
             }
-            const overlapScore = rectIoU(editorRect, rect);
-            if (overlapScore > 0) {
-                if (!bestOverlap || overlapScore > bestOverlap.score) {
-                    bestOverlap = {
-                        score: overlapScore,
-                        svg: candidate, 
-                    };
-                }
-                continue;
-            }
-            const distance = rectCenterDistance(editorRect, rect);
-            if (!bestDistance || distance < bestDistance.distance) {
-                bestDistance = {
-                    distance,
-                    svg: candidate, 
-                };
-            }
+            bestCandidate = pickBetterHighlightDrawLayerCandidate(bestCandidate, scoredCandidate);
         }
 
-        if (bestOverlap) {
-            return bestOverlap.svg;
-        }
-        if (bestDistance && bestDistance.distance <= 40) {
-            return bestDistance.svg;
+        if (
+            bestCandidate
+            && (
+                bestCandidate.overlapScore > 0
+                || bestCandidate.distance <= MAX_HIGHLIGHT_DRAW_LAYER_FALLBACK_DISTANCE
+            )
+        ) {
+            return bestCandidate.svg;
         }
         return null;
     }

@@ -85,7 +85,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return closestContainer instanceof HTMLElement ? closestContainer : null;
     }
 
-    function calcDropIndex(clientY: number) {
+    function resolveDropInsertIndex(clientY: number) {
         const el = containerRef.value;
         if (!el) {
             return 0;
@@ -108,7 +108,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return thumbs.length;
     }
 
-    function createDragReorderContext(pages: number[]): IDragReorderContext | null {
+    function prepareDragReorderContext(pages: number[]): IDragReorderContext | null {
         const total = totalPages.value;
         if (pages.length === 0 || total === 0) {
             return null;
@@ -188,7 +188,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return order;
     }
 
-    function updateAutoScroll(clientY: number) {
+    function syncAutoScroll(clientY: number) {
         const sc = findScrollContainer();
         if (!sc) {
             clearAutoScroll();
@@ -249,14 +249,14 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             isDragging.value = true;
             const pages = getDragPages(startPage);
             draggedPages.value = pages;
-            dragReorderContext = createDragReorderContext(pages);
+            dragReorderContext = prepareDragReorderContext(pages);
             document.body.style.cursor = 'grabbing';
             document.body.style.userSelect = 'none';
         }
 
-        const raw = calcDropIndex(e.clientY);
+        const raw = resolveDropInsertIndex(e.clientY);
         dropInsertIndex.value = canApplyReorder(raw, dragReorderContext) ? raw : null;
-        updateAutoScroll(e.clientY);
+        syncAutoScroll(e.clientY);
     }
 
     function onUp() {
@@ -344,8 +344,8 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         if (e.dataTransfer) {
             e.dataTransfer.dropEffect = 'copy';
         }
-        dropInsertIndex.value = calcDropIndex(e.clientY);
-        updateAutoScroll(e.clientY);
+        dropInsertIndex.value = resolveDropInsertIndex(e.clientY);
+        syncAutoScroll(e.clientY);
     }
 
     function handleDragLeave(e: DragEvent) {
@@ -362,7 +362,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         }
     }
 
-    function handleDrop(e: DragEvent) {
+    function handleExternalDrop(e: DragEvent) {
         e.preventDefault();
         clearAutoScroll();
         const insertAt = dropInsertIndex.value ?? totalPages.value;
@@ -415,6 +415,6 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         handleDragEnter,
         handleDragOver,
         handleDragLeave,
-        handleDrop,
+        handleExternalDrop,
     };
 };

@@ -196,7 +196,6 @@ const {
     rangeInput,
     rangeTouched,
     normalizedSelectedPages,
-    selectedPageCount,
     resetScopeForOpen,
     resolveScopedPageNumbers,
 } = usePdfPageScopeSelection({
@@ -204,6 +203,19 @@ const {
     currentPage: () => props.currentPage,
     selectedPages: () => props.selectedPages,
     resolveRangePages: () => rangePages.value,
+});
+
+const printPageCount = computed(() => {
+    if (scope.value === 'all') {
+        return props.totalPages;
+    }
+    if (scope.value === 'current') {
+        return props.totalPages > 0 ? 1 : 0;
+    }
+    if (scope.value === 'selected') {
+        return normalizedSelectedPages.value.length;
+    }
+    return rangePages.value?.length ?? 0;
 });
 
 const layoutOptions = computed<Array<{
@@ -243,7 +255,7 @@ const orientationOptions = computed<Array<{
 ]);
 
 const printSummary = computed(() => t('print.summary', {
-    count: selectedPageCount.value,
+    count: printPageCount.value,
     layout: layoutOptions.value.find(option => option.value === viewMode.value)?.label ?? t('print.layoutSingle'),
     orientation: orientationOptions.value.find(option => option.value === orientation.value)?.label ?? t('print.orientationAuto'),
 }));

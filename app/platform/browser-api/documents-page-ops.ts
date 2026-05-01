@@ -142,6 +142,29 @@ export function createBrowserPageOps(
         return browserDocumentStore.read(path);
     }
 
+    function shouldReadSinglePdfInsertionSource(sourcePaths: string[]) {
+        if (sourcePaths.length !== 1) {
+            return false;
+        }
+
+        const [sourcePath] = sourcePaths;
+        return !!sourcePath && /\.pdf$/iu.test(getBrowserDocumentFileName(sourcePath));
+    }
+
+    async function readInsertionBytes(
+        sourcePaths: string[],
+        requestId: string | undefined,
+    ) {
+        if (shouldReadSinglePdfInsertionSource(sourcePaths)) {
+            return browserDocumentStore.read(sourcePaths[0]!);
+        }
+
+        return options.createCombinedPdfFromPaths(
+            sourcePaths,
+            {requestId: requestId ?? `browser-page-op-insert-${crypto.randomUUID()}`},
+        );
+    }
+
     async function runDirectPdfOperation<T>(
         run: () => Promise<T>,
     ) {
@@ -394,10 +417,7 @@ export function createBrowserPageOps(
                 );
             }
             const destinationData = await readWorkingCopyBytes(workingCopyPath);
-            const insertionData = sourcePaths.length === 1
-                && /\.pdf$/iu.test(getBrowserDocumentFileName(sourcePaths[0]!))
-                ? await browserDocumentStore.read(sourcePaths[0]!)
-                : await options.createCombinedPdfFromPaths(sourcePaths, {requestId: requestId ?? `browser-page-op-insert-${crypto.randomUUID()}`});
+            const insertionData = await readInsertionBytes(sourcePaths, requestId);
 
             let result: IBrowserPageOpsWorkerResultMap['insertPages'];
             if (workerAvailable) {

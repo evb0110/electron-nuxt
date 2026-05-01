@@ -111,6 +111,19 @@ function formatPageRange(pages: number[]) {
     return `p${parts.join(',')}`;
 }
 
+function isValidPageNumber(value: unknown) {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 1;
+}
+
+function isPageWithinTotalPages(page: number, totalPages: unknown) {
+    return (
+        typeof totalPages !== 'number'
+        || !Number.isInteger(totalPages)
+        || totalPages <= 0
+        || page <= totalPages
+    );
+}
+
 function validatePageNumbers(
     pages: unknown,
     label: string,
@@ -125,15 +138,10 @@ function validatePageNumbers(
 
     const pageSet = new Set<number>();
     for (const p of pages) {
-        if (typeof p !== 'number' || !Number.isInteger(p) || p < 1) {
+        if (!isValidPageNumber(p)) {
             throw new Error(`${label}: invalid page number ${p}`);
         }
-        if (
-            typeof options.totalPages === 'number'
-            && Number.isInteger(options.totalPages)
-            && options.totalPages > 0
-            && p > options.totalPages
-        ) {
+        if (!isPageWithinTotalPages(p, options.totalPages)) {
             throw new Error(`${label}: page number ${p} is out of range 1-${options.totalPages}`);
         }
         if (options.requireUnique && pageSet.has(p)) {
