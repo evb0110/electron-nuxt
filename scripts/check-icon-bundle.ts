@@ -352,64 +352,138 @@ function collectTokenCandidatesFromBabelNode(
         return;
     }
 
-    if (node.type === 'StringLiteral' && typeof node.value === 'string') {
-        appendTokenCandidate(candidates, node.value, allowUnknownCollection);
-        return;
+    const handled = [
+        collectLiteralTokenCandidate,
+        collectTemplateLiteralTokenCandidate,
+        collectObjectPropertyTokenCandidates,
+        collectVariableDeclaratorTokenCandidates,
+        collectAssignmentTokenCandidates,
+        collectJsxAttributeTokenCandidates,
+    ].some(collector => collector(node, allowUnknownCollection, candidates));
+    if (!handled) {
+        collectChildTokenCandidates(node, allowUnknownCollection, candidates);
+    }
+}
+
+function collectLiteralTokenCandidate(
+    node: IBabelNodeLike,
+    allowUnknownCollection: boolean,
+    candidates: ITokenCandidate[],
+) {
+    if (node.type !== 'StringLiteral' || typeof node.value !== 'string') {
+        return false;
     }
 
-    if (node.type === 'TemplateLiteral') {
-        const quasis = Array.isArray(node.quasis) ? node.quasis : [];
-        const expressions = Array.isArray(node.expressions) ? node.expressions : [];
-        if (expressions.length === 0 && quasis.length === 1) {
-            const templateElement = asRecord(quasis[0]);
-            const valueRecord = templateElement ? asRecord(templateElement.value) : null;
-            const cookedValue = valueRecord?.cooked;
-            const rawValue = valueRecord?.raw;
-            const stringValue = typeof cookedValue === 'string'
-                ? cookedValue
-                : typeof rawValue === 'string'
-                    ? rawValue
-                    : null;
-            if (stringValue !== null) {
-                appendTokenCandidate(candidates, stringValue, allowUnknownCollection);
-            }
-        }
+    appendTokenCandidate(candidates, node.value, allowUnknownCollection);
+    return true;
+}
+
+function getStaticTemplateLiteralValue(node: IBabelNodeLike) {
+    if (node.type !== 'TemplateLiteral') {
+        return null;
     }
 
-    if (node.type === 'ObjectProperty') {
-        const propertyName = getStaticObjectPropertyName(node);
-        const isIconProperty = propertyName !== null && isIconContextName(propertyName);
-        collectTokenCandidatesFromBabelNode(node.value, allowUnknownCollection || isIconProperty, candidates);
-
-        if (node.computed === true) {
-            collectTokenCandidatesFromBabelNode(node.key, allowUnknownCollection, candidates);
-        }
-        return;
+    const quasis = Array.isArray(node.quasis) ? node.quasis : [];
+    const expressions = Array.isArray(node.expressions) ? node.expressions : [];
+    if (expressions.length !== 0 || quasis.length !== 1) {
+        return null;
     }
 
-    if (node.type === 'VariableDeclarator') {
-        const variableName = getVariableDeclaratorName(node);
-        const isIconVariable = variableName !== null && isIconContextName(variableName);
-        collectTokenCandidatesFromBabelNode(node.init, allowUnknownCollection || isIconVariable, candidates);
-        return;
+    const templateElement = asRecord(quasis[0]);
+    const valueRecord = templateElement ? asRecord(templateElement.value) : null;
+    const cookedValue = valueRecord?.cooked;
+    const rawValue = valueRecord?.raw;
+    return typeof cookedValue === 'string'
+        ? cookedValue
+        : typeof rawValue === 'string'
+            ? rawValue
+            : null;
+}
+
+function collectTemplateLiteralTokenCandidate(
+    node: IBabelNodeLike,
+    allowUnknownCollection: boolean,
+    candidates: ITokenCandidate[],
+) {
+    const stringValue = getStaticTemplateLiteralValue(node);
+    if (stringValue === null) {
+        return false;
     }
 
-    if (node.type === 'AssignmentExpression') {
-        const isIconAssignment = isIconContextAssignmentTarget(node.left);
-        collectTokenCandidatesFromBabelNode(node.left, allowUnknownCollection, candidates);
-        collectTokenCandidatesFromBabelNode(node.right, allowUnknownCollection || isIconAssignment, candidates);
-        return;
+    appendTokenCandidate(candidates, stringValue, allowUnknownCollection);
+    return true;
+}
+
+function collectObjectPropertyTokenCandidates(
+    node: IBabelNodeLike,
+    allowUnknownCollection: boolean,
+    candidates: ITokenCandidate[],
+) {
+    if (node.type !== 'ObjectProperty') {
+        return false;
     }
 
-    if (node.type === 'JSXAttribute') {
-        const attributeName = getJsxAttributeName(node);
-        const isIconAttribute = attributeName !== null && isIconContextName(attributeName);
-        collectTokenCandidatesFromBabelNode(node.value, allowUnknownCollection || isIconAttribute, candidates);
-        return;
+    const propertyName = getStaticObjectPropertyName(node);
+    const isIconProperty = propertyName !== null && isIconContextName(propertyName);
+    collectTokenCandidatesFromBabelNode(node.value, allowUnknownCollection || isIconProperty, candidates);
+
+    if (node.computed === true) {
+        collectTokenCandidatesFromBabelNode(node.key, allowUnknownCollection, candidates);
+    }
+    return true;
+}
+
+function collectVariableDeclaratorTokenCandidates(
+    node: IBabelNodeLike,
+    allowUnknownCollection: boolean,
+    candidates: ITokenCandidate[],
+) {
+    if (node.type !== 'VariableDeclarator') {
+        return false;
     }
 
-    const values = Object.values(node);
-    for (const value of values) {
+    const variableName = getVariableDeclaratorName(node);
+    const isIconVariable = variableName !== null && isIconContextName(variableName);
+    collectTokenCandidatesFromBabelNode(node.init, allowUnknownCollection || isIconVariable, candidates);
+    return true;
+}
+
+function collectAssignmentTokenCandidates(
+    node: IBabelNodeLike,
+    allowUnknownCollection: boolean,
+    candidates: ITokenCandidate[],
+) {
+    if (node.type !== 'AssignmentExpression') {
+        return false;
+    }
+
+    const isIconAssignment = isIconContextAssignmentTarget(node.left);
+    collectTokenCandidatesFromBabelNode(node.left, allowUnknownCollection, candidates);
+    collectTokenCandidatesFromBabelNode(node.right, allowUnknownCollection || isIconAssignment, candidates);
+    return true;
+}
+
+function collectJsxAttributeTokenCandidates(
+    node: IBabelNodeLike,
+    allowUnknownCollection: boolean,
+    candidates: ITokenCandidate[],
+) {
+    if (node.type !== 'JSXAttribute') {
+        return false;
+    }
+
+    const attributeName = getJsxAttributeName(node);
+    const isIconAttribute = attributeName !== null && isIconContextName(attributeName);
+    collectTokenCandidatesFromBabelNode(node.value, allowUnknownCollection || isIconAttribute, candidates);
+    return true;
+}
+
+function collectChildTokenCandidates(
+    node: IBabelNodeLike,
+    allowUnknownCollection: boolean,
+    candidates: ITokenCandidate[],
+) {
+    for (const value of Object.values(node)) {
         if (Array.isArray(value)) {
             for (const item of value) {
                 collectTokenCandidatesFromBabelNode(item, allowUnknownCollection, candidates);
@@ -515,6 +589,72 @@ function walkVueNodes(node: unknown, visit: (currentNode: IVueNodeLike) => void)
     }
 }
 
+function collectTemplateAttributeTokenCandidate(
+    rawProp: IVueNodeLike,
+    candidates: ITokenCandidate[],
+) {
+    const attributeName = typeof rawProp.name === 'string' ? rawProp.name : '';
+    const attributeValueNode = isVueNodeLike(rawProp.value) ? rawProp.value : null;
+    const attributeValue = attributeValueNode && typeof attributeValueNode.content === 'string'
+        ? attributeValueNode.content
+        : null;
+
+    if (isTemplateIconAttributeName(attributeName) && attributeValue !== null) {
+        appendTokenCandidate(candidates, attributeValue, true);
+    }
+}
+
+function shouldCollectTemplateBind(rawProp: IVueNodeLike) {
+    const attributeName = getTemplateDirectiveArgumentName(rawProp);
+    return attributeName === null || isTemplateIconAttributeName(attributeName);
+}
+
+function collectTemplateBindTokenCandidates(
+    rawProp: IVueNodeLike,
+    candidates: ITokenCandidate[],
+) {
+    const expressionNode = isVueNodeLike(rawProp.exp) ? rawProp.exp : null;
+    if (!expressionNode || typeof expressionNode.content !== 'string' || !shouldCollectTemplateBind(rawProp)) {
+        return;
+    }
+
+    for (const tokenCandidate of extractExpressionTokenCandidates(expressionNode.content, true)) {
+        appendTokenCandidate(candidates, tokenCandidate.token, tokenCandidate.allowUnknownCollection);
+    }
+}
+
+function collectTemplatePropTokenCandidates(
+    rawProp: unknown,
+    candidates: ITokenCandidate[],
+) {
+    if (!isVueNodeLike(rawProp)) {
+        return;
+    }
+
+    if (rawProp.type === NodeTypes.ATTRIBUTE) {
+        collectTemplateAttributeTokenCandidate(rawProp, candidates);
+        return;
+    }
+
+    if (rawProp.type === NodeTypes.DIRECTIVE && rawProp.name === 'bind') {
+        collectTemplateBindTokenCandidates(rawProp, candidates);
+    }
+}
+
+function collectTemplateElementTokenCandidates(
+    node: IVueNodeLike,
+    candidates: ITokenCandidate[],
+) {
+    if (node.type !== NodeTypes.ELEMENT) {
+        return;
+    }
+
+    const props = Array.isArray(node.props) ? node.props : [];
+    for (const rawProp of props) {
+        collectTemplatePropTokenCandidates(rawProp, candidates);
+    }
+}
+
 function extractTemplateTokenCandidates(content: string): ITokenCandidate[] {
     let parsedTemplate: IVueNodeLike | null = null;
 
@@ -531,49 +671,7 @@ function extractTemplateTokenCandidates(content: string): ITokenCandidate[] {
     const candidates: ITokenCandidate[] = [];
 
     walkVueNodes(parsedTemplate, (node) => {
-        if (node.type !== NodeTypes.ELEMENT) {
-            return;
-        }
-
-        const props = Array.isArray(node.props) ? node.props : [];
-        for (const rawProp of props) {
-            if (!isVueNodeLike(rawProp)) {
-                continue;
-            }
-
-            if (rawProp.type === NodeTypes.ATTRIBUTE) {
-                const attributeName = typeof rawProp.name === 'string' ? rawProp.name : '';
-                const attributeValueNode = isVueNodeLike(rawProp.value) ? rawProp.value : null;
-                const attributeValue = attributeValueNode && typeof attributeValueNode.content === 'string'
-                    ? attributeValueNode.content
-                    : null;
-
-                if (isTemplateIconAttributeName(attributeName) && attributeValue !== null) {
-                    appendTokenCandidate(candidates, attributeValue, true);
-                }
-                continue;
-            }
-
-            if (rawProp.type !== NodeTypes.DIRECTIVE || rawProp.name !== 'bind') {
-                continue;
-            }
-
-            const expressionNode = isVueNodeLike(rawProp.exp) ? rawProp.exp : null;
-            if (!expressionNode || typeof expressionNode.content !== 'string') {
-                continue;
-            }
-
-            const attributeName = getTemplateDirectiveArgumentName(rawProp);
-            if (attributeName !== null) {
-                if (!isTemplateIconAttributeName(attributeName)) {
-                    continue;
-                }
-            }
-
-            for (const tokenCandidate of extractExpressionTokenCandidates(expressionNode.content, true)) {
-                appendTokenCandidate(candidates, tokenCandidate.token, tokenCandidate.allowUnknownCollection);
-            }
-        }
+        collectTemplateElementTokenCandidates(node, candidates);
     });
 
     return candidates;

@@ -161,37 +161,49 @@ export function detectEditorSubtype(editor: IPdfjsEditor | null | undefined) {
     if (!editor) {
         return null;
     }
-    const className = editor.div?.className ?? '';
-    if (className.includes('highlightEditor')) {
-        return 'Highlight';
-    }
-    if (className.includes('freeTextEditor')) {
-        return 'Typewriter';
-    }
-    if (className.includes('inkEditor')) {
-        return 'Ink';
-    }
-    if (className.includes('stampEditor')) {
-        return 'Stamp';
-    }
 
-    const constructorType = getOptionalString(
-        getOptionalObject(editor, 'constructor'),
-        '_type',
-    );
-    if (constructorType === 'freetext') {
-        return 'Typewriter';
-    }
-    if (constructorType === 'highlight') {
-        return 'Highlight';
-    }
-    if (constructorType === 'ink') {
-        return 'Ink';
-    }
-    if (constructorType === 'stamp') {
-        return 'Stamp';
-    }
+    return detectSubtypeFromClassName(editor.div?.className ?? '')
+        ?? detectSubtypeFromPdfjsType(getOptionalString(getOptionalObject(editor, 'constructor'), '_type'))
+        ?? detectSubtypeFromSerializedEditor(editor);
+}
 
+const editorSubtypeByClassName = [
+    [
+        'highlightEditor',
+        'Highlight',
+    ],
+    [
+        'freeTextEditor',
+        'Typewriter',
+    ],
+    [
+        'inkEditor',
+        'Ink',
+    ],
+    [
+        'stampEditor',
+        'Stamp',
+    ],
+] as const;
+
+const editorSubtypeByPdfjsType = {
+    freetext: 'Typewriter',
+    highlight: 'Highlight',
+    ink: 'Ink',
+    stamp: 'Stamp',
+} as const;
+
+function detectSubtypeFromClassName(className: string) {
+    return editorSubtypeByClassName.find(([token]) => className.includes(token))?.[1] ?? null;
+}
+
+function detectSubtypeFromPdfjsType(type: string | null | undefined) {
+    return type && type in editorSubtypeByPdfjsType
+        ? editorSubtypeByPdfjsType[type as keyof typeof editorSubtypeByPdfjsType]
+        : null;
+}
+
+function detectSubtypeFromSerializedEditor(editor: IPdfjsEditor) {
     const serialize = getOptionalFunction(editor, 'serialize');
     let serialized: unknown = null;
     try {
@@ -201,20 +213,7 @@ export function detectEditorSubtype(editor: IPdfjsEditor | null | undefined) {
     } catch {
         return null;
     }
-    if (isRecord(serialized)) {
-        const annotationType = getOptionalString(serialized, 'annotationType');
-        if (annotationType === 'freetext') {
-            return 'Typewriter';
-        }
-        if (annotationType === 'highlight') {
-            return 'Highlight';
-        }
-        if (annotationType === 'ink') {
-            return 'Ink';
-        }
-        if (annotationType === 'stamp') {
-            return 'Stamp';
-        }
-    }
-    return null;
+    return isRecord(serialized)
+        ? detectSubtypeFromPdfjsType(getOptionalString(serialized, 'annotationType'))
+        : null;
 }
