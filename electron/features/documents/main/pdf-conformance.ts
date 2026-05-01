@@ -16,7 +16,7 @@ import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/electron-api';
-import { getDefaultPdfConformanceProfile } from '@electron/features/documents/main/pdf-conformance-core';
+import { createDefaultPdfConformanceProfile } from '@contracts/electron-api';
 import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import { createLogger } from '@electron/utils/logger';
@@ -142,7 +142,7 @@ function runPdfConformanceWorker(filePath: string) {
                 }
 
                 resolve((payload.data as IPdfConformanceProfile) ?? {
-                    ...getDefaultPdfConformanceProfile(),
+                    ...createDefaultPdfConformanceProfile(),
                     saveRestrictions: [],
                 });
             });

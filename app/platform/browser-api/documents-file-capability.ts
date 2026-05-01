@@ -11,6 +11,10 @@ import type {
     TDocumentRef,
     TOpenFileResult,
 } from '@contracts/platform-api';
+import {
+    buildPdfSaveRestrictions,
+    createDefaultPdfConformanceProfile,
+} from '@contracts/electron-api';
 import type { IRecentFile } from '@contracts/shared';
 import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
@@ -143,19 +147,6 @@ function toOwnedArrayBuffer(bytes: Uint8Array) {
     return toArrayBuffer(bytes);
 }
 
-function createDefaultPdfConformanceProfile(): IPdfConformanceProfile {
-    return {
-        isSigned: false,
-        isEncrypted: false,
-        isTagged: false,
-        pdfaLevel: null,
-        hasAcroForm: false,
-        hasXfa: false,
-        canIncrementalSave: true,
-        saveRestrictions: [],
-    };
-}
-
 function decodePdfBinary(bytes: Uint8Array) {
     return pdfBinaryDecoder.decode(bytes);
 }
@@ -204,31 +195,6 @@ function mergePdfMarkerRegions(head: Uint8Array, tail: Uint8Array) {
     merged.set(head, 0);
     merged.set(tail, head.byteLength);
     return merged;
-}
-
-function buildBrowserSaveRestrictions(profile: Omit<IPdfConformanceProfile, 'saveRestrictions'>) {
-    const restrictions: string[] = [];
-
-    if (profile.isSigned) {
-        restrictions.push('signed_original_requires_save_as');
-    }
-    if (profile.isEncrypted) {
-        restrictions.push('encrypted_document_requires_preservation');
-    }
-    if (profile.hasXfa) {
-        restrictions.push('xfa_forms_are_not_supported_for_rewrite');
-    }
-    if (profile.isTagged) {
-        restrictions.push('tagged_pdf_requires_structure_preservation');
-    }
-    if (profile.pdfaLevel) {
-        restrictions.push(`pdfa_preservation_required:${profile.pdfaLevel}`);
-    }
-    if (!profile.canIncrementalSave) {
-        restrictions.push('incremental_save_not_supported');
-    }
-
-    return restrictions;
 }
 
 function buildBrowserLargeJobError(
@@ -355,7 +321,7 @@ async function analyzeBrowserPdfConformance(path: string): Promise<IPdfConforman
 
         return {
             ...baseProfile,
-            saveRestrictions: buildBrowserSaveRestrictions(baseProfile),
+            saveRestrictions: buildPdfSaveRestrictions(baseProfile),
         };
     }
 
@@ -383,14 +349,14 @@ async function analyzeBrowserPdfConformance(path: string): Promise<IPdfConforman
 
         return {
             ...baseProfile,
-            saveRestrictions: buildBrowserSaveRestrictions(baseProfile),
+            saveRestrictions: buildPdfSaveRestrictions(baseProfile),
         };
     } catch {
         return {
             ...fallback,
             isSigned: detectBrowserSignatureMarkers(bytes),
             pdfaLevel: detectBrowserPdfaLevel(bytes),
-            saveRestrictions: buildBrowserSaveRestrictions({
+            saveRestrictions: buildPdfSaveRestrictions({
                 ...fallback,
                 isSigned: detectBrowserSignatureMarkers(bytes),
                 pdfaLevel: detectBrowserPdfaLevel(bytes),

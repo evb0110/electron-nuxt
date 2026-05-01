@@ -259,6 +259,46 @@ export interface IPdfConformanceProfile {
     saveRestrictions: string[];
 }
 
+export type TPdfConformanceProfileBase = Omit<IPdfConformanceProfile, 'saveRestrictions'>;
+
+export function createDefaultPdfConformanceProfile(): IPdfConformanceProfile {
+    return {
+        isSigned: false,
+        isEncrypted: false,
+        isTagged: false,
+        pdfaLevel: null,
+        hasAcroForm: false,
+        hasXfa: false,
+        canIncrementalSave: true,
+        saveRestrictions: [],
+    };
+}
+
+export function buildPdfSaveRestrictions(profile: TPdfConformanceProfileBase) {
+    const restrictions: string[] = [];
+
+    if (profile.isSigned) {
+        restrictions.push('signed_original_requires_save_as');
+    }
+    if (profile.isEncrypted) {
+        restrictions.push('encrypted_document_requires_preservation');
+    }
+    if (profile.hasXfa) {
+        restrictions.push('xfa_forms_are_not_supported_for_rewrite');
+    }
+    if (profile.isTagged) {
+        restrictions.push('tagged_pdf_requires_structure_preservation');
+    }
+    if (profile.pdfaLevel) {
+        restrictions.push(`pdfa_preservation_required:${profile.pdfaLevel}`);
+    }
+    if (!profile.canIncrementalSave) {
+        restrictions.push('incremental_save_not_supported');
+    }
+
+    return restrictions;
+}
+
 export interface IPdfValidationResult {
     isValid: boolean;
     tool: 'qpdf' | 'browser';
