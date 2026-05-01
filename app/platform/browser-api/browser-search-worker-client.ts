@@ -5,6 +5,10 @@ import type {
     TBrowserSearchWorkerRequestType,
     TBrowserSearchWorkerResponse,
 } from '@app/platform/browser-api/browser-search-worker.types';
+import {
+    BrowserWorkerClient,
+    canUseBrowserWorker,
+} from '@app/platform/browser-api/browser-worker-client';
 import { getErrorMessage } from '@app/utils/error';
 
 type TPendingWorkerRequest = {
@@ -16,13 +20,7 @@ type TPendingWorkerRequest = {
     }) => void;
 };
 
-const pendingWorkerRequests = new Map<number, TPendingWorkerRequest>();
 const BROWSER_SEARCH_WORKER_IDLE_TTL_MS = 15_000;
-
-let browserSearchWorker: Worker | null = null;
-let nextRequestId = 1;
-let idleTerminateTimer: ReturnType<typeof setTimeout> | null = null;
-let cleanupListenersRegistered = false;
 
 export class BrowserSearchWorkerUnavailableError extends Error {
     public constructor(message: string) {
@@ -31,52 +29,11 @@ export class BrowserSearchWorkerUnavailableError extends Error {
     }
 }
 
-function clearIdleTerminateTimer() {
-    if (!idleTerminateTimer) {
-        return;
-    }
-
-    clearTimeout(idleTerminateTimer);
-    idleTerminateTimer = null;
-}
-
-function scheduleIdleWorkerTermination() {
-    clearIdleTerminateTimer();
-    if (!browserSearchWorker || pendingWorkerRequests.size > 0) {
-        return;
-    }
-
-    idleTerminateTimer = setTimeout(() => {
-        idleTerminateTimer = null;
-        if (!browserSearchWorker || pendingWorkerRequests.size > 0) {
-            return;
-        }
-
-        resetWorker();
-    }, BROWSER_SEARCH_WORKER_IDLE_TTL_MS);
-}
-
-function resetWorker(error?: Error) {
-    const pending = Array.from(pendingWorkerRequests.values());
-    pendingWorkerRequests.clear();
-    clearIdleTerminateTimer();
-
-    if (browserSearchWorker) {
-        browserSearchWorker.removeEventListener('message', handleWorkerMessage);
-        browserSearchWorker.removeEventListener('error', handleWorkerError);
-        browserSearchWorker.terminate();
-        browserSearchWorker = null;
-    }
-
-    if (error) {
-        pending.forEach((request) => request.reject(error));
-    }
-}
-
-function handleWorkerMessage(
-    event: MessageEvent<TBrowserSearchWorkerResponse>,
+function settleSearchWorkerResponse(
+    pendingWorkerRequests: Map<number, TPendingWorkerRequest>,
+    result: TBrowserSearchWorkerResponse,
+    scheduleIdleWorkerTermination: () => void,
 ) {
-    const result = event.data;
     const pending = pendingWorkerRequests.get(result.id);
     if (!pending) {
         return;
@@ -98,55 +55,32 @@ function handleWorkerMessage(
     scheduleIdleWorkerTermination();
 }
 
-function handleWorkerError(event: ErrorEvent) {
-    resetWorker(new BrowserSearchWorkerUnavailableError(
-        event.error instanceof Error ? event.error.message : event.message,
-    ));
-}
-
 export function canUseBrowserSearchWorker() {
-    return typeof window !== 'undefined' && typeof Worker !== 'undefined';
+    return canUseBrowserWorker();
 }
 
-function registerCleanupListeners() {
-    if (
-        cleanupListenersRegistered
-        || typeof window === 'undefined'
-        || typeof window.addEventListener !== 'function'
-    ) {
-        return;
-    }
-
-    cleanupListenersRegistered = true;
-    window.addEventListener('beforeunload', () => {
-        resetWorker();
-    });
-}
-
-function getBrowserSearchWorker() {
-    if (browserSearchWorker) {
-        clearIdleTerminateTimer();
-        return browserSearchWorker;
-    }
-
-    let worker: Worker;
-    try {
-        worker = new Worker(
-            new URL('./browser-search.worker.ts', import.meta.url),
-            { type: 'module' },
-        );
-    } catch (error) {
-        throw new BrowserSearchWorkerUnavailableError(
-            getErrorMessage(error),
-        );
-    }
-
-    worker.addEventListener('message', handleWorkerMessage);
-    worker.addEventListener('error', handleWorkerError);
-    registerCleanupListeners();
-    browserSearchWorker = worker;
-    return worker;
-}
+const browserSearchWorkerClient = new BrowserWorkerClient<
+    TBrowserSearchWorkerResponse,
+    TPendingWorkerRequest
+>({
+    idleTtlMs: BROWSER_SEARCH_WORKER_IDLE_TTL_MS,
+    createWorker: () => {
+        try {
+            return new Worker(
+                new URL('./browser-search.worker.ts', import.meta.url),
+                { type: 'module' },
+            );
+        } catch (error) {
+            throw new BrowserSearchWorkerUnavailableError(
+                getErrorMessage(error),
+            );
+        }
+    },
+    createError: event => new BrowserSearchWorkerUnavailableError(
+        event.error instanceof Error ? event.error.message : event.message,
+    ),
+    handleMessage: settleSearchWorkerResponse,
+});
 
 export async function runBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
     type: K,
@@ -157,17 +91,16 @@ export async function runBrowserSearchWorkerRequest<K extends TBrowserSearchWork
     }) => void;} = {},
 ): Promise<IBrowserSearchWorkerResultMap[K]> {
     const request: TBrowserSearchWorkerRequest<K> = {
-        id: nextRequestId,
+        id: browserSearchWorkerClient.createRequestId(),
         type,
         payload,
     };
-    nextRequestId += 1;
 
-    const worker = getBrowserSearchWorker();
+    const worker = browserSearchWorkerClient.getWorker();
 
     return new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
-        clearIdleTerminateTimer();
-        pendingWorkerRequests.set(request.id, {
+        browserSearchWorkerClient.clearIdleTerminateTimer();
+        browserSearchWorkerClient.pendingRequests.set(request.id, {
             resolve: (value) => resolve(value as IBrowserSearchWorkerResultMap[K]),
             reject,
             onProgress: options.onProgress,
@@ -176,7 +109,7 @@ export async function runBrowserSearchWorkerRequest<K extends TBrowserSearchWork
         try {
             worker.postMessage(request);
         } catch (error) {
-            pendingWorkerRequests.delete(request.id);
+            browserSearchWorkerClient.pendingRequests.delete(request.id);
             reject(error instanceof Error ? error : new Error(String(error)));
         }
     });
@@ -191,17 +124,16 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
     }) => void;} = {},
 ) {
     const request: TBrowserSearchWorkerRequest<K> = {
-        id: nextRequestId,
+        id: browserSearchWorkerClient.createRequestId(),
         type,
         payload,
     };
-    nextRequestId += 1;
 
-    const worker = getBrowserSearchWorker();
+    const worker = browserSearchWorkerClient.getWorker();
 
     const promise = new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
-        clearIdleTerminateTimer();
-        pendingWorkerRequests.set(request.id, {
+        browserSearchWorkerClient.clearIdleTerminateTimer();
+        browserSearchWorkerClient.pendingRequests.set(request.id, {
             resolve: (value) => resolve(value as IBrowserSearchWorkerResultMap[K]),
             reject,
             onProgress: options.onProgress,
@@ -210,7 +142,7 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
         try {
             worker.postMessage(request);
         } catch (error) {
-            pendingWorkerRequests.delete(request.id);
+            browserSearchWorkerClient.pendingRequests.delete(request.id);
             reject(error instanceof Error ? error : new Error(String(error)));
         }
     });
@@ -222,7 +154,7 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
 }
 
 export async function cancelBrowserSearchWorkerRequest(requestId: number) {
-    if (!browserSearchWorker) {
+    if (!browserSearchWorkerClient.hasWorker()) {
         return;
     }
 
