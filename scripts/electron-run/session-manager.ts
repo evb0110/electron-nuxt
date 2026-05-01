@@ -162,6 +162,21 @@ export function buildElectronAutomationArgs(options: {
     return args;
 }
 
+export function sanitizeElectronLaunchEnv(env: NodeJS.ProcessEnv) {
+    const launchEnv = { ...env };
+    delete launchEnv.ELECTRON_RUN_AS_NODE;
+    return launchEnv;
+}
+
+export function buildNuxtDevServerEnv(env: NodeJS.ProcessEnv, port: number) {
+    return {
+        ...env,
+        PORT: String(port),
+        HOST: '127.0.0.1',
+        NUXT_IGNORE_LOCK: env.NUXT_IGNORE_LOCK ?? '1',
+    };
+}
+
 export function resolveAutomationWindowEnv(
     env: NodeJS.ProcessEnv = process.env,
     options?: { isTTY?: boolean },
@@ -409,6 +424,17 @@ async function isReusableNuxtServer(): Promise<boolean> {
     }
 }
 
+async function waitForReusableNuxtServer(timeoutMs: number): Promise<boolean> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (await isReusableNuxtServer()) {
+            return true;
+        }
+        await delay(250);
+    }
+    return false;
+}
+
 export async function killExistingNuxt(): Promise<void> {
     try {
         const pids = await getPidsOnPort(getNuxtPort());
@@ -511,11 +537,7 @@ async function startNuxtServer(forceClean = false): Promise<ChildProcess | null>
                 'pipe',
                 'pipe',
             ],
-            env: {
-                ...process.env,
-                PORT: String(getNuxtPort()),
-                HOST: '127.0.0.1',
-            },
+            env: buildNuxtDevServerEnv(process.env, getNuxtPort()),
         });
 
         let viteClientBuilt = false;
@@ -785,7 +807,7 @@ async function startElectron(cdpPort: number): Promise<ChildProcess> {
             'pipe',
             'pipe',
         ],
-        env: electronRuntimeEnv,
+        env: sanitizeElectronLaunchEnv(electronRuntimeEnv),
     });
 
     let exitCode: number | null = null;
@@ -1068,6 +1090,7 @@ async function connectToBrowser(cdpPort: number): Promise<{
             logTiming('Electron app page appeared without fallback navigation');
         } else {
             try {
+                await waitForReusableNuxtServer(30_000);
                 await page.goto(getElectronAppUrl(), {
                     waitUntil: 'domcontentloaded',
                     timeout: 30_000,

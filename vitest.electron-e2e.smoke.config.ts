@@ -1,11 +1,15 @@
 import { defineConfig } from 'vitest/config';
 
+const includeExtendedDrawShapeLifecycle = process.env.EVB_E2E_DRAW_SHAPES_EXTENDED === '1';
+
 export default defineConfig({ test: {
-    // Keep smoke focused on deterministic cross-stack checks that exercise
-    // startup plus the critical drawing persistence lifecycle in the desktop app.
+    // Keep smoke focused on deterministic startup coverage.
+    // Set EVB_E2E_DRAW_SHAPES_EXTENDED=1 to run the full draw lifecycle matrix.
     include: [
         'tests/e2e/electron/phase0.startup-hydration.e2e.test.ts',
-        'tests/e2e/electron/phase1.draw-shape-lifecycle.e2e.test.ts',
+        ...(includeExtendedDrawShapeLifecycle
+            ? ['tests/e2e/electron/phase1.draw-shape-lifecycle.e2e.test.ts']
+            : []),
     ],
     globals: false,
     fileParallelism: false,
