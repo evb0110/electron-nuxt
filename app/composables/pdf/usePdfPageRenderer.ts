@@ -935,6 +935,84 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
             return range;
         }
+
+        function restoreScrollAndLog(mode: 'preserve' | 'full') {
+            const containerBeforeRestore = options.container.value;
+            const beforeScrollTop = containerBeforeRestore
+                ? Math.round(containerBeforeRestore.scrollTop)
+                : null;
+            const beforeScrollLeft = containerBeforeRestore
+                ? Math.round(containerBeforeRestore.scrollLeft)
+                : null;
+            restoreScrollFromSnapshot(options.container.value, snapshotToRestore, {
+                restoreHorizontal: !disableHorizontalAnchorRestore,
+                restoreVertical: !disableVerticalAnchorRestore,
+                preferPageAnchor: !disablePageAnchorRestore,
+                allowVerticalRatioFallback: rerenderSource !== 'zoom-change',
+            });
+            const containerAfterRestore = options.container.value;
+            const afterScrollTop = containerAfterRestore
+                ? Math.round(containerAfterRestore.scrollTop)
+                : null;
+            const afterScrollLeft = containerAfterRestore
+                ? Math.round(containerAfterRestore.scrollLeft)
+                : null;
+
+            BrowserLogger.warnThrottled('pdf-zoom-debug', `rerender-restore-${mode}`, RERENDER_LOG_THROTTLE_MS, `[rerender-restore] ${mode} source=${rerenderSource} version=${version}`, {
+                rerenderSource,
+                version,
+                beforeScrollTop,
+                afterScrollTop,
+                deltaScrollTop: beforeScrollTop !== null && afterScrollTop !== null
+                    ? afterScrollTop - beforeScrollTop
+                    : null,
+                beforeScrollLeft,
+                afterScrollLeft,
+                deltaScrollLeft: beforeScrollLeft !== null && afterScrollLeft !== null
+                    ? afterScrollLeft - beforeScrollLeft
+                    : null,
+                disableHorizontalAnchorRestore,
+                disableVerticalAnchorRestore,
+                disablePageAnchorRestore,
+                snapshot: snapshotToRestore,
+            });
+            BrowserLogger.warnThrottled('pdf-nav', mode === 'preserve' ? 'rerender-snapshot-restored-preserve' : 'rerender-snapshot-restored', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] restored${mode === 'preserve' ? '-preserve' : ''} version=${version}`, {
+                version,
+                ...(mode === 'preserve' ? { preserveExistingPages } : {}),
+                hasAnchorSnapshotOverride: Boolean(anchorSnapshot),
+                currentPage: options.currentPage.value,
+                numPages: numPages.value,
+                snapshot: snapshotToRestore,
+                scrollTop: containerAfterRestore ? Math.round(containerAfterRestore.scrollTop) : null,
+                clientHeight: containerAfterRestore
+                    ? Math.round(containerAfterRestore.clientHeight)
+                    : null,
+                mostVisiblePage: containerAfterRestore
+                    ? getMostVisiblePageFromDom(containerAfterRestore, numPages.value)
+                    : null,
+            });
+        }
+
+        async function renderMountedVisiblePagesAfterRestore(optionsOverride?: {
+            preserveRenderedPages?: boolean;
+            forceRerender?: boolean;
+        }) {
+            if (renderVersion !== version) {
+                return false;
+            }
+
+            const visibleRange = await getMountedVisibleRangeAfterRestore();
+            if (visibleRange === null) {
+                return false;
+            }
+            await renderVisiblePages(visibleRange, {
+                ...optionsOverride,
+                bufferOverride: renderBufferOverride,
+                maxCanvasPixelsOverride,
+            });
+            return true;
+        }
+
         if (snapshot) {
             BrowserLogger.warnThrottled('pdf-nav', 'rerender-snapshot-captured', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] captured version=${version}`, {
                 version,
@@ -973,74 +1051,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 setupPagePlaceholders();
 
                 if (renderVersion === version) {
-                    const containerBeforeRestore = options.container.value;
-                    const beforeScrollTop = containerBeforeRestore
-                        ? Math.round(containerBeforeRestore.scrollTop)
-                        : null;
-                    const beforeScrollLeft = containerBeforeRestore
-                        ? Math.round(containerBeforeRestore.scrollLeft)
-                        : null;
-                    restoreScrollFromSnapshot(options.container.value, snapshotToRestore, {
-                        restoreHorizontal: !disableHorizontalAnchorRestore,
-                        restoreVertical: !disableVerticalAnchorRestore,
-                        preferPageAnchor: !disablePageAnchorRestore,
-                        allowVerticalRatioFallback: rerenderSource !== 'zoom-change',
-                    });
-                    const containerAfterRestore = options.container.value;
-                    const afterScrollTop = containerAfterRestore
-                        ? Math.round(containerAfterRestore.scrollTop)
-                        : null;
-                    const afterScrollLeft = containerAfterRestore
-                        ? Math.round(containerAfterRestore.scrollLeft)
-                        : null;
-                    BrowserLogger.warnThrottled('pdf-zoom-debug', 'rerender-restore-preserve', RERENDER_LOG_THROTTLE_MS, `[rerender-restore] preserve source=${rerenderSource} version=${version}`, {
-                        rerenderSource,
-                        version,
-                        beforeScrollTop,
-                        afterScrollTop,
-                        deltaScrollTop: beforeScrollTop !== null && afterScrollTop !== null
-                            ? afterScrollTop - beforeScrollTop
-                            : null,
-                        beforeScrollLeft,
-                        afterScrollLeft,
-                        deltaScrollLeft: beforeScrollLeft !== null && afterScrollLeft !== null
-                            ? afterScrollLeft - beforeScrollLeft
-                            : null,
-                        disableHorizontalAnchorRestore,
-                        disableVerticalAnchorRestore,
-                        disablePageAnchorRestore,
-                        snapshot: snapshotToRestore,
-                    });
-                    BrowserLogger.warnThrottled('pdf-nav', 'rerender-snapshot-restored-preserve', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] restored-preserve version=${version}`, {
-                        version,
-                        preserveExistingPages,
-                        hasAnchorSnapshotOverride: Boolean(anchorSnapshot),
-                        currentPage: options.currentPage.value,
-                        numPages: numPages.value,
-                        snapshot: snapshotToRestore,
-                        scrollTop: containerAfterRestore ? Math.round(containerAfterRestore.scrollTop) : null,
-                        clientHeight: containerAfterRestore
-                            ? Math.round(containerAfterRestore.clientHeight)
-                            : null,
-                        mostVisiblePage: containerAfterRestore
-                            ? getMostVisiblePageFromDom(containerAfterRestore, numPages.value)
-                            : null,
-                    });
+                    restoreScrollAndLog('preserve');
                 }
 
-                if (renderVersion !== version) {
-                    return;
-                }
-
-                const visibleRange = await getMountedVisibleRangeAfterRestore();
-                if (visibleRange === null) {
-                    return;
-                }
-                await renderVisiblePages(visibleRange, {
+                await renderMountedVisiblePagesAfterRestore({
                     preserveRenderedPages: true,
                     forceRerender: true,
-                    bufferOverride: renderBufferOverride,
-                    maxCanvasPixelsOverride,
                 });
                 return;
             }
@@ -1050,72 +1066,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             setupPagePlaceholders();
 
             if (renderVersion === version) {
-                const containerBeforeRestore = options.container.value;
-                const beforeScrollTop = containerBeforeRestore
-                    ? Math.round(containerBeforeRestore.scrollTop)
-                    : null;
-                const beforeScrollLeft = containerBeforeRestore
-                    ? Math.round(containerBeforeRestore.scrollLeft)
-                    : null;
-                restoreScrollFromSnapshot(options.container.value, snapshotToRestore, {
-                    restoreHorizontal: !disableHorizontalAnchorRestore,
-                    restoreVertical: !disableVerticalAnchorRestore,
-                    preferPageAnchor: !disablePageAnchorRestore,
-                    allowVerticalRatioFallback: rerenderSource !== 'zoom-change',
-                });
-                const containerAfterRestore = options.container.value;
-                const afterScrollTop = containerAfterRestore
-                    ? Math.round(containerAfterRestore.scrollTop)
-                    : null;
-                const afterScrollLeft = containerAfterRestore
-                    ? Math.round(containerAfterRestore.scrollLeft)
-                    : null;
-                BrowserLogger.warnThrottled('pdf-zoom-debug', 'rerender-restore-full', RERENDER_LOG_THROTTLE_MS, `[rerender-restore] full source=${rerenderSource} version=${version}`, {
-                    rerenderSource,
-                    version,
-                    beforeScrollTop,
-                    afterScrollTop,
-                    deltaScrollTop: beforeScrollTop !== null && afterScrollTop !== null
-                        ? afterScrollTop - beforeScrollTop
-                        : null,
-                    beforeScrollLeft,
-                    afterScrollLeft,
-                    deltaScrollLeft: beforeScrollLeft !== null && afterScrollLeft !== null
-                        ? afterScrollLeft - beforeScrollLeft
-                        : null,
-                    disableHorizontalAnchorRestore,
-                    disableVerticalAnchorRestore,
-                    disablePageAnchorRestore,
-                    snapshot: snapshotToRestore,
-                });
-                BrowserLogger.warnThrottled('pdf-nav', 'rerender-snapshot-restored', RERENDER_LOG_THROTTLE_MS, `[re-render-snapshot] restored version=${version}`, {
-                    version,
-                    hasAnchorSnapshotOverride: Boolean(anchorSnapshot),
-                    currentPage: options.currentPage.value,
-                    numPages: numPages.value,
-                    snapshot: snapshotToRestore,
-                    scrollTop: containerAfterRestore ? Math.round(containerAfterRestore.scrollTop) : null,
-                    clientHeight: containerAfterRestore
-                        ? Math.round(containerAfterRestore.clientHeight)
-                        : null,
-                    mostVisiblePage: containerAfterRestore
-                        ? getMostVisiblePageFromDom(containerAfterRestore, numPages.value)
-                        : null,
-                });
+                restoreScrollAndLog('full');
             }
-
-            if (renderVersion !== version) {
-                return;
-            }
-
-            const visibleRange = await getMountedVisibleRangeAfterRestore();
-            if (visibleRange === null) {
-                return;
-            }
-            await renderVisiblePages(visibleRange, {
-                bufferOverride: renderBufferOverride,
-                maxCanvasPixelsOverride,
-            });
+            await renderMountedVisiblePagesAfterRestore();
         } finally {
             renderMutex.release();
         }
