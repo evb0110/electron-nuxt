@@ -19,7 +19,7 @@ interface IEditorGroupsStateSnapshot {
 
 interface INormalizeEditorGroupsStateParams extends IEditorGroupsStateSnapshot { createGroup: () => IEditorGroupState; }
 
-function arraysEqual<T>(left: T[], right: T[]) {
+export function arraysEqual<T>(left: T[], right: T[]) {
     if (left === right) {
         return true;
     }

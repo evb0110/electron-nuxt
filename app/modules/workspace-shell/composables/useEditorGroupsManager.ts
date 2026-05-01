@@ -13,6 +13,7 @@ import {
 } from '@app/modules/workspace-shell/composables/editor-groups/layoutTree';
 import { findDirectionalGroupId } from '@app/modules/workspace-shell/composables/editor-groups/navigation';
 import {
+    arraysEqual,
     isEditorGroupsStateNormalized,
     normalizeEditorGroupsState,
 } from '@app/modules/workspace-shell/composables/editor-groups/normalization';
@@ -26,21 +27,6 @@ interface ICreateTabOptions {
 interface ICloseTabResult {
     tab: ITab | null;
     removedGroupId: string | null;
-}
-
-function arraysEqual<T>(left: T[], right: T[]) {
-    if (left === right) {
-        return true;
-    }
-    if (left.length !== right.length) {
-        return false;
-    }
-    for (let index = 0; index < left.length; index += 1) {
-        if (left[index] !== right[index]) {
-            return false;
-        }
-    }
-    return true;
 }
 
 export const useEditorGroupsManager = () => {
