@@ -10,6 +10,7 @@ import {
     normalizeMarkerRect,
     markerRectIoU,
 } from '@app/composables/pdf/annotationGeometry';
+import { annotationCommentsMatch } from '@app/composables/pdf/annotationCommentMatching';
 
 interface ISummaryMemoryEntry {
     text: string;
@@ -572,20 +573,7 @@ export function commentsMatchForEditorLookup(
     left: Pick<IAnnotationCommentSummary, 'stableKey' | 'annotationId' | 'uid' | 'id' | 'pageIndex' | 'source'>,
     right: Pick<IAnnotationCommentSummary, 'stableKey' | 'annotationId' | 'uid' | 'id' | 'pageIndex' | 'source'>,
 ) {
-    if (left.stableKey && right.stableKey && left.stableKey === right.stableKey) {
-        return true;
-    }
-    if (left.annotationId && right.annotationId) {
-        return left.annotationId === right.annotationId && left.pageIndex === right.pageIndex;
-    }
-    if (left.uid && right.uid) {
-        return left.uid === right.uid && left.pageIndex === right.pageIndex;
-    }
-    return (
-        left.id === right.id
-        && left.pageIndex === right.pageIndex
-        && left.source === right.source
-    );
+    return annotationCommentsMatch(left, right);
 }
 
 export function useAnnotationIdentity(
