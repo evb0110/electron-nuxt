@@ -14,13 +14,16 @@ import {
 } from 'pdf-lib';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationMarkerRect,
     IShapeAnnotation,
+    TMarkupSubtype,
 } from '@app/types/annotations';
 import {
     type IPdfSerializationSavePayload,
     serializePdfEdits,
 } from '@app/composables/pdf/pdfSerializationOperations';
 import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
+import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
 
 function createEmptyPayload(): IPdfSerializationSavePayload {
     return {
@@ -495,5 +498,463 @@ describe('serializePdfEdits embedded geometric shapes', () => {
             opacity: 0.55,
             strokeWidth: 5,
         });
+    });
+});
+
+async function createPdfWithHighlightAnnotations(rectsByPage: number[][][]) {
+    const doc = await PDFDocument.create();
+    const refs: PDFRef[][] = [];
+    for (const pageRects of rectsByPage) {
+        const page = doc.addPage([
+            600,
+            800,
+        ]);
+        const pageRefs: PDFRef[] = [];
+        for (const rect of pageRects) {
+            const dict = doc.context.obj({
+                Type: PDFName.of('Annot'),
+                Subtype: PDFName.of('Highlight'),
+                Rect: [
+                    PDFNumber.of(rect[0]!),
+                    PDFNumber.of(rect[1]!),
+                    PDFNumber.of(rect[2]!),
+                    PDFNumber.of(rect[3]!),
+                ],
+            });
+            pageRefs.push(doc.context.register(dict));
+        }
+        if (pageRefs.length > 0) {
+            page.node.set(PDFName.of('Annots'), doc.context.obj(pageRefs));
+        }
+        refs.push(pageRefs);
+    }
+    return {
+        bytes: new Uint8Array(await doc.save()),
+        refs,
+    };
+}
+
+async function createPdfWithFreeTextNotes(notes: Array<{
+    pageIndex: number;
+    rect: [number, number, number, number];
+    contents?: string;
+    withPopup?: boolean;
+}>) {
+    const doc = await PDFDocument.create();
+    const pageMap = new Map<number, ReturnType<typeof doc.addPage>>();
+    let maxPageIndex = -1;
+    for (const note of notes) {
+        if (note.pageIndex > maxPageIndex) {
+            maxPageIndex = note.pageIndex;
+        }
+    }
+    for (let i = 0; i <= maxPageIndex; i += 1) {
+        pageMap.set(i, doc.addPage([
+            600,
+            800,
+        ]));
+    }
+
+    const noteRefs: PDFRef[] = [];
+    const refsByPage = new Map<number, PDFRef[]>();
+    for (const note of notes) {
+        const annotDict = doc.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('FreeText'),
+            Rect: [
+                PDFNumber.of(note.rect[0]),
+                PDFNumber.of(note.rect[1]),
+                PDFNumber.of(note.rect[2]),
+                PDFNumber.of(note.rect[3]),
+            ],
+        });
+        if (note.contents !== undefined) {
+            annotDict.set(PDFName.of('Contents'), PDFHexString.fromText(note.contents));
+        }
+        if (note.withPopup !== false) {
+            const popupDict = doc.context.obj({
+                Type: PDFName.of('Annot'),
+                Subtype: PDFName.of('Popup'),
+            });
+            const popupRef = doc.context.register(popupDict);
+            annotDict.set(PDFName.of('Popup'), popupRef);
+        }
+        const ref = doc.context.register(annotDict);
+        noteRefs.push(ref);
+        const list = refsByPage.get(note.pageIndex) ?? [];
+        list.push(ref);
+        refsByPage.set(note.pageIndex, list);
+    }
+
+    for (const [
+        pageIndex,
+        refs,
+    ] of refsByPage.entries()) {
+        const page = pageMap.get(pageIndex);
+        if (!page) {
+            continue;
+        }
+        page.node.set(PDFName.of('Annots'), doc.context.obj(refs));
+    }
+
+    return {
+        bytes: new Uint8Array(await doc.save()),
+        noteRefs,
+    };
+}
+
+function makeFreeTextComment(overrides: Partial<IAnnotationCommentSummary> & {
+    pageIndex: number;
+    markerRect: IAnnotationMarkerRect;
+}): IAnnotationCommentSummary {
+    return {
+        id: 'comment',
+        stableKey: 'comment',
+        pageNumber: overrides.pageIndex + 1,
+        text: '',
+        author: null,
+        modifiedAt: null,
+        color: null,
+        uid: null,
+        annotationId: null,
+        source: 'editor',
+        ...overrides,
+    };
+}
+
+describe('serializePdfEdits markup subtype rewrites', () => {
+    it('rewrites Highlight to Underline using a ref override', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]]);
+        const targetRef = refs[0]![0]!;
+
+        const payload = createEmptyPayload();
+        const overrideTag = targetRef.generationNumber === 0
+            ? `${targetRef.objectNumber}R`
+            : `${targetRef.objectNumber}R${targetRef.generationNumber}`;
+        payload.markupSubtypeOverrides = [[
+            overrideTag,
+                'Underline' satisfies TMarkupSubtype,
+        ]];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
+    });
+
+    it('does not throw or mutate when override targets a missing ref', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]]);
+        const targetRef = refs[0]![0]!;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeOverrides = [[
+            '99999R',
+                'StrikeOut' satisfies TMarkupSubtype,
+        ]];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Highlight');
+    });
+
+    it('uses subtype hints to rewrite when overrides do not match', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]]);
+        const targetRef = refs[0]![0]!;
+
+        const payload = createEmptyPayload();
+        const hint: IMarkupSubtypeHint = {
+            subtype: 'StrikeOut',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.15,
+                width: 0.2,
+                height: 0.25,
+            },
+            consumed: false,
+        };
+        payload.markupSubtypeHints = [hint];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/StrikeOut');
+    });
+
+    it('does not consume the same hint twice across multiple highlights on a page', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[
+            [
+                60,
+                600,
+                180,
+                700,
+            ],
+            [
+                300,
+                100,
+                400,
+                200,
+            ],
+        ]]);
+        const firstRef = refs[0]![0]!;
+        const secondRef = refs[0]![1]!;
+
+        const payload = createEmptyPayload();
+        const sharedHint: IMarkupSubtypeHint = {
+            subtype: 'Underline',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.125,
+                width: 0.2,
+                height: 0.125,
+            },
+            consumed: false,
+        };
+        payload.markupSubtypeHints = [sharedHint];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+
+        const firstSubtype = getAnnotDict(doc, firstRef)?.get(PDFName.of('Subtype'))?.toString();
+        const secondSubtype = getAnnotDict(doc, secondRef)?.get(PDFName.of('Subtype'))?.toString();
+        const rewritten = [
+            firstSubtype,
+            secondSubtype,
+        ].filter(value => value === '/Underline');
+        expect(rewritten).toHaveLength(1);
+    });
+});
+
+describe('serializePdfEdits free-text note rect application', () => {
+    it('applies a comment marker rect onto a matching FreeText annotation', async () => {
+        const {
+            bytes,
+            noteRefs,
+        } = await createPdfWithFreeTextNotes([{
+            pageIndex: 0,
+            rect: [
+                100,
+                500,
+                200,
+                600,
+            ],
+            contents: 'note',
+        }]);
+        const noteRef = noteRefs[0]!;
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [makeFreeTextComment({
+            pageIndex: 0,
+            annotationId: `${noteRef.objectNumber}R${noteRef.generationNumber}`,
+            text: 'note',
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.1,
+            },
+        })];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, noteRef);
+        const rect = getRectNumbers(dict!);
+
+        expect(rect).not.toBeNull();
+        expect(rect!.length).toBe(4);
+        expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+    });
+
+    it('ignores comments with malformed marker rects', async () => {
+        const {
+            bytes,
+            noteRefs,
+        } = await createPdfWithFreeTextNotes([{
+            pageIndex: 0,
+            rect: [
+                100,
+                500,
+                200,
+                600,
+            ],
+            contents: 'note',
+        }]);
+        const noteRef = noteRefs[0]!;
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [makeFreeTextComment({
+            pageIndex: 0,
+            text: 'note',
+            markerRect: {
+                left: Number.NaN,
+                top: 0,
+                width: 0.5,
+                height: 0.5,
+            },
+        })];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, noteRef);
+        const rect = getRectNumbers(dict!);
+
+        expect(rect).toEqual([
+            100,
+            500,
+            200,
+            600,
+        ]);
+        expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeUndefined();
+    });
+
+    it('preserves existing application order for multiple comments on the same page', async () => {
+        const {
+            bytes,
+            noteRefs,
+        } = await createPdfWithFreeTextNotes([
+            {
+                pageIndex: 0,
+                rect: [
+                    100,
+                    500,
+                    200,
+                    600,
+                ],
+                contents: 'first',
+            },
+            {
+                pageIndex: 0,
+                rect: [
+                    300,
+                    100,
+                    400,
+                    200,
+                ],
+                contents: 'second',
+            },
+        ]);
+        const firstRef = noteRefs[0]!;
+        const secondRef = noteRefs[1]!;
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [
+            makeFreeTextComment({
+                pageIndex: 0,
+                annotationId: `${firstRef.objectNumber}R${firstRef.generationNumber}`,
+                text: 'first',
+                markerRect: {
+                    left: 0.1,
+                    top: 0.05,
+                    width: 0.2,
+                    height: 0.1,
+                },
+            }),
+            makeFreeTextComment({
+                pageIndex: 0,
+                annotationId: `${secondRef.objectNumber}R${secondRef.generationNumber}`,
+                text: 'second',
+                markerRect: {
+                    left: 0.5,
+                    top: 0.7,
+                    width: 0.1,
+                    height: 0.1,
+                },
+            }),
+        ];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const firstDict = getAnnotDict(doc, firstRef);
+        const secondDict = getAnnotDict(doc, secondRef);
+
+        expect(getRectNumbers(firstDict!)).not.toEqual([
+            100,
+            500,
+            200,
+            600,
+        ]);
+        expect(getRectNumbers(secondDict!)).not.toEqual([
+            300,
+            100,
+            400,
+            200,
+        ]);
+        expect(firstDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+        expect(secondDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+    });
+
+    it('skips FreeText annotations without a Popup entry', async () => {
+        const {
+            bytes,
+            noteRefs,
+        } = await createPdfWithFreeTextNotes([{
+            pageIndex: 0,
+            rect: [
+                100,
+                500,
+                200,
+                600,
+            ],
+            contents: 'note',
+            withPopup: false,
+        }]);
+        const noteRef = noteRefs[0]!;
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [makeFreeTextComment({
+            pageIndex: 0,
+            annotationId: `${noteRef.objectNumber}R${noteRef.generationNumber}`,
+            text: 'note',
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.1,
+            },
+        })];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, noteRef);
+
+        expect(getRectNumbers(dict!)).toEqual([
+            100,
+            500,
+            200,
+            600,
+        ]);
+        expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeUndefined();
     });
 });

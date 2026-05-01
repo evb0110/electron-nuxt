@@ -49,7 +49,18 @@ interface ICreateBrowserSearchCapabilityResult {
     clearSearchCaches: () => void;
 }
 
+interface IIterateSearchPagesOptions {
+    onPage: (pageNumber: number, text: string, pageCount: number) => Promise<unknown> | unknown;
+    requestId?: string;
+}
+
+interface IExtractedDocumentText {
+    pageCount: number;
+    pageTexts: string[];
+}
+
 type TSearchListener = (progress: IPdfSearchProgress) => void;
+type TPageOutcome = 'continue' | 'stop' | 'cancel';
 
 const SEARCH_PAGE_CACHE_LIMIT = 24;
 const SEARCH_DOCUMENT_CACHE_LIMIT = 4;
@@ -256,160 +267,203 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         }
     }
 
-    async function iterateSearchPages(
-        pdfPath: string,
-        fileSize: number,
-        options: {
-            onPage: (pageNumber: number, text: string, pageCount: number) => Promise<unknown> | unknown;
-            requestId?: string;
-        },
-    ) {
-        const cache = getDocumentCache(pdfPath);
-        const cachedPageCount = cache.pageCount;
-
-        if (isRecordCacheReady(cache) && cachedPageCount) {
-            for (let pageNumber = 1; pageNumber <= cachedPageCount; pageNumber += 1) {
-                if (options.requestId && canceledSearchRequests.has(options.requestId)) {
-                    canceledSearchRequests.delete(options.requestId);
-                    return false;
-                }
-
-                const cachedText = getCachedPageText(cache, pageNumber) ?? '';
-                if (await options.onPage(pageNumber, cachedText, cachedPageCount) === false) {
-                    return false;
-                }
-
-                if (options.requestId) {
-                    const progress: IPdfSearchProgress = {
-                        requestId: options.requestId,
-                        processed: pageNumber,
-                        total: cachedPageCount,
-                    };
-                    searchProgressListeners.forEach((listener) => listener(progress));
-                }
-                await yieldAfterSearchPage(pageNumber);
-            }
+    function consumeCancellation(requestId: string | undefined) {
+        if (requestId && canceledSearchRequests.has(requestId)) {
+            canceledSearchRequests.delete(requestId);
             return true;
         }
+        return false;
+    }
 
-        const persistentCacheKey = pdfPath;
-        const persistedRecord = await loadPersistedSearchCacheRecord(persistentCacheKey);
-        const validPersistedRecord = persistedRecord
-            && persistedRecord.fileSize === fileSize
-            && persistedRecord.pageCount === persistedRecord.pageTexts.length
-            ? persistedRecord
-            : null;
-        if (validPersistedRecord) {
-            hydrateCacheFromPersistedRecord(cache, validPersistedRecord);
+    function isExtractionCanceled(requestId: string | undefined) {
+        return Boolean(requestId && canceledSearchRequests.has(requestId));
+    }
 
-            for (let pageNumber = 1; pageNumber <= validPersistedRecord.pageCount; pageNumber += 1) {
-                if (options.requestId && canceledSearchRequests.has(options.requestId)) {
-                    canceledSearchRequests.delete(options.requestId);
-                    return false;
-                }
-
-                const text = validPersistedRecord.pageTexts[pageNumber - 1] ?? '';
-                if (await options.onPage(pageNumber, text, validPersistedRecord.pageCount) === false) {
-                    return true;
-                }
-
-                if (options.requestId) {
-                    const progress: IPdfSearchProgress = {
-                        requestId: options.requestId,
-                        processed: pageNumber,
-                        total: validPersistedRecord.pageCount,
-                    };
-                    searchProgressListeners.forEach((listener) => listener(progress));
-                }
-                await yieldAfterSearchPage(pageNumber);
-            }
-
-            return true;
+    function emitPageProgress(requestId: string | undefined, processed: number, total: number) {
+        if (!requestId) {
+            return;
         }
-
-        let extractedDocumentText: {
-            pageCount: number;
-            pageTexts: string[];
+        const progress: IPdfSearchProgress = {
+            requestId,
+            processed,
+            total,
         };
+        searchProgressListeners.forEach((listener) => listener(progress));
+    }
 
-        if (canUseBrowserSearchWorker()) {
+    function pickValidPersistedRecord(
+        record: IPersistedSearchDocumentCacheRecord | null,
+        fileSize: number,
+    ) {
+        if (!record) {
+            return null;
+        }
+        if (record.fileSize !== fileSize) {
+            return null;
+        }
+        if (record.pageCount !== record.pageTexts.length) {
+            return null;
+        }
+        return record;
+    }
+
+    async function runDirectExtraction(pdfPath: string, requestId: string | undefined) {
+        return extractBrowserSearchDocumentText(pdfPath, {shouldContinue: () => !isExtractionCanceled(requestId)});
+    }
+
+    async function extractDocumentTextWithFallback(
+        pdfPath: string,
+        requestId: string | undefined,
+    ): Promise<IExtractedDocumentText | null> {
+        if (!canUseBrowserSearchWorker()) {
             try {
-                const workerRequest = createBrowserSearchWorkerRequest(
-                    'extractDocumentText',
-                    { pdfPath },
-                );
-                if (options.requestId) {
-                    activeWorkerSearchRequests.set(options.requestId, workerRequest.requestId);
-                }
-                extractedDocumentText = await workerRequest.promise;
+                return await runDirectExtraction(pdfPath, requestId);
             } catch (error) {
                 if (isBrowserSearchCanceledError(error)) {
-                    return false;
-                }
-                if (!(error instanceof BrowserSearchWorkerUnavailableError)) {
-                    throw error;
-                }
-                extractedDocumentText = await extractBrowserSearchDocumentText(pdfPath, {shouldContinue: () => !(options.requestId && canceledSearchRequests.has(options.requestId))});
-            } finally {
-                if (options.requestId) {
-                    activeWorkerSearchRequests.delete(options.requestId);
-                }
-            }
-        } else {
-            try {
-                extractedDocumentText = await extractBrowserSearchDocumentText(pdfPath, {shouldContinue: () => !(options.requestId && canceledSearchRequests.has(options.requestId))});
-            } catch (error) {
-                if (isBrowserSearchCanceledError(error)) {
-                    return false;
+                    return null;
                 }
                 throw error;
             }
         }
 
-        cache.pageCount = extractedDocumentText.pageCount;
-        let shouldContinueCallbacks = true;
-        let canceled = false;
-
         try {
-            for (let pageNumber = 1; pageNumber <= extractedDocumentText.pageCount; pageNumber += 1) {
-                if (options.requestId && canceledSearchRequests.has(options.requestId)) {
-                    canceledSearchRequests.delete(options.requestId);
-                    canceled = true;
-                    return false;
-                }
-
-                const text = extractedDocumentText.pageTexts[pageNumber - 1] ?? '';
-                rememberPageText(cache, pageNumber, text);
-                if (
-                    shouldContinueCallbacks
-                    && await options.onPage(pageNumber, text, extractedDocumentText.pageCount) === false
-                ) {
-                    shouldContinueCallbacks = false;
-                }
-
-                if (options.requestId) {
-                    const progress: IPdfSearchProgress = {
-                        requestId: options.requestId,
-                        processed: pageNumber,
-                        total: extractedDocumentText.pageCount,
-                    };
-                    searchProgressListeners.forEach((listener) => listener(progress));
-                }
-
-                await yieldAfterSearchPage(pageNumber);
+            const workerRequest = createBrowserSearchWorkerRequest(
+                'extractDocumentText',
+                { pdfPath },
+            );
+            if (requestId) {
+                activeWorkerSearchRequests.set(requestId, workerRequest.requestId);
             }
-
-            return true;
+            return await workerRequest.promise;
+        } catch (error) {
+            if (isBrowserSearchCanceledError(error)) {
+                return null;
+            }
+            if (!(error instanceof BrowserSearchWorkerUnavailableError)) {
+                throw error;
+            }
+            return runDirectExtraction(pdfPath, requestId);
         } finally {
-            if (!canceled) {
-                await persistSearchCacheRecord({
-                    pdfPath: persistentCacheKey,
-                    fileSize,
-                    pageCount: extractedDocumentText.pageCount,
-                    pageTexts: extractedDocumentText.pageTexts,
-                });
+            if (requestId) {
+                activeWorkerSearchRequests.delete(requestId);
             }
         }
+    }
+
+    async function deliverPage(
+        pageNumber: number,
+        text: string,
+        pageCount: number,
+        options: IIterateSearchPagesOptions,
+    ): Promise<TPageOutcome> {
+        if (consumeCancellation(options.requestId)) {
+            return 'cancel';
+        }
+        const result = await options.onPage(pageNumber, text, pageCount);
+        if (result === false) {
+            return 'stop';
+        }
+        emitPageProgress(options.requestId, pageNumber, pageCount);
+        await yieldAfterSearchPage(pageNumber);
+        return 'continue';
+    }
+
+    async function iterateCachedDocumentPages(
+        cache: IPreparedSearchDocumentCache,
+        pageCount: number,
+        options: IIterateSearchPagesOptions,
+    ) {
+        for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+            const cachedText = getCachedPageText(cache, pageNumber) ?? '';
+            const outcome = await deliverPage(pageNumber, cachedText, pageCount, options);
+            if (outcome === 'cancel' || outcome === 'stop') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    async function iteratePersistedDocumentPages(
+        record: IPersistedSearchDocumentCacheRecord,
+        options: IIterateSearchPagesOptions,
+    ) {
+        for (let pageNumber = 1; pageNumber <= record.pageCount; pageNumber += 1) {
+            const text = record.pageTexts[pageNumber - 1] ?? '';
+            const outcome = await deliverPage(pageNumber, text, record.pageCount, options);
+            if (outcome === 'cancel') {
+                return false;
+            }
+            if (outcome === 'stop') {
+                return true;
+            }
+        }
+        return true;
+    }
+
+    async function iterateExtractedDocumentPages(
+        cache: IPreparedSearchDocumentCache,
+        extracted: IExtractedDocumentText,
+        options: IIterateSearchPagesOptions,
+    ) {
+        let shouldContinueCallbacks = true;
+        for (let pageNumber = 1; pageNumber <= extracted.pageCount; pageNumber += 1) {
+            if (consumeCancellation(options.requestId)) {
+                return { canceled: true };
+            }
+
+            const text = extracted.pageTexts[pageNumber - 1] ?? '';
+            rememberPageText(cache, pageNumber, text);
+
+            if (
+                shouldContinueCallbacks
+                && await options.onPage(pageNumber, text, extracted.pageCount) === false
+            ) {
+                shouldContinueCallbacks = false;
+            }
+
+            emitPageProgress(options.requestId, pageNumber, extracted.pageCount);
+            await yieldAfterSearchPage(pageNumber);
+        }
+        return { canceled: false };
+    }
+
+    async function iterateSearchPages(
+        pdfPath: string,
+        fileSize: number,
+        options: IIterateSearchPagesOptions,
+    ) {
+        const cache = getDocumentCache(pdfPath);
+        const cachedPageCount = cache.pageCount;
+
+        if (isRecordCacheReady(cache) && cachedPageCount) {
+            return iterateCachedDocumentPages(cache, cachedPageCount, options);
+        }
+
+        const persistedRecord = await loadPersistedSearchCacheRecord(pdfPath);
+        const validPersistedRecord = pickValidPersistedRecord(persistedRecord, fileSize);
+        if (validPersistedRecord) {
+            hydrateCacheFromPersistedRecord(cache, validPersistedRecord);
+            return iteratePersistedDocumentPages(validPersistedRecord, options);
+        }
+
+        const extractedDocumentText = await extractDocumentTextWithFallback(pdfPath, options.requestId);
+        if (!extractedDocumentText) {
+            return false;
+        }
+
+        cache.pageCount = extractedDocumentText.pageCount;
+        const { canceled } = await iterateExtractedDocumentPages(cache, extractedDocumentText, options);
+
+        if (!canceled) {
+            await persistSearchCacheRecord({
+                pdfPath,
+                fileSize,
+                pageCount: extractedDocumentText.pageCount,
+                pageTexts: extractedDocumentText.pageTexts,
+            });
+        }
+
+        return !canceled;
     }
 
     const capability: ISearchCapability = {
