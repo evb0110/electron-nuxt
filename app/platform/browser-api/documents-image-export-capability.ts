@@ -18,6 +18,10 @@ import {
     saveBlobToPickerOrDownload,
     saveBytesToPickerOrDownload,
 } from '@app/platform/browser-api/documents-file-capability';
+import {
+    buildTiffImageIfd,
+    encodeTiffIfds,
+} from '@contracts/tiff-encoding';
 
 interface IRenderedPdfPage {
     pageNumber: number;
@@ -41,14 +45,6 @@ interface ITiffPageDescriptor {
 }
 
 const BROWSER_INLINE_TIFF_EXPORT_MAX_RGBA_BYTES = 64 * 1024 * 1024;
-const TIFF_TYPE_BYTES: Record<number, number> = {
-    1: 1,
-    2: 1,
-    3: 2,
-    4: 4,
-    5: 8,
-    12: 8,
-};
 
 interface IUtifBinaryWriter {
     writeUint(buffer: Uint8Array, offset: number, value: number): void;
@@ -68,6 +64,12 @@ interface IUtifEncoderModule {
 
 const UTIF_ENCODER = UTIF as typeof UTIF & IUtifEncoderModule;
 
+interface IRenderedPdfPageCanvas {
+    pageNumber: number;
+    canvas: HTMLCanvasElement;
+    context: CanvasRenderingContext2D;
+}
+
 function mergeUint8Arrays(parts: Uint8Array[]) {
     const totalLength = parts.reduce((sum, part) => sum + part.byteLength, 0);
     const output = new Uint8Array(totalLength);
@@ -82,63 +84,67 @@ function mergeUint8Arrays(parts: Uint8Array[]) {
 }
 
 
+async function withRenderedPdfPageCanvas<T>(
+    pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
+    pageNumber: number,
+    callback: (rendered: IRenderedPdfPageCanvas) => Promise<T> | T,
+): Promise<T> {
+    const page = await pdfDocument.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: EXPORT_RENDER_SCALE });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const context = canvas.getContext('2d');
+    if (!context) {
+        throw new Error('Canvas 2D context is unavailable');
+    }
+
+    await page.render({
+        canvas,
+        canvasContext: context,
+        viewport,
+    }).promise;
+
+    try {
+        return await callback({
+            pageNumber,
+            canvas,
+            context,
+        });
+    } finally {
+        try {
+            await Promise.resolve(page.cleanup?.());
+        } catch {
+            // Cleanup is best effort.
+        }
+    }
+}
+
 async function renderPdfPage(
     pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
     pageNumber: number,
 ): Promise<IRenderedPdfPage> {
-    const page = await pdfDocument.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: EXPORT_RENDER_SCALE });
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.ceil(viewport.width);
-    canvas.height = Math.ceil(viewport.height);
-    const context = canvas.getContext('2d');
-    if (!context) {
-        throw new Error('Canvas 2D context is unavailable');
-    }
-
-    await page.render({
-        canvas,
-        canvasContext: context,
-        viewport,
-    }).promise;
-
-    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    try {
-        await Promise.resolve(page.cleanup?.());
-    } catch {
-        // Cleanup is best effort.
-    }
-
-    return {
+    return withRenderedPdfPageCanvas(
+        pdfDocument,
         pageNumber,
-        fileName: `page-${String(pageNumber).padStart(3, '0')}.png`,
-        rgba: new Uint8Array(imageData.data),
-        width: canvas.width,
-        height: canvas.height,
-    };
+        ({
+            canvas,
+            context,
+        }) => {
+            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            return {
+                pageNumber,
+                fileName: `page-${String(pageNumber).padStart(3, '0')}.png`,
+                rgba: new Uint8Array(imageData.data),
+                width: canvas.width,
+                height: canvas.height,
+            };
+        },
+    );
 }
 
-async function renderPdfPageToPng(
-    pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
-    pageNumber: number,
-): Promise<IRenderedPngPage> {
-    const page = await pdfDocument.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: EXPORT_RENDER_SCALE });
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.ceil(viewport.width);
-    canvas.height = Math.ceil(viewport.height);
-    const context = canvas.getContext('2d');
-    if (!context) {
-        throw new Error('Canvas 2D context is unavailable');
-    }
-
-    await page.render({
-        canvas,
-        canvasContext: context,
-        viewport,
-    }).promise;
-
-    const pngBlob = await new Promise<Blob>((resolve, reject) => {
+async function canvasToPngBlob(canvas: HTMLCanvasElement) {
+    return new Promise<Blob>((resolve, reject) => {
         canvas.toBlob((blob) => {
             if (!blob) {
                 reject(new Error('Failed to export rendered page'));
@@ -148,18 +154,20 @@ async function renderPdfPageToPng(
             resolve(blob);
         }, 'image/png');
     });
+}
 
-    try {
-        await Promise.resolve(page.cleanup?.());
-    } catch {
-        // Cleanup is best effort.
-    }
-
-    return {
-        pageNumber,
-        fileName: `page-${String(pageNumber).padStart(3, '0')}.png`,
-        pngBlob,
-    };
+async function renderPdfPageToPng(
+    pdfDocument: Pick<PDFDocumentProxy, 'getPage'>,
+    pageNumber: number,
+): Promise<IRenderedPngPage> {
+    return withRenderedPdfPageCanvas(pdfDocument, pageNumber, async ({ canvas }) => {
+        const pngBlob = await canvasToPngBlob(canvas);
+        return {
+            pageNumber,
+            fileName: `page-${String(pageNumber).padStart(3, '0')}.png`,
+            pngBlob,
+        };
+    });
 }
 
 async function collectTiffPageDescriptors(
@@ -201,103 +209,6 @@ function alignOffset(offset: number, alignment: number) {
     return remainder === 0 ? offset : offset + (alignment - remainder);
 }
 
-function buildTiffIfd(
-    page: ITiffPageDescriptor,
-    dataOffset: number,
-) {
-    return {
-        t256: [page.width],
-        t257: [page.height],
-        t258: [
-            8,
-            8,
-            8,
-            8,
-        ],
-        t259: [1],
-        t262: [2],
-        t273: [dataOffset],
-        t277: [4],
-        t278: [page.height],
-        t279: [page.dataLength],
-        t282: [1],
-        t283: [1],
-        t284: [1],
-        t286: [0],
-        t287: [0],
-        t296: [1],
-        t305: ['EVB Viewer'],
-        t338: [1],
-    };
-}
-
-function getTiffValueCount(value: unknown): number {
-    if (Array.isArray(value)) {
-        return value.length;
-    }
-
-    if (
-        ArrayBuffer.isView(value)
-        && 'BYTES_PER_ELEMENT' in value
-        && typeof value.BYTES_PER_ELEMENT === 'number'
-        && value.BYTES_PER_ELEMENT > 0
-    ) {
-        return Math.floor(value.byteLength / value.BYTES_PER_ELEMENT);
-    }
-
-    return 1;
-}
-
-function measureTiffIfdSize(ifd: Record<string, unknown>) {
-    const keys = Object.keys(ifd);
-    let extraDataLength = 0;
-
-    for (const key of keys) {
-        const tag = Number.parseInt(key.slice(1), 10);
-        const type = UTIF_ENCODER.ttypes[tag];
-        if (!type) {
-            throw new Error(`Unsupported TIFF tag type for tag ${tag}`);
-        }
-
-        const rawValue = ifd[key];
-        const valueLength = type === 2
-            ? `${String(Array.isArray(rawValue) ? rawValue[0] ?? '' : rawValue ?? '')}\0`.length
-            : getTiffValueCount(rawValue);
-        const dataLength = (TIFF_TYPE_BYTES[type] ?? 0) * valueLength;
-        if (dataLength > 4) {
-            extraDataLength += dataLength + (dataLength & 1);
-        }
-    }
-
-    return 2 + (keys.length * 12) + 4 + extraDataLength;
-}
-
-function encodeTiffIfds(ifds: Array<Record<string, unknown>>) {
-    const capacity = ifds.reduce((total, ifd) => total + measureTiffIfdSize(ifd), 8);
-    const data = new Uint8Array(capacity);
-    const bin = UTIF_ENCODER._binBE;
-
-    data[0] = 77;
-    data[1] = 77;
-    data[3] = 42;
-
-    let ifdOffset = 8;
-    bin.writeUint(data, 4, ifdOffset);
-
-    for (let index = 0; index < ifds.length; index += 1) {
-        const [
-            nextIfdPointerOffset,
-            nextIfdOffset,
-        ] = UTIF_ENCODER._writeIFD(bin, data, ifdOffset, ifds[index]!);
-        ifdOffset = nextIfdOffset;
-        if (index < ifds.length - 1) {
-            bin.writeUint(data, nextIfdPointerOffset, ifdOffset);
-        }
-    }
-
-    return data.slice(0, ifdOffset);
-}
-
 function encodeMultiPageTiffHeader(pageDescriptors: ITiffPageDescriptor[]) {
     let firstDataOffset = 0;
     let header = new Uint8Array();
@@ -311,13 +222,12 @@ function encodeMultiPageTiffHeader(pageDescriptors: ITiffPageDescriptor[]) {
             cursor += descriptor.dataLength;
         }
 
-        header = toUint8Array(
-            encodeTiffIfds(
-                pageDescriptors.map((page, index) =>
-                    buildTiffIfd(page, pageOffsets[index] ?? 0),
-                ),
+        header = toUint8Array(encodeTiffIfds(
+            pageDescriptors.map((page, index) =>
+                buildTiffImageIfd(page, pageOffsets[index] ?? 0),
             ),
-        );
+            UTIF_ENCODER,
+        ));
 
         const nextFirstDataOffset = alignOffset(header.length, 8);
         if (nextFirstDataOffset === firstDataOffset) {

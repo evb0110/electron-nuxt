@@ -96,14 +96,7 @@ export function getShapeRect(
     }
 
     if (shape.type === 'line' || shape.type === 'arrow') {
-        const x2 = shape.x2 ?? shape.x;
-        const y2 = shape.y2 ?? shape.y;
-        const rect = toShapeRect({
-            minX: Math.min(shape.x, x2),
-            minY: Math.min(shape.y, y2),
-            maxX: Math.max(shape.x, x2),
-            maxY: Math.max(shape.y, y2),
-        }, 0.01);
+        const rect = toShapeRect(getShapeBounds(shape), 0.01);
         return {
             x: rect.minX,
             y: rect.minY,

@@ -656,6 +656,13 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         let pageIndex = Math.max(0, pageNumber - 1);
         let candidateIds = getCommentCandidateIds(resolvedComment);
 
+        function syncDeleteTargetState(nextComment: IAnnotationCommentSummary) {
+            resolvedComment = nextComment;
+            pageNumber = Math.max(1, Math.min(nextComment.pageNumber, numPages.value));
+            pageIndex = Math.max(0, pageNumber - 1);
+            candidateIds = getCommentCandidateIds(nextComment);
+        }
+
         const shouldAttemptPopupMode = () => (
             resolvedComment.source === 'pdf' || Boolean(resolvedComment.annotationId)
         );
@@ -665,10 +672,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
             if (!syncedMatch) {
                 return;
             }
-            resolvedComment = syncedMatch;
-            pageNumber = Math.max(1, Math.min(resolvedComment.pageNumber, numPages.value));
-            pageIndex = Math.max(0, pageNumber - 1);
-            candidateIds = getCommentCandidateIds(resolvedComment);
+            syncDeleteTargetState(syncedMatch);
         };
 
         let editor = findEditorForComment(resolvedComment);
@@ -732,10 +736,7 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         if (!editor) {
             const stablePdfFallback = resolveStablePdfDeleteFallback(resolvedComment);
             if (stablePdfFallback) {
-                resolvedComment = stablePdfFallback;
-                pageNumber = Math.max(1, Math.min(resolvedComment.pageNumber, numPages.value));
-                pageIndex = Math.max(0, pageNumber - 1);
-                candidateIds = getCommentCandidateIds(resolvedComment);
+                syncDeleteTargetState(stablePdfFallback);
                 editor = findEditorForComment(resolvedComment)
                     ?? (resolvedComment.annotationId
                         ? findEditorByAnnotationElementId(pageIndex, resolvedComment.annotationId)

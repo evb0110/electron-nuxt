@@ -49,7 +49,7 @@ export function useWorkspaceSearchSidebar(options: IWorkspaceSearchSidebarOption
         handleSearch,
         handleSearchNext,
         handleSearchPrevious,
-        handleGoToResult: baseHandleGoToResult,
+        handleGoToResult,
     } = usePageSearch({
         showSidebar,
         sidebarTab,
@@ -63,10 +63,6 @@ export function useWorkspaceSearchSidebar(options: IWorkspaceSearchSidebarOption
         setResultIndex,
         clearSearch,
     });
-
-    function handleGoToResult(index: number) {
-        baseHandleGoToResult(index);
-    }
 
     const {
         sidebarWidth,

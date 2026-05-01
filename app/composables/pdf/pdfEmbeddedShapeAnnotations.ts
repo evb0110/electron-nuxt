@@ -84,6 +84,26 @@ function numbersFromPdfArray(array: PDFArray) {
     return values;
 }
 
+function pointsFromPdfNumberPairs(
+    values: number[],
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+) {
+    const points: IShapePoint[] = [];
+    for (let index = 0; index < values.length; index += 2) {
+        const point = toMarkerPointFromPdfPoint(
+            values[index]!,
+            values[index + 1]!,
+            pageView,
+            pageRotation,
+        );
+        if (point) {
+            points.push(point);
+        }
+    }
+    return points;
+}
+
 function rgbComponentToHex(value: number) {
     return Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
 }
@@ -338,18 +358,7 @@ function importVerticesShape(
         return null;
     }
 
-    const points: IShapePoint[] = [];
-    for (let index = 0; index < values.length; index += 2) {
-        const point = toMarkerPointFromPdfPoint(
-            values[index]!,
-            values[index + 1]!,
-            pageView,
-            pageRotation,
-        );
-        if (point) {
-            points.push(point);
-        }
-    }
+    const points = pointsFromPdfNumberPairs(values, pageView, pageRotation);
 
     if (points.length < 2) {
         return null;
@@ -423,18 +432,7 @@ function importInkShape(
             continue;
         }
 
-        const points: IShapePoint[] = [];
-        for (let index = 0; index < values.length; index += 2) {
-            const point = toMarkerPointFromPdfPoint(
-                values[index]!,
-                values[index + 1]!,
-                pageView,
-                pageRotation,
-            );
-            if (point) {
-                points.push(point);
-            }
-        }
+        const points = pointsFromPdfNumberPairs(values, pageView, pageRotation);
 
         if (points.length >= 2) {
             strokes.push(points);
