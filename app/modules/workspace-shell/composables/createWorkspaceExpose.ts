@@ -1,8 +1,4 @@
 import type { Ref } from 'vue';
-import type {
-    TDocumentRef,
-    TOpenFileResult,
-} from '@contracts/platform-api';
 import { ZOOM } from '@app/constants/pdf-layout';
 import type {
     TFitMode,
@@ -10,26 +6,15 @@ import type {
     TPdfViewMode,
 } from '@contracts/shared';
 import type {
-    ICloseFileFromUiOptions,
+    IWorkspaceExportPort,
     IWorkspaceExpose,
+    IWorkspaceFilePort,
     IWorkspaceToolbarSnapshot,
 } from '@app/types/workspace-expose';
 
-interface ICreateWorkspaceExposeDeps {
-    handleSave: () => Promise<void>;
-    handleSaveAs: () => Promise<void>;
-    handlePrint: () => void | Promise<void>;
-    handleUndo: () => void;
-    handleRedo: () => void;
-    handleOpenFileFromUi: () => Promise<void>;
-    handleCombineImages: () => Promise<void>;
-    handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<void>;
-    handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<void>;
-    handleOpenFileWithResult: (result: TOpenFileResult) => Promise<void>;
-    handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<void>;
-    handleExportDocx: () => Promise<void>;
-    handleExportImages: () => Promise<void>;
-    handleExportMultiPageTiff: () => Promise<void>;
+interface ICreateWorkspaceExposeDeps extends
+    IWorkspaceFilePort,
+    IWorkspaceExportPort {
     hasPdf: Ref<boolean>;
     isOpeningDocument: Ref<boolean>;
     isPreparingPrint: Ref<boolean>;
