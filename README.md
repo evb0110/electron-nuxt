@@ -208,6 +208,9 @@ The manual Electron E2E smoke lane currently covers:
 
 - Startup hydration on desktop
 
+Set `EVB_E2E_DRAW_SHAPES_EXTENDED=1` when running the Electron E2E smoke command
+to include the full draw-shape lifecycle matrix.
+
 Broader regressions such as page operations, DOCX/image export, browser/desktop page extraction, recent-files persistence, and external-open routing are covered by fast unit/integration tests so releases do not depend on long serial UI automation.
 
 ## OCR Tuning

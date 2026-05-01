@@ -29,6 +29,9 @@ import {
     waitForViewerInteractive,
 } from './helpers/viewer-helpers';
 
+const runExtendedDrawShapeLifecycle = process.env.EVB_E2E_DRAW_SHAPES_EXTENDED === '1';
+const extendedIt = runExtendedDrawShapeLifecycle ? it : it.skip;
+
 interface IRendererErrorTracker {
     errors: string[];
     detach: () => void;
@@ -1265,7 +1268,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         })).toBe(false);
     });
 
-    it('keeps multiple saved strokes fully managed after save so delete clears them visually before the next save', async () => {
+    extendedIt('keeps multiple saved strokes fully managed after save so delete clears them visually before the next save', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -1434,7 +1437,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         expect(annotationSummary.bySubtype.Ink ?? 0).toBe(1);
     });
 
-    it('keeps later saved-stroke deletions stable when removing several saved strokes in a row', async () => {
+    extendedIt('keeps later saved-stroke deletions stable when removing several saved strokes in a row', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -1587,7 +1590,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         expect(annotationSummary.bySubtype.Ink ?? 0).toBe(1);
     });
 
-    it('keeps deleting the second saved stroke stable after deleting and saving the first saved stroke', async () => {
+    extendedIt('keeps deleting the second saved stroke stable after deleting and saving the first saved stroke', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -1739,7 +1742,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         expect(annotationSummary.bySubtype.Ink ?? 0).toBe(2);
     });
 
-    it('keeps the popup-delete path stable after saving via the visible toolbar button', async () => {
+    extendedIt('keeps the popup-delete path stable after saving via the visible toolbar button', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -1867,7 +1870,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         expect(annotationSummary.bySubtype.Ink ?? 0).toBe(2);
     });
 
-    it('keeps the popup-delete path stable after saving through the workspace save hook', async () => {
+    extendedIt('keeps the popup-delete path stable after saving through the workspace save hook', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -1987,7 +1990,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
     });
 
-    it('keeps deleting the second saved stroke stable when the second delete happens immediately after saving the first delete', async () => {
+    extendedIt('keeps deleting the second saved stroke stable when the second delete happens immediately after saving the first delete', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -2125,7 +2128,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
     });
 
-    it('keeps shapes fully managed when one local stroke is deleted before the first save and another is deleted right after that save', async () => {
+    extendedIt('keeps shapes fully managed when one local stroke is deleted before the first save and another is deleted right after that save', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -2289,7 +2292,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         }
     });
 
-    it('keeps the popup-delete path stable when the second delete happens immediately after a toolbar save', async () => {
+    extendedIt('keeps the popup-delete path stable when the second delete happens immediately after a toolbar save', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -2411,7 +2414,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
     });
 
-    it('keeps the popup-delete path stable when the second delete happens immediately after a save handle round-trip', async () => {
+    extendedIt('keeps the popup-delete path stable when the second delete happens immediately after a save handle round-trip', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -2529,7 +2532,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         expect(stateAfterDelete.deletedAnnotationIds).toHaveLength(1);
     });
 
-    it('keeps deleting saved strokes stable across multiple save rounds', async () => {
+    extendedIt('keeps deleting saved strokes stable across multiple save rounds', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -2781,7 +2784,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         }
     });
 
-    it('allows deleting a saved stroke immediately after save without leaving a ghost layer', async () => {
+    extendedIt('allows deleting a saved stroke immediately after save without leaving a ghost layer', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -2860,7 +2863,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         expect(immediateAfterDeleteState.deletedAnnotationIds).toHaveLength(1);
     });
 
-    it('allows deleting a preexisting saved stroke after reopening the file without leaving a ghost layer', async () => {
+    extendedIt('allows deleting a preexisting saved stroke after reopening the file without leaving a ghost layer', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -2946,7 +2949,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         expect(reopenAfterDeleteState.deletedAnnotationIds).toHaveLength(1);
     });
 
-    it('keeps deleting saved survivors stable across successive save cycles', async () => {
+    extendedIt('keeps deleting saved survivors stable across successive save cycles', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');
@@ -3157,7 +3160,7 @@ describe('Electron E2E - Phase 1 (Draw Shape Lifecycle)', () => {
         ]);
     });
 
-    it('keeps deleting the second saved line stable after deleting and saving the first saved line', async () => {
+    extendedIt('keeps deleting the second saved line stable after deleting and saving the first saved line', async () => {
         const page = session?.page;
         if (!page) {
             throw new Error('Phase 1 draw-shape session was not initialized');

@@ -8,7 +8,9 @@ import {
     buildMacOSAutomationAppEntryPaths,
     buildMacOSHiddenAppBundlePaths,
     buildElectronAutomationArgs,
+    buildNuxtDevServerEnv,
     resolveAutomationWindowEnv,
+    sanitizeElectronLaunchEnv,
     shouldBootstrapInteractiveDevProfile,
     shouldUseMacOSHiddenAppLauncher,
     shouldDisableAutomationSandbox,
@@ -55,6 +57,24 @@ describe('session-manager automation launch args', () => {
 
     it('allows an explicit opt-in override on any platform', () => {
         expect(shouldDisableAutomationSandbox({ EVB_AUTOMATION_DISABLE_SANDBOX: 'true' }, 'darwin')).toBe(true);
+    });
+
+    it('strips ELECTRON_RUN_AS_NODE before launching Electron automation', () => {
+        expect(sanitizeElectronLaunchEnv({
+            ELECTRON_RUN_AS_NODE: '1',
+            EVB_SERVER_PORT: '3100',
+        })).toEqual({ EVB_SERVER_PORT: '3100' });
+    });
+
+    it('lets isolated automation Nuxt servers bypass the global dev lock', () => {
+        expect(buildNuxtDevServerEnv({ PATH: '/bin' }, 3123)).toEqual({
+            PATH: '/bin',
+            PORT: '3123',
+            HOST: '127.0.0.1',
+            NUXT_IGNORE_LOCK: '1',
+        });
+
+        expect(buildNuxtDevServerEnv({ NUXT_IGNORE_LOCK: '0' }, 3124).NUXT_IGNORE_LOCK).toBe('0');
     });
 
     it('defaults to hidden windows in non-interactive (CI) environments', () => {
