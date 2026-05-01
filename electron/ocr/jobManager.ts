@@ -169,7 +169,12 @@ const pendingResultFileStore = createPendingResultFileStore({
     removeResultFile,
 });
 
-function ensureQueueCapacity(additionalBytes: number) {
+type TQueueCapacityResult = { ok: true; } | {
+    ok: false;
+    error: string;
+};
+
+function ensureQueueCapacity(additionalBytes: number): TQueueCapacityResult {
     if (queuedJobs.length + preparingJobs.size > OCR_QUEUE_MAX_SIZE) {
         return {
             ok: false,
@@ -579,59 +584,200 @@ function dispatchQueuedJobs() {
     }
 }
 
+interface IOcrQueueStartResult {
+    started: boolean;
+    jobId: string;
+    error?: string;
+}
+
+function createQueueFailure(requestId: string, error: string): IOcrQueueStartResult {
+    return {
+        started: false,
+        jobId: requestId,
+        error,
+    };
+}
+
+function findQueueBlockingResult(
+    event: IpcMainInvokeEvent,
+    scopedJobId: string,
+    requestId: string,
+    options: { includePreparing: boolean },
+): IOcrQueueStartResult | null {
+    if (event.sender.isDestroyed()) {
+        return createQueueFailure(requestId, 'Renderer disconnected before OCR request could be queued');
+    }
+
+    const isExistingJob = activeJobs.has(scopedJobId)
+        || queuedJobIds.has(scopedJobId)
+        || (options.includePreparing && preparingJobs.has(scopedJobId));
+    if (isExistingJob) {
+        return createQueueFailure(requestId, `OCR job with id "${requestId}" already exists`);
+    }
+
+    if (pendingResultFileStore.find(event.sender.id, requestId)) {
+        return createQueueFailure(requestId, `OCR job with id "${requestId}" is waiting for result-file acknowledgement`);
+    }
+
+    return null;
+}
+
+function createPreparingJob(
+    event: IpcMainInvokeEvent,
+    scopedJobId: string,
+    requestId: string,
+): IOcrPreparingJob {
+    return {
+        scopedJobId,
+        requestId,
+        webContentsId: event.sender.id,
+        requestedBytes: 0,
+        startedAtMs: Date.now(),
+        abortController: new AbortController(),
+    };
+}
+
+function logMissingLanguageModels(languages: string[]) {
+    const tessdataDir = getOcrToolPaths().tessdata;
+    const missingLanguages = languages.filter(languageCode =>
+        !existsSync(join(tessdataDir, `${languageCode}.traineddata`)),
+    );
+    if (missingLanguages.length > 0) {
+        log.warn(`Missing OCR language models in ${tessdataDir}; downloading: ${missingLanguages.join(', ')}`);
+    }
+}
+
+function startModelPrepTimeout(preparingJob: IOcrPreparingJob) {
+    const modelPrepTimeout = setTimeout(() => {
+        if (!preparingJob.abortController.signal.aborted) {
+            preparingJob.abortController.abort(
+                createTimeoutError(`OCR model preparation timed out after ${OCR_MODEL_PREP_TIMEOUT_MS}ms`),
+            );
+        }
+    }, OCR_MODEL_PREP_TIMEOUT_MS);
+    modelPrepTimeout.unref?.();
+    return modelPrepTimeout;
+}
+
+function getAbortedPreparationResult(
+    event: IpcMainInvokeEvent,
+    scopedJobId: string,
+    requestId: string,
+    signal: AbortSignal,
+) {
+    const reason = signal.reason;
+    if (reason instanceof Error && reason.name === 'TimeoutError') {
+        throw reason;
+    }
+    if (cancelledJobs.has(scopedJobId)) {
+        return createQueueFailure(requestId, 'OCR job was cancelled before it started');
+    }
+    if (event.sender.isDestroyed()) {
+        return createQueueFailure(requestId, 'Renderer disconnected before OCR request could be queued');
+    }
+    return null;
+}
+
+async function prepareLanguageModelsForJob(
+    event: IpcMainInvokeEvent,
+    preparingJob: IOcrPreparingJob,
+    scopedJobId: string,
+    requestId: string,
+    pages: IOcrPdfPageRequest[],
+) {
+    const languages = uniq(pages.flatMap(page => page.languages));
+    logMissingLanguageModels(languages);
+
+    const modelPrepTimeout = startModelPrepTimeout(preparingJob);
+    try {
+        await ensureTessdataLanguages(languages, { signal: preparingJob.abortController.signal });
+        return null;
+    } catch (error) {
+        if (preparingJob.abortController.signal.aborted) {
+            const result = getAbortedPreparationResult(
+                event,
+                scopedJobId,
+                requestId,
+                preparingJob.abortController.signal,
+            );
+            if (result) {
+                return result;
+            }
+        }
+        throw error;
+    } finally {
+        clearTimeout(modelPrepTimeout);
+    }
+}
+
+function getCancelledBeforeStartResult(scopedJobId: string, requestId: string) {
+    return cancelledJobs.has(scopedJobId)
+        ? createQueueFailure(requestId, 'OCR job was cancelled before it started')
+        : null;
+}
+
+function enqueuePreparedOcrJob(
+    event: IpcMainInvokeEvent,
+    scopedJobId: string,
+    sourcePdfPath: string,
+    pages: IOcrPdfPageRequest[],
+    requestId: string,
+    requestBytes: number,
+    renderDpi?: number,
+) {
+    const queuedJob: IOcrQueuedJob = {
+        scopedJobId,
+        requestId,
+        webContentsId: event.sender.id,
+        sourcePdfPath,
+        pages,
+        renderDpi,
+        queuedAtMs: Date.now(),
+        requestedBytes: requestBytes,
+    };
+    preparingJobs.delete(scopedJobId);
+    queuedJobs.push(queuedJob);
+    queuedJobIds.add(scopedJobId);
+    logQueueDepth(`OCR job ${requestId} queued`);
+    dispatchQueuedJobs();
+}
+
+function cleanupCancelledPreparation(scopedJobId: string) {
+    if (
+        cancelledJobs.has(scopedJobId)
+        && !activeJobs.has(scopedJobId)
+        && !queuedJobIds.has(scopedJobId)
+        && !preparingJobs.has(scopedJobId)
+    ) {
+        cancelledJobs.delete(scopedJobId);
+    }
+}
+
 export async function handleOcrCreateSearchablePdfAsync(
     event: IpcMainInvokeEvent,
     sourcePdfPath: string,
     pages: IOcrPdfPageRequest[],
     requestId: string,
     renderDpi?: number,
-): Promise<{
-    started: boolean;
-    jobId: string;
-    error?: string;
-}> {
+): Promise<IOcrQueueStartResult> {
     log.debug(`handleOcrCreateSearchablePdfAsync called: sourcePdfPath=${sourcePdfPath}, pages=${pages.length}, reqId=${requestId}, dpi=${renderDpi}`);
     const scopedJobId = toScopedOcrJobId(event.sender.id, requestId);
     let isPreparingReserved = false;
 
     try {
         registerSenderCleanup(event);
-        if (event.sender.isDestroyed()) {
-            return {
-                started: false,
-                jobId: requestId,
-                error: 'Renderer disconnected before OCR request could be queued',
-            };
-        }
 
         evictStaleQueuedJobs();
         await pendingResultFileStore.evictStale();
 
-        if (activeJobs.has(scopedJobId) || queuedJobIds.has(scopedJobId) || preparingJobs.has(scopedJobId)) {
-            return {
-                started: false,
-                jobId: requestId,
-                error: `OCR job with id "${requestId}" already exists`,
-            };
-        }
-        if (pendingResultFileStore.find(event.sender.id, requestId)) {
-            return {
-                started: false,
-                jobId: requestId,
-                error: `OCR job with id "${requestId}" is waiting for result-file acknowledgement`,
-            };
+        const initialBlock = findQueueBlockingResult(event, scopedJobId, requestId, { includePreparing: true });
+        if (initialBlock) {
+            return initialBlock;
         }
 
         // Reserve the scoped id before long async prep to avoid duplicate in-flight
         // requests racing into the queue with the same requestId.
-        const preparingJob: IOcrPreparingJob = {
-            scopedJobId,
-            requestId,
-            webContentsId: event.sender.id,
-            requestedBytes: 0,
-            startedAtMs: Date.now(),
-            abortController: new AbortController(),
-        };
+        const preparingJob = createPreparingJob(event, scopedJobId, requestId);
         preparingJobs.set(scopedJobId, preparingJob);
         isPreparingReserved = true;
 
@@ -639,118 +785,47 @@ export async function handleOcrCreateSearchablePdfAsync(
         preparingJob.requestedBytes = requestBytes;
         const capacityResult = ensureQueueCapacity(0);
         if (!capacityResult.ok) {
-            return {
-                started: false,
-                jobId: requestId,
-                error: capacityResult.error,
-            };
+            return createQueueFailure(requestId, capacityResult.error);
         }
 
-        const languages = uniq(pages.flatMap(page => page.languages));
-        const tessdataDir = getOcrToolPaths().tessdata;
-        const missingLanguages = languages.filter(languageCode =>
-            !existsSync(join(tessdataDir, `${languageCode}.traineddata`)),
+        const modelPrepResult = await prepareLanguageModelsForJob(
+            event,
+            preparingJob,
+            scopedJobId,
+            requestId,
+            pages,
         );
-        if (missingLanguages.length > 0) {
-            log.warn(`Missing OCR language models in ${tessdataDir}; downloading: ${missingLanguages.join(', ')}`);
+        if (modelPrepResult) {
+            return modelPrepResult;
         }
 
-        const modelPrepTimeout = setTimeout(() => {
-            if (!preparingJob.abortController.signal.aborted) {
-                preparingJob.abortController.abort(
-                    createTimeoutError(`OCR model preparation timed out after ${OCR_MODEL_PREP_TIMEOUT_MS}ms`),
-                );
-            }
-        }, OCR_MODEL_PREP_TIMEOUT_MS);
-        modelPrepTimeout.unref?.();
-        try {
-            await ensureTessdataLanguages(languages, { signal: preparingJob.abortController.signal });
-        } catch (error) {
-            if (preparingJob.abortController.signal.aborted) {
-                const reason = preparingJob.abortController.signal.reason;
-                if (reason instanceof Error && reason.name === 'TimeoutError') {
-                    throw reason;
-                }
-                if (cancelledJobs.has(scopedJobId)) {
-                    return {
-                        started: false,
-                        jobId: requestId,
-                        error: 'OCR job was cancelled before it started',
-                    };
-                }
-                if (event.sender.isDestroyed()) {
-                    return {
-                        started: false,
-                        jobId: requestId,
-                        error: 'Renderer disconnected before OCR request could be queued',
-                    };
-                }
-            }
-            throw error;
-        } finally {
-            clearTimeout(modelPrepTimeout);
+        const canceledBeforeRecheck = getCancelledBeforeStartResult(scopedJobId, requestId);
+        if (canceledBeforeRecheck) {
+            return canceledBeforeRecheck;
         }
-
-        if (cancelledJobs.has(scopedJobId)) {
-            return {
-                started: false,
-                jobId: requestId,
-                error: 'OCR job was cancelled before it started',
-            };
-        }
-        if (event.sender.isDestroyed()) {
-            return {
-                started: false,
-                jobId: requestId,
-                error: 'Renderer disconnected before OCR request could be queued',
-            };
-        }
-        if (activeJobs.has(scopedJobId) || queuedJobIds.has(scopedJobId)) {
-            return {
-                started: false,
-                jobId: requestId,
-                error: `OCR job with id "${requestId}" already exists`,
-            };
-        }
-        if (pendingResultFileStore.find(event.sender.id, requestId)) {
-            return {
-                started: false,
-                jobId: requestId,
-                error: `OCR job with id "${requestId}" is waiting for result-file acknowledgement`,
-            };
+        const recheckBlock = findQueueBlockingResult(event, scopedJobId, requestId, { includePreparing: false });
+        if (recheckBlock) {
+            return recheckBlock;
         }
         const recheckedCapacityResult = ensureQueueCapacity(0);
         if (!recheckedCapacityResult.ok) {
-            return {
-                started: false,
-                jobId: requestId,
-                error: recheckedCapacityResult.error,
-            };
+            return createQueueFailure(requestId, recheckedCapacityResult.error);
         }
-        if (cancelledJobs.has(scopedJobId)) {
-            return {
-                started: false,
-                jobId: requestId,
-                error: 'OCR job was cancelled before it started',
-            };
+        const canceledBeforeEnqueue = getCancelledBeforeStartResult(scopedJobId, requestId);
+        if (canceledBeforeEnqueue) {
+            return canceledBeforeEnqueue;
         }
 
-        const queuedJob: IOcrQueuedJob = {
+        enqueuePreparedOcrJob(
+            event,
             scopedJobId,
-            requestId,
-            webContentsId: event.sender.id,
             sourcePdfPath,
             pages,
+            requestId,
+            requestBytes,
             renderDpi,
-            queuedAtMs: Date.now(),
-            requestedBytes: requestBytes,
-        };
-        preparingJobs.delete(scopedJobId);
+        );
         isPreparingReserved = false;
-        queuedJobs.push(queuedJob);
-        queuedJobIds.add(scopedJobId);
-        logQueueDepth(`OCR job ${requestId} queued`);
-        dispatchQueuedJobs();
 
         return {
             started: true,
@@ -775,14 +850,7 @@ export async function handleOcrCreateSearchablePdfAsync(
         if (isPreparingReserved) {
             preparingJobs.delete(scopedJobId);
         }
-        if (
-            cancelledJobs.has(scopedJobId)
-            && !activeJobs.has(scopedJobId)
-            && !queuedJobIds.has(scopedJobId)
-            && !preparingJobs.has(scopedJobId)
-        ) {
-            cancelledJobs.delete(scopedJobId);
-        }
+        cleanupCancelledPreparation(scopedJobId);
     }
 }
 

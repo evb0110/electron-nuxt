@@ -26,6 +26,16 @@ interface IGroupLike {
 
 type TSourceTransferOutcome = 'success' | 'failed' | 'window-closed';
 
+interface IIncomingTransferTargetTab {
+    tabId: string;
+    created: boolean;
+}
+
+interface IIncomingTransferTarget {
+    group: IGroupLike;
+    tab: IIncomingTransferTargetTab;
+}
+
 interface IUseWindowTabTransfersOptions {
     activeGroupId: Ref<string | null>;
     groups: Ref<IGroupLike[]>;
@@ -70,40 +80,37 @@ function isPlaceholderTab(tab: ITab) {
         && !tab.isDjvu;
 }
 
+function isOnlyOpenTargetTab(targetGroup: IGroupLike, totalTabCount: number) {
+    return targetGroup.tabIds.length === 1 && totalTabCount === 1;
+}
+
+function canReuseIncomingTransferTab(
+    tab: ITab | null,
+    targetGroup: IGroupLike,
+    totalTabCount: number,
+    existingHasDocument: boolean,
+): tab is ITab {
+    return !!tab
+        && isOnlyOpenTargetTab(targetGroup, totalTabCount)
+        && isPlaceholderTab(tab)
+        && !existingHasDocument;
+}
+
 export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
     const { t } = useTypedI18n();
 
-    function resolveIncomingTransferTargetTab(
-        targetGroupId: string,
-    ): {
-        tabId: string;
-        created: boolean;
-    } | null {
-        const targetGroup = options.getGroupById(targetGroupId);
-        if (!targetGroup) {
-            return null;
-        }
-
+    function getIncomingTransferTabContext(targetGroup: IGroupLike) {
         const existingTabId = targetGroup.tabIds[0] ?? null;
         const existingTab = options.getTabById(existingTabId);
         const existingWorkspace = existingTabId ? options.workspaceRefs.value.get(existingTabId) ?? null : null;
-        const existingHasDocument = workspaceHasPdf(existingWorkspace);
 
-        if (
-            existingTab
-            && targetGroup.tabIds.length === 1
-            && options.tabs.value.length === 1
-            && isPlaceholderTab(existingTab)
-            && !existingHasDocument
-        ) {
-            options.activateGroup(targetGroup.id);
-            options.activateTab(targetGroup.id, existingTab.id);
-            return {
-                tabId: existingTab.id,
-                created: false,
-            };
-        }
+        return {
+            existingTab,
+            existingHasDocument: workspaceHasPdf(existingWorkspace),
+        };
+    }
 
+    function createIncomingTransferTargetTab(targetGroup: IGroupLike): IIncomingTransferTargetTab {
         const createdTab = options.createTab({
             groupId: targetGroup.id,
             activate: false,
@@ -112,6 +119,88 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
         return {
             tabId: createdTab.id,
             created: true,
+        };
+    }
+
+    function reuseIncomingTransferTargetTab(targetGroup: IGroupLike, existingTab: ITab): IIncomingTransferTargetTab {
+        options.activateGroup(targetGroup.id);
+        options.activateTab(targetGroup.id, existingTab.id);
+        return {
+            tabId: existingTab.id,
+            created: false,
+        };
+    }
+
+    function resolveIncomingTransferTargetTab(targetGroupId: string): IIncomingTransferTargetTab | null {
+        const targetGroup = options.getGroupById(targetGroupId);
+        if (!targetGroup) {
+            return null;
+        }
+
+        const {
+            existingTab,
+            existingHasDocument,
+        } = getIncomingTransferTabContext(targetGroup);
+        if (canReuseIncomingTransferTab(existingTab, targetGroup, options.tabs.value.length, existingHasDocument)) {
+            return reuseIncomingTransferTargetTab(targetGroup, existingTab);
+        }
+
+        return createIncomingTransferTargetTab(targetGroup);
+    }
+
+    async function ackIncomingTransferFailure(transferId: string, error: string) {
+        await getWindowTabsCapability().transferAck({
+            transferId,
+            success: false,
+            error,
+        });
+    }
+
+    async function ackIncomingTransferSuccess(transferId: string) {
+        await getWindowTabsCapability().transferAck({
+            transferId,
+            success: true,
+        });
+    }
+
+    function resolveIncomingTransferTargetGroup() {
+        return options.getGroupById(options.activeGroupId.value) ?? options.groups.value[0] ?? null;
+    }
+
+    function removeCreatedTransferTab(targetTab: {
+        tabId: string;
+        created: boolean;
+    }) {
+        if (targetTab.created) {
+            options.removeTabFromState(targetTab.tabId);
+        }
+    }
+
+    function applyIncomingTransferTabState(targetGroupId: string, targetTabId: string, transfer: IWindowTabIncomingTransfer) {
+        const incomingTab = options.getTabById(targetTabId);
+        if (incomingTab) {
+            Object.assign(incomingTab, transfer.tab);
+        }
+        options.activateGroup(targetGroupId);
+        options.activateTab(targetGroupId, targetTabId);
+    }
+
+    async function prepareIncomingTransferTarget(transferId: string): Promise<IIncomingTransferTarget | null> {
+        const targetGroup = resolveIncomingTransferTargetGroup();
+        if (!targetGroup) {
+            await ackIncomingTransferFailure(transferId, t('tabs.transferErrors.noTargetGroup'));
+            return null;
+        }
+
+        const targetTab = resolveIncomingTransferTargetTab(targetGroup.id);
+        if (!targetTab) {
+            await ackIncomingTransferFailure(transferId, t('tabs.transferErrors.noTargetTab'));
+            return null;
+        }
+
+        return {
+            group: targetGroup,
+            tab: targetTab,
         };
     }
 
@@ -135,13 +224,7 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
         }
     }
 
-    async function restoreWorkspacePayload(tabId: string, payload: TSplitPayload | null) {
-        if (!payload) {
-            return false;
-        }
-
-        options.workspaceRestoreTracker.start(tabId);
-        let restored = false;
+    async function tryRestoreWorkspacePayload(tabId: string, payload: TSplitPayload) {
         try {
             const workspace = await options.waitForWorkspace(tabId);
             if (!workspace) {
@@ -158,7 +241,6 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
                 return false;
             }
 
-            restored = true;
             return true;
         } catch (error) {
             BrowserLogger.error('tabs', 'Failed to restore split payload', {
@@ -167,13 +249,30 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
                 error,
             });
             return false;
+        }
+    }
+
+    async function cleanupFailedRestorePayload(tabId: string, payload: TSplitPayload) {
+        await cleanupSplitPayloadSnapshot(payload, {
+            logSection: 'tabs',
+            context: 'restore-workspace-payload',
+            metadata: { tabId },
+        });
+    }
+
+    async function restoreWorkspacePayload(tabId: string, payload: TSplitPayload | null) {
+        if (!payload) {
+            return false;
+        }
+
+        options.workspaceRestoreTracker.start(tabId);
+        let restored = false;
+        try {
+            restored = await tryRestoreWorkspacePayload(tabId, payload);
+            return restored;
         } finally {
             if (!restored) {
-                await cleanupSplitPayloadSnapshot(payload, {
-                    logSection: 'tabs',
-                    context: 'restore-workspace-payload',
-                    metadata: { tabId },
-                });
+                await cleanupFailedRestorePayload(tabId, payload);
             }
             options.workspaceRestoreTracker.finish(tabId);
         }
@@ -296,58 +395,28 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
     }
 
     async function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
-        const ackFailure = async (error: string) => {
-            await getWindowTabsCapability().transferAck({
-                transferId: transfer.transferId,
-                success: false,
-                error,
-            });
-        };
-
         try {
-            const targetGroup = options.getGroupById(options.activeGroupId.value) ?? options.groups.value[0] ?? null;
-            if (!targetGroup) {
-                await ackFailure(t('tabs.transferErrors.noTargetGroup'));
+            const target = await prepareIncomingTransferTarget(transfer.transferId);
+            if (!target) {
                 return;
             }
 
-            const targetTab = resolveIncomingTransferTargetTab(targetGroup.id);
-            if (!targetTab) {
-                await ackFailure(t('tabs.transferErrors.noTargetTab'));
-                return;
-            }
-
-            const restored = await restoreWorkspacePayload(targetTab.tabId, transfer.payload);
+            const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload);
             if (!restored) {
-                if (targetTab.created) {
-                    options.removeTabFromState(targetTab.tabId);
-                }
-                await ackFailure(t('tabs.transferErrors.restoreFailed'));
+                removeCreatedTransferTab(target.tab);
+                await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.restoreFailed'));
                 return;
             }
 
-            const incomingTab = options.getTabById(targetTab.tabId);
-            if (incomingTab) {
-                Object.assign(incomingTab, transfer.tab);
-            }
-            options.activateGroup(targetGroup.id);
-            options.activateTab(targetGroup.id, targetTab.tabId);
-
-            await getWindowTabsCapability().transferAck({
-                transferId: transfer.transferId,
-                success: true,
-            });
+            applyIncomingTransferTabState(target.group.id, target.tab.tabId, transfer);
+            await ackIncomingTransferSuccess(transfer.transferId);
         } catch (error) {
             BrowserLogger.error('tabs', 'Unhandled incoming tab transfer failure', {
                 transferId: transfer.transferId,
                 error,
             });
 
-            await getWindowTabsCapability().transferAck({
-                transferId: transfer.transferId,
-                success: false,
-                error: getErrorMessage(error),
-            });
+            await ackIncomingTransferFailure(transfer.transferId, getErrorMessage(error));
         }
     }
 

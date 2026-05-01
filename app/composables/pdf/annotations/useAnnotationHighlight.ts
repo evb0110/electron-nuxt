@@ -99,6 +99,13 @@ interface IPageCandidateLogEntry {
     };
 }
 
+interface IPageGeometryCandidate {
+    element: HTMLElement;
+    rect: DOMRect;
+    inside: boolean;
+    distanceSquared: number;
+}
+
 interface IGeometryResolution {
     pageContainer: HTMLElement | null;
     source: 'inside' | 'nearest' | 'none';
@@ -529,6 +536,51 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         };
     }
 
+    function isPointInsideRect(clientX: number, clientY: number, rect: DOMRect) {
+        return (
+            clientX >= rect.left
+            && clientX <= rect.right
+            && clientY >= rect.top
+            && clientY <= rect.bottom
+        );
+    }
+
+    function squaredDistanceToRect(clientX: number, clientY: number, rect: DOMRect) {
+        const dx = clientX < rect.left
+            ? rect.left - clientX
+            : (clientX > rect.right ? clientX - rect.right : 0);
+        const dy = clientY < rect.top
+            ? rect.top - clientY
+            : (clientY > rect.bottom ? clientY - rect.bottom : 0);
+        return dx * dx + dy * dy;
+    }
+
+    function measurePageGeometryCandidate(
+        element: HTMLElement,
+        clientX: number,
+        clientY: number,
+    ): IPageGeometryCandidate | null {
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return null;
+        }
+        return {
+            element,
+            rect,
+            inside: isPointInsideRect(clientX, clientY, rect),
+            distanceSquared: squaredDistanceToRect(clientX, clientY, rect),
+        };
+    }
+
+    function toPageCandidateLogEntry(candidate: IPageGeometryCandidate): IPageCandidateLogEntry {
+        return {
+            pageNumber: parsePageNumberFromContainer(candidate.element),
+            inside: candidate.inside,
+            distanceSquared: roundForLog(candidate.distanceSquared),
+            rect: toRectLog(candidate.rect),
+        };
+    }
+
     function parsePageNumberFromContainer(pageContainer: HTMLElement | null) {
         if (!pageContainer?.dataset.page) {
             return null;
@@ -607,54 +659,30 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             };
         }
 
-        let nearest: {
-            element: HTMLElement;
-            distanceSquared: number
-        } | null = null;
+        let nearest: IPageGeometryCandidate | null = null;
         let insideMatch: HTMLElement | null = null;
         const candidates: IPageCandidateLogEntry[] = [];
 
         for (const element of pages) {
-            const rect = element.getBoundingClientRect();
-            if (rect.width <= 0 || rect.height <= 0) {
+            const candidate = measurePageGeometryCandidate(element, clientX, clientY);
+            if (!candidate) {
                 continue;
             }
-            const inside = (
-                clientX >= rect.left
-                && clientX <= rect.right
-                && clientY >= rect.top
-                && clientY <= rect.bottom
-            );
-            const dx = clientX < rect.left
-                ? rect.left - clientX
-                : (clientX > rect.right ? clientX - rect.right : 0);
-            const dy = clientY < rect.top
-                ? rect.top - clientY
-                : (clientY > rect.bottom ? clientY - rect.bottom : 0);
-            const distanceSquared = dx * dx + dy * dy;
             if (collectCandidates && candidates.length < MAX_PAGE_CANDIDATE_LOG_ENTRIES) {
-                candidates.push({
-                    pageNumber: parsePageNumberFromContainer(element),
-                    inside,
-                    distanceSquared: roundForLog(distanceSquared),
-                    rect: toRectLog(rect),
-                });
+                candidates.push(toPageCandidateLogEntry(candidate));
             }
-            if (inside && !collectCandidates) {
+            if (candidate.inside && !collectCandidates) {
                 return {
                     pageContainer: element,
                     source: 'inside',
                     candidates: null,
                 };
             }
-            if (inside && !insideMatch) {
+            if (candidate.inside && !insideMatch) {
                 insideMatch = element;
             }
-            if (!nearest || distanceSquared < nearest.distanceSquared) {
-                nearest = {
-                    element,
-                    distanceSquared,
-                };
+            if (!nearest || candidate.distanceSquared < nearest.distanceSquared) {
+                nearest = candidate;
             }
         }
 
@@ -980,46 +1008,61 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         return best;
     }
 
+    function isWhitespaceAt(text: string, offset: number) {
+        return /\s/.test(text[offset] ?? '');
+    }
+
+    function nearestNonWhitespaceOffset(text: string, seedOffset: number) {
+        const length = text.length;
+        const offset = Math.max(0, Math.min(length - 1, seedOffset));
+        if (!isWhitespaceAt(text, offset)) {
+            return offset;
+        }
+
+        let left = offset - 1;
+        let right = offset + 1;
+        while (left >= 0 || right < length) {
+            if (left >= 0 && !isWhitespaceAt(text, left)) {
+                return left;
+            }
+            if (right < length && !isWhitespaceAt(text, right)) {
+                return right;
+            }
+            left -= 1;
+            right += 1;
+        }
+        return offset;
+    }
+
+    function expandWordOffsets(text: string, offset: number) {
+        const length = text.length;
+        let start = offset;
+        let end = Math.min(length, offset + 1);
+        while (start > 0 && !isWhitespaceAt(text, start - 1)) {
+            start -= 1;
+        }
+        while (end < length && !isWhitespaceAt(text, end)) {
+            end += 1;
+        }
+        return {
+            start,
+            end, 
+        };
+    }
+
     function resolveWordOffsets(text: string, seedOffset: number) {
         const length = text.length;
         if (length <= 0) {
             return null;
         }
 
-        let offset = Math.max(0, Math.min(length - 1, seedOffset));
-        if (/\s/.test(text[offset] ?? '')) {
-            let left = offset - 1;
-            let right = offset + 1;
-            while (left >= 0 || right < length) {
-                if (left >= 0 && !/\s/.test(text[left] ?? '')) {
-                    offset = left;
-                    break;
-                }
-                if (right < length && !/\s/.test(text[right] ?? '')) {
-                    offset = right;
-                    break;
-                }
-                left -= 1;
-                right += 1;
-            }
-        }
+        const offset = nearestNonWhitespaceOffset(text, seedOffset);
+        const offsets = expandWordOffsets(text, offset);
 
-        let start = offset;
-        let end = Math.min(length, offset + 1);
-        while (start > 0 && !/\s/.test(text[start - 1] ?? '')) {
-            start -= 1;
+        if (offsets.start === offsets.end) {
+            offsets.end = Math.min(length, offsets.start + 1);
         }
-        while (end < length && !/\s/.test(text[end] ?? '')) {
-            end += 1;
-        }
-
-        if (start === end) {
-            end = Math.min(length, start + 1);
-        }
-        return {
-            start,
-            end, 
-        };
+        return offsets;
     }
 
     function captureEditorSnapshot(

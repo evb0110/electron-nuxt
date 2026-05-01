@@ -101,6 +101,50 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         viewportVisibilityCache = null;
     }
 
+    function isViewportVisibilityCacheValid(
+        cached: IViewportVisibilityCacheEntry | null,
+        container: HTMLElement,
+        totalPages: number,
+        metrics: TPageLayoutMetrics | null,
+    ): cached is IViewportVisibilityCacheEntry {
+        return !!cached
+            && cached.container === container
+            && cached.totalPages === totalPages
+            && cached.scrollTop === container.scrollTop
+            && cached.scrollLeft === container.scrollLeft
+            && cached.clientWidth === container.clientWidth
+            && cached.clientHeight === container.clientHeight
+            && cached.layoutMetrics === metrics;
+    }
+
+    function cacheViewportVisibility(
+        container: HTMLElement,
+        totalPages: number,
+        metrics: TPageLayoutMetrics | null,
+        result: IViewportVisibilityResult,
+    ) {
+        viewportVisibilityCache = {
+            container,
+            totalPages,
+            scrollTop: container.scrollTop,
+            scrollLeft: container.scrollLeft,
+            clientWidth: container.clientWidth,
+            clientHeight: container.clientHeight,
+            layoutMetrics: metrics,
+            result,
+        };
+    }
+
+    function resolveViewportVisibility(
+        container: HTMLElement,
+        totalPages: number,
+    ) {
+        const domVisibility = getViewportVisibilityFromDom(container, totalPages);
+        return domVisibility.range || domVisibility.mostVisiblePage !== null
+            ? domVisibility
+            : getViewportVisibilityFromLayout(container, totalPages) ?? domVisibility;
+    }
+
     function getViewportVisibilityFromLayout(
         container: HTMLElement,
         totalPages: number,
@@ -226,34 +270,12 @@ export const usePdfScroll = (options: IUsePdfScrollOptions = {}) => {
         }
 
         const metrics = pageLayoutMetrics.value;
-        const cached = viewportVisibilityCache;
-        if (
-            cached &&
-            cached.container === container &&
-            cached.totalPages === totalPages &&
-            cached.scrollTop === container.scrollTop &&
-            cached.scrollLeft === container.scrollLeft &&
-            cached.clientWidth === container.clientWidth &&
-            cached.clientHeight === container.clientHeight &&
-            cached.layoutMetrics === metrics
-        ) {
-            return cached.result;
+        if (isViewportVisibilityCacheValid(viewportVisibilityCache, container, totalPages, metrics)) {
+            return viewportVisibilityCache.result;
         }
 
-        const domVisibility = getViewportVisibilityFromDom(container, totalPages);
-        const result = domVisibility.range || domVisibility.mostVisiblePage !== null
-            ? domVisibility
-            : getViewportVisibilityFromLayout(container, totalPages) ?? domVisibility;
-        viewportVisibilityCache = {
-            container,
-            totalPages,
-            scrollTop: container.scrollTop,
-            scrollLeft: container.scrollLeft,
-            clientWidth: container.clientWidth,
-            clientHeight: container.clientHeight,
-            layoutMetrics: metrics,
-            result,
-        };
+        const result = resolveViewportVisibility(container, totalPages);
+        cacheViewportVisibility(container, totalPages, metrics, result);
         return result;
     }
 

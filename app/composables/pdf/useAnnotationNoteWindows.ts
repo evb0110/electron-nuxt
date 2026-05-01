@@ -423,6 +423,57 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
     }
 
+    function shouldSkipAnnotationNotePersistence(
+        note: IAnnotationNoteWindowState,
+        force: boolean,
+    ) {
+        // Even forced persistence should skip true no-op updates.
+        // Otherwise Save/Save As can materialize and reload the PDF despite no text change.
+        if (note.text === note.lastSavedText) {
+            return true;
+        }
+        return !force && note.saveMode === 'embedded';
+    }
+
+    function handleUnsavedAnnotationNoteTarget(
+        note: IAnnotationNoteWindowState,
+        stableKey: string,
+        targetComment: IAnnotationCommentSummary,
+        nextText: string,
+        force: boolean,
+    ) {
+        if (!force) {
+            return setAnnotationNoteEmbeddedFallback(note);
+        }
+
+        // When force=true (called from handleSave), defer embedded text
+        // updates to the serialization pipeline instead of reloading the
+        // entire document. handleSave will call rewriteEmbeddedNoteTexts()
+        // which applies these deferred text changes without triggering a
+        // visible re-render.
+        deferEmbeddedAnnotationNoteUpdate(stableKey, targetComment, nextText);
+        setAnnotationNoteEmbeddedFallback(note);
+
+        if (note.saveMode !== 'embedded') {
+            return markAnnotationNotePersistFailed(
+                note,
+                stableKey,
+                targetComment,
+                force,
+            );
+        }
+
+        updateAnnotationNoteSavedState(note, targetComment, nextText);
+        return true;
+    }
+
+    function scheduleDirtyAnnotationNotePersistence(stableKey: string) {
+        const latestNote = findAnnotationNoteWindow(stableKey);
+        if (latestNote && latestNote.text !== latestNote.lastSavedText) {
+            schedulePersistAnnotationNote(stableKey);
+        }
+    }
+
     function persistAnnotationNote(stableKey: string, force = false) {
         const note = findAnnotationNoteWindow(stableKey);
         if (!note) {
@@ -431,13 +482,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
 
         const current = note.comment;
         const nextText = note.text;
-        // Even forced persistence should skip true no-op updates.
-        // Otherwise Save/Save As can materialize and reload the PDF despite no text change.
-        if (nextText === note.lastSavedText) {
-            return true;
-        }
-
-        if (!force && note.saveMode === 'embedded') {
+        if (shouldSkipAnnotationNotePersistence(note, force)) {
             return true;
         }
 
@@ -452,42 +497,25 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             const savedTargetComment = saveAnnotationNoteToViewer(current, nextText);
             let targetComment = savedTargetComment ?? latestComment;
 
-            if (!savedTargetComment && !force) {
-                return setAnnotationNoteEmbeddedFallback(note);
-            }
-
-            // When force=true (called from handleSave), defer embedded text
-            // updates to the serialization pipeline instead of reloading the
-            // entire document. handleSave will call rewriteEmbeddedNoteTexts()
-            // which applies these deferred text changes without triggering a
-            // visible re-render.
-            if (!savedTargetComment && force) {
-                deferEmbeddedAnnotationNoteUpdate(stableKey, targetComment, nextText);
-                setAnnotationNoteEmbeddedFallback(note);
-            }
-
-            if (!savedTargetComment && note.saveMode !== 'embedded') {
-                return markAnnotationNotePersistFailed(
+            if (!savedTargetComment) {
+                return handleUnsavedAnnotationNoteTarget(
                     note,
                     stableKey,
                     targetComment,
+                    nextText,
                     force,
                 );
             }
 
-            if (savedTargetComment) {
-                targetComment = savedTargetComment;
-            }
+            targetComment = savedTargetComment;
             updateAnnotationNoteSavedState(note, targetComment, nextText);
             return true;
         } finally {
             const latestNote = findAnnotationNoteWindow(stableKey);
             if (latestNote) {
                 latestNote.saving = false;
-                if (latestNote.text !== latestNote.lastSavedText) {
-                    schedulePersistAnnotationNote(stableKey);
-                }
             }
+            scheduleDirtyAnnotationNotePersistence(stableKey);
         }
     }
 

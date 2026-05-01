@@ -384,6 +384,81 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         };
     }
 
+    function updateShapeColorDefault(
+        settings: IAnnotationSettings,
+        isInkShape: boolean,
+        color: string | null | undefined,
+    ) {
+        if (typeof color !== 'string' || !color.trim()) {
+            return false;
+        }
+        if (isInkShape) {
+            settings.inkColor = color;
+        } else {
+            settings.shapeColor = color;
+        }
+        return true;
+    }
+
+    function updateShapeStrokeWidthDefault(
+        settings: IAnnotationSettings,
+        isInkShape: boolean,
+        strokeWidth: number | null | undefined,
+    ) {
+        if (typeof strokeWidth !== 'number' || !Number.isFinite(strokeWidth)) {
+            return false;
+        }
+        if (isInkShape) {
+            settings.inkThickness = strokeWidth;
+        } else {
+            settings.shapeStrokeWidth = strokeWidth;
+        }
+        return true;
+    }
+
+    function updateShapeOpacityDefault(
+        settings: IAnnotationSettings,
+        isInkShape: boolean,
+        opacity: number | null | undefined,
+    ) {
+        if (typeof opacity !== 'number' || !Number.isFinite(opacity)) {
+            return false;
+        }
+        if (isInkShape) {
+            settings.inkOpacity = opacity;
+        } else {
+            settings.shapeOpacity = opacity;
+        }
+        return true;
+    }
+
+    function updateShapeFillColorDefault(
+        settings: IAnnotationSettings,
+        fillColor: string | null | undefined,
+    ) {
+        settings.shapeFillColor = fillColor ?? 'transparent';
+        return true;
+    }
+
+    function updateShapeDefaultSettings(
+        updates: Partial<IShapeAnnotation>,
+        isInkShape: boolean,
+    ) {
+        const nextSettings: IAnnotationSettings = { ...annotationSettings.value };
+        const didUpdateDefaults = [
+            updateShapeColorDefault(nextSettings, isInkShape, updates.color),
+            updateShapeStrokeWidthDefault(nextSettings, isInkShape, updates.strokeWidth),
+            updateShapeOpacityDefault(nextSettings, isInkShape, updates.opacity),
+            'fillColor' in updates
+                ? updateShapeFillColorDefault(nextSettings, updates.fillColor)
+                : false,
+        ].some(Boolean);
+
+        if (didUpdateDefaults) {
+            annotationSettings.value = nextSettings;
+        }
+    }
+
     function handleShapePropertyUpdate(updates: Partial<IShapeAnnotation>) {
         const id = pdfViewerRef.value?.selectedShapeId;
         if (!id) {
@@ -392,40 +467,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
         const currentSelectedShape = selectedShape.value;
         const isInkShape = currentSelectedShape?.pdfSubtype === 'Ink';
-        const nextSettings: IAnnotationSettings = { ...annotationSettings.value };
-        let didUpdateDefaults = false;
-        if (typeof updates.color === 'string' && updates.color.trim()) {
-            if (isInkShape) {
-                nextSettings.inkColor = updates.color;
-            } else {
-                nextSettings.shapeColor = updates.color;
-            }
-            didUpdateDefaults = true;
-        }
-        if (typeof updates.strokeWidth === 'number' && Number.isFinite(updates.strokeWidth)) {
-            if (isInkShape) {
-                nextSettings.inkThickness = updates.strokeWidth;
-            } else {
-                nextSettings.shapeStrokeWidth = updates.strokeWidth;
-            }
-            didUpdateDefaults = true;
-        }
-        if (typeof updates.opacity === 'number' && Number.isFinite(updates.opacity)) {
-            if (isInkShape) {
-                nextSettings.inkOpacity = updates.opacity;
-            } else {
-                nextSettings.shapeOpacity = updates.opacity;
-            }
-            didUpdateDefaults = true;
-        }
-        if ('fillColor' in updates) {
-            const fill = updates.fillColor ?? 'transparent';
-            nextSettings.shapeFillColor = fill;
-            didUpdateDefaults = true;
-        }
-        if (didUpdateDefaults) {
-            annotationSettings.value = nextSettings;
-        }
+        updateShapeDefaultSettings(updates, isInkShape);
 
         pdfViewerRef.value?.updateShape(id, updates);
     }
@@ -803,9 +845,85 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         return true;
     }
 
+    function removeMatchingAnnotationNoteWindows(comment: IAnnotationCommentSummary) {
+        annotationNoteWindows.value
+            .filter(note => isSameAnnotationComment(note.comment, comment))
+            .forEach(note => removeAnnotationNoteWindow(note.comment.stableKey));
+    }
+
+    function shouldUseEmbeddedDeleteFallback(comment: IAnnotationCommentSummary, deleted: boolean) {
+        // PDF-sourced annotations render via the annotation layer, not the
+        // editor layer. uiManager.delete() operates on the editor layer and
+        // may falsely report success. Always attempt embedded-level fallback.
+        return !deleted || comment.source === 'pdf' || Boolean(comment.annotationId);
+    }
+
+    async function tryImmediateEmbeddedDeleteReload(comment: IAnnotationCommentSummary) {
+        try {
+            return await reloadPdfAfterEmbeddedDelete(comment);
+        } catch (error) {
+            BrowserLogger.warn('annotations', 'Immediate embedded image delete reload failed', {
+                stableKey: comment.stableKey,
+                annotationId: comment.annotationId ?? null,
+                error,
+            });
+            return false;
+        }
+    }
+
+    function queueDeferredEmbeddedDelete(comment: IAnnotationCommentSummary, shouldMarkDirty: boolean) {
+        const viewer = pdfViewerRef.value;
+        if (!viewer) {
+            return false;
+        }
+
+        // Keep embedded annotation deletes local until the user saves.
+        // This matches note text edits and avoids an immediate rewrite/reload.
+        viewer.suppressAnnotationStableKey(comment.stableKey);
+        deps.queuePendingEmbeddedAnnotationDelete(comment);
+        if (comment.annotationId) {
+            viewer.suppressAnnotationId(comment.annotationId);
+        }
+        viewer.removeAnnotationFromDom(comment);
+        viewer.removeAnnotationFromInternalCache(comment.stableKey);
+        deps.removeAnnotationFromCache(comment.stableKey);
+        if (shouldMarkDirty) {
+            deps.markAnnotationDirty();
+        }
+        return true;
+    }
+
+    function handleAnnotationDeleteFailure(comment: IAnnotationCommentSummary) {
+        BrowserLogger.warn('annotations', 'Delete annotation comment failed after all fallbacks', {
+            stableKey: comment.stableKey,
+            source: comment.source,
+            annotationId: comment.annotationId ?? null,
+            uid: comment.uid ?? null,
+            id: comment.id,
+        });
+        setAnnotationNoteWindowError(comment.stableKey, t('errors.annotation.delete'));
+    }
+
+    async function deleteAnnotationCommentWithFallbacks(comment: IAnnotationCommentSummary, deleted: boolean) {
+        if (!shouldUseEmbeddedDeleteFallback(comment, deleted)) {
+            return deleted;
+        }
+
+        const shouldUseImmediateReload = shouldReloadEmbeddedDelete(comment);
+        if (shouldUseImmediateReload) {
+            const reloaded = await tryImmediateEmbeddedDeleteReload(comment);
+            if (reloaded) {
+                return true;
+            }
+        }
+
+        return queueDeferredEmbeddedDelete(comment, shouldUseImmediateReload || !deleted);
+    }
+
     async function performDeleteAnnotationComment(comment: IAnnotationCommentSummary) {
         closeAnnotationContextMenu();
-        if (!pdfViewerRef.value) {
+        const viewer = pdfViewerRef.value;
+        if (!viewer) {
             return;
         }
         BrowserLogger.debug('annotations', 'Delete annotation comment requested', {
@@ -816,65 +934,18 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             pageNumber: comment.pageNumber,
         });
         setAnnotationNoteWindowError(comment.stableKey, null);
-        let deleted = await pdfViewerRef.value.deleteAnnotationComment(comment);
+        const viewerDeleted = await viewer.deleteAnnotationComment(comment);
         BrowserLogger.debug('annotations', 'Delete annotation comment viewer result', {
             stableKey: comment.stableKey,
-            deleted,
+            deleted: viewerDeleted,
         });
-        // PDF-sourced annotations render via the annotation layer, not the
-        // editor layer. uiManager.delete() operates on the editor layer and
-        // may falsely report success. Always attempt embedded-level fallback.
-        if (!deleted || comment.source === 'pdf' || Boolean(comment.annotationId)) {
-            const shouldUseImmediateReload = shouldReloadEmbeddedDelete(comment);
-            if (shouldUseImmediateReload) {
-                try {
-                    deleted = await reloadPdfAfterEmbeddedDelete(comment);
-                } catch (error) {
-                    BrowserLogger.warn('annotations', 'Immediate embedded image delete reload failed', {
-                        stableKey: comment.stableKey,
-                        annotationId: comment.annotationId ?? null,
-                        error,
-                    });
-                }
-            }
 
-            if (shouldUseImmediateReload && deleted) {
-                annotationNoteWindows.value
-                    .filter(note => isSameAnnotationComment(note.comment, comment))
-                    .forEach(note => removeAnnotationNoteWindow(note.comment.stableKey));
-                return;
-            }
-
-            const shouldMarkDirty = !deleted;
-            // Keep embedded annotation deletes local until the user saves.
-            // This matches note text edits and avoids an immediate rewrite/reload.
-            pdfViewerRef.value.suppressAnnotationStableKey(comment.stableKey);
-            deps.queuePendingEmbeddedAnnotationDelete(comment);
-            if (comment.annotationId) {
-                pdfViewerRef.value.suppressAnnotationId(comment.annotationId);
-            }
-            pdfViewerRef.value.removeAnnotationFromDom(comment);
-            pdfViewerRef.value.removeAnnotationFromInternalCache(comment.stableKey);
-            deps.removeAnnotationFromCache(comment.stableKey);
-            deleted = true;
-            if (shouldMarkDirty) {
-                deps.markAnnotationDirty();
-            }
-        }
+        const deleted = await deleteAnnotationCommentWithFallbacks(comment, viewerDeleted);
         if (!deleted) {
-            BrowserLogger.warn('annotations', 'Delete annotation comment failed after all fallbacks', {
-                stableKey: comment.stableKey,
-                source: comment.source,
-                annotationId: comment.annotationId ?? null,
-                uid: comment.uid ?? null,
-                id: comment.id,
-            });
-            setAnnotationNoteWindowError(comment.stableKey, t('errors.annotation.delete'));
+            handleAnnotationDeleteFailure(comment);
             return;
         }
-        annotationNoteWindows.value
-            .filter(note => isSameAnnotationComment(note.comment, comment))
-            .forEach(note => removeAnnotationNoteWindow(note.comment.stableKey));
+        removeMatchingAnnotationNoteWindows(comment);
     }
 
     async function handleDeleteAnnotationComment(comment: IAnnotationCommentSummary) {
