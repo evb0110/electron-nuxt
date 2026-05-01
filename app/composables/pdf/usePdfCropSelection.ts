@@ -10,6 +10,7 @@ import {
     getRectHeight,
     getRectWidth,
     normalizeClientRect,
+    toClientRect,
     toLocalRect,
 } from '@app/composables/pdf/usePdfRegionSnip';
 
@@ -36,15 +37,6 @@ export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
     let pendingResolver: ((result: ICropSelectionResult | null) => void) | null = null;
     let escapeKeyListener: ((event: KeyboardEvent) => void) | null = null;
     let activePageTarget: IPageTarget | null = null;
-
-    function toClientRect(rect: DOMRect): IClientRect {
-        return {
-            left: rect.left,
-            top: rect.top,
-            right: rect.right,
-            bottom: rect.bottom,
-        };
-    }
 
     function toOverlayRect(rect: IClientRect): IOverlayRect {
         return {

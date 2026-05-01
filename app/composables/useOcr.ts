@@ -18,6 +18,7 @@ import {
     loadOcrText,
     extractPdfText,
 } from '@app/utils/ocr/processing';
+import { hasRtlOcrLanguage } from '@app/utils/ocr/text-direction';
 import { useOcrErrorLocalizer } from '@app/composables/ocrErrorLocalization';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
 import { getOcrCapability } from '@app/utils/platform-ocr';
@@ -28,11 +29,6 @@ import {
     saveBrowserOcrPreferences,
 } from '@app/platform/browser-api/browser-ocr-preferences';
 import { getErrorMessage } from '@app/utils/error';
-
-const RTL_OCR_LANGUAGES = new Set([
-    'heb',
-    'syr',
-]);
 
 class OcrCanceledError extends Error {
     constructor() {
@@ -496,7 +492,7 @@ export const useOcr = () => {
                     return false;
                 }
 
-                const hasRtl = settings.value.selectedLanguages.some(lang => RTL_OCR_LANGUAGES.has(lang));
+                const hasRtl = hasRtlOcrLanguage(settings.value.selectedLanguages);
                 const docxBytes = createDocxFromText(text, hasRtl);
                 await documents.writeDocxFile(outPath, docxBytes);
                 toast.add({

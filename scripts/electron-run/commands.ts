@@ -577,6 +577,23 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
 
                 const readViewerState = (token?: string) => page.evaluate((requestedPathBasename: string, requestedToken?: string) => {
                     const hosts = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'));
+                    const isElementVisible = (element: HTMLElement | null) => {
+                        if (!element?.isConnected) {
+                            return false;
+                        }
+
+                        let current: HTMLElement | null = element;
+                        while (current) {
+                            const style = window.getComputedStyle(current);
+                            if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+                                return false;
+                            }
+                            current = current.parentElement;
+                        }
+
+                        const rect = element.getBoundingClientRect();
+                        return rect.width > 0 && rect.height > 0;
+                    };
                     const viewers = hosts.map((host, viewerIndex) => {
                         const setupState = (host as HTMLElement & {__vueParentComponent?: {setupState?: {
                             numPages?: number;
@@ -585,26 +602,9 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                             workingCopyPath?: string | null;
                         };};}).__vueParentComponent?.setupState;
                         const pageContainers = host.querySelectorAll('.page_container');
-                        const isHostVisible = (() => {
-                            if (!host.isConnected) {
-                                return false;
-                            }
-
-                            let current: HTMLElement | null = host;
-                            while (current) {
-                                const style = window.getComputedStyle(current);
-                                if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
-                                    return false;
-                                }
-                                current = current.parentElement;
-                            }
-
-                            const rect = host.getBoundingClientRect();
-                            return rect.width > 0 && rect.height > 0;
-                        })();
                         return {
                             viewerIndex,
-                            isVisible: isHostVisible,
+                            isVisible: isElementVisible(host),
                             numPages: setupState?.numPages ?? null,
                             currentPage: setupState?.currentPage ?? null,
                             isLoading: setupState?.isLoading ?? null,
@@ -613,22 +613,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                             renderedCanvasCount: host.querySelectorAll('.page_container .page_canvas canvas').length,
                             renderedTextSpanCount: host.querySelectorAll('.page_container .text-layer span, .page_container .textLayer span').length,
                             visibleSkeletonCount: Array.from(host.querySelectorAll('.page_container .pdf-page-skeleton'))
-                                .filter((node) => {
-                                    const element = node as HTMLElement;
-                                    if (!element || !element.isConnected) {
-                                        return false;
-                                    }
-                                    let current: HTMLElement | null = element;
-                                    while (current) {
-                                        const style = window.getComputedStyle(current);
-                                        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
-                                            return false;
-                                        }
-                                        current = current.parentElement;
-                                    }
-                                    const rect = element.getBoundingClientRect();
-                                    return rect.width > 0 && rect.height > 0;
-                                })
+                                .filter(node => isElementVisible(node as HTMLElement))
                                 .length,
                         };
                     });
@@ -701,22 +686,7 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
                         }
                         : null;
                     const visibleEmptyStates = Array.from(document.querySelectorAll('.empty-state'))
-                        .filter((node) => {
-                            const element = node as HTMLElement;
-                            if (!element || !element.isConnected) {
-                                return false;
-                            }
-                            let current: HTMLElement | null = element;
-                            while (current) {
-                                const style = window.getComputedStyle(current);
-                                if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
-                                    return false;
-                                }
-                                current = current.parentElement;
-                            }
-                            const rect = element.getBoundingClientRect();
-                            return rect.width > 0 && rect.height > 0;
-                        });
+                        .filter(node => isElementVisible(node as HTMLElement));
                     const selected = selectedViewer ?? {
                         viewerIndex: -1,
                         numPages: null,

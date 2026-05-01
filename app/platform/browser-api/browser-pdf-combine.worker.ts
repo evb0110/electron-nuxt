@@ -5,6 +5,11 @@ import type {
     TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browser-pdf-combine-worker.types';
 import { appendPdfImagePage } from '@app/platform/browser-api/pdf-image-pages';
+import {
+    BROWSER_COMBINE_IMAGE_EXTENSIONS,
+    getBrowserFileExtension,
+    toBrowserOwnedArrayBuffer,
+} from '@app/platform/browser-api/browser-platform-helpers';
 import { getErrorMessage } from '@app/utils/error';
 
 interface IUtifFrame {
@@ -19,25 +24,7 @@ interface IUtifModule {
     toRGBA8(ifd: IUtifFrame): Uint8Array;
 }
 
-const WORKER_RASTER_IMAGE_EXTENSIONS = new Set([
-    '.apng',
-    '.avif',
-    '.bmp',
-    '.gif',
-    '.jpeg',
-    '.jpg',
-    '.png',
-    '.tif',
-    '.tiff',
-    '.webp',
-]);
 const UTIF_MODULE = UTIF as IUtifModule;
-
-function getExtension(fileName: string) {
-    const lowerName = fileName.toLowerCase();
-    const lastDot = lowerName.lastIndexOf('.');
-    return lastDot >= 0 ? lowerName.slice(lastDot) : '';
-}
 
 function toTransferableUint8Array(data: Uint8Array) {
     if (
@@ -50,12 +37,6 @@ function toTransferableUint8Array(data: Uint8Array) {
     return data.slice();
 }
 
-function toOwnedArrayBuffer(bytes: Uint8Array) {
-    const copied = new Uint8Array(bytes.byteLength);
-    copied.set(bytes);
-    return copied.buffer;
-}
-
 async function convertWorkerImageBytesToPng(fileName: string, bytes: Uint8Array) {
     if (
         typeof createImageBitmap !== 'function'
@@ -64,7 +45,7 @@ async function convertWorkerImageBytesToPng(fileName: string, bytes: Uint8Array)
         throw new Error('ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_IMAGE_RUNTIME');
     }
 
-    const blob = new Blob([toOwnedArrayBuffer(bytes)]);
+    const blob = new Blob([toBrowserOwnedArrayBuffer(bytes, { copy: true })]);
     const bitmap = await createImageBitmap(blob);
 
     try {
@@ -148,7 +129,7 @@ async function appendInputToPdfDocument(
     pdfDocument: PDFDocument,
     input: TBrowserPdfCombineWorkerRequest<'combinePdfs'>['payload']['inputs'][number],
 ) {
-    const extension = getExtension(input.fileName);
+    const extension = getBrowserFileExtension(input.fileName);
     if (extension === '.pdf') {
         const sourcePdf = await PDFDocument.load(input.data);
         const copiedPages = await pdfDocument.copyPages(
@@ -159,7 +140,7 @@ async function appendInputToPdfDocument(
         return;
     }
 
-    if (!WORKER_RASTER_IMAGE_EXTENSIONS.has(extension)) {
+    if (!BROWSER_COMBINE_IMAGE_EXTENSIONS.has(extension)) {
         throw new Error(`ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT:${input.fileName}`);
     }
 

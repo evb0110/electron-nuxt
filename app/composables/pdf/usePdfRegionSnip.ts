@@ -113,7 +113,7 @@ export function toLocalRect(rect: IClientRect, overlayRect: IOverlayRect): ILoca
     };
 }
 
-function toClientRect(rect: DOMRect): IClientRect {
+export function toClientRect(rect: DOMRect): IClientRect {
     return {
         left: rect.left,
         top: rect.top,

@@ -45,6 +45,48 @@ function readPngDpi(data: Uint8Array): number | null {
     return null;
 }
 
+function isJfifSegment(data: Uint8Array, offset: number) {
+    return (
+        data[offset + 4] === 0x4A
+        && data[offset + 5] === 0x46
+        && data[offset + 6] === 0x49
+        && data[offset + 7] === 0x46
+        && data[offset + 8] === 0x00
+    );
+}
+
+function readJfifDensityDpi(data: Uint8Array, offset: number) {
+    const units = data[offset + 11]!;
+    const xDensity = readUint16BE(data, offset + 12);
+    const yDensity = readUint16BE(data, offset + 14);
+    const density = Math.max(xDensity, yDensity);
+    if (density <= 0) {
+        return null;
+    }
+
+    if (units === 1) {
+        return density;
+    }
+    if (units === 2) {
+        return Math.round(density * CM_PER_INCH);
+    }
+
+    return null;
+}
+
+function readJpegSegmentDpi(data: Uint8Array, offset: number, marker: number) {
+    if (marker !== 0xE0) {
+        return null;
+    }
+
+    const segLength = readUint16BE(data, offset + 2);
+    if (segLength < 14 || offset + 2 + segLength > data.length || !isJfifSegment(data, offset)) {
+        return null;
+    }
+
+    return readJfifDensityDpi(data, offset);
+}
+
 function readJpegDpi(data: Uint8Array): number | null {
     if (data.length < 20 || data[0] !== 0xFF || data[1] !== 0xD8) {
         return null;
@@ -56,29 +98,9 @@ function readJpegDpi(data: Uint8Array): number | null {
         if (data[offset] !== 0xFF) break;
         const marker = data[offset + 1]!;
 
-        if (marker === 0xE0) {
-            const segLength = readUint16BE(data, offset + 2);
-            if (segLength >= 14 && offset + 2 + segLength <= data.length) {
-                if (
-                    data[offset + 4] === 0x4A
-                    && data[offset + 5] === 0x46
-                    && data[offset + 6] === 0x49
-                    && data[offset + 7] === 0x46
-                    && data[offset + 8] === 0x00
-                ) {
-                    const units = data[offset + 11]!;
-                    const xDensity = readUint16BE(data, offset + 12);
-                    const yDensity = readUint16BE(data, offset + 14);
-                    const density = Math.max(xDensity, yDensity);
-
-                    if (units === 1 && density > 0) {
-                        return density;
-                    }
-                    if (units === 2 && density > 0) {
-                        return Math.round(density * CM_PER_INCH);
-                    }
-                }
-            }
+        const dpi = readJpegSegmentDpi(data, offset, marker);
+        if (dpi) {
+            return dpi;
         }
 
         if (marker === 0xDA) break;

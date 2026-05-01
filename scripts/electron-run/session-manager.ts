@@ -1,7 +1,6 @@
 import { createServer } from 'node:http';
 import {
     execFileSync,
-    execSync,
     spawn,
     type ChildProcess,
 } from 'node:child_process';
@@ -34,6 +33,7 @@ import {
     SESSION_WAIT_TIMEOUT_MS,
     cleanupStaleSessionArtifacts,
     clearSessionStarting,
+    collectDescendantPidsUnix,
     electronUserDataPath,
     findPidsByCommandSubstring,
     findFreePort,
@@ -338,41 +338,7 @@ function getDescendantPids(rootPid: number) {
         return [] as number[];
     }
 
-    try {
-        const output = execSync('ps -eo pid=,ppid=', { encoding: 'utf8' });
-        const childrenByParent = new Map<number, number[]>();
-        for (const line of output.split('\n')) {
-            const trimmed = line.trim();
-            if (!trimmed) {
-                continue;
-            }
-
-            const parts = trimmed.split(/\s+/);
-            const pid = Number(parts[0]);
-            const ppid = Number(parts[1]);
-            if (!Number.isFinite(pid) || !Number.isFinite(ppid) || pid <= 0 || ppid <= 0) {
-                continue;
-            }
-
-            const bucket = childrenByParent.get(ppid) ?? [];
-            bucket.push(pid);
-            childrenByParent.set(ppid, bucket);
-        }
-
-        const descendants: number[] = [];
-        const stack = [rootPid];
-        while (stack.length > 0) {
-            const current = stack.pop()!;
-            const children = childrenByParent.get(current) ?? [];
-            for (const childPid of children) {
-                descendants.push(childPid);
-                stack.push(childPid);
-            }
-        }
-        return descendants;
-    } catch {
-        return [] as number[];
-    }
+    return collectDescendantPidsUnix(rootPid);
 }
 
 async function killElectronProcessesByCdpPort(cdpPort: number | null | undefined) {

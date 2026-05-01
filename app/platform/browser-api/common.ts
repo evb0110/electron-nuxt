@@ -194,17 +194,6 @@ async function createPdfjsDocumentInitFromBrowserDocument(
     } as unknown as TPdfJsDocumentInit;
 }
 
-function toArrayBuffer(data: Uint8Array | ArrayBufferLike) {
-    if (data instanceof ArrayBuffer) {
-        return data;
-    }
-
-    const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-    const copy = new Uint8Array(bytes.byteLength);
-    copy.set(bytes);
-    return copy.buffer;
-}
-
 function toUint8Array(data: Uint8Array | ArrayBufferLike) {
     const source = data instanceof Uint8Array ? data : new Uint8Array(data);
     const copy = new Uint8Array(source.byteLength);
@@ -318,7 +307,6 @@ export {
     isDjvuFileName,
     isPdfFileName,
     noopUnsubscribe,
-    toArrayBuffer,
     toUint8Array,
 };
 

@@ -43,9 +43,13 @@ import {
     getWindowWithPickers,
     isDjvuFileName,
     isPdfFileName,
-    toArrayBuffer,
 } from '@app/platform/browser-api/common';
 import type { IFilePickerAcceptType } from '@app/platform/browser-api/common';
+import {
+    BROWSER_COMBINE_IMAGE_EXTENSIONS,
+    buildBrowserByteLimitError,
+    toBrowserOwnedArrayBuffer,
+} from '@app/platform/browser-api/browser-platform-helpers';
 import {
     BrowserPdfCombineWorkerUnavailableError,
     canUseBrowserPdfCombineWorker,
@@ -87,18 +91,6 @@ const BROWSER_LARGE_SAVE_HANDLE_HINT = 'Use a browser with local file system acc
 const BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_OPEN_PICKER_MODE_SESSION_KEY = 'evb-viewer:browser:open-picker-mode';
 const BROWSER_OPEN_PICKER_MODE_INPUT = 'input';
-const WORKER_IMAGE_COMBINE_EXTENSIONS = new Set([
-    '.apng',
-    '.avif',
-    '.bmp',
-    '.gif',
-    '.jpeg',
-    '.jpg',
-    '.png',
-    '.tif',
-    '.tiff',
-    '.webp',
-]);
 const UTIF_MODULE = UTIF as IUtifModule;
 
 function isFileSystemAccessDeniedError(error: unknown) {
@@ -135,18 +127,6 @@ function rememberInputOpenPickerMode() {
         BROWSER_OPEN_PICKER_MODE_SESSION_KEY,
         BROWSER_OPEN_PICKER_MODE_INPUT,
     );
-}
-
-function toOwnedArrayBuffer(bytes: Uint8Array) {
-    if (
-        bytes.buffer instanceof ArrayBuffer
-        && bytes.byteOffset === 0
-        && bytes.byteLength === bytes.buffer.byteLength
-    ) {
-        return bytes.buffer;
-    }
-
-    return toArrayBuffer(bytes);
 }
 
 function decodePdfBinary(bytes: Uint8Array) {
@@ -196,9 +176,11 @@ function buildBrowserLargeJobError(
     maxBytes: number,
     hint?: string,
 ) {
-    return new Error(
-        `${label} is unavailable in the browser for inputs larger than ${Math.floor(maxBytes / (1024 * 1024))}MB`
-        + (hint ? ` ${hint}` : ''),
+    return buildBrowserByteLimitError(
+        label,
+        maxBytes,
+        'inputs',
+        hint,
     );
 }
 
@@ -275,7 +257,7 @@ async function ensureBrowserCombinedPdfRewriteBudget(paths: string[]) {
 function canCombineBrowserPathsOffThread(paths: string[]) {
     return paths.length > 0 && paths.every((path) => {
         const fileName = getBrowserDocumentFileName(path);
-        return isPdfFileName(fileName) || WORKER_IMAGE_COMBINE_EXTENSIONS.has(getExtension(fileName));
+        return isPdfFileName(fileName) || BROWSER_COMBINE_IMAGE_EXTENSIONS.has(getExtension(fileName));
     });
 }
 
@@ -627,7 +609,7 @@ export async function saveBytesToPickerOrDownload(
     },
 ) {
     return saveBlobToPickerOrDownload(
-        new Blob([toOwnedArrayBuffer(bytes)], { type: options.mimeType }),
+        new Blob([toBrowserOwnedArrayBuffer(bytes)], { type: options.mimeType }),
         options.suggestedName,
         options.pickerTypes,
         {
@@ -643,7 +625,7 @@ export async function writeBytesToHandle(
     data: Uint8Array,
 ) {
     const writable = await handle.createWritable();
-    await writable.write(toOwnedArrayBuffer(data));
+    await writable.write(toBrowserOwnedArrayBuffer(data));
     await writable.close();
 }
 
@@ -661,7 +643,7 @@ async function writeDocumentRefToHandle(
                 offset,
                 Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, size - offset),
             );
-            await writable.write(toOwnedArrayBuffer(chunk));
+            await writable.write(toBrowserOwnedArrayBuffer(chunk));
             if (offset > 0) {
                 await yieldToBrowser();
             }
@@ -683,7 +665,7 @@ async function normalizeImageBytesToPng(fileName: string, bytes: Uint8Array) {
         );
     }
 
-    const blob = new Blob([toOwnedArrayBuffer(bytes)]);
+    const blob = new Blob([toBrowserOwnedArrayBuffer(bytes)]);
     const objectUrl = URL.createObjectURL(blob);
 
     try {

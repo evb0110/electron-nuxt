@@ -1,4 +1,9 @@
 import { STORAGE_KEYS } from '@app/constants/storage-keys';
+import type { IPdfSearchHighlightMatchRange } from '@app/composables/pdfSearchHighlightRanges';
+import {
+    getHighlightMatchBoundsInSpan,
+    getRelevantHighlightMatches,
+} from '@app/composables/pdfSearchHighlightRanges';
 
 type TPdfHighlightMode = 'dom' | 'css';
 
@@ -45,24 +50,11 @@ export function isHighlightDebugVerboseEnabled() {
 export function createHighlightRangesInSpan(
     textNode: Text,
     spanStartOffset: number,
-    matches: Array<{
-        start: number;
-        end: number;
-        isCurrent: boolean;
-    }>,
-    precomputedMatches?: Array<{
-        start: number;
-        end: number;
-        isCurrent: boolean;
-    }>,
+    matches: IPdfSearchHighlightMatchRange[],
+    precomputedMatches?: IPdfSearchHighlightMatchRange[],
 ): THighlightRange[] {
     const text = textNode.nodeValue ?? '';
-    const spanEndOffset = spanStartOffset + text.length;
-
-    const relevantMatches = precomputedMatches
-        ?? matches.filter(
-            (m) => m.start < spanEndOffset && m.end > spanStartOffset,
-        );
+    const relevantMatches = getRelevantHighlightMatches(text.length, spanStartOffset, matches, precomputedMatches);
 
     if (relevantMatches.length === 0) {
         return [];
@@ -70,8 +62,10 @@ export function createHighlightRangesInSpan(
 
     const ranges: THighlightRange[] = [];
     for (const match of relevantMatches) {
-        const matchStartInSpan = Math.max(0, match.start - spanStartOffset);
-        const matchEndInSpan = Math.min(text.length, match.end - spanStartOffset);
+        const {
+            start: matchStartInSpan,
+            end: matchEndInSpan,
+        } = getHighlightMatchBoundsInSpan(text.length, spanStartOffset, match);
 
         if (matchStartInSpan >= matchEndInSpan) {
             continue;

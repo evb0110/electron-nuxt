@@ -31,21 +31,16 @@ interface IRunCommandOptions {
     rejectOnStdoutTruncation?: boolean;
 }
 
-const DEFAULT_MAX_STDOUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_NATIVE_TOOL_MAX_STDOUT_BYTES ?? '262144', 10);
+function parseByteLimitEnv(name: string, fallback: number) {
+    const parsed = Number.parseInt(process.env[name] ?? `${fallback}`, 10);
     if (!Number.isFinite(parsed) || parsed < 1_024) {
-        return 262_144;
+        return fallback;
     }
     return parsed;
-})();
-const DEFAULT_MAX_STDERR_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_NATIVE_TOOL_MAX_STDERR_BYTES ?? '262144', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_024) {
-        return 262_144;
-    }
-    return parsed;
-})();
+}
 
+const DEFAULT_MAX_STDOUT_BYTES = parseByteLimitEnv('EVB_NATIVE_TOOL_MAX_STDOUT_BYTES', 262_144);
+const DEFAULT_MAX_STDERR_BYTES = parseByteLimitEnv('EVB_NATIVE_TOOL_MAX_STDERR_BYTES', 262_144);
 
 export async function runNativeCommand(
     command: string,

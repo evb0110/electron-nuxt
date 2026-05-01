@@ -32,27 +32,9 @@ interface IPreprocessingValidationResult {
     missing: string[];
 }
 
-const PREPROCESS_KILL_GRACE_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PREPROCESS_KILL_GRACE_MS ?? '2000', 10);
-    if (!Number.isFinite(parsed) || parsed < 250) {
-        return 2_000;
-    }
-    return parsed;
-})();
-const PREPROCESS_MAX_STDOUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PREPROCESS_MAX_STDOUT_BYTES ?? '131072', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_024) {
-        return 131_072;
-    }
-    return parsed;
-})();
-const PREPROCESS_MAX_STDERR_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PREPROCESS_MAX_STDERR_BYTES ?? '131072', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_024) {
-        return 131_072;
-    }
-    return parsed;
-})();
+const PREPROCESS_KILL_GRACE_MS = parseIntegerEnv('EVB_PREPROCESS_KILL_GRACE_MS', 2_000, 250);
+const PREPROCESS_MAX_STDOUT_BYTES = parseIntegerEnv('EVB_PREPROCESS_MAX_STDOUT_BYTES', 131_072, 1_024);
+const PREPROCESS_MAX_STDERR_BYTES = parseIntegerEnv('EVB_PREPROCESS_MAX_STDERR_BYTES', 131_072, 1_024);
 const PREPROCESS_VERSION_PROBE_TIMEOUT_MS = 3_000;
 
 let preprocessingValidationPromise: Promise<IPreprocessingValidationResult> | null = null;
@@ -68,6 +50,28 @@ interface IPreprocessingBinaries {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function parseIntegerEnv(name: string, fallback: number, minimum: number) {
+    const parsed = Number.parseInt(process.env[name] ?? `${fallback}`, 10);
+    if (!Number.isFinite(parsed) || parsed < minimum) {
+        return fallback;
+    }
+    return parsed;
+}
+
+function formatTruncatedOutput(text: string, truncated: boolean, maxBytes: number, label: 'stdout' | 'stderr') {
+    return truncated
+        ? `[${label} truncated to ${maxBytes} bytes]\n${text}`
+        : text;
+}
+
+function killPreprocessingProcess(proc: ReturnType<typeof spawn>, signal: NodeJS.Signals) {
+    try {
+        proc.kill(signal);
+    } catch {
+        // Process may have exited already.
+    }
+}
 
 function getPreprocessingBinaries(): IPreprocessingBinaries {
     let resourcesBase: string;
@@ -124,11 +128,7 @@ async function isBinaryRunnable(binaryPath: string): Promise<boolean> {
         };
 
         const timeoutHandle = setTimeout(() => {
-            try {
-                proc.kill('SIGKILL');
-            } catch {
-                // Ignore termination errors when probing the binary.
-            }
+            killPreprocessingProcess(proc, 'SIGKILL');
             finalize(false);
         }, PREPROCESS_VERSION_PROBE_TIMEOUT_MS);
         timeoutHandle.unref?.();
@@ -204,28 +204,17 @@ async function runPreprocessing(
         const timeoutHandle = setTimeout(() => {
             timedOut = true;
             log.debug('Process timeout');
-            try {
-                proc.kill('SIGTERM');
-            } catch {
-                // Process may have exited already.
-            }
+            killPreprocessingProcess(proc, 'SIGTERM');
             killHandle = setTimeout(() => {
-                try {
-                    proc.kill('SIGKILL');
-                } catch {
-                    // Process may have exited already.
-                }
+                killPreprocessingProcess(proc, 'SIGKILL');
             }, PREPROCESS_KILL_GRACE_MS);
             killHandle.unref?.();
 
             forceFinalizeHandle = setTimeout(() => {
-                const stderrSummary = stderrTruncated
-                    ? `[stderr truncated to ${PREPROCESS_MAX_STDERR_BYTES} bytes]\n${stderr}`
-                    : stderr;
                 finalize({
                     success: false,
                     error: `Process timed out after ${timeout}ms`,
-                    stderr: stderrSummary,
+                    stderr: formatTruncatedOutput(stderr, stderrTruncated, PREPROCESS_MAX_STDERR_BYTES, 'stderr'),
                 });
             }, PREPROCESS_KILL_GRACE_MS + 1_000);
             forceFinalizeHandle.unref?.();
@@ -257,17 +246,9 @@ async function runPreprocessing(
             ? () => {
                 const abortError = new Error('Preprocessing aborted');
                 timedOut = false;
-                try {
-                    proc.kill('SIGTERM');
-                } catch {
-                    // Process may have exited already.
-                }
+                killPreprocessingProcess(proc, 'SIGTERM');
                 killHandle = setTimeout(() => {
-                    try {
-                        proc.kill('SIGKILL');
-                    } catch {
-                        // Process may have exited already.
-                    }
+                    killPreprocessingProcess(proc, 'SIGKILL');
                 }, PREPROCESS_KILL_GRACE_MS);
                 killHandle.unref?.();
 
@@ -301,32 +282,21 @@ async function runPreprocessing(
         proc.on('close', (code) => {
             if (timedOut) {
                 log.debug(`Process timed out after ${timeout}ms`);
-                const stderrSummary = stderrTruncated
-                    ? `[stderr truncated to ${PREPROCESS_MAX_STDERR_BYTES} bytes]\n${stderr}`
-                    : stderr;
                 finalize({
                     success: false,
                     error: `Process timed out after ${timeout}ms`,
-                    stderr: stderrSummary,
+                    stderr: formatTruncatedOutput(stderr, stderrTruncated, PREPROCESS_MAX_STDERR_BYTES, 'stderr'),
                 });
             } else if (code === 0) {
                 log.debug('Process completed successfully');
-                const stdoutSummary = stdoutTruncated
-                    ? `[stdout truncated to ${PREPROCESS_MAX_STDOUT_BYTES} bytes]\n${stdout}`
-                    : stdout;
-                const stderrSummary = stderrTruncated
-                    ? `[stderr truncated to ${PREPROCESS_MAX_STDERR_BYTES} bytes]\n${stderr}`
-                    : stderr;
                 finalize({
                     success: true,
-                    stdout: stdoutSummary,
-                    stderr: stderrSummary,
+                    stdout: formatTruncatedOutput(stdout, stdoutTruncated, PREPROCESS_MAX_STDOUT_BYTES, 'stdout'),
+                    stderr: formatTruncatedOutput(stderr, stderrTruncated, PREPROCESS_MAX_STDERR_BYTES, 'stderr'),
                 });
             } else {
                 log.debug(`Process exited with code ${code}`);
-                const stderrSummary = stderrTruncated
-                    ? `[stderr truncated to ${PREPROCESS_MAX_STDERR_BYTES} bytes]\n${stderr}`
-                    : stderr;
+                const stderrSummary = formatTruncatedOutput(stderr, stderrTruncated, PREPROCESS_MAX_STDERR_BYTES, 'stderr');
                 finalize({
                     success: false,
                     error: stderrSummary || `Process exited with code ${code}`,
@@ -337,9 +307,7 @@ async function runPreprocessing(
 
         proc.on('error', (err) => {
             log.debug(`Process error: ${err.message}`);
-            const stderrSummary = stderrTruncated
-                ? `[stderr truncated to ${PREPROCESS_MAX_STDERR_BYTES} bytes]\n${stderr}`
-                : stderr;
+            const stderrSummary = formatTruncatedOutput(stderr, stderrTruncated, PREPROCESS_MAX_STDERR_BYTES, 'stderr');
             finalize({
                 success: false,
                 error: err.message,
