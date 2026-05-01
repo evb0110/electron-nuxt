@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({debug: vi.fn()})}));
 
-vi.mock('@electron/utils/exec', () => ({runCommand: mocks.runCommand}));
+vi.mock('@electron/utils/exec', () => ({runElectronCommand: mocks.runCommand}));
 
 vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: mocks.getOcrToolPaths}));
 

@@ -1,4 +1,4 @@
-import {runCommand as runNativeCommand} from '@electron/native-tools/command-runner';
+import {runNativeCommand} from '@electron/native-tools/command-runner';
 import type { IRunCommandResult } from '@electron/ocr/worker/types';
 
 interface IRunCommandOptions {
@@ -11,7 +11,7 @@ interface IRunCommandOptions {
     log?: (level: 'debug' | 'warn' | 'error', message: string) => void;
 }
 
-export async function runCommand(
+export async function runOcrCommand(
     command: string,
     args: string[],
     options: IRunCommandOptions = {},

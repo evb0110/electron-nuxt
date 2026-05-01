@@ -1,4 +1,4 @@
-import {runCommand as runNativeCommand} from '@electron/native-tools/command-runner';
+import {runNativeCommand} from '@electron/native-tools/command-runner';
 
 type TRunCommandResult = {
     stdout: string;
@@ -6,7 +6,7 @@ type TRunCommandResult = {
     exitCode: number;
 };
 
-export async function runCommand(
+export async function runElectronCommand(
     command: string,
     args: string[],
     options: {

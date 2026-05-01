@@ -28,7 +28,7 @@ import {
     isTrustedRuntimeIdentityPayload,
 } from '@contracts/runtime-identity';
 import { isTimeoutError } from '@contracts/timeout-error';
-import { runCommand } from '@electron/utils/exec';
+import { runElectronCommand } from '@electron/utils/exec';
 import { createLogger } from '@electron/utils/logger';
 import { terminateProcessTree } from '@electron/utils/process-tree';
 import { getErrorMessage } from '@electron/utils/error';
@@ -277,7 +277,7 @@ async function readProcessCommandLine(pid: number) {
 
     try {
         if (process.platform === 'win32') {
-            const result = await runCommand('powershell', [
+            const result = await runElectronCommand('powershell', [
                 '-NoProfile',
                 '-NonInteractive',
                 '-Command',
@@ -290,7 +290,7 @@ async function readProcessCommandLine(pid: number) {
             return normalizeProcessCommandLine(result.stdout);
         }
 
-        const result = await runCommand('ps', [
+        const result = await runElectronCommand('ps', [
             '-p',
             String(pid),
             '-o',

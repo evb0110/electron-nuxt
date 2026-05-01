@@ -56,7 +56,7 @@ import {
     writeOcrIndexV1,
     writeOcrIndexV2,
 } from '@electron/ocr/worker/index-writer';
-import { runCommand } from '@electron/ocr/worker/run-command';
+import { runOcrCommand } from '@electron/ocr/worker/run-command';
 import { getErrorMessage } from '@electron/utils/error';
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -246,7 +246,7 @@ async function renderPdfPageToPng(
     popplerEnv?: NodeJS.ProcessEnv,
     signal?: AbortSignal,
 ) {
-    await runCommand(paths.pdftoppmBinary, [
+    await runOcrCommand(paths.pdftoppmBinary, [
         '-png',
         '-r',
         String(dpi),
@@ -275,7 +275,7 @@ async function preparePdfForPoppler(
     const normalizedPdfPath = trackTempFile(join(paths.tempDir, `${sessionId}-poppler-input.pdf`));
 
     try {
-        await runCommand(paths.qpdfBinary, [
+        await runOcrCommand(paths.qpdfBinary, [
             sourcePdfPath,
             normalizedPdfPath,
         ], {

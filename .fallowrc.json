@@ -1,5 +1,5 @@
 {
-    "$schema": "https://unpkg.com/knip@5/schema.json",
+    "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
     "entry": [
         "app/app.vue",
         "app/app.config.ts",
@@ -23,19 +23,7 @@
         "packages/*/index.ts",
         "scripts/**/*.{ts,mjs,cjs}"
     ],
-    "project": [
-        "app/**/*.{ts,vue}",
-        "server/**/*.ts",
-        "electron/**/*.ts",
-        "packages/**/*.ts",
-        "scripts/**/*.{ts,mjs,cjs}"
-    ],
-    "paths": {
-        "@app/*": ["app/*"],
-        "@electron/*": ["electron/*"],
-        "@contracts/*": ["packages/contracts/*"]
-    },
-    "ignore": [
+    "ignorePatterns": [
         "app/types/*.d.ts",
         "electron/types/semver.d.ts",
         "electron/types/utif.d.ts",
@@ -44,7 +32,10 @@
         "electron/image/export.ts",
         "electron/ipc/dialogs.ts",
         "electron/ipc/fileOps.ts",
-        "electron/ipc/pdfExport.ts"
+        "electron/ipc/pdfExport.ts",
+        "app/assets/css/*.scss",
+        "landing/**",
+        "public/**"
     ],
     "ignoreDependencies": [
         "@iconify-json/circle-flags",
@@ -70,6 +61,8 @@
         "devalue",
         "entities",
         "estree-walker",
+        "eslint-import-resolver-typescript",
+        "eslint-plugin-import",
         "hookable",
         "iron-webcrypto",
         "node-mock-http",
@@ -82,7 +75,28 @@
         "unhead",
         "vue-bundle-renderer"
     ],
-    "ignoreBinaries": [
-        "codesign"
-    ]
+    "workspaces": {
+        "patterns": [
+            "packages/*"
+        ]
+    },
+    "duplicates": {
+        "ignoreImports": true,
+        "minLines": 8,
+        "minTokens": 80,
+        "threshold": 10
+    },
+    "health": {
+        "ignore": [
+            "app/assets/css/vendor/**",
+            "public/**"
+        ]
+    },
+    "rules": {
+        "unused-dev-dependencies": "error",
+        "unused-optional-dependencies": "error",
+        "duplicate-exports": "warn",
+        "type-only-dependencies": "warn",
+        "test-only-dependencies": "warn"
+    }
 }

@@ -968,16 +968,6 @@ export class BrowserDocumentStore {
         await this.consumeFileIntoEntry(entry, file);
     }
 
-    public async getFileName(ref: string): Promise<string> {
-        const entry = await this.requireEntry(ref);
-        return entry.fileName;
-    }
-
-    public async getMimeType(ref: string): Promise<string> {
-        const entry = await this.requireEntry(ref);
-        return entry.mimeType;
-    }
-
     public async getSaveTarget(ref: string): Promise<{
         saveName: string;
         saveKind: IBrowserDocumentEntry['saveKind'];

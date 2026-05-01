@@ -1,5 +1,5 @@
 import type { TWorkerLog } from '@electron/ocr/worker/types';
-import { runCommand } from '@electron/ocr/worker/run-command';
+import { runOcrCommand } from '@electron/ocr/worker/run-command';
 import { clamp } from 'es-toolkit/math';
 import { getErrorMessage } from '@electron/utils/error';
 
@@ -16,7 +16,7 @@ export async function detectSourceDpi(
     }
 
     try {
-        const result = await runCommand(pdfimagesBinary, [
+        const result = await runOcrCommand(pdfimagesBinary, [
             '-list',
             pdfPath,
         ], {

@@ -1,4 +1,4 @@
-import { runCommand as runNativeCommand } from '@electron/native-tools/command-runner';
+import { runNativeCommand } from '@electron/native-tools/command-runner';
 import type { IProcessResult } from '@electron/native-tools/process-result';
 
 interface IRunNativeToolCommandOptions {
