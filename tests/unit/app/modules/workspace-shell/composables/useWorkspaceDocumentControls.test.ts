@@ -17,7 +17,7 @@ vi.mock('@app/modules/workspace-shell/composables/usePageOpsHandlers', () => ({ 
     return {};
 } }));
 
-vi.mock('@app/modules/workspace-shell/composables/workspace-file-lifecycle-controller', () => ({ useWorkspaceFileOperationController: () => ({}) }));
+vi.mock('@app/modules/workspace-shell/composables/usePageFileOperations', () => ({ usePageFileOperations: () => ({}) }));
 
 const { useWorkspaceDocumentControls } = await import('@app/modules/workspace-shell/composables/useWorkspaceDocumentControls');
 
