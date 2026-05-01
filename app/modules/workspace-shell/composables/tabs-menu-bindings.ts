@@ -27,6 +27,167 @@ export interface ITabsMenuBindingDeps {
     handleWindowTabsAction: (action: TWindowTabsAction) => Promise<void> | void;
 }
 
+type TCleanup = () => void;
+type TMenuRunAction = (actionName: string, action: () => unknown) => void;
+type TNoArgMenuRegister = (handler: () => void) => unknown;
+type TDocumentMenuApi = NonNullable<IPlatformApi['documents']>;
+type TDocumentMenuAction = {
+    name: string;
+    register: keyof TDocumentMenuApi;
+    run: (deps: ITabsMenuBindingDeps) => unknown;
+};
+
+const documentMenuActions: TDocumentMenuAction[] = [
+    {
+        name: 'open-pdf',
+        register: 'onMenuOpenPdf',
+        run: deps => deps.handleFallbackToolbarOpenFile(),
+    },
+    {
+        name: 'insert-image-from-file',
+        register: 'onMenuInsertImageFromFile',
+        run: deps => deps.activeWorkspace.value?.handleInsertImageFromFile(),
+    },
+    {
+        name: 'paste-image-from-clipboard',
+        register: 'onMenuPasteImageFromClipboard',
+        run: deps => deps.activeWorkspace.value?.handlePasteImageFromClipboard(),
+    },
+    {
+        name: 'save',
+        register: 'onMenuSave',
+        run: deps => deps.activeWorkspace.value?.handleSave(),
+    },
+    {
+        name: 'save-as',
+        register: 'onMenuSaveAs',
+        run: deps => deps.activeWorkspace.value?.handleSaveAs(),
+    },
+    {
+        name: 'print',
+        register: 'onMenuPrint',
+        run: deps => deps.activeWorkspace.value?.handlePrint(),
+    },
+    {
+        name: 'export-docx',
+        register: 'onMenuExportDocx',
+        run: deps => deps.activeWorkspace.value?.handleExportDocx(),
+    },
+    {
+        name: 'export-images',
+        register: 'onMenuExportImages',
+        run: deps => deps.activeWorkspace.value?.handleExportImages(),
+    },
+    {
+        name: 'export-multi-page-tiff',
+        register: 'onMenuExportMultiPageTiff',
+        run: deps => deps.activeWorkspace.value?.handleExportMultiPageTiff(),
+    },
+    {
+        name: 'undo',
+        register: 'onMenuUndo',
+        run: deps => deps.activeWorkspace.value?.handleUndo(),
+    },
+    {
+        name: 'redo',
+        register: 'onMenuRedo',
+        run: deps => deps.activeWorkspace.value?.handleRedo(),
+    },
+    {
+        name: 'zoom-in',
+        register: 'onMenuZoomIn',
+        run: deps => deps.activeWorkspace.value?.handleZoomIn(),
+    },
+    {
+        name: 'zoom-out',
+        register: 'onMenuZoomOut',
+        run: deps => deps.activeWorkspace.value?.handleZoomOut(),
+    },
+    {
+        name: 'actual-size',
+        register: 'onMenuActualSize',
+        run: deps => deps.activeWorkspace.value?.handleActualSize(),
+    },
+    {
+        name: 'fit-width',
+        register: 'onMenuFitWidth',
+        run: deps => deps.activeWorkspace.value?.handleFitWidth(),
+    },
+    {
+        name: 'fit-height',
+        register: 'onMenuFitHeight',
+        run: deps => deps.activeWorkspace.value?.handleFitHeight(),
+    },
+    {
+        name: 'view-mode-single',
+        register: 'onMenuViewModeSingle',
+        run: deps => deps.activeWorkspace.value?.handleViewModeSingle(),
+    },
+    {
+        name: 'view-mode-facing',
+        register: 'onMenuViewModeFacing',
+        run: deps => deps.activeWorkspace.value?.handleViewModeFacing(),
+    },
+    {
+        name: 'view-mode-facing-first-single',
+        register: 'onMenuViewModeFacingFirstSingle',
+        run: deps => deps.activeWorkspace.value?.handleViewModeFacingFirstSingle(),
+    },
+    {
+        name: 'delete-pages',
+        register: 'onMenuDeletePages',
+        run: deps => deps.activeWorkspace.value?.handleDeletePages(),
+    },
+    {
+        name: 'extract-pages',
+        register: 'onMenuExtractPages',
+        run: deps => deps.activeWorkspace.value?.handleExtractPages(),
+    },
+    {
+        name: 'rotate-cw',
+        register: 'onMenuRotateCw',
+        run: deps => deps.activeWorkspace.value?.handleRotateCw(),
+    },
+    {
+        name: 'rotate-ccw',
+        register: 'onMenuRotateCcw',
+        run: deps => deps.activeWorkspace.value?.handleRotateCcw(),
+    },
+    {
+        name: 'insert-pages',
+        register: 'onMenuInsertPages',
+        run: deps => deps.activeWorkspace.value?.handleInsertPages(),
+    },
+];
+
+function toCleanup(value: unknown): TCleanup | null {
+    return typeof value === 'function' ? value as TCleanup : null;
+}
+
+function getNoArgDocumentMenuRegister(
+    documents: Partial<TDocumentMenuApi> | undefined,
+    key: keyof TDocumentMenuApi,
+): TNoArgMenuRegister | null {
+    const register = documents?.[key];
+    return typeof register === 'function' ? register as TNoArgMenuRegister : null;
+}
+
+function registerDocumentMenuActions(
+    documents: Partial<TDocumentMenuApi> | undefined,
+    deps: ITabsMenuBindingDeps,
+    runMenuAction: TMenuRunAction,
+) {
+    return documentMenuActions
+        .map((binding) => {
+            const register = getNoArgDocumentMenuRegister(documents, binding.register);
+            return register?.(() => {
+                runMenuAction(binding.name, () => binding.run(deps));
+            });
+        })
+        .map(toCleanup)
+        .filter((cleanup): cleanup is TCleanup => Boolean(cleanup));
+}
+
 /**
  * Registers menu->renderer event handlers and returns unsubscribe callbacks.
  * Uses optional chaining on each binding so a stale preload (dev mode version
@@ -79,63 +240,7 @@ export function registerTabsMenuBindings(
     };
 
     const cleanups = [
-        api.documents?.onMenuOpenPdf?.(() => {
-            runMenuAction('open-pdf', () => deps.handleFallbackToolbarOpenFile());
-        }),
-        api.documents?.onMenuInsertImageFromFile?.(() => {
-            runMenuAction('insert-image-from-file', () => deps.activeWorkspace.value?.handleInsertImageFromFile());
-        }),
-        api.documents?.onMenuPasteImageFromClipboard?.(() => {
-            runMenuAction('paste-image-from-clipboard', () => deps.activeWorkspace.value?.handlePasteImageFromClipboard());
-        }),
-        api.documents?.onMenuSave?.(() => {
-            runMenuAction('save', () => deps.activeWorkspace.value?.handleSave());
-        }),
-        api.documents?.onMenuSaveAs?.(() => {
-            runMenuAction('save-as', () => deps.activeWorkspace.value?.handleSaveAs());
-        }),
-        api.documents?.onMenuPrint?.(() => {
-            runMenuAction('print', () => deps.activeWorkspace.value?.handlePrint());
-        }),
-        api.documents?.onMenuExportDocx?.(() => {
-            runMenuAction('export-docx', () => deps.activeWorkspace.value?.handleExportDocx());
-        }),
-        api.documents?.onMenuExportImages?.(() => {
-            runMenuAction('export-images', () => deps.activeWorkspace.value?.handleExportImages());
-        }),
-        api.documents?.onMenuExportMultiPageTiff?.(() => {
-            runMenuAction('export-multi-page-tiff', () => deps.activeWorkspace.value?.handleExportMultiPageTiff());
-        }),
-        api.documents?.onMenuUndo?.(() => {
-            runMenuAction('undo', () => deps.activeWorkspace.value?.handleUndo());
-        }),
-        api.documents?.onMenuRedo?.(() => {
-            runMenuAction('redo', () => deps.activeWorkspace.value?.handleRedo());
-        }),
-        api.documents?.onMenuZoomIn?.(() => {
-            runMenuAction('zoom-in', () => deps.activeWorkspace.value?.handleZoomIn());
-        }),
-        api.documents?.onMenuZoomOut?.(() => {
-            runMenuAction('zoom-out', () => deps.activeWorkspace.value?.handleZoomOut());
-        }),
-        api.documents?.onMenuActualSize?.(() => {
-            runMenuAction('actual-size', () => deps.activeWorkspace.value?.handleActualSize());
-        }),
-        api.documents?.onMenuFitWidth?.(() => {
-            runMenuAction('fit-width', () => deps.activeWorkspace.value?.handleFitWidth());
-        }),
-        api.documents?.onMenuFitHeight?.(() => {
-            runMenuAction('fit-height', () => deps.activeWorkspace.value?.handleFitHeight());
-        }),
-        api.documents?.onMenuViewModeSingle?.(() => {
-            runMenuAction('view-mode-single', () => deps.activeWorkspace.value?.handleViewModeSingle());
-        }),
-        api.documents?.onMenuViewModeFacing?.(() => {
-            runMenuAction('view-mode-facing', () => deps.activeWorkspace.value?.handleViewModeFacing());
-        }),
-        api.documents?.onMenuViewModeFacingFirstSingle?.(() => {
-            runMenuAction('view-mode-facing-first-single', () => deps.activeWorkspace.value?.handleViewModeFacingFirstSingle());
-        }),
+        ...registerDocumentMenuActions(api.documents, deps, runMenuAction),
         api.documents?.onMenuOpenRecentFile?.((path: TDocumentRef) => {
             enqueueDocumentOpenAction('open-recent-file', () => deps.openPathInAppropriateTab(path));
         }),
@@ -153,21 +258,6 @@ export function registerTabsMenuBindings(
         }),
         api.updates?.onMenuCheckForUpdates?.(() => {
             runMenuAction('check-for-updates', () => deps.checkForUpdates());
-        }),
-        api.documents?.onMenuDeletePages?.(() => {
-            runMenuAction('delete-pages', () => deps.activeWorkspace.value?.handleDeletePages());
-        }),
-        api.documents?.onMenuExtractPages?.(() => {
-            runMenuAction('extract-pages', () => deps.activeWorkspace.value?.handleExtractPages());
-        }),
-        api.documents?.onMenuRotateCw?.(() => {
-            runMenuAction('rotate-cw', () => deps.activeWorkspace.value?.handleRotateCw());
-        }),
-        api.documents?.onMenuRotateCcw?.(() => {
-            runMenuAction('rotate-ccw', () => deps.activeWorkspace.value?.handleRotateCcw());
-        }),
-        api.documents?.onMenuInsertPages?.(() => {
-            runMenuAction('insert-pages', () => deps.activeWorkspace.value?.handleInsertPages());
         }),
         api.djvu?.onMenuConvertToPdf?.(() => {
             runMenuAction('convert-to-pdf', () => deps.activeWorkspace.value?.handleConvertToPdf());
