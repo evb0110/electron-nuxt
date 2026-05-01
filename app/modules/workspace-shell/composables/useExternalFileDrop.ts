@@ -1,6 +1,7 @@
 import { useEventListener } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { getDocumentPathForFile } from '@app/utils/platform-documents';
+import { isSupportedWorkspaceDocumentPath } from '@app/utils/supported-document-paths';
 
 interface IUseExternalFileDropOptions {openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;}
 
@@ -41,20 +42,7 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
             continue;
         }
 
-        const lowerPath = path.toLowerCase();
-        if (
-            lowerPath.endsWith('.pdf')
-            || lowerPath.endsWith('.djvu')
-            || lowerPath.endsWith('.djv')
-            || lowerPath.endsWith('.png')
-            || lowerPath.endsWith('.jpg')
-            || lowerPath.endsWith('.jpeg')
-            || lowerPath.endsWith('.tif')
-            || lowerPath.endsWith('.tiff')
-            || lowerPath.endsWith('.bmp')
-            || lowerPath.endsWith('.webp')
-            || lowerPath.endsWith('.gif')
-        ) {
+        if (isSupportedWorkspaceDocumentPath(path)) {
             seen.add(path);
             paths.push(path);
         }

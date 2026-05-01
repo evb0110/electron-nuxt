@@ -236,6 +236,26 @@ export const usePdfDocument = () => {
 
     }
 
+    async function acceptLoadedDocument(
+        document: PDFDocumentProxy,
+        version: number,
+    ) {
+        // Discard stale result if a newer load was started
+        if (version !== renderVersion) {
+            destroyPdfDocumentDeferred(document, 'Failed to destroy stale PDF document');
+            return null;
+        }
+
+        pdfDocument.value = document;
+        numPages.value = document.numPages;
+        await primeInitialPageMetrics(document, version);
+
+        return {
+            version,
+            document,
+        };
+    }
+
     async function loadPdf(
         src: TPdfSource,
         options?: { preservePageStructure?: boolean },
@@ -416,41 +436,14 @@ export const usePdfDocument = () => {
                 ]);
                 rejectRangeReadFailure = null;
 
-                // Discard stale result if a newer load was started
-                if (version !== renderVersion) {
-                    destroyPdfDocumentDeferred(pdfDoc, 'Failed to destroy stale PDF document');
-                    return null;
-                }
-
-                pdfDocument.value = pdfDoc;
-                numPages.value = pdfDoc.numPages;
-                await primeInitialPageMetrics(pdfDoc, version);
-
-                return {
-                    version,
-                    document: pdfDoc,
-                };
+                return acceptLoadedDocument(pdfDoc, version);
             }
 
             if (!loadingTask) {
                 return null;
             }
             const pdfDoc = await loadingTask.promise;
-
-            // Discard stale result if a newer load was started
-            if (version !== renderVersion) {
-                destroyPdfDocumentDeferred(pdfDoc, 'Failed to destroy stale PDF document');
-                return null;
-            }
-
-            pdfDocument.value = pdfDoc;
-            numPages.value = pdfDoc.numPages;
-            await primeInitialPageMetrics(pdfDoc, version);
-
-            return {
-                version,
-                document: pdfDoc,
-            };
+            return acceptLoadedDocument(pdfDoc, version);
         } catch (error) {
             // Ignore cancellation errors from destroyed loading tasks
             if (version !== renderVersion) {

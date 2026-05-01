@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { useIntervalFn } from '@vueuse/core';
 import { getDocumentPathForFile } from '@app/utils/platform-documents';
+import { isSupportedPdfInsertFilePath } from '@app/utils/supported-document-paths';
 
 interface IPageDragDropDeps {
     containerRef: Ref<HTMLElement | null>;
@@ -324,19 +325,6 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return false;
     }
 
-    function isSupportedFilePath(filePath: string) {
-        const lowerPath = filePath.toLowerCase();
-        return lowerPath.endsWith('.pdf')
-            || lowerPath.endsWith('.png')
-            || lowerPath.endsWith('.jpg')
-            || lowerPath.endsWith('.jpeg')
-            || lowerPath.endsWith('.tif')
-            || lowerPath.endsWith('.tiff')
-            || lowerPath.endsWith('.bmp')
-            || lowerPath.endsWith('.webp')
-            || lowerPath.endsWith('.gif');
-    }
-
     let dragEnterCounter = 0;
 
     function handleDragEnter(e: DragEvent) {
@@ -397,7 +385,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             }
 
             const filePath = getDocumentPathForFile(file);
-            if (!filePath || seen.has(filePath) || !isSupportedFilePath(filePath)) {
+            if (!filePath || seen.has(filePath) || !isSupportedPdfInsertFilePath(filePath)) {
                 continue;
             }
 

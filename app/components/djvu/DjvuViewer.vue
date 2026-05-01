@@ -179,6 +179,33 @@ interface IContinuousScrollWindowCacheEntry {
 
 let continuousScrollWindowCache: IContinuousScrollWindowCacheEntry | null = null;
 
+function cacheContinuousScrollWindow(
+    start: number,
+    end: number,
+    mostVisiblePage: number | null,
+    containerHeightValue: number,
+    usesFallback: boolean,
+) {
+    const result = {
+        start,
+        end,
+        mostVisiblePage,
+        pageNumbers: Array.from(
+            { length: end - start + 1 },
+            (_, index) => start + index,
+        ),
+    };
+    continuousScrollWindowCache = {
+        scrollTop: scrollTop.value,
+        containerHeight: containerHeightValue,
+        totalPages: totalPages.value,
+        pageSizes: pageSizes.value,
+        usesFallback,
+        result,
+    };
+    return result;
+}
+
 function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
     if (!isContinuousScroll.value || totalPages.value <= 0) {
         return null;
@@ -207,24 +234,13 @@ function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
     if (viewportHeight <= 0) {
         const start = Math.max(1, anchorPage - 2);
         const end = Math.min(totalPages.value, anchorPage + 2);
-        const result = {
+        return cacheContinuousScrollWindow(
             start,
             end,
-            mostVisiblePage: anchorPage,
-            pageNumbers: Array.from(
-                { length: end - start + 1 },
-                (_, index) => start + index,
-            ),
-        };
-        continuousScrollWindowCache = {
-            scrollTop: scrollTop.value,
-            containerHeight: containerHeightValue,
-            totalPages: totalPages.value,
-            pageSizes: pageSizes.value,
+            anchorPage,
+            containerHeightValue,
             usesFallback,
-            result,
-        };
-        return result;
+        );
     }
 
     const viewportTop = Math.max(0, scrollTop.value);
@@ -281,24 +297,13 @@ function resolveContinuousScrollWindow(): IContinuousScrollWindow | null {
     const minEnd = Math.min(totalPages.value, (visibleEnd ?? anchorPage) + 2);
     const start = clamp(Math.min(baseStart, minStart), 1, totalPages.value);
     const end = clamp(Math.max(baseEnd, minEnd), 1, totalPages.value);
-    const result = {
+    return cacheContinuousScrollWindow(
         start,
         end,
         mostVisiblePage,
-        pageNumbers: Array.from(
-            { length: end - start + 1 },
-            (_, index) => start + index,
-        ),
-    };
-    continuousScrollWindowCache = {
-        scrollTop: scrollTop.value,
-        containerHeight: containerHeightValue,
-        totalPages: totalPages.value,
-        pageSizes: pageSizes.value,
+        containerHeightValue,
         usesFallback,
-        result,
-    };
-    return result;
+    );
 }
 
 function invalidateContinuousScrollWindowCache() {
