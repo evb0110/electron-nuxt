@@ -1,0 +1,125 @@
+interface IBrowserWorkerClientOptions<TResponse, TPendingRequest> {
+    createWorker: () => Worker;
+    idleTtlMs: number;
+    handleMessage: (
+        pendingRequests: Map<number, TPendingRequest>,
+        response: TResponse,
+        scheduleIdleWorkerTermination: () => void,
+    ) => void;
+    createError: (event: ErrorEvent) => Error;
+}
+
+export function canUseBrowserWorker() {
+    return typeof window !== 'undefined' && typeof Worker !== 'undefined';
+}
+
+export class BrowserWorkerClient<
+    TResponse,
+    TPendingRequest extends {reject: (error: Error) => void},
+> {
+    public readonly pendingRequests = new Map<number, TPendingRequest>();
+
+    private worker: Worker | null = null;
+    private nextRequestId = 1;
+    private idleTerminateTimer: ReturnType<typeof setTimeout> | null = null;
+    private cleanupListenersRegistered = false;
+
+    public constructor(private readonly options: IBrowserWorkerClientOptions<TResponse, TPendingRequest>) {}
+
+    public createRequestId() {
+        const requestId = this.nextRequestId;
+        this.nextRequestId += 1;
+        return requestId;
+    }
+
+    public clearIdleTerminateTimer() {
+        if (!this.idleTerminateTimer) {
+            return;
+        }
+
+        clearTimeout(this.idleTerminateTimer);
+        this.idleTerminateTimer = null;
+    }
+
+    public scheduleIdleWorkerTermination = () => {
+        this.clearIdleTerminateTimer();
+        if (!this.worker || this.pendingRequests.size > 0) {
+            return;
+        }
+
+        this.idleTerminateTimer = setTimeout(() => {
+            this.idleTerminateTimer = null;
+            if (!this.worker || this.pendingRequests.size > 0) {
+                return;
+            }
+
+            this.resetWorker();
+        }, this.options.idleTtlMs);
+    };
+
+    public resetWorker(error?: Error) {
+        const pending = Array.from(this.pendingRequests.values());
+        this.pendingRequests.clear();
+        this.clearIdleTerminateTimer();
+
+        if (this.worker) {
+            this.worker.removeEventListener('message', this.handleWorkerMessage);
+            this.worker.removeEventListener('error', this.handleWorkerError);
+            this.worker.terminate();
+            this.worker = null;
+        }
+
+        if (error) {
+            pending.forEach(request => request.reject(error));
+        }
+    }
+
+    public getWorker() {
+        if (this.worker) {
+            this.clearIdleTerminateTimer();
+            return this.worker;
+        }
+
+        const worker = this.options.createWorker();
+        worker.addEventListener('message', this.handleWorkerMessage);
+        worker.addEventListener('error', this.handleWorkerError);
+        this.registerCleanupListeners();
+        this.worker = worker;
+        return worker;
+    }
+
+    public isActiveWorker(worker: Worker) {
+        return this.worker === worker;
+    }
+
+    public hasWorker() {
+        return this.worker !== null;
+    }
+
+    private readonly handleWorkerMessage = (event: MessageEvent<TResponse>) => {
+        this.options.handleMessage(
+            this.pendingRequests,
+            event.data,
+            this.scheduleIdleWorkerTermination,
+        );
+    };
+
+    private readonly handleWorkerError = (event: ErrorEvent) => {
+        this.resetWorker(this.options.createError(event));
+    };
+
+    private registerCleanupListeners() {
+        if (
+            this.cleanupListenersRegistered
+            || typeof window === 'undefined'
+            || typeof window.addEventListener !== 'function'
+        ) {
+            return;
+        }
+
+        this.cleanupListenersRegistered = true;
+        window.addEventListener('beforeunload', () => {
+            this.resetWorker();
+        });
+    }
+}

@@ -11,6 +11,10 @@ import {
     type TBrowserWorkerResult,
     type TPendingBrowserWorkerRequest,
 } from '@app/platform/browser-api/browser-worker-requests';
+import {
+    BrowserWorkerClient,
+    canUseBrowserWorker,
+} from '@app/platform/browser-api/browser-worker-client';
 
 interface ISerializationWorkerRequestMap {
     save: {
@@ -38,38 +42,7 @@ type TSerializationWorkerRequest<K extends TSerializationWorkerRequestType = TSe
 
 type TSerializationWorkerResult = TBrowserWorkerResult<Uint8Array | null>;
 
-const pendingWorkerRequests = new Map<number, TPendingBrowserWorkerRequest<Uint8Array | null>>();
 const SERIALIZATION_WORKER_IDLE_TTL_MS = 15_000;
-
-let serializationWorker: Worker | null = null;
-let nextRequestId = 1;
-let idleTerminateTimer: ReturnType<typeof setTimeout> | null = null;
-let cleanupListenersRegistered = false;
-
-function clearIdleTerminateTimer() {
-    if (!idleTerminateTimer) {
-        return;
-    }
-
-    clearTimeout(idleTerminateTimer);
-    idleTerminateTimer = null;
-}
-
-function scheduleIdleWorkerTermination() {
-    clearIdleTerminateTimer();
-    if (!serializationWorker || pendingWorkerRequests.size > 0) {
-        return;
-    }
-
-    idleTerminateTimer = setTimeout(() => {
-        idleTerminateTimer = null;
-        if (!serializationWorker || pendingWorkerRequests.size > 0) {
-            return;
-        }
-
-        resetWorker();
-    }, SERIALIZATION_WORKER_IDLE_TTL_MS);
-}
 
 function toTransferableUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
     // Never transfer the caller's live buffer into the worker. The save path
@@ -132,68 +105,22 @@ function buildWorkerRequestWithTransfers(
     }
 }
 
-function resetWorker(error?: Error) {
-    const pending = Array.from(pendingWorkerRequests.values());
-    pendingWorkerRequests.clear();
-    clearIdleTerminateTimer();
-
-    if (serializationWorker) {
-        serializationWorker.removeEventListener('message', handleWorkerMessage);
-        serializationWorker.removeEventListener('error', handleWorkerError);
-        serializationWorker.terminate();
-        serializationWorker = null;
-    }
-
-    if (error) {
-        pending.forEach(request => request.reject(error));
-    }
-}
-
-function handleWorkerMessage(
-    event: MessageEvent<TSerializationWorkerResult>,
-) {
-    settleBrowserWorkerResult(pendingWorkerRequests, event.data, scheduleIdleWorkerTermination);
-}
-
-function handleWorkerError(event: ErrorEvent) {
-    resetWorker(event.error instanceof Error ? event.error : new Error(event.message));
-}
-
 function canUseSerializationWorker() {
-    return typeof window !== 'undefined' && typeof Worker !== 'undefined';
+    return canUseBrowserWorker();
 }
 
-function registerCleanupListeners() {
-    if (
-        cleanupListenersRegistered
-        || typeof window === 'undefined'
-        || typeof window.addEventListener !== 'function'
-    ) {
-        return;
-    }
-
-    cleanupListenersRegistered = true;
-    window.addEventListener('beforeunload', () => {
-        resetWorker();
-    });
-}
-
-function getSerializationWorker() {
-    if (serializationWorker) {
-        clearIdleTerminateTimer();
-        return serializationWorker;
-    }
-
-    const worker = new Worker(
+const serializationWorkerClient = new BrowserWorkerClient<
+    TSerializationWorkerResult,
+    TPendingBrowserWorkerRequest<Uint8Array | null>
+>({
+    idleTtlMs: SERIALIZATION_WORKER_IDLE_TTL_MS,
+    createWorker: () => new Worker(
         new URL('./pdfSerialization.worker.ts', import.meta.url),
         { type: 'module' },
-    );
-    worker.addEventListener('message', handleWorkerMessage);
-    worker.addEventListener('error', handleWorkerError);
-    registerCleanupListeners();
-    serializationWorker = worker;
-    return worker;
-}
+    ),
+    createError: event => (event.error instanceof Error ? event.error : new Error(event.message)),
+    handleMessage: settleBrowserWorkerResult,
+});
 
 async function runDirect(
     request: TSerializationWorkerRequest,
@@ -234,11 +161,10 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
     payload: ISerializationWorkerRequestMap[K],
 ) {
     const request: TSerializationWorkerRequest<K> = {
-        id: nextRequestId,
+        id: serializationWorkerClient.createRequestId(),
         type,
         payload,
     };
-    nextRequestId += 1;
 
     if (!canUseSerializationWorker()) {
         return runDirectWithYield(request);
@@ -246,14 +172,14 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
 
     let worker: Worker;
     try {
-        worker = getSerializationWorker();
+        worker = serializationWorkerClient.getWorker();
     } catch {
         return runDirectWithYield(request);
     }
 
     return new Promise<Uint8Array | null>((resolve, reject) => {
-        clearIdleTerminateTimer();
-        pendingWorkerRequests.set(request.id, {
+        serializationWorkerClient.clearIdleTerminateTimer();
+        serializationWorkerClient.pendingRequests.set(request.id, {
             resolve,
             reject,
         });
@@ -262,12 +188,12 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
             const workerRequest = buildWorkerRequestWithTransfers(request);
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
-            pendingWorkerRequests.delete(request.id);
+            serializationWorkerClient.pendingRequests.delete(request.id);
             reject(error instanceof Error ? error : new Error(String(error)));
         }
     }).catch(async (error) => {
-        if (serializationWorker === worker) {
-            resetWorker();
+        if (serializationWorkerClient.isActiveWorker(worker)) {
+            serializationWorkerClient.resetWorker();
         }
         return runDirectWithYield(request).catch(() => {
             throw error;
