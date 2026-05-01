@@ -1,1 +1,3 @@
 pnpm run gate:commit
+pnpm run check:locales
+pnpm run check:icons:bundle

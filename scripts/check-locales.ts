@@ -5,6 +5,7 @@ import {
     type TTranslationLeaf,
 } from '@i18n-core';
 import { difference } from 'es-toolkit/array';
+import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import {
     fileURLToPath,
@@ -206,8 +207,39 @@ async function loadLocaleMessages(relativeDirectory: string): Promise<Record<str
     return Object.fromEntries(entries);
 }
 
+function listLocaleFileNames(relativeDirectory: string): string[] {
+    const absoluteDirectory = path.join(projectRoot, relativeDirectory);
+    return readdirSync(absoluteDirectory)
+        .filter((entry) => entry.endsWith('.ts') && entry !== 'index.ts')
+        .sort();
+}
+
+function assertRuntimeLocaleParity(errors: string[]) {
+    const messagesDir = 'packages/i18n-app/messages';
+    const runtimeDir = 'app/i18n/runtime-locales';
+    const messagesFiles = new Set(listLocaleFileNames(messagesDir));
+    const runtimeFiles = new Set(listLocaleFileNames(runtimeDir));
+
+    const missingRuntime = difference(Array.from(messagesFiles), Array.from(runtimeFiles)).sort();
+    const missingMessages = difference(Array.from(runtimeFiles), Array.from(messagesFiles)).sort();
+
+    for (const fileName of missingRuntime) {
+        errors.push(
+            `Runtime locale stub missing: expected ${runtimeDir}/${fileName} to mirror ${messagesDir}/${fileName}`,
+        );
+    }
+
+    for (const fileName of missingMessages) {
+        errors.push(
+            `Locale messages file missing: expected ${messagesDir}/${fileName} to mirror ${runtimeDir}/${fileName}`,
+        );
+    }
+}
+
 async function main() {
     const errors: string[] = [];
+
+    assertRuntimeLocaleParity(errors);
     const [
         desktopLocaleMessages,
         landingLocaleMessages,

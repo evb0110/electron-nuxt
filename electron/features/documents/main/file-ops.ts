@@ -358,8 +358,13 @@ export async function handleCleanupOcrTemp(
             return;
         }
 
-        if (existsSync(resolvedPath)) {
+        try {
             await unlink(resolvedPath);
+        } catch (unlinkErr) {
+            const code = (unlinkErr as NodeJS.ErrnoException | null)?.code;
+            if (code !== 'ENOENT') {
+                throw unlinkErr;
+            }
         }
     } catch (err) {
         logger.warn(`Failed to delete OCR temp file: ${getErrorMessage(err)}`);
