@@ -101,7 +101,9 @@ import {
 } from '@app/utils/pdf-view-mode';
 import {
     accumulateWheelForPageFlips,
+    createWheelPageAccumulatorState,
     type IWheelPageAccumulatorState,
+    normalizePageWheelDelta,
     resolveWheelPageFlipStepDelta,
 } from '@app/composables/pdf/usePdfSinglePageScroll';
 
@@ -132,7 +134,6 @@ const emit = defineEmits<{
 
 const { t } = useTypedI18n();
 const DJVU_BASE_MARGIN = 16;
-const WHEEL_LINE_DELTA_PX = 16;
 const WHEEL_DELTA_EPSILON = 0.01;
 const HORIZONTAL_INTENT_REJECT_RATIO = 2.5;
 const PAGE_SCROLL_EDGE_EPSILON = 1;
@@ -402,11 +403,7 @@ let loadGeneration = 0;
 let activeRenderPromise: Promise<void> | null = null;
 let queuedPageNumbers: number[] = [];
 let lastRenderedPageSet = new Set<number>();
-let wheelAccumulator: IWheelPageAccumulatorState = {
-    delta: 0,
-    direction: 0,
-    lastEventTimeMs: 0,
-};
+let wheelAccumulator: IWheelPageAccumulatorState = createWheelPageAccumulatorState();
 
 function emitLoading(nextLoading: boolean) {
     if (isLoading.value === nextLoading) {
@@ -702,7 +699,7 @@ function handleViewerWheel(event: WheelEvent) {
         return;
     }
 
-    const delta = normalizeWheelDelta(event.deltaY, event.deltaMode, container);
+    const delta = normalizePageWheelDelta(event.deltaY, event.deltaMode, container);
     if (Math.abs(delta) < WHEEL_DELTA_EPSILON) {
         return;
     }
@@ -761,25 +758,7 @@ function retryPage(pageNumber: number) {
 }
 
 function clearWheelAccumulator() {
-    wheelAccumulator = {
-        delta: 0,
-        direction: 0,
-        lastEventTimeMs: 0,
-    };
-}
-
-function normalizeWheelDelta(
-    delta: number,
-    mode: number,
-    container: HTMLElement,
-) {
-    if (mode === 1) {
-        return delta * WHEEL_LINE_DELTA_PX;
-    }
-    if (mode === 2) {
-        return delta * container.clientHeight;
-    }
-    return delta;
+    wheelAccumulator = createWheelPageAccumulatorState();
 }
 
 function syncHorizontalScrollForZoomMode() {
