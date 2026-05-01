@@ -96,12 +96,9 @@
 <script setup lang="ts">
 
 import { parsePageRangeInput } from '@app/utils/pdf-page-labels';
-import {
-    expandPageRange,
-    normalizeSelectedPageNumbers,
-} from '@app/utils/pdf-page-selection';
+import { expandPageRange } from '@app/utils/pdf-page-selection';
+import { usePdfPageScopeSelection } from '@app/composables/pdf/usePdfPageScopeSelection';
 
-type TExportScope = 'all' | 'current' | 'range' | 'selected';
 type TExportMode = 'images' | 'multipage-tiff';
 
 const open = defineModel<boolean>('open', { required: true });
@@ -117,13 +114,6 @@ const emit = defineEmits<{submit: [payload: { pageNumbers?: number[] }];}>();
 
 const { t } = useTypedI18n();
 
-const scope = ref<TExportScope>('all');
-const rangeInput = ref('');
-const rangeTouched = ref(false);
-
-const normalizedSelectedPages = computed(() =>
-    normalizeSelectedPageNumbers(props.selectedPages, props.totalPages));
-
 const dialogTitle = computed(() => (
     props.mode === 'images'
         ? t('dialogs.exportImages')
@@ -138,6 +128,20 @@ const dialogActionLabel = computed(() => (
 
 const rangePages = computed(() => {
     return expandPageRange(parsePageRangeInput(rangeInput.value, props.totalPages));
+});
+
+const {
+    scope,
+    rangeInput,
+    rangeTouched,
+    normalizedSelectedPages,
+    resetScopeForOpen,
+    resolveScopedPageNumbers,
+} = usePdfPageScopeSelection({
+    totalPages: () => props.totalPages,
+    currentPage: () => props.currentPage,
+    selectedPages: () => props.selectedPages,
+    resolveRangePages: () => rangePages.value,
 });
 
 const exportSummary = computed(() => {
@@ -166,16 +170,7 @@ function handleSubmit() {
         return;
     }
 
-    let pageNumbers: number[] | undefined;
-    if (scope.value === 'current') {
-        pageNumbers = [props.currentPage];
-    } else if (scope.value === 'selected') {
-        pageNumbers = normalizedSelectedPages.value;
-    } else if (scope.value === 'range') {
-        pageNumbers = rangePages.value ?? undefined;
-    }
-
-    emit('submit', { pageNumbers });
+    emit('submit', { pageNumbers: resolveScopedPageNumbers() });
     open.value = false;
 }
 
@@ -184,18 +179,6 @@ watch(open, (isOpen) => {
         return;
     }
 
-    scope.value = normalizedSelectedPages.value.length > 0 ? 'selected' : 'all';
-    rangeInput.value = '';
-    rangeTouched.value = false;
-});
-
-watch(normalizedSelectedPages, (pages) => {
-    if (scope.value === 'selected' && pages.length === 0) {
-        scope.value = 'all';
-    }
-});
-
-watch(scope, () => {
-    rangeTouched.value = false;
+    resetScopeForOpen();
 });
 </script>

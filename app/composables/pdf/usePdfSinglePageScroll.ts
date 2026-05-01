@@ -35,7 +35,7 @@ const SAME_DIRECTION_FLIP_COOLDOWN_MS = 180;
 export type TPageSnapAnchor = 'center' | 'top' | 'bottom';
 export type TWheelDirection = -1 | 1;
 
-interface IWheelPageAccumulatorState {
+export interface IWheelPageAccumulatorState {
     delta: number;
     direction: TWheelDirection | 0;
     lastEventTimeMs: number;
@@ -52,6 +52,7 @@ interface IAccumulateWheelForPageFlipsInput {
     direction: TWheelDirection;
     eventTimeMs: number;
     stepDelta: number;
+    maxSteps?: number;
 }
 
 export function resolveSnapAnchorForWheelDirection(
@@ -85,7 +86,7 @@ export function accumulateWheelForPageFlips(
 
     const safeStepDelta = Math.max(stepDelta, WHEEL_DELTA_EPSILON);
     const rawSteps = Math.floor(Math.abs(accumulatedDelta) / safeStepDelta);
-    const stepsToFlip = Math.min(rawSteps, MAX_PAGE_FLIPS_PER_EVENT);
+    const stepsToFlip = Math.min(rawSteps, input.maxSteps ?? MAX_PAGE_FLIPS_PER_EVENT);
     const consumedDelta = direction * stepsToFlip * safeStepDelta;
 
     return {

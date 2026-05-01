@@ -164,9 +164,7 @@
 import type { TPdfViewMode } from '@contracts/shared';
 import type { TPrintOrientation } from '@app/utils/pdf-print';
 import { parsePrintPageRangeInput } from '@app/utils/pdf-print';
-import { normalizeSelectedPageNumbers } from '@app/utils/pdf-page-selection';
-
-type TPrintScope = 'all' | 'current' | 'selected' | 'range';
+import { usePdfPageScopeSelection } from '@app/composables/pdf/usePdfPageScopeSelection';
 
 const open = defineModel<boolean>('open', { required: true });
 
@@ -188,16 +186,25 @@ const emit = defineEmits<{submit: [payload: {
 
 const { t } = useTypedI18n();
 
-const scope = ref<TPrintScope>('all');
-const rangeInput = ref('');
-const rangeTouched = ref(false);
 const viewMode = ref<TPdfViewMode>('single');
 const orientation = ref<TPrintOrientation>('auto');
 
-const normalizedSelectedPages = computed(() =>
-    normalizeSelectedPageNumbers(props.selectedPages, props.totalPages));
-
 const rangePages = computed(() => parsePrintPageRangeInput(rangeInput.value, props.totalPages));
+
+const {
+    scope,
+    rangeInput,
+    rangeTouched,
+    normalizedSelectedPages,
+    selectedPageCount,
+    resetScopeForOpen,
+    resolveScopedPageNumbers,
+} = usePdfPageScopeSelection({
+    totalPages: () => props.totalPages,
+    currentPage: () => props.currentPage,
+    selectedPages: () => props.selectedPages,
+    resolveRangePages: () => rangePages.value,
+});
 
 const layoutOptions = computed<Array<{
     value: TPdfViewMode;
@@ -235,19 +242,6 @@ const orientationOptions = computed<Array<{
     },
 ]);
 
-const selectedPageCount = computed(() => {
-    if (scope.value === 'all') {
-        return props.totalPages;
-    }
-    if (scope.value === 'current') {
-        return props.totalPages > 0 ? 1 : 0;
-    }
-    if (scope.value === 'selected') {
-        return normalizedSelectedPages.value.length;
-    }
-    return rangePages.value?.length ?? 0;
-});
-
 const printSummary = computed(() => t('print.summary', {
     count: selectedPageCount.value,
     layout: layoutOptions.value.find(option => option.value === viewMode.value)?.label ?? t('print.layoutSingle'),
@@ -266,17 +260,8 @@ function handleSubmit() {
         return;
     }
 
-    let pageNumbers: number[] | undefined;
-    if (scope.value === 'current') {
-        pageNumbers = [props.currentPage];
-    } else if (scope.value === 'selected') {
-        pageNumbers = normalizedSelectedPages.value;
-    } else if (scope.value === 'range') {
-        pageNumbers = rangePages.value ?? undefined;
-    }
-
     emit('submit', {
-        pageNumbers,
+        pageNumbers: resolveScopedPageNumbers(),
         viewMode: viewMode.value,
         orientation: orientation.value,
     });
@@ -287,20 +272,8 @@ watch(open, (isOpen) => {
         return;
     }
 
-    scope.value = normalizedSelectedPages.value.length > 0 ? 'selected' : 'all';
-    rangeInput.value = '';
-    rangeTouched.value = false;
+    resetScopeForOpen();
     viewMode.value = props.defaultViewMode;
     orientation.value = 'auto';
-});
-
-watch(normalizedSelectedPages, (pages) => {
-    if (scope.value === 'selected' && pages.length === 0) {
-        scope.value = 'all';
-    }
-});
-
-watch(scope, () => {
-    rangeTouched.value = false;
 });
 </script>
