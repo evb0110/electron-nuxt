@@ -66,8 +66,10 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
 const {
     handleAnalyzePdfConformance,
     handleFileRead,
+    handleFileReadRange,
     handleFileStat,
     handleFileWrite,
+    handleFileWriteDocx,
 } = await import('@electron/features/documents/main/file-ops');
 
 describe('fileOps path security', () => {
@@ -161,6 +163,35 @@ describe('fileOps path security', () => {
         expect(result).toEqual({ size: 123 });
     });
 
+    it('falls back to mapped working copy for original file path range reads', async () => {
+        mocks.resolveAllowedReadPath
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce('/tmp/electron-test/mapped.pdf');
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/electron-test/mapped.pdf');
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer) => {
+            buffer.set([
+                4,
+                5,
+            ]);
+            return { bytesRead: 2 };
+        });
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        const content = await handleFileReadRange({} as never, '/Users/alice/Documents/file.pdf', 10, 2);
+
+        expect(mocks.findWorkingCopyPathByOriginalPath).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf');
+        expect(mocks.open).toHaveBeenCalledWith('/tmp/electron-test/mapped.pdf', 'r');
+        expect(content).toEqual(new Uint8Array([
+            4,
+            5,
+        ]));
+        expect(close).toHaveBeenCalled();
+    });
+
     it('allows direct reads for DjVu files approved for native viewing', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(true);
@@ -205,5 +236,18 @@ describe('fileOps path security', () => {
             canIncrementalSave: true,
             saveRestrictions: [],
         });
+    });
+
+    it('rejects invalid DOCX write payloads before consuming the approved path', async () => {
+        await expect(
+            handleFileWriteDocx(
+                {} as never,
+                '/tmp/electron-test/export.docx',
+                'not-bytes',
+            ),
+        ).rejects.toThrow('Invalid data: must be a Uint8Array');
+
+        expect(mocks.consumeAllowedDocxWritePath).not.toHaveBeenCalled();
+        expect(mocks.writeFile).not.toHaveBeenCalled();
     });
 });

@@ -129,6 +129,25 @@ async function resolveReadablePath(
     return resolveDirectSourceReadPath(normalizedPath, extension, senderId);
 }
 
+async function resolveExistingReadablePdfPath(filePath: unknown) {
+    const normalizedPath = normalizeNonEmptyPath(filePath);
+    const extension = extname(normalizedPath).toLowerCase();
+    if (extension !== '.pdf') {
+        throw new Error('Invalid file type: only PDF files are allowed');
+    }
+
+    const resolvedPath = await resolveReadablePath(normalizedPath, extension);
+    if (!resolvedPath) {
+        throw new Error('Invalid file path: reads only allowed within temp directory');
+    }
+
+    if (!existsSync(resolvedPath)) {
+        throw new Error(`File not found: ${normalizedPath}`);
+    }
+
+    return resolvedPath;
+}
+
 function resolveReadablePathSync(normalizedPath: string): string | null {
     if (isAllowedReadPath(normalizedPath) && existsSync(normalizedPath)) {
         return normalizedPath;
@@ -144,6 +163,16 @@ function resolveReadablePathSync(normalizedPath: string): string | null {
     }
 
     return mappedWorkingCopyPath;
+}
+
+function normalizeIpcWritePayload(data: unknown) {
+    if (!(data instanceof Uint8Array)) {
+        throw new Error('Invalid data: must be a Uint8Array');
+    }
+    if (data.byteLength > MAX_IPC_WRITE_BYTES) {
+        throw new Error(`Invalid data: exceeds max size (${MAX_IPC_WRITE_BYTES} bytes)`);
+    }
+    return data;
 }
 
 export async function handleFileRead(event: Electron.IpcMainInvokeEvent, filePath: unknown): Promise<Uint8Array> {
@@ -172,21 +201,7 @@ export async function handleFileStat(
     _event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
 ): Promise<{ size: number }> {
-    const normalizedPath = normalizeNonEmptyPath(filePath);
-    const extension = extname(normalizedPath).toLowerCase();
-    if (extension !== '.pdf') {
-        throw new Error('Invalid file type: only PDF files are allowed');
-    }
-
-    const resolvedPath = await resolveReadablePath(normalizedPath, extension);
-    if (!resolvedPath) {
-        throw new Error('Invalid file path: reads only allowed within temp directory');
-    }
-
-    if (!existsSync(resolvedPath)) {
-        throw new Error(`File not found: ${normalizedPath}`);
-    }
-
+    const resolvedPath = await resolveExistingReadablePdfPath(filePath);
     const s = statSync(resolvedPath);
     return { size: s.size };
 }
@@ -197,21 +212,7 @@ export async function handleFileReadRange(
     offset: unknown,
     length: unknown,
 ): Promise<Uint8Array> {
-    const normalizedPath = normalizeNonEmptyPath(filePath);
-    const extension = extname(normalizedPath).toLowerCase();
-    if (extension !== '.pdf') {
-        throw new Error('Invalid file type: only PDF files are allowed');
-    }
-
-    const resolvedPath = await resolveReadablePath(normalizedPath, extension);
-    if (!resolvedPath) {
-        throw new Error('Invalid file path: reads only allowed within temp directory');
-    }
-
-    if (!existsSync(resolvedPath)) {
-        throw new Error(`File not found: ${normalizedPath}`);
-    }
-
+    const resolvedPath = await resolveExistingReadablePdfPath(filePath);
     const off = Number(offset);
     const len = Number(length);
     if (
@@ -241,19 +242,14 @@ export async function handleFileWrite(
     data: unknown,
 ): Promise<boolean> {
     const normalizedPath = normalizeNonEmptyPath(filePath);
-    if (!(data instanceof Uint8Array)) {
-        throw new Error('Invalid data: must be a Uint8Array');
-    }
-    if (data.byteLength > MAX_IPC_WRITE_BYTES) {
-        throw new Error(`Invalid data: exceeds max size (${MAX_IPC_WRITE_BYTES} bytes)`);
-    }
+    const payload = normalizeIpcWritePayload(data);
 
     const resolvedPath = await resolveAllowedWritePath(normalizedPath);
     if (!resolvedPath) {
         throw new Error('Invalid file path: writes only allowed within temp directory');
     }
 
-    await writeFile(resolvedPath, data);
+    await writeFile(resolvedPath, payload);
     return true;
 }
 
@@ -263,17 +259,12 @@ export async function handleFileWriteDocx(
     data: unknown,
 ): Promise<boolean> {
     const normalizedPath = normalizeNonEmptyPath(filePath);
-    if (!(data instanceof Uint8Array)) {
-        throw new Error('Invalid data: must be a Uint8Array');
-    }
-    if (data.byteLength > MAX_IPC_WRITE_BYTES) {
-        throw new Error(`Invalid data: exceeds max size (${MAX_IPC_WRITE_BYTES} bytes)`);
-    }
+    const payload = normalizeIpcWritePayload(data);
     if (!consumeAllowedDocxWritePath(normalizedPath)) {
         throw new Error('Invalid file path: DOCX writes must use a path from Save dialog');
     }
 
-    await writeFile(resolve(normalizedPath), data);
+    await writeFile(resolve(normalizedPath), payload);
     return true;
 }
 
@@ -326,21 +317,7 @@ export async function handleAnalyzePdfConformance(
     _event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
 ): Promise<IPdfConformanceProfile> {
-    const normalizedPath = normalizeNonEmptyPath(filePath);
-    const extension = extname(normalizedPath).toLowerCase();
-    if (extension !== '.pdf') {
-        throw new Error('Invalid file type: only PDF files are allowed');
-    }
-
-    const resolvedPath = await resolveReadablePath(normalizedPath, extension);
-    if (!resolvedPath) {
-        throw new Error('Invalid file path: reads only allowed within temp directory');
-    }
-
-    if (!existsSync(resolvedPath)) {
-        throw new Error(`File not found: ${normalizedPath}`);
-    }
-
+    const resolvedPath = await resolveExistingReadablePdfPath(filePath);
     return analyzePdfConformanceFile(resolvedPath);
 }
 
