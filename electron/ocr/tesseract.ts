@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import { ensureTessdataLanguages } from '@electron/ocr/language-models';
 import { getOcrPaths } from '@electron/ocr/paths';
 import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseract-language-config';
+import { appendTextChunkWithByteCap } from '@electron/native-tools/output-buffer';
 
 type TTesseractSpawnOptions = {threads?: number;};
 
@@ -40,33 +41,6 @@ const TESSERACT_MAX_STDERR_BYTES = (() => {
     return parsed;
 })();
 
-function appendWithCap(current: string, chunk: Buffer, maxBytes: number) {
-    if (maxBytes <= 0) {
-        return {
-            value: '',
-            truncated: true,
-        };
-    }
-
-    const nextValue = current + chunk.toString();
-    if (Buffer.byteLength(nextValue, 'utf8') <= maxBytes) {
-        return {
-            value: nextValue,
-            truncated: false,
-        };
-    }
-
-    const keepBytes = Math.max(1, Math.floor(maxBytes * 0.9));
-    let tail = nextValue;
-    while (Buffer.byteLength(tail, 'utf8') > keepBytes && tail.length > 1) {
-        tail = tail.slice(Math.floor(tail.length * 0.1));
-    }
-
-    return {
-        value: tail,
-        truncated: true,
-    };
-}
 
 function buildTesseractEnv(
     tessdata: string,
@@ -188,13 +162,13 @@ export async function runOcr(
         timeoutHandle.unref?.();
 
         proc.stdout?.on('data', (data: Buffer) => {
-            const appended = appendWithCap(stdout, data, TESSERACT_MAX_STDOUT_BYTES);
-            stdout = appended.value;
+            const appended = appendTextChunkWithByteCap(stdout, data, TESSERACT_MAX_STDOUT_BYTES);
+            stdout = appended.text;
         });
 
         proc.stderr?.on('data', (data: Buffer) => {
-            const appended = appendWithCap(stderr, data, TESSERACT_MAX_STDERR_BYTES);
-            stderr = appended.value;
+            const appended = appendTextChunkWithByteCap(stderr, data, TESSERACT_MAX_STDERR_BYTES);
+            stderr = appended.text;
             stderrTruncated = stderrTruncated || appended.truncated;
         });
 

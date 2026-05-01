@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { app } from 'electron';
 import { createLogger } from '@electron/utils/logger';
 import { resolvePlatformArchTag } from '@electron/utils/platform-arch';
+import { appendTextChunkWithByteCap } from '@electron/native-tools/output-buffer';
 
 const log = createLogger('preprocessing');
 
@@ -56,32 +57,6 @@ const PREPROCESS_VERSION_PROBE_TIMEOUT_MS = 3_000;
 
 let preprocessingValidationPromise: Promise<IPreprocessingValidationResult> | null = null;
 
-function appendWithCap(current: string, chunk: Buffer, maxBytes: number) {
-    if (maxBytes <= 0) {
-        return {
-            value: '',
-            truncated: true,
-        };
-    }
-
-    const nextValue = current + chunk.toString();
-    if (Buffer.byteLength(nextValue, 'utf8') <= maxBytes) {
-        return {
-            value: nextValue,
-            truncated: false,
-        };
-    }
-
-    const keepBytes = Math.max(1, Math.floor(maxBytes * 0.9));
-    let tail = nextValue;
-    while (Buffer.byteLength(tail, 'utf8') > keepBytes && tail.length > 1) {
-        tail = tail.slice(Math.floor(tail.length * 0.1));
-    }
-    return {
-        value: tail,
-        truncated: true,
-    };
-}
 
 /**
  * Get paths to preprocessing binaries
@@ -310,15 +285,15 @@ async function runPreprocessing(
         }
 
         proc.stdout.on('data', (data: Buffer) => {
-            const appended = appendWithCap(stdout, data, PREPROCESS_MAX_STDOUT_BYTES);
-            stdout = appended.value;
+            const appended = appendTextChunkWithByteCap(stdout, data, PREPROCESS_MAX_STDOUT_BYTES);
+            stdout = appended.text;
             stdoutTruncated = stdoutTruncated || appended.truncated;
         });
 
         proc.stderr.on('data', (data: Buffer) => {
             const msg = data.toString();
-            const appended = appendWithCap(stderr, data, PREPROCESS_MAX_STDERR_BYTES);
-            stderr = appended.value;
+            const appended = appendTextChunkWithByteCap(stderr, data, PREPROCESS_MAX_STDERR_BYTES);
+            stderr = appended.text;
             stderrTruncated = stderrTruncated || appended.truncated;
             log.debug(`stderr: ${msg.trim()}`);
         });

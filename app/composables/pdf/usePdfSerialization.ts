@@ -21,6 +21,7 @@ import {
     updateEmbeddedAnnotationTextOffThread,
 } from '@app/composables/pdf/pdfSerializationWorkerClient';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { toTransferableUint8Array } from '@app/platform/browser-api/browser-worker-transfer';
 import { readDocumentBytes } from '@app/utils/document-bytes';
 import { measureDevPerfAsync } from '@app/utils/dev-perf';
 
@@ -67,30 +68,11 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         getDeletedEmbeddedShapeStableKeys,
     } = deps;
 
-    function toOwnedUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
-        if (
-            data.buffer instanceof ArrayBuffer
-            && data.byteOffset === 0
-            && data.byteLength === data.buffer.byteLength
-        ) {
-            return data as Uint8Array<ArrayBuffer>;
-        }
-
-        if (
-            data.byteOffset === 0
-            && data.byteLength === data.buffer.byteLength
-        ) {
-            return new Uint8Array(data);
-        }
-
-        return data.slice();
-    }
-
     async function getSourcePdfData() {
-        let sourceData = pdfData.value ? toOwnedUint8Array(pdfData.value) : null;
+        let sourceData = pdfData.value ? toTransferableUint8Array(pdfData.value) : null;
         if (!sourceData && workingCopyPath.value) {
             try {
-                sourceData = toOwnedUint8Array(
+                sourceData = toTransferableUint8Array(
                     await readDocumentBytes(workingCopyPath.value),
                 );
             } catch (error) {
@@ -106,7 +88,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
     async function decodePlacedImageSource(payload: IPdfPlacedImageFinalizePayload) {
         const imageBlob = new Blob(
-            [toOwnedUint8Array(payload.bytes)],
+            [toTransferableUint8Array(payload.bytes)],
             { type: payload.mimeType || 'image/png' },
         );
 

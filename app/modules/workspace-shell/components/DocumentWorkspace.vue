@@ -547,6 +547,10 @@ import type {
 import type { TTabUpdate } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import {
+    displayProcessedCount,
+    formatEtaDuration,
+} from '@app/utils/progress-formatting';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/reader-command-surface';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
@@ -944,29 +948,6 @@ const exportOverlayIconClass = computed(() => exportOverlay.value?.state === 'su
     ? 'size-4 text-[var(--ui-success)]'
     : 'size-4 animate-spin text-muted');
 
-function displayProcessedCount(processed: number, total: number) {
-    if (total <= 0) {
-        return 0;
-    }
-
-    return Math.min(total, Math.max(0, Math.round(processed)));
-}
-
-function formatEtaDuration(etaMs: number | null) {
-    if (!Number.isFinite(etaMs) || etaMs === null || etaMs <= 0) {
-        return null;
-    }
-
-    const totalSeconds = Math.max(1, Math.round(etaMs / 1000));
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-
-    if (minutes > 0) {
-        return `${minutes}:${String(seconds).padStart(2, '0')}`;
-    }
-
-    return `0:${String(seconds).padStart(2, '0')}`;
-}
 
 function handleDeletePages() {
     const pages = selectedThumbnailPages.value;

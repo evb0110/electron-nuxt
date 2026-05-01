@@ -4,6 +4,7 @@ import {
 } from 'tesseract.js';
 import type { IOcrCapability } from '@contracts/platform-api';
 import type { IOcrLanguage } from '@contracts/shared';
+import { AVAILABLE_OCR_LANGUAGES } from '@contracts/ocr-languages';
 import {
     cacheBrowserOcrLanguageData,
     hasCachedBrowserOcrLanguage,
@@ -14,49 +15,6 @@ import {
 import { noopUnsubscribe } from '@app/platform/browser-api/common';
 import { getBrowserOcrLanguageBaseUrl } from '@app/utils/browser-ocr-config';
 import { getErrorMessage } from '@app/utils/error';
-
-const AVAILABLE_BROWSER_OCR_LANGUAGES: IOcrLanguage[] = [
-    {
-        code: 'eng',
-        script: 'latin', 
-    },
-    {
-        code: 'fra',
-        script: 'latin', 
-    },
-    {
-        code: 'deu',
-        script: 'latin', 
-    },
-    {
-        code: 'tur',
-        script: 'latin', 
-    },
-    {
-        code: 'ell',
-        script: 'greek', 
-    },
-    {
-        code: 'grc',
-        script: 'greek', 
-    },
-    {
-        code: 'kmr',
-        script: 'latin', 
-    },
-    {
-        code: 'rus',
-        script: 'cyrillic', 
-    },
-    {
-        code: 'heb',
-        script: 'rtl', 
-    },
-    {
-        code: 'syr',
-        script: 'rtl', 
-    },
-];
 
 const LARGE_PAGE_PIXELS = 10_000_000;
 const LOW_MEMORY_DEVICE_GB = 4;
@@ -212,7 +170,7 @@ async function runRecognitionJobs(
 
 export async function getBrowserOcrLanguages(): Promise<Array<IOcrLanguage & { installed: boolean }>> {
     const installedLanguages = await listInstalledBrowserOcrLanguages();
-    return AVAILABLE_BROWSER_OCR_LANGUAGES.map(language => ({
+    return AVAILABLE_OCR_LANGUAGES.map(language => ({
         ...language,
         installed: installedLanguages.has(language.code) || installedBrowserOcrLanguages.has(language.code),
     }));

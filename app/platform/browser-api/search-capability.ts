@@ -3,6 +3,11 @@ import type {
     IPdfSearchResponse,
     IPdfSearchResult,
 } from '@contracts/search';
+import {
+    buildPdfSearchExcerpt,
+    buildPdfSearchRegex,
+    findPdfSearchMatches,
+} from '@contracts/search';
 import type { ISearchCapability } from '@contracts/platform-api';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
@@ -61,54 +66,6 @@ function createBrowserSearchTooLargeError() {
 
 function isBrowserSearchCanceledError(error: unknown) {
     return error instanceof Error && error.message === 'ERR_BROWSER_SEARCH_CANCELED';
-}
-
-function escapeRegex(value: string) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function buildSearchRegex(
-    query: string,
-    options: {
-        matchCase: boolean;
-        wholeWord: boolean;
-        useRegex: boolean;
-    },
-) {
-    const basePattern = options.useRegex ? query : escapeRegex(query);
-    const pattern = options.wholeWord
-        ? `(?<![\\p{L}\\p{N}_])(?:${basePattern})(?![\\p{L}\\p{N}_])`
-        : basePattern;
-    const flags = options.matchCase ? 'gu' : 'giu';
-    return new RegExp(pattern, flags);
-}
-
-function buildSearchExcerpt(
-    text: string,
-    startOffset: number,
-    endOffset: number,
-) {
-    const excerptStart = Math.max(0, startOffset - SEARCH_EXCERPT_CONTEXT_CHARS);
-    const excerptEnd = Math.min(
-        text.length,
-        endOffset + SEARCH_EXCERPT_CONTEXT_CHARS,
-    );
-    const before = text
-        .slice(excerptStart, startOffset)
-        .replace(/\s+/g, ' ')
-        .trimStart();
-    const after = text
-        .slice(endOffset, excerptEnd)
-        .replace(/\s+/g, ' ')
-        .trimEnd();
-
-    return {
-        prefix: excerptStart > 0,
-        suffix: excerptEnd < text.length,
-        before,
-        match: text.slice(startOffset, endOffset),
-        after,
-    };
 }
 
 function isRecordCacheReady(cache: IPreparedSearchDocumentCache) {
@@ -461,7 +418,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             const { size } = await browserDocumentStore.stat(pdfPath);
             const requestId = options.requestId ?? crypto.randomUUID();
             const results: IPdfSearchResult[] = [];
-            const matcher = buildSearchRegex(query, {
+            const matcher = buildPdfSearchRegex(query, {
                 matchCase: Boolean(options.matchCase),
                 wholeWord: Boolean(options.wholeWord),
                 useRegex: Boolean(options.useRegex),
@@ -475,37 +432,19 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                         return false;
                     }
 
-                    matcher.lastIndex = 0;
-                    let match = matcher.exec(text);
-                    let pageMatchIndex = 0;
-
-                    while (match) {
-                        const matchedText = match[0] ?? '';
-                        if (matchedText.length === 0) {
-                            matcher.lastIndex = match.index + 1;
-                            match = matcher.exec(text);
-                            continue;
-                        }
-
+                    const pageMatches = findPdfSearchMatches(text, matcher);
+                    for (const match of pageMatches) {
                         results.push({
                             pageNumber,
-                            pageMatchIndex,
+                            pageMatchIndex: results.filter(result => result.pageNumber === pageNumber).length,
                             matchIndex: results.length,
-                            startOffset: match.index,
-                            endOffset: match.index + matchedText.length,
-                            excerpt: buildSearchExcerpt(
-                                text,
-                                match.index,
-                                match.index + matchedText.length,
-                            ),
+                            startOffset: match.startOffset,
+                            endOffset: match.endOffset,
+                            excerpt: buildPdfSearchExcerpt(text, match.startOffset, match.endOffset, SEARCH_EXCERPT_CONTEXT_CHARS),
                         });
-                        pageMatchIndex += 1;
-
                         if (results.length >= SEARCH_RESULT_LIMIT) {
                             return false;
                         }
-
-                        match = matcher.exec(text);
                     }
 
                     const progress: IPdfSearchProgress = {

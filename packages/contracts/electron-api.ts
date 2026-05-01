@@ -248,6 +248,26 @@ interface IOpenDjvuResult {
 export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
 export type TPdfSaveMode = 'incremental' | 'rewrite' | 'save_as_rewrite';
 
+const PDFA_PART_PATTERN = /<pdfaid:part>\s*([^<\s]+)\s*<\/pdfaid:part>/iu;
+const PDFA_CONFORMANCE_PATTERN = /<pdfaid:conformance>\s*([^<\s]+)\s*<\/pdfaid:conformance>/iu;
+const PDF_SIGNATURE_PATTERN = /\/(?:ByteRange|FT\s*\/Sig|Type\s*\/Sig)\b/u;
+
+export function detectPdfaLevelFromPdfText(text: string): string | null {
+    const partMatch = text.match(PDFA_PART_PATTERN);
+    if (!partMatch?.[1]) {
+        return null;
+    }
+
+    const conformanceMatch = text.match(PDFA_CONFORMANCE_PATTERN);
+    const conformance = conformanceMatch?.[1]?.trim().toUpperCase() ?? '';
+    return `PDF/A-${partMatch[1].trim()}${conformance}`;
+}
+
+export function hasPdfSignatureMarkersInPdfText(text: string): boolean {
+    return PDF_SIGNATURE_PATTERN.test(text);
+}
+
+
 export interface IPdfConformanceProfile {
     isSigned: boolean;
     isEncrypted: boolean;
