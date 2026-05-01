@@ -432,6 +432,31 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         );
     }
 
+    async function saveUnserializedWorkingCopy(
+        saveMode: TPdfSaveMode,
+        shapeStateDirty: boolean,
+        reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null,
+        mode: 'save' | 'save_as',
+        persist: (opts: { saveMode: TPdfSaveMode }) => Promise<IPdfPersistResult>,
+    ) {
+        const saveResult = await validateWorkingCopySnapshot(saveMode);
+        if (!saveResult) {
+            return false;
+        }
+
+        armPersistedShapeStateAdoption(shapeStateDirty);
+        const persisted = await persist({ saveMode: saveResult.saveMode });
+        if (!finalizeSuccessfulSave(persisted, {
+            resetAnnotationStorage: false,
+            markShapeStateSaved: !reloadWaiter,
+        })) {
+            return false;
+        }
+
+        trackSaveCompleted(mode, persisted, false);
+        return true;
+    }
+
     async function handleSave() {
         if (hasSaveOperationInProgress()) {
             return false;
@@ -480,18 +505,13 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     finalizedReloadWaiter = true;
                     return saveSucceeded;
                 }
-                const saveResult = await validateWorkingCopySnapshot('rewrite');
-                if (saveResult) {
-                    armPersistedShapeStateAdoption(shapeStateDirty);
-                    const persisted = await saveWorkingCopy({ saveMode: saveResult.saveMode });
-                    if (finalizeSuccessfulSave(persisted, {
-                        resetAnnotationStorage: false,
-                        markShapeStateSaved: !reloadWaiter,
-                    })) {
-                        saveSucceeded = true;
-                        trackSaveCompleted('save', persisted, false);
-                    }
-                }
+                saveSucceeded = await saveUnserializedWorkingCopy(
+                    'rewrite',
+                    shapeStateDirty,
+                    reloadWaiter,
+                    'save',
+                    saveWorkingCopy,
+                );
                 await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
                 finalizedReloadWaiter = true;
                 return saveSucceeded;
@@ -553,18 +573,13 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     saveWorkingCopyAs,
                 );
             } else {
-                const saveResult = await validateWorkingCopySnapshot('save_as_rewrite');
-                if (saveResult) {
-                    armPersistedShapeStateAdoption(shapeStateDirty);
-                    const persisted = await saveWorkingCopyAs(undefined, { saveMode: saveResult.saveMode });
-                    if (finalizeSuccessfulSave(persisted, {
-                        resetAnnotationStorage: false,
-                        markShapeStateSaved: !reloadWaiter,
-                    })) {
-                        saveSucceeded = true;
-                        trackSaveCompleted('save_as', persisted, false);
-                    }
-                }
+                saveSucceeded = await saveUnserializedWorkingCopy(
+                    'save_as_rewrite',
+                    shapeStateDirty,
+                    reloadWaiter,
+                    'save_as',
+                    opts => saveWorkingCopyAs(undefined, opts),
+                );
             }
             await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
             finalizedReloadWaiter = true;
