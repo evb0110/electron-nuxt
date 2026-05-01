@@ -1,7 +1,6 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import type { IScrollSnapshot } from '@app/types/pdf';
-import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
 import {
     WHEEL_DETAIL_LOG_THROTTLE_MS,
     WHEEL_ZOOM_GESTURE_GRACE_MS,
@@ -10,7 +9,7 @@ import {
     ZOOM_VIEWPORT_ANCHOR_MAX_AGE_MS,
 } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerWheelZoom.constants';
 import { usePdfViewerZoomInteractionLock } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerZoomInteractionLock';
-import type { IViewerStateForLog } from '@app/modules/pdf-viewer-runtime/composables/pdfViewerZoomTypes';
+import type { IZoomVirtualizationLogOptions } from '@app/modules/pdf-viewer-runtime/composables/pdfViewerZoomTypes';
 
 interface IZoomViewportAnchorIntent {
     id: number;
@@ -44,21 +43,9 @@ interface IImmediateZoomRestoreIntent {
     capturedAtMs: number;
 }
 
-interface IUsePdfViewerWheelZoomSessionOptions {
+interface IUsePdfViewerWheelZoomSessionOptions extends IZoomVirtualizationLogOptions {
     viewerContainer: Ref<HTMLElement | null>;
     effectiveScale: Ref<number>;
-    currentPage: Ref<number>;
-    visibleRange: Ref<{
-        start: number;
-        end: number;
-    }>;
-    virtualizedContinuousMode: Ref<boolean>;
-    virtualWindowStart: Ref<number>;
-    virtualWindowEnd: Ref<number>;
-    topVirtualSpacerStyle: Ref<Record<string, string> | null>;
-    bottomVirtualSpacerStyle: Ref<Record<string, string> | null>;
-    zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
-    summarizeViewerStateForLog: () => IViewerStateForLog | null;
 }
 
 export function usePdfViewerWheelZoomSession(options: IUsePdfViewerWheelZoomSessionOptions) {
