@@ -253,13 +253,240 @@ function canResolveExplicitRefOnPage(
     return false;
 }
 
+type TPdfPage = ReturnType<PDFDocument['getPages']>[number];
+
+interface IAnnotationCandidate {
+    ref: PDFRef;
+    dict: PDFDict;
+    subtype: string;
+}
+
+interface ICommentMatchTarget {
+    subtype: string;
+    text: string;
+    author: string;
+    rect: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+    } | null;
+    pageView: number[];
+    pageRotation: ReturnType<typeof normalizePageRotation>;
+}
+
+interface IScoredMatch {
+    ref: PDFRef;
+    score: number;
+}
+
+interface IScoringResult {
+    bestMatch: IScoredMatch | null;
+    secondBestScore: number;
+    noteLikeRefs: PDFRef[];
+}
+
+function collectPageAnnotationCandidates(doc: PDFDocument, annots: PDFArray): IAnnotationCandidate[] {
+    const candidates: IAnnotationCandidate[] = [];
+    for (let index = 0; index < annots.size(); index += 1) {
+        const value = annots.get(index);
+        if (!(value instanceof PDFRef)) {
+            continue;
+        }
+        const dict = doc.context.lookupMaybe(value, PDFDict);
+        if (!dict) {
+            continue;
+        }
+        const subtype = normalizeAnnotationSubtypeToken(getPdfDictSubtype(dict));
+        if (subtype === 'popup') {
+            continue;
+        }
+        candidates.push({
+            ref: value,
+            dict,
+            subtype,
+        });
+    }
+    return candidates;
+}
+
+function buildCommentMatchTarget(comment: IAnnotationCommentSummary, page: TPdfPage): ICommentMatchTarget | null {
+    const pageView = resolvePdfPageView(page);
+    if (!pageView) {
+        return null;
+    }
+    return {
+        subtype: normalizeAnnotationSubtypeToken(comment.subtype),
+        text: normalizeComparableText(comment.text),
+        author: normalizeComparableText(comment.author),
+        rect: comment.markerRect
+            ? {
+                left: clamp(comment.markerRect.left, 0, 1),
+                top: clamp(comment.markerRect.top, 0, 1),
+                width: clamp(comment.markerRect.width, 0, 1),
+                height: clamp(comment.markerRect.height, 0, 1),
+            }
+            : null,
+        pageView,
+        pageRotation: normalizePageRotation(page.getRotation().angle),
+    };
+}
+
+function scoreSubtypeMatch(commentSubtype: string, candidateSubtype: string) {
+    if (!commentSubtype) {
+        return 0;
+    }
+    if (commentSubtype === candidateSubtype) {
+        return 5;
+    }
+    if (
+        (commentSubtype === 'text' && candidateSubtype === 'freetext')
+        || (commentSubtype === 'freetext' && candidateSubtype === 'text')
+    ) {
+        return 2;
+    }
+    return -1.5;
+}
+
+function scoreTextMatch(commentText: string, candidateText: string) {
+    if (commentText) {
+        if (candidateText === commentText) {
+            return 6;
+        }
+        if (
+            candidateText.length > 0
+            && (candidateText.includes(commentText) || commentText.includes(candidateText))
+        ) {
+            return 3;
+        }
+        return -1;
+    }
+    if (!candidateText) {
+        return 0.5;
+    }
+    return 0;
+}
+
+function scoreGeometryMatch(
+    commentRect: ICommentMatchTarget['rect'],
+    candidateRect: ReturnType<typeof toMarkerRectFromPdfRect>,
+) {
+    const rectIoU = markerRectIoU(commentRect, candidateRect);
+    if (rectIoU > 0) {
+        return rectIoU * 8;
+    }
+    if (commentRect) {
+        return -0.2;
+    }
+    return 0;
+}
+
+function scoreCandidateAgainstTarget(
+    doc: PDFDocument,
+    candidate: IAnnotationCandidate,
+    target: ICommentMatchTarget,
+) {
+    const popupDict = getPdfPopupDict(doc, candidate.dict);
+    const candidateText = normalizeComparableText(
+        getPdfDictContents(candidate.dict) || getPdfDictContents(popupDict),
+    );
+    const candidateAuthor = normalizeComparableText(
+        getPdfDictAuthor(candidate.dict) || getPdfDictAuthor(popupDict),
+    );
+    const candidateRect = toMarkerRectFromPdfRect(
+        readPdfRectFromDict(candidate.dict),
+        target.pageView,
+        target.pageRotation,
+    );
+
+    let score = scoreSubtypeMatch(target.subtype, candidate.subtype);
+    score += scoreTextMatch(target.text, candidateText);
+    if (target.author && candidateAuthor && target.author === candidateAuthor) {
+        score += 1;
+    }
+    score += scoreGeometryMatch(target.rect, candidateRect);
+    return score;
+}
+
+function selectScoredAnnotationMatch(
+    doc: PDFDocument,
+    candidates: IAnnotationCandidate[],
+    target: ICommentMatchTarget,
+): IScoringResult {
+    let bestMatch: IScoredMatch | null = null;
+    let secondBestScore = Number.NEGATIVE_INFINITY;
+    const noteLikeRefs: PDFRef[] = [];
+
+    for (const candidate of candidates) {
+        if (isNoteLikeAnnotationSubtype(candidate.subtype)) {
+            noteLikeRefs.push(candidate.ref);
+        }
+
+        const score = scoreCandidateAgainstTarget(doc, candidate, target);
+
+        if (!bestMatch || score > bestMatch.score) {
+            if (bestMatch) {
+                secondBestScore = Math.max(secondBestScore, bestMatch.score);
+            }
+            bestMatch = {
+                ref: candidate.ref,
+                score,
+            };
+            continue;
+        }
+        secondBestScore = Math.max(secondBestScore, score);
+    }
+
+    return {
+        bestMatch,
+        secondBestScore,
+        noteLikeRefs,
+    };
+}
+
+function selectFinalRefFromScoredMatch(
+    comment: IAnnotationCommentSummary,
+    scoring: IScoringResult,
+) {
+    const {
+        bestMatch,
+        secondBestScore,
+        noteLikeRefs,
+    } = scoring;
+
+    if (bestMatch && bestMatch.score >= 2) {
+        return bestMatch.ref;
+    }
+
+    const isEditorWithoutExplicitRef = comment.source === 'editor' && !comment.annotationId;
+    if (!isEditorWithoutExplicitRef) {
+        return null;
+    }
+
+    if (noteLikeRefs.length === 1) {
+        return noteLikeRefs[0] ?? null;
+    }
+
+    if (
+        bestMatch
+        && bestMatch.score >= 0.5
+        && (
+            secondBestScore === Number.NEGATIVE_INFINITY
+            || (bestMatch.score - secondBestScore) >= 1.5
+        )
+    ) {
+        return bestMatch.ref;
+    }
+
+    return null;
+}
+
 export function resolveCommentPdfRefInDocument(doc: PDFDocument, comment: IAnnotationCommentSummary) {
     const pageIndex = clamp(comment.pageIndex, 0, doc.getPageCount() - 1);
     const page = doc.getPages()[pageIndex];
     if (!page) {
         return null;
     }
-    const annots = page.node.Annots();
 
     const explicitRef = resolveCommentPdfRef(comment);
     if (explicitRef && canResolveExplicitRefOnPage(doc, page, explicitRef)) {
@@ -271,140 +498,17 @@ export function resolveCommentPdfRefInDocument(doc: PDFDocument, comment: IAnnot
         return byGeneratedId;
     }
 
+    const annots = page.node.Annots();
     if (!(annots instanceof PDFArray) || annots.size() === 0) {
         return null;
     }
 
-    const pageView = resolvePdfPageView(page);
-    if (!pageView) {
+    const target = buildCommentMatchTarget(comment, page);
+    if (!target) {
         return null;
     }
-    const pageRotation = normalizePageRotation(page.getRotation().angle);
-    const commentSubtype = normalizeAnnotationSubtypeToken(comment.subtype);
-    const commentText = normalizeComparableText(comment.text);
-    const commentAuthor = normalizeComparableText(comment.author);
-    const commentRect = comment.markerRect
-        ? {
-            left: clamp(comment.markerRect.left, 0, 1),
-            top: clamp(comment.markerRect.top, 0, 1),
-            width: clamp(comment.markerRect.width, 0, 1),
-            height: clamp(comment.markerRect.height, 0, 1),
-        }
-        : null;
 
-    let bestMatch: {
-        ref: PDFRef;
-        score: number;
-    } | null = null;
-    let secondBestScore = Number.NEGATIVE_INFINITY;
-    const noteLikeRefs: PDFRef[] = [];
-
-    for (let index = 0; index < annots.size(); index += 1) {
-        const value = annots.get(index);
-        if (!(value instanceof PDFRef)) {
-            continue;
-        }
-
-        const dict = doc.context.lookupMaybe(value, PDFDict);
-        if (!dict) {
-            continue;
-        }
-
-        const subtype = normalizeAnnotationSubtypeToken(getPdfDictSubtype(dict));
-        if (subtype === 'popup') {
-            continue;
-        }
-        if (isNoteLikeAnnotationSubtype(subtype)) {
-            noteLikeRefs.push(value);
-        }
-
-        const popupDict = getPdfPopupDict(doc, dict);
-        const candidateText = normalizeComparableText(
-            getPdfDictContents(dict) || getPdfDictContents(popupDict),
-        );
-        const candidateAuthor = normalizeComparableText(
-            getPdfDictAuthor(dict) || getPdfDictAuthor(popupDict),
-        );
-        const candidateRect = toMarkerRectFromPdfRect(
-            readPdfRectFromDict(dict),
-            pageView,
-            pageRotation,
-        );
-
-        let score = 0;
-        if (commentSubtype) {
-            if (commentSubtype === subtype) {
-                score += 5;
-            } else if (
-                (commentSubtype === 'text' && subtype === 'freetext')
-                || (commentSubtype === 'freetext' && subtype === 'text')
-            ) {
-                score += 2;
-            } else {
-                score -= 1.5;
-            }
-        }
-
-        if (commentText) {
-            if (candidateText === commentText) {
-                score += 6;
-            } else if (
-                candidateText.length > 0
-                && (candidateText.includes(commentText) || commentText.includes(candidateText))
-            ) {
-                score += 3;
-            } else {
-                score -= 1;
-            }
-        } else if (!candidateText) {
-            score += 0.5;
-        }
-
-        if (commentAuthor && candidateAuthor && commentAuthor === candidateAuthor) {
-            score += 1;
-        }
-
-        const rectIoU = markerRectIoU(commentRect, candidateRect);
-        if (rectIoU > 0) {
-            score += rectIoU * 8;
-        } else if (commentRect) {
-            score -= 0.2;
-        }
-
-        if (!bestMatch || score > bestMatch.score) {
-            if (bestMatch) {
-                secondBestScore = Math.max(secondBestScore, bestMatch.score);
-            }
-            bestMatch = {
-                ref: value,
-                score,
-            };
-            continue;
-        }
-        secondBestScore = Math.max(secondBestScore, score);
-    }
-
-    if (bestMatch && bestMatch.score >= 2) {
-        return bestMatch.ref;
-    }
-
-    const isEditorWithoutExplicitRef = comment.source === 'editor' && !comment.annotationId;
-    if (isEditorWithoutExplicitRef) {
-        if (noteLikeRefs.length === 1) {
-            return noteLikeRefs[0] ?? null;
-        }
-
-        if (
-            bestMatch
-            && bestMatch.score >= 0.5
-            && (
-                secondBestScore === Number.NEGATIVE_INFINITY
-                || (bestMatch.score - secondBestScore) >= 1.5
-            )
-        ) {
-            return bestMatch.ref;
-        }
-    }
-
-    return null;
+    const candidates = collectPageAnnotationCandidates(doc, annots);
+    const scoring = selectScoredAnnotationMatch(doc, candidates, target);
+    return selectFinalRefFromScoredMatch(comment, scoring);
 }

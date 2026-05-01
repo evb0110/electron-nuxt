@@ -57,6 +57,19 @@ interface IBuildSearchIndexOptions {
     signal?: AbortSignal;
 }
 
+interface IExtractedPageText {
+    pageNumber: number;
+    text: string;
+}
+
+interface IPageDataInput {
+    pageNumber: number;
+    words: IOcrWord[];
+    text?: string;
+    pageWidth?: number;
+    pageHeight?: number;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
@@ -65,6 +78,10 @@ function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
     }
+}
+
+function isPositiveInteger(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
 /**
@@ -182,19 +199,255 @@ function parseSearchIndexPayload(payload: unknown): IPdfSearchIndex | null {
     };
 }
 
+function pagesFromOcrTexts(
+    ocrTexts: Map<number, string>,
+    signal?: AbortSignal,
+): IPageIndex[] {
+    const pages: IPageIndex[] = [];
+    for (const [
+        pageNumber,
+        text,
+    ] of ocrTexts) {
+        throwIfAborted(signal);
+        pages.push({
+            pageNumber,
+            text,
+        });
+    }
+    pages.sort((a, b) => a.pageNumber - b.pageNumber);
+    return pages;
+}
+
+async function persistIndex(
+    pdfPath: string,
+    index: IPdfSearchIndex,
+    signal?: AbortSignal,
+): Promise<void> {
+    throwIfAborted(signal);
+    const indexPath = getIndexPath(pdfPath);
+    await writeFile(indexPath, JSON.stringify(index), 'utf-8');
+    log.debug(`Index saved successfully: ${indexPath}`);
+}
+
+async function persistIndexBestEffort(
+    pdfPath: string,
+    index: IPdfSearchIndex,
+    signal?: AbortSignal,
+): Promise<void> {
+    try {
+        await persistIndex(pdfPath, index, signal);
+    } catch (err) {
+        if (isAbortError(err)) {
+            throw err;
+        }
+        const errMsg = getErrorMessage(err);
+        log.debug(`Warning: Failed to save OCR-based index: ${errMsg}`);
+    }
+}
+
+async function buildIndexFromOcrTexts(
+    pdfPath: string,
+    ocrTexts: Map<number, string>,
+    expectedCount: number | undefined,
+    signal?: AbortSignal,
+): Promise<IPdfSearchIndex> {
+    log.debug(`Using OCR v2 index with ${ocrTexts.size} pages`);
+    const pages = pagesFromOcrTexts(ocrTexts, signal);
+
+    const index: IPdfSearchIndex = {
+        pdfPath,
+        createdAt: Date.now(),
+        pages,
+        pageCount: isPositiveInteger(expectedCount) ? expectedCount : pages.length,
+    };
+
+    await persistIndexBestEffort(pdfPath, index, signal);
+    return index;
+}
+
+function seedFromExistingIndex(
+    pagesByNumber: Map<number, IPageIndex>,
+    existing: IPdfSearchIndex | null,
+): void {
+    if (!existing?.pages?.length) {
+        return;
+    }
+    existing.pages.forEach((page) => {
+        pagesByNumber.set(page.pageNumber, {
+            pageNumber: page.pageNumber,
+            text: page.text ?? '',
+            pageWidth: page.pageWidth,
+            pageHeight: page.pageHeight,
+            words: STORE_WORD_BOXES ? page.words : undefined,
+        });
+    });
+}
+
+function shouldExtractPdfText(
+    pagesByNumber: Map<number, IPageIndex>,
+    existing: IPdfSearchIndex | null,
+    expectedCount: number | undefined,
+): boolean {
+    if (!existing) {
+        return true;
+    }
+    const hasAnyText = Array.from(pagesByNumber.values()).some(p => (p.text ?? '').length > 0);
+    if (!hasAnyText) {
+        return true;
+    }
+    if (isPositiveInteger(expectedCount) && pagesByNumber.size < expectedCount) {
+        return true;
+    }
+    return false;
+}
+
+function applyExtractedTexts(
+    pagesByNumber: Map<number, IPageIndex>,
+    pageTexts: IExtractedPageText[],
+    signal?: AbortSignal,
+): void {
+    for (const pt of pageTexts) {
+        throwIfAborted(signal);
+        const entry = pagesByNumber.get(pt.pageNumber);
+        if (!entry) {
+            pagesByNumber.set(pt.pageNumber, {
+                pageNumber: pt.pageNumber,
+                text: pt.text,
+                words: undefined,
+            });
+            continue;
+        }
+
+        if (!entry.text && pt.text) {
+            entry.text = pt.text;
+        }
+    }
+}
+
+async function seedFromPdfjs(
+    pdfPath: string,
+    pagesByNumber: Map<number, IPageIndex>,
+    expectedCount: number | undefined,
+    signal?: AbortSignal,
+): Promise<boolean> {
+    try {
+        log.debug(`Seeding index with pdfjs-dist (pageCount=${expectedCount ?? 'unknown'})`);
+        const pageTexts = await extractTextWithPdfjs(pdfPath, { signal });
+        applyExtractedTexts(pagesByNumber, pageTexts, signal);
+        return pageTexts.some(pt => pt.text.length > 0);
+    } catch (pdfjsErr) {
+        if (isAbortError(pdfjsErr)) {
+            throw pdfjsErr;
+        }
+        const errMsg = getErrorMessage(pdfjsErr);
+        log.warn(`Failed to extract text with pdfjs-dist: ${errMsg}`);
+        return false;
+    }
+}
+
+async function seedFromPdftotext(
+    pdfPath: string,
+    pagesByNumber: Map<number, IPageIndex>,
+    expectedCount: number | undefined,
+    signal?: AbortSignal,
+): Promise<void> {
+    try {
+        log.debug(`Falling back to pdftotext (pageCount=${expectedCount ?? 'unknown'})`);
+        const pageTexts = await extractTextFromPdf(pdfPath, {
+            pageCount: expectedCount,
+            signal,
+        });
+        applyExtractedTexts(pagesByNumber, pageTexts, signal);
+    } catch (pdfTextErr) {
+        if (isAbortError(pdfTextErr)) {
+            throw pdfTextErr;
+        }
+        const errMsg = getErrorMessage(pdfTextErr);
+        log.warn(`Failed to extract text with pdftotext: ${errMsg}`);
+    }
+}
+
+async function seedPagesFromPdfText(
+    pdfPath: string,
+    pagesByNumber: Map<number, IPageIndex>,
+    expectedCount: number | undefined,
+    signal?: AbortSignal,
+): Promise<void> {
+    const seeded = await seedFromPdfjs(pdfPath, pagesByNumber, expectedCount, signal);
+    if (seeded) {
+        return;
+    }
+    await seedFromPdftotext(pdfPath, pagesByNumber, expectedCount, signal);
+}
+
+function padMissingPages(
+    pagesByNumber: Map<number, IPageIndex>,
+    expectedCount: number | undefined,
+    signal?: AbortSignal,
+): void {
+    if (!isPositiveInteger(expectedCount)) {
+        return;
+    }
+    for (let pageNumber = 1; pageNumber <= expectedCount; pageNumber += 1) {
+        throwIfAborted(signal);
+        if (!pagesByNumber.has(pageNumber)) {
+            pagesByNumber.set(pageNumber, {
+                pageNumber,
+                text: '',
+                words: undefined,
+            });
+        }
+    }
+}
+
+function mergePageData(
+    pagesByNumber: Map<number, IPageIndex>,
+    pageData: IPageDataInput[] | undefined,
+    signal?: AbortSignal,
+): void {
+    if (!pageData?.length) {
+        return;
+    }
+    pageData.forEach((page) => {
+        throwIfAborted(signal);
+        const textFromOcr = page.text?.trim() ?? '';
+        const textFromWords = textFromOcr
+            ? ''
+            : page.words.map(w => w.text).join(' ').trim();
+        const text = textFromOcr || textFromWords;
+        const previous = pagesByNumber.get(page.pageNumber);
+        pagesByNumber.set(page.pageNumber, {
+            pageNumber: page.pageNumber,
+            text: text || previous?.text || '',
+            pageWidth: page.pageWidth,
+            pageHeight: page.pageHeight,
+            words: STORE_WORD_BOXES ? page.words : undefined,
+        });
+    });
+}
+
+function assembleIndex(
+    pdfPath: string,
+    pagesByNumber: Map<number, IPageIndex>,
+    expectedCount: number | undefined,
+    existing: IPdfSearchIndex | null,
+): IPdfSearchIndex {
+    const pages = Array.from(pagesByNumber.values()).sort((a, b) => a.pageNumber - b.pageNumber);
+    return {
+        pdfPath,
+        createdAt: Date.now(),
+        pages,
+        pageCount: isPositiveInteger(expectedCount) ? expectedCount : existing?.pageCount,
+    };
+}
+
 /**
  * Build and save a search index from OCR page data
  * Index is saved as {pdfPath}.index.json for quick access on future searches
  */
 export async function buildSearchIndex(
     pdfPath: string,
-    pageData: Array<{
-        pageNumber: number;
-        words: IOcrWord[];
-        text?: string;
-        pageWidth?: number;
-        pageHeight?: number;
-    }>,
+    pageData: IPageDataInput[],
     options: IBuildSearchIndexOptions = {},
 ): Promise<IPdfSearchIndex> {
     log.debug(`Building search index for ${pdfPath}`);
@@ -209,189 +462,37 @@ export async function buildSearchIndex(
     // as it matches the text layer that PDF.js will display
     const ocrTexts = await loadOcrIndexText(pdfPath, signal);
     if (ocrTexts && ocrTexts.size > 0) {
-        log.debug(`Using OCR v2 index with ${ocrTexts.size} pages`);
-        const pages: IPageIndex[] = [];
-        for (const [
-            pageNum,
-            text,
-        ] of ocrTexts) {
-            throwIfAborted(signal);
-            pages.push({
-                pageNumber: pageNum,
-                text,
-            });
-        }
-        pages.sort((a, b) => a.pageNumber - b.pageNumber);
-
-        const index: IPdfSearchIndex = {
-            pdfPath,
-            createdAt: Date.now(),
-            pages,
-            pageCount: typeof expectedCount === 'number' && expectedCount > 0
-                ? expectedCount
-                : pages.length,
-        };
-
-        // Save index for future use
-        const indexPath = getIndexPath(pdfPath);
-        try {
-            throwIfAborted(signal);
-            await writeFile(indexPath, JSON.stringify(index), 'utf-8');
-            log.debug(`Saved OCR-based index to ${indexPath}`);
-        } catch (err) {
-            if (isAbortError(err)) {
-                throw err;
-            }
-            const errMsg = getErrorMessage(err);
-            log.debug(`Warning: Failed to save OCR-based index: ${errMsg}`);
-        }
-
-        return index;
+        return buildIndexFromOcrTexts(pdfPath, ocrTexts, expectedCount, signal);
     }
 
-    // Fall back to existing index or pdftotext
     const pagesByNumber = new Map<number, IPageIndex>();
     throwIfAborted(signal);
     const existing = await loadSearchIndex(pdfPath);
     throwIfAborted(signal);
 
-    if (existing?.pages?.length) {
-        existing.pages.forEach((page) => {
-            pagesByNumber.set(page.pageNumber, {
-                pageNumber: page.pageNumber,
-                text: page.text ?? '',
-                pageWidth: page.pageWidth,
-                pageHeight: page.pageHeight,
-                words: STORE_WORD_BOXES ? page.words : undefined,
-            });
-        });
+    seedFromExistingIndex(pagesByNumber, existing);
+
+    if (shouldExtractPdfText(pagesByNumber, existing, expectedCount)) {
+        await seedPagesFromPdfText(pdfPath, pagesByNumber, expectedCount, signal);
     }
 
-    const hasAnyText = Array.from(pagesByNumber.values()).some(p => (p.text ?? '').length > 0);
-    const needsPdfText = !existing
-        || !hasAnyText
-        || (typeof expectedCount === 'number' && expectedCount > 0 && pagesByNumber.size < expectedCount);
-
-    if (needsPdfText) {
-        let seeded = false;
-
-        // Primary: pdfjs-dist — matches the text layer exactly
-        try {
-            log.debug(`Seeding index with pdfjs-dist (pageCount=${expectedCount ?? 'unknown'})`);
-            const pageTexts = await extractTextWithPdfjs(pdfPath, { signal });
-            for (const pt of pageTexts) {
-                throwIfAborted(signal);
-                const entry = pagesByNumber.get(pt.pageNumber);
-                if (!entry) {
-                    pagesByNumber.set(pt.pageNumber, {
-                        pageNumber: pt.pageNumber,
-                        text: pt.text,
-                        words: undefined,
-                    });
-                    continue;
-                }
-
-                if (!entry.text && pt.text) {
-                    entry.text = pt.text;
-                }
-            }
-            seeded = pageTexts.some(pt => pt.text.length > 0);
-        } catch (pdfjsErr) {
-            if (isAbortError(pdfjsErr)) {
-                throw pdfjsErr;
-            }
-            const errMsg = getErrorMessage(pdfjsErr);
-            log.warn(`Failed to extract text with pdfjs-dist: ${errMsg}`);
-        }
-
-        // Fallback: pdftotext (Poppler CLI) for edge cases
-        if (!seeded) {
-            try {
-                log.debug(`Falling back to pdftotext (pageCount=${expectedCount ?? 'unknown'})`);
-                const pageTexts = await extractTextFromPdf(pdfPath, {
-                    pageCount: expectedCount,
-                    signal,
-                });
-                for (const pt of pageTexts) {
-                    throwIfAborted(signal);
-                    const entry = pagesByNumber.get(pt.pageNumber);
-                    if (!entry) {
-                        pagesByNumber.set(pt.pageNumber, {
-                            pageNumber: pt.pageNumber,
-                            text: pt.text,
-                            words: undefined,
-                        });
-                        continue;
-                    }
-
-                    if (!entry.text && pt.text) {
-                        entry.text = pt.text;
-                    }
-                }
-            } catch (pdfTextErr) {
-                if (isAbortError(pdfTextErr)) {
-                    throw pdfTextErr;
-                }
-                const errMsg = getErrorMessage(pdfTextErr);
-                log.warn(`Failed to extract text with pdftotext: ${errMsg}`);
-            }
-        }
-    }
-
-    if (typeof expectedCount === 'number' && expectedCount > 0) {
-        for (let pageNumber = 1; pageNumber <= expectedCount; pageNumber += 1) {
-            throwIfAborted(signal);
-            if (!pagesByNumber.has(pageNumber)) {
-                pagesByNumber.set(pageNumber, {
-                    pageNumber,
-                    text: '',
-                    words: undefined,
-                });
-            }
-        }
-    }
-
-    if (pageData?.length) {
-        pageData.forEach((page) => {
-            throwIfAborted(signal);
-            const textFromOcr = page.text?.trim() ?? '';
-            const textFromWords = textFromOcr
-                ? ''
-                : page.words.map(w => w.text).join(' ').trim();
-            const text = textFromOcr || textFromWords;
-            const previous = pagesByNumber.get(page.pageNumber);
-            pagesByNumber.set(page.pageNumber, {
-                pageNumber: page.pageNumber,
-                text: text || previous?.text || '',
-                pageWidth: page.pageWidth,
-                pageHeight: page.pageHeight,
-                words: STORE_WORD_BOXES ? page.words : undefined,
-            });
-        });
-    }
+    padMissingPages(pagesByNumber, expectedCount, signal);
+    mergePageData(pagesByNumber, pageData, signal);
 
     if (pagesByNumber.size === 0) {
         throw new Error('No pages available to build search index');
     }
 
-    const pages: IPageIndex[] = Array.from(pagesByNumber.values()).sort((a, b) => a.pageNumber - b.pageNumber);
+    const index = assembleIndex(pdfPath, pagesByNumber, expectedCount, existing);
 
-    const index: IPdfSearchIndex = {
-        pdfPath,
-        createdAt: Date.now(),
-        pages,
-        pageCount: typeof expectedCount === 'number' && expectedCount > 0 ? expectedCount : existing?.pageCount,
-    };
-
-    const indexPath = getIndexPath(pdfPath);
-    log.debug(`Saving index to ${indexPath}`);
-
+    log.debug(`Saving index to ${getIndexPath(pdfPath)}`);
     try {
-        throwIfAborted(signal);
-        await writeFile(indexPath, JSON.stringify(index), 'utf-8');
-        log.debug(`Index saved successfully: ${indexPath}`);
+        await persistIndex(pdfPath, index, signal);
         return index;
     } catch (err) {
+        if (isAbortError(err)) {
+            throw err;
+        }
         const errMsg = getErrorMessage(err);
         log.debug(`Failed to save index: ${errMsg}`);
         throw err;

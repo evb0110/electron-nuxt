@@ -435,6 +435,83 @@ function isTrustedWebContentsSender(
     return true;
 }
 
+type TRendererLogLevel = IRendererLogEntry['level'];
+
+interface INormalizedRendererLogEntry {
+    level: TRendererLogLevel;
+    section: string;
+    message: string;
+    timestamp: string;
+    serializedData: string;
+}
+
+const RENDERER_LOG_TIMESTAMP_MAX_CHARS = 128;
+const RENDERER_LOG_LEVELS = [
+    'debug',
+    'info',
+    'warn',
+    'error',
+] as const satisfies readonly TRendererLogLevel[];
+
+function readRendererLogField(payload: unknown, key: string): unknown {
+    if (!isRecord(payload)) {
+        return undefined;
+    }
+    return payload[key];
+}
+
+function isRendererLogLevel(value: unknown): value is TRendererLogLevel {
+    return typeof value === 'string'
+        && (RENDERER_LOG_LEVELS as readonly string[]).includes(value);
+}
+
+function normalizeRendererLogLevel(value: unknown): TRendererLogLevel {
+    return isRendererLogLevel(value) ? value : 'info';
+}
+
+function normalizeRendererLogSection(value: unknown) {
+    return clampString(value, RENDERER_LOG_MAX_SECTION_CHARS, 'unknown');
+}
+
+function normalizeRendererLogMessage(value: unknown) {
+    return clampString(value, RENDERER_LOG_MAX_MESSAGE_CHARS, '<empty>');
+}
+
+function normalizeRendererLogTimestamp(value: unknown) {
+    return clampString(value, RENDERER_LOG_TIMESTAMP_MAX_CHARS, new Date().toISOString());
+}
+
+export function normalizeRendererLogEntry(payload: unknown): INormalizedRendererLogEntry {
+    return {
+        level: normalizeRendererLogLevel(readRendererLogField(payload, 'level')),
+        section: normalizeRendererLogSection(readRendererLogField(payload, 'section')),
+        message: normalizeRendererLogMessage(readRendererLogField(payload, 'message')),
+        timestamp: normalizeRendererLogTimestamp(readRendererLogField(payload, 'timestamp')),
+        serializedData: stringifyRendererLogData(readRendererLogField(payload, 'data')),
+    };
+}
+
+function formatRendererLogLine(webContentsId: number, entry: INormalizedRendererLogEntry) {
+    return `[renderer:${webContentsId}] [${entry.timestamp}] [${entry.section}] ${entry.message}`
+        + entry.serializedData;
+}
+
+function dispatchRendererLogLine(level: TRendererLogLevel, line: string) {
+    if (level === 'debug') {
+        rendererLogger.debug(line);
+        return;
+    }
+    if (level === 'warn') {
+        rendererLogger.warn(line);
+        return;
+    }
+    if (level === 'error') {
+        rendererLogger.error(line);
+        return;
+    }
+    rendererLogger.info(line);
+}
+
 function handleRendererLog(event: Electron.IpcMainEvent, payload: IRendererLogEntry) {
     const webContentsId = event.sender.id;
     if (!isTrustedWebContentsSender(event.sender, event.senderFrame, 'renderer:log')) {
@@ -444,30 +521,9 @@ function handleRendererLog(event: Electron.IpcMainEvent, payload: IRendererLogEn
     if (!consumeRendererLogRateToken(webContentsId)) {
         return;
     }
-    const section = clampString(payload?.section, RENDERER_LOG_MAX_SECTION_CHARS, 'unknown');
-    const message = clampString(payload?.message, RENDERER_LOG_MAX_MESSAGE_CHARS, '<empty>');
-    const level = typeof payload?.level === 'string' ? payload.level : 'info';
-    const timestamp = clampString(payload?.timestamp, 128, new Date().toISOString());
 
-    const baseMessage = `[renderer:${webContentsId}] [${timestamp}] [${section}] ${message}`
-        + stringifyRendererLogData(payload?.data);
-
-    if (level === 'debug') {
-        rendererLogger.debug(baseMessage);
-        return;
-    }
-
-    if (level === 'warn') {
-        rendererLogger.warn(baseMessage);
-        return;
-    }
-
-    if (level === 'error') {
-        rendererLogger.error(baseMessage);
-        return;
-    }
-
-    rendererLogger.info(baseMessage);
+    const entry = normalizeRendererLogEntry(payload);
+    dispatchRendererLogLine(entry.level, formatRendererLogLine(webContentsId, entry));
 }
 
 function getTrustedRendererOrigin() {

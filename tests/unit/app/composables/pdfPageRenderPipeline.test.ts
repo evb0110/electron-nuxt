@@ -554,4 +554,71 @@ describe('pdfPageRenderPipeline scroll snapshots', () => {
         expect(getScrollLeft()).toBeCloseTo(335, 5);
         expect(getScrollTop()).toBeCloseTo(700, 5);
     });
+
+    it('rejects negative outside-page offsets and falls back to clamped page ratio', () => {
+        const {
+            container,
+            getScrollTop,
+        } = createContainerStub({
+            pages: [{
+                page: 2,
+                left: 100,
+                width: 300,
+                top: 500,
+                height: 400,
+            }],
+            clientWidth: 200,
+            clientHeight: 200,
+            scrollWidth: 1200,
+            scrollHeight: 2400,
+        });
+
+        restoreScrollFromSnapshot(container, {
+            width: 800,
+            height: 1600,
+            centerX: 400,
+            centerY: 800,
+            anchorPage: 2,
+            anchorInsidePage: false,
+            anchorPageYRatio: 0.5,
+            anchorPageYOutsideEdge: 'below',
+            anchorPageYOutsideOffsetPx: -50,
+            anchorViewportY: 0,
+        });
+
+        expect(getScrollTop()).toBeCloseTo(500 + 0.5 * 400, 5);
+    });
+
+    it('uses zero ratios when neither page ratios nor offset ratio are present', () => {
+        const {
+            container,
+            getScrollTop,
+            getScrollLeft,
+        } = createContainerStub({
+            pages: [{
+                page: 2,
+                left: 120,
+                width: 300,
+                top: 500,
+                height: 400,
+            }],
+            clientWidth: 100,
+            clientHeight: 100,
+            scrollWidth: 800,
+            scrollHeight: 1600,
+        });
+
+        restoreScrollFromSnapshot(container, {
+            width: 400,
+            height: 800,
+            centerX: 200,
+            centerY: 400,
+            anchorPage: 2,
+            anchorViewportX: 0,
+            anchorViewportY: 0,
+        });
+
+        expect(getScrollLeft()).toBeCloseTo(120, 5);
+        expect(getScrollTop()).toBeCloseTo(500, 5);
+    });
 });

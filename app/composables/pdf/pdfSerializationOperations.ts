@@ -833,31 +833,137 @@ function applyEmbeddedAnnotationDeletes(
     return removeAnnotationRefsFromPages(doc, [...refsToDeleteByTag.values()]);
 }
 
-function applyMarkupSubtypeRewrites(
-    doc: PDFDocument,
+interface IMarkupRewriteInputs {
+    overridesMap: Map<string, TMarkupSubtype>;
+    hintsByPage: Map<number, IMarkupSubtypeHint[]>;
+}
+
+function buildMarkupRewriteInputs(
     overrides: Array<readonly [string, TMarkupSubtype]>,
     subtypeHints: IMarkupSubtypeHint[],
-) {
+): IMarkupRewriteInputs | null {
     const overridesMap = new Map<string, TMarkupSubtype>(overrides);
     if (overridesMap.size === 0 && subtypeHints.length === 0) {
-        return false;
+        return null;
     }
 
     const hintsByPage = new Map<number, IMarkupSubtypeHint[]>();
     subtypeHints.forEach((hint) => {
         const pageHints = hintsByPage.get(hint.pageIndex);
-        if (pageHints) {
-            pageHints.push({
-                ...hint,
-                consumed: false,
-            });
-            return;
-        }
-        hintsByPage.set(hint.pageIndex, [{
+        const cloned: IMarkupSubtypeHint = {
             ...hint,
             consumed: false,
-        }]);
+        };
+        if (pageHints) {
+            pageHints.push(cloned);
+            return;
+        }
+        hintsByPage.set(hint.pageIndex, [cloned]);
     });
+
+    return {
+        overridesMap,
+        hintsByPage,
+    };
+}
+
+function iterateAnnotationRefDicts(
+    doc: PDFDocument,
+    annots: PDFArray,
+): Array<{
+    dict: PDFDict;
+    ref: PDFRef;
+}> {
+    const items: Array<{
+        dict: PDFDict;
+        ref: PDFRef;
+    }> = [];
+    for (let index = 0; index < annots.size(); index += 1) {
+        const annotation = lookupAnnotationRefDict(doc, annots.get(index));
+        if (annotation) {
+            items.push(annotation);
+        }
+    }
+    return items;
+}
+
+function findBestUnconsumedSubtypeHint(
+    pageHints: IMarkupSubtypeHint[],
+    markerRect: IAnnotationMarkerRect | null,
+): IMarkupSubtypeHint | null {
+    let best: {
+        score: number;
+        hint: IMarkupSubtypeHint;
+    } | null = null;
+    for (const hint of pageHints) {
+        if (hint.consumed) {
+            continue;
+        }
+        const score = markerRectIoU(markerRect, hint.markerRect);
+        if (score <= 0) {
+            continue;
+        }
+        if (!best || score > best.score) {
+            best = {
+                score,
+                hint,
+            };
+        }
+    }
+    return best && best.score >= 0.2 ? best.hint : null;
+}
+
+function resolveMarkupSubtypeForAnnotation(
+    dict: PDFDict,
+    ref: PDFRef,
+    overridesMap: Map<string, TMarkupSubtype>,
+    pageHints: IMarkupSubtypeHint[],
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+): TMarkupSubtype | null {
+    const overrideSubtype = overridesMap.get(formatPdfJsAnnotationRef(ref)) ?? null;
+    if (overrideSubtype) {
+        return overrideSubtype;
+    }
+    if (pageHints.length === 0) {
+        return null;
+    }
+
+    const markerRect = toMarkerRectFromPdfRect(
+        readPdfRectFromDict(dict),
+        pageView,
+        pageRotation,
+    );
+    const matchedHint = findBestUnconsumedSubtypeHint(pageHints, markerRect);
+    if (!matchedHint) {
+        return null;
+    }
+    matchedHint.consumed = true;
+    return matchedHint.subtype;
+}
+
+function applySubtypeRewriteToDict(
+    dict: PDFDict,
+    subtypeName: PDFName,
+    targetSubtype: TMarkupSubtype,
+): boolean {
+    const pdfSubtypeName = MARKUP_SUBTYPE_TO_PDF_NAME[targetSubtype];
+    if (!pdfSubtypeName || pdfSubtypeName === 'Highlight') {
+        return false;
+    }
+    dict.set(subtypeName, PDFName.of(pdfSubtypeName));
+    return true;
+}
+
+function applyMarkupSubtypeRewrites(
+    doc: PDFDocument,
+    overrides: Array<readonly [string, TMarkupSubtype]>,
+    subtypeHints: IMarkupSubtypeHint[],
+) {
+    const inputs = buildMarkupRewriteInputs(overrides, subtypeHints);
+    if (!inputs) {
+        return false;
+    }
 
     const subtypeName = PDFName.of('Subtype');
     const highlightName = PDFName.of('Highlight');
@@ -868,7 +974,7 @@ function applyMarkupSubtypeRewrites(
         pageIndex,
         page,
     ] of pages.entries()) {
-        const pageHints = hintsByPage.get(pageIndex) ?? [];
+        const pageHints = inputs.hintsByPage.get(pageIndex) ?? [];
         const pageView = resolvePdfPageView(page);
         if (!pageView) {
             continue;
@@ -879,71 +985,108 @@ function applyMarkupSubtypeRewrites(
             continue;
         }
 
-        for (let index = 0; index < annots.size(); index += 1) {
-            const annotation = lookupAnnotationRefDict(doc, annots.get(index));
-            if (!annotation) {
-                continue;
-            }
-            const {
-                dict,
-                ref,
-            } = annotation;
-
+        for (const {
+            dict,
+            ref,
+        } of iterateAnnotationRefDicts(doc, annots)) {
             const currentSubtype = dict.get(subtypeName);
             if (!(currentSubtype instanceof PDFName) || currentSubtype !== highlightName) {
                 continue;
             }
 
-            const refTag = formatPdfJsAnnotationRef(ref);
-            let targetSubtype = overridesMap.get(refTag) ?? null;
-            if (!targetSubtype && pageHints.length > 0) {
-                const markerRect = toMarkerRectFromPdfRect(
-                    readPdfRectFromDict(dict),
-                    pageView,
-                    pageRotation,
-                );
-                let bestMatch: {
-                    score: number;
-                    hint: IMarkupSubtypeHint;
-                } | null = null;
-
-                for (const hint of pageHints) {
-                    if (hint.consumed) {
-                        continue;
-                    }
-
-                    const score = markerRectIoU(markerRect, hint.markerRect);
-                    if (score <= 0) {
-                        continue;
-                    }
-
-                    if (!bestMatch || score > bestMatch.score) {
-                        bestMatch = {
-                            score,
-                            hint,
-                        };
-                    }
-                }
-
-                if (bestMatch && bestMatch.score >= 0.2) {
-                    targetSubtype = bestMatch.hint.subtype;
-                    bestMatch.hint.consumed = true;
-                }
-            }
-
+            const targetSubtype = resolveMarkupSubtypeForAnnotation(
+                dict,
+                ref,
+                inputs.overridesMap,
+                pageHints,
+                pageView,
+                pageRotation,
+            );
             if (!targetSubtype) {
                 continue;
             }
 
-            const pdfSubtypeName = MARKUP_SUBTYPE_TO_PDF_NAME[targetSubtype];
-            if (pdfSubtypeName && pdfSubtypeName !== 'Highlight') {
-                dict.set(subtypeName, PDFName.of(pdfSubtypeName));
+            if (applySubtypeRewriteToDict(dict, subtypeName, targetSubtype)) {
                 rewritten = true;
             }
         }
     }
 
     return rewritten;
+}
+
+function freeTextRefTag(ref: PDFRef) {
+    return `${ref.objectNumber}R${ref.generationNumber}`;
+}
+
+function findFreeTextCommentMatch(
+    dict: PDFDict,
+    ref: PDFRef,
+    pageComments: IAnnotationCommentSummary[],
+    pageView: number[],
+    pageRotation: ReturnType<typeof normalizePageRotation>,
+): IAnnotationCommentSummary | null {
+    const dictRect = toMarkerRectFromPdfRect(
+        readPdfRectFromDict(dict),
+        pageView,
+        pageRotation,
+    );
+    const refTag = freeTextRefTag(ref);
+    const dictText = getPdfDictContents(dict).trim().toLowerCase();
+
+    let bestMatch: {
+        comment: IAnnotationCommentSummary;
+        score: number;
+    } | null = null;
+    for (const comment of pageComments) {
+        if (!isAnnotationMarkerRect(comment.markerRect)) {
+            continue;
+        }
+
+        if (normalizePdfJsAnnotationId(comment.annotationId) === refTag) {
+            return comment;
+        }
+
+        const iou = dictRect ? markerRectIoU(dictRect, comment.markerRect) : 0;
+        if (iou > 0.05) {
+            if (!bestMatch || iou > bestMatch.score) {
+                bestMatch = {
+                    comment,
+                    score: iou,
+                };
+            }
+            continue;
+        }
+
+        if (dictText.length > 0 && comment.text) {
+            const commentText = comment.text.trim().toLowerCase();
+            if (dictText === commentText) {
+                return comment;
+            }
+        }
+    }
+
+    if (bestMatch) {
+        return bestMatch.comment;
+    }
+
+    const singleComment = pageComments.length === 1 ? pageComments[0] : null;
+    if (singleComment && isAnnotationMarkerRect(singleComment.markerRect)) {
+        return singleComment;
+    }
+    return null;
+}
+
+function toPdfRectArray(
+    doc: PDFDocument,
+    pdfRect: readonly [number, number, number, number],
+) {
+    return doc.context.obj([
+        PDFNumber.of(pdfRect[0]),
+        PDFNumber.of(pdfRect[1]),
+        PDFNumber.of(pdfRect[2]),
+        PDFNumber.of(pdfRect[3]),
+    ]);
 }
 
 function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCommentSummary[]) {
@@ -980,16 +1123,10 @@ function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCommentSu
             continue;
         }
 
-        for (let annotIndex = 0; annotIndex < annots.size(); annotIndex += 1) {
-            const annotation = lookupAnnotationRefDict(doc, annots.get(annotIndex));
-            if (!annotation) {
-                continue;
-            }
-            const {
-                dict,
-                ref,
-            } = annotation;
-
+        for (const {
+            dict,
+            ref,
+        } of iterateAnnotationRefDicts(doc, annots)) {
             const currentSubtype = dict.get(subtypeName);
             if (!(currentSubtype instanceof PDFName) || currentSubtype !== freeTextName) {
                 continue;
@@ -999,71 +1136,19 @@ function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCommentSu
                 continue;
             }
 
-            const dictRect = toMarkerRectFromPdfRect(
-                readPdfRectFromDict(dict),
+            const matchedComment = findFreeTextCommentMatch(
+                dict,
+                ref,
+                pageComments,
                 pageView,
                 pageRotation,
             );
-            const refTag = `${ref.objectNumber}R${ref.generationNumber}`;
-            const dictText = getPdfDictContents(dict).trim().toLowerCase();
-
-            let bestMatch: {
-                comment: IAnnotationCommentSummary;
-                score: number;
-            } | null = null;
-            for (const comment of pageComments) {
-                if (!isAnnotationMarkerRect(comment.markerRect)) {
-                    continue;
-                }
-
-                if (normalizePdfJsAnnotationId(comment.annotationId) === refTag) {
-                    bestMatch = {
-                        comment,
-                        score: 100,
-                    };
-                    break;
-                }
-
-                const iou = dictRect ? markerRectIoU(dictRect, comment.markerRect) : 0;
-                if (iou > 0.05) {
-                    if (!bestMatch || iou > bestMatch.score) {
-                        bestMatch = {
-                            comment,
-                            score: iou,
-                        };
-                    }
-                    continue;
-                }
-
-                if (dictText.length > 0 && comment.text) {
-                    const commentText = comment.text.trim().toLowerCase();
-                    if (dictText === commentText) {
-                        bestMatch = {
-                            comment,
-                            score: 50,
-                        };
-                        break;
-                    }
-                }
-            }
-
-            if (!bestMatch) {
-                const singleComment = pageComments.length === 1 ? pageComments[0] : null;
-                if (!singleComment || !isAnnotationMarkerRect(singleComment.markerRect)) {
-                    continue;
-                }
-                bestMatch = {
-                    comment: singleComment,
-                    score: 1,
-                };
-            }
-
-            if (!isAnnotationMarkerRect(bestMatch.comment.markerRect)) {
+            if (!matchedComment || !isAnnotationMarkerRect(matchedComment.markerRect)) {
                 continue;
             }
 
             const pdfRect = toPdfRectFromMarkerRect(
-                bestMatch.comment.markerRect,
+                matchedComment.markerRect,
                 pageView,
                 pageRotation,
             );
@@ -1071,12 +1156,7 @@ function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCommentSu
                 continue;
             }
 
-            dict.set(rectName, doc.context.obj([
-                PDFNumber.of(pdfRect[0]),
-                PDFNumber.of(pdfRect[1]),
-                PDFNumber.of(pdfRect[2]),
-                PDFNumber.of(pdfRect[3]),
-            ]));
+            dict.set(rectName, toPdfRectArray(doc, pdfRect));
 
             if (!blankApRef) {
                 blankApRef = doc.context.register(doc.context.formXObject([], {}));

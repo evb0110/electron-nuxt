@@ -1,4 +1,7 @@
-import type { IScrollSnapshot } from '@app/types/pdf';
+import type {
+    IScrollSnapshot,
+    TAnchorPageOutsideEdge,
+} from '@app/types/pdf';
 import { errorToLogText } from '@app/composables/pdf/annotationCssUtils';
 import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import { getPageContainerByNumber } from '@app/composables/pdf/pdfScrollVisibility';
@@ -14,8 +17,14 @@ interface IAnchorPageSnapshot {
     pageXRatio: number;
     pageYRatio: number;
     insidePage: boolean;
-    pageYOutsideEdge: 'inside' | 'above' | 'below';
+    pageYOutsideEdge: TAnchorPageOutsideEdge;
     pageYOutsideOffsetPx: number | null;
+}
+
+interface INearestOutsidePageAnchor extends IAnchorPageSnapshot {distanceSquared: number;}
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
 }
 
 function getPageNumberFromElement(pageElement: HTMLElement) {
@@ -34,16 +43,12 @@ function getPageNumberFromElement(pageElement: HTMLElement) {
 
 function getViewportAnchorCoordinate(value: number | null | undefined, fallback: number, limit: number) {
     const normalizedLimit = Math.max(limit, 0);
-    const normalizedValue = typeof value === 'number' && Number.isFinite(value)
-        ? value
-        : fallback;
+    const normalizedValue = isFiniteNumber(value) ? value : fallback;
     return clamp(normalizedValue, 0, normalizedLimit);
 }
 
 function getNormalizedRatio(value: number | null | undefined, fallback: number) {
-    const normalizedValue = typeof value === 'number' && Number.isFinite(value)
-        ? value
-        : fallback;
+    const normalizedValue = isFiniteNumber(value) ? value : fallback;
     return clamp(normalizedValue, 0, 1);
 }
 
@@ -73,11 +78,37 @@ function isPointInsidePage(
     return x >= left && x <= right && y >= top && y <= bottom;
 }
 
+function getPageVerticalEdge(
+    anchorContentY: number,
+    pageTop: number,
+    pageBottom: number,
+): TAnchorPageOutsideEdge {
+    if (anchorContentY < pageTop) {
+        return 'above';
+    }
+    if (anchorContentY > pageBottom) {
+        return 'below';
+    }
+    return 'inside';
+}
+
+function getPageVerticalOffsetPx(
+    anchorContentY: number,
+    pageTop: number,
+    pageBottom: number,
+    edge: TAnchorPageOutsideEdge,
+) {
+    if (edge === 'inside') {
+        return null;
+    }
+    return edge === 'above' ? pageTop - anchorContentY : anchorContentY - pageBottom;
+}
+
 function createAnchorPageSnapshotForElement(
     pageElement: HTMLElement,
     anchorContentX: number,
     anchorContentY: number,
-) {
+): IAnchorPageSnapshot | null {
     const pageNumber = getPageNumberFromElement(pageElement);
     if (pageNumber === null) {
         return null;
@@ -89,7 +120,7 @@ function createAnchorPageSnapshotForElement(
     const safeHeight = getPageHeight(pageElement);
     const pageBottom = pageTop + safeHeight;
     const insidePage = isPointInsidePage(anchorContentX, anchorContentY, pageElement);
-    const pageYOutsideEdge = insidePage
+    const pageYOutsideEdge: TAnchorPageOutsideEdge = insidePage
         ? 'inside'
         : anchorContentY < pageTop
             ? 'above'
@@ -111,34 +142,37 @@ function createAnchorPageSnapshotForElement(
         insidePage,
         pageYOutsideEdge,
         pageYOutsideOffsetPx,
-    } satisfies IAnchorPageSnapshot;
+    };
 }
 
-function getAnchorPageSnapshot(
+function findPreferredAnchorSnapshot(
     container: HTMLElement,
     anchorContentX: number,
     anchorContentY: number,
-    preferredAnchorPage?: number | null,
+    preferredAnchorPage: number | null | undefined,
 ) {
-    if (typeof preferredAnchorPage === 'number' && Number.isFinite(preferredAnchorPage)) {
-        const preferredPageElement = getPageContainerByNumber(
-            container,
-            Math.max(1, Math.floor(preferredAnchorPage)),
-        );
-        const preferredSnapshot = preferredPageElement
-            ? createAnchorPageSnapshotForElement(
-                preferredPageElement,
-                anchorContentX,
-                anchorContentY,
-            )
-            : null;
-        if (preferredSnapshot) {
-            return preferredSnapshot;
-        }
+    if (!isFiniteNumber(preferredAnchorPage)) {
+        return null;
     }
+    const preferredPageElement = getPageContainerByNumber(
+        container,
+        Math.max(1, Math.floor(preferredAnchorPage)),
+    );
+    if (!preferredPageElement) {
+        return null;
+    }
+    return createAnchorPageSnapshotForElement(
+        preferredPageElement,
+        anchorContentX,
+        anchorContentY,
+    );
+}
 
-    const pageElements = container.querySelectorAll<HTMLElement>('.page_container');
-
+function findInsidePageAnchorSnapshot(
+    pageElements: NodeListOf<HTMLElement>,
+    anchorContentX: number,
+    anchorContentY: number,
+) {
     for (const pageElement of pageElements) {
         const anchorSnapshotForElement = createAnchorPageSnapshotForElement(
             pageElement,
@@ -150,15 +184,36 @@ function getAnchorPageSnapshot(
         }
         return anchorSnapshotForElement;
     }
+    return null;
+}
 
-    let nearestOutsideAnchor: {
-        page: number;
-        pageXRatio: number;
-        pageYRatio: number;
-        distanceSquared: number;
-        pageYOutsideEdge: 'inside' | 'above' | 'below';
-        pageYOutsideOffsetPx: number | null;
-    } | null = null;
+function getOutsidePageDistanceSquared(
+    anchorContentX: number,
+    anchorContentY: number,
+    pageLeft: number,
+    pageTop: number,
+    pageRight: number,
+    pageBottom: number,
+) {
+    const deltaX = anchorContentX < pageLeft
+        ? pageLeft - anchorContentX
+        : anchorContentX > pageRight
+            ? anchorContentX - pageRight
+            : 0;
+    const deltaY = anchorContentY < pageTop
+        ? pageTop - anchorContentY
+        : anchorContentY > pageBottom
+            ? anchorContentY - pageBottom
+            : 0;
+    return deltaX * deltaX + deltaY * deltaY;
+}
+
+function findNearestOutsidePageAnchor(
+    pageElements: NodeListOf<HTMLElement>,
+    anchorContentX: number,
+    anchorContentY: number,
+): INearestOutsidePageAnchor | null {
+    let nearest: INearestOutsidePageAnchor | null = null;
 
     for (const pageElement of pageElements) {
         const pageNumber = getPageNumberFromElement(pageElement);
@@ -172,55 +227,81 @@ function getAnchorPageSnapshot(
         const safeWidth = getPageWidth(pageElement);
         const pageRight = pageLeft + safeWidth;
         const pageBottom = pageTop + safeHeight;
-        const pageYOutsideEdge = anchorContentY < pageTop
-            ? 'above'
-            : anchorContentY > pageBottom
-                ? 'below'
-                : 'inside';
-        const pageYOutsideOffsetPx = pageYOutsideEdge === 'inside'
-            ? null
-            : pageYOutsideEdge === 'above'
-                ? pageTop - anchorContentY
-                : anchorContentY - pageBottom;
-        const deltaX = anchorContentX < pageLeft
-            ? pageLeft - anchorContentX
-            : anchorContentX > pageRight
-                ? anchorContentX - pageRight
-                : 0;
-        const deltaY = anchorContentY < pageTop
-            ? pageTop - anchorContentY
-            : anchorContentY > pageBottom
-                ? anchorContentY - pageBottom
-                : 0;
-        const distanceSquared = deltaX * deltaX + deltaY * deltaY;
-        if (
-            nearestOutsideAnchor
-            && distanceSquared >= nearestOutsideAnchor.distanceSquared
-        ) {
+        const pageYOutsideEdge = getPageVerticalEdge(anchorContentY, pageTop, pageBottom);
+        const pageYOutsideOffsetPx = getPageVerticalOffsetPx(
+            anchorContentY,
+            pageTop,
+            pageBottom,
+            pageYOutsideEdge,
+        );
+        const distanceSquared = getOutsidePageDistanceSquared(
+            anchorContentX,
+            anchorContentY,
+            pageLeft,
+            pageTop,
+            pageRight,
+            pageBottom,
+        );
+        if (nearest && distanceSquared >= nearest.distanceSquared) {
             continue;
         }
 
-        nearestOutsideAnchor = {
+        nearest = {
             page: pageNumber,
             pageXRatio: (anchorContentX - pageLeft) / safeWidth,
             pageYRatio: (anchorContentY - pageTop) / safeHeight,
-            distanceSquared,
+            insidePage: false,
             pageYOutsideEdge,
             pageYOutsideOffsetPx,
+            distanceSquared,
         };
     }
 
-    if (!nearestOutsideAnchor) {
+    return nearest;
+}
+
+function getAnchorPageSnapshot(
+    container: HTMLElement,
+    anchorContentX: number,
+    anchorContentY: number,
+    preferredAnchorPage?: number | null,
+): IAnchorPageSnapshot | null {
+    const preferredSnapshot = findPreferredAnchorSnapshot(
+        container,
+        anchorContentX,
+        anchorContentY,
+        preferredAnchorPage,
+    );
+    if (preferredSnapshot) {
+        return preferredSnapshot;
+    }
+
+    const pageElements = container.querySelectorAll<HTMLElement>('.page_container');
+    const insideSnapshot = findInsidePageAnchorSnapshot(
+        pageElements,
+        anchorContentX,
+        anchorContentY,
+    );
+    if (insideSnapshot) {
+        return insideSnapshot;
+    }
+
+    const nearest = findNearestOutsidePageAnchor(
+        pageElements,
+        anchorContentX,
+        anchorContentY,
+    );
+    if (!nearest) {
         return null;
     }
 
     return {
-        page: nearestOutsideAnchor.page,
-        pageXRatio: nearestOutsideAnchor.pageXRatio,
-        pageYRatio: nearestOutsideAnchor.pageYRatio,
+        page: nearest.page,
+        pageXRatio: nearest.pageXRatio,
+        pageYRatio: nearest.pageYRatio,
         insidePage: false,
-        pageYOutsideEdge: nearestOutsideAnchor.pageYOutsideEdge,
-        pageYOutsideOffsetPx: nearestOutsideAnchor.pageYOutsideOffsetPx,
+        pageYOutsideEdge: nearest.pageYOutsideEdge,
+        pageYOutsideOffsetPx: nearest.pageYOutsideOffsetPx,
     };
 }
 
@@ -318,6 +399,177 @@ export function captureScrollSnapshot(
     return snapshot;
 }
 
+interface IRestoreOptions {
+    restoreHorizontal: boolean;
+    restoreVertical: boolean;
+    preferPageAnchor: boolean;
+    allowVerticalRatioFallback: boolean;
+}
+
+function resolveRestoreOptions(options?: {
+    restoreHorizontal?: boolean;
+    restoreVertical?: boolean;
+    preferPageAnchor?: boolean;
+    allowVerticalRatioFallback?: boolean;
+}): IRestoreOptions {
+    return {
+        restoreHorizontal: options?.restoreHorizontal ?? true,
+        restoreVertical: options?.restoreVertical ?? true,
+        preferPageAnchor: options?.preferPageAnchor ?? true,
+        allowVerticalRatioFallback: options?.allowVerticalRatioFallback ?? true,
+    };
+}
+
+function getAnchorPageNumberFromSnapshot(snapshot: IScrollSnapshot) {
+    return isFiniteNumber(snapshot.anchorPage) ? snapshot.anchorPage : null;
+}
+
+function resolvePageAnchorRatio(
+    primary: number | null | undefined,
+    fallback: number | null | undefined,
+    anchorInsidePage: boolean,
+) {
+    if (isFiniteNumber(primary)) {
+        return anchorInsidePage ? clamp(primary, 0, 1) : primary;
+    }
+    if (isFiniteNumber(fallback)) {
+        return anchorInsidePage ? clamp(fallback, 0, 1) : fallback;
+    }
+    return 0;
+}
+
+function normalizeOutsideEdge(value: TAnchorPageOutsideEdge | undefined): TAnchorPageOutsideEdge {
+    if (value === 'above' || value === 'below' || value === 'inside') {
+        return value;
+    }
+    return 'inside';
+}
+
+function normalizeOutsideOffsetPx(value: number | null | undefined) {
+    if (isFiniteNumber(value) && value >= 0) {
+        return value;
+    }
+    return null;
+}
+
+function canApplyOutsidePageOffset(
+    anchorInsidePage: boolean,
+    edge: TAnchorPageOutsideEdge,
+    offsetPx: number | null,
+) {
+    return !anchorInsidePage
+        && (edge === 'above' || edge === 'below')
+        && offsetPx !== null
+        && offsetPx <= MAX_PAGE_OUTSIDE_ANCHOR_OFFSET_PX;
+}
+
+function computePageAnchorTargetTop(
+    anchorPageElement: HTMLElement,
+    safeHeight: number,
+    effectivePageYRatio: number,
+    edge: TAnchorPageOutsideEdge,
+    offsetPx: number | null,
+    canApplyOutside: boolean,
+    anchorViewportY: number,
+) {
+    if (canApplyOutside && offsetPx !== null && edge === 'above') {
+        return anchorPageElement.offsetTop - offsetPx - anchorViewportY;
+    }
+    if (canApplyOutside && offsetPx !== null && edge === 'below') {
+        return anchorPageElement.offsetTop + safeHeight + offsetPx - anchorViewportY;
+    }
+    return anchorPageElement.offsetTop + effectivePageYRatio * safeHeight - anchorViewportY;
+}
+
+function applyPageAnchorRestoration(
+    container: HTMLElement,
+    snapshot: IScrollSnapshot,
+    anchorPageElement: HTMLElement,
+    anchorPageNumber: number,
+    restoreOptions: IRestoreOptions,
+    newWidth: number,
+    maxScrollTop: number,
+    beforeScrollLeft: number,
+    beforeScrollTop: number,
+) {
+    const safeWidth = getPageWidth(anchorPageElement);
+    const safeHeight = getPageHeight(anchorPageElement);
+    const anchorViewportX = getViewportAnchorCoordinate(
+        snapshot.anchorViewportX,
+        container.clientWidth / 2,
+        container.clientWidth,
+    );
+    const anchorViewportY = getViewportAnchorCoordinate(
+        snapshot.anchorViewportY,
+        0,
+        container.clientHeight,
+    );
+    const anchorInsidePage = snapshot.anchorInsidePage !== false;
+    const pageXRatio = resolvePageAnchorRatio(
+        snapshot.anchorPageXRatio,
+        null,
+        anchorInsidePage,
+    );
+    const pageYRatio = resolvePageAnchorRatio(
+        snapshot.anchorPageYRatio,
+        snapshot.anchorOffsetRatio,
+        anchorInsidePage,
+    );
+    const pageYOutsideEdge = normalizeOutsideEdge(snapshot.anchorPageYOutsideEdge);
+    const pageYOutsideOffsetPx = normalizeOutsideOffsetPx(snapshot.anchorPageYOutsideOffsetPx);
+    const canApplyOutsideOffset = canApplyOutsidePageOffset(
+        anchorInsidePage,
+        pageYOutsideEdge,
+        pageYOutsideOffsetPx,
+    );
+    const effectivePageYRatio = !anchorInsidePage && !canApplyOutsideOffset
+        ? clamp(pageYRatio, 0, 1)
+        : pageYRatio;
+
+    if (restoreOptions.restoreHorizontal) {
+        const maxScrollLeft = Math.max(0, newWidth - container.clientWidth);
+        const targetLeft =
+            anchorPageElement.offsetLeft + pageXRatio * safeWidth - anchorViewportX;
+        container.scrollLeft = clamp(targetLeft, 0, maxScrollLeft);
+        BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-horizontal-page-anchor', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] horizontal-page-anchor', {
+            anchorPageNumber,
+            pageXRatio,
+            targetLeft,
+            beforeScrollLeft,
+            afterScrollLeft: container.scrollLeft,
+            anchorViewportX,
+            anchorInsidePage,
+        });
+    }
+
+    if (restoreOptions.restoreVertical) {
+        const targetTop = computePageAnchorTargetTop(
+            anchorPageElement,
+            safeHeight,
+            effectivePageYRatio,
+            pageYOutsideEdge,
+            pageYOutsideOffsetPx,
+            canApplyOutsideOffset,
+            anchorViewportY,
+        );
+        container.scrollTop = clamp(targetTop, 0, maxScrollTop);
+        BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-vertical-page-anchor', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] vertical-page-anchor', {
+            anchorPageNumber,
+            pageYRatio,
+            effectivePageYRatio,
+            pageYOutsideEdge,
+            pageYOutsideOffsetPx,
+            canApplyOutsideOffset,
+            outsideOffsetLimitPx: MAX_PAGE_OUTSIDE_ANCHOR_OFFSET_PX,
+            targetTop,
+            beforeScrollTop,
+            afterScrollTop: container.scrollTop,
+            anchorViewportY,
+            anchorInsidePage,
+        });
+    }
+}
+
 export function restoreScrollFromSnapshot(
     container: HTMLElement | null,
     snapshot: IScrollSnapshot | null,
@@ -336,11 +588,8 @@ export function restoreScrollFromSnapshot(
         return;
     }
 
-    const restoreHorizontal = options?.restoreHorizontal ?? true;
-    const restoreVertical = options?.restoreVertical ?? true;
-    const preferPageAnchor = options?.preferPageAnchor ?? true;
-    const allowVerticalRatioFallback = options?.allowVerticalRatioFallback ?? true;
-    if (!restoreHorizontal && !restoreVertical) {
+    const restoreOptions = resolveRestoreOptions(options);
+    if (!restoreOptions.restoreHorizontal && !restoreOptions.restoreVertical) {
         BrowserLogger.warn('pdf-zoom-debug', '[snapshot-restore] skipped both axes disabled');
         return;
     }
@@ -370,7 +619,7 @@ export function restoreScrollFromSnapshot(
         container.clientHeight / 2,
         container.clientHeight,
     );
-    if (restoreHorizontal) {
+    if (restoreOptions.restoreHorizontal) {
         const maxScrollLeft = Math.max(0, newWidth - container.clientWidth);
         const contentXRatio = getNormalizedRatio(
             snapshot.anchorContentXRatio,
@@ -389,120 +638,34 @@ export function restoreScrollFromSnapshot(
     }
 
     const maxScrollTop = Math.max(0, newHeight - container.clientHeight);
-    const anchorInsidePage = snapshot.anchorInsidePage !== false;
-    const anchorPageNumber =
-        typeof snapshot.anchorPage === 'number'
-        && Number.isFinite(snapshot.anchorPage)
-            ? snapshot.anchorPage
-            : null;
+    const anchorPageNumber = getAnchorPageNumberFromSnapshot(snapshot);
 
-    if (preferPageAnchor && anchorPageNumber !== null) {
+    if (restoreOptions.preferPageAnchor && anchorPageNumber !== null) {
         const anchorPageElement = getPageContainerByNumber(container, anchorPageNumber);
         if (anchorPageElement) {
-            const safeWidth = getPageWidth(anchorPageElement);
-            const safeHeight = getPageHeight(anchorPageElement);
-            const anchorViewportX = getViewportAnchorCoordinate(
-                snapshot.anchorViewportX,
-                container.clientWidth / 2,
-                container.clientWidth,
+            applyPageAnchorRestoration(
+                container,
+                snapshot,
+                anchorPageElement,
+                anchorPageNumber,
+                restoreOptions,
+                newWidth,
+                maxScrollTop,
+                beforeScrollLeft,
+                beforeScrollTop,
             );
-            const anchorViewportY = getViewportAnchorCoordinate(
-                snapshot.anchorViewportY,
-                0,
-                container.clientHeight,
-            );
-            const pageXRatio =
-                typeof snapshot.anchorPageXRatio === 'number'
-                && Number.isFinite(snapshot.anchorPageXRatio)
-                    ? anchorInsidePage
-                        ? clamp(snapshot.anchorPageXRatio, 0, 1)
-                        : snapshot.anchorPageXRatio
-                    : 0;
-            const pageYRatio =
-                typeof snapshot.anchorPageYRatio === 'number'
-                && Number.isFinite(snapshot.anchorPageYRatio)
-                    ? anchorInsidePage
-                        ? clamp(snapshot.anchorPageYRatio, 0, 1)
-                        : snapshot.anchorPageYRatio
-                    : (
-                        typeof snapshot.anchorOffsetRatio === 'number'
-                        && Number.isFinite(snapshot.anchorOffsetRatio)
-                    )
-                        ? anchorInsidePage
-                            ? clamp(snapshot.anchorOffsetRatio, 0, 1)
-                            : snapshot.anchorOffsetRatio
-                        : 0;
-            const pageYOutsideEdge = snapshot.anchorPageYOutsideEdge === 'above'
-                || snapshot.anchorPageYOutsideEdge === 'below'
-                || snapshot.anchorPageYOutsideEdge === 'inside'
-                ? snapshot.anchorPageYOutsideEdge
-                : 'inside';
-            const pageYOutsideOffsetPx =
-                typeof snapshot.anchorPageYOutsideOffsetPx === 'number'
-                && Number.isFinite(snapshot.anchorPageYOutsideOffsetPx)
-                && snapshot.anchorPageYOutsideOffsetPx >= 0
-                    ? snapshot.anchorPageYOutsideOffsetPx
-                    : null;
-            const canApplyOutsideOffset = !anchorInsidePage
-                && (pageYOutsideEdge === 'above' || pageYOutsideEdge === 'below')
-                && pageYOutsideOffsetPx !== null
-                && pageYOutsideOffsetPx <= MAX_PAGE_OUTSIDE_ANCHOR_OFFSET_PX;
-            const effectivePageYRatio = !anchorInsidePage && !canApplyOutsideOffset
-                ? clamp(pageYRatio, 0, 1)
-                : pageYRatio;
-
-            if (restoreHorizontal) {
-                const maxScrollLeft = Math.max(0, newWidth - container.clientWidth);
-                const targetLeft =
-                    anchorPageElement.offsetLeft + pageXRatio * safeWidth - anchorViewportX;
-                container.scrollLeft = clamp(targetLeft, 0, maxScrollLeft);
-                BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-horizontal-page-anchor', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] horizontal-page-anchor', {
-                    anchorPageNumber,
-                    pageXRatio,
-                    targetLeft,
-                    beforeScrollLeft,
-                    afterScrollLeft: container.scrollLeft,
-                    anchorViewportX,
-                    anchorInsidePage,
-                });
-            }
-
-            if (restoreVertical) {
-                const targetTop = canApplyOutsideOffset
-                    && pageYOutsideEdge === 'above'
-                    ? anchorPageElement.offsetTop - pageYOutsideOffsetPx - anchorViewportY
-                    : canApplyOutsideOffset
-                        && pageYOutsideEdge === 'below'
-                        ? anchorPageElement.offsetTop + safeHeight + pageYOutsideOffsetPx - anchorViewportY
-                        : anchorPageElement.offsetTop + effectivePageYRatio * safeHeight - anchorViewportY;
-                container.scrollTop = clamp(targetTop, 0, maxScrollTop);
-                BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-vertical-page-anchor', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] vertical-page-anchor', {
-                    anchorPageNumber,
-                    pageYRatio,
-                    effectivePageYRatio,
-                    pageYOutsideEdge,
-                    pageYOutsideOffsetPx,
-                    canApplyOutsideOffset,
-                    outsideOffsetLimitPx: MAX_PAGE_OUTSIDE_ANCHOR_OFFSET_PX,
-                    targetTop,
-                    beforeScrollTop,
-                    afterScrollTop: container.scrollTop,
-                    anchorViewportY,
-                    anchorInsidePage,
-                });
-            }
             return;
         }
         BrowserLogger.warn('pdf-zoom-debug', '[snapshot-restore] page-anchor-missing', {anchorPageNumber});
     }
 
-    if (!restoreVertical) {
+    if (!restoreOptions.restoreVertical) {
         return;
     }
 
     if (
-        !allowVerticalRatioFallback
-        && preferPageAnchor
+        !restoreOptions.allowVerticalRatioFallback
+        && restoreOptions.preferPageAnchor
         && anchorPageNumber !== null
     ) {
         BrowserLogger.warnThrottled('pdf-zoom-debug', 'snapshot-restore-vertical-ratio-skipped', SNAPSHOT_LOG_THROTTLE_MS, '[snapshot-restore] vertical-ratio-skipped', {
@@ -510,7 +673,7 @@ export function restoreScrollFromSnapshot(
             anchorPageNumber,
             beforeScrollTop,
             afterScrollTop: container.scrollTop,
-            allowVerticalRatioFallback,
+            allowVerticalRatioFallback: restoreOptions.allowVerticalRatioFallback,
         });
         return;
     }

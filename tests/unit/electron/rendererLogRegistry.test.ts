@@ -164,3 +164,161 @@ describe('renderer log registry', () => {
         expect(loggedMessage).toContain('"items":"[Array(1)]"');
     });
 });
+
+describe('normalizeRendererLogEntry', () => {
+    it('falls back to info level when level is an unknown string', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const entry = normalizeRendererLogEntry({
+            level: 'critical',
+            section: 'search',
+            message: 'hello',
+            timestamp: '2026-03-21T00:00:00.000Z',
+        });
+        expect(entry.level).toBe('info');
+    });
+
+    it('falls back to info level when level is missing or non-string', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        expect(normalizeRendererLogEntry({message: 'm'}).level).toBe('info');
+        expect(normalizeRendererLogEntry({
+            level: 5,
+            message: 'm',
+        }).level).toBe('info');
+        expect(normalizeRendererLogEntry({
+            level: null,
+            message: 'm',
+        }).level).toBe('info');
+    });
+
+    it('preserves all four known log levels', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        for (const level of [
+            'debug',
+            'info',
+            'warn',
+            'error',
+        ] as const) {
+            expect(normalizeRendererLogEntry({
+                level,
+                message: 'm',
+            }).level).toBe(level);
+        }
+    });
+
+    it('uses <empty> message default when message is missing or null', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        expect(normalizeRendererLogEntry({level: 'info'}).message).toBe('<empty>');
+        expect(normalizeRendererLogEntry({
+            level: 'info',
+            message: null,
+        }).message).toBe('<empty>');
+        expect(normalizeRendererLogEntry({
+            level: 'info',
+            message: 42,
+        }).message).toBe('<empty>');
+    });
+
+    it('uses unknown section default when section is missing or non-string', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        expect(normalizeRendererLogEntry({
+            level: 'info',
+            message: 'm',
+        }).section).toBe('unknown');
+        expect(normalizeRendererLogEntry({
+            level: 'info',
+            message: 'm',
+            section: null,
+        }).section).toBe('unknown');
+        expect(normalizeRendererLogEntry({
+            level: 'info',
+            message: 'm',
+            section: 7,
+        }).section).toBe('unknown');
+    });
+
+    it('drops extra metadata fields not in the canonical entry shape', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const entry = normalizeRendererLogEntry({
+            level: 'info',
+            section: 'search',
+            message: 'm',
+            timestamp: '2026-03-21T00:00:00.000Z',
+            extra: 'should-be-dropped',
+            anotherField: {nested: true},
+        });
+        expect(entry).toEqual({
+            level: 'info',
+            section: 'search',
+            message: 'm',
+            timestamp: '2026-03-21T00:00:00.000Z',
+            serializedData: '',
+        });
+        expect(Object.keys(entry).sort()).toEqual([
+            'level',
+            'message',
+            'section',
+            'serializedData',
+            'timestamp',
+        ]);
+    });
+
+    it('uses defaults for null payload', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const entry = normalizeRendererLogEntry(null);
+        expect(entry.level).toBe('info');
+        expect(entry.section).toBe('unknown');
+        expect(entry.message).toBe('<empty>');
+        expect(entry.serializedData).toBe('');
+        expect(entry.timestamp).toMatch(/\d{4}-\d{2}-\d{2}T/);
+    });
+
+    it('uses defaults for undefined payload', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const entry = normalizeRendererLogEntry(undefined);
+        expect(entry.level).toBe('info');
+        expect(entry.section).toBe('unknown');
+        expect(entry.message).toBe('<empty>');
+        expect(entry.serializedData).toBe('');
+    });
+
+    it('uses defaults for string payload', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const entry = normalizeRendererLogEntry('not-a-record');
+        expect(entry.level).toBe('info');
+        expect(entry.section).toBe('unknown');
+        expect(entry.message).toBe('<empty>');
+        expect(entry.serializedData).toBe('');
+    });
+
+    it('uses defaults for number payload', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const entry = normalizeRendererLogEntry(42);
+        expect(entry.level).toBe('info');
+        expect(entry.section).toBe('unknown');
+        expect(entry.message).toBe('<empty>');
+        expect(entry.serializedData).toBe('');
+    });
+
+    it('uses defaults for array payload', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const entry = normalizeRendererLogEntry([
+            'debug',
+            'msg',
+        ]);
+        expect(entry.level).toBe('info');
+        expect(entry.section).toBe('unknown');
+        expect(entry.message).toBe('<empty>');
+        expect(entry.serializedData).toBe('');
+    });
+
+    it('serializes data into serializedData with leading data= marker', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/ipc/registry');
+        const entry = normalizeRendererLogEntry({
+            level: 'info',
+            section: 'search',
+            message: 'm',
+            data: {a: 1},
+        });
+        expect(entry.serializedData).toBe(' data={"a":1}');
+    });
+});

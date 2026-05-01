@@ -102,3 +102,193 @@ describe('buildSearchIndex cancellation', () => {
         expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
     });
 });
+
+describe('buildSearchIndex assembly', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.existsSync.mockReturnValue(false);
+        mocks.readFile.mockRejectedValue(new Error('ENOENT'));
+        mocks.writeFile.mockResolvedValue(undefined);
+    });
+
+    it('skips PDF text extraction when existing index already covers expected pages', async () => {
+        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        const cachedIndex = {
+            pdfPath: '/tmp/file.pdf',
+            createdAt: 1,
+            pages: [
+                {
+                    pageNumber: 1,
+                    text: 'cached one',
+                },
+                {
+                    pageNumber: 2,
+                    text: 'cached two',
+                },
+            ],
+            pageCount: 2,
+        };
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path === '/tmp/file.pdf.index.json') {
+                return JSON.stringify(cachedIndex);
+            }
+            throw new Error('ENOENT');
+        });
+
+        const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 2 });
+
+        expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
+        expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
+        expect(result.pages).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                text: 'cached one',
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                text: 'cached two',
+            }),
+        ]);
+        expect(result.pageCount).toBe(2);
+    });
+
+    it('pads missing pages up to expected pageCount with empty text', async () => {
+        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        mocks.extractTextWithPdfjs.mockResolvedValue([{
+            pageNumber: 1,
+            text: 'only-one',
+        }]);
+        mocks.extractTextFromPdf.mockResolvedValue([]);
+
+        const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 3 });
+
+        expect(result.pages).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                text: 'only-one',
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                text: '',
+            }),
+            expect.objectContaining({
+                pageNumber: 3,
+                text: '',
+            }),
+        ]);
+        expect(result.pageCount).toBe(3);
+    });
+
+    it('prefers OCR pageData text over previously extracted text and reconstructs from words', async () => {
+        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        mocks.extractTextWithPdfjs.mockResolvedValue([
+            {
+                pageNumber: 1,
+                text: 'pdfjs-1',
+            },
+            {
+                pageNumber: 2,
+                text: 'pdfjs-2',
+            },
+        ]);
+        mocks.extractTextFromPdf.mockResolvedValue([]);
+
+        const result = await buildSearchIndex(
+            '/tmp/file.pdf',
+            [
+                {
+                    pageNumber: 1,
+                    words: [],
+                    text: 'ocr-override',
+                },
+                {
+                    pageNumber: 2,
+                    words: [
+                        {
+                            text: 'hello',
+                            x: 0,
+                            y: 0,
+                            width: 0,
+                            height: 0,
+                        },
+                        {
+                            text: 'world',
+                            x: 0,
+                            y: 0,
+                            width: 0,
+                            height: 0,
+                        },
+                    ],
+                },
+            ],
+            { pageCount: 2 },
+        );
+
+        expect(result.pages).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                text: 'ocr-override',
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                text: 'hello world',
+            }),
+        ]);
+    });
+
+    it('uses OCR v2 manifest when present and persists index best-effort', async () => {
+        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        mocks.existsSync.mockReturnValue(true);
+        const manifest = {
+            version: 2,
+            createdAt: 1,
+            source: { pdfPath: '/tmp/file.pdf' },
+            pageCount: 2,
+            pageBox: 'cropped',
+            ocr: {
+                engine: 'tesseract',
+                languages: ['eng'],
+                renderDpi: 300,
+            },
+            pages: {
+                1: { path: 'page-1.json' },
+                2: { path: 'page-2.json' },
+            },
+        };
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path.endsWith('manifest.json')) {
+                return JSON.stringify(manifest);
+            }
+            if (path.endsWith('page-1.json')) {
+                return JSON.stringify({
+                    pageNumber: 1,
+                    text: 'ocr-page-1',
+                });
+            }
+            if (path.endsWith('page-2.json')) {
+                return JSON.stringify({
+                    pageNumber: 2,
+                    text: 'ocr-page-2',
+                });
+            }
+            throw new Error('ENOENT');
+        });
+        mocks.writeFile.mockRejectedValue(new Error('disk full'));
+
+        const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 2 });
+
+        expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
+        expect(mocks.extractTextFromPdf).not.toHaveBeenCalled();
+        expect(result.pages).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                text: 'ocr-page-1',
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                text: 'ocr-page-2',
+            }),
+        ]);
+        expect(result.pageCount).toBe(2);
+    });
+});
