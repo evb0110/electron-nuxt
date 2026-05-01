@@ -20,14 +20,20 @@ function normalizeChunkSize(value: number | undefined) {
     return Math.max(64 * 1024, Math.floor(value));
 }
 
+async function resolveDocumentSize(path: TDocumentRef, knownSize: number | undefined) {
+    if (typeof knownSize === 'number' && Number.isFinite(knownSize)) {
+        return Math.max(0, Math.floor(knownSize));
+    }
+
+    return (await getDocumentsCapability().statFile(path)).size;
+}
+
 export async function readDocumentBytes(
     path: TDocumentRef,
     options: IReadDocumentBytesOptions = {},
 ): Promise<Uint8Array> {
     const documents = getDocumentsCapability();
-    const size = typeof options.knownSize === 'number' && Number.isFinite(options.knownSize)
-        ? Math.max(0, Math.floor(options.knownSize))
-        : (await documents.statFile(path)).size;
+    const size = await resolveDocumentSize(path, options.knownSize);
 
     if (typeof options.maxBytes === 'number' && size > options.maxBytes) {
         throw new Error(`Document exceeds in-memory read limit (${options.maxBytes} bytes)`);
@@ -69,10 +75,7 @@ export async function readDocumentBytesIfBelowLimit(
     maxBytes: number,
     options: Omit<IReadDocumentBytesOptions, 'maxBytes'> = {},
 ): Promise<Uint8Array | null> {
-    const documents = getDocumentsCapability();
-    const size = typeof options.knownSize === 'number' && Number.isFinite(options.knownSize)
-        ? Math.max(0, Math.floor(options.knownSize))
-        : (await documents.statFile(path)).size;
+    const size = await resolveDocumentSize(path, options.knownSize);
     if (size > maxBytes) {
         return null;
     }
