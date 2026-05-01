@@ -8,6 +8,7 @@ import { tryOnScopeDispose } from '@vueuse/core';
 import { delay } from 'es-toolkit/promise';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationMarkerRect,
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
@@ -76,6 +77,25 @@ interface IUseAnnotationHighlightOptions {
     stopDrag: () => void;
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
     emitAnnotationNotePlacementChange: (active: boolean) => void;
+}
+
+interface IHighlightCommentContext {
+    targetEditor: IPdfjsEditor | null;
+    pageIndex: number;
+    editorSnapshot: IEditorSnapshot;
+    getEditorsForPage: (pageIndex: number) => IPdfjsEditor[];
+    identity: IHighlightIdentity;
+    markupSubtypeOverride: TMarkupSubtype | null;
+    markupSubtype: IHighlightMarkupSubtype;
+    commentSync: IHighlightSync;
+    modeRestoredPromise: Promise<void>;
+    applySubtypeOverrideToEditor: (editor: IPdfjsEditor | null) => boolean;
+    clearEditorSelectionVisuals: (editor: IPdfjsEditor | null) => void;
+}
+
+interface IEditorSnapshot {
+    editorsBeforeRefs: Set<IPdfjsEditor>;
+    editorsBeforeIds: Set<string>;
 }
 
 interface INotePlacementDiagnosticsContext {
@@ -252,6 +272,102 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         cachedSelectionTimestamp = 0;
     }
 
+    function restoreSelectionRange(activeRange: Range) {
+        const selection = document.getSelection();
+        try {
+            selection?.removeAllRanges();
+            selection?.addRange(activeRange.cloneRange());
+        } catch (error) {
+            BrowserLogger.debug('annotations', `Failed to restore current text selection: ${errorToLogText(error)}`);
+        }
+        return selection;
+    }
+
+    function getElementFromRangeNode(node: Node) {
+        return node.nodeType === Node.TEXT_NODE
+            ? node.parentElement
+            : (node as HTMLElement | null);
+    }
+
+    function resolveTextLayerForRange(activeRange: Range) {
+        const anchorElement = getElementFromRangeNode(activeRange.startContainer);
+        const commonAncestorElement = getElementFromRangeNode(activeRange.commonAncestorContainer);
+        return (anchorElement?.closest('.text-layer, .textLayer')
+            ?? commonAncestorElement?.closest('.text-layer, .textLayer')) as HTMLElement | null;
+    }
+
+    function getPageNumberForTextLayer(textLayer: HTMLElement) {
+        const pageContainer = textLayer.closest<HTMLElement>('.page_container');
+        return pageContainer?.dataset.page
+            ? Number(pageContainer.dataset.page)
+            : currentPage.value;
+    }
+
+    function createModeRestoredDeferred() {
+        let resolve: () => void = () => {};
+        const promise = new Promise<void>((promiseResolve) => { resolve = promiseResolve; });
+        return {
+            promise,
+            resolve,
+        };
+    }
+
+    async function restoreHighlightModeAfterSelection(
+        toolManager: IHighlightToolManager,
+        uiManager: AnnotationEditorUIManager,
+        previousMode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
+        pageNumber: number,
+    ) {
+        const restoreModeError = await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
+        if (restoreModeError) {
+            BrowserLogger.warn('annotations', 'Failed to restore annotation mode', restoreModeError);
+        }
+    }
+
+    function emitHighlightCommentLater(context: IHighlightCommentContext) {
+        let attempts = 0;
+        const tryEmitLater = () => {
+            const lateEditor = pickCreatedEditorCandidate(
+                context.pageIndex,
+                context.editorSnapshot,
+                context.getEditorsForPage,
+                context.identity.getEditorIdentity,
+            );
+            if (!lateEditor) {
+                attempts += 1;
+                if (attempts < 12) {
+                    scheduleSubtypeRetry(tryEmitLater, 80);
+                }
+                return;
+            }
+            context.applySubtypeOverrideToEditor(lateEditor);
+            context.commentSync.pendingCommentEditorKeys.add(context.identity.getEditorPendingKey(lateEditor, context.pageIndex));
+            const summary = context.commentSync.toEditorSummary(lateEditor, context.pageIndex, getCommentText(lateEditor));
+            context.clearEditorSelectionVisuals(lateEditor);
+            void context.modeRestoredPromise.then(() => {
+                emitAnnotationOpenNote(summary);
+            });
+        };
+        scheduleSubtypeRetry(tryEmitLater, 80);
+    }
+
+    function handleCreatedHighlightComment(context: IHighlightCommentContext) {
+        if (!context.targetEditor) {
+            emitHighlightCommentLater(context);
+            return null;
+        }
+        context.commentSync.pendingCommentEditorKeys.add(
+            context.identity.getEditorPendingKey(context.targetEditor, context.pageIndex),
+        );
+        const summary = context.commentSync.toEditorSummary(
+            context.targetEditor,
+            context.pageIndex,
+            getCommentText(context.targetEditor),
+        );
+        context.clearEditorSelectionVisuals(context.targetEditor);
+        return summary;
+    }
+
     async function highlightSelectionInternal(withComment: boolean, explicitRange: Range | null = null): Promise<boolean> {
         const uiManager = annotationUiManager.value;
         if (!uiManager) {
@@ -263,37 +379,22 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         const commentSync = getSync();
         const toolManager = getToolManager();
 
-        let selection = document.getSelection();
         const activeRange = explicitRange?.cloneRange() ?? getSelectionRangeForCommentAction();
         if (!activeRange) {
             return false;
         }
 
-        try {
-            selection = document.getSelection();
-            selection?.removeAllRanges();
-            selection?.addRange(activeRange.cloneRange());
-        } catch (error) {
-            BrowserLogger.debug('annotations', `Failed to restore current text selection: ${errorToLogText(error)}`);
-        }
+        const selection = restoreSelectionRange(activeRange);
 
         const {
             startContainer,
             startOffset,
             endContainer,
             endOffset,
-            commonAncestorContainer,
         } = activeRange;
         const text = activeRange.toString();
 
-        const anchorElement = startContainer.nodeType === Node.TEXT_NODE
-            ? startContainer.parentElement
-            : (startContainer as HTMLElement | null);
-        const commonAncestorElement = commonAncestorContainer.nodeType === Node.TEXT_NODE
-            ? commonAncestorContainer.parentElement
-            : (commonAncestorContainer as HTMLElement | null);
-        const textLayer = (anchorElement?.closest('.text-layer, .textLayer')
-            ?? commonAncestorElement?.closest('.text-layer, .textLayer')) as HTMLElement | null;
+        const textLayer = resolveTextLayerForRange(activeRange);
         if (!textLayer) {
             return false;
         }
@@ -303,10 +404,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             return false;
         }
 
-        const pageContainer = textLayer.closest<HTMLElement>('.page_container');
-        const pageNumber = pageContainer?.dataset.page
-            ? Number(pageContainer.dataset.page)
-            : currentPage.value;
+        const pageNumber = getPageNumberForTextLayer(textLayer);
         const pageIndex = Math.max(0, pageNumber - 1);
         const getEditorsForPage = (editorPageIndex: number) => getEditorsOnPage(uiManager, editorPageIndex);
         const editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
@@ -319,8 +417,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         const markupSubtypeOverride = markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
         let createdAnnotation = false;
         let deferredNoteSummary: IAnnotationCommentSummary | null = null;
-        let modeRestoredResolve: () => void = () => {};
-        const modeRestoredPromise = new Promise<void>((resolve) => { modeRestoredResolve = resolve; });
+        const modeRestored = createModeRestoredDeferred();
 
         const resolveCreatedEditor = async (createdEditor: IPdfjsEditor | null) => {
             if (createdEditor) {
@@ -390,12 +487,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         };
 
         try {
-            const highlightModeError = await toolManager.updateModeWithRetry(uiManager, AnnotationEditorType.HIGHLIGHT, pageNumber);
-            if (highlightModeError) {
-                throw highlightModeError instanceof Error
-                    ? highlightModeError
-                    : new Error(String(highlightModeError));
-            }
+            await switchToAnnotationModeOrThrow(toolManager, uiManager, AnnotationEditorType.HIGHLIGHT, pageNumber);
             await uiManager.waitForEditorsRendered(pageNumber);
 
             const layer = getAnnotationEditorLayer(uiManager, pageNumber - 1);
@@ -432,47 +524,32 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             }
 
             if (withComment) {
-                if (targetEditor) {
-                    commentSync.pendingCommentEditorKeys.add(identity.getEditorPendingKey(targetEditor, pageIndex));
-                    deferredNoteSummary = commentSync.toEditorSummary(targetEditor, pageIndex, getCommentText(targetEditor));
-                    clearEditorSelectionVisuals(targetEditor);
-                } else {
-                    let attempts = 0;
-                    const tryEmitLater = () => {
-                        const lateEditor = pickCreatedEditorCandidate(pageIndex, editorSnapshot, getEditorsForPage, identity.getEditorIdentity);
-                        if (!lateEditor) {
-                            attempts += 1;
-                            if (attempts < 12) {
-                                scheduleSubtypeRetry(tryEmitLater, 80);
-                            }
-                            return;
-                        }
-                        applySubtypeOverrideToEditor(lateEditor);
-                        commentSync.pendingCommentEditorKeys.add(identity.getEditorPendingKey(lateEditor, pageIndex));
-                        const summary = commentSync.toEditorSummary(lateEditor, pageIndex, getCommentText(lateEditor));
-                        clearEditorSelectionVisuals(lateEditor);
-                        void modeRestoredPromise.then(() => {
-                            emitAnnotationOpenNote(summary);
-                        });
-                    };
-                    scheduleSubtypeRetry(tryEmitLater, 80);
-                }
+                deferredNoteSummary = handleCreatedHighlightComment({
+                    targetEditor,
+                    pageIndex,
+                    editorSnapshot,
+                    getEditorsForPage,
+                    identity,
+                    markupSubtypeOverride,
+                    markupSubtype,
+                    commentSync,
+                    modeRestoredPromise: modeRestored.promise,
+                    applySubtypeOverrideToEditor,
+                    clearEditorSelectionVisuals,
+                });
             }
         } catch (error) {
             BrowserLogger.warn('annotations', `Failed to highlight selection: ${errorToLogText(error)}`);
-            modeRestoredResolve();
+            modeRestored.resolve();
         }
 
         if (createdAnnotation) {
             toolManager.maybeAutoResetAnnotationTool();
         }
 
-        const restoreModeError = await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
-        if (restoreModeError) {
-            BrowserLogger.warn('annotations', 'Failed to restore annotation mode', restoreModeError);
-        }
+        await restoreHighlightModeAfterSelection(toolManager, uiManager, previousMode, pageNumber);
 
-        modeRestoredResolve();
+        modeRestored.resolve();
 
         if (deferredNoteSummary) {
             emitAnnotationOpenNote(deferredNoteSummary);
@@ -516,6 +593,196 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         }
         const factor = 10 ** digits;
         return Math.round(value * factor) / factor;
+    }
+
+    function getPageClientPoint(pageRect: DOMRect, pageX: number, pageY: number) {
+        return {
+            x: pageRect.left + clamp01(pageX) * pageRect.width,
+            y: pageRect.top + clamp01(pageY) * pageRect.height,
+        };
+    }
+
+    function dispatchFreeTextPointer(layerDiv: HTMLElement, clientX: number, clientY: number) {
+        const eventInit: PointerEventInit = {
+            clientX,
+            clientY,
+            button: 0,
+            buttons: 1,
+            bubbles: true,
+            pointerType: 'mouse',
+            isPrimary: true,
+        };
+        layerDiv.dispatchEvent(new PointerEvent('pointerdown', eventInit));
+        layerDiv.dispatchEvent(new PointerEvent('pointerup', eventInit));
+    }
+
+    function keepFreeTextEditorAlive(editor: IPdfjsEditor) {
+        const editorDiv = editor.div?.querySelector<HTMLElement>('[contenteditable]')
+            ?? (editor as { editorDiv?: HTMLElement }).editorDiv;
+        if (editorDiv) {
+            editorDiv.textContent = '\u200B';
+        }
+        editor.isEmpty = () => false;
+    }
+
+    function enforceMinimumNoteEditorSize(editor: IPdfjsEditor) {
+        const minNoteEditorSize = DEFAULT_POINT_MARKER_SIZE;
+        if ((editor.width ?? 0) < minNoteEditorSize) {
+            editor.width = minNoteEditorSize;
+        }
+        if ((editor.height ?? 0) < minNoteEditorSize) {
+            editor.height = minNoteEditorSize;
+        }
+    }
+
+    async function waitForEditorMarkerRect(editor: IPdfjsEditor) {
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+            const markerRect = toMarkerRectFromEditor(editor);
+            if (markerRect) {
+                break;
+            }
+            await delay(16);
+            await nextTick();
+        }
+    }
+
+    async function preparePointNoteEditor(
+        editor: IPdfjsEditor,
+        pageIndex: number,
+        diagnosticsContext?: INotePlacementDiagnosticsContext,
+    ) {
+        keepFreeTextEditorAlive(editor);
+        enforceMinimumNoteEditorSize(editor);
+        editor.__evbResolvedPageIndex = pageIndex;
+        editor.__evbPlacementAttemptId = diagnosticsContext?.attemptId ?? null;
+        await waitForEditorMarkerRect(editor);
+    }
+
+    async function switchToAnnotationModeOrThrow(
+        toolManager: IHighlightToolManager,
+        uiManager: AnnotationEditorUIManager,
+        mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
+        pageNumber: number,
+    ) {
+        const modeError = await toolManager.updateModeWithRetry(uiManager, mode, pageNumber);
+        if (!modeError) {
+            return;
+        }
+        throw modeError instanceof Error
+            ? modeError
+            : new Error(String(modeError));
+    }
+
+    async function restorePreviousAnnotationMode(
+        toolManager: IHighlightToolManager,
+        uiManager: AnnotationEditorUIManager,
+        previousMode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
+        pageNumber: number,
+    ) {
+        if (previousMode !== AnnotationEditorType.FREETEXT) {
+            await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
+        }
+    }
+
+    async function tryCreateTextAnchorComment(
+        pageContainer: HTMLElement,
+        pageNumber: number,
+        pageX: number,
+        pageY: number,
+        preferTextAnchor: boolean,
+    ) {
+        if (!preferTextAnchor) {
+            return false;
+        }
+        const range = buildRangeFromPagePoint({
+            pageContainer,
+            pageNumber,
+            pageX: clamp01(pageX),
+            pageY: clamp01(pageY),
+        });
+        return range
+            ? highlightSelectionInternal(true, range)
+            : false;
+    }
+
+    function pickPointNoteMarkerRect(summary: IAnnotationCommentSummary, clickMarkerRect: IAnnotationMarkerRect | null) {
+        const centerDistance = markerRectCenterDistance(summary.markerRect, clickMarkerRect);
+        const shouldUseClickAnchor = Boolean(
+            clickMarkerRect
+            && (!summary.markerRect || centerDistance > 0.14),
+        );
+        return shouldUseClickAnchor
+            ? clickMarkerRect
+            : (summary.markerRect ?? clickMarkerRect);
+    }
+
+    function warnOnPointNotePageMismatch(
+        summary: IAnnotationCommentSummary,
+        pageNumber: number,
+        diagnosticsContext?: INotePlacementDiagnosticsContext,
+    ) {
+        const summaryPageNumber = Number.isFinite(summary.pageNumber)
+            ? summary.pageNumber
+            : (summary.pageIndex + 1);
+        if (!diagnosticsContext || summaryPageNumber === pageNumber) {
+            return;
+        }
+        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page mismatch: summary page differs from requested page', {
+            attemptId: diagnosticsContext.attemptId ?? null,
+            requestedPageNumber: pageNumber,
+            summaryPageNumber,
+            summaryPageIndex: summary.pageIndex,
+            summaryStableKey: summary.stableKey,
+        });
+    }
+
+    function pinViewerScrollAroundEditorComment(editor: IPdfjsEditor) {
+        if (!isPdfjsEditorWithEditComment(editor)) {
+            return;
+        }
+        const viewer = viewerContainer.value;
+        const snapshot = viewer
+            ? {
+                top: viewer.scrollTop,
+                left: viewer.scrollLeft,
+            }
+            : null;
+        const restoreViewerScroll = () => {
+            if (!viewer || !snapshot) {
+                return;
+            }
+            viewer.scrollTop = snapshot.top;
+            viewer.scrollLeft = snapshot.left;
+        };
+        const pinViewerScroll = () => {
+            restoreViewerScroll();
+            queueMicrotask(restoreViewerScroll);
+            if (typeof window !== 'undefined') {
+                window.requestAnimationFrame(() => {
+                    restoreViewerScroll();
+                    window.requestAnimationFrame(restoreViewerScroll);
+                });
+                window.setTimeout(restoreViewerScroll, 0);
+                window.setTimeout(restoreViewerScroll, 48);
+            }
+        };
+
+        pinViewerScroll();
+        editor.editComment();
+        pinViewerScroll();
+    }
+
+    function openPointNoteSummary(editor: IPdfjsEditor, summaryForNote: IAnnotationCommentSummary) {
+        try {
+            emitAnnotationOpenNote(summaryForNote);
+        } catch (error) {
+            if (!isPdfjsEditorWithEditComment(editor)) {
+                throw error instanceof Error
+                    ? error
+                    : new Error(String(error));
+            }
+            pinViewerScrollAroundEditorComment(editor);
+        }
     }
 
     function toRectLog(rect: DOMRect | {
@@ -581,6 +848,82 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         };
     }
 
+    function createEmptyGeometryResolution(collectCandidates: boolean): IGeometryResolution {
+        return {
+            pageContainer: null,
+            source: 'none',
+            candidates: collectCandidates ? [] : null,
+        };
+    }
+
+    function createGeometryResolution(
+        candidate: IPageGeometryCandidate,
+        source: IGeometryResolution['source'],
+        candidates: IPageCandidateLogEntry[],
+        collectCandidates: boolean,
+    ): IGeometryResolution {
+        return {
+            pageContainer: candidate.element,
+            source,
+            candidates: collectCandidates ? candidates : null,
+        };
+    }
+
+    function addGeometryCandidateLogEntry(
+        candidate: IPageGeometryCandidate,
+        candidates: IPageCandidateLogEntry[],
+        collectCandidates: boolean,
+    ) {
+        if (collectCandidates && candidates.length < MAX_PAGE_CANDIDATE_LOG_ENTRIES) {
+            candidates.push(toPageCandidateLogEntry(candidate));
+        }
+    }
+
+    function chooseFinalGeometryResolution(
+        insideMatch: IPageGeometryCandidate | null,
+        nearest: IPageGeometryCandidate | null,
+        candidates: IPageCandidateLogEntry[],
+        collectCandidates: boolean,
+    ) {
+        if (insideMatch) {
+            return createGeometryResolution(insideMatch, 'inside', candidates, collectCandidates);
+        }
+        if (nearest) {
+            return createGeometryResolution(nearest, 'nearest', candidates, collectCandidates);
+        }
+        return createEmptyGeometryResolution(collectCandidates);
+    }
+
+    function scanPageGeometryCandidates(
+        pages: HTMLElement[],
+        clientX: number,
+        clientY: number,
+        collectCandidates: boolean,
+    ): IGeometryResolution | null {
+        let nearest: IPageGeometryCandidate | null = null;
+        let insideMatch: IPageGeometryCandidate | null = null;
+        const candidates: IPageCandidateLogEntry[] = [];
+
+        for (const element of pages) {
+            const candidate = measurePageGeometryCandidate(element, clientX, clientY);
+            if (!candidate) {
+                continue;
+            }
+            addGeometryCandidateLogEntry(candidate, candidates, collectCandidates);
+            if (candidate.inside && !collectCandidates) {
+                return createGeometryResolution(candidate, 'inside', candidates, collectCandidates);
+            }
+            if (candidate.inside && !insideMatch) {
+                insideMatch = candidate;
+            }
+            if (!nearest || candidate.distanceSquared < nearest.distanceSquared) {
+                nearest = candidate;
+            }
+        }
+
+        return chooseFinalGeometryResolution(insideMatch, nearest, candidates, collectCandidates);
+    }
+
     function parsePageNumberFromContainer(pageContainer: HTMLElement | null) {
         if (!pageContainer?.dataset.page) {
             return null;
@@ -644,67 +987,15 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         const collectCandidates = options.collectCandidates ?? false;
         const container = viewerContainer.value;
         if (!container) {
-            return {
-                pageContainer: null,
-                source: 'none',
-                candidates: collectCandidates ? [] : null,
-            };
+            return createEmptyGeometryResolution(collectCandidates);
         }
         const pages = Array.from(container.querySelectorAll<HTMLElement>('.page_container'));
         if (pages.length === 0) {
-            return {
-                pageContainer: null,
-                source: 'none',
-                candidates: collectCandidates ? [] : null,
-            };
+            return createEmptyGeometryResolution(collectCandidates);
         }
 
-        let nearest: IPageGeometryCandidate | null = null;
-        let insideMatch: HTMLElement | null = null;
-        const candidates: IPageCandidateLogEntry[] = [];
-
-        for (const element of pages) {
-            const candidate = measurePageGeometryCandidate(element, clientX, clientY);
-            if (!candidate) {
-                continue;
-            }
-            if (collectCandidates && candidates.length < MAX_PAGE_CANDIDATE_LOG_ENTRIES) {
-                candidates.push(toPageCandidateLogEntry(candidate));
-            }
-            if (candidate.inside && !collectCandidates) {
-                return {
-                    pageContainer: element,
-                    source: 'inside',
-                    candidates: null,
-                };
-            }
-            if (candidate.inside && !insideMatch) {
-                insideMatch = element;
-            }
-            if (!nearest || candidate.distanceSquared < nearest.distanceSquared) {
-                nearest = candidate;
-            }
-        }
-
-        if (insideMatch) {
-            return {
-                pageContainer: insideMatch,
-                source: 'inside',
-                candidates: collectCandidates ? candidates : null,
-            };
-        }
-        if (nearest) {
-            return {
-                pageContainer: nearest.element,
-                source: 'nearest',
-                candidates: collectCandidates ? candidates : null,
-            };
-        }
-        return {
-            pageContainer: null,
-            source: 'none',
-            candidates: collectCandidates ? candidates : null,
-        };
+        return scanPageGeometryCandidates(pages, clientX, clientY, collectCandidates)
+            ?? createEmptyGeometryResolution(collectCandidates);
     }
 
     function findPageContainerFromClientPoint(clientX: number, clientY: number) {
@@ -761,6 +1052,60 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         };
     }
 
+    function getPagePointTargetConflicts(pageNumbers: IPagePointPageNumbers) {
+        const targetConflictsWithElementPoint = (
+            pageNumbers.byTargetPage !== null
+            && pageNumbers.byElementFromPointPage !== null
+            && pageNumbers.byTargetPage !== pageNumbers.byElementFromPointPage
+        );
+        const targetConflictsWithGeometry = (
+            pageNumbers.byTargetPage !== null
+            && pageNumbers.byGeometryPage !== null
+            && pageNumbers.byTargetPage !== pageNumbers.byGeometryPage
+        );
+
+        return {
+            targetConflictsWithElementPoint,
+            targetConflictsWithGeometry,
+            hasTargetConflict: targetConflictsWithElementPoint || targetConflictsWithGeometry,
+        };
+    }
+
+    function selectPagePointContainer(
+        targetPageContainer: HTMLElement | null,
+        documentPointContainer: HTMLElement | null,
+        geometryResolution: IGeometryResolution,
+        hasTargetConflict: boolean,
+    ) {
+        if (targetPageContainer && !hasTargetConflict) {
+            return {
+                pageContainer: targetPageContainer,
+                selectedSource: 'target-element',
+            };
+        }
+
+        if (documentPointContainer) {
+            return {
+                pageContainer: documentPointContainer,
+                selectedSource: 'document.elementFromPoint',
+            };
+        }
+
+        if (geometryResolution.pageContainer) {
+            return {
+                pageContainer: geometryResolution.pageContainer,
+                selectedSource: geometryResolution.source === 'inside'
+                    ? 'geometry-inside'
+                    : 'geometry-nearest',
+            };
+        }
+
+        return {
+            pageContainer: targetPageContainer,
+            selectedSource: targetPageContainer ? 'target-element-conflicted-fallback' : 'none',
+        };
+    }
+
     function selectPagePointResolution(inputs: IPagePointResolutionInputs): IPagePointResolutionSelection {
         const {
             targetPageContainer,
@@ -770,45 +1115,21 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             byElementFromPointPage,
             byGeometryPage,
         } = inputs;
-        const targetConflictsWithElementPoint = (
-            byTargetPage !== null
-            && byElementFromPointPage !== null
-            && byTargetPage !== byElementFromPointPage
+        const conflicts = getPagePointTargetConflicts({
+            byTargetPage,
+            byElementFromPointPage,
+            byGeometryPage,
+        });
+        const selected = selectPagePointContainer(
+            targetPageContainer,
+            documentPointContainer,
+            geometryResolution,
+            conflicts.hasTargetConflict,
         );
-        const targetConflictsWithGeometry = (
-            byTargetPage !== null
-            && byGeometryPage !== null
-            && byTargetPage !== byGeometryPage
-        );
-        const hasTargetConflict = targetConflictsWithElementPoint || targetConflictsWithGeometry;
-
-        let pageContainer: HTMLElement | null = null;
-        let selectedSource = 'none';
-        if (targetPageContainer && !hasTargetConflict) {
-            pageContainer = targetPageContainer;
-            selectedSource = 'target-element';
-        }
-        else if (documentPointContainer) {
-            pageContainer = documentPointContainer;
-            selectedSource = 'document.elementFromPoint';
-        }
-        else if (geometryResolution.pageContainer) {
-            pageContainer = geometryResolution.pageContainer;
-            selectedSource = geometryResolution.source === 'inside'
-                ? 'geometry-inside'
-                : 'geometry-nearest';
-        }
-        else if (targetPageContainer) {
-            pageContainer = targetPageContainer;
-            selectedSource = 'target-element-conflicted-fallback';
-        }
 
         return {
-            pageContainer,
-            selectedSource,
-            targetConflictsWithElementPoint,
-            targetConflictsWithGeometry,
-            hasTargetConflict,
+            ...selected,
+            ...conflicts,
         };
     }
 
@@ -868,6 +1189,63 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         });
     }
 
+    function logInvalidPagePointRect(
+        pageContainer: HTMLElement,
+        rect: DOMRect,
+        selectedSource: string,
+        diagnostics?: INotePlacementDiagnosticsContext,
+    ) {
+        if (!diagnostics) {
+            return;
+        }
+        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note page container has invalid rect', {
+            attemptId: diagnostics.attemptId ?? null,
+            selectedSource,
+            pageNumberFromDataset: pageContainer.dataset.page ?? null,
+            rect: toRectLog(rect),
+        });
+    }
+
+    function logInvalidPagePointNumber(
+        pageContainer: HTMLElement,
+        selectedSource: string,
+        diagnostics?: INotePlacementDiagnosticsContext,
+    ) {
+        if (!diagnostics) {
+            return;
+        }
+        BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note page container has invalid page number', {
+            attemptId: diagnostics.attemptId ?? null,
+            selectedSource,
+            datasetPage: pageContainer.dataset.page ?? null,
+            fallbackCurrentPage: currentPage.value,
+        });
+    }
+
+    function resolvePagePointNumber(pageContainer: HTMLElement) {
+        const pageNumber = pageContainer.dataset.page
+            ? Number(pageContainer.dataset.page)
+            : currentPage.value;
+        return Number.isFinite(pageNumber) && pageNumber > 0
+            ? pageNumber
+            : null;
+    }
+
+    function buildPagePointTarget(
+        pageContainer: HTMLElement,
+        clientX: number,
+        clientY: number,
+        rect: DOMRect,
+        pageNumber: number,
+    ): IPagePointTarget {
+        return {
+            pageContainer,
+            pageNumber,
+            pageX: clamp01((clientX - rect.left) / rect.width),
+            pageY: clamp01((clientY - rect.top) / rect.height),
+        };
+    }
+
     function buildPagePointTargetFromContainer(
         pageContainer: HTMLElement,
         clientX: number,
@@ -877,38 +1255,15 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
     ): IPagePointTarget | null {
         const rect = pageContainer.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) {
-            if (diagnostics) {
-                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note page container has invalid rect', {
-                    attemptId: diagnostics.attemptId ?? null,
-                    selectedSource,
-                    pageNumberFromDataset: pageContainer.dataset.page ?? null,
-                    rect: toRectLog(rect),
-                });
-            }
+            logInvalidPagePointRect(pageContainer, rect, selectedSource, diagnostics);
             return null;
         }
-        const pageNumber = pageContainer.dataset.page
-            ? Number(pageContainer.dataset.page)
-            : currentPage.value;
-        if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
-            if (diagnostics) {
-                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note page container has invalid page number', {
-                    attemptId: diagnostics.attemptId ?? null,
-                    selectedSource,
-                    datasetPage: pageContainer.dataset.page ?? null,
-                    fallbackCurrentPage: currentPage.value,
-                });
-            }
+        const pageNumber = resolvePagePointNumber(pageContainer);
+        if (pageNumber === null) {
+            logInvalidPagePointNumber(pageContainer, selectedSource, diagnostics);
             return null;
         }
-        const pageX = clamp01((clientX - rect.left) / rect.width);
-        const pageY = clamp01((clientY - rect.top) / rect.height);
-        return {
-            pageContainer,
-            pageNumber,
-            pageX,
-            pageY,
-        };
+        return buildPagePointTarget(pageContainer, clientX, clientY, rect, pageNumber);
     }
 
     function resolvePagePointTarget(
@@ -969,10 +1324,17 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         );
     }
 
+    function getTextSpanDistanceScore(rect: DOMRect, targetX: number, targetY: number) {
+        const inside = targetX >= rect.left && targetX <= rect.right && targetY >= rect.top && targetY <= rect.bottom;
+        const dx = inside ? 0 : Math.min(Math.abs(targetX - rect.left), Math.abs(targetX - rect.right));
+        const dy = inside ? 0 : Math.min(Math.abs(targetY - rect.top), Math.abs(targetY - rect.bottom));
+        return (dx * dx) + (dy * dy);
+    }
+
     function findClosestTextSpanInPage(pageContainer: HTMLElement, targetX: number, targetY: number): {
         span: HTMLElement;
         score: number;
-        rect: DOMRect 
+        rect: DOMRect
     } | null {
         const spans = Array.from(
             pageContainer.querySelectorAll<HTMLElement>('.text-layer span, .textLayer span'),
@@ -980,7 +1342,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         let best: {
             span: HTMLElement;
             score: number;
-            rect: DOMRect 
+            rect: DOMRect
         } | null = null;
 
         spans.forEach((span) => {
@@ -992,15 +1354,12 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             if (rect.width <= 0 || rect.height <= 0) {
                 return;
             }
-            const inside = targetX >= rect.left && targetX <= rect.right && targetY >= rect.top && targetY <= rect.bottom;
-            const dx = inside ? 0 : Math.min(Math.abs(targetX - rect.left), Math.abs(targetX - rect.right));
-            const dy = inside ? 0 : Math.min(Math.abs(targetY - rect.top), Math.abs(targetY - rect.bottom));
-            const score = (dx * dx) + (dy * dy);
+            const score = getTextSpanDistanceScore(rect, targetX, targetY);
             if (!best || score < best.score) {
                 best = {
                     span,
                     score,
-                    rect, 
+                    rect,
                 };
             }
         });
@@ -1069,7 +1428,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         pageIndex: number,
         getEditorsForPage: (pageIndex: number) => IPdfjsEditor[],
         getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string,
-    ) {
+    ): IEditorSnapshot {
         const editorsBefore = getEditorsForPage(pageIndex);
         return {
             editorsBeforeRefs: new Set<IPdfjsEditor>(editorsBefore),
@@ -1079,7 +1438,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
 
     function pickCreatedEditorCandidate(
         pageIndex: number,
-        snapshot: ReturnType<typeof captureEditorSnapshot>,
+        snapshot: IEditorSnapshot,
         getEditorsForPage: (pageIndex: number) => IPdfjsEditor[],
         getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string,
     ) {
@@ -1154,22 +1513,17 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
             return false;
         }
         const pageRect = pageContainer.getBoundingClientRect();
-        const pageClientX = pageRect.left + clamp01(pageX) * pageRect.width;
-        const pageClientY = pageRect.top + clamp01(pageY) * pageRect.height;
+        const pageClientPoint = getPageClientPoint(pageRect, pageX, pageY);
 
-        if (pointOptions.preferTextAnchor ?? true) {
-            const range = buildRangeFromPagePoint({
-                pageContainer,
-                pageNumber,
-                pageX: clamp01(pageX),
-                pageY: clamp01(pageY),
-            });
-            if (range) {
-                const created = await highlightSelectionInternal(true, range);
-                if (created) {
-                    return true;
-                }
-            }
+        const createdTextAnchor = await tryCreateTextAnchorComment(
+            pageContainer,
+            pageNumber,
+            pageX,
+            pageY,
+            pointOptions.preferTextAnchor ?? true,
+        );
+        if (createdTextAnchor) {
+            return true;
         }
 
         const pageIndex = Math.max(0, pageNumber - 1);
@@ -1194,149 +1548,35 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
 
         const previousMode = uiManager.getMode();
         try {
-            const freeTextModeError = await toolManager.updateModeWithRetry(uiManager, AnnotationEditorType.FREETEXT, pageNumber);
-            if (freeTextModeError) {
-                throw freeTextModeError instanceof Error
-                    ? freeTextModeError
-                    : new Error(String(freeTextModeError));
-            }
+            await switchToAnnotationModeOrThrow(toolManager, uiManager, AnnotationEditorType.FREETEXT, pageNumber);
             await uiManager.waitForEditorsRendered(pageNumber);
             const layerDiv = getAnnotationEditorLayerDiv(uiManager, pageNumber - 1);
             if (!layerDiv) {
                 return false;
             }
 
-            const eventInit: PointerEventInit = {
-                clientX: pageClientX,
-                clientY: pageClientY,
-                button: 0,
-                buttons: 1,
-                bubbles: true,
-                pointerType: 'mouse',
-                isPrimary: true,
-            };
-            layerDiv.dispatchEvent(new PointerEvent('pointerdown', eventInit));
-            layerDiv.dispatchEvent(new PointerEvent('pointerup', eventInit));
+            dispatchFreeTextPointer(layerDiv, pageClientPoint.x, pageClientPoint.y);
 
             const resolvedEditor = await resolveCreatedEditor(null);
             if (!resolvedEditor) {
                 return false;
             }
 
-            // Prevent PDF.js from removing this empty FreeText editor during mode
-            // transitions.  When updateMode switches away from FREETEXT,
-            // commitOrRemove() fires on the active editor.  If isEmpty() returns true
-            // the editor self-destructs, but we need it alive so the save path can
-            // locate it via getEditors() later.
-            //
-            // Insert a zero-width space into editorDiv so that:
-            //  1. isEmpty() naturally returns false (innerText is non-empty after trim)
-            //  2. PDF.js serializes the editor with non-empty value + rect into the PDF
-            //  3. The annotation round-trips correctly on reopen
-            const editorDiv = resolvedEditor.div?.querySelector<HTMLElement>('[contenteditable]')
-                ?? (resolvedEditor as { editorDiv?: HTMLElement }).editorDiv;
-            if (editorDiv) {
-                editorDiv.textContent = '\u200B';
-            }
-            resolvedEditor.isEmpty = () => false;
-
-            // The ZWS content auto-sizes the editorDiv to a nearly zero-width rect.
-            // When PDF.js serializes via getPDFRect(), it uses editor.width/height
-            // (normalized 0–1 fractions of page dimensions).  A zero-area rect causes
-            // toMarkerRectFromPdfRect → normalizeMarkerRect to return null on reopen,
-            // making the marker invisible.  Set a minimum size matching the standard
-            // note anchor area so the annotation round-trips with a valid marker rect.
-            const MIN_NOTE_EDITOR_SIZE = DEFAULT_POINT_MARKER_SIZE;
-            if ((resolvedEditor.width ?? 0) < MIN_NOTE_EDITOR_SIZE) {
-                resolvedEditor.width = MIN_NOTE_EDITOR_SIZE;
-            }
-            if ((resolvedEditor.height ?? 0) < MIN_NOTE_EDITOR_SIZE) {
-                resolvedEditor.height = MIN_NOTE_EDITOR_SIZE;
-            }
-
-            resolvedEditor.__evbResolvedPageIndex = pageIndex;
-            resolvedEditor.__evbPlacementAttemptId = diagnosticsContext?.attemptId ?? null;
-
-            for (let attempt = 0; attempt < 12; attempt += 1) {
-                const markerRect = toMarkerRectFromEditor(resolvedEditor);
-                if (markerRect) {
-                    break;
-                }
-                await delay(16);
-                await nextTick();
-            }
+            await preparePointNoteEditor(resolvedEditor, pageIndex, diagnosticsContext);
 
             const clickMarkerRect = markerRectFromPoint(pageX, pageY);
             resolvedEditor.__evbPendingAnchorRect = clickMarkerRect;
             commentSync.pendingCommentEditorKeys.add(identity.getEditorPendingKey(resolvedEditor, pageIndex));
 
             const summary = commentSync.toEditorSummary(resolvedEditor, pageIndex, getCommentText(resolvedEditor));
-            let finalMarkerRect = summary.markerRect ?? clickMarkerRect;
-            const centerDistance = markerRectCenterDistance(summary.markerRect, clickMarkerRect);
-            const shouldUseClickAnchor = Boolean(
-                clickMarkerRect
-                && (!summary.markerRect || centerDistance > 0.14),
-            );
-            if (shouldUseClickAnchor) {
-                finalMarkerRect = clickMarkerRect;
-            }
-            const summaryPageNumber = Number.isFinite(summary.pageNumber)
-                ? summary.pageNumber
-                : (summary.pageIndex + 1);
-            if (diagnosticsContext && summaryPageNumber !== pageNumber) {
-                BrowserLogger.warn(NOTE_PLACEMENT_LOG_SECTION, 'Quick-note page mismatch: summary page differs from requested page', {
-                    attemptId: diagnosticsContext.attemptId ?? null,
-                    requestedPageNumber: pageNumber,
-                    summaryPageNumber,
-                    summaryPageIndex: summary.pageIndex,
-                    summaryStableKey: summary.stableKey,
-                });
-            }
+            const finalMarkerRect = pickPointNoteMarkerRect(summary, clickMarkerRect);
+            warnOnPointNotePageMismatch(summary, pageNumber, diagnosticsContext);
             const summaryForNote = {
                 ...summary,
                 markerRect: finalMarkerRect,
             };
 
-            try {
-                emitAnnotationOpenNote(summaryForNote);
-            } catch (error) {
-                if (!isPdfjsEditorWithEditComment(resolvedEditor)) {
-                    throw error instanceof Error
-                        ? error
-                        : new Error(String(error));
-                }
-
-                const viewer = viewerContainer.value;
-                const snapshot = viewer
-                    ? {
-                        top: viewer.scrollTop,
-                        left: viewer.scrollLeft,
-                    }
-                    : null;
-                const restoreViewerScroll = () => {
-                    if (!viewer || !snapshot) {
-                        return;
-                    }
-                    viewer.scrollTop = snapshot.top;
-                    viewer.scrollLeft = snapshot.left;
-                };
-                const pinViewerScroll = () => {
-                    restoreViewerScroll();
-                    queueMicrotask(restoreViewerScroll);
-                    if (typeof window !== 'undefined') {
-                        window.requestAnimationFrame(() => {
-                            restoreViewerScroll();
-                            window.requestAnimationFrame(restoreViewerScroll);
-                        });
-                        window.setTimeout(restoreViewerScroll, 0);
-                        window.setTimeout(restoreViewerScroll, 48);
-                    }
-                };
-
-                pinViewerScroll();
-                resolvedEditor.editComment();
-                pinViewerScroll();
-            }
+            openPointNoteSummary(resolvedEditor, summaryForNote);
             return true;
         } catch (error) {
             if (diagnosticsContext) {
@@ -1350,9 +1590,7 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
                 ? error
                 : new Error(String(error));
         } finally {
-            if (previousMode !== AnnotationEditorType.FREETEXT) {
-                await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
-            }
+            await restorePreviousAnnotationMode(toolManager, uiManager, previousMode, pageNumber);
         }
     }
 
