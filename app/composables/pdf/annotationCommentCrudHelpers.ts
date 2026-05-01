@@ -14,6 +14,14 @@ export interface IEditorTargetMatch {
     targetAnnotationId: string | null;
 }
 
+function getPreferredPageScanOrder(pageIndex: number, numPages: number) {
+    const preferredPage = Math.max(0, Math.min(pageIndex, numPages - 1));
+    return [
+        preferredPage,
+        ...Array.from({ length: numPages }, (_, index) => index).filter(index => index !== preferredPage),
+    ];
+}
+
 export function findEditorForComment(
     uiManager: AnnotationEditorUIManager | null,
     numPages: number,
@@ -29,13 +37,7 @@ export function findEditorForComment(
         return null;
     }
 
-    const preferredPage = Math.max(0, Math.min(comment.pageIndex, numPages - 1));
-    const pageIndexes = [
-        preferredPage,
-        ...Array.from({ length: numPages }, (_, index) => index).filter(index => index !== preferredPage),
-    ];
-
-    for (const pageIndex of pageIndexes) {
+    for (const pageIndex of getPreferredPageScanOrder(comment.pageIndex, numPages)) {
         for (const normalizedEditor of getEditorsOnPage(uiManager, pageIndex)) {
             const editorIdentity = getEditorIdentity(normalizedEditor, pageIndex);
             if (
@@ -64,13 +66,7 @@ export function findEditorByAnnotationElementId(
         return null;
     }
 
-    const preferredPage = Math.max(0, Math.min(pageIndex, numPages - 1));
-    const pageIndexes = [
-        preferredPage,
-        ...Array.from({ length: numPages }, (_, index) => index).filter(index => index !== preferredPage),
-    ];
-
-    for (const candidatePageIndex of pageIndexes) {
+    for (const candidatePageIndex of getPreferredPageScanOrder(pageIndex, numPages)) {
         for (const normalizedEditor of getEditorsOnPage(uiManager, candidatePageIndex)) {
             if (normalizedEditor.annotationElementId === annotationId) {
                 return normalizedEditor;
