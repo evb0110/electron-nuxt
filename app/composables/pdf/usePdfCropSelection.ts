@@ -1,15 +1,17 @@
 import type { Ref } from 'vue';
 import type { ICropSelectionResult } from '@app/types/crop';
 import type {
+    IClientPoint,
     IClientRect,
     ILocalRect,
     IOverlayRect,
     ISnipPointerPayload,
 } from '@app/composables/pdf/usePdfRegionSnip';
 import {
+    createSelectionRectFromPointerDrag,
+    createSelectionPointerDragHandlers,
     getRectHeight,
     getRectWidth,
-    normalizeClientRect,
     toClientRect,
     toLocalRect,
 } from '@app/composables/pdf/usePdfRegionSnip';
@@ -30,10 +32,7 @@ export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
     const selectionRect = ref<ILocalRect | null>(null);
     const isSelecting = computed(() => state.value === 'selecting');
 
-    let dragStartPoint: {
-        clientX: number;
-        clientY: number;
-    } | null = null;
+    let dragStartPoint: IClientPoint | null = null;
     let pendingResolver: ((result: ICropSelectionResult | null) => void) | null = null;
     let escapeKeyListener: ((event: KeyboardEvent) => void) | null = null;
     let activePageTarget: IPageTarget | null = null;
@@ -44,17 +43,6 @@ export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
             top: rect.top,
             width: getRectWidth(rect),
             height: getRectHeight(rect),
-        };
-    }
-
-    function clampPointToRect(
-        clientX: number,
-        clientY: number,
-        rect: IClientRect,
-    ) {
-        return {
-            clientX: Math.max(rect.left, Math.min(rect.right, clientX)),
-            clientY: Math.max(rect.top, Math.min(rect.bottom, clientY)),
         };
     }
 
@@ -130,55 +118,32 @@ export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
 
     function updateSelectionFromPointer(
         payload: ISnipPointerPayload,
-        start: {
-            clientX: number;
-            clientY: number;
-        },
+        start: IClientPoint,
     ) {
         if (!activePageTarget) {
             selectionRect.value = null;
             return null;
         }
 
-        const clampedStart = clampPointToRect(start.clientX, start.clientY, activePageTarget.clientRect);
-        const clampedEnd = clampPointToRect(payload.clientX, payload.clientY, activePageTarget.clientRect);
-        const selection = normalizeClientRect(
-            clampedStart.clientX,
-            clampedStart.clientY,
-            clampedEnd.clientX,
-            clampedEnd.clientY,
+        const selection = createSelectionRectFromPointerDrag(
+            payload,
+            start,
+            activePageTarget.clientRect,
         );
-        selectionRect.value = toLocalRect(selection, payload.overlayRect);
-        return selection;
+        selectionRect.value = selection.localRect;
+        return selection.clientRect;
     }
 
-    function onPointerStart(payload: ISnipPointerPayload) {
-        if (state.value !== 'selecting') {
-            return;
-        }
-
+    function prepareSelectionStart(payload: ISnipPointerPayload) {
         const pageTarget = findPageTargetAtPoint(payload.clientX, payload.clientY);
-        dragStartPoint = {
-            clientX: payload.clientX,
-            clientY: payload.clientY,
-        };
         activePageTarget = pageTarget;
-        updateSelectionFromPointer(payload, dragStartPoint);
     }
 
-    function onPointerMove(payload: ISnipPointerPayload) {
-        if (state.value !== 'selecting' || !dragStartPoint) {
-            return;
-        }
-        updateSelectionFromPointer(payload, dragStartPoint);
-    }
-
-    function onPointerEnd(payload: ISnipPointerPayload) {
-        if (state.value !== 'selecting' || !dragStartPoint) {
-            return;
-        }
-
-        const selection = updateSelectionFromPointer(payload, dragStartPoint);
+    function completeSelection(
+        payload: ISnipPointerPayload,
+        startPoint: IClientPoint,
+    ) {
+        const selection = updateSelectionFromPointer(payload, startPoint);
         const pageTarget = activePageTarget;
 
         if (!selection || !pageTarget) {
@@ -201,6 +166,17 @@ export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
             pageLocalRect,
         });
     }
+
+    const pointerDragHandlers = createSelectionPointerDragHandlers({
+        getState: () => state.value,
+        getStartPoint: () => dragStartPoint,
+        setStartPoint: (point) => {
+            dragStartPoint = point;
+        },
+        updateSelection: updateSelectionFromPointer,
+        onStart: prepareSelectionStart,
+        onEnd: completeSelection,
+    });
 
     function startCropSelection() {
         if (!options.viewerContainer.value) {
@@ -234,9 +210,9 @@ export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
         isSelecting,
         selectionRect,
         startCropSelection,
-        onPointerStart,
-        onPointerMove,
-        onPointerEnd,
+        onPointerStart: pointerDragHandlers.onPointerStart,
+        onPointerMove: pointerDragHandlers.onPointerMove,
+        onPointerEnd: pointerDragHandlers.onPointerEnd,
         cancelSelection,
     };
 }

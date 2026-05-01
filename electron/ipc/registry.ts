@@ -188,15 +188,9 @@ interface IRendererLogSerializeState {
     seen: WeakSet<object>;
 }
 
-function normalizeRendererLogData(
-    value: unknown,
-    depth: number,
-    state: IRendererLogSerializeState,
-): unknown {
-    if (state.remainingNodes <= 0) {
-        return '[Truncated]';
-    }
+const RENDERER_LOG_NOT_PRIMITIVE = Symbol('renderer-log-not-primitive');
 
+function normalizeRendererLogPrimitive(value: unknown) {
     if (value === null || value === undefined) {
         return value ?? null;
     }
@@ -222,32 +216,13 @@ function normalizeRendererLogData(
         return `[Function ${functionName || 'anonymous'}]`;
     }
 
-    if (depth >= 1) {
-        if (Array.isArray(value)) {
-            return `[Array(${value.length})]`;
-        }
-        if (value instanceof Date) {
-            return value.toISOString();
-        }
-        if (value instanceof RegExp) {
-            return String(value);
-        }
-        if (value instanceof Error) {
-            return {
-                name: value.name,
-                message: value.message,
-            };
-        }
-        if (ArrayBuffer.isView(value)) {
-            const typedArray = value;
-            return `[${typedArray.constructor.name}(${typedArray.byteLength})]`;
-        }
-        if (value instanceof ArrayBuffer) {
-            return `[ArrayBuffer(${value.byteLength})]`;
-        }
-        return '[Object]';
-    }
+    return RENDERER_LOG_NOT_PRIMITIVE;
+}
 
+function normalizeRendererLogSpecialObject(value: object, depth: number) {
+    if (Array.isArray(value) && depth >= 1) {
+        return `[Array(${value.length})]`;
+    }
     if (value instanceof Date) {
         return value.toISOString();
     }
@@ -255,11 +230,14 @@ function normalizeRendererLogData(
         return String(value);
     }
     if (value instanceof Error) {
-        return {
+        const normalizedError: Record<string, unknown> = {
             name: value.name,
             message: value.message,
-            stack: clampString(value.stack, RENDERER_LOG_MAX_MESSAGE_CHARS),
         };
+        if (depth === 0) {
+            normalizedError.stack = clampString(value.stack, RENDERER_LOG_MAX_MESSAGE_CHARS);
+        }
+        return normalizedError;
     }
     if (ArrayBuffer.isView(value)) {
         const typedArray = value;
@@ -269,8 +247,72 @@ function normalizeRendererLogData(
         return `[ArrayBuffer(${value.byteLength})]`;
     }
 
-    if (typeof value !== 'object') {
+    return undefined;
+}
+
+function normalizeRendererLogArray(
+    value: unknown[],
+    depth: number,
+    state: IRendererLogSerializeState,
+) {
+    const normalizedItems = value
+        .slice(0, RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS)
+        .map(item => normalizeRendererLogData(item, depth + 1, state));
+    if (value.length > RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS) {
+        normalizedItems.push(`[+${value.length - RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS} more items]`);
+    }
+    return normalizedItems;
+}
+
+function normalizeRendererLogPlainObject(
+    value: object,
+    depth: number,
+    state: IRendererLogSerializeState,
+) {
+    const normalizedObject: Record<string, unknown> = {};
+    const entries = Object.entries(value as Record<string, unknown>);
+    const maxKeys = Math.min(entries.length, RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS);
+    for (let index = 0; index < maxKeys; index += 1) {
+        const entry = entries[index];
+        if (!entry) {
+            continue;
+        }
+        const [
+            key,
+            itemValue,
+        ] = entry;
+        normalizedObject[key] = normalizeRendererLogData(itemValue, depth + 1, state);
+    }
+    if (entries.length > RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS) {
+        normalizedObject.__truncatedKeys = entries.length - RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS;
+    }
+    return normalizedObject;
+}
+
+function normalizeRendererLogData(
+    value: unknown,
+    depth: number,
+    state: IRendererLogSerializeState,
+): unknown {
+    if (state.remainingNodes <= 0) {
+        return '[Truncated]';
+    }
+
+    const normalizedPrimitive = normalizeRendererLogPrimitive(value);
+    if (normalizedPrimitive !== RENDERER_LOG_NOT_PRIMITIVE) {
+        return normalizedPrimitive;
+    }
+
+    if (value === null || typeof value !== 'object') {
         return String(value);
+    }
+
+    const normalizedSpecialObject = normalizeRendererLogSpecialObject(value, depth);
+    if (normalizedSpecialObject !== undefined) {
+        return normalizedSpecialObject;
+    }
+    if (depth >= 1) {
+        return '[Object]';
     }
 
     if (state.seen.has(value)) {
@@ -281,33 +323,10 @@ function normalizeRendererLogData(
 
     try {
         if (Array.isArray(value)) {
-            const normalizedItems = value
-                .slice(0, RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS)
-                .map(item => normalizeRendererLogData(item, depth + 1, state));
-            if (value.length > RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS) {
-                normalizedItems.push(`[+${value.length - RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS} more items]`);
-            }
-            return normalizedItems;
+            return normalizeRendererLogArray(value, depth, state);
         }
 
-        const normalizedObject: Record<string, unknown> = {};
-        const entries = Object.entries(value as Record<string, unknown>);
-        const maxKeys = Math.min(entries.length, RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS);
-        for (let index = 0; index < maxKeys; index += 1) {
-            const entry = entries[index];
-            if (!entry) {
-                continue;
-            }
-            const [
-                key,
-                itemValue,
-            ] = entry;
-            normalizedObject[key] = normalizeRendererLogData(itemValue, depth + 1, state);
-        }
-        if (entries.length > RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS) {
-            normalizedObject.__truncatedKeys = entries.length - RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS;
-        }
-        return normalizedObject;
+        return normalizeRendererLogPlainObject(value, depth, state);
     } finally {
         state.seen.delete(value);
     }

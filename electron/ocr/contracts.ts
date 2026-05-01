@@ -1,5 +1,6 @@
 import { uniq } from 'es-toolkit/array';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/available-languages';
+import { parseIntegerEnv } from '@electron/utils/env';
 
 type TOcrErrorCode =
     | 'OCR_INVALID_PAYLOAD'
@@ -45,16 +46,12 @@ const MAX_IMAGE_BYTES = 128 * 1024 * 1024;
 const MAX_BATCH_PAGES = 5_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
-const MAX_UNIQUE_LANGUAGES_PER_JOB = (() => {
-    const parsed = Number.parseInt(
-        process.env.EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB ?? `${AVAILABLE_OCR_LANGUAGE_CODES.size}`,
-        10,
-    );
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return AVAILABLE_OCR_LANGUAGE_CODES.size;
-    }
-    return Math.min(parsed, AVAILABLE_OCR_LANGUAGE_CODES.size);
-})();
+const MAX_UNIQUE_LANGUAGES_PER_JOB = parseIntegerEnv(
+    'EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB',
+    AVAILABLE_OCR_LANGUAGE_CODES.size,
+    1,
+    AVAILABLE_OCR_LANGUAGE_CODES.size,
+);
 
 export class OcrPayloadValidationError extends Error {
     readonly code: TOcrErrorCode;

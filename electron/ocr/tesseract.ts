@@ -3,6 +3,8 @@ import { ensureTessdataLanguages } from '@electron/ocr/language-models';
 import { getOcrPaths } from '@electron/ocr/paths';
 import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseract-language-config';
 import { appendTextChunkWithByteCap } from '@electron/native-tools/output-buffer';
+import { parseIntegerEnv } from '@electron/utils/env';
+import { buildTesseractEnv } from '@electron/ocr/tesseract-env';
 
 type TTesseractSpawnOptions = {threads?: number;};
 
@@ -12,55 +14,10 @@ interface IOcrResult {
     error?: string;
 }
 
-const TESSERACT_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_TESSERACT_TIMEOUT_MS ?? `${2 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 5_000) {
-        return 2 * 60 * 1000;
-    }
-    return parsed;
-})();
-const TESSERACT_KILL_GRACE_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_TESSERACT_KILL_GRACE_MS ?? '2000', 10);
-    if (!Number.isFinite(parsed) || parsed < 250) {
-        return 2_000;
-    }
-    return parsed;
-})();
-const TESSERACT_MAX_STDOUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_TESSERACT_MAX_STDOUT_BYTES ?? '262144', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_024) {
-        return 262_144;
-    }
-    return parsed;
-})();
-const TESSERACT_MAX_STDERR_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_TESSERACT_MAX_STDERR_BYTES ?? '262144', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_024) {
-        return 262_144;
-    }
-    return parsed;
-})();
-
-
-function buildTesseractEnv(
-    tessdata: string,
-    options?: TTesseractSpawnOptions,
-): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        TESSDATA_PREFIX: tessdata,
-    };
-
-    const threads = options?.threads;
-    if (typeof threads === 'number' && Number.isFinite(threads) && threads > 0) {
-        // If Tesseract is built with OpenMP, these variables control parallelism.
-        // If not, they are ignored safely.
-        env.OMP_THREAD_LIMIT = String(Math.floor(threads));
-        env.OMP_NUM_THREADS = String(Math.floor(threads));
-    }
-
-    return env;
-}
+const TESSERACT_TIMEOUT_MS = parseIntegerEnv('EVB_TESSERACT_TIMEOUT_MS', 2 * 60 * 1000, 5_000);
+const TESSERACT_KILL_GRACE_MS = parseIntegerEnv('EVB_TESSERACT_KILL_GRACE_MS', 2_000, 250);
+const TESSERACT_MAX_STDOUT_BYTES = parseIntegerEnv('EVB_TESSERACT_MAX_STDOUT_BYTES', 262_144, 1_024);
+const TESSERACT_MAX_STDERR_BYTES = parseIntegerEnv('EVB_TESSERACT_MAX_STDERR_BYTES', 262_144, 1_024);
 
 export async function runOcr(
     imageBuffer: Buffer,
@@ -86,7 +43,7 @@ export async function runOcr(
     ];
 
     return new Promise((resolve) => {
-        const proc = spawn(binary, args, {env: buildTesseractEnv(tessdata, options)});
+        const proc = spawn(binary, args, {env: buildTesseractEnv(tessdata, options?.threads)});
 
         let stdout = '';
         let stderr = '';

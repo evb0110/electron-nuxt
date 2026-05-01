@@ -31,6 +31,7 @@ import { forEachConcurrent } from '@electron/utils/concurrency';
 import { measureElectronPerfAsync } from '@electron/utils/dev-perf';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/available-languages';
 import { getErrorMessage } from '@electron/utils/error';
+import { parseIntegerEnv } from '@electron/utils/env';
 
 const log = createLogger('ocr-language-models');
 const DOWNLOAD_BASE_URL = 'https://github.com/tesseract-ocr/tessdata_best/raw/main';
@@ -69,23 +70,13 @@ interface ISharedDownloadTask {
 const inFlightDownloads = new Map<string, ISharedDownloadTask>();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
-const OCR_MODEL_DOWNLOAD_CONCURRENCY = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY ?? '3', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 3;
-    }
-    return Math.min(parsed, 8);
-})();
-const OCR_MAX_UNIQUE_MODEL_CODES = (() => {
-    const parsed = Number.parseInt(
-        process.env.EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB ?? `${AVAILABLE_OCR_LANGUAGE_CODES.size}`,
-        10,
-    );
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return AVAILABLE_OCR_LANGUAGE_CODES.size;
-    }
-    return Math.min(parsed, AVAILABLE_OCR_LANGUAGE_CODES.size);
-})();
+const OCR_MODEL_DOWNLOAD_CONCURRENCY = parseIntegerEnv('EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY', 3, 1, 8);
+const OCR_MAX_UNIQUE_MODEL_CODES = parseIntegerEnv(
+    'EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB',
+    AVAILABLE_OCR_LANGUAGE_CODES.size,
+    1,
+    AVAILABLE_OCR_LANGUAGE_CODES.size,
+);
 
 let runtimeTessdataSeedPromise: Promise<void> | null = null;
 

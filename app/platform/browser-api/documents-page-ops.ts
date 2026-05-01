@@ -43,6 +43,11 @@ interface ISaveBytesResult {
     handle?: FileSystemFileHandle | null;
 }
 
+interface IStoredPageMutationResult {
+    success: true;
+    pageCount: number;
+}
+
 interface IBrowserPageOpProgressOptions {requestId?: string;}
 
 interface ICreateBrowserPageOpsOptions {
@@ -108,11 +113,15 @@ export function createBrowserPageOps(
 
     async function getCombinedInputBytes(paths: string[], maxBytes?: number) {
         let totalBytes = 0;
-        for (let index = 0; index < paths.length; index += 1) {
+        for (const [
+            index,
+            path,
+        ] of paths.entries()) {
             if (index > 0) {
                 await yieldToBrowser();
             }
-            const { size } = await browserDocumentStore.stat(paths[index]!);
+
+            const { size } = await browserDocumentStore.stat(path);
             totalBytes += size;
             if (typeof maxBytes === 'number' && totalBytes > maxBytes) {
                 return totalBytes;
@@ -192,6 +201,22 @@ export function createBrowserPageOps(
         return runDirectPdfOperation(() => options.runDirect(data));
     }
 
+    async function writePageMutationResult(
+        workingCopyPath: string,
+        data: Uint8Array,
+        pageCount: number,
+    ): Promise<IStoredPageMutationResult> {
+        await browserDocumentStore.write(
+            workingCopyPath,
+            data,
+        );
+        options.clearSearchCaches();
+        return {
+            success: true,
+            pageCount,
+        };
+    }
+
     const pageOps: IPageOpsCapability['pageOps'] = {
         async delete(workingCopyPath, pages) {
             const result = await runWorkerBackedPdfOperation({
@@ -205,15 +230,11 @@ export function createBrowserPageOps(
                 }),
                 runDirect: (data) => deletePdfPages(data, pages),
             });
-            await browserDocumentStore.write(
+            return writePageMutationResult(
                 workingCopyPath,
                 result.data,
+                result.pageCount,
             );
-            options.clearSearchCaches();
-            return {
-                success: true,
-                pageCount: result.pageCount,
-            };
         },
         async extract(workingCopyPath, pages) {
             const sourceName = getBrowserDocumentFileName(workingCopyPath).replace(
@@ -297,15 +318,11 @@ export function createBrowserPageOps(
                 }),
                 runDirect: (data) => reorderPdfPages(data, newOrder),
             });
-            await browserDocumentStore.write(
+            return writePageMutationResult(
                 workingCopyPath,
                 result.data,
+                result.pageCount,
             );
-            options.clearSearchCaches();
-            return {
-                success: true,
-                pageCount: result.pageCount,
-            };
         },
         async insert(workingCopyPath, _totalPages, afterPage) {
             const pickedFiles = await options.pickFiles({
@@ -413,15 +430,11 @@ export function createBrowserPageOps(
                     afterPage,
                 ));
             }
-            await browserDocumentStore.write(
+            return writePageMutationResult(
                 workingCopyPath,
                 result.data,
+                result.pageCount,
             );
-            options.clearSearchCaches();
-            return {
-                success: true,
-                pageCount: result.pageCount,
-            };
         },
         async rotate(workingCopyPath, pages, angle) {
             const result = await runWorkerBackedPdfOperation({
@@ -436,15 +449,11 @@ export function createBrowserPageOps(
                 }),
                 runDirect: (data) => rotatePdfBytes(data, pages, angle),
             });
-            await browserDocumentStore.write(
+            return writePageMutationResult(
                 workingCopyPath,
                 result.data,
+                result.pageCount,
             );
-            options.clearSearchCaches();
-            return {
-                success: true,
-                pageCount: result.pageCount,
-            };
         },
         async crop(workingCopyPath, pages, margins) {
             const result = await runWorkerBackedPdfOperation({
@@ -459,15 +468,11 @@ export function createBrowserPageOps(
                 }),
                 runDirect: (data) => cropPdfBytes(data, pages, margins),
             });
-            await browserDocumentStore.write(
+            return writePageMutationResult(
                 workingCopyPath,
                 result.data,
+                result.pageCount,
             );
-            options.clearSearchCaches();
-            return {
-                success: true,
-                pageCount: result.pageCount,
-            };
         },
         async removeCrop(workingCopyPath, pages) {
             const result = await runWorkerBackedPdfOperation({
@@ -481,15 +486,11 @@ export function createBrowserPageOps(
                 }),
                 runDirect: (data) => removeCropPdfBytes(data, pages),
             });
-            await browserDocumentStore.write(
+            return writePageMutationResult(
                 workingCopyPath,
                 result.data,
+                result.pageCount,
             );
-            options.clearSearchCaches();
-            return {
-                success: true,
-                pageCount: result.pageCount,
-            };
         },
         async getPageGeometry(workingCopyPath, pageNumber): Promise<IPageGeometry> {
             return runWorkerBackedPdfOperation({

@@ -1,21 +1,11 @@
 import { withTimeout } from 'es-toolkit/promise';
 import { isTimeoutError } from '@contracts/timeout-error';
 import { getErrorMessage } from '@electron/utils/error';
+import { parseIntegerEnv } from '@electron/utils/env';
 
-function parseIntEnv(name: string, fallback: number, minimum: number, maximum?: number) {
-    const parsed = Number.parseInt(process.env[name] ?? `${fallback}`, 10);
-    if (!Number.isFinite(parsed) || parsed < minimum) {
-        return fallback;
-    }
-    if (typeof maximum === 'number') {
-        return Math.min(parsed, maximum);
-    }
-    return parsed;
-}
-
-const SHUTDOWN_TOTAL_TIMEOUT_MS = parseIntEnv('EVB_SHUTDOWN_TIMEOUT_MS', 20_000, 3_000);
-const SHUTDOWN_STEP_TIMEOUT_MS = parseIntEnv('EVB_SHUTDOWN_STEP_TIMEOUT_MS', 8_000, 1_000, SHUTDOWN_TOTAL_TIMEOUT_MS);
-const GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS = parseIntEnv('EVB_GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS', 3_000, 0);
+const SHUTDOWN_TOTAL_TIMEOUT_MS = parseIntegerEnv('EVB_SHUTDOWN_TIMEOUT_MS', 20_000, 3_000);
+const SHUTDOWN_STEP_TIMEOUT_MS = parseIntegerEnv('EVB_SHUTDOWN_STEP_TIMEOUT_MS', 8_000, 1_000, SHUTDOWN_TOTAL_TIMEOUT_MS);
+const GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS = parseIntegerEnv('EVB_GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS', 3_000, 0);
 
 interface ILogger {error(message: string): void;}
 
