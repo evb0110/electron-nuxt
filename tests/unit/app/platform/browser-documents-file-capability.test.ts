@@ -34,11 +34,21 @@ vi.mock('@app/platform/browser-api/browser-pdf-combine-worker-client', () => ({
     runBrowserPdfCombineWorkerRequest: (type: string, payload: unknown) =>
         browserPdfCombineWorkerMock.run(type, payload),
 }));
-vi.mock('utif', () => ({default: {
-    decode: (...args: Parameters<typeof utifMock.decode>) => utifMock.decode(...args),
-    decodeImage: (...args: Parameters<typeof utifMock.decodeImage>) => utifMock.decodeImage(...args),
-    toRGBA8: (...args: Parameters<typeof utifMock.toRGBA8>) => utifMock.toRGBA8(...args), 
-}}));
+vi.mock('utif', () => {
+    const decode = (...args: Parameters<typeof utifMock.decode>) => utifMock.decode(...args);
+    const decodeImage = (...args: Parameters<typeof utifMock.decodeImage>) => utifMock.decodeImage(...args);
+    const toRGBA8 = (...args: Parameters<typeof utifMock.toRGBA8>) => utifMock.toRGBA8(...args);
+    return {
+        decode,
+        decodeImage,
+        toRGBA8,
+        default: {
+            decode,
+            decodeImage,
+            toRGBA8, 
+        },
+    };
+});
 
 async function createPdfBytes() {
     const document = await PDFDocument.create();
