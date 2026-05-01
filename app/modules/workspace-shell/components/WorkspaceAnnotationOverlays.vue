@@ -132,7 +132,7 @@ import type {
     IShapeAnnotation,
     TAnnotationTool,
 } from '@app/types/annotations';
-import { isTextMarkupSubtype } from '@app/composables/pdf/pdfAnnotationUtils';
+import { isTextMarkupSubtype } from '@app/services/pdf/annotation-subtype';
 import { normalizeMarkerRect } from '@app/composables/pdf/annotationGeometry';
 import type { IAnnotationNotePosition } from '@app/composables/pdf/annotations/annotationNoteWindowTypes';
 import { NOTE_WINDOW } from '@app/constants/pdf-layout';

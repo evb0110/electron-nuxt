@@ -59,16 +59,22 @@ function createDeps() {
 }
 
 let capturedOnEventFired: ((e: unknown) => void) | undefined;
+let capturedPointerDown: ((e: PointerEvent) => void) | undefined;
 
 describe('usePageShortcuts', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
         const windowMock = {
-            addEventListener: vi.fn(),
+            addEventListener: vi.fn((event: string, listener: (e: PointerEvent) => void) => {
+                if (event === 'pointerdown') {
+                    capturedPointerDown = listener;
+                }
+            }),
             removeEventListener: vi.fn(),
         };
         vi.stubGlobal('window', windowMock);
+        capturedPointerDown = undefined;
         mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(false);
 
         mocks.useMagicKeys.mockImplementation((opts?: { onEventFired?: (e: unknown) => void }) => {
@@ -253,5 +259,69 @@ describe('usePageShortcuts', () => {
 
         expect(preventDefault).toHaveBeenCalledOnce();
         expect(deps.pdfViewerRef.value?.deleteSelectedShape).toHaveBeenCalledOnce();
+    });
+
+    it('ignores modified Alt shortcuts', async () => {
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 'b',
+            code: 'KeyB',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: true,
+            target: null,
+            preventDefault,
+        }));
+
+        expect(preventDefault).not.toHaveBeenCalled();
+        expect(deps.handleToggleSidebar).not.toHaveBeenCalled();
+    });
+
+    it('does not route Cmd/Ctrl+P when renderer accelerators are delegated', async () => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(false);
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 'p',
+            code: 'KeyP',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: null,
+            preventDefault,
+        }));
+
+        expect(preventDefault).not.toHaveBeenCalled();
+        expect(deps.handlePrint).not.toHaveBeenCalled();
+    });
+
+    it('closes visible shortcut menus on outside pointerdown', async () => {
+        const deps = createDeps();
+        deps.shapePropertiesPopoverVisible.value = true;
+        deps.annotationContextMenuVisible.value = true;
+        deps.pageContextMenuVisible.value = true;
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const target = { closest: vi.fn(() => null) };
+        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
+        vi.stubGlobal('HTMLElement', class HTMLElementStub {});
+        Object.setPrototypeOf(target, HTMLElement.prototype);
+
+        capturedPointerDown?.(cast<PointerEvent>({target}));
+
+        expect(deps.closeShapeProperties).toHaveBeenCalledOnce();
+        expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
+        expect(deps.closePageContextMenu).toHaveBeenCalledOnce();
     });
 });

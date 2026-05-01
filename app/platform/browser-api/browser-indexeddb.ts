@@ -2,6 +2,16 @@ export function isIndexedDbAvailable() {
     return typeof indexedDB !== 'undefined';
 }
 
+function idbRequestToPromise<T>(
+    request: IDBRequest<T>,
+    errorMessage: string,
+): Promise<T> {
+    return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error ?? new Error(errorMessage));
+    });
+}
+
 export function openBrowserDatabase(
     dbName: string,
     version: number,
@@ -11,14 +21,12 @@ export function openBrowserDatabase(
         return Promise.resolve(null);
     }
 
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open(dbName, version);
-        request.onupgradeneeded = () => {
-            upgrade(request.result, request.transaction);
-        };
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error ?? new Error(`Failed to open ${dbName} database`));
-    });
+    const request = indexedDB.open(dbName, version);
+    request.onupgradeneeded = () => {
+        upgrade(request.result, request.transaction);
+    };
+
+    return idbRequestToPromise(request, `Failed to open ${dbName} database`);
 }
 
 export function readStoreValue<T>(
@@ -26,33 +34,24 @@ export function readStoreValue<T>(
     key: IDBValidKey,
     errorMessage: string,
 ): Promise<T | null> {
-    return new Promise((resolve, reject) => {
-        const request = store.get(key);
-        request.onsuccess = () => resolve((request.result as T | undefined) ?? null);
-        request.onerror = () => reject(request.error ?? new Error(errorMessage));
-    });
+    return idbRequestToPromise(store.get(key), errorMessage)
+        .then((value) => (value as T | undefined) ?? null);
 }
 
 export function readAllStoreValues<T>(
     store: IDBObjectStore,
     errorMessage: string,
 ): Promise<T[]> {
-    return new Promise((resolve, reject) => {
-        const request = store.getAll();
-        request.onsuccess = () => resolve((request.result as T[] | undefined) ?? []);
-        request.onerror = () => reject(request.error ?? new Error(errorMessage));
-    });
+    return idbRequestToPromise(store.getAll(), errorMessage)
+        .then((values) => (values as T[] | undefined) ?? []);
 }
 
 export function readAllStoreKeys(
     store: IDBObjectStore,
     errorMessage: string,
 ): Promise<IDBValidKey[]> {
-    return new Promise((resolve, reject) => {
-        const request = store.getAllKeys();
-        request.onsuccess = () => resolve(request.result ?? []);
-        request.onerror = () => reject(request.error ?? new Error(errorMessage));
-    });
+    return idbRequestToPromise(store.getAllKeys(), errorMessage)
+        .then((keys) => keys ?? []);
 }
 
 export function writeStoreValue(
@@ -61,13 +60,12 @@ export function writeStoreValue(
     errorMessage: string,
     key?: IDBValidKey,
 ): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const request = typeof key === 'undefined'
-            ? store.put(value)
-            : store.put(value, key);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error ?? new Error(errorMessage));
-    });
+    const request = typeof key === 'undefined'
+        ? store.put(value)
+        : store.put(value, key);
+
+    return idbRequestToPromise(request, errorMessage)
+        .then(() => undefined);
 }
 
 export function deleteStoreValue(
@@ -75,20 +73,14 @@ export function deleteStoreValue(
     key: IDBValidKey,
     errorMessage: string,
 ): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const request = store.delete(key);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error ?? new Error(errorMessage));
-    });
+    return idbRequestToPromise(store.delete(key), errorMessage)
+        .then(() => undefined);
 }
 
 export function clearStore(
     store: IDBObjectStore,
     errorMessage: string,
 ): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const request = store.clear();
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error ?? new Error(errorMessage));
-    });
+    return idbRequestToPromise(store.clear(), errorMessage)
+        .then(() => undefined);
 }

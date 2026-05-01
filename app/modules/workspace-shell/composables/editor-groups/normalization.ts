@@ -19,6 +19,24 @@ interface IEditorGroupsStateSnapshot {
 
 interface INormalizeEditorGroupsStateParams extends IEditorGroupsStateSnapshot { createGroup: () => IEditorGroupState; }
 
+interface IUniqueTabsResult {
+    tabs: ITab[];
+    tabIds: Set<string>;
+    hasInvalidTabs: boolean;
+}
+
+interface INormalizedGroupsResult {
+    groups: IEditorGroupState[];
+    groupIds: Set<string>;
+    assignedTabIds: Set<string>;
+    hasInvalidGroups: boolean;
+}
+
+interface IActiveGroupMruResult {
+    activeGroupId: string | null;
+    groupMru: string[];
+}
+
 export function arraysEqual<T>(left: T[], right: T[]) {
     if (left === right) {
         return true;
@@ -57,54 +75,104 @@ function buildNormalizedGroupMru(
     return nextMru;
 }
 
-export function isEditorGroupsStateNormalized(state: IEditorGroupsStateSnapshot) {
+function collectUniqueTabs(tabs: ITab[]): IUniqueTabsResult {
+    const uniqueTabs: ITab[] = [];
     const validTabIds = new Set<string>();
-    for (const tab of state.tabs) {
+    let hasInvalidTabs = false;
+
+    for (const tab of tabs) {
         if (!tab.id || validTabIds.has(tab.id)) {
-            return false;
+            hasInvalidTabs = true;
+            continue;
         }
         validTabIds.add(tab.id);
+        uniqueTabs.push(tab);
     }
 
-    if (state.groups.length === 0) {
-        return false;
-    }
+    return {
+        tabs: uniqueTabs,
+        tabIds: validTabIds,
+        hasInvalidTabs,
+    };
+}
 
+function normalizeGroupTabIds(
+    groups: IEditorGroupState[],
+    validTabIds: Set<string>,
+): INormalizedGroupsResult {
+    const normalizedGroups: IEditorGroupState[] = [];
     const validGroupIds = new Set<string>();
-    const groupsOrder: string[] = [];
     const assignedTabIds = new Set<string>();
-    for (const group of state.groups) {
+    let hasInvalidGroups = false;
+
+    for (const group of groups) {
         if (!group.id || validGroupIds.has(group.id)) {
-            return false;
+            hasInvalidGroups = true;
+            continue;
         }
         validGroupIds.add(group.id);
-        groupsOrder.push(group.id);
 
+        const nextTabIds: string[] = [];
         for (const tabId of group.tabIds) {
             if (!validTabIds.has(tabId) || assignedTabIds.has(tabId)) {
-                return false;
+                hasInvalidGroups = true;
+                continue;
             }
             assignedTabIds.add(tabId);
+            nextTabIds.push(tabId);
         }
 
-        const expectedActiveTabId = group.activeTabId && group.tabIds.includes(group.activeTabId)
+        const activeTabId = group.activeTabId && nextTabIds.includes(group.activeTabId)
             ? group.activeTabId
-            : (group.tabIds[0] ?? null);
-        if (group.activeTabId !== expectedActiveTabId) {
-            return false;
-        }
+            : (nextTabIds[0] ?? null);
+        hasInvalidGroups ||= group.activeTabId !== activeTabId;
+        normalizedGroups.push({
+            id: group.id,
+            tabIds: nextTabIds,
+            activeTabId,
+        });
     }
 
-    if (assignedTabIds.size !== validTabIds.size) {
-        return false;
-    }
+    return {
+        groups: normalizedGroups,
+        groupIds: validGroupIds,
+        assignedTabIds,
+        hasInvalidGroups,
+    };
+}
 
-    if (!state.layout) {
-        return false;
+function normalizeLayoutForGroups(
+    layout: TEditorLayoutNode | null,
+    groups: IEditorGroupState[],
+    validGroupIds: Set<string>,
+): TEditorLayoutNode {
+    let nextLayout = layout ? pruneLayoutToExistingGroups(layout, validGroupIds) : null;
+    if (!nextLayout) {
+        nextLayout = {
+            type: 'leaf',
+            groupId: groups[0]!.id,
+        };
     }
 
     const layoutGroupIds = new Set<string>();
-    collectLayoutGroupIds(state.layout, layoutGroupIds);
+    collectLayoutGroupIds(nextLayout, layoutGroupIds);
+    for (const group of groups) {
+        if (layoutGroupIds.has(group.id)) {
+            continue;
+        }
+        nextLayout = appendGroupToLayout(nextLayout, group.id);
+        layoutGroupIds.add(group.id);
+    }
+
+    return nextLayout;
+}
+
+function layoutMatchesGroups(layout: TEditorLayoutNode | null, validGroupIds: Set<string>) {
+    if (!layout) {
+        return false;
+    }
+    const layoutGroupIds = new Set<string>();
+    collectLayoutGroupIds(layout, layoutGroupIds);
     for (const groupId of layoutGroupIds) {
         if (!validGroupIds.has(groupId)) {
             return false;
@@ -116,77 +184,43 @@ export function isEditorGroupsStateNormalized(state: IEditorGroupsStateSnapshot)
         }
     }
 
-    if (!state.activeGroupId || !validGroupIds.has(state.activeGroupId)) {
-        return false;
-    }
-
-    const nextMru = buildNormalizedGroupMru(
-        state.activeGroupId,
-        state.groupMru,
-        groupsOrder,
-        validGroupIds,
-    );
-    return arraysEqual(state.groupMru, nextMru);
+    return true;
 }
 
-export function normalizeEditorGroupsState({
-    groups,
-    tabs,
-    layout,
-    activeGroupId,
-    groupMru,
-    createGroup,
-}: INormalizeEditorGroupsStateParams): IEditorGroupsStateSnapshot {
-    const uniqueTabs: ITab[] = [];
-    const validTabIds = new Set<string>();
-    for (const tab of tabs) {
-        if (!tab.id || validTabIds.has(tab.id)) {
-            continue;
-        }
-        validTabIds.add(tab.id);
-        uniqueTabs.push(tab);
-    }
+function normalizeActiveGroupAndMru(
+    activeGroupId: string | null,
+    groupMru: string[],
+    groups: IEditorGroupState[],
+    validGroupIds: Set<string>,
+): IActiveGroupMruResult {
+    const nextActiveGroupId = activeGroupId && validGroupIds.has(activeGroupId)
+        ? activeGroupId
+        : (groups[0]?.id ?? null);
+    const nextMru = buildNormalizedGroupMru(
+        nextActiveGroupId,
+        groupMru,
+        groups.map(group => group.id),
+        validGroupIds,
+    );
 
-    const normalizedGroups: IEditorGroupState[] = [];
-    const validGroupIds = new Set<string>();
-    const assignedTabIds = new Set<string>();
-    for (const group of groups) {
-        if (!group.id || validGroupIds.has(group.id)) {
-            continue;
-        }
-        validGroupIds.add(group.id);
+    return {
+        activeGroupId: nextActiveGroupId,
+        groupMru: nextMru,
+    };
+}
 
-        const nextTabIds: string[] = [];
-        for (const tabId of group.tabIds) {
-            if (!validTabIds.has(tabId) || assignedTabIds.has(tabId)) {
-                continue;
-            }
-            assignedTabIds.add(tabId);
-            nextTabIds.push(tabId);
-        }
-
-        normalizedGroups.push({
-            id: group.id,
-            tabIds: nextTabIds,
-            activeTabId: group.activeTabId && nextTabIds.includes(group.activeTabId)
-                ? group.activeTabId
-                : (nextTabIds[0] ?? null),
-        });
-    }
-
-    if (normalizedGroups.length === 0) {
-        const fallbackGroup = createGroup();
-        normalizedGroups.push(fallbackGroup);
-        validGroupIds.add(fallbackGroup.id);
-    }
-
-    const nextGroups = normalizedGroups.map(group => ({
+function cloneGroupsWithUnassignedTabs(
+    groups: IEditorGroupState[],
+    tabs: ITab[],
+    assignedTabIds: Set<string>,
+) {
+    const nextGroups = groups.map(group => ({
         ...group,
         tabIds: [...group.tabIds],
     }));
-
     const fallbackGroup = nextGroups[0]!;
-    for (const tab of uniqueTabs) {
+
+    for (const tab of tabs) {
         if (assignedTabIds.has(tab.id)) {
             continue;
         }
@@ -200,40 +234,81 @@ export function normalizeEditorGroupsState({
             : (group.tabIds[0] ?? null);
     }
 
+    return nextGroups;
+}
+
+export function isEditorGroupsStateNormalized(state: IEditorGroupsStateSnapshot) {
+    const tabs = collectUniqueTabs(state.tabs);
+    if (tabs.hasInvalidTabs || tabs.tabs.length !== state.tabs.length) {
+        return false;
+    }
+
+    if (state.groups.length === 0) {
+        return false;
+    }
+
+    const groups = normalizeGroupTabIds(state.groups, tabs.tabIds);
+    if (
+        groups.hasInvalidGroups
+        || groups.assignedTabIds.size !== tabs.tabIds.size
+        || groups.groups.length !== state.groups.length
+    ) {
+        return false;
+    }
+
+    if (!layoutMatchesGroups(state.layout, groups.groupIds)) {
+        return false;
+    }
+
+    if (!state.activeGroupId || !groups.groupIds.has(state.activeGroupId)) {
+        return false;
+    }
+
+    const nextMru = normalizeActiveGroupAndMru(
+        state.activeGroupId,
+        state.groupMru,
+        groups.groups,
+        groups.groupIds,
+    ).groupMru;
+    return arraysEqual(state.groupMru, nextMru);
+}
+
+export function normalizeEditorGroupsState({
+    groups,
+    tabs,
+    layout,
+    activeGroupId,
+    groupMru,
+    createGroup,
+}: INormalizeEditorGroupsStateParams): IEditorGroupsStateSnapshot {
+    const uniqueTabs = collectUniqueTabs(tabs);
+    const normalizedGroups = normalizeGroupTabIds(groups, uniqueTabs.tabIds);
+
+    if (normalizedGroups.groups.length === 0) {
+        const fallbackGroup = createGroup();
+        normalizedGroups.groups.push(fallbackGroup);
+        normalizedGroups.groupIds.add(fallbackGroup.id);
+    }
+
+    const nextGroups = cloneGroupsWithUnassignedTabs(
+        normalizedGroups.groups,
+        uniqueTabs.tabs,
+        normalizedGroups.assignedTabIds,
+    );
     const freshGroupIds = new Set(nextGroups.map(group => group.id));
-    let nextLayout = layout ? pruneLayoutToExistingGroups(layout, freshGroupIds) : null;
-    if (!nextLayout) {
-        nextLayout = {
-            type: 'leaf',
-            groupId: nextGroups[0]!.id,
-        };
-    }
-
-    const layoutGroupIds = new Set<string>();
-    collectLayoutGroupIds(nextLayout, layoutGroupIds);
-    for (const group of nextGroups) {
-        if (layoutGroupIds.has(group.id)) {
-            continue;
-        }
-        nextLayout = appendGroupToLayout(nextLayout, group.id);
-        layoutGroupIds.add(group.id);
-    }
-
-    const nextActiveGroupId = activeGroupId && freshGroupIds.has(activeGroupId)
-        ? activeGroupId
-        : (nextGroups[0]?.id ?? null);
-    const nextMru = buildNormalizedGroupMru(
-        nextActiveGroupId,
+    const nextLayout = normalizeLayoutForGroups(layout, nextGroups, freshGroupIds);
+    const activeGroupMru = normalizeActiveGroupAndMru(
+        activeGroupId,
         groupMru,
-        nextGroups.map(group => group.id),
+        nextGroups,
         freshGroupIds,
     );
 
     return {
         groups: nextGroups,
-        tabs: uniqueTabs,
+        tabs: uniqueTabs.tabs,
         layout: nextLayout,
-        activeGroupId: nextActiveGroupId,
-        groupMru: nextMru,
+        activeGroupId: activeGroupMru.activeGroupId,
+        groupMru: activeGroupMru.groupMru,
     };
 }

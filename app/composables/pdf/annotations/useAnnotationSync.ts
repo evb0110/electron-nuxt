@@ -17,10 +17,8 @@ import {
     hasEditorCommentPayload,
     detectEditorSubtype,
 } from '@app/composables/pdf/pdfAnnotationEditorUtils';
-import {
-    parsePdfDateTimestamp,
-    annotationKindLabelFromSubtype,
-} from '@app/composables/pdf/pdfAnnotationUtils';
+import { parsePdfDateTimestamp } from '@app/services/pdf/annotation-metadata';
+import { annotationKindLabelFromSubtype } from '@app/services/pdf/annotation-subtype';
 import { toCssColor } from '@app/composables/pdf/annotationCssUtils';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browser-logger';
