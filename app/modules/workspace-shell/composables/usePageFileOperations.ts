@@ -168,18 +168,26 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         }
     }
 
-    async function handleOpenFileFromUi() {
+    async function runPickerWithPersistence(
+        pick: () => Promise<TOpenFileResult | null>,
+        options: { openGeneratedInNewTab: boolean },
+    ) {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
             return;
         }
 
-        const result = await pickFileToOpen();
+        const result = await pick();
         if (!result) {
             return;
         }
 
-        if (result.kind === 'pdf' && result.isGenerated && pdfSrc.value) {
+        if (
+            options.openGeneratedInNewTab
+            && result.kind === 'pdf'
+            && result.isGenerated
+            && pdfSrc.value
+        ) {
             emitOpenInNewTab(result);
             closeAllDropdowns();
             return;
@@ -187,6 +195,10 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
         await openFile(result);
         closeAllDropdowns();
+    }
+
+    async function handleOpenFileFromUi() {
+        await runPickerWithPersistence(pickFileToOpen, { openGeneratedInNewTab: true });
     }
 
     async function pickCombineFiles() {
@@ -194,24 +206,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function handleCombineImages() {
-        const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
-        if (!canProceed) {
-            return;
-        }
-
-        const result = await pickCombineFiles();
-        if (!result) {
-            return;
-        }
-
-        if (result.kind === 'pdf' && result.isGenerated && pdfSrc.value) {
-            emitOpenInNewTab(result);
-            closeAllDropdowns();
-            return;
-        }
-
-        await openFile(result);
-        closeAllDropdowns();
+        await runPickerWithPersistence(pickCombineFiles, { openGeneratedInNewTab: true });
     }
 
     async function handleOpenFileDirectWithPersist(path: TDocumentRef) {

@@ -17,6 +17,10 @@ import {
     normalizePdfJsAnnotationId,
 } from '@app/composables/pdf/pdfSerializationRefs';
 import {
+    getPointMinMaxBounds,
+    toShapeRect,
+} from '@app/composables/pdf/pdfShapeResize';
+import {
     cloneShapePoints,
     cloneShapeStrokes,
     getAllShapePoints,
@@ -149,8 +153,8 @@ export const useAnnotationShapes = () => {
     }
 
     function resolveShapeBounds(shape: Pick<IShapeAnnotation, 'x' | 'y' | 'width' | 'height' | 'points' | 'strokes'>) {
-        const points = getAllShapePoints(shape);
-        if (points.length === 0) {
+        const bounds = getPointMinMaxBounds(getAllShapePoints(shape));
+        if (!bounds) {
             return {
                 x: shape.x,
                 y: shape.y,
@@ -159,18 +163,12 @@ export const useAnnotationShapes = () => {
             };
         }
 
-        const xs = points.map(point => point.x);
-        const ys = points.map(point => point.y);
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
-
+        const rect = toShapeRect(bounds, 0.0001);
         return {
-            x: minX,
-            y: minY,
-            width: Math.max(0.0001, maxX - minX),
-            height: Math.max(0.0001, maxY - minY),
+            x: rect.minX,
+            y: rect.minY,
+            width: rect.maxX - rect.minX,
+            height: rect.maxY - rect.minY,
         };
     }
 

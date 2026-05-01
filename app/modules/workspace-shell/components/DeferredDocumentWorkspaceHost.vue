@@ -69,9 +69,10 @@ import type { TOpenFileResult } from '@contracts/platform-api';
 import type { IRecentFile } from '@contracts/shared';
 import type { TTabUpdate } from '@app/types/tabs';
 import type { TSplitPayload } from '@contracts/window-tabs';
-import type {
-    IWorkspaceExpose,
-    IWorkspaceToolbarSnapshot,
+import {
+    createDefaultWorkspaceToolbarSnapshot,
+    type IWorkspaceExpose,
+    type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getPlatformAPI } from '@app/utils/platform';
@@ -179,40 +180,7 @@ const hasPdf = computed<boolean>(() => {
     return value?.value ?? false;
 });
 
-function createEmptyToolbarSnapshot(): IWorkspaceToolbarSnapshot {
-    return {
-        hasPdf: false,
-        isOpeningDocument: false,
-        isPreparingPrint: false,
-        canSave: false,
-        canUndo: false,
-        canRedo: false,
-        canExportDocx: false,
-        isSaving: false,
-        isSavingAs: false,
-        isAnySaving: false,
-        isHistoryBusy: false,
-        isExportingDocx: false,
-        isFitWidthActive: false,
-        isFitHeightActive: false,
-        showSidebar: false,
-        dragMode: false,
-        continuousScroll: false,
-        isDjvuMode: false,
-        isCapturingRegion: false,
-        isCropSelecting: false,
-        isPlacingPageNote: false,
-        zoom: 1,
-        effectiveZoom: 1,
-        zoomMode: 'fit-width',
-        fitMode: 'width',
-        viewMode: 'single',
-        currentPage: 1,
-        totalPages: 0,
-    };
-}
-
-const lastToolbarSnapshot = ref<IWorkspaceToolbarSnapshot>(createEmptyToolbarSnapshot());
+const lastToolbarSnapshot = ref<IWorkspaceToolbarSnapshot>(createDefaultWorkspaceToolbarSnapshot());
 
 function readWorkspaceToolbarSnapshot() {
     const workspace = mountedWorkspace.value;
@@ -224,7 +192,7 @@ function readWorkspaceToolbarSnapshot() {
             };
         }
 
-        lastToolbarSnapshot.value = createEmptyToolbarSnapshot();
+        lastToolbarSnapshot.value = createDefaultWorkspaceToolbarSnapshot();
         return lastToolbarSnapshot.value;
     }
 

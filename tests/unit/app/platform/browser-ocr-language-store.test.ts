@@ -356,4 +356,177 @@ describe('browser OCR language store', () => {
         await expect(listInstalledBrowserOcrLanguages()).resolves.toEqual(new Set());
         await expect(listBrowserOcrLanguageCacheEntries()).resolves.toEqual([]);
     });
+
+    it('uses clearStore when every Tesseract cache key is an OCR key', async () => {
+        const clearSpy = vi.spyOn(FakeObjectStore.prototype, 'clear');
+        const deleteSpy = vi.spyOn(FakeObjectStore.prototype, 'delete');
+
+        await cacheBrowserOcrLanguageData('eng', new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        await cacheBrowserOcrLanguageData('deu', new Uint8Array([
+            4,
+            5,
+            6,
+        ]));
+        await markBrowserOcrLanguageInstalled('eng');
+        await markBrowserOcrLanguageInstalled('deu');
+
+        clearSpy.mockClear();
+        deleteSpy.mockClear();
+
+        await clearBrowserOcrLanguageCache();
+
+        expect(clearSpy).toHaveBeenCalled();
+        expect(deleteSpy).not.toHaveBeenCalled();
+
+        clearSpy.mockRestore();
+        deleteSpy.mockRestore();
+    });
+
+    it('deletes only OCR-prefixed keys when foreign keys exist in the Tesseract cache', async () => {
+        await cacheBrowserOcrLanguageData('eng', new Uint8Array([
+            7,
+            7,
+            7,
+        ]));
+        await markBrowserOcrLanguageInstalled('eng');
+
+        // Inject a non-OCR key into the keyval store directly via the fake DB.
+        const tesseractOpenRequest = cast<IDBOpenDBRequest>(indexedDB.open('keyval-store', 1));
+        await new Promise<void>((resolve) => {
+            tesseractOpenRequest.onsuccess = () => resolve();
+        });
+        const tesseractDb = tesseractOpenRequest.result;
+        const transaction = tesseractDb.transaction('keyval', 'readwrite');
+        const store = transaction.objectStore('keyval');
+        await new Promise<void>((resolve) => {
+            const putRequest = store.put(new Uint8Array([
+                9,
+                9,
+            ]), 'unrelated-key');
+            putRequest.onsuccess = () => resolve();
+        });
+        tesseractDb.close();
+
+        const clearSpy = vi.spyOn(FakeObjectStore.prototype, 'clear');
+        const deleteSpy = vi.spyOn(FakeObjectStore.prototype, 'delete');
+
+        await clearBrowserOcrLanguageCache();
+
+        // Tesseract store: clear() must NOT be called; only OCR keys deleted individually.
+        const tesseractDeletes = deleteSpy.mock.calls
+            .map(args => String(args[0]))
+            .filter(key => key.startsWith('evb-browser-ocr/'));
+        expect(tesseractDeletes).toEqual(['evb-browser-ocr/eng.traineddata']);
+
+        // Foreign key remains untouched.
+        const verifyOpenRequest = cast<IDBOpenDBRequest>(indexedDB.open('keyval-store', 1));
+        await new Promise<void>((resolve) => {
+            verifyOpenRequest.onsuccess = () => resolve();
+        });
+        const verifyDb = verifyOpenRequest.result;
+        const verifyTx = verifyDb.transaction('keyval', 'readonly');
+        const verifyStore = verifyTx.objectStore('keyval');
+        const remaining = await new Promise<IDBValidKey[]>((resolve) => {
+            const req = verifyStore.getAllKeys();
+            req.onsuccess = () => resolve(req.result);
+        });
+        expect(remaining).toContain('unrelated-key');
+        expect(remaining).not.toContain('evb-browser-ocr/eng.traineddata');
+        verifyDb.close();
+
+        clearSpy.mockRestore();
+        deleteSpy.mockRestore();
+    });
+
+    it('only touches the supplied codes when clearing specific languages', async () => {
+        await cacheBrowserOcrLanguageData('eng', new Uint8Array([
+            1,
+            1,
+            1,
+        ]));
+        await cacheBrowserOcrLanguageData('deu', new Uint8Array([
+            2,
+            2,
+            2,
+        ]));
+        await cacheBrowserOcrLanguageData('fra', new Uint8Array([
+            3,
+            3,
+            3,
+        ]));
+        await markBrowserOcrLanguageInstalled('eng');
+        await markBrowserOcrLanguageInstalled('deu');
+        await markBrowserOcrLanguageInstalled('fra');
+
+        const clearSpy = vi.spyOn(FakeObjectStore.prototype, 'clear');
+        const deleteSpy = vi.spyOn(FakeObjectStore.prototype, 'delete');
+
+        await clearBrowserOcrLanguageCache(['eng']);
+
+        expect(clearSpy).not.toHaveBeenCalled();
+
+        const deletedKeys = deleteSpy.mock.calls.map(args => String(args[0]));
+        expect(deletedKeys).toContain('evb-browser-ocr/eng.traineddata');
+        expect(deletedKeys).toContain('eng');
+        expect(deletedKeys).not.toContain('evb-browser-ocr/deu.traineddata');
+        expect(deletedKeys).not.toContain('evb-browser-ocr/fra.traineddata');
+        expect(deletedKeys).not.toContain('deu');
+        expect(deletedKeys).not.toContain('fra');
+
+        await expect(hasCachedBrowserOcrLanguage('deu')).resolves.toBe(true);
+        await expect(hasCachedBrowserOcrLanguage('fra')).resolves.toBe(true);
+        await expect(listInstalledBrowserOcrLanguages()).resolves.toEqual(new Set([
+            'deu',
+            'fra',
+        ]));
+
+        clearSpy.mockRestore();
+        deleteSpy.mockRestore();
+    });
+
+    it('normalizes input codes by trimming and filtering empty entries', async () => {
+        await cacheBrowserOcrLanguageData('eng', new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        await cacheBrowserOcrLanguageData('deu', new Uint8Array([
+            4,
+            5,
+            6,
+        ]));
+        await markBrowserOcrLanguageInstalled('eng');
+        await markBrowserOcrLanguageInstalled('deu');
+
+        // Mixture of empty/whitespace and trimmable codes — should target only 'eng'.
+        await clearBrowserOcrLanguageCache([
+            '  eng  ',
+            '',
+            '   ',
+        ]);
+
+        await expect(hasCachedBrowserOcrLanguage('eng')).resolves.toBe(false);
+        await expect(hasCachedBrowserOcrLanguage('deu')).resolves.toBe(true);
+        await expect(listInstalledBrowserOcrLanguages()).resolves.toEqual(new Set(['deu']));
+    });
+
+    it('treats an array of only blank codes as a clear-all request', async () => {
+        await cacheBrowserOcrLanguageData('eng', new Uint8Array([
+            1,
+            2,
+        ]));
+        await markBrowserOcrLanguageInstalled('eng');
+
+        await clearBrowserOcrLanguageCache([
+            '',
+            '   ',
+        ]);
+
+        await expect(hasCachedBrowserOcrLanguage('eng')).resolves.toBe(false);
+        await expect(listInstalledBrowserOcrLanguages()).resolves.toEqual(new Set());
+    });
 });

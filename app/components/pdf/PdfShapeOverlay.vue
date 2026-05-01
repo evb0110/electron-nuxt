@@ -321,6 +321,10 @@ import type {
 } from '@app/types/annotations';
 import { usePdfShapeOverlayInteractions } from '@app/composables/pdf/pdfShapeOverlayInteractions';
 import {
+    getPointMinMaxBounds,
+    toShapeRect,
+} from '@app/composables/pdf/pdfShapeResize';
+import {
     getAllShapePoints,
     getShapeStrokePointSets,
 } from '@app/composables/pdf/pdfShapeStrokes';
@@ -499,33 +503,30 @@ const selectedShapeBounds = computed(() => {
         return null;
     }
     if (isLineLikeShape(shape)) {
-        const x1 = shape.x;
-        const y1 = shape.y;
         const x2 = shape.x2 ?? shape.x;
         const y2 = shape.y2 ?? shape.y;
-        const minX = Math.min(x1, x2);
-        const minY = Math.min(y1, y2);
+        const rect = toShapeRect({
+            minX: Math.min(shape.x, x2),
+            minY: Math.min(shape.y, y2),
+            maxX: Math.max(shape.x, x2),
+            maxY: Math.max(shape.y, y2),
+        }, 0.01);
         return {
-            x: minX,
-            y: minY,
-            width: Math.max(0.01, Math.abs(x2 - x1)),
-            height: Math.max(0.01, Math.abs(y2 - y1)),
+            x: rect.minX,
+            y: rect.minY,
+            width: rect.maxX - rect.minX,
+            height: rect.maxY - rect.minY,
         };
     }
     if (shape.type === 'polyline' || shape.type === 'polygon') {
-        const points = getAllShapePoints(shape);
-        if (points.length > 0) {
-            const xs = points.map(point => point.x);
-            const ys = points.map(point => point.y);
-            const minX = Math.min(...xs);
-            const maxX = Math.max(...xs);
-            const minY = Math.min(...ys);
-            const maxY = Math.max(...ys);
+        const bounds = getPointMinMaxBounds(getAllShapePoints(shape));
+        if (bounds) {
+            const rect = toShapeRect(bounds, 0.01);
             return {
-                x: minX,
-                y: minY,
-                width: Math.max(0.01, maxX - minX),
-                height: Math.max(0.01, maxY - minY),
+                x: rect.minX,
+                y: rect.minY,
+                width: rect.maxX - rect.minX,
+                height: rect.maxY - rect.minY,
             };
         }
     }

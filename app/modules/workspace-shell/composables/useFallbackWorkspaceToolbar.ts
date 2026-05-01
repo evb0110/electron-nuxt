@@ -1,9 +1,10 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import type {
-    IWorkspaceExpose,
-    IWorkspaceToolbarSnapshot,
+import {
+    createDefaultWorkspaceToolbarSnapshot,
+    type IWorkspaceExpose,
+    type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspace-expose';
 import type {
     TFitMode,
@@ -55,39 +56,6 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
     const fallbackPageDropdownOpen = ref(false);
     const fallbackOverflowMenuOpen = ref(false);
     const fallbackAppMenuOpen = ref(false);
-
-    function createDefaultToolbarSnapshot(): IWorkspaceToolbarSnapshot {
-        return {
-            hasPdf: false,
-            isOpeningDocument: false,
-            isPreparingPrint: false,
-            canSave: false,
-            canUndo: false,
-            canRedo: false,
-            canExportDocx: false,
-            isSaving: false,
-            isSavingAs: false,
-            isAnySaving: false,
-            isHistoryBusy: false,
-            isExportingDocx: false,
-            isFitWidthActive: false,
-            isFitHeightActive: false,
-            showSidebar: false,
-            dragMode: false,
-            continuousScroll: false,
-            isDjvuMode: false,
-            isCapturingRegion: false,
-            isCropSelecting: false,
-            isPlacingPageNote: false,
-            zoom: 1,
-            effectiveZoom: 1,
-            zoomMode: 'fit-width',
-            fitMode: 'width',
-            viewMode: 'single',
-            currentPage: 1,
-            totalPages: 0,
-        };
-    }
 
     function applyFallbackToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot | null | undefined) {
         if (!snapshot) {
@@ -197,7 +165,7 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
         };
     });
 
-    applyFallbackToolbarSnapshot(createDefaultToolbarSnapshot());
+    applyFallbackToolbarSnapshot(createDefaultWorkspaceToolbarSnapshot());
 
     watch(options.activeWorkspace, (workspace) => {
         primeFallbackToolbarFromWorkspace(workspace);
@@ -220,7 +188,7 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
                 return;
             }
 
-            applyFallbackToolbarSnapshot(createDefaultToolbarSnapshot());
+            applyFallbackToolbarSnapshot(createDefaultWorkspaceToolbarSnapshot());
         },
         { immediate: true },
     );
