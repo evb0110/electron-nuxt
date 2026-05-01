@@ -123,6 +123,16 @@ function createClassAttributeVisitor(analyze) {
     }};
 }
 
+function createThreeLineReturnBlockFix(sourceCode, node, returnNode) {
+    return (fixer) => {
+        const returnStmt = sourceCode.getText(returnNode);
+        const indent = ' '.repeat(node.loc.start.column);
+        const innerIndent = indent + '    ';
+        const replacement = `{\n${innerIndent}${returnStmt}\n${indent}}`;
+        return fixer.replaceText(node, replacement);
+    };
+}
+
 export default {rules: {
     'import-specifier-newline': {
         meta: {
@@ -414,20 +424,11 @@ export default {rules: {
                             node: node.consequent,
                             message:
                                         'Return statement after if condition must be wrapped in braces on 3 lines',
-                            fix(fixer) {
-                                const returnStmt = sourceCode.getText(
-                                    node.consequent,
-                                );
-                                const indent = ' '.repeat(
-                                    node.consequent.loc.start.column,
-                                );
-                                const innerIndent = indent + '    ';
-                                const replacement = `{\n${innerIndent}${returnStmt}\n${indent}}`;
-                                return fixer.replaceText(
-                                    node.consequent,
-                                    replacement,
-                                );
-                            },
+                            fix: createThreeLineReturnBlockFix(
+                                sourceCode,
+                                node.consequent,
+                                node.consequent,
+                            ),
                         });
                     } else if (
                         node.consequent.type === 'BlockStatement' &&
@@ -445,22 +446,11 @@ export default {rules: {
                                 node: node.consequent,
                                 message:
                                             'Return statement in braces after if condition must occupy exactly 3 lines',
-                                fix(fixer) {
-                                    const returnStmt =
-                                        sourceCode.getText(
-                                            node.consequent.body[0],
-                                        );
-                                    const indent = ' '.repeat(
-                                        node.consequent.loc.start
-                                            .column,
-                                    );
-                                    const innerIndent = indent + '    ';
-                                    const replacement = `{\n${innerIndent}${returnStmt}\n${indent}}`;
-                                    return fixer.replaceText(
-                                        node.consequent,
-                                        replacement,
-                                    );
-                                },
+                                fix: createThreeLineReturnBlockFix(
+                                    sourceCode,
+                                    node.consequent,
+                                    node.consequent.body[0],
+                                ),
                             });
                         }
                     }

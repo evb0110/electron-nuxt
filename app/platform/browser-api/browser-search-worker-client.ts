@@ -14,11 +14,13 @@ import { getErrorMessage } from '@app/utils/error';
 type TPendingWorkerRequest = {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
-    onProgress?: (progress: {
-        processed: number;
-        total: number; 
-    }) => void;
+    onProgress?: TBrowserSearchWorkerProgressHandler;
 };
+
+type TBrowserSearchWorkerProgressHandler = (progress: {
+    processed: number;
+    total: number;
+}) => void;
 
 const BROWSER_SEARCH_WORKER_IDLE_TTL_MS = 15_000;
 
@@ -82,14 +84,14 @@ const browserSearchWorkerClient = new BrowserWorkerClient<
     handleMessage: settleSearchWorkerResponse,
 });
 
-export async function runBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
+function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
     type: K,
     payload: IBrowserSearchWorkerRequestMap[K],
-    options: {onProgress?: (progress: {
-        processed: number;
-        total: number; 
-    }) => void;} = {},
-): Promise<IBrowserSearchWorkerResultMap[K]> {
+    onProgress?: TBrowserSearchWorkerProgressHandler,
+): {
+    requestId: number;
+    promise: Promise<IBrowserSearchWorkerResultMap[K]>;
+} {
     const request: TBrowserSearchWorkerRequest<K> = {
         id: browserSearchWorkerClient.createRequestId(),
         type,
@@ -98,59 +100,43 @@ export async function runBrowserSearchWorkerRequest<K extends TBrowserSearchWork
 
     const worker = browserSearchWorkerClient.getWorker();
 
-    return new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
-        browserSearchWorkerClient.clearIdleTerminateTimer();
-        browserSearchWorkerClient.pendingRequests.set(request.id, {
-            resolve: (value) => resolve(value as IBrowserSearchWorkerResultMap[K]),
-            reject,
-            onProgress: options.onProgress,
+    const promise: Promise<IBrowserSearchWorkerResultMap[K]> =
+        new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
+            browserSearchWorkerClient.clearIdleTerminateTimer();
+            browserSearchWorkerClient.pendingRequests.set(request.id, {
+                resolve: (value) => resolve(value as IBrowserSearchWorkerResultMap[K]),
+                reject,
+                onProgress,
+            });
+
+            try {
+                worker.postMessage(request);
+            } catch (error) {
+                browserSearchWorkerClient.pendingRequests.delete(request.id);
+                reject(error instanceof Error ? error : new Error(String(error)));
+            }
         });
-
-        try {
-            worker.postMessage(request);
-        } catch (error) {
-            browserSearchWorkerClient.pendingRequests.delete(request.id);
-            reject(error instanceof Error ? error : new Error(String(error)));
-        }
-    });
-}
-
-export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
-    type: K,
-    payload: IBrowserSearchWorkerRequestMap[K],
-    options: {onProgress?: (progress: {
-        processed: number;
-        total: number; 
-    }) => void;} = {},
-) {
-    const request: TBrowserSearchWorkerRequest<K> = {
-        id: browserSearchWorkerClient.createRequestId(),
-        type,
-        payload,
-    };
-
-    const worker = browserSearchWorkerClient.getWorker();
-
-    const promise = new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
-        browserSearchWorkerClient.clearIdleTerminateTimer();
-        browserSearchWorkerClient.pendingRequests.set(request.id, {
-            resolve: (value) => resolve(value as IBrowserSearchWorkerResultMap[K]),
-            reject,
-            onProgress: options.onProgress,
-        });
-
-        try {
-            worker.postMessage(request);
-        } catch (error) {
-            browserSearchWorkerClient.pendingRequests.delete(request.id);
-            reject(error instanceof Error ? error : new Error(String(error)));
-        }
-    });
 
     return {
         requestId: request.id,
         promise,
     };
+}
+
+export function runBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
+    type: K,
+    payload: IBrowserSearchWorkerRequestMap[K],
+    options: {onProgress?: TBrowserSearchWorkerProgressHandler} = {},
+): Promise<IBrowserSearchWorkerResultMap[K]> {
+    return postBrowserSearchWorkerRequest(type, payload, options.onProgress).promise;
+}
+
+export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
+    type: K,
+    payload: IBrowserSearchWorkerRequestMap[K],
+    options: {onProgress?: TBrowserSearchWorkerProgressHandler} = {},
+) {
+    return postBrowserSearchWorkerRequest(type, payload, options.onProgress);
 }
 
 export async function cancelBrowserSearchWorkerRequest(requestId: number) {

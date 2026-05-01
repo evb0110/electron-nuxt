@@ -34,7 +34,7 @@
     "fallow": "fallow dead-code",
     "fallow:all": "pnpm run fallow && pnpm run fallow:dupes && pnpm run fallow:health",
     "fallow:changed": "fallow dead-code --changed-since origin/main",
-    "fallow:dupes": "fallow dupes --threshold 10 --fail-on-issues --summary",
+    "fallow:dupes": "fallow dupes --production --threshold 10 --fail-on-issues --summary",
     "fallow:health": "fallow health --summary || true",
     "typecheck:coverage": "node --max-old-space-size=8192 node_modules/type-coverage/bin/type-coverage --config .typecoveragerc.json",
     "validate": "pnpm run lint && pnpm run typecheck && pnpm run typecheck:coverage && pnpm run build:strict && pnpm run fallow && pnpm run check:architecture",

@@ -78,6 +78,21 @@ function isSymlinkPathSync(path: string) {
     }
 }
 
+function resolveExistingTempPath(absolutePath: string, tempBaseDirs: string[]): string | false | null {
+    try {
+        if (lstatSync(absolutePath).isSymbolicLink()) {
+            return false;
+        }
+
+        const resolvedPath = safeRealpathSync(absolutePath);
+        return isPathInsideAnyBaseDir(tempBaseDirs, resolvedPath)
+            ? resolvedPath
+            : false;
+    } catch {
+        return null;
+    }
+}
+
 export function isAllowedWritePath(filePath: string): boolean {
     const absolutePath = normalizeCandidatePath(filePath);
     if (!absolutePath) {
@@ -129,18 +144,8 @@ function resolveAllowedReadPathSync(filePath: string): string | null {
         return null;
     }
 
-    try {
-        if (lstatSync(absolutePath).isSymbolicLink()) {
-            return null;
-        }
-        const resolvedPath = safeRealpathSync(absolutePath);
-        if (!isPathInsideAnyBaseDir(tempBaseDirs, resolvedPath)) {
-            return null;
-        }
-        return resolvedPath;
-    } catch {
-        return null;
-    }
+    const resolvedPath = resolveExistingTempPath(absolutePath, tempBaseDirs);
+    return resolvedPath || null;
 }
 
 export function resolveAllowedReadPath(filePath: string): Promise<string | null> {
@@ -158,16 +163,11 @@ function resolveAllowedWritePathSync(filePath: string): string | null {
         return null;
     }
 
-    try {
-        if (lstatSync(absolutePath).isSymbolicLink()) {
-            return null;
-        }
-
-        const resolvedTargetPath = safeRealpathSync(absolutePath);
-        if (!isPathInsideAnyBaseDir(tempBaseDirs, resolvedTargetPath)) {
-            return null;
-        }
-    } catch {
+    const resolvedTargetPath = resolveExistingTempPath(absolutePath, tempBaseDirs);
+    if (resolvedTargetPath === false) {
+        return null;
+    }
+    if (resolvedTargetPath === null) {
         // The target may not exist yet. Validate the parent directory path.
     }
 

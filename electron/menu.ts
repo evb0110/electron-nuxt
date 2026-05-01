@@ -113,29 +113,24 @@ function buildMoveToWindowSubmenu(
     sourceWindowId: number,
     tabId: string | undefined,
 ): MenuItemConstructorOptions[] {
-    const otherWindows = getOtherWindows(sourceWindowId);
-    if (otherWindows.length === 0) {
-        return [{
-            label: te('menu.noOtherWindows'),
-            enabled: false,
-        }];
-    }
-
-    const duplicateCounts = buildDuplicateWindowTitleMap(otherWindows);
-
-    return otherWindows.map((window) => ({
-        label: getWindowDisplayLabel(window, duplicateCounts),
-        click: () => {
-            sendWindowTabsAction(sourceWindowId, {
-                kind: 'move-tab-to-window',
-                targetWindowId: window.id,
-                ...(tabId ? { tabId } : {}),
-            });
-        },
+    return buildWindowTargetSubmenu(sourceWindowId, window => ({
+        kind: 'move-tab-to-window',
+        targetWindowId: window.id,
+        ...(tabId ? { tabId } : {}),
     }));
 }
 
 function buildMergeWindowSubmenu(sourceWindowId: number): MenuItemConstructorOptions[] {
+    return buildWindowTargetSubmenu(sourceWindowId, window => ({
+        kind: 'merge-window-into',
+        targetWindowId: window.id,
+    }));
+}
+
+function buildWindowTargetSubmenu(
+    sourceWindowId: number,
+    createAction: (window: BaseWindow) => TWindowTabsAction,
+): MenuItemConstructorOptions[] {
     const otherWindows = getOtherWindows(sourceWindowId);
     if (otherWindows.length === 0) {
         return [{
@@ -149,10 +144,7 @@ function buildMergeWindowSubmenu(sourceWindowId: number): MenuItemConstructorOpt
     return otherWindows.map((window) => ({
         label: getWindowDisplayLabel(window, duplicateCounts),
         click: () => {
-            sendWindowTabsAction(sourceWindowId, {
-                kind: 'merge-window-into',
-                targetWindowId: window.id,
-            });
+            sendWindowTabsAction(sourceWindowId, createAction(window));
         },
     }));
 }
