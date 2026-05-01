@@ -49,7 +49,7 @@
     "dist:linux": "pnpm run build:desktop && electron-builder --linux",
     "release:verify:checks": "node scripts/release/verify-local-checks.mjs",
     "release:verify:package:local": "node scripts/release/verify-local-package.mjs",
-    "release:verify": "pnpm run release:verify:checks && pnpm run release:verify:package:local && pnpm run check:resources:matrix",
+    "release:verify": "pnpm run release:verify:checks && pnpm run release:verify:package:local && pnpm run check:resources:host",
     "release:patch": "HUSKY=0 node scripts/release/cut-release.mjs patch",
     "release:minor": "HUSKY=0 node scripts/release/cut-release.mjs minor",
     "release:major": "HUSKY=0 node scripts/release/cut-release.mjs major",
