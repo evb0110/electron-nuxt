@@ -4,6 +4,10 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
 import { deleteEmbeddedAnnotationOffThread } from '@app/composables/pdf/pdfSerializationWorkerClient';
 import type {
+    IPdfViewerExpose,
+    TPdfSidebarTab,
+} from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
+import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
     IShapeAnnotation,
@@ -13,7 +17,6 @@ import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdf-image-placem
 import { getAllShapePoints } from '@app/composables/pdf/pdfShapeStrokes';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
 
-type TPdfSidebarTab = 'annotations' | 'thumbnails' | 'bookmarks' | 'search';
 const SUPPORTED_IMAGE_MIME_TYPES = [
     'image/apng',
     'image/avif',
@@ -27,43 +30,30 @@ const SUPPORTED_IMAGE_MIME_TYPES = [
 ] as const;
 const PREFERRED_CLIPBOARD_IMAGE_TYPES = SUPPORTED_IMAGE_MIME_TYPES.filter(type => type !== 'image/svg+xml');
 
-interface IPdfViewerForAnnotationActions {
-    getViewerContainer: () => HTMLElement | null;
-    commentSelection: () => Promise<boolean>;
-    commentAtPoint: (
-        pageNumber: number,
-        pageX: number,
-        pageY: number,
-        options?: { preferTextAnchor?: boolean },
-    ) => Promise<boolean>;
-    startCommentPlacement: () => void;
-    cancelCommentPlacement: () => void;
-    focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
-    highlightSelection: () => Promise<boolean>;
-    updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
-    deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
-    suppressAnnotationId: (id: string) => void;
-    suppressAnnotationStableKey: (stableKey: string) => void;
-    removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
-    removeAnnotationFromInternalCache: (stableKey: string) => void;
-    selectedShapeId: string | null;
-    updateShape: (id: string, updates: Partial<IShapeAnnotation>) => void;
-    getSelectedShape: () => IShapeAnnotation | null;
-    deleteSelectedShape: () => void;
-    saveDocument: () => Promise<Uint8Array | null>;
-    startImagePlacement: (
-        file: File,
-        options?: {
-            pageNumber?: number | null;
-            pageX?: number | null;
-            pageY?: number | null;
-        },
-    ) => Promise<boolean>;
-    restorePendingImagePlacement?: () => void;
-}
+type TPdfViewerForAnnotationActions = Pick<IPdfViewerExpose,
+    'cancelCommentPlacement'
+    | 'commentAtPoint'
+    | 'commentSelection'
+    | 'deleteAnnotationComment'
+    | 'deleteSelectedShape'
+    | 'focusAnnotationComment'
+    | 'getSelectedShape'
+    | 'getViewerContainer'
+    | 'highlightSelection'
+    | 'removeAnnotationFromDom'
+    | 'removeAnnotationFromInternalCache'
+    | 'saveDocument'
+    | 'selectedShapeId'
+    | 'startCommentPlacement'
+    | 'startImagePlacement'
+    | 'suppressAnnotationId'
+    | 'suppressAnnotationStableKey'
+    | 'updateAnnotationComment'
+    | 'updateShape'
+> & Partial<Pick<IPdfViewerExpose, 'restorePendingImagePlacement'>>;
 
 interface IPageAnnotationActionsDeps {
-    pdfViewerRef: Ref<IPdfViewerForAnnotationActions | null>;
+    pdfViewerRef: Ref<TPdfViewerForAnnotationActions | null>;
     annotationTool: Ref<TAnnotationTool>;
     annotationKeepActive: Ref<boolean>;
     annotationPlacingPageNote: Ref<boolean>;
