@@ -41,6 +41,28 @@ export interface IWheelPageAccumulatorState {
     lastEventTimeMs: number;
 }
 
+export function createWheelPageAccumulatorState(): IWheelPageAccumulatorState {
+    return {
+        delta: 0,
+        direction: 0,
+        lastEventTimeMs: 0,
+    };
+}
+
+export function normalizePageWheelDelta(
+    delta: number,
+    mode: number,
+    container: HTMLElement,
+) {
+    if (mode === 1) {
+        return delta * WHEEL_LINE_DELTA_PX;
+    }
+    if (mode === 2) {
+        return delta * container.clientHeight;
+    }
+    return delta;
+}
+
 interface IWheelPageAccumulatorResult {
     stepsToFlip: number;
     state: IWheelPageAccumulatorState;
@@ -249,11 +271,7 @@ export function usePdfSinglePageScroll(
         }, settleMs);
     }
 
-    const wheelAccumulator = ref<IWheelPageAccumulatorState>({
-        delta: 0,
-        direction: 0,
-        lastEventTimeMs: 0,
-    });
+    const wheelAccumulator = ref<IWheelPageAccumulatorState>(createWheelPageAccumulatorState());
 
     // Cooldown tracking: throttles rapid same-direction wheel flips while
     // still allowing immediate edge-flips after tall-page interior scrolling.
@@ -274,26 +292,8 @@ export function usePdfSinglePageScroll(
         });
     }, 100);
 
-    function normalizeWheelDelta(
-        delta: number,
-        mode: number,
-        container: HTMLElement,
-    ) {
-        if (mode === 1) {
-            return delta * WHEEL_LINE_DELTA_PX;
-        }
-        if (mode === 2) {
-            return delta * container.clientHeight;
-        }
-        return delta;
-    }
-
     function clearWheelAccumulator() {
-        wheelAccumulator.value = {
-            delta: 0,
-            direction: 0,
-            lastEventTimeMs: 0,
-        };
+        wheelAccumulator.value = createWheelPageAccumulatorState();
     }
 
     function getPageScrollBounds(pageNumber: number) {
@@ -448,7 +448,7 @@ export function usePdfSinglePageScroll(
         }
 
         const container = viewerContainer.value;
-        const delta = normalizeWheelDelta(event.deltaY, event.deltaMode, container);
+        const delta = normalizePageWheelDelta(event.deltaY, event.deltaMode, container);
         if (Math.abs(delta) < WHEEL_DELTA_EPSILON) {
             return;
         }
