@@ -50,6 +50,7 @@ import type {
 import { createLogger } from '@electron/utils/logger';
 import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
+import { sendToLiveWindow } from '@electron/utils/ipc-window';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -87,21 +88,9 @@ export function safeSendToWindow(
     channel: typeof OCR_EVENT_CHANNELS[keyof typeof OCR_EVENT_CHANNELS],
     ...args: unknown[]
 ) {
-    if (!window) {
-        return;
-    }
-    if (window.isDestroyed()) {
-        return;
-    }
-    if (window.webContents.isDestroyed()) {
-        return;
-    }
-
-    try {
-        window.webContents.send(channel, ...args);
-    } catch (err) {
+    sendToLiveWindow(window, channel, args, (err) => {
         log.debug(`Failed to send IPC message to channel "${channel}": ${getErrorMessage(err)}`);
-    }
+    });
 }
 
 function getJobWindow(webContentsId: number) {
