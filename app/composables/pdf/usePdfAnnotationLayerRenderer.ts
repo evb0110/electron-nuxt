@@ -502,6 +502,11 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         });
     }
 
+    function hideAnnotationEditorLayer(annotationEditorLayerDiv: HTMLElement) {
+        annotationEditorLayerDiv.innerHTML = '';
+        annotationEditorLayerDiv.hidden = true;
+    }
+
     async function renderAnnotationLayer(
         pdfPage: PDFPageProxy,
         annotationLayerDiv: HTMLElement,
@@ -601,56 +606,133 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             !annotationUiManager ||
       isAnnotationEditorLayerDisabledForCurrentDocument()
         ) {
-            annotationEditorLayerDiv.innerHTML = '';
-            annotationEditorLayerDiv.hidden = true;
+            hideAnnotationEditorLayer(annotationEditorLayerDiv);
             return false;
         }
 
         try {
-            const editorViewport = viewport.clone({ dontFlip: true });
-            const hiddenAnnotationSignature = getHiddenAnnotationSignature();
-            const managedAnnotationSignature = getManagedAnnotationSignature();
-            const previousHiddenAnnotationSignature =
-                hiddenAnnotationSignatures.get(pageNumber) ?? '';
-            const previousManagedAnnotationSignature =
-                managedAnnotationSignatures.get(pageNumber) ?? '';
-            let editorLayer = annotationEditorLayers.get(pageNumber);
-
-            if (
-                editorLayer
-                && (
-                    previousHiddenAnnotationSignature !== hiddenAnnotationSignature
-                    || previousManagedAnnotationSignature !== managedAnnotationSignature
-                )
-            ) {
-                cleanupEditorLayer(pageNumber);
-                editorLayer = undefined;
-            }
-
-            const drawLayer =
-                drawLayers.get(pageNumber) ??
-        new DrawLayer();
-
-            const canvasHost =
-                container.querySelector<HTMLDivElement>('.page_canvas');
-            if (canvasHost) {
-                drawLayer.setParent(canvasHost);
-            }
-            drawLayers.set(pageNumber, drawLayer);
+            const pageMetrics = getAnnotationEditorPageMetrics(viewport);
+            const signatures = getAnnotationEditorSignatures(pageNumber);
+            const editorLayer = getReusableAnnotationEditorLayer(
+                pageNumber,
+                signatures,
+            );
+            const drawLayer = getOrCreateDrawLayer(container, pageNumber);
 
             if (!editorLayer) {
-                annotationEditorLayerDiv.innerHTML = '';
-                const direction: unknown = annotationUiManager.direction;
-                if (direction === 'ltr' || direction === 'rtl' || direction === 'auto') {
-                    annotationEditorLayerDiv.dir = direction;
-                }
+                prepareAnnotationEditorLayerDiv(
+                    annotationEditorLayerDiv,
+                    annotationUiManager,
+                );
             }
 
-            const l10n = toValue(deps.annotationL10n) ?? fallbackL10n;
-            const textLayerRef = toPdfjsTextLayerRef(textLayerDiv);
-            const activeLayer =
-                editorLayer ??
-        new AnnotationEditorLayer({
+            const activeLayer = renderOrUpdateAnnotationEditorLayer({
+                annotationEditorLayerDiv,
+                annotationLayerInstance,
+                annotationUiManager,
+                drawLayer,
+                editorLayer,
+                pageMetrics,
+                pageNumber,
+                textLayerDiv,
+            });
+
+            applyAnnotationEditorLayerMode(
+                annotationEditorLayerDiv,
+                annotationUiManager,
+                activeLayer,
+            );
+            saveAnnotationEditorSignatures(pageNumber, signatures);
+            hideHiddenManagedEditors(pageNumber);
+            return true;
+        } catch (error) {
+            disableAnnotationEditorLayerForCurrentDocument(error, pageNumber);
+            hideAnnotationEditorLayer(annotationEditorLayerDiv);
+            return false;
+        }
+    }
+
+    function getAnnotationEditorPageMetrics(
+        viewport: ReturnType<PDFPageProxy['getViewport']>,
+    ) {
+        return { editorViewport: viewport.clone({ dontFlip: true }) };
+    }
+
+    function getAnnotationEditorSignatures(pageNumber: number) {
+        return {
+            hidden: getHiddenAnnotationSignature(),
+            managed: getManagedAnnotationSignature(),
+            previousHidden: hiddenAnnotationSignatures.get(pageNumber) ?? '',
+            previousManaged: managedAnnotationSignatures.get(pageNumber) ?? '',
+        };
+    }
+
+    function getReusableAnnotationEditorLayer(
+        pageNumber: number,
+        signatures: ReturnType<typeof getAnnotationEditorSignatures>,
+    ) {
+        const editorLayer = annotationEditorLayers.get(pageNumber);
+        if (
+            editorLayer
+            && (
+                signatures.previousHidden !== signatures.hidden
+                || signatures.previousManaged !== signatures.managed
+            )
+        ) {
+            cleanupEditorLayer(pageNumber);
+            return undefined;
+        }
+
+        return editorLayer;
+    }
+
+    function getOrCreateDrawLayer(
+        container: HTMLElement,
+        pageNumber: number,
+    ) {
+        const drawLayer = drawLayers.get(pageNumber) ?? new DrawLayer();
+        const canvasHost = container.querySelector<HTMLDivElement>('.page_canvas');
+        if (canvasHost) {
+            drawLayer.setParent(canvasHost);
+        }
+        drawLayers.set(pageNumber, drawLayer);
+        return drawLayer;
+    }
+
+    function prepareAnnotationEditorLayerDiv(
+        annotationEditorLayerDiv: HTMLElement,
+        annotationUiManager: AnnotationEditorUIManager,
+    ) {
+        annotationEditorLayerDiv.innerHTML = '';
+        const direction: unknown = annotationUiManager.direction;
+        if (direction === 'ltr' || direction === 'rtl' || direction === 'auto') {
+            annotationEditorLayerDiv.dir = direction;
+        }
+    }
+
+    function renderOrUpdateAnnotationEditorLayer(params: {
+        annotationEditorLayerDiv: HTMLElement;
+        annotationLayerInstance: TAnnotationLayer | null;
+        annotationUiManager: AnnotationEditorUIManager;
+        drawLayer: TDrawLayer;
+        editorLayer: TAnnotationEditorLayer | undefined;
+        pageMetrics: ReturnType<typeof getAnnotationEditorPageMetrics>;
+        pageNumber: number;
+        textLayerDiv: HTMLDivElement | null;
+    }) {
+        const {
+            annotationEditorLayerDiv,
+            annotationLayerInstance,
+            annotationUiManager,
+            drawLayer,
+            editorLayer,
+            pageMetrics,
+            pageNumber,
+            textLayerDiv,
+        } = params;
+        const l10n = toValue(deps.annotationL10n) ?? fallbackL10n;
+        const textLayerRef = toPdfjsTextLayerRef(textLayerDiv);
+        const activeLayer = editorLayer ?? new AnnotationEditorLayer({
             mode: {},
             uiManager: annotationUiManager,
             div: annotationEditorLayerDiv as HTMLDivElement,
@@ -659,42 +741,45 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             accessibilityManager: undefined,
             pageIndex: pageNumber - 1,
             l10n,
-            viewport: editorViewport,
+            viewport: pageMetrics.editorViewport,
             annotationLayer: annotationLayerInstance ?? undefined,
             // pdfjs-dist type declarations lag runtime shape; runtime expects a textLayer carrying a `div` reference.
             textLayer: textLayerRef,
             drawLayer,
         });
 
-            if (!editorLayer) {
-                annotationEditorLayers.set(pageNumber, activeLayer);
-            }
-
-            if (editorLayer) {
-                editorLayer.update({ viewport: editorViewport });
-            } else {
-                void activeLayer.render({ viewport: editorViewport });
-            }
-
-            const currentMode =
-                typeof annotationUiManager.getMode === 'function'
-                    ? annotationUiManager.getMode()
-                    : AnnotationEditorType.NONE;
-            const shouldHideLayer =
-                currentMode === AnnotationEditorType.NONE && activeLayer.isInvisible;
-
-            hiddenAnnotationSignatures.set(pageNumber, hiddenAnnotationSignature);
-            managedAnnotationSignatures.set(pageNumber, managedAnnotationSignature);
-            annotationEditorLayerDiv.hidden = shouldHideLayer;
-            activeLayer.pause(shouldHideLayer);
-            hideHiddenManagedEditors(pageNumber);
-            return true;
-        } catch (error) {
-            disableAnnotationEditorLayerForCurrentDocument(error, pageNumber);
-            annotationEditorLayerDiv.innerHTML = '';
-            annotationEditorLayerDiv.hidden = true;
-            return false;
+        if (editorLayer) {
+            editorLayer.update({ viewport: pageMetrics.editorViewport });
+        } else {
+            annotationEditorLayers.set(pageNumber, activeLayer);
+            void activeLayer.render({ viewport: pageMetrics.editorViewport });
         }
+
+        return activeLayer;
+    }
+
+    function applyAnnotationEditorLayerMode(
+        annotationEditorLayerDiv: HTMLElement,
+        annotationUiManager: AnnotationEditorUIManager,
+        activeLayer: TAnnotationEditorLayer,
+    ) {
+        const currentMode =
+            typeof annotationUiManager.getMode === 'function'
+                ? annotationUiManager.getMode()
+                : AnnotationEditorType.NONE;
+        const shouldHideLayer =
+            currentMode === AnnotationEditorType.NONE && activeLayer.isInvisible;
+
+        annotationEditorLayerDiv.hidden = shouldHideLayer;
+        activeLayer.pause(shouldHideLayer);
+    }
+
+    function saveAnnotationEditorSignatures(
+        pageNumber: number,
+        signatures: ReturnType<typeof getAnnotationEditorSignatures>,
+    ) {
+        hiddenAnnotationSignatures.set(pageNumber, signatures.hidden);
+        managedAnnotationSignatures.set(pageNumber, signatures.managed);
     }
 
     function cleanupEditorLayer(pageNumber: number) {

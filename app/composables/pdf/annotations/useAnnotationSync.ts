@@ -317,104 +317,150 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         return snapshotPromise;
     }
 
-    async function syncAnnotationCommentsInternal() {
-        const identity = getIdentity();
-        const markupSubtype = getMarkupSubtype();
-        const store = getStore();
-        const doc = pdfDocument.value;
+    function applyEmptyAnnotationSyncState(
+        identity: ISyncIdentity,
+        markupSubtype: ISyncMarkupSubtype,
+        store: ISyncStore,
+    ) {
+        identity.clearMemory();
+        markupSubtype.clearOverrides();
+        store.setAnnotations([]);
+        store.setLinkAnnotations([]);
+        syncInlineCommentIndicators();
+    }
 
-        if (!doc || numPages.value <= 0) {
-            identity.clearMemory();
-            markupSubtype.clearOverrides();
-            store.setAnnotations([]);
-            store.setLinkAnnotations([]);
-            syncInlineCommentIndicators();
-            return;
+    function resolveDeletedAnnotationElementPredicate(
+        uiManager: AnnotationEditorUIManager | null,
+    ): ((id: string) => boolean) | null {
+        if (!uiManager) {
+            return null;
         }
 
-        const localToken = ++syncToken;
-        const commentsByKey = new Map<string, IAnnotationCommentSummary>();
-        const collectedLinks: ILinkAnnotation[] = [];
-        let sourceOrder = 0;
-
-        const uiManager = annotationUiManager.value;
-        const isDeletedFn = uiManager
-            ? getOptionalFunction<[annotationElementId: string], boolean>(uiManager, 'isDeletedAnnotationElement')
-            : null;
-        const isDeletedAnnotationElement = isDeletedFn
+        const isDeletedFn = getOptionalFunction<[annotationElementId: string], boolean>(
+            uiManager,
+            'isDeletedAnnotationElement',
+        );
+        return isDeletedFn
             ? (id: string) => isDeletedFn.call(uiManager, id)
             : null;
+    }
 
-        if (uiManager) {
-            for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
-                for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
-                    const text = getCommentText(editor);
-                    const summary = toEditorSummary(editor, pageIndex, text, sourceOrder);
-                    sourceOrder += 1;
-                    const hydrated = identity.hydrateSummaryFromMemory(summary);
-                    commentsByKey.set(identity.toSummaryKey(hydrated), hydrated);
-                }
+    function collectEditorCommentSummaries(
+        identity: ISyncIdentity,
+        uiManager: AnnotationEditorUIManager | null,
+        commentsByKey: Map<string, IAnnotationCommentSummary>,
+    ) {
+        let sourceOrder = 0;
+        if (!uiManager) {
+            return sourceOrder;
+        }
+
+        for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
+            for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
+                const text = getCommentText(editor);
+                const summary = toEditorSummary(editor, pageIndex, text, sourceOrder);
+                sourceOrder += 1;
+                const hydrated = identity.hydrateSummaryFromMemory(summary);
+                commentsByKey.set(identity.toSummaryKey(hydrated), hydrated);
             }
         }
 
-        const pdfSnapshot = await getPdfAnnotationSnapshot(doc, numPages.value, localToken);
-        if (!pdfSnapshot || localToken !== syncToken) {
+        return sourceOrder;
+    }
+
+    function shouldSkipPdfCommentSummary(
+        summary: IAnnotationCommentSummary,
+        isDeletedAnnotationElement: ((id: string) => boolean) | null,
+    ) {
+        if (suppressedAnnotationStableKeys.has(summary.stableKey)) {
+            return true;
+        }
+        if (summary.annotationId && suppressedAnnotationIds.has(summary.annotationId)) {
+            return true;
+        }
+        return Boolean(summary.annotationId && isDeletedAnnotationElement?.(summary.annotationId));
+    }
+
+    function rememberMarkupSubtypeOverride(
+        summary: IAnnotationCommentSummary,
+        markupSubtype: ISyncMarkupSubtype,
+    ) {
+        const normalizedSubtype = (summary.subtype ?? '').trim().toLowerCase();
+        if (
+            summary.annotationId
+            && (normalizedSubtype === 'underline'
+                || normalizedSubtype === 'strikeout'
+                || normalizedSubtype === 'squiggly')
+            && isMarkupSubtype(summary.subtype)
+        ) {
+            markupSubtype.getMarkupSubtypeOverrides().set(summary.annotationId, summary.subtype);
+        }
+    }
+
+    function mergeHydratedSummary(
+        identity: ISyncIdentity,
+        commentsByKey: Map<string, IAnnotationCommentSummary>,
+        summary: IAnnotationCommentSummary,
+    ) {
+        const hydratedSummary = identity.hydrateSummaryFromMemory(summary);
+        const summaryKey = identity.toSummaryKey(hydratedSummary);
+        const existing = commentsByKey.get(summaryKey);
+        if (!existing) {
+            commentsByKey.set(summaryKey, hydratedSummary);
             return;
         }
+        commentsByKey.set(
+            summaryKey,
+            identity.mergeCommentSummaries(existing, hydratedSummary),
+        );
+    }
+
+    function mergePdfCommentSummaries(
+        identity: ISyncIdentity,
+        markupSubtype: ISyncMarkupSubtype,
+        pdfSnapshot: IPdfAnnotationSnapshot,
+        commentsByKey: Map<string, IAnnotationCommentSummary>,
+        sourceOrder: number,
+        isDeletedAnnotationElement: ((id: string) => boolean) | null,
+    ) {
+        let nextSourceOrder = sourceOrder;
 
         for (const summary of pdfSnapshot.comments) {
-            if (suppressedAnnotationStableKeys.has(summary.stableKey)) {
-                continue;
-            }
-            if (summary.annotationId && suppressedAnnotationIds.has(summary.annotationId)) {
-                continue;
-            }
-            if (summary.annotationId && isDeletedAnnotationElement?.(summary.annotationId)) {
+            if (shouldSkipPdfCommentSummary(summary, isDeletedAnnotationElement)) {
                 continue;
             }
 
             const summaryWithSortIndex: IAnnotationCommentSummary = {
                 ...summary,
-                sortIndex: sourceOrder,
+                sortIndex: nextSourceOrder,
                 kindLabel: resolveAnnotationKindLabel(summary.subtype),
             };
-            sourceOrder += 1;
+            nextSourceOrder += 1;
 
-            const normalizedSubtype = (summary.subtype ?? '').trim().toLowerCase();
-            if (
-                summary.annotationId
-                && (normalizedSubtype === 'underline'
-                    || normalizedSubtype === 'strikeout'
-                    || normalizedSubtype === 'squiggly')
-                && isMarkupSubtype(summary.subtype)
-            ) {
-                markupSubtype.getMarkupSubtypeOverrides().set(summary.annotationId, summary.subtype);
-            }
-
-            const hydratedSummary = identity.hydrateSummaryFromMemory(summaryWithSortIndex);
-            const summaryKey = identity.toSummaryKey(hydratedSummary);
-            const existing = commentsByKey.get(summaryKey);
-            if (!existing) {
-                commentsByKey.set(summaryKey, hydratedSummary);
-                continue;
-            }
-            commentsByKey.set(
-                summaryKey,
-                identity.mergeCommentSummaries(existing, hydratedSummary),
-            );
+            rememberMarkupSubtypeOverride(summary, markupSubtype);
+            mergeHydratedSummary(identity, commentsByKey, summaryWithSortIndex);
         }
 
-        collectedLinks.push(
-            ...pdfSnapshot.links.filter((link) => (
-                !suppressedAnnotationIds.has(link.id)
-                && !isDeletedAnnotationElement?.(link.id)
-            )),
-        );
+        return nextSourceOrder;
+    }
 
-        if (localToken !== syncToken) {
-            return;
-        }
+    function collectVisiblePdfLinks(
+        pdfSnapshot: IPdfAnnotationSnapshot,
+        isDeletedAnnotationElement: ((id: string) => boolean) | null,
+    ) {
+        return pdfSnapshot.links.filter((link) => (
+            !suppressedAnnotationIds.has(link.id)
+            && !isDeletedAnnotationElement?.(link.id)
+        ));
+    }
 
+    function applyAnnotationSyncState(
+        identity: ISyncIdentity,
+        markupSubtype: ISyncMarkupSubtype,
+        store: ISyncStore,
+        commentsByKey: Map<string, IAnnotationCommentSummary>,
+        links: ILinkAnnotation[],
+    ) {
         const comments = identity.dedupeAnnotationCommentSummaries(
             Array.from(commentsByKey.values()),
         );
@@ -423,9 +469,48 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         });
 
         store.setAnnotations(comments);
-        store.setLinkAnnotations(collectedLinks);
+        store.setLinkAnnotations(links);
         markupSubtype.syncMarkupSubtypePresentationForEditors();
         syncInlineCommentIndicators();
+    }
+
+    async function syncAnnotationCommentsInternal() {
+        const identity = getIdentity();
+        const markupSubtype = getMarkupSubtype();
+        const store = getStore();
+        const doc = pdfDocument.value;
+
+        if (!doc || numPages.value <= 0) {
+            applyEmptyAnnotationSyncState(identity, markupSubtype, store);
+            return;
+        }
+
+        const localToken = ++syncToken;
+        const commentsByKey = new Map<string, IAnnotationCommentSummary>();
+        const uiManager = annotationUiManager.value;
+        const isDeletedAnnotationElement = resolveDeletedAnnotationElementPredicate(uiManager);
+        const sourceOrder = collectEditorCommentSummaries(identity, uiManager, commentsByKey);
+
+        const pdfSnapshot = await getPdfAnnotationSnapshot(doc, numPages.value, localToken);
+        if (!pdfSnapshot || localToken !== syncToken) {
+            return;
+        }
+
+        mergePdfCommentSummaries(
+            identity,
+            markupSubtype,
+            pdfSnapshot,
+            commentsByKey,
+            sourceOrder,
+            isDeletedAnnotationElement,
+        );
+        const collectedLinks = collectVisiblePdfLinks(pdfSnapshot, isDeletedAnnotationElement);
+
+        if (localToken !== syncToken) {
+            return;
+        }
+
+        applyAnnotationSyncState(identity, markupSubtype, store, commentsByKey, collectedLinks);
     }
 
     async function syncAnnotationComments() {
