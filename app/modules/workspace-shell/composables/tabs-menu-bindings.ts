@@ -8,7 +8,7 @@ import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import type { TWindowTabsAction } from '@contracts/window-tabs';
 import { BrowserLogger } from '@app/utils/browser-logger';
 
-interface ITabsMenuBindingDeps {
+export interface ITabsMenuBindingDeps {
     activeWorkspace: Ref<IWorkspaceExpose | null>;
     activeTabId: Ref<string | null>;
     createTab: () => { id: string };
@@ -21,7 +21,6 @@ interface ITabsMenuBindingDeps {
     openSettings: () => void;
     checkForUpdates: () => Promise<void> | void;
     splitEditor: (direction: TGroupDirection) => Promise<void> | void;
-    splitEditorEmpty: (direction: TGroupDirection) => Promise<void> | void;
     focusGroup: (direction: TGroupDirection) => void;
     moveActiveTab: (direction: TGroupDirection) => Promise<void> | void;
     copyActiveTab: (direction: TGroupDirection) => Promise<void> | void;

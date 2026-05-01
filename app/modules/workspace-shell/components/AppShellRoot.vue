@@ -416,7 +416,6 @@ function createTabInGroup(groupId: string) {
 const {
     tabContextAvailabilityByGroup,
     splitEditor,
-    splitEditorEmpty,
     focusEditorGroup,
     moveActiveTab,
     copyActiveTab,
@@ -596,7 +595,6 @@ useTabsShellBindings({
     },
     checkForUpdates,
     splitEditor,
-    splitEditorEmpty,
     focusGroup: focusEditorGroup,
     moveActiveTab,
     copyActiveTab,

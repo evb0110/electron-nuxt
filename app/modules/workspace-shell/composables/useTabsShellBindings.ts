@@ -1,40 +1,23 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
-import type { TGroupDirection } from '@app/types/editor-groups';
-import type { TWindowTabsAction } from '@contracts/window-tabs';
-import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { getPlatformAPI } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { traceRendererStartup } from '@app/utils/startup-trace';
-import { registerTabsMenuBindings } from '@app/modules/workspace-shell/composables/tabs-menu-bindings';
+import {
+    type ITabsMenuBindingDeps,
+    registerTabsMenuBindings,
+} from '@app/modules/workspace-shell/composables/tabs-menu-bindings';
 import { getWindowTabsCapability } from '@app/utils/platform-window-tabs';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/platform-shortcuts';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
 
-interface IUseTabsShellBindingsOptions {
+interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     tabs: Ref<Array<{ id: string }>>;
-    activeTabId: Ref<string | null>;
-    activeWorkspace: Ref<IWorkspaceExpose | null>;
-    createTab: () => { id: string };
     activateTab: (tabId: string) => void;
-    handleCloseTab: (tabId: string) => Promise<void>;
-    handleFallbackToolbarOpenFile: () => Promise<void>;
-    openPathInAppropriateTab: (path: TDocumentRef) => Promise<void>;
-    openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
     beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
-    clearRecentFiles: () => Promise<void>;
-    loadRecentFiles: () => Promise<void>;
     ensureAtLeastOneTab: () => void;
-    openSettings: () => void;
-    checkForUpdates: () => Promise<void> | void;
-    splitEditor: (direction: TGroupDirection) => Promise<void> | void;
-    splitEditorEmpty: (direction: TGroupDirection) => Promise<void> | void;
-    focusGroup: (direction: TGroupDirection) => void;
-    moveActiveTab: (direction: TGroupDirection) => Promise<void> | void;
-    copyActiveTab: (direction: TGroupDirection) => Promise<void> | void;
-    handleWindowTabsAction: (action: TWindowTabsAction) => Promise<void> | void;
 }
 
 export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
@@ -55,7 +38,6 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
         openSettings,
         checkForUpdates,
         splitEditor,
-        splitEditorEmpty,
         focusGroup,
         moveActiveTab,
         copyActiveTab,
@@ -152,7 +134,6 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
             openSettings,
             checkForUpdates,
             splitEditor,
-            splitEditorEmpty,
             focusGroup,
             moveActiveTab,
             copyActiveTab,
