@@ -97,6 +97,45 @@ interface IChunkKeyRecord {
 
 type TIndexedDbFactory = typeof indexedDB;
 
+type TPersistedDocumentKind = IBrowserPersistedDocumentRecord['kind'];
+
+interface IPersistedDocumentRequiredFields {
+    ref: string;
+    fileName: string;
+    mimeType: string;
+    kind: TPersistedDocumentKind;
+    data: Uint8Array;
+    fileSize: number;
+    updatedAt: number;
+}
+
+interface IPersistedSaveTarget {
+    saveName?: string;
+    saveKind?: IBrowserDocumentEntry['saveKind'];
+    saveHandle?: FileSystemFileHandle | null;
+}
+
+interface IPersistedChunkLayout {
+    chunkCount?: number;
+    chunkSize?: number;
+}
+
+interface IBrowserDocumentEntryInput {
+    ref: string;
+    fileName: string;
+    mimeType: string;
+    kind: IBrowserDocumentEntry['kind'];
+    retention: IBrowserDocumentEntry['retention'];
+    sourceRef?: string;
+    data: Uint8Array;
+    fileSize: number;
+    saveKind: IBrowserDocumentEntry['saveKind'];
+    saveHandle: FileSystemFileHandle | null;
+    storageMode: TBrowserDocumentStorageMode;
+    chunkCount?: number;
+    chunkSize?: number;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
@@ -153,31 +192,70 @@ function normalizeStorageMode(value: unknown): TBrowserDocumentStorageMode {
     return 'inline';
 }
 
-function toPersistedDocumentRecord(
-    value: unknown,
-): IBrowserPersistedDocumentRecord | null {
-    if (!isRecord(value)) {
-        return null;
+function normalizePersistedKind(value: unknown): TPersistedDocumentKind | null {
+    if (value === 'source' || value === 'working' || value === 'output') {
+        return value;
     }
 
+    return null;
+}
+
+function readPersistedDocumentRequiredFields(
+    value: Record<string, unknown>,
+): IPersistedDocumentRequiredFields | null {
     const ref = typeof value.ref === 'string' ? value.ref : null;
     const fileName = typeof value.fileName === 'string' ? value.fileName : null;
     const mimeType = typeof value.mimeType === 'string' ? value.mimeType : null;
-    const kind = value.kind;
-    const retention = value.retention;
+    const kind = normalizePersistedKind(value.kind);
     const data = normalizePersistedBytes(value.data);
     const fileSize = typeof value.fileSize === 'number' ? value.fileSize : null;
     const updatedAt =
         typeof value.updatedAt === 'number' ? value.updatedAt : null;
-    const sourceRef =
-        typeof value.sourceRef === 'string' ? value.sourceRef : undefined;
+
+    if (!ref || !fileName || !mimeType || !kind || !data || fileSize === null || updatedAt === null) {
+        return null;
+    }
+
+    return {
+        ref,
+        fileName,
+        mimeType,
+        kind,
+        data,
+        fileSize,
+        updatedAt,
+    };
+}
+
+function normalizePersistedSaveKind(
+    value: unknown,
+): IBrowserDocumentEntry['saveKind'] | undefined {
+    if (value === 'pdf' || value === 'docx' || value === 'generic') {
+        return value;
+    }
+
+    return undefined;
+}
+
+function normalizePersistedSaveTarget(
+    value: Record<string, unknown>,
+): IPersistedSaveTarget {
     const saveName =
         typeof value.saveName === 'string' ? value.saveName : undefined;
-    const saveKind = value.saveKind;
     const saveHandle = 'saveHandle' in value
         ? (value.saveHandle as FileSystemFileHandle | null | undefined)
         : undefined;
-    const storageMode = normalizeStorageMode(value.storageMode);
+
+    return {
+        saveName,
+        saveKind: normalizePersistedSaveKind(value.saveKind),
+        saveHandle: saveHandle ?? undefined,
+    };
+}
+
+function normalizePersistedChunkLayout(
+    value: Record<string, unknown>,
+): IPersistedChunkLayout {
     const chunkCount =
         typeof value.chunkCount === 'number' && value.chunkCount >= 0
             ? Math.floor(value.chunkCount)
@@ -187,36 +265,38 @@ function toPersistedDocumentRecord(
             ? Math.floor(value.chunkSize)
             : undefined;
 
-    if (
-        !ref ||
-    !fileName ||
-    !mimeType ||
-    (kind !== 'source' && kind !== 'working' && kind !== 'output') ||
-    !data ||
-    fileSize === null ||
-        updatedAt === null
-    ) {
+    return {
+        chunkCount,
+        chunkSize,
+    };
+}
+
+function toPersistedDocumentRecord(
+    value: unknown,
+): IBrowserPersistedDocumentRecord | null {
+    if (!isRecord(value)) {
         return null;
     }
 
+    const requiredFields = readPersistedDocumentRequiredFields(value);
+    if (!requiredFields) {
+        return null;
+    }
+
+    const retention = value.retention;
+    const sourceRef =
+        typeof value.sourceRef === 'string' ? value.sourceRef : undefined;
+    const saveTarget = normalizePersistedSaveTarget(value);
+    const storageMode = normalizeStorageMode(value.storageMode);
+    const chunkLayout = normalizePersistedChunkLayout(value);
+
     return {
-        ref,
-        fileName,
-        mimeType,
-        kind,
+        ...requiredFields,
         retention: retention === 'transient' ? 'transient' : 'durable',
         sourceRef,
-        data,
-        fileSize,
-        updatedAt,
-        saveName,
-        saveKind: saveKind === 'pdf' || saveKind === 'docx' || saveKind === 'generic'
-            ? saveKind
-            : undefined,
-        saveHandle: saveHandle ?? undefined,
+        ...saveTarget,
         storageMode,
-        chunkCount,
-        chunkSize,
+        ...chunkLayout,
     };
 }
 
@@ -512,6 +592,53 @@ function resolveByteBackedStorageMode(fileSize: number): TBrowserDocumentStorage
     return shouldInlineFileBytes(fileSize) ? 'inline' : 'chunked';
 }
 
+function resolveStoredDocumentStorageMode(
+    byteLength: number,
+    requestedStorageMode?: TBrowserDocumentStorageMode,
+): TBrowserDocumentStorageMode {
+    const storageMode =
+        requestedStorageMode ?? resolveByteBackedStorageMode(byteLength);
+
+    if (storageMode === 'source-proxy') {
+        return 'source-proxy';
+    }
+
+    if (storageMode === 'handle') {
+        return byteLength > 0
+            ? resolveByteBackedStorageMode(byteLength)
+            : 'handle';
+    }
+
+    if (storageMode === 'inline') {
+        return resolveByteBackedStorageMode(byteLength);
+    }
+
+    return storageMode;
+}
+
+function createBrowserDocumentEntry(
+    input: IBrowserDocumentEntryInput,
+): IBrowserDocumentEntry {
+    return {
+        ref: input.ref,
+        fileName: input.fileName,
+        mimeType: input.mimeType,
+        kind: input.kind,
+        retention: input.retention,
+        sourceRef: input.sourceRef,
+        data: input.data,
+        fileSize: input.fileSize,
+        updatedAt: Date.now(),
+        pendingLoad: null,
+        saveName: input.fileName,
+        saveKind: input.saveKind,
+        saveHandle: input.saveHandle,
+        storageMode: input.storageMode,
+        chunkCount: input.chunkCount ?? 0,
+        chunkSize: input.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
+    };
+}
+
 export class BrowserDocumentStore {
     private readonly entries = new Map<string, IBrowserDocumentEntry>();
     private maintenancePromise: Promise<void> | null = null;
@@ -588,43 +715,32 @@ export class BrowserDocumentStore {
     ): Promise<string> {
         await this.ensureMaintenance();
         const sourceBytes = toUint8Array(data);
-        const requestedStorageMode =
-            options.storageMode ?? resolveByteBackedStorageMode(sourceBytes.byteLength);
-        const storageMode = requestedStorageMode === 'source-proxy'
-            ? 'source-proxy'
-            : requestedStorageMode === 'handle'
-                ? (
-                    sourceBytes.byteLength > 0
-                        ? resolveByteBackedStorageMode(sourceBytes.byteLength)
-                        : 'handle'
-                )
-                : requestedStorageMode === 'inline'
-                    ? resolveByteBackedStorageMode(sourceBytes.byteLength)
-                    : requestedStorageMode;
+        const storageMode = resolveStoredDocumentStorageMode(
+            sourceBytes.byteLength,
+            options.storageMode,
+        );
         const bytes = storageMode === 'inline'
             ? cloneBytes(sourceBytes)
             : new Uint8Array();
         const ref = createBrowserDocumentRef(fileName);
-        const entry: IBrowserDocumentEntry = {
+        const kind = options.kind ?? 'source';
+        const entry = createBrowserDocumentEntry({
             ref,
             fileName,
             mimeType: options.mimeType,
-            kind: options.kind ?? 'source',
-            retention: options.retention ?? defaultRetentionForKind(options.kind ?? 'source'),
+            kind,
+            retention: options.retention ?? defaultRetentionForKind(kind),
             sourceRef: options.sourceRef,
             data: bytes,
             fileSize: storageMode === 'chunked'
                 ? sourceBytes.byteLength
                 : bytes.byteLength,
-            updatedAt: Date.now(),
-            pendingLoad: null,
-            saveName: fileName,
             saveKind: options.saveKind ?? 'generic',
             saveHandle: options.saveHandle ?? null,
             storageMode,
             chunkCount: options.chunkCount ?? 0,
             chunkSize: options.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
-        };
+        });
 
         this.entries.set(ref, entry);
         await persistRecord(this.toPersistedRecord(entry, entry.data, false));

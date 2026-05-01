@@ -20,6 +20,7 @@ import type {
 } from '@app/platform/browser-api/djvujs-loader';
 import { createDjvuWorkerFromPath } from '@app/platform/browser-api/djvu-worker';
 import { noopUnsubscribe } from '@app/platform/browser-api/common';
+import { decodeBrowserImageBlob } from '@app/platform/browser-api/browser-image-decode';
 import {
     type IStreamingPdfSink,
     StreamingImagePdfWriter,
@@ -196,26 +197,7 @@ async function fetchObjectUrlBytes(url: string) {
 async function loadBitmapFromBytes(bytes: Uint8Array) {
     const blob = new Blob([toOwnedArrayBuffer(bytes)], { type: 'image/png' });
 
-    if (typeof createImageBitmap === 'function') {
-        return createImageBitmap(blob);
-    }
-
-    if (typeof document === 'undefined' || typeof URL === 'undefined') {
-        throw new Error('Image decoding is unavailable in the current runtime');
-    }
-
-    const objectUrl = URL.createObjectURL(blob);
-    try {
-        return await new Promise<HTMLImageElement>((resolve, reject) => {
-            const image = new Image();
-            image.onload = () => resolve(image);
-            image.onerror = () =>
-                reject(new Error('Failed to decode DjVu page image'));
-            image.src = objectUrl;
-        });
-    } finally {
-        URL.revokeObjectURL(objectUrl);
-    }
+    return decodeBrowserImageBlob(blob, { fallbackErrorMessage: 'Failed to decode DjVu page image' });
 }
 
 function releaseCanvas(canvas: TDjvuCanvas) {

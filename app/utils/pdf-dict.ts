@@ -1,5 +1,8 @@
 import type {PDFDict} from 'pdf-lib';
-import { clamp } from 'es-toolkit/math';
+import {
+    normalizeMarkerRectBounds,
+    orderPdfRectBounds,
+} from '@app/utils/pdf-marker-rect';
 import {
     PDFArray,
     PDFHexString,
@@ -65,24 +68,20 @@ export function normalizeMarkerRectFromDict(
         return null;
     }
 
-    const minX = Math.min(x1, x2);
-    const maxX = Math.max(x1, x2);
-    const minY = Math.min(y1, y2);
-    const maxY = Math.max(y1, y2);
-
-    const width = (maxX - minX) / pageWidth;
-    const height = (maxY - minY) / pageHeight;
-    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-        return null;
-    }
+    const {
+        minX,
+        maxX,
+        minY,
+        maxY,
+    } = orderPdfRectBounds(x1, y1, x2, y2);
 
     const left = minX / pageWidth;
     const top = 1 - (maxY / pageHeight);
 
-    return {
-        left: clamp(left, 0, 1),
-        top: clamp(top, 0, 1),
-        width: clamp(width, 0, 1),
-        height: clamp(height, 0, 1),
-    };
+    return normalizeMarkerRectBounds({
+        left,
+        top,
+        right: maxX / pageWidth,
+        bottom: top + ((maxY - minY) / pageHeight),
+    });
 }
