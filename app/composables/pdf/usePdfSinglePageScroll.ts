@@ -35,6 +35,11 @@ const SAME_DIRECTION_FLIP_COOLDOWN_MS = 180;
 export type TPageSnapAnchor = 'center' | 'top' | 'bottom';
 export type TWheelDirection = -1 | 1;
 
+interface IPageScrollBounds {
+    min: number;
+    max: number;
+}
+
 export interface IWheelPageAccumulatorState {
     delta: number;
     direction: TWheelDirection | 0;
@@ -140,6 +145,101 @@ export function resolveWheelPageFlipStepDelta(
         MIN_COARSE_PAGE_FLIP_STEP_DELTA_PX,
         Math.min(PAGE_FLIP_STEP_DELTA_PX, magnitude),
     );
+}
+
+function shouldHandleSinglePageWheel(
+    event: WheelEvent,
+    container: HTMLElement | null,
+    hasPdfDocument: boolean,
+    isContinuousScroll: boolean,
+    isPdfLoading: boolean,
+    pageCount: number,
+) {
+    if (
+        isContinuousScroll ||
+        isPdfLoading ||
+        !hasPdfDocument ||
+        !container ||
+        pageCount === 0 ||
+        event.ctrlKey ||
+        event.metaKey
+    ) {
+        return false;
+    }
+
+    if (event.deltaY === 0) {
+        return false;
+    }
+
+    return Math.abs(event.deltaX)
+        <= Math.abs(event.deltaY) * HORIZONTAL_INTENT_REJECT_RATIO;
+}
+
+function resolveWheelDirection(delta: number): TWheelDirection {
+    return delta > 0 ? 1 : -1;
+}
+
+function canScrollWithinPageBounds(
+    container: HTMLElement,
+    bounds: IPageScrollBounds,
+    direction: TWheelDirection,
+) {
+    return direction > 0
+        ? container.scrollTop < bounds.max - PAGE_SCROLL_EDGE_EPSILON
+        : container.scrollTop > bounds.min + PAGE_SCROLL_EDGE_EPSILON;
+}
+
+function resolveNextTopWithinPageBounds(
+    container: HTMLElement,
+    bounds: IPageScrollBounds,
+    delta: number,
+    direction: TWheelDirection,
+) {
+    return direction > 0
+        ? Math.min(bounds.max, container.scrollTop + delta)
+        : Math.max(bounds.min, container.scrollTop + delta);
+}
+
+function isInSameDirectionFlipCooldown(
+    eventTimeMs: number,
+    direction: TWheelDirection,
+    lastFlipAtMs: number,
+    lastFlipDirection: TWheelDirection | 0,
+    hasInteriorScrollSinceLastFlip: boolean,
+) {
+    const sinceLastFlipMs = eventTimeMs - lastFlipAtMs;
+    return (
+        lastFlipAtMs > 0
+        && lastFlipDirection === direction
+        && !hasInteriorScrollSinceLastFlip
+        && sinceLastFlipMs >= 0
+        && sinceLastFlipMs < SAME_DIRECTION_FLIP_COOLDOWN_MS
+    );
+}
+
+function resolveWheelTargetPage(
+    activePage: number,
+    viewMode: TPdfViewMode,
+    pageCount: number,
+    direction: TWheelDirection,
+) {
+    // Keep paged scrolling predictable: one spread turn per wheel threshold.
+    return stepBySpread(
+        activePage,
+        viewMode,
+        pageCount,
+        direction,
+        1,
+    );
+}
+
+function resolveWheelTargetAnchor(
+    targetPageIsTall: boolean,
+    direction: TWheelDirection,
+): TPageSnapAnchor {
+    return targetPageIsTall
+        ? resolveSnapAnchorForWheelDirection(direction)
+        : 'top';
 }
 
 interface IUsePdfSinglePageScrollOptions {
@@ -424,58 +524,44 @@ export function usePdfSinglePageScroll(
     }, 120);
 
     function handleWheel(event: WheelEvent) {
-        if (
-            continuousScroll.value ||
-            isLoading.value ||
-            !pdfDocument.value ||
-            !viewerContainer.value ||
-            numPages.value === 0 ||
-            event.ctrlKey ||
-            event.metaKey
-        ) {
-            return;
-        }
-
-        if (event.deltaY === 0) {
-            return;
-        }
-
-        if (
-            Math.abs(event.deltaX) >
-            Math.abs(event.deltaY) * HORIZONTAL_INTENT_REJECT_RATIO
-        ) {
-            return;
-        }
-
         const container = viewerContainer.value;
+        if (!shouldHandleSinglePageWheel(
+            event,
+            container,
+            !!pdfDocument.value,
+            continuousScroll.value,
+            isLoading.value,
+            numPages.value,
+        ) || !container) {
+            return;
+        }
+
         const delta = normalizePageWheelDelta(event.deltaY, event.deltaMode, container);
         if (Math.abs(delta) < WHEEL_DELTA_EPSILON) {
             return;
         }
 
         event.preventDefault();
-        const direction: TWheelDirection = delta > 0 ? 1 : -1;
+        const direction = resolveWheelDirection(delta);
         const activePage = getMostVisiblePage(container, numPages.value);
         const bounds = getPageScrollBounds(activePage);
 
-        if (bounds && isTallPage(activePage)) {
-            const canScrollWithinPage =
-                direction > 0
-                    ? container.scrollTop < bounds.max - PAGE_SCROLL_EDGE_EPSILON
-                    : container.scrollTop > bounds.min + PAGE_SCROLL_EDGE_EPSILON;
-
-            if (canScrollWithinPage) {
-                clearWheelAccumulator();
-                const nextTop =
-                    direction > 0
-                        ? Math.min(bounds.max, container.scrollTop + delta)
-                        : Math.max(bounds.min, container.scrollTop + delta);
-                container.scrollTop = nextTop;
-                // Record interior progress so the eventual edge-flip is not
-                // gated by the same-direction cooldown.
-                interiorScrollSinceLastFlip = true;
-                return;
-            }
+        if (
+            bounds
+            && isTallPage(activePage)
+            && canScrollWithinPageBounds(container, bounds, direction)
+        ) {
+            clearWheelAccumulator();
+            container.scrollTop = resolveNextTopWithinPageBounds(
+                container,
+                bounds,
+                delta,
+                direction,
+            );
+            // Record interior progress so the eventual edge-flip is not
+            // gated by the same-direction cooldown.
+            interiorScrollSinceLastFlip = true;
+            return;
         }
 
         // Cooldown gate: when a same-direction flip just happened and the user
@@ -483,14 +569,13 @@ export function usePdfSinglePageScroll(
         // swallow this wheel packet to avoid trackpad inertia rapid-firing
         // through pages. preventDefault was already called above, so the
         // browser also won't perform a native scroll.
-        const sinceLastFlipMs = event.timeStamp - lastWheelFlipAtMs;
-        const inSameDirectionCooldown =
-            lastWheelFlipAtMs > 0
-            && lastWheelFlipDirection === direction
-            && !interiorScrollSinceLastFlip
-            && sinceLastFlipMs >= 0
-            && sinceLastFlipMs < SAME_DIRECTION_FLIP_COOLDOWN_MS;
-        if (inSameDirectionCooldown) {
+        if (isInSameDirectionFlipCooldown(
+            event.timeStamp,
+            direction,
+            lastWheelFlipAtMs,
+            lastWheelFlipDirection,
+            interiorScrollSinceLastFlip,
+        )) {
             clearWheelAccumulator();
             return;
         }
@@ -507,13 +592,11 @@ export function usePdfSinglePageScroll(
             return;
         }
 
-        // Keep paged scrolling predictable: one spread turn per wheel threshold.
-        const targetPage = stepBySpread(
+        const targetPage = resolveWheelTargetPage(
             activePage,
             viewMode.value,
             numPages.value,
             direction,
-            1,
         );
         if (targetPage === activePage) {
             clearWheelAccumulator();
@@ -529,9 +612,7 @@ export function usePdfSinglePageScroll(
         //     'center' anchor computed `baseTop − (containerHeight −
         //     pageHeight)/2`, which is half a margin off and bleeds the
         //     adjacent page into the viewport ("1.5 pages visible" symptom).
-        const anchor: TPageSnapAnchor = isTallPage(targetPage)
-            ? resolveSnapAnchorForWheelDirection(direction)
-            : 'top';
+        const anchor = resolveWheelTargetAnchor(isTallPage(targetPage), direction);
         snapToPage(targetPage, anchor);
         suppressSnapFor(250);
         lastWheelFlipAtMs = event.timeStamp;

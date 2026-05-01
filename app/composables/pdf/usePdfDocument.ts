@@ -66,6 +66,18 @@ export const usePdfDocument = () => {
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
     let rangeTransport: PDFDataRangeTransport | null = null;
 
+    function getPdfjsDocumentOptions() {
+        return {
+            verbosity: pdfjsLib.VerbosityLevel.ERRORS,
+            standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
+            cMapUrl: getPdfjsAssetDir('cmaps'),
+            cMapPacked: true,
+            wasmUrl: getPdfjsAssetDir('wasm'),
+            iccUrl: getPdfjsAssetDir('iccs'),
+            useSystemFonts: false,
+        };
+    }
+
     function touchCachedPage(pageNumber: number, page: PDFPageProxy) {
         pdfPageCache.delete(pageNumber);
         pdfPageCache.set(pageNumber, page);
@@ -256,206 +268,269 @@ export const usePdfDocument = () => {
         };
     }
 
-    async function loadPdf(
-        src: TPdfSource,
-        options?: { preservePageStructure?: boolean },
+    function preserveLoadState(shouldPreserve: boolean) {
+        return {
+            numPages: shouldPreserve ? numPages.value : 0,
+            basePageWidth: shouldPreserve ? basePageWidth.value : null,
+            basePageHeight: shouldPreserve ? basePageHeight.value : null,
+            pageMetrics: shouldPreserve
+                ? pageMetrics.value.map(metric => ({ ...metric }))
+                : [],
+        };
+    }
+
+    function restorePreservedLoadState(
+        state: ReturnType<typeof preserveLoadState>,
     ) {
-        const savedNumPages = options?.preservePageStructure ? numPages.value : 0;
-        const savedBaseWidth = options?.preservePageStructure
-            ? basePageWidth.value
-            : null;
-        const savedBaseHeight = options?.preservePageStructure
-            ? basePageHeight.value
-            : null;
-        const savedPageMetrics = options?.preservePageStructure
-            ? pageMetrics.value.map(metric => ({ ...metric }))
-            : [];
+        numPages.value = state.numPages;
+        basePageWidth.value = state.basePageWidth;
+        basePageHeight.value = state.basePageHeight;
+        pageMetrics.value = state.pageMetrics;
+        bumpPageMetricsVersion();
+    }
+
+    function resetLoadMetadata() {
+        basePageWidth.value = null;
+        basePageHeight.value = null;
+        pageMetrics.value = [];
+        bumpPageMetricsVersion();
+    }
+
+    function startLoad(
+        options: { preservePageStructure?: boolean } | undefined,
+    ) {
+        const shouldPreservePageStructure = options?.preservePageStructure === true;
+        const savedState = preserveLoadState(shouldPreservePageStructure);
 
         // Cancel any in-progress load - latest wins
         cleanup();
 
-        if (options?.preservePageStructure) {
-            numPages.value = savedNumPages;
-            basePageWidth.value = savedBaseWidth;
-            basePageHeight.value = savedBaseHeight;
-            pageMetrics.value = savedPageMetrics;
-            bumpPageMetricsVersion();
+        if (shouldPreservePageStructure) {
+            restorePreservedLoadState(savedState);
         }
 
         const version = incrementRenderVersion();
         isLoading.value = true;
-        if (!options?.preservePageStructure) {
-            basePageWidth.value = null;
-            basePageHeight.value = null;
-            pageMetrics.value = [];
-            bumpPageMetricsVersion();
+        if (!shouldPreservePageStructure) {
+            resetLoadMetadata();
+        }
+
+        return version;
+    }
+
+    function finishLoad(version: number) {
+        // Only clear loading state if this is still the current load
+        if (version === renderVersion) {
+            isLoading.value = false;
+        }
+    }
+
+    function handleLoadError(
+        error: unknown,
+        version: number,
+    ) {
+        // Ignore cancellation errors from destroyed loading tasks
+        if (version !== renderVersion) {
+            return null;
+        }
+        BrowserLogger.error('pdf-document', 'Failed to load PDF', error);
+        return null;
+    }
+
+    function destroyLoadingTaskAfterRangeReadFailure() {
+        if (!loadingTask) {
+            return;
         }
 
         try {
-            if (src instanceof Blob) {
-                objectUrl = URL.createObjectURL(src);
-                loadingTask = pdfjsLib.getDocument({
-                    url: objectUrl,
-                    verbosity: pdfjsLib.VerbosityLevel.ERRORS,
-                    standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
-                    cMapUrl: getPdfjsAssetDir('cmaps'),
-                    cMapPacked: true,
-                    wasmUrl: getPdfjsAssetDir('wasm'),
-                    iccUrl: getPdfjsAssetDir('iccs'),
-                    useSystemFonts: false,
-                });
-            } else {
-                // Large PDFs: avoid reading the full file into renderer memory. Use range reads via IPC.
-                const length = src.size;
-                const CHUNK = 1024 * 1024;
-                const initialLen = Math.min(CHUNK, length);
-
-                // Read the head (PDF header/catalog) and tail (xref/trailer)
-                // in parallel so both are available before getDocument starts.
-                const tailStart = Math.max(initialLen, length - CHUNK);
-                const needsTail = tailStart > initialLen;
-                const [
-                    initialData,
-                    tailData,
-                ] = await Promise.all([
-                    readDocumentRange(src.path, 0, initialLen),
-                    needsTail
-                        ? readDocumentRange(src.path, tailStart, length - tailStart)
-                        : Promise.resolve(null),
-                ]);
-
-                if (version !== renderVersion) {
-                    return null;
-                }
-
-                const TransportCtor = (
-                    pdfjsLib as typeof pdfjsLib & {PDFDataRangeTransport?: TPdfDataRangeTransportCtor;}
-                ).PDFDataRangeTransport;
-                if (!TransportCtor) {
-                    BrowserLogger.error(
+            guardAsync(loadingTask.destroy(), {
+                scope: 'pdf-document',
+                message: 'PDF loading task destroy rejected after range read failure',
+                onError: (destroyError) => {
+                    BrowserLogger.debug(
                         'pdf-document',
-                        'Failed to load PDF',
-                        new Error('PDF.js range transport API is unavailable'),
+                        'PDF loading task destroy rejected after range read failure',
+                        destroyError,
                     );
-                    return null;
-                }
+                },
+            });
+        } catch (destroyError) {
+            BrowserLogger.debug(
+                'pdf-document',
+                'Failed to destroy PDF loading task after range read failure',
+                destroyError,
+            );
+        }
+    }
 
-                rangeTransport = new TransportCtor(
-                    length,
-                    initialData,
-                );
-                const activeRangeTransport = rangeTransport;
+    function createRangeReadFailureHandler() {
+        let rejectRangeReadFailure: ((error: Error) => void) | null = null;
+        const rangeReadFailure = new Promise<never>((_resolve, reject) => {
+            rejectRangeReadFailure = reject;
+        });
 
-                // Pre-deliver the tail chunk so the worker finds the xref
-                // without waiting for a requestDataRange round-trip.
-                if (tailData) {
-                    activeRangeTransport.onDataRange(tailStart, tailData);
-                }
-                let rejectRangeReadFailure: ((error: Error) => void) | null = null;
-                const rangeReadFailure = new Promise<never>((_resolve, reject) => {
-                    rejectRangeReadFailure = reject;
-                });
+        const failRangeRead = (error: unknown) => {
+            if (!rejectRangeReadFailure) {
+                return;
+            }
 
-                const failRangeRead = (error: unknown) => {
-                    if (!rejectRangeReadFailure) {
+            const reject = rejectRangeReadFailure;
+            rejectRangeReadFailure = null;
+            reject(error instanceof Error ? error : new Error(String(error)));
+        };
+
+        return {
+            rangeReadFailure,
+            failRangeRead,
+            complete: () => {
+                rejectRangeReadFailure = null;
+            },
+        };
+    }
+
+    function attachRangeRequestHandler(
+        transport: PDFDataRangeTransport,
+        src: Extract<TPdfSource, { kind: 'path' }>,
+        version: number,
+        failRangeRead: (error: unknown) => void,
+    ) {
+        // PDF.js will call this to request additional chunks.
+        transport.requestDataRange = (
+            begin: number,
+            end: number,
+        ) => {
+            void (async () => {
+                try {
+                    // Drop stale reads if a newer load has started.
+                    if (version !== renderVersion) {
+                        return;
+                    }
+                    const chunk = await readDocumentRange(src.path, begin, end - begin);
+                    transport.onDataRange(begin, chunk);
+                } catch (error) {
+                    if (version !== renderVersion) {
                         return;
                     }
 
-                    const reject = rejectRangeReadFailure;
-                    rejectRangeReadFailure = null;
-                    reject(error instanceof Error ? error : new Error(String(error)));
-                };
+                    BrowserLogger.error(
+                        'pdf-document',
+                        'Failed to read PDF range chunk',
+                        error,
+                    );
+                    failRangeRead(error);
+                    destroyLoadingTaskAfterRangeReadFailure();
+                }
+            })();
+        };
+    }
 
-                // PDF.js will call this to request additional chunks.
-                activeRangeTransport.requestDataRange = (
-                    begin: number,
-                    end: number,
-                ) => {
-                    void (async () => {
-                        try {
-                            // Drop stale reads if a newer load has started.
-                            if (version !== renderVersion) {
-                                return;
-                            }
-                            const chunk = await readDocumentRange(src.path, begin, end - begin);
-                            activeRangeTransport.onDataRange(begin, chunk);
-                        } catch (error) {
-                            if (version !== renderVersion) {
-                                return;
-                            }
+    async function loadPdfFromBlob(
+        src: Blob,
+        version: number,
+    ) {
+        objectUrl = URL.createObjectURL(src);
+        loadingTask = pdfjsLib.getDocument({
+            url: objectUrl,
+            ...getPdfjsDocumentOptions(),
+        });
 
-                            BrowserLogger.error(
-                                'pdf-document',
-                                'Failed to read PDF range chunk',
-                                error,
-                            );
-                            failRangeRead(error);
-                            if (loadingTask) {
-                                try {
-                                    guardAsync(loadingTask.destroy(), {
-                                        scope: 'pdf-document',
-                                        message: 'PDF loading task destroy rejected after range read failure',
-                                        onError: (destroyError) => {
-                                            BrowserLogger.debug(
-                                                'pdf-document',
-                                                'PDF loading task destroy rejected after range read failure',
-                                                destroyError,
-                                            );
-                                        },
-                                    });
-                                } catch (destroyError) {
-                                    BrowserLogger.debug(
-                                        'pdf-document',
-                                        'Failed to destroy PDF loading task after range read failure',
-                                        destroyError,
-                                    );
-                                }
-                            }
-                        }
-                    })();
-                };
+        const pdfDoc = await loadingTask.promise;
+        return acceptLoadedDocument(pdfDoc, version);
+    }
 
-                loadingTask = pdfjsLib.getDocument({
-                    range: activeRangeTransport,
-                    length,
-                    rangeChunkSize: 1024 * 1024,
-                    disableAutoFetch: true,
-                    verbosity: pdfjsLib.VerbosityLevel.ERRORS,
-                    standardFontDataUrl: getPdfjsAssetDir('standard_fonts'),
-                    cMapUrl: getPdfjsAssetDir('cmaps'),
-                    cMapPacked: true,
-                    wasmUrl: getPdfjsAssetDir('wasm'),
-                    iccUrl: getPdfjsAssetDir('iccs'),
-                    useSystemFonts: false,
-                });
+    async function loadPdfFromPath(
+        src: Extract<TPdfSource, { kind: 'path' }>,
+        version: number,
+    ) {
+        // Large PDFs: avoid reading the full file into renderer memory. Use range reads via IPC.
+        const length = src.size;
+        const CHUNK = 1024 * 1024;
+        const initialLen = Math.min(CHUNK, length);
 
-                const activeLoadingTask = loadingTask;
-                const pdfDoc = await Promise.race([
-                    activeLoadingTask.promise,
-                    rangeReadFailure,
-                ]);
-                rejectRangeReadFailure = null;
+        // Read the head (PDF header/catalog) and tail (xref/trailer)
+        // in parallel so both are available before getDocument starts.
+        const tailStart = Math.max(initialLen, length - CHUNK);
+        const needsTail = tailStart > initialLen;
+        const [
+            initialData,
+            tailData,
+        ] = await Promise.all([
+            readDocumentRange(src.path, 0, initialLen),
+            needsTail
+                ? readDocumentRange(src.path, tailStart, length - tailStart)
+                : Promise.resolve(null),
+        ]);
 
-                return await acceptLoadedDocument(pdfDoc, version);
-            }
-
-            if (!loadingTask) {
-                return null;
-            }
-            const pdfDoc = await loadingTask.promise;
-            return await acceptLoadedDocument(pdfDoc, version);
-        } catch (error) {
-            // Ignore cancellation errors from destroyed loading tasks
-            if (version !== renderVersion) {
-                return null;
-            }
-            BrowserLogger.error('pdf-document', 'Failed to load PDF', error);
+        if (version !== renderVersion) {
             return null;
-        } finally {
-            // Only clear loading state if this is still the current load
-            if (version === renderVersion) {
-                isLoading.value = false;
+        }
+
+        const TransportCtor = (
+            pdfjsLib as typeof pdfjsLib & {PDFDataRangeTransport?: TPdfDataRangeTransportCtor;}
+        ).PDFDataRangeTransport;
+        if (!TransportCtor) {
+            BrowserLogger.error(
+                'pdf-document',
+                'Failed to load PDF',
+                new Error('PDF.js range transport API is unavailable'),
+            );
+            return null;
+        }
+
+        rangeTransport = new TransportCtor(
+            length,
+            initialData,
+        );
+        const activeRangeTransport = rangeTransport;
+
+        // Pre-deliver the tail chunk so the worker finds the xref
+        // without waiting for a requestDataRange round-trip.
+        if (tailData) {
+            activeRangeTransport.onDataRange(tailStart, tailData);
+        }
+
+        const rangeFailure = createRangeReadFailureHandler();
+        attachRangeRequestHandler(
+            activeRangeTransport,
+            src,
+            version,
+            rangeFailure.failRangeRead,
+        );
+
+        loadingTask = pdfjsLib.getDocument({
+            range: activeRangeTransport,
+            length,
+            rangeChunkSize: 1024 * 1024,
+            disableAutoFetch: true,
+            ...getPdfjsDocumentOptions(),
+        });
+
+        const activeLoadingTask = loadingTask;
+        const pdfDoc = await Promise.race([
+            activeLoadingTask.promise,
+            rangeFailure.rangeReadFailure,
+        ]);
+        rangeFailure.complete();
+
+        return acceptLoadedDocument(pdfDoc, version);
+    }
+
+    async function loadPdf(
+        src: TPdfSource,
+        options?: { preservePageStructure?: boolean },
+    ) {
+        const version = startLoad(options);
+
+        try {
+            if (src instanceof Blob) {
+                return await loadPdfFromBlob(src, version);
             }
+
+            return await loadPdfFromPath(src, version);
+        } catch (error) {
+            return handleLoadError(error, version);
+        } finally {
+            finishLoad(version);
         }
     }
 

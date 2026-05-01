@@ -42,6 +42,22 @@ interface IPageHighlightSignatureState {
     refreshVersion: number;
 }
 
+interface IHighlightDebugGuard {
+    current: IPdfSearchMatch;
+    query: string;
+    scale: number;
+}
+
+interface IHighlightDebugRects {
+    canvasRect: DOMRect;
+    textRect: DOMRect;
+    containerRect: DOMRect | null;
+    canvasHostRect: DOMRect | null;
+    highlightRect: DOMRect | null;
+    computedTotalScaleFactor: string;
+    currentSpanInfo: string;
+}
+
 const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
 const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
 
@@ -173,6 +189,74 @@ export const usePdfTextLayerRenderer = (deps: {
         );
     }
 
+    function getCurrentTime() {
+        return typeof performance !== 'undefined'
+            ? performance.now()
+            : Date.now();
+    }
+
+    function runPendingHighlightRefresh(
+        flushSearchHighlightRefresh: (root: HTMLElement | null, refreshVersion: number) => void,
+    ) {
+        const pendingRoot = pageHighlightState.pendingRoot;
+        pageHighlightState.pendingRoot = null;
+        if (pendingRoot) {
+            flushSearchHighlightRefresh(pendingRoot, pageHighlightState.refreshVersion);
+        }
+    }
+
+    function shouldPauseHighlightRefreshSlice(processedPages: number, sliceStartedAt: number) {
+        const elapsed = getCurrentTime() - sliceStartedAt;
+        return processedPages >= HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE
+            || elapsed >= HIGHLIGHT_REFRESH_BUDGET_MS;
+    }
+
+    function refreshSearchHighlightsForPage(
+        container: HTMLElement,
+        mountedPageNumber: number,
+        pageMatchData: IPdfPageMatches | null,
+        currentMatchValue: IPdfSearchMatch | null,
+    ) {
+        const pageIndex = mountedPageNumber - 1;
+        const signature = buildPageHighlightSignature(pageMatchData, currentMatchValue);
+        const previousSignature = pageHighlightState.signatureByPage.get(mountedPageNumber);
+        if (previousSignature === signature) {
+            return;
+        }
+
+        const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
+        if (!textLayerDiv) {
+            pageHighlightState.signatureByPage.set(mountedPageNumber, signature);
+            return;
+        }
+
+        const canvas = container.querySelector<HTMLCanvasElement>('canvas') ?? null;
+        try {
+            if (pageMatchData && pageMatchData.matches.length > 0) {
+                highlightPage(
+                    textLayerDiv,
+                    pageMatchData,
+                    currentMatchValue,
+                );
+            } else {
+                clearHighlights(textLayerDiv);
+            }
+
+            renderWordBoxesForPageMatch(container, pageMatchData, currentMatchValue, pageIndex);
+
+            if (canvas) {
+                maybeLogHighlightDebug(pageIndex + 1, pageMatchData, canvas, textLayerDiv);
+            }
+        } catch (error) {
+            BrowserLogger.warn('pdf-text-layer', 'Failed to refresh search highlights', {
+                pageNumber: mountedPageNumber,
+                error,
+            });
+        }
+
+        pageHighlightState.signatureByPage.set(mountedPageNumber, signature);
+    }
+
     function scheduleSearchHighlightRefresh(containerRoot: HTMLElement) {
         const scheduleContinuation = (callback: () => void) => {
             if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
@@ -201,17 +285,11 @@ export const usePdfTextLayerRenderer = (deps: {
 
             const processSlice = () => {
                 if (refreshVersion !== pageHighlightState.refreshVersion) {
-                    const pendingRoot = pageHighlightState.pendingRoot;
-                    pageHighlightState.pendingRoot = null;
-                    if (pendingRoot) {
-                        flushSearchHighlightRefresh(pendingRoot, pageHighlightState.refreshVersion);
-                    }
+                    runPendingHighlightRefresh(flushSearchHighlightRefresh);
                     return;
                 }
 
-                const sliceStartedAt = typeof performance !== 'undefined'
-                    ? performance.now()
-                    : Date.now();
+                const sliceStartedAt = getCurrentTime();
 
                 measureDevPerf('pdf:highlight-refresh-slice', () => {
                     let processedPages = 0;
@@ -227,52 +305,15 @@ export const usePdfTextLayerRenderer = (deps: {
                         }
 
                         const pageIndex = mountedPageNumber - 1;
-                        const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
                         const pageMatchData = searchMatchesValue?.get(pageIndex) ?? null;
-                        const signature = buildPageHighlightSignature(pageMatchData, currentMatchValue);
-                        const previousSignature = pageHighlightState.signatureByPage.get(mountedPageNumber);
-                        if (previousSignature === signature) {
-                            continue;
-                        }
+                        refreshSearchHighlightsForPage(
+                            container,
+                            mountedPageNumber,
+                            pageMatchData,
+                            currentMatchValue,
+                        );
 
-                        if (!textLayerDiv) {
-                            pageHighlightState.signatureByPage.set(mountedPageNumber, signature);
-                            continue;
-                        }
-
-                        const canvas = container.querySelector<HTMLCanvasElement>('canvas') ?? null;
-                        try {
-                            if (pageMatchData && pageMatchData.matches.length > 0) {
-                                highlightPage(
-                                    textLayerDiv,
-                                    pageMatchData,
-                                    currentMatchValue,
-                                );
-                            } else {
-                                clearHighlights(textLayerDiv);
-                            }
-
-                            renderWordBoxesForPageMatch(container, pageMatchData, currentMatchValue, pageIndex);
-
-                            if (canvas) {
-                                maybeLogHighlightDebug(pageIndex + 1, pageMatchData, canvas, textLayerDiv);
-                            }
-                        } catch (error) {
-                            BrowserLogger.warn('pdf-text-layer', 'Failed to refresh search highlights', {
-                                pageNumber: mountedPageNumber,
-                                error,
-                            });
-                        }
-
-                        pageHighlightState.signatureByPage.set(mountedPageNumber, signature);
-
-                        const elapsed = (typeof performance !== 'undefined'
-                            ? performance.now()
-                            : Date.now()) - sliceStartedAt;
-                        if (
-                            processedPages >= HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE
-                            || elapsed >= HIGHLIGHT_REFRESH_BUDGET_MS
-                        ) {
+                        if (shouldPauseHighlightRefreshSlice(processedPages, sliceStartedAt)) {
                             break;
                         }
                     }
@@ -290,9 +331,7 @@ export const usePdfTextLayerRenderer = (deps: {
                 }
 
                 if (pageHighlightState.pendingRoot && pageHighlightState.pendingRoot !== root) {
-                    const pendingRoot = pageHighlightState.pendingRoot;
-                    pageHighlightState.pendingRoot = null;
-                    flushSearchHighlightRefresh(pendingRoot, pageHighlightState.refreshVersion);
+                    runPendingHighlightRefresh(flushSearchHighlightRefresh);
                 }
             };
 
@@ -334,29 +373,67 @@ export const usePdfTextLayerRenderer = (deps: {
         return isHighlightDebugVerboseEnabledFromStorage();
     }
 
-    function maybeLogHighlightDebug(
+    function getHighlightDebugGuard(
         pageNumber: number,
         pageMatchData: IPdfPageMatches | null,
-        canvas: HTMLCanvasElement,
-        textLayerDiv: HTMLElement,
-        debugInfo?: IHighlightDebugInfo,
-    ) {
+    ): IHighlightDebugGuard | null {
         if (!isHighlightDebugEnabled()) {
-            return;
+            return null;
         }
 
         const current = toValue(deps.currentSearchMatch);
         if (!current || current.pageIndex !== pageNumber - 1) {
-            return;
+            return null;
         }
 
         const query = pageMatchData?.searchQuery ?? '';
-        const key = `${current.pageIndex}:${current.matchIndex}:${query}:${toValue(deps.effectiveScale)}`;
+        const scale = toValue(deps.effectiveScale);
+        const key = `${current.pageIndex}:${current.matchIndex}:${query}:${scale}`;
         if (key === lastHighlightDebugKey) {
-            return;
+            return null;
         }
         lastHighlightDebugKey = key;
 
+        return {
+            current,
+            query,
+            scale,
+        };
+    }
+
+    function formatHighlightDebugRect(rect: DOMRect) {
+        return `${rect.left.toFixed(2)},${rect.top.toFixed(2)} ${rect.width.toFixed(2)}x${rect.height.toFixed(2)}`;
+    }
+
+    function getCurrentSpanDebugInfo(currentMark: HTMLElement | null) {
+        if (!isHighlightDebugVerboseEnabled() || typeof window === 'undefined') {
+            return '';
+        }
+
+        const span = currentMark?.closest('span');
+        if (!span) {
+            return '';
+        }
+
+        const spanStyle = window.getComputedStyle(span);
+        const scaleX = spanStyle.getPropertyValue('--scale-x').trim();
+        const fontHeight = spanStyle.getPropertyValue('--font-height').trim();
+        return [
+            `spanFont=${JSON.stringify(spanStyle.font)}`,
+            `spanFamily=${JSON.stringify(spanStyle.fontFamily)}`,
+            `spanWeight=${spanStyle.fontWeight}`,
+            `spanSize=${spanStyle.fontSize}`,
+            `spanTransform=${JSON.stringify(spanStyle.transform)}`,
+            `spanScaleX=${JSON.stringify(scaleX)}`,
+            `spanFontHeightVar=${JSON.stringify(fontHeight)}`,
+            `spanText=${JSON.stringify(span.textContent?.slice(0, 60) ?? '')}`,
+        ].join(' ');
+    }
+
+    function collectHighlightDebugRects(
+        canvas: HTMLCanvasElement,
+        textLayerDiv: HTMLElement,
+    ): IHighlightDebugRects {
         const canvasRect = canvas.getBoundingClientRect();
         const textRect = textLayerDiv.getBoundingClientRect();
         const pageContainer = textLayerDiv.closest<HTMLElement>('.page_container');
@@ -371,64 +448,97 @@ export const usePdfTextLayerRenderer = (deps: {
         const currentMark = textLayerDiv.querySelector<HTMLElement>('.pdf-search-highlight--current');
         const currentMarkRect = currentMark?.getBoundingClientRect() ?? null;
         const highlightRect = currentRangeRect ?? currentMarkRect;
+        const currentSpanInfo = getCurrentSpanDebugInfo(currentMark);
 
-        const verbose = isHighlightDebugVerboseEnabled();
-        let currentSpanInfo = '';
-        if (verbose && typeof window !== 'undefined') {
-            const span = currentMark?.closest('span');
-            if (span) {
-                const spanStyle = window.getComputedStyle(span);
-                const scaleX = spanStyle.getPropertyValue('--scale-x').trim();
-                const fontHeight = spanStyle.getPropertyValue('--font-height').trim();
-                currentSpanInfo = [
-                    `spanFont=${JSON.stringify(spanStyle.font)}`,
-                    `spanFamily=${JSON.stringify(spanStyle.fontFamily)}`,
-                    `spanWeight=${spanStyle.fontWeight}`,
-                    `spanSize=${spanStyle.fontSize}`,
-                    `spanTransform=${JSON.stringify(spanStyle.transform)}`,
-                    `spanScaleX=${JSON.stringify(scaleX)}`,
-                    `spanFontHeightVar=${JSON.stringify(fontHeight)}`,
-                    `spanText=${JSON.stringify(span.textContent?.slice(0, 60) ?? '')}`,
-                ].join(' ');
-            }
+        return {
+            canvasRect,
+            textRect,
+            containerRect,
+            canvasHostRect,
+            highlightRect,
+            computedTotalScaleFactor,
+            currentSpanInfo,
+        };
+    }
+
+    function formatHighlightDebugInfo(
+        debugInfo: IHighlightDebugInfo | undefined,
+        computedTotalScaleFactor: string,
+    ) {
+        if (!debugInfo) {
+            return [
+                '',
+                '',
+                '',
+                '',
+            ];
         }
 
-        const scale = toValue(deps.effectiveScale);
-        const dx = textRect.left - canvasRect.left;
-        const dy = textRect.top - canvasRect.top;
-        const dw = textRect.width - canvasRect.width;
-        const dh = textRect.height - canvasRect.height;
+        return [
+            `viewport=${debugInfo.viewportWidth.toFixed(2)}x${debugInfo.viewportHeight.toFixed(2)}`,
+            `raw=${debugInfo.rawPageWidth.toFixed(2)}x${debugInfo.rawPageHeight.toFixed(2)} userUnit=${debugInfo.userUnit}`,
+            `totalScale=${debugInfo.totalScaleFactor.toFixed(10)} cssVarTotal=${JSON.stringify(computedTotalScaleFactor)}`,
+            `canvasPx=${debugInfo.canvasPixelWidth}x${debugInfo.canvasPixelHeight} renderScale=${debugInfo.renderScaleX.toFixed(6)}x${debugInfo.renderScaleY.toFixed(6)}`,
+        ];
+    }
 
-        const fmtRect = (rect: DOMRect) =>
-            `${rect.left.toFixed(2)},${rect.top.toFixed(2)} ${rect.width.toFixed(2)}x${rect.height.toFixed(2)}`;
+    function buildHighlightDebugMessage(
+        pageNumber: number,
+        guard: IHighlightDebugGuard,
+        rects: IHighlightDebugRects,
+        debugInfo?: IHighlightDebugInfo,
+    ) {
+        const dx = rects.textRect.left - rects.canvasRect.left;
+        const dy = rects.textRect.top - rects.canvasRect.top;
+        const dw = rects.textRect.width - rects.canvasRect.width;
+        const dh = rects.textRect.height - rects.canvasRect.height;
+        const [
+            viewportInfo,
+            rawInfo,
+            totalScaleInfo,
+            canvasPixelInfo,
+        ] = formatHighlightDebugInfo(debugInfo, rects.computedTotalScaleFactor);
 
-        const msg = [
+        return [
             `page=${pageNumber}`,
-            `matchIndex=${current.matchIndex}`,
-            `scale=${scale}`,
-            `query=${JSON.stringify(query)}`,
-            debugInfo
-                ? `viewport=${debugInfo.viewportWidth.toFixed(2)}x${debugInfo.viewportHeight.toFixed(2)}`
-                : '',
-            debugInfo
-                ? `raw=${debugInfo.rawPageWidth.toFixed(2)}x${debugInfo.rawPageHeight.toFixed(2)} userUnit=${debugInfo.userUnit}`
-                : '',
-            debugInfo
-                ? `totalScale=${debugInfo.totalScaleFactor.toFixed(10)} cssVarTotal=${JSON.stringify(computedTotalScaleFactor)}`
-                : '',
-            debugInfo
-                ? `canvasPx=${debugInfo.canvasPixelWidth}x${debugInfo.canvasPixelHeight} renderScale=${debugInfo.renderScaleX.toFixed(6)}x${debugInfo.renderScaleY.toFixed(6)}`
-                : '',
-            containerRect ? `container=${fmtRect(containerRect)}` : '',
-            canvasHostRect ? `canvasHost=${fmtRect(canvasHostRect)}` : '',
-            `canvas=${fmtRect(canvasRect)}`,
-            `textLayer=${fmtRect(textRect)}`,
+            `matchIndex=${guard.current.matchIndex}`,
+            `scale=${guard.scale}`,
+            `query=${JSON.stringify(guard.query)}`,
+            viewportInfo,
+            rawInfo,
+            totalScaleInfo,
+            canvasPixelInfo,
+            rects.containerRect ? `container=${formatHighlightDebugRect(rects.containerRect)}` : '',
+            rects.canvasHostRect ? `canvasHost=${formatHighlightDebugRect(rects.canvasHostRect)}` : '',
+            `canvas=${formatHighlightDebugRect(rects.canvasRect)}`,
+            `textLayer=${formatHighlightDebugRect(rects.textRect)}`,
             `delta=${dx.toFixed(2)},${dy.toFixed(2)} ${dw.toFixed(2)}x${dh.toFixed(2)}`,
-            highlightRect ? `currentHighlight=${fmtRect(highlightRect)}` : 'currentHighlight=null',
-            currentSpanInfo,
+            rects.highlightRect ? `currentHighlight=${formatHighlightDebugRect(rects.highlightRect)}` : 'currentHighlight=null',
+            rects.currentSpanInfo,
         ].join(' ');
+    }
 
-        BrowserLogger.debug('PDF-HIGHLIGHT', msg);
+    function maybeLogHighlightDebug(
+        pageNumber: number,
+        pageMatchData: IPdfPageMatches | null,
+        canvas: HTMLCanvasElement,
+        textLayerDiv: HTMLElement,
+        debugInfo?: IHighlightDebugInfo,
+    ) {
+        const guard = getHighlightDebugGuard(pageNumber, pageMatchData);
+        if (!guard) {
+            return;
+        }
+
+        BrowserLogger.debug(
+            'PDF-HIGHLIGHT',
+            buildHighlightDebugMessage(
+                pageNumber,
+                guard,
+                collectHighlightDebugRects(canvas, textLayerDiv),
+                debugInfo,
+            ),
+        );
     }
 
     async function renderTextLayer(
