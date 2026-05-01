@@ -13,6 +13,7 @@ import {
 import { terminateProcessTree } from '@electron/utils/process-tree';
 import { getErrorMessage } from '@electron/utils/error';
 import { appendTextChunkWithByteCap } from '@electron/native-tools/output-buffer';
+import { parseIntegerEnv } from '@electron/utils/env';
 
 interface IRunCommandOptions {
     cwd?: string;
@@ -31,16 +32,8 @@ interface IRunCommandOptions {
     rejectOnStdoutTruncation?: boolean;
 }
 
-function parseByteLimitEnv(name: string, fallback: number) {
-    const parsed = Number.parseInt(process.env[name] ?? `${fallback}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 1_024) {
-        return fallback;
-    }
-    return parsed;
-}
-
-const DEFAULT_MAX_STDOUT_BYTES = parseByteLimitEnv('EVB_NATIVE_TOOL_MAX_STDOUT_BYTES', 262_144);
-const DEFAULT_MAX_STDERR_BYTES = parseByteLimitEnv('EVB_NATIVE_TOOL_MAX_STDERR_BYTES', 262_144);
+const DEFAULT_MAX_STDOUT_BYTES = parseIntegerEnv('EVB_NATIVE_TOOL_MAX_STDOUT_BYTES', 262_144, 1_024);
+const DEFAULT_MAX_STDERR_BYTES = parseIntegerEnv('EVB_NATIVE_TOOL_MAX_STDERR_BYTES', 262_144, 1_024);
 
 export async function runNativeCommand(
     command: string,

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { getCliErrorMessage } from './release/cli-error.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -9,11 +10,10 @@ function main() {
     try {
         electronBinaryPath = require('electron');
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
         throw new Error(
             'Electron binary is not installed for this checkout. '
             + 'Fresh installs must allow the electron postinstall script. '
-            + `Original error: ${message}`,
+            + `Original error: ${getCliErrorMessage(error)}`,
         );
     }
 
@@ -31,7 +31,6 @@ function main() {
 try {
     main();
 } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${message}\n`);
+    process.stderr.write(`${getCliErrorMessage(error)}\n`);
     process.exit(1);
 }

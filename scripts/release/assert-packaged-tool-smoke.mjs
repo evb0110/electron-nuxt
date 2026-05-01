@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { assertMacPackagedToolSmoke } from './native-tool-smoke-policy.mjs';
+import { getCliErrorMessage } from './cli-error.mjs';
 
 function main() {
     const [
@@ -26,9 +27,6 @@ function main() {
 try {
     main();
 } catch (error) {
-    const message = error instanceof Error
-        ? error.message
-        : String(error);
-    process.stderr.write(`${message}\n`);
+    process.stderr.write(`${getCliErrorMessage(error)}\n`);
     process.exit(1);
 }

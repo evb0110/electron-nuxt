@@ -10,6 +10,7 @@ import {
     getBrowserFileExtension,
     toBrowserOwnedArrayBuffer,
 } from '@app/platform/browser-api/browser-platform-helpers';
+import { toTransferableUint8Array } from '@app/platform/browser-api/browser-worker-transfer';
 import { getErrorMessage } from '@app/utils/error';
 
 interface IUtifFrame {
@@ -25,17 +26,6 @@ interface IUtifModule {
 }
 
 const UTIF_MODULE = UTIF as IUtifModule;
-
-function toTransferableUint8Array(data: Uint8Array) {
-    if (
-        data.byteOffset === 0
-        && data.byteLength === data.buffer.byteLength
-    ) {
-        return data;
-    }
-
-    return data.slice();
-}
 
 async function convertWorkerImageBytesToPng(fileName: string, bytes: Uint8Array) {
     if (

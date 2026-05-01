@@ -9,6 +9,9 @@ import type { IOcrFileResult } from '@electron/ocr/worker/types';
 import { resolveTesseractLanguageConfig } from '@electron/ocr/tesseract-language-config';
 import { terminateProcessTree } from '@electron/utils/process-tree';
 import { getErrorMessage } from '@electron/utils/error';
+import { appendTextChunkWithByteCap } from '@electron/native-tools/output-buffer';
+import { parseIntegerEnv } from '@electron/utils/env';
+import { buildTesseractEnv } from '@electron/ocr/tesseract-env';
 
 const PNG_SIGNATURE = Buffer.from([
     0x89,
@@ -21,27 +24,9 @@ const PNG_SIGNATURE = Buffer.from([
     0x0A,
 ]);
 
-const FILE_BASED_OCR_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_FILE_BASED_TIMEOUT_MS ?? `${3 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 10_000) {
-        return 3 * 60 * 1000;
-    }
-    return parsed;
-})();
-const FILE_BASED_OCR_KILL_GRACE_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_FILE_BASED_KILL_GRACE_MS ?? '2000', 10);
-    if (!Number.isFinite(parsed) || parsed < 250) {
-        return 2_000;
-    }
-    return parsed;
-})();
-const FILE_BASED_OCR_MAX_STDERR_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OCR_FILE_BASED_MAX_STDERR_BYTES ?? '262144', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_024) {
-        return 262_144;
-    }
-    return parsed;
-})();
+const FILE_BASED_OCR_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_FILE_BASED_TIMEOUT_MS', 3 * 60 * 1000, 10_000);
+const FILE_BASED_OCR_KILL_GRACE_MS = parseIntegerEnv('EVB_OCR_FILE_BASED_KILL_GRACE_MS', 2_000, 250);
+const FILE_BASED_OCR_MAX_STDERR_BYTES = parseIntegerEnv('EVB_OCR_FILE_BASED_MAX_STDERR_BYTES', 262_144, 1_024);
 
 export function getPngDimensions(imageBuffer: Buffer): {
     width: number;
@@ -61,45 +46,6 @@ export function getPngDimensions(imageBuffer: Buffer): {
     return {
         width,
         height,
-    };
-}
-
-function buildTesseractEnv(tessdataPath: string, threads?: number): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        TESSDATA_PREFIX: tessdataPath,
-    };
-    if (typeof threads === 'number' && Number.isFinite(threads) && threads > 0) {
-        env.OMP_THREAD_LIMIT = String(Math.floor(threads));
-        env.OMP_NUM_THREADS = String(Math.floor(threads));
-    }
-    return env;
-}
-
-function appendWithCap(current: string, chunk: Buffer, maxBytes: number) {
-    if (maxBytes <= 0) {
-        return {
-            value: '',
-            truncated: true,
-        };
-    }
-
-    const nextValue = current + chunk.toString();
-    if (Buffer.byteLength(nextValue, 'utf8') <= maxBytes) {
-        return {
-            value: nextValue,
-            truncated: false,
-        };
-    }
-
-    const keepBytes = Math.max(1, Math.floor(maxBytes * 0.9));
-    let tail = nextValue;
-    while (Buffer.byteLength(tail, 'utf8') > keepBytes && tail.length > 1) {
-        tail = tail.slice(Math.floor(tail.length * 0.1));
-    }
-    return {
-        value: tail,
-        truncated: true,
     };
 }
 
@@ -254,8 +200,8 @@ export async function runOcrFileBased(
         }
 
         proc.stderr.on('data', (data: Buffer) => {
-            const appended = appendWithCap(stderr, data, FILE_BASED_OCR_MAX_STDERR_BYTES);
-            stderr = appended.value;
+            const appended = appendTextChunkWithByteCap(stderr, data, FILE_BASED_OCR_MAX_STDERR_BYTES);
+            stderr = appended.text;
             stderrTruncated = stderrTruncated || appended.truncated;
         });
 

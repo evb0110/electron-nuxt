@@ -12,6 +12,11 @@ export interface IClientRect {
     bottom: number;
 }
 
+export interface IClientPoint {
+    clientX: number;
+    clientY: number;
+}
+
 export interface ILocalRect {
     x: number;
     y: number;
@@ -30,6 +35,15 @@ export interface ISnipPointerPayload {
     clientX: number;
     clientY: number;
     overlayRect: IOverlayRect;
+}
+
+interface ISelectionPointerDragHandlersOptions {
+    getState: () => string;
+    getStartPoint: () => IClientPoint | null;
+    setStartPoint: (point: IClientPoint) => void;
+    updateSelection: (payload: ISnipPointerPayload, startPoint: IClientPoint) => void;
+    onStart?: (payload: ISnipPointerPayload, startPoint: IClientPoint) => void;
+    onEnd: (payload: ISnipPointerPayload, startPoint: IClientPoint) => void;
 }
 
 interface ICanvasSource {
@@ -95,6 +109,70 @@ export function intersectClientRects(a: IClientRect, b: IClientRect): IClientRec
         : null;
 }
 
+export function clampClientPointToRect(
+    point: IClientPoint,
+    rect: IClientRect,
+): IClientPoint {
+    return {
+        clientX: clamp(point.clientX, rect.left, rect.right),
+        clientY: clamp(point.clientY, rect.top, rect.bottom),
+    };
+}
+
+export function toClientPoint(payload: IClientPoint): IClientPoint {
+    return {
+        clientX: payload.clientX,
+        clientY: payload.clientY,
+    };
+}
+
+export function hasActiveSelectionDrag(
+    state: string,
+    startPoint: IClientPoint | null,
+): startPoint is IClientPoint {
+    return state === 'selecting' && startPoint !== null;
+}
+
+export function createSelectionPointerDragHandlers(
+    options: ISelectionPointerDragHandlersOptions,
+) {
+    function getActiveStartPoint() {
+        const startPoint = options.getStartPoint();
+        return hasActiveSelectionDrag(options.getState(), startPoint)
+            ? startPoint
+            : null;
+    }
+
+    return {
+        onPointerStart(payload: ISnipPointerPayload) {
+            if (options.getState() !== 'selecting') {
+                return;
+            }
+
+            const startPoint = toClientPoint(payload);
+            options.setStartPoint(startPoint);
+            options.onStart?.(payload, startPoint);
+            options.updateSelection(payload, startPoint);
+        },
+        onPointerMove(payload: ISnipPointerPayload) {
+            const startPoint = getActiveStartPoint();
+            if (!startPoint) {
+                return;
+            }
+
+            options.updateSelection(payload, startPoint);
+        },
+        onPointerEnd(payload: ISnipPointerPayload) {
+            const startPoint = getActiveStartPoint();
+            if (!startPoint) {
+                return;
+            }
+
+            options.onEnd(payload, startPoint);
+        },
+    };
+}
+
 function unionClientRects(a: IClientRect, b: IClientRect): IClientRect {
     return {
         left: Math.min(a.left, b.left),
@@ -119,6 +197,30 @@ export function toClientRect(rect: DOMRect): IClientRect {
         top: rect.top,
         right: rect.right,
         bottom: rect.bottom,
+    };
+}
+
+export function createSelectionRectFromPointerDrag(
+    payload: ISnipPointerPayload,
+    startPoint: IClientPoint,
+    clampRect?: IClientRect,
+) {
+    const start = clampRect
+        ? clampClientPointToRect(startPoint, clampRect)
+        : startPoint;
+    const end = clampRect
+        ? clampClientPointToRect(payload, clampRect)
+        : payload;
+    const clientRect = normalizeClientRect(
+        start.clientX,
+        start.clientY,
+        end.clientX,
+        end.clientY,
+    );
+
+    return {
+        clientRect,
+        localRect: toLocalRect(clientRect, payload.overlayRect),
     };
 }
 
@@ -274,10 +376,7 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
 
     const isActive = computed(() => state.value === 'selecting' || state.value === 'copying');
 
-    let dragStartPoint: {
-        clientX: number;
-        clientY: number 
-    } | null = null;
+    let dragStartPoint: IClientPoint | null = null;
     let pendingResolver: ((result: boolean) => void) | null = null;
     let escapeKeyListener: ((event: KeyboardEvent) => void) | null = null;
     const {
@@ -352,19 +451,11 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
 
     function updateSelectionFromPointer(
         payload: ISnipPointerPayload,
-        startPoint: {
-            clientX: number;
-            clientY: number 
-        },
+        startPoint: IClientPoint,
     ) {
-        const selection = normalizeClientRect(
-            startPoint.clientX,
-            startPoint.clientY,
-            payload.clientX,
-            payload.clientY,
-        );
-        selectionRect.value = toLocalRect(selection, payload.overlayRect);
-        return selection;
+        const selection = createSelectionRectFromPointerDrag(payload, startPoint);
+        selectionRect.value = selection.localRect;
+        return selection.clientRect;
     }
 
     function setSuccessVisuals(outputRect: IClientRect, overlayRect: IOverlayRect) {
@@ -433,33 +524,17 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
         }
     }
 
-    function onPointerStart(payload: ISnipPointerPayload) {
-        if (state.value !== 'selecting') {
-            return;
-        }
-
-        dragStartPoint = {
-            clientX: payload.clientX,
-            clientY: payload.clientY,
-        };
-        updateSelectionFromPointer(payload, dragStartPoint);
-    }
-
-    function onPointerMove(payload: ISnipPointerPayload) {
-        if (state.value !== 'selecting' || !dragStartPoint) {
-            return;
-        }
-
-        updateSelectionFromPointer(payload, dragStartPoint);
-    }
-
-    function onPointerEnd(payload: ISnipPointerPayload) {
-        if (state.value !== 'selecting' || !dragStartPoint) {
-            return;
-        }
-
-        void completeSelection(payload);
-    }
+    const pointerDragHandlers = createSelectionPointerDragHandlers({
+        getState: () => state.value,
+        getStartPoint: () => dragStartPoint,
+        setStartPoint: (point) => {
+            dragStartPoint = point;
+        },
+        updateSelection: updateSelectionFromPointer,
+        onEnd: (payload) => {
+            void completeSelection(payload);
+        },
+    });
 
     function startCaptureSession() {
         if (!options.viewerContainer.value) {
@@ -500,9 +575,9 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
         flashRect,
         badgePosition,
         startCaptureSession,
-        onPointerStart,
-        onPointerMove,
-        onPointerEnd,
+        onPointerStart: pointerDragHandlers.onPointerStart,
+        onPointerMove: pointerDragHandlers.onPointerMove,
+        onPointerEnd: pointerDragHandlers.onPointerEnd,
         cancelCapture,
     };
 }

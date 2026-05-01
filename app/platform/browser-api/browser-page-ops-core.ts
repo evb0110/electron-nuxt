@@ -3,6 +3,7 @@ import {
     PDFDocument,
     PDFName,
 } from 'pdf-lib';
+import type { PDFPage } from 'pdf-lib';
 import type {
     ICropMargins,
     IPageGeometry,
@@ -20,6 +21,57 @@ function toSavedPdfResult(
 
 function getNormalizedPageIndexes(pages: number[]) {
     return pages.map((page) => page - 1);
+}
+
+function isSamePdfBox(
+    first: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    },
+    second: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    },
+) {
+    return first.x === second.x
+        && first.y === second.y
+        && first.width === second.width
+        && first.height === second.height;
+}
+
+function toPageBoxGeometry(box: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}) {
+    return {
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+    };
+}
+
+function getCropBoxFromMargins(
+    mediaBox: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    },
+    margins: ICropMargins,
+) {
+    return {
+        x: mediaBox.x + margins.left,
+        y: mediaBox.y + margins.bottom,
+        width: mediaBox.width - margins.left - margins.right,
+        height: mediaBox.height - margins.top - margins.bottom,
+    };
 }
 
 function validatePageNumbers(
@@ -74,6 +126,29 @@ async function copySelectedPages(options: {
         copiedPages,
         targetPdf,
     };
+}
+
+async function mutateValidatedPdfPages(
+    data: Uint8Array,
+    pages: number[],
+    label: string,
+    mutatePage: (page: PDFPage) => void,
+) {
+    const pdfDocument = await PDFDocument.load(data);
+    validatePageNumbers(pages, label, {
+        pageCount: pdfDocument.getPageCount(),
+        requireUnique: true,
+    });
+    for (const pageNumber of pages) {
+        const page = pdfDocument.getPage(pageNumber - 1);
+        if (!page) {
+            continue;
+        }
+
+        mutatePage(page);
+    }
+
+    return toSavedPdfResult(pdfDocument);
 }
 
 export async function deletePdfPages(
@@ -173,24 +248,12 @@ export async function rotatePdfBytes(
     pages: number[],
     angle: 90 | 180 | 270,
 ): Promise<IPageMutationWorkerResult> {
-    const pdfDocument = await PDFDocument.load(data);
-    validatePageNumbers(pages, 'rotatePages', {
-        pageCount: pdfDocument.getPageCount(),
-        requireUnique: true,
-    });
-    for (const pageNumber of pages) {
-        const page = pdfDocument.getPage(pageNumber - 1);
-        if (!page) {
-            continue;
-        }
-
+    return mutateValidatedPdfPages(data, pages, 'rotatePages', (page) => {
         const currentRotation = page.getRotation().angle;
         page.setRotation(
             degrees(((currentRotation + angle) % 360)),
         );
-    }
-
-    return toSavedPdfResult(pdfDocument);
+    });
 }
 
 export async function cropPdfBytes(
@@ -198,57 +261,31 @@ export async function cropPdfBytes(
     pages: number[],
     margins: ICropMargins,
 ): Promise<IPageMutationWorkerResult> {
-    const pdfDocument = await PDFDocument.load(data);
-    validatePageNumbers(pages, 'cropPages', {
-        pageCount: pdfDocument.getPageCount(),
-        requireUnique: true,
+    return mutateValidatedPdfPages(data, pages, 'cropPages', (page) => {
+        const cropBox = getCropBoxFromMargins(page.getMediaBox(), margins);
+        if (cropBox.width <= 0 || cropBox.height <= 0) {
+            return;
+        }
+
+        page.setCropBox(
+            cropBox.x,
+            cropBox.y,
+            cropBox.width,
+            cropBox.height,
+        );
     });
-    for (const pageNumber of pages) {
-        const page = pdfDocument.getPage(pageNumber - 1);
-        if (!page) {
-            continue;
-        }
-
-        const mediaBox = page.getMediaBox();
-        const cropX = mediaBox.x + margins.left;
-        const cropY = mediaBox.y + margins.bottom;
-        const cropWidth = mediaBox.width - margins.left - margins.right;
-        const cropHeight = mediaBox.height - margins.top - margins.bottom;
-        if (cropWidth <= 0 || cropHeight <= 0) {
-            continue;
-        }
-
-        page.setCropBox(cropX, cropY, cropWidth, cropHeight);
-    }
-
-    return toSavedPdfResult(pdfDocument);
 }
 
 export async function removeCropPdfBytes(
     data: Uint8Array,
     pages: number[],
 ): Promise<IPageMutationWorkerResult> {
-    const pdfDocument = await PDFDocument.load(data);
-    validatePageNumbers(pages, 'removeCrop', {
-        pageCount: pdfDocument.getPageCount(),
-        requireUnique: true,
-    });
-    for (const pageNumber of pages) {
-        const page = pdfDocument.getPage(pageNumber - 1);
-        if (!page) {
-            continue;
-        }
-
+    return mutateValidatedPdfPages(data, pages, 'removeCrop', (page) => {
         const mediaBox = page.getMediaBox();
         const cropBox = page.getCropBox();
-        if (
-            cropBox.x === mediaBox.x &&
-            cropBox.y === mediaBox.y &&
-            cropBox.width === mediaBox.width &&
-            cropBox.height === mediaBox.height
-        ) {
+        if (isSamePdfBox(cropBox, mediaBox)) {
             page.node.delete(PDFName.of('CropBox'));
-            continue;
+            return;
         }
 
         page.setCropBox(
@@ -257,9 +294,7 @@ export async function removeCropPdfBytes(
             mediaBox.width,
             mediaBox.height,
         );
-    }
-
-    return toSavedPdfResult(pdfDocument);
+    });
 }
 
 export async function getPageGeometryFromPdfBytes(
@@ -274,28 +309,14 @@ export async function getPageGeometryFromPdfBytes(
 
     const mediaBox = page.getMediaBox();
     const resolvedCropBox = page.getCropBox();
-    const cropBox =
-        resolvedCropBox.x === mediaBox.x &&
-        resolvedCropBox.y === mediaBox.y &&
-        resolvedCropBox.width === mediaBox.width &&
-        resolvedCropBox.height === mediaBox.height
-            ? null
-            : resolvedCropBox;
+    const cropBox = isSamePdfBox(resolvedCropBox, mediaBox)
+        ? null
+        : resolvedCropBox;
 
     return {
-        mediaBox: {
-            x: mediaBox.x,
-            y: mediaBox.y,
-            width: mediaBox.width,
-            height: mediaBox.height,
-        },
+        mediaBox: toPageBoxGeometry(mediaBox),
         cropBox: cropBox
-            ? {
-                x: cropBox.x,
-                y: cropBox.y,
-                width: cropBox.width,
-                height: cropBox.height,
-            }
+            ? toPageBoxGeometry(cropBox)
             : null,
         rotation: page.getRotation().angle,
     };
