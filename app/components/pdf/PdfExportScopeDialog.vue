@@ -95,8 +95,11 @@
 
 <script setup lang="ts">
 
-import { uniq } from 'es-toolkit/array';
 import { parsePageRangeInput } from '@app/utils/pdf-page-labels';
+import {
+    expandPageRange,
+    normalizeSelectedPageNumbers,
+} from '@app/utils/pdf-page-selection';
 
 type TExportScope = 'all' | 'current' | 'range' | 'selected';
 type TExportMode = 'images' | 'multipage-tiff';
@@ -118,9 +121,8 @@ const scope = ref<TExportScope>('all');
 const rangeInput = ref('');
 const rangeTouched = ref(false);
 
-const normalizedSelectedPages = computed(() => uniq(props.selectedPages)
-    .filter(page => Number.isInteger(page) && page >= 1 && page <= props.totalPages)
-    .sort((left, right) => left - right));
+const normalizedSelectedPages = computed(() =>
+    normalizeSelectedPageNumbers(props.selectedPages, props.totalPages));
 
 const dialogTitle = computed(() => (
     props.mode === 'images'
@@ -135,16 +137,7 @@ const dialogActionLabel = computed(() => (
 ));
 
 const rangePages = computed(() => {
-    const parsed = parsePageRangeInput(rangeInput.value, props.totalPages);
-    if (!parsed) {
-        return null;
-    }
-
-    const pages: number[] = [];
-    for (let page = parsed.startPage; page <= parsed.endPage; page += 1) {
-        pages.push(page);
-    }
-    return pages;
+    return expandPageRange(parsePageRangeInput(rangeInput.value, props.totalPages));
 });
 
 const exportSummary = computed(() => {

@@ -161,10 +161,10 @@
 </template>
 
 <script setup lang="ts">
-import { uniq } from 'es-toolkit/array';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { TPrintOrientation } from '@app/utils/pdf-print';
 import { parsePrintPageRangeInput } from '@app/utils/pdf-print';
+import { normalizeSelectedPageNumbers } from '@app/utils/pdf-page-selection';
 
 type TPrintScope = 'all' | 'current' | 'selected' | 'range';
 
@@ -194,9 +194,8 @@ const rangeTouched = ref(false);
 const viewMode = ref<TPdfViewMode>('single');
 const orientation = ref<TPrintOrientation>('auto');
 
-const normalizedSelectedPages = computed(() => uniq(props.selectedPages)
-    .filter(page => Number.isInteger(page) && page >= 1 && page <= props.totalPages)
-    .sort((left, right) => left - right));
+const normalizedSelectedPages = computed(() =>
+    normalizeSelectedPageNumbers(props.selectedPages, props.totalPages));
 
 const rangePages = computed(() => parsePrintPageRangeInput(rangeInput.value, props.totalPages));
 

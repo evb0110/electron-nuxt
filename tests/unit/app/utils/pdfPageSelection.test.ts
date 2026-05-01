@@ -1,0 +1,53 @@
+import {
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import {
+    createAllPageNumbers,
+    expandPageRange,
+    normalizeSelectedPageNumbers,
+} from '@app/utils/pdf-page-selection';
+
+describe('pdf page selection helpers', () => {
+    it('normalizes selected pages by removing duplicates and invalid pages', () => {
+        expect(normalizeSelectedPageNumbers([
+            4,
+            2,
+            2,
+            0,
+            3.5,
+            6,
+            1,
+        ], 4)).toEqual([
+            1,
+            2,
+            4,
+        ]);
+    });
+
+    it('expands a parsed page range into page numbers', () => {
+        expect(expandPageRange({
+            startPage: 2,
+            endPage: 5,
+        })).toEqual([
+            2,
+            3,
+            4,
+            5,
+        ]);
+    });
+
+    it('keeps null page ranges null', () => {
+        expect(expandPageRange(null)).toBeNull();
+    });
+
+    it('creates one-based page numbers', () => {
+        expect(createAllPageNumbers(4)).toEqual([
+            1,
+            2,
+            3,
+            4,
+        ]);
+    });
+});

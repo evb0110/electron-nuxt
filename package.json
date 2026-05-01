@@ -33,6 +33,7 @@
     "lint:fix": "eslint . --fix --max-warnings=0 && stylelint \"app/**/*.{vue,scss,css}\" && pnpm run check:locales && pnpm run check:icons:bundle",
     "fallow": "fallow dead-code",
     "fallow:all": "pnpm run fallow && pnpm run fallow:dupes && pnpm run fallow:health",
+    "fallow:changed": "fallow dead-code --changed-since origin/main",
     "fallow:dupes": "fallow dupes --threshold 10 --fail-on-issues --summary",
     "fallow:health": "fallow health --summary || true",
     "typecheck:coverage": "node --max-old-space-size=8192 node_modules/type-coverage/bin/type-coverage --config .typecoveragerc.json",

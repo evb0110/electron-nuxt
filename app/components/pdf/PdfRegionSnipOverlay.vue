@@ -35,113 +35,41 @@
 
 <script setup lang="ts">
 import type { CSSProperties } from 'vue';
-import type {
-    ILocalRect,
-    ISnipPointerPayload,
-} from '@app/composables/pdf/usePdfRegionSnip';
+import type { ILocalRect } from '@app/composables/pdf/usePdfRegionSnip';
+import {
+    type IRegionSelectionOverlayBaseProps,
+    type IRegionSelectionOverlayEmits,
+    regionRectStyle,
+    useEmittedPdfRegionSelectionOverlay,
+} from '@app/composables/pdf/usePdfRegionSelectionOverlay';
 
 interface IProps {
-    active: boolean;
-    selectionRect: ILocalRect | null;
+    active: IRegionSelectionOverlayBaseProps['active'];
+    selectionRect: IRegionSelectionOverlayBaseProps['selectionRect'];
+    hintLabel: IRegionSelectionOverlayBaseProps['hintLabel'];
     flashRect: ILocalRect | null;
     badgePosition: {
         x: number;
         y: number 
     } | null;
-    hintLabel: string;
     copiedLabel: string;
 }
 
 const props = defineProps<IProps>();
 
-const emit = defineEmits<{
-    (e: 'pointer-start', payload: ISnipPointerPayload): void;
-    (e: 'pointer-move', payload: ISnipPointerPayload): void;
-    (e: 'pointer-end', payload: ISnipPointerPayload): void;
-    (e: 'cancel'): void;
-}>();
+const emit = defineEmits<IRegionSelectionOverlayEmits>();
 
-function buildPayload(event: PointerEvent): ISnipPointerPayload | null {
-    const target = event.currentTarget as HTMLElement | null;
-    if (!target) {
-        return null;
-    }
-
-    const rect = target.getBoundingClientRect();
-    return {
-        clientX: event.clientX,
-        clientY: event.clientY,
-        overlayRect: {
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-            height: rect.height,
-        },
-    };
-}
-
-function handlePointerDown(event: PointerEvent) {
-    if (!props.active || event.button !== 0) {
-        return;
-    }
-
-    (event.currentTarget as HTMLElement | null)?.setPointerCapture(event.pointerId);
-    const payload = buildPayload(event);
-    if (payload) {
-        emit('pointer-start', payload);
-    }
-}
-
-function handlePointerMove(event: PointerEvent) {
-    if (!props.active) {
-        return;
-    }
-    const payload = buildPayload(event);
-    if (payload) {
-        emit('pointer-move', payload);
-    }
-}
-
-function handlePointerUp(event: PointerEvent) {
-    if (!props.active || event.button !== 0) {
-        return;
-    }
-    const payload = buildPayload(event);
-    if (payload) {
-        emit('pointer-end', payload);
-    }
-}
-
-function handleContextMenu(event: MouseEvent) {
-    if (!props.active) {
-        return;
-    }
-    event.preventDefault();
-    emit('cancel');
-}
-
-function handleWheel(event: WheelEvent) {
-    if (!props.active) {
-        return;
-    }
-    event.preventDefault();
-}
-
-function rectStyle(rect: ILocalRect | null): CSSProperties {
-    if (!rect) {
-        return {};
-    }
-    return {
-        left: `${rect.x}px`,
-        top: `${rect.y}px`,
-        width: `${rect.width}px`,
-        height: `${rect.height}px`,
-    };
-}
+const {
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handleContextMenu,
+    handleWheel,
+} = useEmittedPdfRegionSelectionOverlay(props, emit);
 
 const shouldRender = computed(() => props.active || Boolean(props.flashRect) || Boolean(props.badgePosition));
-const selectionStyle = computed(() => rectStyle(props.selectionRect));
-const flashStyle = computed(() => rectStyle(props.flashRect));
+const selectionStyle = computed(() => regionRectStyle(props.selectionRect));
+const flashStyle = computed(() => regionRectStyle(props.flashRect));
 const badgeStyle = computed<CSSProperties>(() => {
     if (!props.badgePosition) {
         return {};
