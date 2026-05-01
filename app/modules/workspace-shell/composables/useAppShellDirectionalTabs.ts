@@ -124,6 +124,27 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
         splitCacheCleanupTimers.set(tabId, timer);
     }
 
+    async function captureActiveTabPayload() {
+        const sourceGroup = getGroupById(activeGroupId.value);
+        const sourceTabId = sourceGroup?.activeTabId ?? null;
+        const sourceTab = getTabById(sourceTabId);
+        if (!sourceGroup || !sourceTabId || !sourceTab) {
+            return null;
+        }
+
+        const payload = await captureWorkspacePayload(sourceTabId);
+        if (!payload) {
+            return null;
+        }
+
+        return {
+            payload,
+            sourceGroup,
+            sourceTab,
+            sourceTabId,
+        };
+    }
+
     const tabContextAvailabilityByGroup = computed<Record<string, ITabContextAvailability>>(() => {
         const result: Record<string, ITabContextAvailability> = {};
         const transitionsBusy = isTabTransitionBusy.value;
@@ -166,17 +187,16 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
 
     async function splitEditor(direction: TGroupDirection) {
         await enqueueTabTransition(async () => {
-            const sourceGroup = getGroupById(activeGroupId.value);
-            const sourceTabId = sourceGroup?.activeTabId ?? null;
-            const sourceTab = getTabById(sourceTabId);
-            if (!sourceGroup || !sourceTabId || !sourceTab) {
+            const activeTabPayload = await captureActiveTabPayload();
+            if (!activeTabPayload) {
                 return;
             }
-
-            const payload = await captureWorkspacePayload(sourceTabId);
-            if (!payload) {
-                return;
-            }
+            const {
+                payload,
+                sourceGroup,
+                sourceTab,
+                sourceTabId,
+            } = activeTabPayload;
 
             workspaceSplitCache.set(sourceTabId, payload);
             scheduleSplitCacheCleanup(sourceTabId);
@@ -297,17 +317,16 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
 
     async function copyActiveTab(direction: TGroupDirection) {
         await enqueueTabTransition(async () => {
-            const sourceGroup = getGroupById(activeGroupId.value);
-            const sourceTabId = sourceGroup?.activeTabId ?? null;
-            const sourceTab = getTabById(sourceTabId);
-            if (!sourceGroup || !sourceTabId || !sourceTab) {
+            const activeTabPayload = await captureActiveTabPayload();
+            if (!activeTabPayload) {
                 return;
             }
-
-            const payload = await captureWorkspacePayload(sourceTabId);
-            if (!payload) {
-                return;
-            }
+            const {
+                payload,
+                sourceGroup,
+                sourceTab,
+                sourceTabId,
+            } = activeTabPayload;
 
             const route = ensureTargetGroupForDirection(direction);
             if (!route) {
