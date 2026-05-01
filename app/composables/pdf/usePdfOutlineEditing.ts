@@ -7,6 +7,7 @@ import {
     findBookmarkLocation,
     findBookmarkById,
     collectBookmarkIds,
+    flattenBookmarks,
     normalizeBookmarkColor,
 } from '@app/utils/pdf-outline-helpers';
 export const usePdfOutlineEditing = (
@@ -30,19 +31,7 @@ export const usePdfOutlineEditing = (
     const { t } = useTypedI18n();
     const editingItemId = ref<string | null>(null);
 
-    const flatBookmarks = computed(() => {
-        const flattened: IBookmarkItem[] = [];
-
-        function visit(items: IBookmarkItem[]) {
-            for (const item of items) {
-                flattened.push(item);
-                visit(item.items);
-            }
-        }
-
-        visit(bookmarks.value);
-        return flattened;
-    });
+    const flatBookmarks = computed(() => flattenBookmarks(bookmarks.value));
 
     // Keep flatBookmarks for internal use (pruneStaleState)
 

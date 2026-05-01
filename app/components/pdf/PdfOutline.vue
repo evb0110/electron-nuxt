@@ -105,6 +105,7 @@ import type { IPdfBookmarkEntry } from '@app/types/pdf';
 import { isPdfDocumentUsable } from '@app/utils/pdf-document-guard';
 import {
     buildResolvedOutline,
+    flattenBookmarks,
     parseOutlineItems,
 } from '@app/utils/pdf-outline-helpers';
 import { usePdfOutlineSelection } from '@app/composables/pdf/usePdfOutlineSelection';
@@ -189,19 +190,7 @@ function createBookmarkId() {
     return id;
 }
 
-const flatBookmarks = computed(() => {
-    const flattened: IBookmarkItem[] = [];
-
-    function visit(items: IBookmarkItem[]) {
-        for (const item of items) {
-            flattened.push(item);
-            visit(item.items);
-        }
-    }
-
-    visit(bookmarks.value);
-    return flattened;
-});
+const flatBookmarks = computed(() => flattenBookmarks(bookmarks.value));
 
 const bookmarkOrderIndexMap = computed(() => {
     const map = new Map<string, number>();
