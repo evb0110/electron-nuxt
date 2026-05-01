@@ -1,5 +1,6 @@
 import type { IScrollSnapshot } from '@app/types/pdf';
 import { errorToLogText } from '@app/composables/pdf/annotationCssUtils';
+import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import { getPageContainerByNumber } from '@app/composables/pdf/pdfScrollVisibility';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { clamp } from 'es-toolkit/math';
@@ -311,14 +312,7 @@ export function captureScrollSnapshot(
         anchorContentY,
         preferredAnchorPage: options?.preferredAnchorPage ?? null,
         snapshot,
-        container: {
-            scrollTop: Math.round(container.scrollTop),
-            scrollLeft: Math.round(container.scrollLeft),
-            clientWidth: Math.round(container.clientWidth),
-            clientHeight: Math.round(container.clientHeight),
-            scrollWidth: Math.round(container.scrollWidth),
-            scrollHeight: Math.round(container.scrollHeight),
-        },
+        container: summarizeViewerMetrics(container),
     });
 
     return snapshot;

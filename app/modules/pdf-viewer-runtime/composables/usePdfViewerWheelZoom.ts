@@ -7,6 +7,7 @@ import {
     captureScrollSnapshot,
     restoreScrollFromSnapshot,
 } from '@app/composables/pdf/pdfPageRenderPipeline';
+import { summarizeViewerMetrics } from '@app/composables/pdf/pdfViewerMetrics';
 import { ZOOM } from '@app/constants/pdf-layout';
 import type {
     TPdfSource,
@@ -93,18 +94,7 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
     let lastModifierWheelZoomEventId = 0;
 
     function summarizeViewerStateForLog() {
-        const container = viewerContainer.value;
-        if (!container) {
-            return null;
-        }
-        return {
-            scrollTop: Math.round(container.scrollTop),
-            scrollLeft: Math.round(container.scrollLeft),
-            clientWidth: Math.round(container.clientWidth),
-            clientHeight: Math.round(container.clientHeight),
-            scrollWidth: Math.round(container.scrollWidth),
-            scrollHeight: Math.round(container.scrollHeight),
-        };
+        return summarizeViewerMetrics(viewerContainer.value);
     }
     const {
         pendingZoomViewportAnchor,
