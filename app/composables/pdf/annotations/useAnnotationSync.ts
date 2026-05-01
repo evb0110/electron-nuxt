@@ -26,13 +26,15 @@ import { runGuardedTask } from '@app/utils/async-guard';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 import {
     collectPagePdfSnapshotEntries,
-    isMarkupSubtype,
     loadPdfPageAnnotations,
     resolveEditorMarkerRect,
     resolveMarkupSubtypeOverrideRegistration,
     safeReadEditorData,
 } from '@app/composables/pdf/annotations/annotationSyncHelpers';
-import type { TComputeSummaryStableKey } from '@app/composables/pdf/annotations/annotationSyncHelpers';
+import type {
+    IPdfCommentSummaryDeps,
+    TComputeSummaryStableKey,
+} from '@app/composables/pdf/annotations/annotationSyncHelpers';
 
 interface ISyncIdentity {
     getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
@@ -78,6 +80,8 @@ interface IPdfAnnotationSnapshot {
     comments: IAnnotationCommentSummary[];
     links: ILinkAnnotation[];
 }
+
+type TEditorData = ReturnType<typeof safeReadEditorData>;
 
 export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
     const { t } = useTypedI18n();
@@ -142,6 +146,93 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         resetPdfAnnotationSnapshot();
     });
 
+    function rememberResolvedMarkupSubtypeOverride(
+        annotationId: string | null,
+        resolvedSubtype: string | null | undefined,
+        markupSubtype: ISyncMarkupSubtype,
+    ) {
+        const overrideRegistration = resolveMarkupSubtypeOverrideRegistration(annotationId, resolvedSubtype);
+        if (!overrideRegistration) {
+            return;
+        }
+        markupSubtype.getMarkupSubtypeOverrides().set(
+            overrideRegistration.annotationId,
+            overrideRegistration.subtype,
+        );
+    }
+
+    function logPendingAnchorSummary(
+        pageIndex: number,
+        id: string,
+        uid: string | null,
+        annotationId: string | null,
+        resolvedSubtype: string | null | undefined,
+        hasNote: boolean,
+        text: string,
+        rectResult: ReturnType<typeof resolveEditorMarkerRect>,
+    ) {
+        if (!rectResult.shouldUsePendingAnchor) {
+            return;
+        }
+
+        BrowserLogger.debug('note-anchor', 'toEditorSummary', {
+            pageIndex,
+            pageNumber: pageIndex + 1,
+            id,
+            uid,
+            annotationId,
+            subtype: resolvedSubtype ?? null,
+            hasNote,
+            textLength: text.length,
+            markerRectFromEditor: rectResult.markerRectFromEditor,
+            pendingAnchorRect: rectResult.pendingAnchorRect,
+            markerDistanceFromPending: rectResult.markerDistanceFromPending,
+            shouldUsePendingAnchor: rectResult.shouldUsePendingAnchor,
+            markerRect: rectResult.markerRect,
+        });
+    }
+
+    function resolveEditorSummaryText(editor: IPdfjsEditor, textOverride?: string) {
+        return typeof textOverride === 'string'
+            ? textOverride
+            : getCommentText(editor);
+    }
+
+    function resolveEditorSummarySubtype(
+        editor: IPdfjsEditor,
+        pageIndex: number,
+        markupSubtype: ISyncMarkupSubtype,
+    ) {
+        return markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex)
+            ?? detectEditorSubtype(editor);
+    }
+
+    function resolveEditorSummaryHasNote(
+        editor: IPdfjsEditor,
+        pageIndex: number,
+        identity: ISyncIdentity,
+    ) {
+        const pendingKey = identity.getEditorPendingKey(editor, pageIndex);
+        return hasEditorCommentPayload(editor)
+            || pendingCommentEditorKeys.has(pendingKey);
+    }
+
+    function resolveEditorSummaryModifiedAt(data: TEditorData) {
+        return parsePdfDateTimestamp(data.modificationDate)
+            ?? parsePdfDateTimestamp(data.creationDate);
+    }
+
+    function resolveEditorSummaryColor(editor: IPdfjsEditor, data: TEditorData) {
+        return toCssColor(
+            data.color ?? editor.color,
+            data.opacity ?? editor.opacity ?? 1,
+        );
+    }
+
+    function resolveEditorSummaryAuthor() {
+        return authorName.value?.trim() || null;
+    }
+
     function toEditorSummary(
         editor: IPdfjsEditor,
         pageIndex: number,
@@ -153,48 +244,20 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
 
         const data = safeReadEditorData(editor);
 
-        const text = typeof textOverride === 'string'
-            ? textOverride
-            : getCommentText(editor);
+        const text = resolveEditorSummaryText(editor, textOverride);
 
-        const resolvedSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex)
-            ?? detectEditorSubtype(editor);
+        const resolvedSubtype = resolveEditorSummarySubtype(editor, pageIndex, markupSubtype);
 
         const uid = editor.uid ?? null;
         const annotationId = editor.annotationElementId ?? null;
 
-        const overrideRegistration = resolveMarkupSubtypeOverrideRegistration(annotationId, resolvedSubtype);
-        if (overrideRegistration) {
-            markupSubtype.getMarkupSubtypeOverrides().set(
-                overrideRegistration.annotationId,
-                overrideRegistration.subtype,
-            );
-        }
+        rememberResolvedMarkupSubtypeOverride(annotationId, resolvedSubtype, markupSubtype);
 
         const id = identity.getEditorIdentity(editor, pageIndex);
-        const pendingKey = identity.getEditorPendingKey(editor, pageIndex);
-        const hasNote = hasEditorCommentPayload(editor)
-            || pendingCommentEditorKeys.has(pendingKey);
+        const hasNote = resolveEditorSummaryHasNote(editor, pageIndex, identity);
 
         const rectResult = resolveEditorMarkerRect(editor);
-
-        if (rectResult.shouldUsePendingAnchor) {
-            BrowserLogger.debug('note-anchor', 'toEditorSummary', {
-                pageIndex,
-                pageNumber: pageIndex + 1,
-                id,
-                uid,
-                annotationId,
-                subtype: resolvedSubtype ?? null,
-                hasNote,
-                textLength: text.length,
-                markerRectFromEditor: rectResult.markerRectFromEditor,
-                pendingAnchorRect: rectResult.pendingAnchorRect,
-                markerDistanceFromPending: rectResult.markerDistanceFromPending,
-                shouldUsePendingAnchor: rectResult.shouldUsePendingAnchor,
-                markerRect: rectResult.markerRect,
-            });
-        }
+        logPendingAnchorSummary(pageIndex, id, uid, annotationId, resolvedSubtype, hasNote, text, rectResult);
 
         return {
             id,
@@ -211,13 +274,9 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
             text,
             kindLabel: resolveAnnotationKindLabel(resolvedSubtype),
             subtype: resolvedSubtype,
-            author: authorName.value?.trim() || null,
-            modifiedAt: parsePdfDateTimestamp(data.modificationDate)
-                ?? parsePdfDateTimestamp(data.creationDate),
-            color: toCssColor(
-                data.color ?? editor.color,
-                data.opacity ?? editor.opacity ?? 1,
-            ),
+            author: resolveEditorSummaryAuthor(),
+            modifiedAt: resolveEditorSummaryModifiedAt(data),
+            color: resolveEditorSummaryColor(editor, data),
             uid,
             annotationId,
             source: 'editor',
@@ -266,37 +325,61 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         };
     }
 
+    function matchesPdfSnapshotRequest(
+        snapshot: Pick<IPdfAnnotationSnapshot, 'doc' | 'pageCount'>,
+        doc: PDFDocumentProxy,
+        pageCount: number,
+    ) {
+        return snapshot.doc === doc && snapshot.pageCount === pageCount;
+    }
+
+    function getReusablePdfSnapshotPromise(
+        doc: PDFDocumentProxy,
+        pageCount: number,
+    ) {
+        if (
+            !pdfAnnotationSnapshotPromise
+            || !matchesPdfSnapshotRequest(pdfAnnotationSnapshotPromise, doc, pageCount)
+            || pdfAnnotationSnapshotPromise.version !== pdfAnnotationSnapshotVersion
+        ) {
+            return null;
+        }
+
+        return pdfAnnotationSnapshotPromise.promise;
+    }
+
+    function shouldCachePdfAnnotationSnapshot(
+        snapshot: IPdfAnnotationSnapshot | null,
+        doc: PDFDocumentProxy,
+        pageCount: number,
+        snapshotVersion: number,
+    ): snapshot is IPdfAnnotationSnapshot {
+        return Boolean(
+            snapshot
+            && snapshotVersion === pdfAnnotationSnapshotVersion
+            && pdfDocument.value === doc
+            && numPages.value === pageCount,
+        );
+    }
+
     async function getPdfAnnotationSnapshot(
         doc: PDFDocumentProxy,
         pageCount: number,
         localToken: number,
     ): Promise<IPdfAnnotationSnapshot | null> {
-        if (
-            pdfAnnotationSnapshot
-            && pdfAnnotationSnapshot.doc === doc
-            && pdfAnnotationSnapshot.pageCount === pageCount
-        ) {
+        if (pdfAnnotationSnapshot && matchesPdfSnapshotRequest(pdfAnnotationSnapshot, doc, pageCount)) {
             return pdfAnnotationSnapshot;
         }
 
-        if (
-            pdfAnnotationSnapshotPromise
-            && pdfAnnotationSnapshotPromise.doc === doc
-            && pdfAnnotationSnapshotPromise.pageCount === pageCount
-            && pdfAnnotationSnapshotPromise.version === pdfAnnotationSnapshotVersion
-        ) {
-            return pdfAnnotationSnapshotPromise.promise;
+        const reusablePromise = getReusablePdfSnapshotPromise(doc, pageCount);
+        if (reusablePromise) {
+            return reusablePromise;
         }
 
         const snapshotVersion = pdfAnnotationSnapshotVersion;
         const snapshotPromise = collectPdfAnnotationSnapshot(doc, pageCount, localToken)
             .then((snapshot) => {
-                if (
-                    snapshot
-                    && snapshotVersion === pdfAnnotationSnapshotVersion
-                    && pdfDocument.value === doc
-                    && numPages.value === pageCount
-                ) {
+                if (shouldCachePdfAnnotationSnapshot(snapshot, doc, pageCount, snapshotVersion)) {
                     pdfAnnotationSnapshot = snapshot;
                 }
                 return snapshot;
@@ -385,16 +468,11 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         summary: IAnnotationCommentSummary,
         markupSubtype: ISyncMarkupSubtype,
     ) {
-        const normalizedSubtype = (summary.subtype ?? '').trim().toLowerCase();
-        if (
-            summary.annotationId
-            && (normalizedSubtype === 'underline'
-                || normalizedSubtype === 'strikeout'
-                || normalizedSubtype === 'squiggly')
-            && isMarkupSubtype(summary.subtype)
-        ) {
-            markupSubtype.getMarkupSubtypeOverrides().set(summary.annotationId, summary.subtype);
-        }
+        rememberResolvedMarkupSubtypeOverride(
+            summary.annotationId,
+            summary.subtype,
+            markupSubtype,
+        );
     }
 
     function mergeHydratedSummary(

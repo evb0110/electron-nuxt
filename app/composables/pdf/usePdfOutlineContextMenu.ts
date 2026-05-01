@@ -28,6 +28,13 @@ export const usePdfOutlineContextMenu = (
         itemId: string | null;
     }
 
+    interface IBookmarkStyleRange {
+        list: IBookmarkItem[];
+        start: number;
+        end: number;
+        count: number;
+    }
+
     const createInitialBookmarkContextMenuState = (): IBookmarkContextMenuState => ({
         visible: false,
         x: 0,
@@ -57,7 +64,7 @@ export const usePdfOutlineContextMenu = (
         return findBookmarkById(bookmarks.value, id);
     });
 
-    const styleRangeInfo = computed(() => {
+    const styleRangeInfo = computed<IBookmarkStyleRange | null>(() => {
         const selected = selectedContextBookmark.value;
         const startId = styleRangeStartId.value;
         if (!selected || !startId) {
@@ -124,13 +131,23 @@ export const usePdfOutlineContextMenu = (
         styleRangeStartId.value = id;
     }
 
-    function applyContextStyleToRange() {
-        const selected = selectedContextBookmark.value;
-        const range = styleRangeInfo.value;
-        if (!selected || !range) {
-            return;
+    function applyBookmarkContextStyle(target: IBookmarkItem, selected: IBookmarkItem) {
+        const nextColor = normalizeBookmarkColor(selected.color);
+        if (
+            target.bold === selected.bold
+            && target.italic === selected.italic
+            && target.color === nextColor
+        ) {
+            return false;
         }
 
+        target.bold = selected.bold;
+        target.italic = selected.italic;
+        target.color = nextColor;
+        return true;
+    }
+
+    function applyBookmarkContextStyleToRange(selected: IBookmarkItem, range: IBookmarkStyleRange) {
         let changed = false;
         for (let index = range.start; index <= range.end; index += 1) {
             const target = range.list[index];
@@ -138,21 +155,20 @@ export const usePdfOutlineContextMenu = (
                 continue;
             }
 
-            const nextColor = normalizeBookmarkColor(selected.color);
-            if (
-                target.bold === selected.bold
-                && target.italic === selected.italic
-                && target.color === nextColor
-            ) {
-                continue;
-            }
-
-            target.bold = selected.bold;
-            target.italic = selected.italic;
-            target.color = nextColor;
-            changed = true;
+            changed = applyBookmarkContextStyle(target, selected) || changed;
         }
 
+        return changed;
+    }
+
+    function applyContextStyleToRange() {
+        const selected = selectedContextBookmark.value;
+        const range = styleRangeInfo.value;
+        if (!selected || !range) {
+            return;
+        }
+
+        const changed = applyBookmarkContextStyleToRange(selected, range);
         if (changed) {
             emitBookmarksChange();
         }

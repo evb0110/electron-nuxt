@@ -459,6 +459,89 @@ async function precheckLanguageDownload(
     }
 }
 
+async function writeDownloadResponseBody(
+    response: Response,
+    tempPath: string,
+) {
+    if (response.body && typeof Readable.fromWeb === 'function') {
+        const readable = Readable.fromWeb(response.body as NodeReadableStream);
+        const writable = createWriteStream(tempPath, { flags: 'wx' });
+        await pipeline(readable, writable);
+        return;
+    }
+
+    // Fallback for environments where Readable.fromWeb is unavailable.
+    const arrayBuffer = await response.arrayBuffer();
+    await writeFile(tempPath, Buffer.from(arrayBuffer));
+}
+
+async function downloadLanguageModelAttempt(
+    languageCode: string,
+    languageUrl: string,
+    runtimeDir: string,
+    modelPath: string,
+    tempPath: string,
+    attempt: number,
+    signal?: AbortSignal,
+) {
+    throwIfAborted(signal);
+    const timedSignal = createTimedAbortSignal(DOWNLOAD_TIMEOUT_MS, signal);
+    try {
+        log.info(`Downloading OCR model ${languageCode} (attempt ${attempt}/${DOWNLOAD_RETRIES})`);
+        const response = await fetch(languageUrl, {
+            method: 'GET',
+            signal: timedSignal.signal,
+        });
+        throwIfAborted(signal);
+
+        if (!response.ok) {
+            throw createHttpDownloadError(languageCode, response.status);
+        }
+
+        await mkdir(runtimeDir, { recursive: true });
+        await writeDownloadResponseBody(response, tempPath);
+        throwIfAborted(signal);
+
+        const downloadedSize = statSync(tempPath).size;
+        if (downloadedSize < 1024) {
+            throw new Error('Downloaded model is unexpectedly small');
+        }
+        await rename(tempPath, modelPath);
+        return downloadedSize;
+    } catch (err) {
+        if (signal?.aborted) {
+            throw abortErrorFromSignal(signal);
+        }
+        throw classifyDownloadError(
+            languageCode,
+            timedSignal.signal.aborted ? timedSignal.signal.reason : err,
+        );
+    } finally {
+        timedSignal.cleanup();
+        await rm(tempPath, { force: true }).catch(() => {});
+    }
+}
+
+async function waitBeforeDownloadRetry(
+    languageCode: string,
+    attempt: number,
+    error: LanguageModelDownloadError,
+    signal?: AbortSignal,
+) {
+    if (!error.retryable) {
+        throw new Error(error.message);
+    }
+
+    if (attempt >= DOWNLOAD_RETRIES) {
+        throw new Error(
+            `Failed to download OCR language model "${languageCode}" after ${DOWNLOAD_RETRIES} attempts: ${error.message}`,
+        );
+    }
+
+    log.warn(`Download retry scheduled for OCR model ${languageCode}: ${error.message}`);
+    await delayWithAbort(RETRY_DELAY_MS * attempt, signal);
+}
+
 async function downloadLanguageModel(
     languageCode: string,
     runtimeDir: string,
@@ -474,64 +557,28 @@ async function downloadLanguageModel(
     await precheckLanguageDownload(languageCode, languageUrl, options);
 
     for (let attempt = 1; attempt <= DOWNLOAD_RETRIES; attempt++) {
-        throwIfAborted(options.signal);
-        const timedSignal = createTimedAbortSignal(DOWNLOAD_TIMEOUT_MS, options.signal);
         try {
-            log.info(`Downloading OCR model ${languageCode} (attempt ${attempt}/${DOWNLOAD_RETRIES})`);
-            const response = await fetch(languageUrl, {
-                method: 'GET',
-                signal: timedSignal.signal,
-            });
-            throwIfAborted(options.signal);
-
-            if (!response.ok) {
-                throw createHttpDownloadError(languageCode, response.status);
-            }
-
-            await mkdir(runtimeDir, { recursive: true });
-            if (response.body && typeof Readable.fromWeb === 'function') {
-                const readable = Readable.fromWeb(response.body as NodeReadableStream);
-                const writable = createWriteStream(tempPath, { flags: 'wx' });
-                await pipeline(readable, writable);
-            } else {
-                // Fallback for environments where Readable.fromWeb is unavailable.
-                const arrayBuffer = await response.arrayBuffer();
-                await writeFile(tempPath, Buffer.from(arrayBuffer));
-            }
-            throwIfAborted(options.signal);
-
-            const downloadedSize = statSync(tempPath).size;
-            if (downloadedSize < 1024) {
-                throw new Error('Downloaded model is unexpectedly small');
-            }
-            await rename(tempPath, modelPath);
+            const downloadedSize = await downloadLanguageModelAttempt(
+                languageCode,
+                languageUrl,
+                runtimeDir,
+                modelPath,
+                tempPath,
+                attempt,
+                options.signal,
+            );
             log.info(`Downloaded OCR model ${languageCode} (${Math.round(downloadedSize / (1024 * 1024))}MB)`);
             return;
         } catch (err) {
             if (options.signal?.aborted) {
                 throw abortErrorFromSignal(options.signal);
             }
-
-            const classified = classifyDownloadError(
+            await waitBeforeDownloadRetry(
                 languageCode,
-                timedSignal.signal.aborted ? timedSignal.signal.reason : err,
+                attempt,
+                classifyDownloadError(languageCode, err),
+                options.signal,
             );
-
-            if (!classified.retryable) {
-                throw new Error(classified.message);
-            }
-
-            if (attempt >= DOWNLOAD_RETRIES) {
-                throw new Error(
-                    `Failed to download OCR language model "${languageCode}" after ${DOWNLOAD_RETRIES} attempts: ${classified.message}`,
-                );
-            }
-
-            log.warn(`Download retry scheduled for OCR model ${languageCode}: ${classified.message}`);
-            await delayWithAbort(RETRY_DELAY_MS * attempt, options.signal);
-        } finally {
-            timedSignal.cleanup();
-            await rm(tempPath, { force: true }).catch(() => {});
         }
     }
 }

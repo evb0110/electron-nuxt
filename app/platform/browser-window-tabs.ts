@@ -71,6 +71,15 @@ let currentWindowId = -1;
 let isCurrentWindowReady = false;
 let cleanupRegistered = false;
 
+type TBrowserWindowTabsMessageHandlers = {
+    [TType in TBrowserWindowTabsMessage['type']]: (
+        message: Extract<
+            TBrowserWindowTabsMessage,
+            { type: TType }
+        >,
+    ) => void;
+};
+
 function noopUnsubscribe(): IMenuEventUnsubscribe {
     return () => {};
 }
@@ -300,54 +309,72 @@ function dispatchTransfer(transferId: string) {
     });
 }
 
+function shouldIgnoreBrowserWindowTabsMessage(message: TBrowserWindowTabsMessage) {
+    return 'windowId' in message && message.windowId === currentWindowId;
+}
+
+function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { type: 'announce' }>) {
+    knownWindows.set(message.windowId, {
+        label: message.label,
+        ready: message.ready,
+    });
+    if (message.ready) {
+        dispatchQueuedTransfers(message.windowId);
+    }
+}
+
+function handleIncomingTransferMessage(message: Extract<TBrowserWindowTabsMessage, { type: 'transfer' }>) {
+    if (
+        message.transfer.targetWindowId !== currentWindowId
+        || !isCurrentWindowReady
+    ) {
+        return;
+    }
+
+    incomingTransferListeners.forEach((listener) => {
+        listener(message.transfer);
+    });
+}
+
+function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessage, { type: 'ack' }>) {
+    finishTransfer(message.ack.transferId, {
+        success: message.ack.success,
+        error: message.ack.error,
+    });
+}
+
+const browserWindowTabsMessageHandlers: TBrowserWindowTabsMessageHandlers = {
+    discover: () => {
+        announceCurrentWindow();
+    },
+    announce: handleWindowAnnouncement,
+    unregister: (message) => {
+        markWindowUnavailable(
+            message.windowId,
+            'Target browser window closed before transfer completed.',
+        );
+    },
+    transfer: handleIncomingTransferMessage,
+    ack: handleTransferAckMessage,
+};
+
 function handleMessage(data: unknown) {
     if (!data || typeof data !== 'object' || !('type' in data)) {
         return;
     }
 
     const message = data as TBrowserWindowTabsMessage;
-    if ('windowId' in message && message.windowId === currentWindowId) {
+    if (shouldIgnoreBrowserWindowTabsMessage(message)) {
         return;
     }
 
-    switch (message.type) {
-        case 'discover':
-            announceCurrentWindow();
-            break;
-        case 'announce':
-            knownWindows.set(message.windowId, {
-                label: message.label,
-                ready: message.ready,
-            });
-            if (message.ready) {
-                dispatchQueuedTransfers(message.windowId);
-            }
-            break;
-        case 'unregister':
-            markWindowUnavailable(
-                message.windowId,
-                'Target browser window closed before transfer completed.',
-            );
-            break;
-        case 'transfer':
-            if (
-                message.transfer.targetWindowId !== currentWindowId
-                || !isCurrentWindowReady
-            ) {
-                return;
-            }
-
-            incomingTransferListeners.forEach((listener) => {
-                listener(message.transfer);
-            });
-            break;
-        case 'ack':
-            finishTransfer(message.ack.transferId, {
-                success: message.ack.success,
-                error: message.ack.error,
-            });
-            break;
+    const messageType = message.type;
+    const messageHandler = browserWindowTabsMessageHandlers[messageType];
+    if (!messageHandler) {
+        return;
     }
+
+    messageHandler(message as never);
 }
 
 function registerCleanupHandlers() {
