@@ -278,6 +278,45 @@ function updateShapeStyle(annotDict: PDFDict, doc: PDFDocument, shape: IShapeAnn
     setBorderWidth(annotDict, doc, shape.strokeWidth);
 }
 
+function getShapeMarkerRect(shape: IShapeAnnotation) {
+    return {
+        left: shape.x,
+        top: shape.y,
+        width: shape.width,
+        height: shape.height,
+    };
+}
+
+function toFlatPdfPoints(points: ReadonlyArray<{
+    x: number;
+    y: number;
+}>) {
+    const values: number[] = [];
+    points.forEach((point) => {
+        values.push(point.x, point.y);
+    });
+    return values;
+}
+
+function applyVertexAnnotationStyle(
+    annotDict: PDFDict,
+    doc: PDFDocument,
+    shape: IShapeAnnotation,
+    subtype: 'PolyLine' | 'Polygon',
+) {
+    updateShapeStyle(annotDict, doc, shape);
+    if (subtype === 'PolyLine') {
+        setLineEndings(annotDict, doc, shape);
+    } else {
+        annotDict.delete(PDFName.of('LE'));
+    }
+    if (subtype === 'Polygon') {
+        setRgbColor(annotDict, doc, 'IC', shape.fillColor);
+    } else {
+        annotDict.delete(PDFName.of('IC'));
+    }
+}
+
 function createRectAnnotationDict(
     doc: PDFDocument,
     shape: IShapeAnnotation,
@@ -285,12 +324,7 @@ function createRectAnnotationDict(
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ) {
-    const rect = toPdfRectFromMarkerRect({
-        left: shape.x,
-        top: shape.y,
-        width: shape.width,
-        height: shape.height,
-    }, pageView, pageRotation);
+    const rect = toPdfRectFromMarkerRect(getShapeMarkerRect(shape), pageView, pageRotation);
     if (!rect) {
         return null;
     }
@@ -312,12 +346,7 @@ function updateRectAnnotationDict(
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ) {
-    const rect = toPdfRectFromMarkerRect({
-        left: shape.x,
-        top: shape.y,
-        width: shape.width,
-        height: shape.height,
-    }, pageView, pageRotation);
+    const rect = toPdfRectFromMarkerRect(getShapeMarkerRect(shape), pageView, pageRotation);
     if (!rect) {
         return false;
     }
@@ -406,10 +435,7 @@ function createVertexAnnotationDict(
         return null;
     }
 
-    const vertices: number[] = [];
-    pdfPoints.forEach((point) => {
-        vertices.push(point.x, point.y);
-    });
+    const vertices = toFlatPdfPoints(pdfPoints);
 
     const annotDict = doc.context.obj({
         Type: 'Annot',
@@ -417,15 +443,7 @@ function createVertexAnnotationDict(
         Rect: doc.context.obj(rect),
         Vertices: doc.context.obj(vertices),
     });
-    updateShapeStyle(annotDict, doc, shape);
-    if (subtype === 'PolyLine') {
-        setLineEndings(annotDict, doc, shape);
-    } else {
-        annotDict.delete(PDFName.of('LE'));
-    }
-    if (subtype === 'Polygon') {
-        setRgbColor(annotDict, doc, 'IC', shape.fillColor);
-    }
+    applyVertexAnnotationStyle(annotDict, doc, shape, subtype);
     return annotDict;
 }
 
@@ -447,24 +465,11 @@ function updateVertexAnnotationDict(
         return false;
     }
 
-    const vertices: number[] = [];
-    pdfPoints.forEach((point) => {
-        vertices.push(point.x, point.y);
-    });
+    const vertices = toFlatPdfPoints(pdfPoints);
 
     annotDict.set(PDFName.of('Rect'), doc.context.obj(rect));
     annotDict.set(PDFName.of('Vertices'), doc.context.obj(vertices));
-    updateShapeStyle(annotDict, doc, shape);
-    if (subtype === 'PolyLine') {
-        setLineEndings(annotDict, doc, shape);
-    } else {
-        annotDict.delete(PDFName.of('LE'));
-    }
-    if (subtype === 'Polygon') {
-        setRgbColor(annotDict, doc, 'IC', shape.fillColor);
-    } else {
-        annotDict.delete(PDFName.of('IC'));
-    }
+    applyVertexAnnotationStyle(annotDict, doc, shape, subtype);
     return true;
 }
 
