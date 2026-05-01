@@ -1,3 +1,14 @@
+import {
+    clearStore,
+    deleteStoreValue,
+    isIndexedDbAvailable,
+    openBrowserDatabase,
+    readAllStoreKeys,
+    readAllStoreValues,
+    readStoreValue,
+    writeStoreValue,
+} from '@app/platform/browser-api/browser-indexeddb';
+
 const OCR_LANGUAGE_DB_NAME = 'evb-browser-ocr-language-cache';
 const OCR_LANGUAGE_DB_VERSION = 1;
 const OCR_LANGUAGE_STORE = 'language-packs';
@@ -22,87 +33,6 @@ interface IBrowserOcrLanguageCacheEntry {
     sourceUrl: string | null;
     hasOpfsCopy: boolean;
     hasIndexedDbCopy: boolean;
-}
-
-function isIndexedDbAvailable() {
-    return typeof indexedDB !== 'undefined';
-}
-
-function openDatabase(
-    dbName: string,
-    version: number,
-    upgrade: (db: IDBDatabase, transaction: IDBTransaction | null) => void,
-): Promise<IDBDatabase | null> {
-    if (!isIndexedDbAvailable()) {
-        return Promise.resolve(null);
-    }
-
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open(dbName, version);
-        request.onupgradeneeded = () => {
-            upgrade(request.result, request.transaction);
-        };
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error ?? new Error(`Failed to open ${dbName} database`));
-    });
-}
-
-function readAllStoreValues<T>(store: IDBObjectStore): Promise<T[]> {
-    return new Promise((resolve, reject) => {
-        const request = store.getAll();
-        request.onsuccess = () => resolve((request.result as T[] | undefined) ?? []);
-        request.onerror = () => reject(request.error ?? new Error('Failed to read OCR language records'));
-    });
-}
-
-function readAllStoreKeys(store: IDBObjectStore): Promise<IDBValidKey[]> {
-    return new Promise((resolve, reject) => {
-        const request = store.getAllKeys();
-        request.onsuccess = () => resolve((request.result) ?? []);
-        request.onerror = () => reject(request.error ?? new Error('Failed to read OCR language store keys'));
-    });
-}
-
-function readStoreValue<T>(
-    store: IDBObjectStore,
-    key: IDBValidKey,
-): Promise<T | null> {
-    return new Promise((resolve, reject) => {
-        const request = store.get(key);
-        request.onsuccess = () => resolve((request.result as T | undefined) ?? null);
-        request.onerror = () => reject(request.error ?? new Error('Failed to read OCR language record'));
-    });
-}
-
-function writeStoreValue(
-    store: IDBObjectStore,
-    key: IDBValidKey,
-    value: unknown,
-): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const request = store.put(value, key);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error ?? new Error('Failed to write OCR language record'));
-    });
-}
-
-function deleteStoreValue(
-    store: IDBObjectStore,
-    key: IDBValidKey,
-): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const request = store.delete(key);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error ?? new Error('Failed to delete OCR language record'));
-    });
-}
-
-function clearStore(store: IDBObjectStore): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const request = store.clear();
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error ?? new Error('Failed to clear OCR language store'));
-    });
 }
 
 function makeTesseractCacheKey(code: string) {
@@ -190,7 +120,7 @@ async function clearOpfsLanguageDirectory(): Promise<boolean> {
 }
 
 async function openBrowserOcrLanguageDb() {
-    return openDatabase(OCR_LANGUAGE_DB_NAME, OCR_LANGUAGE_DB_VERSION, (db) => {
+    return openBrowserDatabase(OCR_LANGUAGE_DB_NAME, OCR_LANGUAGE_DB_VERSION, (db) => {
         if (!db.objectStoreNames.contains(OCR_LANGUAGE_STORE)) {
             db.createObjectStore(OCR_LANGUAGE_STORE, { keyPath: 'code' });
         }
@@ -198,7 +128,7 @@ async function openBrowserOcrLanguageDb() {
 }
 
 async function openTesseractCacheDb() {
-    return openDatabase(TESSERACT_CACHE_DB_NAME, 1, (db) => {
+    return openBrowserDatabase(TESSERACT_CACHE_DB_NAME, 1, (db) => {
         if (!db.objectStoreNames.contains(TESSERACT_CACHE_STORE)) {
             db.createObjectStore(TESSERACT_CACHE_STORE);
         }
@@ -214,7 +144,7 @@ async function hasIndexedDbLanguageData(code: string): Promise<boolean> {
     try {
         const transaction = db.transaction(TESSERACT_CACHE_STORE, 'readonly');
         const store = transaction.objectStore(TESSERACT_CACHE_STORE);
-        const value = await readStoreValue<unknown>(store, makeTesseractCacheKey(code));
+        const value = await readStoreValue<unknown>(store, makeTesseractCacheKey(code), 'Failed to read OCR language record');
         return value instanceof ArrayBuffer || ArrayBuffer.isView(value);
     } finally {
         db.close();
@@ -230,7 +160,7 @@ async function readBrowserOcrLanguageRecords(): Promise<IBrowserOcrLanguageRecor
     try {
         const transaction = db.transaction(OCR_LANGUAGE_STORE, 'readonly');
         const store = transaction.objectStore(OCR_LANGUAGE_STORE);
-        return await readAllStoreValues<IBrowserOcrLanguageRecord>(store);
+        return await readAllStoreValues<IBrowserOcrLanguageRecord>(store, 'Failed to read OCR language records');
     } finally {
         db.close();
     }
@@ -274,16 +204,16 @@ export async function clearBrowserOcrLanguageCache(codes?: string[]): Promise<vo
             try {
                 const transaction = tesseractDb.transaction(TESSERACT_CACHE_STORE, 'readwrite');
                 const store = transaction.objectStore(TESSERACT_CACHE_STORE);
-                const keys = await readAllStoreKeys(store);
+                const keys = await readAllStoreKeys(store, 'Failed to read OCR language store keys');
                 const ocrKeys = keys.filter((key): key is string =>
                     typeof key === 'string' && key.startsWith(`${TESSERACT_CACHE_PREFIX}/`),
                 );
 
                 if (ocrKeys.length === keys.length) {
-                    await clearStore(store);
+                    await clearStore(store, 'Failed to clear OCR language store');
                 } else {
                     for (const key of ocrKeys) {
-                        await deleteStoreValue(store, key);
+                        await deleteStoreValue(store, key, 'Failed to delete OCR language record');
                     }
                 }
             } finally {
@@ -299,7 +229,7 @@ export async function clearBrowserOcrLanguageCache(codes?: string[]): Promise<vo
         try {
             const transaction = languageDb.transaction(OCR_LANGUAGE_STORE, 'readwrite');
             const store = transaction.objectStore(OCR_LANGUAGE_STORE);
-            await clearStore(store);
+            await clearStore(store, 'Failed to clear OCR language store');
         } finally {
             languageDb.close();
         }
@@ -315,7 +245,7 @@ export async function clearBrowserOcrLanguageCache(codes?: string[]): Promise<vo
             const transaction = tesseractDb.transaction(TESSERACT_CACHE_STORE, 'readwrite');
             const store = transaction.objectStore(TESSERACT_CACHE_STORE);
             for (const code of normalizedCodes) {
-                await deleteStoreValue(store, makeTesseractCacheKey(code));
+                await deleteStoreValue(store, makeTesseractCacheKey(code), 'Failed to delete OCR language record');
             }
         } finally {
             tesseractDb.close();
@@ -331,7 +261,7 @@ export async function clearBrowserOcrLanguageCache(codes?: string[]): Promise<vo
         const transaction = languageDb.transaction(OCR_LANGUAGE_STORE, 'readwrite');
         const store = transaction.objectStore(OCR_LANGUAGE_STORE);
         for (const code of normalizedCodes) {
-            await deleteStoreValue(store, code);
+            await deleteStoreValue(store, code, 'Failed to delete OCR language record');
         }
     } finally {
         languageDb.close();
@@ -379,16 +309,12 @@ export async function markBrowserOcrLanguageInstalled(
     try {
         const transaction = db.transaction(OCR_LANGUAGE_STORE, 'readwrite');
         const store = transaction.objectStore(OCR_LANGUAGE_STORE);
-        await new Promise<void>((resolve, reject) => {
-            const request = store.put({
-                code: normalizedCode,
-                installedAt: Date.now(),
-                sizeBytes: options?.sizeBytes ?? null,
-                sourceUrl: options?.sourceUrl ?? null,
-            });
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error ?? new Error('Failed to write OCR language record'));
-        });
+        await writeStoreValue(store, {
+            code: normalizedCode,
+            installedAt: Date.now(),
+            sizeBytes: options?.sizeBytes ?? null,
+            sourceUrl: options?.sourceUrl ?? null,
+        }, 'Failed to write OCR language record');
     } finally {
         db.close();
     }
@@ -413,7 +339,7 @@ export async function cacheBrowserOcrLanguageData(
     try {
         const transaction = db.transaction(TESSERACT_CACHE_STORE, 'readwrite');
         const store = transaction.objectStore(TESSERACT_CACHE_STORE);
-        await writeStoreValue(store, makeTesseractCacheKey(normalizedCode), data);
+        await writeStoreValue(store, data, 'Failed to write OCR language record', makeTesseractCacheKey(normalizedCode));
     } finally {
         db.close();
     }
@@ -438,7 +364,7 @@ export async function hydrateBrowserOcrLanguageCache(code: string): Promise<bool
     try {
         const transaction = db.transaction(TESSERACT_CACHE_STORE, 'readwrite');
         const store = transaction.objectStore(TESSERACT_CACHE_STORE);
-        await writeStoreValue(store, makeTesseractCacheKey(normalizedCode), opfsBytes);
+        await writeStoreValue(store, opfsBytes, 'Failed to write OCR language record', makeTesseractCacheKey(normalizedCode));
         return true;
     } finally {
         db.close();

@@ -1,4 +1,10 @@
 import type { TDocumentRef } from '@contracts/platform-api';
+import {
+    deleteStoreValue,
+    isIndexedDbAvailable,
+    readStoreValue,
+    writeStoreValue,
+} from '@app/platform/browser-api/browser-indexeddb';
 
 const OCR_ARTIFACT_DB_NAME = 'evb-browser-ocr-artifacts';
 const OCR_ARTIFACT_DB_VERSION = 1;
@@ -11,10 +17,6 @@ interface IBrowserOcrArtifactRecord {
     relativePath: string;
     json: string;
     updatedAt: number;
-}
-
-function isIndexedDbAvailable() {
-    return typeof indexedDB !== 'undefined';
 }
 
 function makeArtifactKey(documentRef: string, relativePath: string) {
@@ -40,39 +42,6 @@ function openBrowserOcrArtifactDb(): Promise<IDBDatabase | null> {
         };
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error ?? new Error('Failed to open OCR artifact database'));
-    });
-}
-
-function readStoreValue<T>(
-    store: IDBObjectStore,
-    key: IDBValidKey,
-): Promise<T | null> {
-    return new Promise((resolve, reject) => {
-        const request = store.get(key);
-        request.onsuccess = () => resolve((request.result as T | undefined) ?? null);
-        request.onerror = () => reject(request.error ?? new Error('Failed to read OCR artifact'));
-    });
-}
-
-function writeStoreValue(
-    store: IDBObjectStore,
-    value: IBrowserOcrArtifactRecord,
-): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const request = store.put(value);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error ?? new Error('Failed to write OCR artifact'));
-    });
-}
-
-function deleteStoreValue(
-    store: IDBObjectStore,
-    key: IDBValidKey,
-): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const request = store.delete(key);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error ?? new Error('Failed to delete OCR artifact'));
     });
 }
 
@@ -107,6 +76,7 @@ export async function readBrowserOcrArtifactJson<T>(
         const record = await readStoreValue<IBrowserOcrArtifactRecord>(
             store,
             makeArtifactKey(workingCopyPath, relativePath),
+            'Failed to read OCR artifact',
         );
         if (!record) {
             return null;
@@ -137,7 +107,7 @@ export async function writeBrowserOcrArtifactJson(
             relativePath,
             json: JSON.stringify(value),
             updatedAt: Date.now(),
-        });
+        }, 'Failed to write OCR artifact');
     } finally {
         db.close();
     }
@@ -158,7 +128,7 @@ export async function clearBrowserOcrArtifacts(
         const keys = await readAllKeysForDocument(index, workingCopyPath);
 
         for (const key of keys) {
-            await deleteStoreValue(store, key);
+            await deleteStoreValue(store, key, 'Failed to delete OCR artifact');
         }
     } finally {
         db.close();

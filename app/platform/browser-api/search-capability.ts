@@ -17,6 +17,13 @@ import {
 import { extractBrowserSearchDocumentText } from '@app/platform/browser-api/browser-search-core';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import { browserDocumentStore } from '@app/platform/browser-document-store';
+import {
+    deleteStoreValue,
+    isIndexedDbAvailable,
+    readAllStoreKeys,
+    readStoreValue,
+    writeStoreValue,
+} from '@app/platform/browser-api/browser-indexeddb';
 
 interface IPreparedSearchDocumentCache {
     pageCount: number | null;
@@ -120,10 +127,6 @@ function createDocumentCache(): IPreparedSearchDocumentCache {
     };
 }
 
-function isIndexedDbAvailable() {
-    return typeof indexedDB !== 'undefined';
-}
-
 function openSearchCacheDb(): Promise<IDBDatabase | null> {
     if (!isIndexedDbAvailable()) {
         return Promise.resolve(null);
@@ -142,47 +145,6 @@ function openSearchCacheDb(): Promise<IDBDatabase | null> {
     });
 }
 
-function readStoreValue<T>(
-    store: IDBObjectStore,
-    key: IDBValidKey,
-): Promise<T | null> {
-    return new Promise((resolve, reject) => {
-        const request = store.get(key);
-        request.onsuccess = () => resolve((request.result as T | undefined) ?? null);
-        request.onerror = () => reject(request.error ?? new Error('Failed to read search cache record'));
-    });
-}
-
-function writeStoreValue(
-    store: IDBObjectStore,
-    value: IPersistedSearchDocumentCacheRecord,
-): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const request = store.put(value);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error ?? new Error('Failed to write search cache record'));
-    });
-}
-
-function deleteStoreValue(
-    store: IDBObjectStore,
-    key: IDBValidKey,
-): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const request = store.delete(key);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error ?? new Error('Failed to delete search cache record'));
-    });
-}
-
-function getAllStoreKeys(store: IDBObjectStore): Promise<IDBValidKey[]> {
-    return new Promise((resolve, reject) => {
-        const request = store.getAllKeys();
-        request.onsuccess = () => resolve((request.result) ?? []);
-        request.onerror = () => reject(request.error ?? new Error('Failed to list search cache records'));
-    });
-}
-
 async function loadPersistedSearchCacheRecord(cacheKey: string) {
     const db = await openSearchCacheDb();
     if (!db) {
@@ -192,7 +154,7 @@ async function loadPersistedSearchCacheRecord(cacheKey: string) {
     try {
         const tx = db.transaction(SEARCH_CACHE_STORE, 'readonly');
         const store = tx.objectStore(SEARCH_CACHE_STORE);
-        return await readStoreValue<IPersistedSearchDocumentCacheRecord>(store, cacheKey);
+        return await readStoreValue<IPersistedSearchDocumentCacheRecord>(store, cacheKey, 'Failed to read search cache record');
     } finally {
         db.close();
     }
@@ -209,7 +171,7 @@ async function persistSearchCacheRecord(
     try {
         const tx = db.transaction(SEARCH_CACHE_STORE, 'readwrite');
         const store = tx.objectStore(SEARCH_CACHE_STORE);
-        await writeStoreValue(store, record);
+        await writeStoreValue(store, record, 'Failed to write search cache record');
     } finally {
         db.close();
     }
@@ -224,9 +186,9 @@ async function clearPersistedSearchCaches() {
     try {
         const tx = db.transaction(SEARCH_CACHE_STORE, 'readwrite');
         const store = tx.objectStore(SEARCH_CACHE_STORE);
-        const keys = await getAllStoreKeys(store);
+        const keys = await readAllStoreKeys(store, 'Failed to list search cache records');
         for (const key of keys) {
-            await deleteStoreValue(store, key);
+            await deleteStoreValue(store, key, 'Failed to delete search cache record');
         }
     } finally {
         db.close();
