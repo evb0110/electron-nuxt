@@ -23,7 +23,6 @@
     "tailwindcss": "^4.2.4"
   },
   "devDependencies": {
-    "@vitejs/plugin-legacy": "7.2.1",
     "drizzle-kit": "^0.31.10",
     "terser": "^5.46.2",
     "typescript": "^5.9.3",
