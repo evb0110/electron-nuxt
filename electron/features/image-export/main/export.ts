@@ -19,7 +19,6 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { uniq } from 'es-toolkit/array';
-import { Worker } from 'worker_threads';
 import { getNativeToolPaths } from '@electron/native-tools/paths';
 import {
     detectSourceDpi,
@@ -29,7 +28,10 @@ import { runNativeToolCommand } from '@electron/native-tools/exec';
 import { createLogger } from '@electron/utils/logger';
 import { measureElectronPerfAsync } from '@electron/utils/dev-perf';
 import { combinePagesIntoMultiPageTiffLocal } from '@electron/features/image-export/main/tiff-combine-local';
-import { getErrorMessage } from '@electron/utils/error';
+import {
+    resolveUnpackedWorkerPath,
+    runResultWorkerTask,
+} from '@electron/utils/worker-task';
 
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 
@@ -320,24 +322,8 @@ export async function exportPdfPagesAsImages(
     }
 }
 
-type TTiffCombineWorkerResult =
-    | {
-        type: 'result';
-        ok: true;
-    }
-    | {
-        type: 'result';
-        ok: false;
-        error: string;
-    };
-
 function resolveTiffCombineWorkerPath() {
-    const defaultPath = join(__dirname, TIFF_COMBINE_WORKER_FILENAME);
-    const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
-    if (unpackedPath !== defaultPath && existsSync(unpackedPath)) {
-        return unpackedPath;
-    }
-    return defaultPath;
+    return resolveUnpackedWorkerPath(__dirname, TIFF_COMBINE_WORKER_FILENAME);
 }
 
 class TiffCombineWorkerStartupError extends Error {
@@ -399,74 +385,23 @@ async function combinePagesIntoMultiPageTiff(pagePaths: string[], outputPath: st
     }
 
     try {
-        await measureElectronPerfAsync('image-export:tiff-combine-worker', () => new Promise<void>((resolve, reject) => {
-            let settled = false;
-            let online = false;
-            let worker: Worker;
-            try {
-                worker = new Worker(workerPath, {workerData: {
-                    pagePaths,
-                    outputPath,
-                }});
-            } catch (error) {
-                reject(new TiffCombineWorkerStartupError(
-                    `TIFF combine worker failed to start: ${getErrorMessage(error)}`,
-                ));
-                return;
-            }
-
-            const finalize = (callback: () => void) => {
-                if (settled) {
-                    return;
-                }
-                settled = true;
-                worker.removeAllListeners();
-                void worker.terminate().catch(() => {});
-                callback();
-            };
-
-            worker.once('online', () => {
-                online = true;
-            });
-
-            worker.once('message', (payload: TTiffCombineWorkerResult) => {
-                finalize(() => {
-                    if (!payload || payload.type !== 'result') {
-                        reject(new Error('TIFF combine worker returned an invalid payload'));
-                        return;
-                    }
-                    if (!payload.ok) {
-                        reject(new Error(payload.error));
-                        return;
-                    }
-                    resolve();
-                });
-            });
-
-            worker.once('error', (error) => {
-                finalize(() => {
-                    if (!online) {
-                        reject(new TiffCombineWorkerStartupError(
-                            `TIFF combine worker failed before becoming ready: ${getErrorMessage(error)}`,
-                        ));
-                        return;
-                    }
-                    reject(error);
-                });
-            });
-
-            worker.once('exit', (code) => {
-                if (settled || code === 0) {
-                    return;
-                }
-                finalize(() => {
-                    if (!online) {
-                        reject(new TiffCombineWorkerStartupError(`TIFF combine worker exited during startup with code ${code}`));
-                        return;
-                    }
-                    reject(new Error(`TIFF combine worker exited with code ${code}`));
-                });
-            });
+        await measureElectronPerfAsync('image-export:tiff-combine-worker', () => runResultWorkerTask<undefined>({
+            workerPath,
+            workerData: {
+                pagePaths,
+                outputPath,
+            },
+            invalidPayloadMessage: 'TIFF combine worker returned an invalid payload',
+            createStartError: message => new TiffCombineWorkerStartupError(
+                `TIFF combine worker failed to start: ${message}`,
+            ),
+            createStartupError: message => new TiffCombineWorkerStartupError(
+                `TIFF combine worker failed before becoming ready: ${message}`,
+            ),
+            createStartupExitError: code => new TiffCombineWorkerStartupError(
+                `TIFF combine worker exited during startup with code ${code}`,
+            ),
+            createWorkerExitError: code => new Error(`TIFF combine worker exited with code ${code}`),
         }), {
             thresholdMs: 25,
             details: {

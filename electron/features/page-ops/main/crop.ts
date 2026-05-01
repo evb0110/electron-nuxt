@@ -1,10 +1,6 @@
 import { existsSync } from 'fs';
-import {
-    dirname,
-    join,
-} from 'path';
+import { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { Worker } from 'worker_threads';
 import type {
     ICropMargins,
     IPageGeometry,
@@ -17,6 +13,10 @@ import {
     removeCropFromPagesLocal,
 } from '@electron/features/page-ops/main/crop-local';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    resolveUnpackedWorkerPath,
+    runResultWorkerTask,
+} from '@electron/utils/worker-task';
 
 const log = createLogger('page-ops-crop');
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -40,25 +40,8 @@ type TCropWorkerInput =
         pageNumber: number;
     };
 
-type TCropWorkerOutput =
-    | {
-        type: 'result';
-        ok: true;
-        data?: IPageGeometry;
-    }
-    | {
-        type: 'result';
-        ok: false;
-        error: string;
-    };
-
 function resolveCropWorkerPath() {
-    const defaultPath = join(__dirname, CROP_WORKER_FILENAME);
-    const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
-    if (unpackedPath !== defaultPath && existsSync(unpackedPath)) {
-        return unpackedPath;
-    }
-    return defaultPath;
+    return resolveUnpackedWorkerPath(__dirname, CROP_WORKER_FILENAME);
 }
 
 async function runCropWorkerTask<T>(workerInput: TCropWorkerInput): Promise<T> {
@@ -67,58 +50,13 @@ async function runCropWorkerTask<T>(workerInput: TCropWorkerInput): Promise<T> {
         throw new Error(`Crop worker unavailable at path: ${workerPath}`);
     }
 
-    return measureElectronPerfAsync(`page-ops:${workerInput.type}`, () => new Promise<T>((resolve, reject) => {
-        let settled = false;
-        let online = false;
-        const worker = new Worker(workerPath, { workerData: workerInput });
-
-        const finalize = (callback: () => void) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            worker.removeAllListeners();
-            void worker.terminate().catch(() => {});
-            callback();
-        };
-
-        worker.once('online', () => {
-            online = true;
-        });
-
-        worker.once('message', (payload: TCropWorkerOutput) => {
-            finalize(() => {
-                if (!payload || payload.type !== 'result') {
-                    reject(new Error('Crop worker returned an invalid payload'));
-                    return;
-                }
-                if (!payload.ok) {
-                    reject(new Error(payload.error));
-                    return;
-                }
-                resolve(payload.data as T);
-            });
-        });
-
-        worker.once('error', (error) => {
-            const resolvedError = error instanceof Error ? error : new Error(String(error));
-            finalize(() => {
-                if (!online) {
-                    reject(new Error(`Crop worker startup failed: ${resolvedError.message}`));
-                    return;
-                }
-                reject(resolvedError);
-            });
-        });
-
-        worker.once('exit', (code) => {
-            if (settled || code === 0) {
-                return;
-            }
-            finalize(() => {
-                reject(new Error(`Crop worker exited with code ${code}`));
-            });
-        });
+    return measureElectronPerfAsync(`page-ops:${workerInput.type}`, () => runResultWorkerTask<T>({
+        workerPath,
+        workerData: workerInput,
+        invalidPayloadMessage: 'Crop worker returned an invalid payload',
+        createStartError: null,
+        createStartupError: message => new Error(`Crop worker startup failed: ${message}`),
+        createWorkerExitError: code => new Error(`Crop worker exited with code ${code}`),
     }), {
         thresholdMs: 25,
         details: {

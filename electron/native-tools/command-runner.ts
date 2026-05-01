@@ -121,7 +121,7 @@ export async function runNativeCommand(
             forceRejectHandle.unref?.();
         };
 
-        const finalizeReject = (error: Error) => {
+        const finalize = (complete: () => void) => {
             if (settled) {
                 return;
             }
@@ -137,26 +137,19 @@ export async function runNativeCommand(
             if (signal && abortHandler) {
                 signal.removeEventListener('abort', abortHandler);
             }
-            reject(error);
+            complete();
+        };
+
+        const finalizeReject = (error: Error) => {
+            finalize(() => {
+                reject(error);
+            });
         };
 
         const finalizeResolve = (result: IProcessResult) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-                timeoutHandle = null;
-            }
-            if (forceRejectHandle) {
-                clearTimeout(forceRejectHandle);
-                forceRejectHandle = null;
-            }
-            if (signal && abortHandler) {
-                signal.removeEventListener('abort', abortHandler);
-            }
-            resolve(result);
+            finalize(() => {
+                resolve(result);
+            });
         };
 
         if (signal) {
