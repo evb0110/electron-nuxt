@@ -284,7 +284,7 @@ function emitBatchOpenProgress(
     });
 }
 
-async function ensureBrowserCombinedPdfInputBudget(paths: string[]) {
+async function ensureBrowserCombinedPdfBudget(paths: string[], maxBytes: number) {
     let totalBytes = 0;
 
     for (let index = 0; index < paths.length; index += 1) {
@@ -294,32 +294,21 @@ async function ensureBrowserCombinedPdfInputBudget(paths: string[]) {
 
         const { size } = await browserDocumentStore.stat(paths[index]!);
         totalBytes += size;
-        if (totalBytes > BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES) {
+        if (totalBytes > maxBytes) {
             throw buildBrowserLargeJobError(
                 'Combining documents',
-                BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES,
+                maxBytes,
             );
         }
     }
 }
 
+async function ensureBrowserCombinedPdfInputBudget(paths: string[]) {
+    await ensureBrowserCombinedPdfBudget(paths, BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES);
+}
+
 async function ensureBrowserCombinedPdfRewriteBudget(paths: string[]) {
-    let totalBytes = 0;
-
-    for (let index = 0; index < paths.length; index += 1) {
-        if (index > 0) {
-            await yieldToBrowser();
-        }
-
-        const { size } = await browserDocumentStore.stat(paths[index]!);
-        totalBytes += size;
-        if (totalBytes > BROWSER_COMBINED_PDF_REWRITE_MAX_BYTES) {
-            throw buildBrowserLargeJobError(
-                'Combining documents',
-                BROWSER_COMBINED_PDF_REWRITE_MAX_BYTES,
-            );
-        }
-    }
+    await ensureBrowserCombinedPdfBudget(paths, BROWSER_COMBINED_PDF_REWRITE_MAX_BYTES);
 }
 
 function canCombineBrowserPathsOffThread(paths: string[]) {
