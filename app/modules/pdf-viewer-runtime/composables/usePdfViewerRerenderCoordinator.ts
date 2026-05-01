@@ -286,10 +286,32 @@ export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCo
 
     watch(
         () => continuousScroll.value,
-        () => {
+        async (next, previous) => {
+            // Capture the page the user is currently looking at BEFORE any
+            // state reset, so the post-toggle snap target reflects the
+            // pre-toggle viewport — matching pdf.js's scrollMode setter
+            // (which calls _setCurrentPageNumber(currentPageNumber, reset=true)
+            // anchored at the page top-left), and Adobe / Preview behavior.
+            const pageToSnapTo = getMostVisiblePage(
+                viewerContainer.value,
+                numPages.value,
+            );
             resetContinuousScrollState();
             if (fitMode.value === 'height' && pdfDocument.value) {
                 computeFitWidthScale(viewerContainer.value);
+            }
+            // Only snap on the continuous → single-page transition. Going
+            // from single-page back to continuous keeps the user's existing
+            // scrollTop, which is the correct "free reading" position for
+            // continuous mode — snapping there would feel like a jump.
+            if (
+                previous === true
+                && next === false
+                && pdfDocument.value
+                && !isLoading.value
+            ) {
+                await nextTick();
+                scrollToPage(pageToSnapTo, { preferExactDom: true });
             }
         },
     );
