@@ -794,11 +794,7 @@ export class BrowserDocumentStore {
 
         if (entry.storageMode === 'handle' && entry.saveHandle) {
             const size = await readFileHandleSize(entry.saveHandle);
-            if (entry.fileSize !== size) {
-                entry.fileSize = size;
-                entry.updatedAt = Date.now();
-                await persistRecord(this.toPersistedRecord(entry, entry.data, false));
-            }
+            await this.updateEntryFileSize(entry, size);
         }
 
         return { size: entry.fileSize };
@@ -1311,12 +1307,7 @@ export class BrowserDocumentStore {
     ): Promise<void> {
         const pendingLoad = (async () => {
             if (entry.storageMode === 'chunked') {
-                entry.data = new Uint8Array();
-                entry.chunkCount = 0;
-                entry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
-                entry.fileSize = file.size;
-                entry.updatedAt = Date.now();
-                await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+                await this.resetChunkedEntry(entry, file.size, BROWSER_DOCUMENT_CHUNK_SIZE);
 
                 let chunkIndex = 0;
                 for (
@@ -1327,12 +1318,7 @@ export class BrowserDocumentStore {
                     const chunk = new Uint8Array(
                         await file.slice(offset, offset + entry.chunkSize).arrayBuffer(),
                     );
-                    await persistChunkRecord({
-                        key: createChunkKey(entry.ref, chunkIndex),
-                        ref: entry.ref,
-                        index: chunkIndex,
-                        data: cloneBytes(chunk),
-                    });
+                    await this.persistEntryChunk(entry, chunkIndex, chunk);
                     chunkIndex += 1;
                     entry.chunkCount = chunkIndex;
                     entry.updatedAt = Date.now();
@@ -1363,12 +1349,7 @@ export class BrowserDocumentStore {
         entry: IBrowserDocumentEntry,
         bytes: Uint8Array,
     ): Promise<void> {
-        entry.data = new Uint8Array();
-        entry.chunkCount = 0;
-        entry.chunkSize = Math.max(1, entry.chunkSize);
-        entry.fileSize = bytes.byteLength;
-        entry.updatedAt = Date.now();
-        await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+        await this.resetChunkedEntry(entry, bytes.byteLength, Math.max(1, entry.chunkSize));
 
         let chunkIndex = 0;
         for (
@@ -1377,12 +1358,7 @@ export class BrowserDocumentStore {
             offset += entry.chunkSize
         ) {
             const chunk = bytes.slice(offset, offset + entry.chunkSize);
-            await persistChunkRecord({
-                key: createChunkKey(entry.ref, chunkIndex),
-                ref: entry.ref,
-                index: chunkIndex,
-                data: cloneBytes(chunk),
-            });
+            await this.persistEntryChunk(entry, chunkIndex, chunk);
             chunkIndex += 1;
             if (chunkIndex % BROWSER_CHUNK_WRITE_YIELD_EVERY === 0) {
                 await yieldToBrowser();
@@ -1390,6 +1366,45 @@ export class BrowserDocumentStore {
         }
 
         entry.chunkCount = chunkIndex;
+        entry.updatedAt = Date.now();
+        await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+    }
+
+    private async resetChunkedEntry(
+        entry: IBrowserDocumentEntry,
+        fileSize: number,
+        chunkSize: number,
+    ) {
+        entry.data = new Uint8Array();
+        entry.chunkCount = 0;
+        entry.chunkSize = chunkSize;
+        entry.fileSize = fileSize;
+        entry.updatedAt = Date.now();
+        await persistRecord(this.toPersistedRecord(entry, entry.data, false));
+    }
+
+    private async persistEntryChunk(
+        entry: IBrowserDocumentEntry,
+        index: number,
+        chunk: Uint8Array,
+    ) {
+        await persistChunkRecord({
+            key: createChunkKey(entry.ref, index),
+            ref: entry.ref,
+            index,
+            data: cloneBytes(chunk),
+        });
+    }
+
+    private async updateEntryFileSize(
+        entry: IBrowserDocumentEntry,
+        size: number,
+    ) {
+        if (entry.fileSize === size) {
+            return;
+        }
+
+        entry.fileSize = size;
         entry.updatedAt = Date.now();
         await persistRecord(this.toPersistedRecord(entry, entry.data, false));
     }
@@ -1409,11 +1424,7 @@ export class BrowserDocumentStore {
                     size,
                     bytes,
                 } = await readFileHandleBytes(entry.saveHandle);
-                if (entry.fileSize !== size) {
-                    entry.fileSize = size;
-                    entry.updatedAt = Date.now();
-                    await persistRecord(this.toPersistedRecord(entry, entry.data, false));
-                }
+                await this.updateEntryFileSize(entry, size);
                 return bytes;
             }
             case 'chunked': {
@@ -1461,11 +1472,7 @@ export class BrowserDocumentStore {
                     size,
                     bytes,
                 } = await readFileHandleBytes(entry.saveHandle, start, rangeLength);
-                if (entry.fileSize !== size) {
-                    entry.fileSize = size;
-                    entry.updatedAt = Date.now();
-                    await persistRecord(this.toPersistedRecord(entry, entry.data, false));
-                }
+                await this.updateEntryFileSize(entry, size);
                 return bytes;
             }
             case 'chunked': {
