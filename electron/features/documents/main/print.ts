@@ -156,11 +156,10 @@ function createPrintWindow(ownerWindow?: BrowserWindow) {
         backgroundColor: '#ffffff',
         webPreferences: {
             // 'plugins: true' enables Chromium's built-in PDF viewer for native print preview.
-            // Historically this required sandbox:false; Electron 39 docs do not confirm that
-            // sandbox:true is compatible with plugins:true for the PDF viewer, so we keep
-            // sandbox disabled here to avoid regressing the print flow. Re-evaluate if Electron
-            // documents PDF-viewer support under the default sandbox.
-            sandbox: false,
+            // The window has no preload and no Node API exposure, so this sandbox flip is a
+            // pure defense-in-depth tightening; if the Chromium PDF plugin fails to render
+            // under the sandbox in this Electron version, revert to sandbox:false.
+            sandbox: true,
             contextIsolation: true,
             nodeIntegration: false,
             plugins: true,
