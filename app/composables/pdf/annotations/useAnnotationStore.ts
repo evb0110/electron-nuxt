@@ -17,7 +17,7 @@ interface IUseAnnotationStoreOptions {
     debounceMs?: number;
 }
 
-export function useAnnotationStore(options: IUseAnnotationStoreOptions = {}) {
+export const useAnnotationStore = (options: IUseAnnotationStoreOptions = {}) => {
     const {
         emitAnnotationComments,
         debounceMs = 140,
@@ -127,4 +127,4 @@ export function useAnnotationStore(options: IUseAnnotationStoreOptions = {}) {
         getAnnotationsForPage,
         clear,
     };
-}
+};

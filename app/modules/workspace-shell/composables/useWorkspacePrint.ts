@@ -72,7 +72,7 @@ interface IWorkspacePrintState {
     handlePrintDialogSubmit: (payload: IPrintDialogSubmitPayload) => Promise<void>;
 }
 
-export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintState {
+export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintState => {
     const { t } = useTypedI18n();
     const toast = useToast();
     const printDialogOpen = ref(false);
@@ -491,4 +491,4 @@ export function useWorkspacePrint(deps: IWorkspacePrintDeps): IWorkspacePrintSta
         handlePrintDialogOpenChange,
         handlePrintDialogSubmit,
     };
-}
+};

@@ -208,7 +208,7 @@ function browserUnsupportedStatus(): IAppUpdateStatus {
     };
 }
 
-export function useAppUpdates() {
+export const useAppUpdates = () => {
     return {
         status,
         dialog,
@@ -222,7 +222,7 @@ export function useAppUpdates() {
         skipUpdateVersion,
         closeDialog,
     };
-}
+};
 
 if (import.meta.hot) {
     import.meta.hot.dispose(() => {

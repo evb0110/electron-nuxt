@@ -10,7 +10,7 @@ import type {
     TPdfSidebarTab,
 } from '@app/modules/workspace-shell/composables/workspace-orchestration.types';
 
-export function useWorkspaceViewerShellState() {
+export const useWorkspaceViewerShellState = () => {
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
     const zoomDropdownOpen = ref(false);
     const pageDropdownOpen = ref(false);
@@ -103,4 +103,4 @@ export function useWorkspaceViewerShellState() {
         showSettings,
         sidebarTab,
     };
-}
+};

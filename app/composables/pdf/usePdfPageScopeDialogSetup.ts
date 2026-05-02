@@ -6,14 +6,14 @@ interface IPdfPageScopeDialogProps {
     selectedPages: number[];
 }
 
-export function usePdfPageScopeDialogSetup(
+export const usePdfPageScopeDialogSetup = (
     props: IPdfPageScopeDialogProps,
     resolveRangePages: () => number[] | null,
-) {
+) => {
     return usePdfPageScopeSelection({
         totalPages: () => props.totalPages,
         currentPage: () => props.currentPage,
         selectedPages: () => props.selectedPages,
         resolveRangePages,
     });
-}
+};

@@ -13,7 +13,7 @@ interface IWorkspaceSearchSidebarOptions {
     totalPages: Ref<number>;
 }
 
-export function useWorkspaceSearchSidebar(options: IWorkspaceSearchSidebarOptions) {
+export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOptions) => {
     const {
         workingCopyPath,
         showSidebar,
@@ -99,4 +99,4 @@ export function useWorkspaceSearchSidebar(options: IWorkspaceSearchSidebarOption
         startSidebarResize,
         cleanupSidebarResizeListeners,
     };
-}
+};

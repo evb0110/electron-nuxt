@@ -22,7 +22,7 @@ interface IUseFallbackWorkspaceToolbarOptions {
     shellState: IWorkspaceShellState;
 }
 
-export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolbarOptions) {
+export const useFallbackWorkspaceToolbar = (options: IUseFallbackWorkspaceToolbarOptions) => {
     const showFallbackToolbar = computed(() => !options.hasTeleportedToolbarContent.value);
     const fallbackZoom = ref(1);
     const fallbackEffectiveZoom = ref(1);
@@ -225,4 +225,4 @@ export function useFallbackWorkspaceToolbar(options: IUseFallbackWorkspaceToolba
         primeFallbackToolbarFromWorkspace,
         showFallbackToolbar,
     };
-}
+};

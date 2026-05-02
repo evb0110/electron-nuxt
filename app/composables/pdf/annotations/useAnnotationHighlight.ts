@@ -156,7 +156,7 @@ interface IPagePointPageNumbers {
 }
 
 
-export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) {
+export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) => {
     const {
         viewerContainer,
         annotationUiManager,
@@ -1798,4 +1798,4 @@ export function useAnnotationHighlight(options: IUseAnnotationHighlightOptions) 
         clearSelectionCache,
         highlightSelectionInternal,
     };
-}
+};

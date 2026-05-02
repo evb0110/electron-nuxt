@@ -79,7 +79,7 @@ function hasTabs(group: IEditorGroupState | null | undefined) {
     return Boolean(group && group.tabIds.length > 0);
 }
 
-export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsOptions) {
+export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsOptions) => {
     const {
         activeGroupId,
         groups,
@@ -493,4 +493,4 @@ export function useAppShellDirectionalTabs(options: IUseAppShellDirectionalTabsO
         handleTabMoveDirection,
         cleanup,
     };
-}
+};

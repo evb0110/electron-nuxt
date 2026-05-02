@@ -147,7 +147,7 @@ function computeMarkersByPage(
     return result;
 }
 
-export function useAnnotationMarkerViewModel(options: IUseAnnotationMarkerViewModelOptions) {
+export const useAnnotationMarkerViewModel = (options: IUseAnnotationMarkerViewModelOptions) => {
     const {
         viewerContainer,
         annotationCommentsCache,
@@ -246,4 +246,4 @@ export function useAnnotationMarkerViewModel(options: IUseAnnotationMarkerViewMo
             cleanup,
         },
     };
-}
+};

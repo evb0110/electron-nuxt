@@ -25,7 +25,7 @@ interface IUsePdfViewerZoomRerenderQueueOptions {
     setZoomRerenderBusy?: (busy: boolean) => void;
 }
 
-export function usePdfViewerZoomRerenderQueue(options: IUsePdfViewerZoomRerenderQueueOptions) {
+export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerenderQueueOptions) => {
     const {
         pdfDocument,
         isLoading,
@@ -358,4 +358,4 @@ export function usePdfViewerZoomRerenderQueue(options: IUsePdfViewerZoomRerender
         markLowResZoomRerenderUsed,
         cleanupZoomRerenderQueue,
     };
-}
+};

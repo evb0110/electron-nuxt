@@ -19,7 +19,7 @@ interface IWorkspaceAnnotationSessionOptions {
     markDirty: () => void;
 }
 
-export function useWorkspaceAnnotationSession(options: IWorkspaceAnnotationSessionOptions) {
+export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessionOptions) => {
     const {
         pdfViewerRef,
         pdfDocument,
@@ -179,4 +179,4 @@ export function useWorkspaceAnnotationSession(options: IWorkspaceAnnotationSessi
         isSameAnnotationComment,
         consumePendingEmbeddedTextUpdates,
     };
-}
+};

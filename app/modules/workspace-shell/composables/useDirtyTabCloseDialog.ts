@@ -15,9 +15,9 @@ interface IUseDirtyTabCloseDialog {
     resolveDirtyTabCloseDialog: (confirmed: boolean) => void;
 }
 
-export function useDirtyTabCloseDialog(
+export const useDirtyTabCloseDialog = (
     deps: IUseDirtyTabCloseDialogDeps,
-): IUseDirtyTabCloseDialog {
+): IUseDirtyTabCloseDialog => {
     const { tabs } = deps;
     const { t } = useTypedI18n();
     const dirtyTabCloseDialogOpen = ref(false);
@@ -64,4 +64,4 @@ export function useDirtyTabCloseDialog(
         requestDirtyTabCloseConfirmation,
         resolveDirtyTabCloseDialog,
     };
-}
+};

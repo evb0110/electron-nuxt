@@ -36,7 +36,7 @@ interface IUseFreeTextResizeOptions {
     scheduleAnnotationCommentsSync: () => void;
 }
 
-export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
+export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
     const {
         getAnnotationUiManager,
         getNumPages,
@@ -508,4 +508,4 @@ export function useFreeTextResize(options: IUseFreeTextResizeOptions) {
         patchResizableFreeTextEditors,
         getFreeTextEditorFontSize,
     };
-}
+};

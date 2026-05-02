@@ -42,7 +42,7 @@ interface ICloseHandoffTarget {
     tabId: string;
 }
 
-export function useAppShellTabLifecycle(options: IUseAppShellTabLifecycleOptions) {
+export const useAppShellTabLifecycle = (options: IUseAppShellTabLifecycleOptions) => {
     const {
         groups,
         tabs,
@@ -468,4 +468,4 @@ export function useAppShellTabLifecycle(options: IUseAppShellTabLifecycleOptions
         handoffActiveTabBeforeClose,
         handleCloseTab,
     };
-}
+};

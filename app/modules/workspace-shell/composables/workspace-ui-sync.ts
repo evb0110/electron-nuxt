@@ -80,7 +80,7 @@ export function resolveWorkspaceTabUpdate(state: IWorkspaceTabState): TTabUpdate
     };
 }
 
-export function useWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
+export const useWorkspaceUiSyncWatchers = (deps: IWorkspaceUiSyncDeps) => {
     const { t } = useTypedI18n();
 
     function resolvePendingOpenDisplayName(progress: IOpenBatchProgressState | null) {
@@ -147,4 +147,4 @@ export function useWorkspaceUiSyncWatchers(deps: IWorkspaceUiSyncDeps) {
         deps.emitOpenSettings();
         deps.showSettings.value = false;
     });
-}
+};

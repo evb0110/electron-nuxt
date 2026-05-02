@@ -346,7 +346,7 @@ function canCapturePointer(event: PointerEvent) {
     return typeof event.pointerId === 'number' && event.pointerId >= 0;
 }
 
-export function usePdfShapeOverlayInteractions(options: IUsePdfShapeOverlayInteractionsOptions) {
+export const usePdfShapeOverlayInteractions = (options: IUsePdfShapeOverlayInteractionsOptions) => {
     const {
         svgRef,
         svgWidth,
@@ -662,4 +662,4 @@ export function usePdfShapeOverlayInteractions(options: IUsePdfShapeOverlayInter
         handleShapeContextMenu,
         handleShapePointerDown,
     };
-}
+};

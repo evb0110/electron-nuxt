@@ -15,9 +15,9 @@ interface IUsePlatformHydratedStateOptions<T> {
 const loadPromises = new Map<string, Promise<unknown>>();
 const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-export function usePlatformHydratedState<T>(
+export const usePlatformHydratedState = <T>(
     options: IUsePlatformHydratedStateOptions<T>,
-) {
+) => {
     const state = useState<T>(`${options.key}:data`, options.initialValue);
     const isLoading = useState(`${options.key}:is-loading`, () => false);
     const isResolved = useState(`${options.key}:is-resolved`, () => options.initialResolved);
@@ -97,4 +97,4 @@ export function usePlatformHydratedState<T>(
         load,
         clearRetryTimer,
     };
-}
+};

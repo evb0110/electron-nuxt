@@ -69,7 +69,7 @@ function isSameFatalRuntimeError(
     );
 }
 
-export function useFatalRuntimeError() {
+export const useFatalRuntimeError = () => {
     const fatalRuntimeError = useState<IFatalRuntimeError | null>('fatal-runtime-error', () => null);
 
     function setFatalRuntimeError(
@@ -107,4 +107,4 @@ export function useFatalRuntimeError() {
         clearFatalRuntimeError,
         reloadAfterFatalRuntimeError,
     };
-}
+};

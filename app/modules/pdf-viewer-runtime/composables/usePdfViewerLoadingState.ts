@@ -13,7 +13,7 @@ interface IUsePdfViewerLoadingStateOptions {
     holdOverlayVisible?: Ref<boolean>;
 }
 
-export function usePdfViewerLoadingState(options: IUsePdfViewerLoadingStateOptions) {
+export const usePdfViewerLoadingState = (options: IUsePdfViewerLoadingStateOptions) => {
     const {
         src,
         isLoading,
@@ -126,4 +126,4 @@ export function usePdfViewerLoadingState(options: IUsePdfViewerLoadingStateOptio
     ));
 
     return { isViewerLoadingOverlayVisible };
-}
+};

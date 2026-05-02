@@ -1,7 +1,7 @@
 import type { Ref } from 'vue';
 import { useTimeoutFn } from '@vueuse/core';
 
-export function useToolbarTeleportBridge(isTabTransitionBusy: Readonly<Ref<boolean>>) {
+export const useToolbarTeleportBridge = (isTabTransitionBusy: Readonly<Ref<boolean>>) => {
     const globalToolbarHostRef = ref<HTMLElement | null>(null);
     const hasTeleportedToolbarContent = ref(false);
     let globalToolbarObserver: MutationObserver | null = null;
@@ -124,4 +124,4 @@ export function useToolbarTeleportBridge(isTabTransitionBusy: Readonly<Ref<boole
         observeToolbarHost,
         disposeToolbarTeleportBridge,
     };
-}
+};

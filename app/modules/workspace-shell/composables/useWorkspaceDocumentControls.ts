@@ -42,7 +42,7 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     closeFileWithDjvuCleanup: () => Promise<void>;
 }
 
-export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControlsOptions) {
+export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControlsOptions) => {
     const {
         hasDocument,
         pdfSrc,
@@ -150,4 +150,4 @@ export function useWorkspaceDocumentControls(options: IWorkspaceDocumentControls
         ...pageOpsHandlers,
         ...pageFileOperations,
     };
-}
+};

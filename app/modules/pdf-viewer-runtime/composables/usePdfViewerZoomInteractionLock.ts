@@ -12,7 +12,7 @@ interface IUsePdfViewerZoomInteractionLockOptions extends IZoomVirtualizationLog
     isWheelZoomGestureLocked: (nowMs?: number) => boolean;
 }
 
-export function usePdfViewerZoomInteractionLock(options: IUsePdfViewerZoomInteractionLockOptions) {
+export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomInteractionLockOptions) => {
     const {
         currentPage,
         visibleRange,
@@ -194,4 +194,4 @@ export function usePdfViewerZoomInteractionLock(options: IUsePdfViewerZoomIntera
         getZoomRerenderBusyLockUntilMs: () => zoomRerenderBusyLockUntilMs,
         getExpectedZoomScrollUntilMs: () => expectedZoomScrollUntilMs,
     };
-}
+};

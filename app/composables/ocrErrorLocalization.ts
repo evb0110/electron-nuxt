@@ -31,7 +31,7 @@ function truncateOcrErrorDetails(message: string) {
     return `${trimmed.slice(0, 237)}...`;
 }
 
-export function useOcrErrorLocalizer(): IOcrErrorLocalizer {
+export const useOcrErrorLocalizer = (): IOcrErrorLocalizer => {
     const { t } = useTypedI18n();
 
     function isKnownLocalizedOcrError(message: string) {
@@ -74,4 +74,4 @@ export function useOcrErrorLocalizer(): IOcrErrorLocalizer {
     }
 
     return { localizeOcrError };
-}
+};

@@ -61,7 +61,7 @@ interface IUseAnnotationToolStateOptions {
     emitAnnotationToolAutoReset: () => void;
 }
 
-export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) {
+export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) => {
     const {
         annotationUiManager,
         currentPage,
@@ -530,4 +530,4 @@ export function useAnnotationToolState(options: IUseAnnotationToolStateOptions) 
         markupSubtypeOverrides,
         clearOverrides,
     };
-}
+};

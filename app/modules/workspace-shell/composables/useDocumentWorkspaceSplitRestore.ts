@@ -58,7 +58,7 @@ function normalizeRestoredPage(page: number | undefined) {
     return Math.max(1, Math.floor(page));
 }
 
-export function useDocumentWorkspaceSplitRestore(options: IUseDocumentWorkspaceSplitRestoreOptions) {
+export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceSplitRestoreOptions) => {
     const hasQueuedSplitRestore = computed(() => options.workspaceSplitCache.has(options.tabId));
     const isExternallyRestoring = computed(() => options.workspaceRestoreTracker.has(options.tabId));
     const suppressEmptyState = computed(() => (
@@ -338,4 +338,4 @@ export function useDocumentWorkspaceSplitRestore(options: IUseDocumentWorkspaceS
         isExternallyRestoring,
         suppressEmptyState,
     };
-}
+};

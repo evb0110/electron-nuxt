@@ -51,7 +51,7 @@ interface IUsePdfViewerCurrentPageSyncOptions {
     emitCurrentPage: (page: number) => void;
 }
 
-export function usePdfViewerCurrentPageSync(options: IUsePdfViewerCurrentPageSyncOptions) {
+export const usePdfViewerCurrentPageSync = (options: IUsePdfViewerCurrentPageSyncOptions) => {
     const {
         viewerContainer,
         numPages,
@@ -291,4 +291,4 @@ export function usePdfViewerCurrentPageSync(options: IUsePdfViewerCurrentPageSyn
         summarizeVisiblePageSnapshotForLog,
         syncCurrentPageFromViewport,
     };
-}
+};

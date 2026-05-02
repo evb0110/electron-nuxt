@@ -104,7 +104,7 @@ interface IEditorBridgeDeps {
     emitAnnotationOpenNote: (comment: IAnnotationCommentSummary) => void;
 }
 
-export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
+export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
     const {
         viewerContainer,
         pdfDocument,
@@ -563,4 +563,4 @@ export function useAnnotationEditorBridge(deps: IEditorBridgeDeps) {
         initAnnotationEditor,
         destroyAnnotationEditor,
     };
-}
+};

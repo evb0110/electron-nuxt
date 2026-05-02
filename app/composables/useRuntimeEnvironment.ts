@@ -12,7 +12,7 @@ function getRuntimeRoutePath() {
     return useRoute().path;
 }
 
-export function useRuntimeEnvironment() {
+export const useRuntimeEnvironment = () => {
     const routePath = getRuntimeRoutePath();
     const initialDesktopRuntime = resolveInitialDesktopRuntime(routePath);
     const isDesktopRuntime = typeof useState === 'function'
@@ -33,4 +33,4 @@ export function useRuntimeEnvironment() {
         isDesktopRuntime: computed(() => isDesktopRuntime.value),
         isBrowserRuntime: computed(() => !isDesktopRuntime.value),
     };
-}
+};

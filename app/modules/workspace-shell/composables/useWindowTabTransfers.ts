@@ -96,7 +96,7 @@ function canReuseIncomingTransferTab(
         && !existingHasDocument;
 }
 
-export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
+export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) => {
     const { t } = useTypedI18n();
 
     function getIncomingTransferTabContext(targetGroup: IGroupLike) {
@@ -428,4 +428,4 @@ export function useWindowTabTransfers(options: IUseWindowTabTransfersOptions) {
         moveTabToWindow,
         mergeWindowInto,
     };
-}
+};

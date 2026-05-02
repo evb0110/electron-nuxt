@@ -83,7 +83,7 @@ interface IPdfAnnotationSnapshot {
 
 type TEditorData = ReturnType<typeof safeReadEditorData>;
 
-export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
+export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     const { t } = useTypedI18n();
 
     const {
@@ -673,4 +673,4 @@ export function useAnnotationSync(options: IUseAnnotationSyncOptions) {
         suppressAnnotationStableKey,
         clearSuppressedAnnotationIds,
     };
-}
+};

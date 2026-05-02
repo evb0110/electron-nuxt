@@ -71,7 +71,7 @@ export function expandVirtualWindowForAnchor(options: {
     };
 }
 
-export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationOptions) {
+export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationOptions) => {
     const {
         bufferPages,
         viewMode,
@@ -376,4 +376,4 @@ export function usePdfViewerVirtualization(options: IUsePdfViewerVirtualizationO
         bottomVirtualSpacerStyle,
         pagesToRender,
     };
-}
+};

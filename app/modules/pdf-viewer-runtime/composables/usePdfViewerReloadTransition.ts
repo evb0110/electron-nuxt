@@ -5,9 +5,9 @@ interface IUsePdfViewerReloadTransitionOptions {
     summarizeViewerStateForLog?: () => unknown;
 }
 
-export function usePdfViewerReloadTransition(
+export const usePdfViewerReloadTransition = (
     options: IUsePdfViewerReloadTransitionOptions,
-) {
+) => {
     const isVisualReloadTransitionActive = ref(false);
     const lastTransitionToken = ref(0);
     const activeTransitionToken = ref<number | null>(null);
@@ -71,4 +71,4 @@ export function usePdfViewerReloadTransition(
         endVisualReloadTransition,
         emitEffectiveZoom,
     };
-}
+};

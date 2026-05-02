@@ -10,7 +10,7 @@ function normalizeSiteUrl(siteUrl: string) {
     return siteUrl.endsWith('/') ? siteUrl : `${siteUrl}/`;
 }
 
-export function useWebSeo(options: IUseWebSeoOptions = {}) {
+export const useWebSeo = (options: IUseWebSeoOptions = {}) => {
     const runtimeConfig = useRuntimeConfig();
     const {
         locale,
@@ -145,4 +145,4 @@ export function useWebSeo(options: IUseWebSeoOptions = {}) {
                 },
             ],
     }));
-}
+};

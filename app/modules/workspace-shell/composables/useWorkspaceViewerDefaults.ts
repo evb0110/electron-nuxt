@@ -21,7 +21,7 @@ interface IUseWorkspaceViewerDefaultsOptions {
     pdfSrc: Ref<TPdfSource | null>;
 }
 
-export function useWorkspaceViewerDefaults(options: IUseWorkspaceViewerDefaultsOptions) {
+export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsOptions) => {
     function clampWorkspaceZoomLevel(level: number) {
         if (!Number.isFinite(level)) {
             return 1;
@@ -101,4 +101,4 @@ export function useWorkspaceViewerDefaults(options: IUseWorkspaceViewerDefaultsO
         resolveDisplayZoom,
         setCustomZoomFromDisplay,
     };
-}
+};

@@ -9,7 +9,7 @@ interface IPdfPageScopeSelectionOptions {
     resolveRangePages: () => number[] | null;
 }
 
-export function usePdfPageScopeSelection(options: IPdfPageScopeSelectionOptions) {
+export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions) => {
     const scope = ref<TPdfPageScope>('all');
     const rangeInput = ref('');
     const rangeTouched = ref(false);
@@ -54,4 +54,4 @@ export function usePdfPageScopeSelection(options: IPdfPageScopeSelectionOptions)
         resetScopeForOpen,
         resolveScopedPageNumbers,
     };
-}
+};

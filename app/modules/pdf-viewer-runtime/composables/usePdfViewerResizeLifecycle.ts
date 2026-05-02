@@ -48,7 +48,7 @@ interface IUsePdfViewerResizeLifecycleOptions {
     }) => void;
 }
 
-export function usePdfViewerResizeLifecycle(options: IUsePdfViewerResizeLifecycleOptions) {
+export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycleOptions) => {
     const {
         viewerContainer,
         isLoading,
@@ -261,4 +261,4 @@ export function usePdfViewerResizeLifecycle(options: IUsePdfViewerResizeLifecycl
         scheduleEndResizeTransition,
         cleanupResizeLifecycle,
     };
-}
+};
