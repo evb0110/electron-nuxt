@@ -46,6 +46,7 @@ import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
 import { createLogger } from '@electron/utils/logger';
 import { isAllowedWritePath } from '@electron/utils/path-validator';
 import { getErrorMessage } from '@electron/utils/error';
+import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopy';
 
 const log = createLogger('page-ops-ipc');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -352,6 +353,7 @@ async function prepareInsertionSourcePdf(
         };
     }
 
+    await ensureWorkingCopyDirectory(workingCopyPath);
     const mergedPdf = await createPdfFromInputPaths(normalizedPaths);
     const tempSourcePdfPath = join(
         workingCopyPath,
@@ -382,6 +384,7 @@ async function insertPagesFromSourcePaths(
     sourcePaths: string[],
     afterPage: number,
 ) {
+    await ensureWorkingCopyDirectory(workingCopyPath);
     const qpdf = getNativeToolPaths().qpdf;
     const dir = join(workingCopyPath, '..');
     const id = `tmp-${randomUUID()}`;

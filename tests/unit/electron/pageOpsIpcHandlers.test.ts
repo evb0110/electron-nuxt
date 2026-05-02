@@ -47,7 +47,11 @@ const mocks = vi.hoisted(() => ({
     showOpenDialog: vi.fn(),
     getFocusedWindow: vi.fn(),
     runCommand: vi.fn(),
-    getOcrToolPaths: vi.fn(),
+    getNativeToolPaths: vi.fn(),
+    ensureWorkingCopyDirectory: vi.fn(),
+    writeFile: vi.fn(),
+    rename: vi.fn(),
+    unlink: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -63,7 +67,13 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
+vi.mock('fs/promises', () => ({
+    writeFile: (...args: unknown[]) => mocks.writeFile(...args),
+    rename: (...args: unknown[]) => mocks.rename(...args),
+    unlink: (...args: unknown[]) => mocks.unlink(...args),
+}));
 vi.mock('@electron/utils/path-validator', () => ({isAllowedWritePath: (path: string) => mocks.isAllowedWritePath(path)}));
+vi.mock('@electron/ipc/workingCopy', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     deletePages: (...args: unknown[]) => mocks.deletePages(...args),
     extractPages: (...args: unknown[]) => mocks.extractPages(...args),
@@ -84,8 +94,8 @@ vi.mock('@electron/image/pdf-conversion', () => ({
     ],
 }));
 vi.mock('@electron/i18n', () => ({te: (key: string) => key}));
-vi.mock('@electron/ocr/worker/run-command', () => ({runOcrCommand: (...args: unknown[]) => mocks.runCommand(...args)}));
-vi.mock('@electron/ocr/paths', () => ({getOcrToolPaths: () => mocks.getOcrToolPaths()}));
+vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runCommand(...args)}));
+vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => mocks.getNativeToolPaths()}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -121,7 +131,11 @@ describe('registerPageOpsHandlers', () => {
         });
         mocks.createPdfFromInputPaths.mockResolvedValue(new Uint8Array([1]));
         mocks.isPdfOrImagePath.mockReturnValue(true);
-        mocks.getOcrToolPaths.mockReturnValue({qpdf: '/mock/qpdf'});
+        mocks.getNativeToolPaths.mockReturnValue({qpdf: '/mock/qpdf'});
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
+        mocks.writeFile.mockResolvedValue(undefined);
+        mocks.rename.mockResolvedValue(undefined);
+        mocks.unlink.mockResolvedValue(undefined);
 
         mocks.deletePages.mockResolvedValue({pageCount: 1});
         mocks.extractPages.mockResolvedValue(undefined);
@@ -270,5 +284,34 @@ describe('registerPageOpsHandlers', () => {
         })).rejects.toThrow('Invalid crop margins');
 
         expect(mocks.cropPages).not.toHaveBeenCalled();
+    });
+
+    it('recovers the working-copy directory before inserting converted source files', async () => {
+        mocks.isPdfOrImagePath.mockReturnValue(true);
+        mocks.createPdfFromInputPaths.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+
+        const handler = getHandler('page-ops:insert-file');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/pdf-work-1/work.pdf', 3, 1, ['/tmp/source.png']))
+            .resolves.toEqual({success: true});
+
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf');
+        expect(mocks.writeFile).toHaveBeenCalledWith(
+            expect.stringMatching(/^\/tmp\/pdf-work-1\/insert-source-.+\.pdf$/),
+            new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+        );
+        expect(mocks.runCommand).toHaveBeenCalled();
+        expect(mocks.rename).toHaveBeenCalledWith(
+            expect.stringMatching(/^\/tmp\/pdf-work-1\/tmp-.+\.pdf$/),
+            '/tmp/pdf-work-1/work.pdf',
+        );
     });
 });

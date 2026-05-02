@@ -16,6 +16,7 @@ import {
     makeTempPdfOutputPath,
     replaceTempOutput,
 } from '@electron/features/page-ops/main/temp-output';
+import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopy';
 
 const log = createLogger('page-ops-crop');
 
@@ -55,6 +56,7 @@ function boxesEqual(
 }
 
 async function savePdfAtomically(pdfDoc: PDFDocument, workingCopyPath: string) {
+    await ensureWorkingCopyDirectory(workingCopyPath);
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
     try {
         const outputBytes = await pdfDoc.save();
@@ -70,6 +72,7 @@ async function mutatePdfPages(
     workingCopyPath: string,
     mutate: (pages: ReturnType<PDFDocument['getPages']>) => void,
 ) {
+    await ensureWorkingCopyDirectory(workingCopyPath);
     const pdfBytes = await readFile(workingCopyPath);
     const pdfDoc = await PDFDocument.load(pdfBytes);
     mutate(pdfDoc.getPages());
