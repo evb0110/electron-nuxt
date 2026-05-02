@@ -242,15 +242,17 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 payload.freeTextComments.length > 0
                 && result.length < data.length * 0.5
             ) {
-                BrowserLogger.warn(
+                BrowserLogger.error(
                     PDF_SERIALIZATION_LOG_SECTION,
-                    'serializePdfEdits: pdf-lib re-save lost data, falling back to original',
+                    'serializePdfEdits: pdf-lib re-save lost more than half the document; refusing to persist',
                     {
                         inputSize: data.length,
                         outputSize: result.length,
                     },
                 );
-                return data;
+                throw new Error(
+                    `PDF serialization produced a corrupted result (input ${data.length} bytes, output ${result.length} bytes); refusing to overwrite original`,
+                );
             }
 
             return result;

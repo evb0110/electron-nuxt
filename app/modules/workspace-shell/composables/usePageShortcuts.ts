@@ -149,7 +149,24 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         return false;
     }
 
+    function suppressBrowserDefaultForConflictingAccelerator(event: KeyboardEvent) {
+        // These accelerators must NEVER reach Chromium's built-in handlers
+        // (Save Page As, Print, Open File). The browser default fires
+        // synchronously inside this keydown unless we preventDefault here,
+        // before any gating on workspace state. Suppression is independent
+        // of whether we end up running our own handler.
+        if (!eventHasCommandModifier(event) || event.altKey) {
+            return;
+        }
+        const key = event.key.toLowerCase();
+        if (key === 's' || key === 'p' || key === 'o') {
+            event.preventDefault();
+        }
+    }
+
     function handleKeyboardShortcut(event: KeyboardEvent) {
+        suppressBrowserDefaultForConflictingAccelerator(event);
+
         editableBlocked.value = isEditingText(event.target);
         if (!isActive.value || editableBlocked.value) {
             return;
