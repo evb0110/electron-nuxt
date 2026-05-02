@@ -162,7 +162,7 @@ export function detectArchitecture(assetName: string): TReleaseArch {
 }
 
 export function parsePlatformHint(hint: string | null | undefined): TReleasePlatform {
-    const normalizedHint = (hint || '').toLowerCase();
+    const normalizedHint = (hint ?? '').toLowerCase();
 
     if (normalizedHint.includes('mac') || normalizedHint.includes('darwin')) {
         return 'macos';
@@ -180,7 +180,7 @@ export function parsePlatformHint(hint: string | null | undefined): TReleasePlat
 }
 
 export function parseArchitectureHint(hint: string | null | undefined): TReleaseArch {
-    const normalizedHint = (hint || '').toLowerCase();
+    const normalizedHint = (hint ?? '').toLowerCase();
 
     if (normalizedHint.includes('arm64') || normalizedHint.includes('aarch64')) {
         return 'arm64';
