@@ -11,6 +11,7 @@ import {
     makeTempPdfOutputPath,
     replaceTempOutput,
 } from '@electron/features/page-ops/main/temp-output';
+import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopy';
 
 const log = createLogger('page-ops-qpdf');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -113,6 +114,7 @@ export async function deletePages(
     }
 
     const qpdf = getQpdfBinary();
+    await ensureWorkingCopyDirectory(workingCopyPath);
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {
@@ -143,6 +145,7 @@ export async function reorderPages(
     newOrder: number[],
 ) {
     const qpdf = getQpdfBinary();
+    await ensureWorkingCopyDirectory(workingCopyPath);
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {
@@ -176,6 +179,7 @@ export async function rotatePages(
     angle: TRotationAngle,
 ) {
     const qpdf = getQpdfBinary();
+    await ensureWorkingCopyDirectory(workingCopyPath);
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
 
     try {
