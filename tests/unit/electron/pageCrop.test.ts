@@ -24,12 +24,15 @@ import {
     removeCropFromPages,
 } from '@electron/features/page-ops/main/crop';
 
+const mocks = vi.hoisted(() => ({ensureWorkingCopyDirectory: vi.fn()}));
+
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
 })}));
+vi.mock('@electron/ipc/workingCopy', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 
 async function createPdf(path: string, options?: { inheritedCropBox?: [number, number, number, number] }) {
     const pdfDoc = await PDFDocument.create();
@@ -50,6 +53,8 @@ describe('page crop operations', () => {
     let pdfPath = '';
 
     beforeEach(async () => {
+        vi.clearAllMocks();
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
         tempDir = await mkdtemp(join(tmpdir(), 'page-crop-test-'));
         pdfPath = join(tempDir, 'sample.pdf');
     });
@@ -123,5 +128,19 @@ describe('page crop operations', () => {
             left: 0,
             right: 0,
         })).rejects.toThrow('Invalid crop margins');
+    });
+
+    it('recovers the working-copy directory before local crop reads and writes', async () => {
+        await createPdf(pdfPath);
+
+        await cropPages(pdfPath, [1], {
+            top: 1,
+            bottom: 1,
+            left: 1,
+            right: 1,
+        });
+
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith(pdfPath);
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(2);
     });
 });
