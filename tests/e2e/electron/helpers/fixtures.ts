@@ -1,5 +1,6 @@
 import {
     existsSync,
+    copyFileSync,
     mkdirSync,
     readdirSync,
     readFileSync,
@@ -26,6 +27,8 @@ const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures'
 const TRACKED_PROJECT_FIXTURE_DIR = resolve(process.cwd(), 'tests', 'fixtures', 'electron');
 const LEGACY_PROJECT_FIXTURE_DIR = resolve(process.cwd(), '.devkit', 'test-pdfs');
 const PROJECT_ROOT_FIXTURE_DIR = resolve(process.cwd(), '.devkit');
+const LARGE_PDF_FIXTURE_ENV_VAR = 'EVB_E2E_LARGE_PDF_FIXTURE';
+const DEFAULT_LARGE_PDF_FIXTURE = 'large-pdf-fixtures/turkish-english-lexicon-letter-bookmarks.pdf';
 const DJVU_FIXTURE_ENV_VAR = 'EVB_E2E_DJVU_FIXTURE';
 const DJVU_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_DJVU_FIXTURE';
 const PDFJS_ERRORS_VERBOSITY = (
@@ -99,6 +102,32 @@ export function copyDevkitFixture(sourceRelativePath: string, targetFilename?: s
     }
     const targetPath = join(getFixtureDir(), targetFilename ?? basename(sourcePath));
     writeFileSync(targetPath, readFileSync(sourcePath));
+    return targetPath;
+}
+
+export function resolveLargePdfFixturePath() {
+    const overridePath = process.env[LARGE_PDF_FIXTURE_ENV_VAR]?.trim();
+    const candidatePath = overridePath
+        ? resolve(overridePath)
+        : resolve(PROJECT_ROOT_FIXTURE_DIR, DEFAULT_LARGE_PDF_FIXTURE);
+
+    if (!existsSync(candidatePath)) {
+        return null;
+    }
+    if (!statSync(candidatePath).isFile()) {
+        return null;
+    }
+    return candidatePath;
+}
+
+export function copyLargePdfFixture(targetFilename?: string) {
+    const sourcePath = resolveLargePdfFixturePath();
+    if (!sourcePath) {
+        throw new Error(`Large PDF fixture is not available. Set ${LARGE_PDF_FIXTURE_ENV_VAR} or place ${DEFAULT_LARGE_PDF_FIXTURE} under .devkit.`);
+    }
+    ensureFixtureDir();
+    const targetPath = join(getFixtureDir(), targetFilename ?? basename(sourcePath));
+    copyFileSync(sourcePath, targetPath);
     return targetPath;
 }
 

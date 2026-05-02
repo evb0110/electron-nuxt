@@ -163,8 +163,7 @@ function createHarness() {
         removeAnnotationFromCache: vi.fn(),
         markAnnotationDirty: vi.fn(),
         queuePendingEmbeddedAnnotationDelete: vi.fn(),
-        hasAnnotationChanges: vi.fn(() => false),
-        getSourcePdfData: vi.fn(async () => new Uint8Array([
+        getEmbeddedMutationBaseData: vi.fn(async () => new Uint8Array([
             6,
             6,
         ])),
@@ -472,13 +471,16 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.saveDocument).not.toHaveBeenCalled();
     });
 
-    it('materializes live PDF.js annotations before finalizing placed images', async () => {
+    it('uses planned embedded mutation bytes before finalizing placed images', async () => {
         const {
             deps,
             viewer,
             actions,
         } = createHarness();
-        deps.hasAnnotationChanges.mockReturnValue(true);
+        deps.getEmbeddedMutationBaseData.mockResolvedValueOnce(new Uint8Array([
+            9,
+            9,
+        ]));
 
         await actions.handleFinalizePlacedImage({
             pageNumber: 4,
@@ -498,7 +500,7 @@ describe('usePageAnnotationActions', () => {
             targetPixelHeight: 120,
         });
 
-        expect(viewer.saveDocument).toHaveBeenCalledOnce();
+        expect(viewer.saveDocument).not.toHaveBeenCalled();
         expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(new Uint8Array([
             9,
             9,
@@ -600,13 +602,16 @@ describe('usePageAnnotationActions', () => {
         expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
     });
 
-    it('materializes live PDF.js annotations before embedded stamp delete reloads', async () => {
+    it('uses planned embedded mutation bytes before embedded stamp delete reloads', async () => {
         const {
             deps,
             viewer,
             actions,
         } = createHarness();
-        deps.hasAnnotationChanges.mockReturnValue(true);
+        deps.getEmbeddedMutationBaseData.mockResolvedValueOnce(new Uint8Array([
+            9,
+            9,
+        ]));
         const comment = createComment('stamp-delete-with-live-edits');
         comment.source = 'editor';
         comment.annotationId = '12R0';
@@ -614,7 +619,7 @@ describe('usePageAnnotationActions', () => {
 
         await actions.handleDeleteAnnotationComment(comment);
 
-        expect(viewer.saveDocument).toHaveBeenCalledOnce();
+        expect(viewer.saveDocument).not.toHaveBeenCalled();
         expect(deleteEmbeddedAnnotationOffThread).toHaveBeenCalledWith(new Uint8Array([
             9,
             9,
