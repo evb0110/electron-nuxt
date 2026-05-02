@@ -12,6 +12,10 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useFileOperations } from '@app/composables/useFileOperations';
 
+const toastAddMock = vi.fn();
+
+vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
+
 function cast<T>(value: unknown): T {
     return value as T;
 }
@@ -92,6 +96,7 @@ function createDeps() {
 describe('useFileOperations', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        toastAddMock.mockClear();
     });
 
     it('serializes and saves document when there are unsaved annotation/page/bookmark changes', async () => {
@@ -176,7 +181,7 @@ describe('useFileOperations', () => {
         expect(deps.saveFile).toHaveBeenCalledOnce();
     });
 
-    it('uses PDF.js saveDocument for editor-only notes without an annotation id', async () => {
+    it('serializes replayable editor-only notes without an annotation id from source bytes', async () => {
         const { deps } = createDeps();
         deps.annotationDirty.value = true;
         deps.annotationComments.value = [{
@@ -206,12 +211,12 @@ describe('useFileOperations', () => {
         const { handleSave } = useFileOperations(deps);
         await handleSave();
 
-        expect(deps.saveDocument).toHaveBeenCalledOnce();
-        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         expect(deps.saveFile).toHaveBeenCalledOnce();
     });
 
-    it('uses PDF.js saveDocument for editor-only notes with temporary annotation ids', async () => {
+    it('serializes replayable editor-only notes with temporary annotation ids from source bytes', async () => {
         const { deps } = createDeps();
         deps.annotationDirty.value = true;
         deps.annotationComments.value = [{
@@ -241,8 +246,8 @@ describe('useFileOperations', () => {
         const { handleSave } = useFileOperations(deps);
         await handleSave();
 
-        expect(deps.saveDocument).toHaveBeenCalledOnce();
-        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         expect(deps.saveFile).toHaveBeenCalledOnce();
     });
 
