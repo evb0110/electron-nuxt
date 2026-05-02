@@ -43,6 +43,11 @@ type TSerializationWorkerRequest<K extends TSerializationWorkerRequestType = TSe
 type TSerializationWorkerResult = TBrowserWorkerResult<Uint8Array | null>;
 
 const SERIALIZATION_WORKER_IDLE_TTL_MS = 15_000;
+// Hard ceiling for any single serialization request. If the worker does not
+// reply within this window we assume it is wedged (silent throw, lost
+// postMessage, deadlock) and reject the renderer's await so the save flow
+// surfaces an error instead of an indefinite spinner.
+const SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS = 30_000;
 
 function toTransferableUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
     // Never transfer the caller's live buffer into the worker. The save path
@@ -179,15 +184,44 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
 
     return new Promise<Uint8Array | null>((resolve, reject) => {
         serializationWorkerClient.clearIdleTerminateTimer();
+
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        const clearRequestTimeout = () => {
+            if (timeoutHandle !== null) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = null;
+            }
+        };
+
         serializationWorkerClient.pendingRequests.set(request.id, {
-            resolve,
-            reject,
+            resolve: (value) => {
+                clearRequestTimeout();
+                resolve(value);
+            },
+            reject: (reason) => {
+                clearRequestTimeout();
+                reject(reason);
+            },
         });
+
+        timeoutHandle = setTimeout(() => {
+            timeoutHandle = null;
+            if (!serializationWorkerClient.pendingRequests.delete(request.id)) {
+                return;
+            }
+            if (serializationWorkerClient.isActiveWorker(worker)) {
+                serializationWorkerClient.resetWorker();
+            }
+            reject(new Error(
+                `PDF serialization worker did not reply within ${SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS}ms (type=${request.type})`,
+            ));
+        }, SERIALIZATION_WORKER_REQUEST_TIMEOUT_MS);
 
         try {
             const workerRequest = buildWorkerRequestWithTransfers(request);
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
+            clearRequestTimeout();
             serializationWorkerClient.pendingRequests.delete(request.id);
             reject(error instanceof Error ? error : new Error(String(error)));
         }

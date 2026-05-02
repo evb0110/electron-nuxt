@@ -177,6 +177,70 @@ describe('pdfSerializationWorkerClient', () => {
         expect(terminateSpy).toHaveBeenCalledTimes(1);
     });
 
+    it('times out and falls back to direct execution when the worker never replies', async () => {
+        vi.useFakeTimers();
+        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
+        // Override postMessage so the worker silently swallows the request
+        // (simulates the regression where the worker hung indefinitely
+        // and the renderer await never settled).
+        const originalPostMessage = FakeWorker.prototype.postMessage;
+        FakeWorker.prototype.postMessage = function silentPostMessage(
+            message: unknown,
+            transfer: Transferable[],
+        ) {
+            this.postMessageCalls.push({
+                message,
+                transfer,
+            });
+        };
+
+        try {
+            const { serializePdfEditsOffThread } = await import('@app/composables/pdf/pdfSerializationWorkerClient');
+
+            const data = new Uint8Array([
+                1,
+                2,
+                3,
+            ]);
+            const payload: IPdfSerializationSavePayload = {
+                markupSubtypeOverrides: [],
+                markupSubtypeHints: [],
+                rewriteShapeState: false,
+                shapes: [],
+                deletedShapeAnnotationIds: [],
+                deletedShapeStableKeys: [],
+                freeTextComments: [],
+                annotationComments: [],
+                pendingEmbeddedTextUpdates: [],
+                pendingEmbeddedAnnotationDeletes: [],
+                pageLabelsDirty: false,
+                pageLabelRanges: [],
+                totalPages: 0,
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: '',
+                placedImage: null,
+            };
+
+            const pending = serializePdfEditsOffThread(data, payload);
+
+            // Advance past the 30s hard ceiling — without the timeout fix
+            // this promise would hang forever.
+            await vi.advanceTimersByTimeAsync(30_000);
+            await vi.runAllTimersAsync();
+
+            // The catch-handler falls back to direct execution; with an
+            // empty payload (no save work) it returns the original bytes.
+            const result = await pending;
+            expect(result).toEqual(data);
+            // The wedged worker is torn down so subsequent saves get a
+            // fresh instance.
+            expect(terminateSpy).toHaveBeenCalled();
+        } finally {
+            FakeWorker.prototype.postMessage = originalPostMessage;
+        }
+    });
+
     it('yields around direct fallback work when workers are unavailable', async () => {
         vi.unstubAllGlobals();
         vi.stubGlobal('window', {});
