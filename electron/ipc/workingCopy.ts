@@ -81,7 +81,7 @@ function pruneRetiredWorkingCopyOriginals() {
     }
 }
 
-function getMappedOriginalPath(workingPath: string) {
+export function getWorkingCopyOriginalPath(workingPath: string) {
     const activeOriginalPath = workingCopyMap.get(workingPath);
     if (activeOriginalPath) {
         return {
@@ -358,7 +358,7 @@ export async function ensureWorkingCopyDirectory(workingPath: string) {
     if (!normalizedWorkingPath) {
         throw new Error('Invalid file path');
     }
-    const mapping = getMappedOriginalPath(normalizedWorkingPath);
+    const mapping = getWorkingCopyOriginalPath(normalizedWorkingPath);
     if (!mapping) {
         return false;
     }
@@ -405,7 +405,7 @@ export async function handleFileSave(
     }
 
     const normalizedWorkingPath = workingPath.trim();
-    const originalPath = getMappedOriginalPath(normalizedWorkingPath)?.originalPath;
+    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath)?.originalPath;
 
     if (!originalPath) {
         throw new Error('No original path found for this working copy');

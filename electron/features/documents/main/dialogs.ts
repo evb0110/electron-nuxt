@@ -32,6 +32,8 @@ import {
     createWorkingCopy,
     createWorkingCopyFromData,
     createWorkingCopyFromPath,
+    ensureWorkingCopyDirectory,
+    getWorkingCopyOriginalPath,
     isKnownWorkingCopyOriginalPath,
     workingCopyMap,
 } from '@electron/ipc/workingCopy';
@@ -494,11 +496,12 @@ export async function handleSavePdfAs(
         throw new Error('Invalid file type: only PDF files are allowed');
     }
 
+    await ensureWorkingCopyDirectory(normalizedWorkingPath);
     if (!existsSync(normalizedWorkingPath)) {
         throw new Error(`File not found: ${normalizedWorkingPath}`);
     }
 
-    const originalPath = workingCopyMap.get(normalizedWorkingPath);
+    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath)?.originalPath;
     const suggestedName = originalPath
         ? basename(originalPath)
         : basename(normalizedWorkingPath);
