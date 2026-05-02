@@ -150,11 +150,14 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     }
 
     function suppressBrowserDefaultForConflictingAccelerator(event: KeyboardEvent) {
-        // These accelerators must NEVER reach Chromium's built-in handlers
-        // (Save Page As, Print, Open File). The browser default fires
-        // synchronously inside this keydown unless we preventDefault here,
-        // before any gating on workspace state. Suppression is independent
-        // of whether we end up running our own handler.
+        // Web-only: stop Chromium's built-in handlers (Save Page As, Print,
+        // Open File) from hijacking these accelerators. On Electron the
+        // OS menu accelerator delivers these shortcuts via menu:save / menu:print
+        // IPC and we MUST NOT preventDefault here — doing so suppresses
+        // the menu accelerator and makes Cmd+S a no-op in the desktop app.
+        if (!shouldHandleRendererMenuAccelerators()) {
+            return;
+        }
         if (!eventHasCommandModifier(event) || event.altKey) {
             return;
         }
