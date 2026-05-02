@@ -93,7 +93,7 @@ function clampZoomLevel(level: number) {
  * Keeping this mapping centralized avoids duplicating command wiring in component files.
  */
 export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorkspaceExpose {
-    const getToolbarSnapshot = (): IWorkspaceToolbarSnapshot => {
+    function getToolbarSnapshot(): IWorkspaceToolbarSnapshot {
         const currentPage = normalizeToolbarSnapshotPage(deps.currentPage.value);
         const totalPages = normalizeToolbarSnapshotTotalPages(deps.totalPages.value, currentPage);
         return {
@@ -126,7 +126,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             currentPage,
             totalPages,
         };
-    };
+    }
 
     function resolveDisplayZoom() {
         if (Number.isFinite(deps.effectiveZoom.value) && deps.effectiveZoom.value > 0) {
