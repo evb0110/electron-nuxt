@@ -217,6 +217,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         setAnnotationNoteWindowError,
         isSameAnnotationComment,
         consumePendingEmbeddedTextUpdates,
+        restorePendingEmbeddedTextUpdates,
     } = annotationSession;
 
     const pendingEmbeddedAnnotationDeletes = new Map<string, IAnnotationCommentSummary>();
@@ -235,6 +236,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         return deletions;
     }
 
+    function restorePendingEmbeddedAnnotationDeletes(deletions: IAnnotationCommentSummary[] | null | undefined) {
+        deletions?.forEach((comment) => {
+            if (!pendingEmbeddedAnnotationDeletes.has(comment.stableKey)) {
+                pendingEmbeddedAnnotationDeletes.set(comment.stableKey, comment);
+            }
+        });
+    }
+
     watch(workingCopyPath, () => {
         pendingEmbeddedAnnotationDeletes.clear();
     });
@@ -243,6 +252,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationDirty.value
         || isDirty.value
         || hasAnnotationChanges()
+        || pendingEmbeddedAnnotationDeletes.size > 0
         || pageLabelsDirty.value
         || bookmarksDirty.value
     ));
@@ -283,7 +293,9 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         saveWorkingCopyAs,
         persistAllAnnotationNotes: (force: boolean) => persistAllAnnotationNotes(force),
         consumePendingEmbeddedTextUpdates: () => consumePendingEmbeddedTextUpdates(),
+        restorePendingEmbeddedTextUpdates: updates => restorePendingEmbeddedTextUpdates(updates),
         consumePendingEmbeddedAnnotationDeletes: () => consumePendingEmbeddedAnnotationDeletes(),
+        restorePendingEmbeddedAnnotationDeletes: deletions => restorePendingEmbeddedAnnotationDeletes(deletions),
         loadRecentFiles: () => {
             void loadRecentFiles();
         },

@@ -20,7 +20,10 @@ import {
     resolveAllowedReadPath,
     resolveAllowedWritePath,
 } from '@electron/utils/path-validator';
-import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
+import {
+    ensureWorkingCopyDirectory,
+    findWorkingCopyPathByOriginalPath,
+} from '@electron/ipc/workingCopy';
 import { isAllowedDjvuViewingPath } from '@electron/djvu/viewing';
 import { consumeAllowedDocxWritePath } from '@electron/ipc/docxExportPaths';
 import { MAX_CHUNK } from '@electron/config/constants';
@@ -249,6 +252,7 @@ export async function handleFileWrite(
         throw new Error('Invalid file path: writes only allowed within temp directory');
     }
 
+    await ensureWorkingCopyDirectory(resolvedPath);
     await writeFile(resolvedPath, payload);
     return true;
 }

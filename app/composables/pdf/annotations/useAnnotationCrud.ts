@@ -714,7 +714,15 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         const inlineIndicators = getInlineIndicators();
 
         const resolvedComment = resolveCommentForDelete(comment) ?? comment;
-        const editor = findEditorForComment(resolvedComment) ?? findEditorForComment(comment);
+        const preferredPageIndex = Number.isFinite(resolvedComment.pageIndex)
+            ? resolvedComment.pageIndex
+            : comment.pageIndex;
+        const editor = findEditorForComment(resolvedComment)
+            ?? findEditorForComment(comment)
+            ?? (resolvedComment.annotationId ? findPopupModeDeleteEditor(preferredPageIndex, resolvedComment) : null)
+            ?? (comment.annotationId ? findPopupModeDeleteEditor(comment.pageIndex, comment) : null)
+            ?? findEditorByMarkerRect(resolvedComment, preferredPageIndex)
+            ?? findEditorByMarkerRect(comment, comment.pageIndex);
         if (!editor) {
             logMissingEditorForCommentUpdate(comment, resolvedComment);
             return false;

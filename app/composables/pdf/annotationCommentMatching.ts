@@ -48,10 +48,20 @@ export function annotationCommentEditScore(comment: IAnnotationCommentSummary) {
     return score;
 }
 
+function hasStablePdfAnnotationKey(comment: IAnnotationCommentSummary) {
+    return /^ann:\d+:\d+R(?:\d+)?$/u.test(comment.stableKey);
+}
+
 export function selectPreferredAnnotationComment(
     left: IAnnotationCommentSummary,
     right: IAnnotationCommentSummary,
 ) {
+    const leftHasStablePdfKey = hasStablePdfAnnotationKey(left);
+    const rightHasStablePdfKey = hasStablePdfAnnotationKey(right);
+    if (leftHasStablePdfKey !== rightHasStablePdfKey) {
+        return leftHasStablePdfKey ? left : right;
+    }
+
     // When one side has a stable PDF annotation reference and the other does not,
     // always prefer the stable reference to avoid keeping stale editor-only ids.
     if (left.annotationId && !right.annotationId) {

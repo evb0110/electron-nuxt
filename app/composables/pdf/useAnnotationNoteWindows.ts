@@ -165,9 +165,19 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             annotationNoteDebounceTimers.delete(previousKey);
             previousDebouncer.stableKey = nextKey;
             annotationNoteDebounceTimers.set(nextKey, previousDebouncer);
-            return;
+        } else {
+            clearAnnotationNoteDebouncedSaver(previousKey);
         }
-        clearAnnotationNoteDebouncedSaver(previousKey);
+
+        if (pendingEmbeddedTextUpdates.has(previousKey) && !pendingEmbeddedTextUpdates.has(nextKey)) {
+            const pendingText = pendingEmbeddedTextUpdates.get(previousKey);
+            pendingEmbeddedTextUpdates.delete(previousKey);
+            if (typeof pendingText === 'string') {
+                pendingEmbeddedTextUpdates.set(nextKey, pendingText);
+            }
+        } else if (pendingEmbeddedTextUpdates.has(previousKey)) {
+            pendingEmbeddedTextUpdates.delete(previousKey);
+        }
     }
 
     function bringAnnotationNoteToFront(stableKey: string) {
@@ -368,9 +378,10 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         targetComment: IAnnotationCommentSummary,
         nextText: string,
     ) {
-        pendingEmbeddedTextUpdates.set(stableKey, nextText);
+        const pendingKey = targetComment.stableKey || stableKey;
+        pendingEmbeddedTextUpdates.set(pendingKey, nextText);
         BrowserLogger.debug('annotations', 'Deferred embedded note text update to serialization pipeline', {
-            stableKey,
+            stableKey: pendingKey,
             source: targetComment.source,
             annotationId: targetComment.annotationId ?? null,
         });
@@ -419,6 +430,12 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             note.text = latest.text || '';
             note.lastSavedText = latest.text || '';
         }
+    }
+
+    function shouldMirrorAnnotationNoteToEmbeddedSerialization(
+        targetComment: IAnnotationCommentSummary,
+    ) {
+        return targetComment.source === 'pdf' && Boolean(targetComment.annotationId);
     }
 
     function shouldSkipAnnotationNotePersistence(
@@ -506,6 +523,9 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             }
 
             targetComment = savedTargetComment;
+            if (shouldMirrorAnnotationNoteToEmbeddedSerialization(targetComment)) {
+                deferEmbeddedAnnotationNoteUpdate(stableKey, targetComment, nextText);
+            }
             updateAnnotationNoteSavedState(note, targetComment, nextText);
             return true;
         } finally {
@@ -833,6 +853,14 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         return updates;
     }
 
+    function restorePendingEmbeddedTextUpdates(updates: Map<string, string> | null | undefined) {
+        updates?.forEach((text, stableKey) => {
+            if (!pendingEmbeddedTextUpdates.has(stableKey)) {
+                pendingEmbeddedTextUpdates.set(stableKey, text);
+            }
+        });
+    }
+
     return {
         annotationNoteWindows,
         annotationNotePositions,
@@ -856,5 +884,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         findMatchingAnnotationComment,
         selectPreferredAnnotationComment,
         consumePendingEmbeddedTextUpdates,
+        restorePendingEmbeddedTextUpdates,
     };
 };

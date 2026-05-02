@@ -1,15 +1,14 @@
 import {
     PDFArray,
+    PDFDict,
     PDFDocument,
     PDFHexString,
     PDFName,
     PDFNumber,
+    PDFRef,
+    PDFString,
     degrees,
     drawImage,
-} from 'pdf-lib';
-import type {
-    PDFDict,
-    PDFRef,
 } from 'pdf-lib';
 import type {
     IAnnotationCommentSummary,
@@ -35,6 +34,7 @@ import {
 import {
     getPdfDictContents,
     getPdfDictSubtype,
+    getPdfStringValue,
 } from '@app/utils/pdf-dict';
 import {
     collectAnnotationRefsToDelete,
@@ -45,6 +45,7 @@ import {
     formatPdfJsAnnotationRef,
     normalizeManagedShapeStableKey,
     normalizePdfJsAnnotationId,
+    parsePdfJsAnnotationRef,
     readManagedShapeStableKey,
     resolveCommentPdfRefInDocument,
     writeManagedShapeStableKey,
@@ -60,6 +61,7 @@ import {
     readPdfRectFromDict,
     resolvePdfPageView,
 } from '@app/composables/pdf/pdfPageBoxes';
+import { toPdfDateString } from '@app/utils/pdf-date';
 import {
     computePointsMinMax,
     iterateAnnotationRefDicts,
@@ -132,21 +134,43 @@ function setRgbColor(
     key: 'C' | 'IC',
     color: string | undefined,
 ) {
-    if (!color || color === 'transparent' || color === 'none') {
+    const rgb = parsePdfColor(color);
+    if (!rgb) {
         annotDict.delete(PDFName.of(key));
         return;
     }
 
-    const [
-        red,
-        green,
-        blue,
-    ] = parseHexColor(color);
     annotDict.set(PDFName.of(key), doc.context.obj([
-        red,
-        green,
-        blue,
+        rgb[0],
+        rgb[1],
+        rgb[2],
     ]));
+}
+
+function parsePdfColor(color: string | undefined): [number, number, number] | null {
+    if (!color || color === 'transparent' || color === 'none') {
+        return null;
+    }
+
+    const trimmed = color.trim();
+    if (/^#[\da-f]{3}(?:[\da-f]{3})?$/iu.test(trimmed)) {
+        return parseHexColor(trimmed);
+    }
+
+    const rgbMatch = trimmed.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/iu);
+    if (!rgbMatch) {
+        return null;
+    }
+
+    const values = rgbMatch.slice(1, 4).map(value => Math.max(0, Math.min(255, Number(value))) / 255);
+    if (values.some(value => !Number.isFinite(value))) {
+        return null;
+    }
+    return [
+        values[0]!,
+        values[1]!,
+        values[2]!,
+    ];
 }
 
 function setOpacity(annotDict: PDFDict, opacity: number) {
@@ -1204,6 +1228,149 @@ function applyFreeTextNoteRects(doc: PDFDocument, comments: IAnnotationCommentSu
     return modified;
 }
 
+function isReplayableNewFreeTextNoteComment(comment: IAnnotationCommentSummary) {
+    const subtype = comment.subtype?.trim().toLowerCase();
+    return comment.source === 'editor'
+        && !parsePdfJsAnnotationRef(comment.annotationId)
+        && Boolean(comment.hasNote)
+        && Boolean(comment.markerRect)
+        && (subtype === 'freetext' || subtype === 'typewriter');
+}
+
+function createBlankAppearanceRef(doc: PDFDocument) {
+    return doc.context.register(doc.context.formXObject([], {}));
+}
+
+function getReplayableNewFreeTextNoteName(comment: IAnnotationCommentSummary) {
+    const rawKey = comment.stableKey || comment.uid || comment.id || comment.annotationId;
+    return rawKey ? `evb-note:${rawKey}` : null;
+}
+
+function findExistingReplayableNewFreeTextNote(
+    doc: PDFDocument,
+    annots: PDFArray | undefined,
+    noteName: string | null,
+) {
+    if (!annots || !noteName) {
+        return null;
+    }
+
+    const nameKey = PDFName.of('NM');
+    for (const {
+        dict,
+        ref,
+    } of iterateAnnotationRefDicts(doc, annots)) {
+        const name = getPdfStringValue(dict.get(nameKey));
+        if (name === noteName) {
+            return {
+                dict,
+                ref,
+            };
+        }
+    }
+    return null;
+}
+
+function resolvePopupRefForAnnotation(doc: PDFDocument, annotDict: PDFDict) {
+    const popupValue = annotDict.get(PDFName.of('Popup'));
+    if (popupValue instanceof PDFRef && doc.context.lookupMaybe(popupValue, PDFDict)) {
+        return popupValue;
+    }
+    return null;
+}
+
+function applyNewFreeTextNoteAnnotations(doc: PDFDocument, comments: IAnnotationCommentSummary[]) {
+    const candidates = comments.filter(isReplayableNewFreeTextNoteComment);
+    if (candidates.length === 0) {
+        return false;
+    }
+
+    let modified = false;
+    const modifiedAt = toPdfDateString(new Date());
+    let blankApRef: PDFRef | null = null;
+    const commentsByPage = new Map<number, IAnnotationCommentSummary[]>();
+    candidates.forEach((comment) => {
+        const pageComments = commentsByPage.get(comment.pageIndex) ?? [];
+        pageComments.push(comment);
+        commentsByPage.set(comment.pageIndex, pageComments);
+    });
+
+    commentsByPage.forEach((pageComments, pageIndex) => {
+        const page = doc.getPages()[pageIndex];
+        if (!page) {
+            return;
+        }
+        const context = resolveShapePageContext(page);
+        if (!context) {
+            return;
+        }
+
+        pageComments.forEach((comment) => {
+            if (!isAnnotationMarkerRect(comment.markerRect)) {
+                return;
+            }
+
+            const pdfRect = toPdfRectFromMarkerRect(
+                comment.markerRect,
+                context.pageView,
+                context.pageRotation,
+            );
+            if (!pdfRect) {
+                return;
+            }
+
+            if (!blankApRef) {
+                blankApRef = createBlankAppearanceRef(doc);
+            }
+
+            const noteName = getReplayableNewFreeTextNoteName(comment);
+            const existing = findExistingReplayableNewFreeTextNote(doc, page.node.Annots(), noteName);
+            const annotDict = existing?.dict ?? doc.context.obj({
+                Type: PDFName.of('Annot'),
+                Subtype: PDFName.of('FreeText'),
+                F: PDFNumber.of(4),
+            });
+            annotDict.set(PDFName.of('Rect'), toPdfRectArray(doc, pdfRect));
+            annotDict.set(PDFName.of('Contents'), PDFHexString.fromText(comment.text ?? ''));
+            annotDict.set(PDFName.of('M'), PDFString.of(modifiedAt));
+            annotDict.set(PDFName.of('T'), PDFHexString.fromText(comment.author || ''));
+            annotDict.set(PDFName.of('AP'), doc.context.obj({ N: blankApRef }));
+            if (noteName) {
+                annotDict.set(PDFName.of('NM'), PDFHexString.fromText(noteName));
+            }
+            setRgbColor(annotDict, doc, 'C', comment.color ?? undefined);
+            setRgbColor(annotDict, doc, 'IC', comment.color ?? undefined);
+
+            const annotRef = existing?.ref ?? doc.context.register(annotDict);
+            const existingPopupRef = resolvePopupRefForAnnotation(doc, annotDict);
+            const popupDict = existingPopupRef
+                ? doc.context.lookup(existingPopupRef, PDFDict)
+                : doc.context.obj({
+                    Type: PDFName.of('Annot'),
+                    Subtype: PDFName.of('Popup'),
+                    F: PDFNumber.of(28),
+                });
+            popupDict.set(PDFName.of('Parent'), annotRef);
+            popupDict.set(PDFName.of('Rect'), toPdfRectArray(doc, pdfRect));
+            popupDict.set(PDFName.of('Contents'), PDFHexString.fromText(comment.text ?? ''));
+            popupDict.set(PDFName.of('M'), PDFString.of(modifiedAt));
+            popupDict.set(PDFName.of('T'), PDFHexString.fromText(comment.author || ''));
+            const popupRef = existingPopupRef ?? doc.context.register(popupDict);
+            annotDict.set(PDFName.of('Popup'), popupRef);
+
+            if (!existing) {
+                appendAnnotationRefToPage(page, doc, annotRef);
+            }
+            if (!existingPopupRef) {
+                appendAnnotationRefToPage(page, doc, popupRef);
+            }
+            modified = true;
+        });
+    });
+
+    return modified;
+}
+
 function applyEmbeddedNoteTextUpdates(
     doc: PDFDocument,
     comments: IAnnotationCommentSummary[],
@@ -1450,6 +1617,7 @@ export async function serializePdfEdits(
     ) || modified;
     modified = applyEmbeddedAnnotationDeletes(doc, payload.pendingEmbeddedAnnotationDeletes) || modified;
     modified = applyFreeTextNoteRects(doc, payload.freeTextComments) || modified;
+    modified = applyNewFreeTextNoteAnnotations(doc, payload.freeTextComments) || modified;
     modified = applyEmbeddedNoteTextUpdates(doc, payload.annotationComments, payload.pendingEmbeddedTextUpdates) || modified;
     modified = applyPageLabels(doc, payload.pageLabelsDirty, payload.pageLabelRanges, payload.totalPages) || modified;
     modified = applyBookmarks(

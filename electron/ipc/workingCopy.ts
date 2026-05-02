@@ -49,6 +49,15 @@ const STALE_WORK_DIR_SCAN_LIMIT = (() => {
 
 export const workingCopyMap = new Map<string, string>();
 
+export class WorkingCopyMissingError extends Error {
+    code = 'WORKING_COPY_MISSING';
+
+    constructor(message = 'Working copy is no longer available') {
+        super(message);
+        this.name = 'WorkingCopyMissingError';
+    }
+}
+
 function isAllowedOriginalSavePath(path: string) {
     if (!isAbsolute(path)) {
         return false;
@@ -290,6 +299,44 @@ export async function createWorkingCopyFromData(
     }
 }
 
+export async function ensureWorkingCopyDirectory(workingPath: string) {
+    const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
+    if (!normalizedWorkingPath) {
+        throw new Error('Invalid file path');
+    }
+    const originalPath = workingCopyMap.get(normalizedWorkingPath);
+    if (!originalPath) {
+        return false;
+    }
+
+    const tempDir = resolve(app.getPath('temp'));
+    const parentDir = resolve(dirname(normalizedWorkingPath));
+    const relativePath = relative(tempDir, parentDir);
+    const isWithinTemp = (
+        relativePath !== '..'
+        && !relativePath.startsWith(`..${sep}`)
+        && !isAbsolute(relativePath)
+    );
+    if (!isWithinTemp || !isWorkingCopyDirectoryName(basename(parentDir))) {
+        throw new WorkingCopyMissingError('Working copy path is not a managed temp working directory');
+    }
+
+    if (existsSync(parentDir) && existsSync(normalizedWorkingPath)) {
+        return true;
+    }
+    if (!existsSync(originalPath)) {
+        throw new WorkingCopyMissingError('Working copy directory was removed and the original file is unavailable');
+    }
+
+    mkdirSync(parentDir, { recursive: true });
+    await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+    if (normalizedWorkingPath.toLowerCase().endsWith('.pdf')) {
+        await decryptPdfFileIfNeeded(normalizedWorkingPath);
+    }
+    logger.warn(`Recreated missing working copy directory for "${normalizedWorkingPath}"`);
+    return true;
+}
+
 export async function handleFileSave(
     _event: Electron.IpcMainInvokeEvent,
     workingPath: string,
@@ -309,6 +356,7 @@ export async function handleFileSave(
     }
 
     try {
+        await ensureWorkingCopyDirectory(normalizedWorkingPath);
         await copyFile(normalizedWorkingPath, originalPath);
         return true;
     } catch (err) {

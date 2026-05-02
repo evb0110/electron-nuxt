@@ -79,10 +79,13 @@ export function hasAnnotationChanges(deps: IHasAnnotationChangesDeps) {
         // PDF.js keeps modified annotation IDs in an internal set-like structure.
         const modifiedIds = storage.modifiedIds?.ids;
         if (modifiedIds && typeof modifiedIds.size === 'number') {
-            return modifiedIds.size > 0;
+            if (modifiedIds.size > 0) {
+                return true;
+            }
         }
 
-        return false;
+        const serializableMap = storage.serializable?.map;
+        return serializableMap instanceof Map && serializableMap.size > 0;
     } catch (error) {
         BrowserLogger.debug('workspace', 'Failed to inspect annotation storage dirty state', error);
         return false;

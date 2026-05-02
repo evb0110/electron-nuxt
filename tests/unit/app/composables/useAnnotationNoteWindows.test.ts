@@ -4,7 +4,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    nextTick,
+    ref,
+} from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { useAnnotationNoteWindows } from '@app/composables/pdf/useAnnotationNoteWindows';
 
@@ -71,6 +74,71 @@ describe('useAnnotationNoteWindows', () => {
 
         expect(saved).toBe(true);
         expect(note.lastSavedText).toBe('Updated text');
+    });
+
+    it('mirrors existing PDF note saves into the embedded serialization pipeline', () => {
+        const comment = createComment({
+            id: '3856R',
+            stableKey: 'ann:0:3856R',
+            annotationId: '3856R',
+            uid: null,
+            source: 'pdf',
+            text: 'Initial note',
+        });
+        const { windows } = createHarness(comment);
+
+        windows.handleOpenAnnotationNote(comment);
+        const note = windows.findAnnotationNoteWindow('ann:0:3856R');
+        expect(note).not.toBeNull();
+        if (!note) {
+            return;
+        }
+
+        note.text = 'Updated PDF note';
+        const saved = windows.persistAnnotationNote('ann:0:3856R', false);
+
+        expect(saved).toBe(true);
+        expect(note.lastSavedText).toBe('Updated PDF note');
+        const pending = windows.consumePendingEmbeddedTextUpdates();
+        expect(pending?.get('ann:0:3856R')).toBe('Updated PDF note');
+    });
+
+    it('migrates pending embedded text when a note window resolves to a new stable key', async () => {
+        const initialComment = createComment({
+            id: 'runtime-note',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: '3856R',
+            uid: 'pdfjs_internal_editor_0',
+            source: 'pdf',
+            text: 'Initial note',
+        });
+        const {
+            deps,
+            windows,
+        } = createHarness(initialComment);
+
+        windows.handleOpenAnnotationNote(initialComment);
+        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
+        expect(note).not.toBeNull();
+        if (!note) {
+            return;
+        }
+
+        note.text = 'Updated PDF note';
+        expect(windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', false)).toBe(true);
+
+        deps.annotationComments.value = [createComment({
+            ...initialComment,
+            id: '3856R',
+            stableKey: 'ann:0:3856R',
+            uid: null,
+            text: 'Updated PDF note',
+        })];
+        await nextTick();
+
+        const pending = windows.consumePendingEmbeddedTextUpdates();
+        expect(pending?.has('uid:0:pdfjs_internal_editor_0')).toBe(false);
+        expect(pending?.get('ann:0:3856R')).toBe('Updated PDF note');
     });
 
     it('defers embedded text update to serialization pipeline when auto path fails', () => {

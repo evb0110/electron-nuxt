@@ -15,7 +15,24 @@ import { withTimeout } from 'es-toolkit/promise';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { useAnalytics } from '@app/composables/useAnalytics';
-import { parsePdfJsAnnotationRef } from '@app/composables/pdf/pdfSerializationRefs';
+import {
+    normalizePdfJsAnnotationId,
+    parsePdfJsAnnotationRef,
+} from '@app/composables/pdf/pdfSerializationRefs';
+import { getErrorMessage } from '@app/utils/error';
+import { buildPdfAnnotationSavePlan } from '@app/services/pdf-save/pdfAnnotationSavePlanner';
+
+class SaveDocumentTimeoutError extends Error {
+    constructor() {
+        super('PDF.js saveDocument timed out');
+        this.name = 'SaveDocumentTimeoutError';
+    }
+}
+
+interface ISerializationBasePdfBytesOptions {
+    pendingDeletes?: IAnnotationCommentSummary[] | null;
+    pendingTexts?: Map<string, string> | null;
+}
 
 export interface IFileOperationsDeps {
     isSaving: Ref<boolean>;
@@ -49,7 +66,9 @@ export interface IFileOperationsDeps {
     ) => Promise<Uint8Array>;
     persistAllAnnotationNotes: (force: boolean) => Promise<boolean>;
     consumePendingEmbeddedTextUpdates: () => Map<string, string> | null;
+    restorePendingEmbeddedTextUpdates?: (updates: Map<string, string> | null | undefined) => void;
     consumePendingEmbeddedAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
+    restorePendingEmbeddedAnnotationDeletes?: (deletions: IAnnotationCommentSummary[] | null | undefined) => void;
     annotationNoteWindowsCount: Ref<number>;
     loadRecentFiles: () => void;
     preparePostSaveReload?: () => {
@@ -65,6 +84,8 @@ export interface IFileOperationsDeps {
 
 export const useFileOperations = (deps: IFileOperationsDeps) => {
     const analytics = useAnalytics();
+    const { t } = useTypedI18n();
+    const toast = useToast();
     const {
         isSaving,
         isSavingAs,
@@ -89,7 +110,9 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         serializePdfForSave,
         persistAllAnnotationNotes,
         consumePendingEmbeddedTextUpdates,
+        restorePendingEmbeddedTextUpdates,
         consumePendingEmbeddedAnnotationDeletes,
+        restorePendingEmbeddedAnnotationDeletes,
         annotationNoteWindowsCount,
         loadRecentFiles,
         preparePostSaveReload,
@@ -104,31 +127,102 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return workingCopyPath.value?.split(/[\\/]/u).pop() ?? undefined;
     }
 
-    function hasLivePdfJsAnnotationChanges() {
+    function collectLivePdfJsAnnotationChangeIds() {
         const document = pdfDocument.value;
         if (!document) {
-            return false;
+            return {
+                ids: new Set<string>(),
+                hasChanges: false,
+                hasUnknownChanges: false,
+            };
+        }
+
+        function getExistingPdfAnnotationIdFromStorageValue(value: unknown) {
+            if (!value || typeof value !== 'object') {
+                return null;
+            }
+
+            for (const property of [
+                'annotationElementId',
+                'annotationId',
+                'id',
+                'parentId',
+            ]) {
+                const candidate = (value as Record<string, unknown>)[property];
+                if (typeof candidate !== 'string') {
+                    continue;
+                }
+                if (parsePdfJsAnnotationRef(candidate)) {
+                    return normalizePdfJsAnnotationId(candidate);
+                }
+            }
+
+            return null;
         }
 
         try {
             const storage = document.annotationStorage;
-            const modifiedIds = storage?.modifiedIds?.ids;
-            if (typeof modifiedIds?.size === 'number' && modifiedIds.size > 0) {
-                return true;
+            const ids = new Set<string>();
+            const serializableRuntimeIdsMappedToPdfRefs = new Set<string>();
+            const serializableMap = storage?.serializable?.map;
+
+            if (serializableMap instanceof Map && serializableMap.size > 0) {
+                serializableMap.forEach((value: unknown, key: unknown) => {
+                    const keyId = normalizePdfJsAnnotationId(typeof key === 'string' ? key : String(key));
+                    const existingPdfAnnotationId = getExistingPdfAnnotationIdFromStorageValue(value);
+                    if (existingPdfAnnotationId) {
+                        ids.add(existingPdfAnnotationId);
+                        if (keyId) {
+                            serializableRuntimeIdsMappedToPdfRefs.add(keyId);
+                        }
+                        return;
+                    }
+
+                    if (keyId) {
+                        ids.add(keyId);
+                    }
+                });
             }
 
-            const serializableMap = storage?.serializable?.map;
-            return serializableMap instanceof Map && serializableMap.size > 0;
+            const modifiedIds = storage?.modifiedIds?.ids;
+            if (typeof modifiedIds?.size === 'number' && modifiedIds.size > 0) {
+                modifiedIds.forEach((id: unknown) => {
+                    const normalized = normalizePdfJsAnnotationId(typeof id === 'string' ? id : String(id));
+                    if (normalized && !serializableRuntimeIdsMappedToPdfRefs.has(normalized)) {
+                        ids.add(normalized);
+                    }
+                });
+            }
+
+            return {
+                ids,
+                hasChanges: ids.size > 0 || (serializableMap instanceof Map && serializableMap.size > 0),
+                hasUnknownChanges: ids.size === 0 && serializableMap instanceof Map && serializableMap.size > 0,
+            };
         } catch (error) {
             BrowserLogger.debug('workspace', 'Failed to inspect live PDF.js annotation dirty state', error);
-            return false;
+            return {
+                ids: new Set<string>(),
+                hasChanges: false,
+                hasUnknownChanges: false,
+            };
         }
     }
 
-    function hasEditorOnlyAnnotationsPendingMaterialization() {
+    function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSummary) {
+        const subtype = comment.subtype?.trim().toLowerCase();
+        return comment.source === 'editor'
+            && !parsePdfJsAnnotationRef(comment.annotationId)
+            && Boolean(comment.hasNote)
+            && Boolean(comment.markerRect)
+            && (subtype === 'freetext' || subtype === 'typewriter');
+    }
+
+    function hasUnreplayableEditorOnlyAnnotationsPendingMaterialization() {
         return annotationComments.value.some(comment =>
             comment.source === 'editor'
-            && !parsePdfJsAnnotationRef(comment.annotationId),
+            && !parsePdfJsAnnotationRef(comment.annotationId)
+            && !isReplayableEditorOnlyFreeTextNote(comment),
         );
     }
 
@@ -244,8 +338,12 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     },
                 );
 
-                if (timedOut || attempt === maxAttempts) {
-                    return null;
+                if (timedOut) {
+                    throw new SaveDocumentTimeoutError();
+                }
+
+                if (attempt === maxAttempts) {
+                    throw error;
                 }
 
                 if (retryDelayMs > 0) {
@@ -256,18 +354,114 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             }
         }
 
-        return null;
+        throw new Error('saveDocument failed');
     }
 
-    async function getSerializationBasePdfBytes() {
-        if (
-            hasLivePdfJsAnnotationChanges()
-            || hasEditorOnlyAnnotationsPendingMaterialization()
-        ) {
-            return saveDocumentWithRetry();
+    function addPendingAnnotationIdFromStableKey(ids: Set<string>, stableKey: string) {
+        const match = stableKey.trim().match(/^ann:\d+:(.+)$/u);
+        const normalized = normalizePdfJsAnnotationId(match?.[1]);
+        if (normalized) {
+            ids.add(normalized);
+        }
+    }
+
+    function collectReplayableEmbeddedAnnotationIds(
+        pendingTexts: Map<string, string> | null | undefined,
+        pendingDeletes: IAnnotationCommentSummary[] | null | undefined,
+    ) {
+        const ids = new Set<string>();
+        pendingTexts?.forEach((_text, stableKey) => {
+            addPendingAnnotationIdFromStableKey(ids, stableKey);
+        });
+        pendingDeletes?.forEach((comment) => {
+            const annotationId = normalizePdfJsAnnotationId(comment.annotationId);
+            if (annotationId) {
+                ids.add(annotationId);
+            }
+            addPendingAnnotationIdFromStableKey(ids, comment.stableKey);
+        });
+        annotationComments.value
+            .filter(isReplayableEditorOnlyFreeTextNote)
+            .forEach((comment) => {
+                [
+                    comment.annotationId,
+                    comment.uid,
+                    comment.id,
+                ].forEach((id) => {
+                    const normalized = normalizePdfJsAnnotationId(id);
+                    if (normalized) {
+                        ids.add(normalized);
+                    }
+                });
+                const stableKeyRuntimeId = comment.stableKey.trim().match(/^(?:uid|editor):\d+:(.+)$/u)?.[1];
+                const normalizedStableKeyRuntimeId = normalizePdfJsAnnotationId(stableKeyRuntimeId);
+                if (normalizedStableKeyRuntimeId) {
+                    ids.add(normalizedStableKeyRuntimeId);
+                }
+            });
+        return ids;
+    }
+
+    function canUseSourceBytesForReplayableEmbeddedChanges(opts?: ISerializationBasePdfBytesOptions) {
+        const liveChanges = collectLivePdfJsAnnotationChangeIds();
+        const replayableIds = collectReplayableEmbeddedAnnotationIds(opts?.pendingTexts, opts?.pendingDeletes);
+        const plan = buildPdfAnnotationSavePlan({
+            hasPendingReplayableEmbeddedChanges: Boolean(
+                opts?.pendingTexts?.size
+                || opts?.pendingDeletes?.length
+                || replayableIds.size > 0,
+            ),
+            hasEditorOnlyAnnotationsPendingMaterialization: hasUnreplayableEditorOnlyAnnotationsPendingMaterialization(),
+            liveAnnotationChanges: liveChanges,
+            replayableEmbeddedAnnotationIds: replayableIds,
+        });
+        return plan.route === 'source-replay';
+    }
+
+    async function getSerializationBasePdfBytes(opts?: ISerializationBasePdfBytesOptions) {
+        const liveChanges = collectLivePdfJsAnnotationChangeIds();
+        const replayableIds = collectReplayableEmbeddedAnnotationIds(opts?.pendingTexts, opts?.pendingDeletes);
+        const plan = buildPdfAnnotationSavePlan({
+            hasPendingReplayableEmbeddedChanges: Boolean(
+                opts?.pendingTexts?.size
+                || opts?.pendingDeletes?.length
+                || replayableIds.size > 0,
+            ),
+            hasEditorOnlyAnnotationsPendingMaterialization: hasUnreplayableEditorOnlyAnnotationsPendingMaterialization(),
+            liveAnnotationChanges: liveChanges,
+            replayableEmbeddedAnnotationIds: replayableIds,
+        });
+
+        BrowserLogger.debug('workspace', 'Planned PDF annotation save route', {
+            route: plan.route,
+            expectedCost: plan.expectedCost,
+            reason: plan.reason,
+            liveAnnotationIds: Array.from(liveChanges.ids),
+            replayableAnnotationIds: Array.from(replayableIds),
+            unreplayableLiveAnnotationIds: plan.unreplayableLiveAnnotationIds,
+            pendingTexts: opts?.pendingTexts?.size ?? 0,
+            pendingDeletes: opts?.pendingDeletes?.length ?? 0,
+        });
+
+        if (plan.route === 'source-replay' || plan.route === 'source-clean') {
+            BrowserLogger.debug('workspace', 'Using source PDF bytes for planned annotation save route', {
+                route: plan.route,
+                reason: plan.reason,
+                pendingTexts: opts?.pendingTexts?.size ?? 0,
+                pendingDeletes: opts?.pendingDeletes?.length ?? 0,
+            });
+            return getSourcePdfData();
         }
 
-        return getSourcePdfData();
+        try {
+            return await saveDocumentWithRetry();
+        } catch (error) {
+            if (!canUseSourceBytesForReplayableEmbeddedChanges(opts)) {
+                throw error;
+            }
+            BrowserLogger.warn('workspace', 'Falling back to source PDF bytes after PDF.js saveDocument failed', error);
+            return getSourcePdfData();
+        }
     }
 
     async function finalizeSaveReload(
@@ -390,6 +584,14 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         };
     }
 
+    function restorePendingEmbeddedAnnotationChanges(
+        pendingTexts: Map<string, string> | null,
+        pendingDeletes: IAnnotationCommentSummary[] | null,
+    ) {
+        restorePendingEmbeddedTextUpdates?.(pendingTexts);
+        restorePendingEmbeddedAnnotationDeletes?.(pendingDeletes);
+    }
+
     function hasSaveOperationInProgress() {
         if (isSaving.value || isSavingAs.value) {
             return true;
@@ -502,36 +704,45 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         if (hasSaveOperationInProgress()) {
             return false;
         }
-        if (!await persistOpenAnnotationNotes('Save aborted because annotation note persistence failed')) {
-            return false;
-        }
-        const {
-            pendingTexts,
-            pendingDeletes,
-            hasPendingTexts,
-            hasPendingDeletes,
-        } = consumePendingEmbeddedAnnotationChanges();
-        const reloadWaiter = preparePostSaveReload?.() ?? null;
-        let finalizedReloadWaiter = false;
-        let saveSucceeded = false;
-        BrowserLogger.debug('workspace', 'Starting handleSave', () => ({
-            hasWorkingCopyPath: Boolean(workingCopyPath.value),
-            annotationDirty: annotationDirty.value,
-            pageLabelsDirty: pageLabelsDirty.value,
-            bookmarksDirty: bookmarksDirty.value,
-            hasAnnotationChanges: hasAnnotationChanges(),
-            hasShapeChanges: hasShapeChanges?.() ?? false,
-            hasPendingTexts,
-            hasPendingDeletes,
-            annotationNoteWindowsCount: annotationNoteWindowsCount.value,
-        }));
         isSaving.value = true;
+        let reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null = null;
+        let finalizedReloadWaiter = false;
+        let pendingTexts: Map<string, string> | null = null;
+        let pendingDeletes: IAnnotationCommentSummary[] | null = null;
         try {
+            if (!await persistOpenAnnotationNotes('Save aborted because annotation note persistence failed')) {
+                return false;
+            }
+            const pendingChanges = consumePendingEmbeddedAnnotationChanges();
+            ({
+                pendingTexts,
+                pendingDeletes,
+            } = pendingChanges);
+            const {
+                hasPendingTexts,
+                hasPendingDeletes,
+            } = pendingChanges;
+            reloadWaiter = preparePostSaveReload?.() ?? null;
+            let saveSucceeded = false;
+            BrowserLogger.debug('workspace', 'Starting handleSave', () => ({
+                hasWorkingCopyPath: Boolean(workingCopyPath.value),
+                annotationDirty: annotationDirty.value,
+                pageLabelsDirty: pageLabelsDirty.value,
+                bookmarksDirty: bookmarksDirty.value,
+                hasAnnotationChanges: hasAnnotationChanges(),
+                hasShapeChanges: hasShapeChanges?.() ?? false,
+                hasPendingTexts,
+                hasPendingDeletes,
+                annotationNoteWindowsCount: annotationNoteWindowsCount.value,
+            }));
             if (workingCopyPath.value) {
                 const shapeStateDirty = hasShapeChanges?.() ?? false;
                 const shouldSerialize = computeShouldSerializeFlag(shapeStateDirty, hasPendingTexts, hasPendingDeletes);
                 if (shouldSerialize) {
-                    const rawData = await getSerializationBasePdfBytes();
+                    const rawData = await getSerializationBasePdfBytes({
+                        pendingDeletes,
+                        pendingTexts,
+                    });
                     saveSucceeded = await runSerializedSaveFlow(
                         rawData,
                         pendingTexts,
@@ -543,6 +754,9 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                         saveFile,
                     );
                     finalizedReloadWaiter = true;
+                    if (!saveSucceeded) {
+                        restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
+                    }
                     return saveSucceeded;
                 }
                 saveSucceeded = await saveUnserializedWorkingCopy(
@@ -558,7 +772,10 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             }
 
             const shapeStateDirty = hasShapeChanges?.() ?? false;
-            const rawData = await saveDocumentWithRetry();
+            const rawData = await getSerializationBasePdfBytes({
+                pendingDeletes,
+                pendingTexts,
+            });
             saveSucceeded = await runSerializedSaveFlow(
                 rawData,
                 pendingTexts,
@@ -570,7 +787,19 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 saveFile,
             );
             finalizedReloadWaiter = true;
+            if (!saveSucceeded) {
+                restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
+            }
             return saveSucceeded;
+        } catch (error) {
+            restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
+            BrowserLogger.error('workspace', 'Save failed', error);
+            toast.add({
+                color: 'error',
+                title: t('errors.file.save'),
+                description: getErrorMessage(error),
+            });
+            return false;
         } finally {
             if (reloadWaiter && !finalizedReloadWaiter) {
                 reloadWaiter.cancel();
@@ -583,24 +812,33 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         if (hasSaveOperationInProgress()) {
             return false;
         }
-        if (!await persistOpenAnnotationNotes('Save As aborted because annotation note persistence failed')) {
-            return false;
-        }
-        const {
-            pendingTexts,
-            pendingDeletes,
-            hasPendingTexts,
-            hasPendingDeletes,
-        } = consumePendingEmbeddedAnnotationChanges();
-        const reloadWaiter = preparePostSaveReload?.() ?? null;
-        let finalizedReloadWaiter = false;
-        let saveSucceeded = false;
         isSavingAs.value = true;
+        let reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null = null;
+        let finalizedReloadWaiter = false;
+        let pendingTexts: Map<string, string> | null = null;
+        let pendingDeletes: IAnnotationCommentSummary[] | null = null;
         try {
+            if (!await persistOpenAnnotationNotes('Save As aborted because annotation note persistence failed')) {
+                return false;
+            }
+            const pendingChanges = consumePendingEmbeddedAnnotationChanges();
+            ({
+                pendingTexts,
+                pendingDeletes,
+            } = pendingChanges);
+            const {
+                hasPendingTexts,
+                hasPendingDeletes,
+            } = pendingChanges;
+            reloadWaiter = preparePostSaveReload?.() ?? null;
+            let saveSucceeded = false;
             const shapeStateDirty = hasShapeChanges?.() ?? false;
             const shouldSerialize = computeShouldSerializeFlag(shapeStateDirty, hasPendingTexts, hasPendingDeletes);
             if (shouldSerialize) {
-                const rawData = await getSerializationBasePdfBytes();
+                const rawData = await getSerializationBasePdfBytes({
+                    pendingDeletes,
+                    pendingTexts,
+                });
                 saveSucceeded = await saveSerializedChanges(
                     rawData,
                     pendingTexts,
@@ -622,7 +860,19 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             }
             await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
             finalizedReloadWaiter = true;
+            if (!saveSucceeded) {
+                restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
+            }
             return saveSucceeded;
+        } catch (error) {
+            restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
+            BrowserLogger.error('workspace', 'Save As failed', error);
+            toast.add({
+                color: 'error',
+                title: t('errors.file.save'),
+                description: getErrorMessage(error),
+            });
+            return false;
         } finally {
             if (reloadWaiter && !finalizedReloadWaiter) {
                 reloadWaiter.cancel();

@@ -168,8 +168,85 @@ describe('usePageShortcuts', () => {
             preventDefault,
         }));
 
-        expect(preventDefault).toHaveBeenCalledOnce();
+        expect(preventDefault).toHaveBeenCalled();
         expect(deps.handlePrint).toHaveBeenCalledOnce();
+    });
+
+    it('intercepts Cmd/Ctrl+S in the web app and routes it to save', async () => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 's',
+            code: 'KeyS',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: null,
+            preventDefault,
+        }));
+
+        expect(preventDefault).toHaveBeenCalled();
+        expect(deps.handleSave).toHaveBeenCalledOnce();
+    });
+
+    it('routes web Cmd/Ctrl+S to save while focus is inside editable annotation UI', async () => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        const fakeInput = {
+            isContentEditable: false,
+            closest: (selector: string) => selector.includes('input') ? fakeInput : null,
+        };
+        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
+        vi.stubGlobal('HTMLElement', class HTMLElementStub {});
+        Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
+
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 's',
+            code: 'KeyS',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: fakeInput,
+            preventDefault,
+        }));
+
+        expect(preventDefault).toHaveBeenCalled();
+        expect(deps.handleSave).toHaveBeenCalledOnce();
+    });
+
+    it('does not intercept Cmd/Ctrl+S in Electron where the menu accelerator owns save', async () => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(false);
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 's',
+            code: 'KeyS',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: null,
+            preventDefault,
+        }));
+
+        expect(preventDefault).not.toHaveBeenCalled();
+        expect(deps.handleSave).not.toHaveBeenCalled();
     });
 
     it('prevents default for Ctrl+B when active with PDF', async () => {

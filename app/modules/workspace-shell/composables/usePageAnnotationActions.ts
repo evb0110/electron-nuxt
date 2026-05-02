@@ -871,7 +871,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
     }
 
-    function queueDeferredEmbeddedDelete(comment: IAnnotationCommentSummary, shouldMarkDirty: boolean) {
+    function queueDeferredEmbeddedDelete(comment: IAnnotationCommentSummary) {
         const viewer = pdfViewerRef.value;
         if (!viewer) {
             return false;
@@ -887,9 +887,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         viewer.removeAnnotationFromDom(comment);
         viewer.removeAnnotationFromInternalCache(comment.stableKey);
         deps.removeAnnotationFromCache(comment.stableKey);
-        if (shouldMarkDirty) {
-            deps.markAnnotationDirty();
-        }
+        deps.markAnnotationDirty();
         return true;
     }
 
@@ -917,7 +915,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             }
         }
 
-        return queueDeferredEmbeddedDelete(comment, shouldUseImmediateReload || !deleted);
+        return queueDeferredEmbeddedDelete(comment);
     }
 
     async function performDeleteAnnotationComment(comment: IAnnotationCommentSummary) {

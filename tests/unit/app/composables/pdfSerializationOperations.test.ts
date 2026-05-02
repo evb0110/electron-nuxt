@@ -24,6 +24,7 @@ import {
 } from '@app/composables/pdf/pdfSerializationOperations';
 import { importEmbeddedShapeAnnotations } from '@app/composables/pdf/pdfEmbeddedShapeAnnotations';
 import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
+import { getPdfDictContents } from '@app/utils/pdf-dict';
 
 function createEmptyPayload(): IPdfSerializationSavePayload {
     return {
@@ -207,6 +208,23 @@ function getNestedNumberArrays(dict: PDFDict, key: string) {
             row.push(value.asNumber());
         }
         values.push(row);
+    }
+    return values;
+}
+
+function getNumberArray(dict: PDFDict, key: string) {
+    const array = dict.lookupMaybe(PDFName.of(key), PDFArray);
+    if (!(array instanceof PDFArray)) {
+        return null;
+    }
+
+    const values: number[] = [];
+    for (let index = 0; index < array.size(); index += 1) {
+        const value = array.get(index);
+        if (!(value instanceof PDFNumber)) {
+            return null;
+        }
+        values.push(value.asNumber());
     }
     return values;
 }
@@ -956,5 +974,127 @@ describe('serializePdfEdits free-text note rect application', () => {
             600,
         ]);
         expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeUndefined();
+    });
+
+    it('creates new FreeText popup notes directly from editor comments', async () => {
+        const doc = await PDFDocument.create();
+        doc.addPage([
+            600,
+            800,
+        ]);
+        const bytes = new Uint8Array(await doc.save());
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [makeFreeTextComment({
+            pageIndex: 0,
+            id: 'pdfjs_internal_editor_0',
+            uid: 'pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: 'pdfjs_internal_editor_0',
+            source: 'editor',
+            subtype: 'FreeText',
+            hasNote: true,
+            text: 'large file note',
+            author: 'Tester',
+            color: 'rgba(255, 204, 0, 0.8)',
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.02,
+                height: 0.02,
+            },
+        })];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const saved = await PDFDocument.load(result, { updateMetadata: false });
+        const annotRefs = getPageAnnotRefs(saved);
+
+        expect(annotRefs).toHaveLength(2);
+
+        const freeTextRef = annotRefs.find((ref) => {
+            const dict = getAnnotDict(saved, ref);
+            return dict?.get(PDFName.of('Subtype'))?.toString() === '/FreeText';
+        });
+        const popupRef = annotRefs.find((ref) => {
+            const dict = getAnnotDict(saved, ref);
+            return dict?.get(PDFName.of('Subtype'))?.toString() === '/Popup';
+        });
+
+        expect(freeTextRef).toBeInstanceOf(PDFRef);
+        expect(popupRef).toBeInstanceOf(PDFRef);
+
+        const freeTextDict = getAnnotDict(saved, freeTextRef!);
+        const popupDict = getAnnotDict(saved, popupRef!);
+
+        expect(getPdfDictContents(freeTextDict ?? null)).toBe('large file note');
+        expect(getPdfDictContents(popupDict ?? null)).toBe('large file note');
+        expect(freeTextDict?.get(PDFName.of('Popup'))).toBe(popupRef);
+        expect(popupDict?.get(PDFName.of('Parent'))).toBe(freeTextRef);
+        expect(freeTextDict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
+        expect(getNumberArray(freeTextDict!, 'C')).toEqual([
+            1,
+            0.8,
+            0,
+        ]);
+        expect(getRectNumbers(freeTextDict!)).not.toBeNull();
+        expect(getRectNumbers(popupDict!)).toEqual(getRectNumbers(freeTextDict!));
+    });
+
+    it('upserts directly-created FreeText popup notes by stable editor key', async () => {
+        const doc = await PDFDocument.create();
+        doc.addPage([
+            600,
+            800,
+        ]);
+
+        const payload = createEmptyPayload();
+        payload.freeTextComments = [makeFreeTextComment({
+            pageIndex: 0,
+            id: 'pdfjs_internal_editor_0',
+            uid: 'pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: 'pdfjs_internal_editor_0',
+            source: 'editor',
+            subtype: 'FreeText',
+            hasNote: true,
+            text: 'first note text',
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.02,
+                height: 0.02,
+            },
+        })];
+
+        const first = await serializePdfEdits(new Uint8Array(await doc.save()), payload);
+        const firstSaved = await PDFDocument.load(first, { updateMetadata: false });
+        const firstFreeTextRef = getPageAnnotRefs(firstSaved).find((ref) => {
+            const dict = getAnnotDict(firstSaved, ref);
+            return dict?.get(PDFName.of('Subtype'))?.toString() === '/FreeText';
+        })!;
+        const firstRect = getRectNumbers(getAnnotDict(firstSaved, firstFreeTextRef)!);
+        payload.freeTextComments = [{
+            ...payload.freeTextComments[0]!,
+            text: 'edited note text',
+            markerRect: {
+                left: 0.2,
+                top: 0.3,
+                width: 0.02,
+                height: 0.02,
+            },
+        }];
+        const second = await serializePdfEdits(first, payload);
+        const saved = await PDFDocument.load(second, { updateMetadata: false });
+        const annotRefs = getPageAnnotRefs(saved);
+
+        expect(annotRefs).toHaveLength(2);
+        const freeTextRef = annotRefs.find((ref) => {
+            const dict = getAnnotDict(saved, ref);
+            return dict?.get(PDFName.of('Subtype'))?.toString() === '/FreeText';
+        })!;
+        const freeTextDict = getAnnotDict(saved, freeTextRef);
+
+        expect(getPdfDictContents(freeTextDict ?? null)).toBe('edited note text');
+        expect(getRectNumbers(freeTextDict!)).not.toEqual(firstRect);
     });
 });
