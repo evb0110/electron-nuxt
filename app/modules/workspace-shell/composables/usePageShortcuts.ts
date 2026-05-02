@@ -176,7 +176,39 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         }
     }
 
+    function handleCapturedWebMenuAccelerator(event: KeyboardEvent) {
+        if (!shouldHandleRendererMenuAccelerators()) {
+            return;
+        }
+        if (!eventHasCommandModifier(event) || event.altKey) {
+            return;
+        }
+
+        const key = event.key.toLowerCase();
+        if (key !== 's' && key !== 'p' && key !== 'o') {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (!isActive.value || !pdfSrc.value || event.shiftKey) {
+            return;
+        }
+
+        if (key === 's') {
+            deps.handleSave();
+            return;
+        }
+        if (key === 'p') {
+            deps.handlePrint();
+        }
+    }
+
     function handleKeyboardShortcut(event: KeyboardEvent) {
+        if (event.defaultPrevented) {
+            return;
+        }
         suppressBrowserDefaultForConflictingAccelerator(event);
 
         if (!isActive.value) {
@@ -265,8 +297,10 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
 
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
         window.addEventListener('pointerdown', handleGlobalPointerDown);
+        window.addEventListener('keydown', handleCapturedWebMenuAccelerator, { capture: true });
         tryOnScopeDispose(() => {
             window.removeEventListener('pointerdown', handleGlobalPointerDown);
+            window.removeEventListener('keydown', handleCapturedWebMenuAccelerator, { capture: true });
         });
     }
 };

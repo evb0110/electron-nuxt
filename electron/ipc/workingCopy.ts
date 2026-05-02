@@ -48,6 +48,17 @@ const STALE_WORK_DIR_SCAN_LIMIT = (() => {
 })();
 
 export const workingCopyMap = new Map<string, string>();
+const retiredWorkingCopyOriginalMap = new Map<string, {
+    expiresAtMs: number;
+    originalPath: string;
+}>();
+const RETIRED_WORKING_COPY_TTL_MS = (() => {
+    const parsed = Number.parseInt(process.env.EVB_RETIRED_WORKING_COPY_TTL_MS ?? `${10 * 60 * 1000}`, 10);
+    if (!Number.isFinite(parsed) || parsed < 1_000) {
+        return 10 * 60 * 1000;
+    }
+    return Math.min(parsed, 60 * 60 * 1000);
+})();
 
 export class WorkingCopyMissingError extends Error {
     code = 'WORKING_COPY_MISSING';
@@ -56,6 +67,49 @@ export class WorkingCopyMissingError extends Error {
         super(message);
         this.name = 'WorkingCopyMissingError';
     }
+}
+
+function pruneRetiredWorkingCopyOriginals() {
+    const now = Date.now();
+    for (const [
+        workingPath,
+        entry,
+    ] of retiredWorkingCopyOriginalMap.entries()) {
+        if (entry.expiresAtMs <= now) {
+            retiredWorkingCopyOriginalMap.delete(workingPath);
+        }
+    }
+}
+
+function getMappedOriginalPath(workingPath: string) {
+    const activeOriginalPath = workingCopyMap.get(workingPath);
+    if (activeOriginalPath) {
+        return {
+            originalPath: activeOriginalPath,
+            retired: false,
+        };
+    }
+
+    pruneRetiredWorkingCopyOriginals();
+    const retired = retiredWorkingCopyOriginalMap.get(workingPath);
+    if (!retired) {
+        return null;
+    }
+
+    return {
+        originalPath: retired.originalPath,
+        retired: true,
+    };
+}
+
+function rememberRetiredWorkingCopyOriginal(workingPath: string, originalPath: string | undefined) {
+    if (!originalPath) {
+        return;
+    }
+    retiredWorkingCopyOriginalMap.set(workingPath, {
+        originalPath,
+        expiresAtMs: Date.now() + RETIRED_WORKING_COPY_TTL_MS,
+    });
 }
 
 function isAllowedOriginalSavePath(path: string) {
@@ -304,10 +358,11 @@ export async function ensureWorkingCopyDirectory(workingPath: string) {
     if (!normalizedWorkingPath) {
         throw new Error('Invalid file path');
     }
-    const originalPath = workingCopyMap.get(normalizedWorkingPath);
-    if (!originalPath) {
+    const mapping = getMappedOriginalPath(normalizedWorkingPath);
+    if (!mapping) {
         return false;
     }
+    const { originalPath } = mapping;
 
     const tempDir = resolve(app.getPath('temp'));
     const parentDir = resolve(dirname(normalizedWorkingPath));
@@ -333,6 +388,10 @@ export async function ensureWorkingCopyDirectory(workingPath: string) {
     if (normalizedWorkingPath.toLowerCase().endsWith('.pdf')) {
         await decryptPdfFileIfNeeded(normalizedWorkingPath);
     }
+    if (mapping.retired) {
+        workingCopyMap.set(normalizedWorkingPath, originalPath);
+        retiredWorkingCopyOriginalMap.delete(normalizedWorkingPath);
+    }
     logger.warn(`Recreated missing working copy directory for "${normalizedWorkingPath}"`);
     return true;
 }
@@ -346,7 +405,7 @@ export async function handleFileSave(
     }
 
     const normalizedWorkingPath = workingPath.trim();
-    const originalPath = workingCopyMap.get(normalizedWorkingPath);
+    const originalPath = getMappedOriginalPath(normalizedWorkingPath)?.originalPath;
 
     if (!originalPath) {
         throw new Error('No original path found for this working copy');
@@ -360,6 +419,9 @@ export async function handleFileSave(
         await copyFile(normalizedWorkingPath, originalPath);
         return true;
     } catch (err) {
+        if (err instanceof WorkingCopyMissingError) {
+            throw err;
+        }
         throw new Error(`Failed to save: ${getErrorMessage(err)}`);
     }
 }
@@ -407,6 +469,7 @@ export function cleanupWorkingCopy(workingPath: string) {
         return;
     }
 
+    rememberRetiredWorkingCopyOriginal(normalizedPath, workingCopyMap.get(normalizedPath));
     workingCopyMap.delete(normalizedPath);
     cleanupWorkingCopyDirectory(normalizedPath).catch((err) => {
         logger.warn(`Failed to cleanup working copy directory "${normalizedPath}": ${getErrorMessage(err)}`);
@@ -416,6 +479,7 @@ export function cleanupWorkingCopy(workingPath: string) {
 export async function clearAllWorkingCopies() {
     const paths = [...workingCopyMap.keys()];
     workingCopyMap.clear();
+    retiredWorkingCopyOriginalMap.clear();
     await Promise.allSettled(
         paths.map(workingPath => cleanupWorkingCopyDirectory(workingPath)),
     );
