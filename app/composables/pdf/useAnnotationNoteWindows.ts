@@ -435,7 +435,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     function shouldMirrorAnnotationNoteToEmbeddedSerialization(
         targetComment: IAnnotationCommentSummary,
     ) {
-        return targetComment.source === 'pdf' && Boolean(targetComment.annotationId);
+        return Boolean(targetComment.annotationId);
     }
 
     function shouldSkipAnnotationNotePersistence(

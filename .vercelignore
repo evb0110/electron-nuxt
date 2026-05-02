@@ -15,6 +15,7 @@ nuxt-output/
 electron/
 build/
 tests/
+tests/fixtures/electron/large-pdf-fixtures/
 landing/
 
 # IDE / tooling

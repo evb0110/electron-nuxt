@@ -12,3 +12,7 @@ dist/
 .playwright-cli/
 .tmp/
 auto-imports.d.ts
+
+# Large/manual regression fixtures live in the repo checkout but are opt-in and
+# intentionally excluded from git, Electron packages, and web deploys.
+tests/fixtures/electron/large-pdf-fixtures/

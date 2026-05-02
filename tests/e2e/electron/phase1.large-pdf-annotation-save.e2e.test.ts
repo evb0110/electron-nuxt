@@ -114,6 +114,13 @@ async function placePageNote(page: Page, text: string) {
     }, text);
 }
 
+async function waitForOpenNoteText(page: Page, expectedText: string) {
+    await page.waitForFunction((text: string) => (
+        Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'))
+            .some(textarea => textarea.value === text)
+    ), { timeout: LARGE_PDF_TIMEOUT_MS }, expectedText);
+}
+
 async function waitForCleanSaveState(page: Page) {
     await page.waitForFunction(() => {
         const saveDot = document.querySelector<HTMLButtonElement>('.status-save-dot-button');
@@ -162,9 +169,6 @@ describe('Electron E2E - Large PDF Annotation Save', () => {
         console.info('[large-pdf-e2e] reopening fixture');
         await openPdfInApp(page, fixturePath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
-        await page.waitForFunction((expectedText: string) => (
-            Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'))
-                .some(textarea => textarea.value === expectedText)
-        ), { timeout: LARGE_PDF_TIMEOUT_MS }, firstText);
+        await waitForOpenNoteText(page, firstText);
     }, LARGE_PDF_TIMEOUT_MS);
 });
