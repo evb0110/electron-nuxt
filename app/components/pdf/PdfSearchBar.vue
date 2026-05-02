@@ -7,7 +7,7 @@
                 class="min-w-0 flex-1"
                 :placeholder="t('search.placeholder')"
                 autofocus
-                @keydown.enter.exact="emit('next')"
+                @keydown.enter.exact.prevent="emit('search')"
                 @keydown.shift.enter="emit('previous')"
             >
                 <template #leading>
@@ -120,7 +120,6 @@ const searchQuery = computed({
             return;
         }
         emit('update:modelValue', value);
-        emit('search');
     },
 });
 
@@ -133,6 +132,7 @@ function clearQuery() {
         return;
     }
     searchQuery.value = '';
+    emit('search');
     focus();
 }
 
@@ -141,7 +141,6 @@ function toggleOption(key: keyof IProps['options']) {
         ...props.options,
         [key]: !props.options[key],
     });
-    emit('search');
     focus();
 }
 

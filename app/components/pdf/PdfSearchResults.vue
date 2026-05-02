@@ -5,11 +5,14 @@
             class="pdf-search-results-status"
         >
             <UIcon name="i-lucide-loader-2" class="pdf-search-results-spinner size-4" />
-            <span>
+            <span class="pdf-search-results-status-label">
                 {{ t('searchResults.searching') }}
-                <template v-if="progressText">
-                    ({{ progressText }})
-                </template>
+            </span>
+            <span
+                v-if="progressText"
+                class="pdf-search-results-status-progress"
+            >
+                ({{ progressText }})
             </span>
         </div>
         <PdfPanelEmptyState
@@ -250,10 +253,12 @@ watch(
 
 
 .pdf-search-results-header {
+    min-height: 36px;
     padding: 8px 12px;
     font-size: 12px;
     color: var(--ui-text-muted);
     border-bottom: 1px solid var(--ui-border);
+    font-variant-numeric: tabular-nums;
 }
 
 .pdf-search-results-truncated {
@@ -264,14 +269,34 @@ watch(
 
 .pdf-search-results-status {
     display: flex;
+    min-height: 40px;
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
+    overflow: hidden;
     color: var(--ui-text-muted);
     border-bottom: 1px solid var(--ui-border);
+    white-space: nowrap;
+}
+
+.pdf-search-results-status-label {
+    flex: 0 0 auto;
+}
+
+.pdf-search-results-status-progress {
+    display: inline-block;
+    min-width: 18ch;
+}
+
+.pdf-search-results-status span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
 }
 
 .pdf-search-results-spinner {
+    flex: 0 0 auto;
     animation: pdf-search-spin 1s linear infinite;
 }
 

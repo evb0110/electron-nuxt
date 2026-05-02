@@ -16,10 +16,12 @@ import {
 import {
     cancelBrowserSearchWorkerRequest,
     createBrowserSearchWorkerRequest,
-    BrowserSearchWorkerUnavailableError,
     canUseBrowserSearchWorker,
 } from '@app/platform/browser-api/browser-search-worker-client';
-import { extractBrowserSearchDocumentText } from '@app/platform/browser-api/browser-search-core';
+import {
+    extractBrowserSearchDocumentText,
+    iterateBrowserSearchDocumentText,
+} from '@app/platform/browser-api/browser-search-core';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import { browserDocumentStore } from '@app/platform/browser-document-store';
 import {
@@ -52,6 +54,7 @@ interface ICreateBrowserSearchCapabilityResult {
 interface IIterateSearchPagesOptions {
     onPage: (pageNumber: number, text: string, pageCount: number) => Promise<unknown> | unknown;
     requestId?: string;
+    streamDirectExtraction?: boolean;
 }
 
 interface IExtractedDocumentText {
@@ -291,6 +294,10 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         searchProgressListeners.forEach((listener) => listener(progress));
     }
 
+    function emitSearchProgress(progress: IPdfSearchProgress) {
+        searchProgressListeners.forEach((listener) => listener(progress));
+    }
+
     function pickValidPersistedRecord(
         record: IPersistedSearchDocumentCacheRecord | null,
         fileSize: number,
@@ -338,9 +345,6 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         } catch (error) {
             if (isBrowserSearchCanceledError(error)) {
                 return null;
-            }
-            if (!(error instanceof BrowserSearchWorkerUnavailableError)) {
-                throw error;
             }
             return await runDirectExtraction(pdfPath, requestId);
         } finally {
@@ -446,6 +450,47 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             return iteratePersistedDocumentPages(validPersistedRecord, options);
         }
 
+        if (options.streamDirectExtraction) {
+            let canceled = false;
+            let stopped = false;
+            let pageCount = 0;
+            let pageTexts: string[] = [];
+            try {
+                pageCount = await iterateBrowserSearchDocumentText(
+                    pdfPath,
+                    async (pageNumber, text, totalPages) => {
+                        pageCount = totalPages;
+                        pageTexts[pageNumber - 1] = text;
+                        rememberPageText(cache, pageNumber, text);
+                        const outcome = await deliverPage(pageNumber, text, totalPages, options);
+                        if (outcome === 'cancel') {
+                            canceled = true;
+                        } else if (outcome === 'stop') {
+                            stopped = true;
+                        }
+                    },
+                    { shouldContinue: () => !isExtractionCanceled(options.requestId) && !canceled && !stopped },
+                );
+            } catch (error) {
+                if (isBrowserSearchCanceledError(error)) {
+                    return stopped;
+                }
+                throw error;
+            }
+
+            cache.pageCount = pageCount;
+            pageTexts = Array.from({ length: pageCount }, (_value, index) => pageTexts[index] ?? '');
+            if (!canceled) {
+                await persistSearchCacheRecord({
+                    pdfPath,
+                    fileSize,
+                    pageCount,
+                    pageTexts,
+                });
+            }
+            return !canceled;
+        }
+
         const extractedDocumentText = await extractDocumentTextWithFallback(pdfPath, options.requestId);
         if (!extractedDocumentText) {
             return false;
@@ -480,6 +525,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
             const completed = await iterateSearchPages(pdfPath, size, {
                 requestId,
+                streamDirectExtraction: true,
                 onPage: async (pageNumber, text, pageCount) => {
                     if (canceledSearchRequests.has(requestId)) {
                         canceledSearchRequests.delete(requestId);
@@ -497,16 +543,24 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             excerpt: buildPdfSearchExcerpt(text, match.startOffset, match.endOffset, SEARCH_EXCERPT_CONTEXT_CHARS),
                         });
                         if (results.length >= SEARCH_RESULT_LIMIT) {
+                            emitSearchProgress({
+                                requestId,
+                                processed: pageNumber,
+                                total: pageCount,
+                                results: [...results],
+                                truncated: true,
+                            });
                             return false;
                         }
                     }
 
-                    const progress: IPdfSearchProgress = {
+                    emitSearchProgress({
                         requestId,
                         processed: pageNumber,
                         total: pageCount,
-                    };
-                    searchProgressListeners.forEach((listener) => listener(progress));
+                        results: [...results],
+                        truncated: false,
+                    });
                     await yieldToBrowser();
                     return true;
                 },

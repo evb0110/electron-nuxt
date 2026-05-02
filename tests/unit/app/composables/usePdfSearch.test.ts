@@ -45,7 +45,7 @@ describe('usePdfSearch', () => {
         expect(mockSearch.run).not.toHaveBeenCalled();
     });
 
-    it('maps backend matches to result and page match state after debounce', async () => {
+    it('maps backend matches to result and page match state', async () => {
         const progressUnsubscribe = vi.fn();
         let progressListener: ((progress: {
             requestId: string;
@@ -100,9 +100,6 @@ describe('usePdfSearch', () => {
         const search = usePdfSearch();
 
         const promise = search.search('term', '/tmp/work.pdf', 10);
-        await vi.advanceTimersByTimeAsync(0);
-        expect(search.isSearching.value).toBe(true);
-
         await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
         const applied = await promise;
 

@@ -24,6 +24,7 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
 
     const {
         searchQuery,
+        submittedSearchQuery,
         searchOptions,
         results,
         pageMatches,
@@ -74,6 +75,7 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
 
     return {
         searchQuery,
+        submittedSearchQuery,
         searchOptions,
         results,
         pageMatches,
