@@ -307,6 +307,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     }
 
     return {
+        getSourcePdfData,
         serializePdfForSave,
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,
