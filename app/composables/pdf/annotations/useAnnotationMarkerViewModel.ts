@@ -31,7 +31,7 @@ function buildPreview(comment: IAnnotationCommentSummary): string {
 
 function buildAriaLabel(comment: IAnnotationCommentSummary, clusterSize: number): string {
     const prefix = comment.kindLabel ?? comment.subtype ?? 'Annotation';
-    const preview = comment.text?.trim().slice(0, 40) || '';
+    const preview = comment.text?.trim().slice(0, 40) ?? '';
     const label = preview ? `${prefix}: ${preview}` : prefix;
     if (clusterSize > 1) {
         return `${label} (+${clusterSize - 1} more)`;
