@@ -103,6 +103,33 @@ describe('useAnnotationNoteWindows', () => {
         expect(pending?.get('ann:0:3856R')).toBe('Updated PDF note');
     });
 
+    it('mirrors reopened editor-sourced notes with durable annotation ids into embedded serialization', () => {
+        const comment = createComment({
+            id: 'editor:0:pdfjs_internal_editor_0',
+            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            annotationId: '3856R',
+            uid: 'pdfjs_internal_editor_0',
+            source: 'editor',
+            text: 'Initial note',
+        });
+        const { windows } = createHarness(comment);
+
+        windows.handleOpenAnnotationNote(comment);
+        const note = windows.findAnnotationNoteWindow('uid:0:pdfjs_internal_editor_0');
+        expect(note).not.toBeNull();
+        if (!note) {
+            return;
+        }
+
+        note.text = 'Updated reopened note';
+        const saved = windows.persistAnnotationNote('uid:0:pdfjs_internal_editor_0', false);
+
+        expect(saved).toBe(true);
+        expect(note.lastSavedText).toBe('Updated reopened note');
+        const pending = windows.consumePendingEmbeddedTextUpdates();
+        expect(pending?.get('uid:0:pdfjs_internal_editor_0')).toBe('Updated reopened note');
+    });
+
     it('migrates pending embedded text when a note window resolves to a new stable key', async () => {
         const initialComment = createComment({
             id: 'runtime-note',

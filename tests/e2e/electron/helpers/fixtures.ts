@@ -107,14 +107,15 @@ export function copyDevkitFixture(sourceRelativePath: string, targetFilename?: s
 
 export function resolveLargePdfFixturePath() {
     const overridePath = process.env[LARGE_PDF_FIXTURE_ENV_VAR]?.trim();
-    const candidatePath = overridePath
-        ? resolve(overridePath)
-        : resolve(PROJECT_ROOT_FIXTURE_DIR, DEFAULT_LARGE_PDF_FIXTURE);
+    const candidatePaths = overridePath
+        ? [resolve(overridePath)]
+        : [
+            resolve(TRACKED_PROJECT_FIXTURE_DIR, DEFAULT_LARGE_PDF_FIXTURE),
+            resolve(PROJECT_ROOT_FIXTURE_DIR, DEFAULT_LARGE_PDF_FIXTURE),
+        ];
+    const candidatePath = candidatePaths.find(candidate => existsSync(candidate) && statSync(candidate).isFile());
 
-    if (!existsSync(candidatePath)) {
-        return null;
-    }
-    if (!statSync(candidatePath).isFile()) {
+    if (!candidatePath) {
         return null;
     }
     return candidatePath;
@@ -123,7 +124,10 @@ export function resolveLargePdfFixturePath() {
 export function copyLargePdfFixture(targetFilename?: string) {
     const sourcePath = resolveLargePdfFixturePath();
     if (!sourcePath) {
-        throw new Error(`Large PDF fixture is not available. Set ${LARGE_PDF_FIXTURE_ENV_VAR} or place ${DEFAULT_LARGE_PDF_FIXTURE} under .devkit.`);
+        throw new Error(
+            `Large PDF fixture is not available. Set ${LARGE_PDF_FIXTURE_ENV_VAR}`
+            + ` or place ${DEFAULT_LARGE_PDF_FIXTURE} under tests/fixtures/electron or .devkit.`,
+        );
     }
     ensureFixtureDir();
     const targetPath = join(getFixtureDir(), targetFilename ?? basename(sourcePath));
