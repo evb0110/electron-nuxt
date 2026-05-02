@@ -527,7 +527,7 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.removeAnnotationFromInternalCache).toHaveBeenCalledWith(comment.stableKey);
         expect(deps.removeAnnotationFromCache).toHaveBeenCalledWith(comment.stableKey);
         expect(deps.queuePendingEmbeddedAnnotationDelete).toHaveBeenCalledWith(comment);
-        expect(deps.markAnnotationDirty).not.toHaveBeenCalled();
+        expect(deps.markAnnotationDirty).toHaveBeenCalledOnce();
     });
 
     it('reloads embedded image deletes from serialized bytes so stamp canvases do not stay stale', async () => {

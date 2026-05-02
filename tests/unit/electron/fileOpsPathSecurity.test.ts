@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
     analyzePdfConformanceFile: vi.fn(),
     consumeAllowedDocxWritePath: vi.fn<(path: string) => boolean>(),
     findWorkingCopyPathByOriginalPath: vi.fn<(path: string) => string | null>(),
+    ensureWorkingCopyDirectory: vi.fn<(path: string) => Promise<boolean>>(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
 }));
 
@@ -53,7 +54,10 @@ vi.mock('@electron/features/documents/main/pdf-conformance', () => ({
     validatePdfData: vi.fn(),
 }));
 vi.mock('@electron/ipc/docxExportPaths', () => ({consumeAllowedDocxWritePath: mocks.consumeAllowedDocxWritePath}));
-vi.mock('@electron/ipc/workingCopy', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
+vi.mock('@electron/ipc/workingCopy', () => ({
+    ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory,
+    findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
+}));
 vi.mock('@electron/djvu/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
@@ -83,6 +87,7 @@ describe('fileOps path security', () => {
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/safe.pdf');
         mocks.consumeAllowedDocxWritePath.mockReturnValue(true);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
+        mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
         mocks.isAllowedDjvuViewingPath.mockReturnValue(false);
         mocks.readFile.mockResolvedValue(Buffer.from([
             1,
@@ -131,6 +136,17 @@ describe('fileOps path security', () => {
         ).rejects.toThrow('Invalid file path: writes only allowed within temp directory');
 
         expect(mocks.writeFile).not.toHaveBeenCalled();
+    });
+
+    it('ensures mapped working copy directories before writing temp PDF bytes', async () => {
+        await handleFileWrite(
+            {} as never,
+            '/tmp/electron-test/safe.pdf',
+            new Uint8Array([9]),
+        );
+
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf');
+        expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', new Uint8Array([9]));
     });
 
     it('falls back to mapped working copy for original file path reads', async () => {

@@ -156,6 +156,7 @@ interface IHarnessOverrides {
     editors?: IFakeEditor[];
     uiManagerNull?: boolean;
     uiManagerOpts?: ICreateUiManagerOpts;
+    annotationStorageGetEditor?: (annotationElementId: string) => IFakeEditor | null;
     cache?: IAnnotationCommentSummary[];
     commentToReturnFromCache?: IAnnotationCommentSummary | null;
     syncCallback?: () => void;
@@ -170,7 +171,7 @@ async function createHarness(overrides: IHarnessOverrides = {}) {
         shallowRef(uiManager),
     );
     const pdfDocument = cast<ShallowRef<PDFDocumentProxy | null>>(
-        shallowRef({ annotationStorage: { getEditor: () => null } }),
+        shallowRef({ annotationStorage: { getEditor: overrides.annotationStorageGetEditor ?? (() => null) } }),
     );
     const annotationCommentsCache = ref<IAnnotationCommentSummary[]>(overrides.cache ?? []) as Ref<IAnnotationCommentSummary[]>;
 
@@ -545,5 +546,71 @@ describe('useAnnotationCrud / deleteAnnotationComment characterization', () => {
         expect(result).toBe(true);
         expect(harness.uiManager?.delete).toHaveBeenCalled();
         expect(harness.emitAnnotationModified).toHaveBeenCalledTimes(1);
+    });
+
+    it('updates an imported PDF note through annotationStorage editor lookup', async () => {
+        const editor = createFakeEditor({
+            id: 'internal-editor-1',
+            uid: 'pdfjs_internal_editor_1',
+            annotationElementId: '3856R',
+            parentPageIndex: 0,
+            comment: 'old text',
+        });
+        const harness = await createHarness({
+            editors: [],
+            annotationStorageGetEditor: (annotationElementId: string) => (
+                annotationElementId === '3856R' ? editor : null
+            ),
+        });
+        const pdfComment = createComment({
+            id: '3856R',
+            stableKey: 'ann:0:3856R',
+            annotationId: '3856R',
+            uid: null,
+            source: 'pdf',
+            subtype: 'FreeText',
+            text: 'old text',
+        });
+
+        const result = harness.crud.updateAnnotationComment(pdfComment, 'new persisted note');
+
+        expect(result).toBe(true);
+        expect(editor.comment).toBe('new persisted note');
+        expect(editor.addToAnnotationStorage).toHaveBeenCalledTimes(1);
+        expect(harness.rememberSummaryText).toHaveBeenCalledWith(expect.objectContaining({
+            stableKey: 'ann:0:3856R',
+            annotationId: '3856R',
+            text: 'new persisted note',
+            hasNote: true,
+        }));
+        expect(harness.scheduleAnnotationCommentsSync).toHaveBeenCalledWith(true);
+        expect(harness.emitAnnotationModified).toHaveBeenCalledTimes(1);
+    });
+
+    it('updates an imported PDF note through annotation element id lookup', async () => {
+        const editor = createFakeEditor({
+            id: 'unrelated-editor-id',
+            uid: 'unrelated-uid',
+            annotationElementId: '3856R',
+            parentPageIndex: 0,
+            comment: 'old text',
+        });
+        const harness = await createHarness({ editors: [editor] });
+        const pdfComment = createComment({
+            id: '3856R',
+            stableKey: 'ann:0:3856R',
+            annotationId: '3856R',
+            uid: null,
+            source: 'pdf',
+            subtype: 'FreeText',
+            text: 'old text',
+        });
+
+        const result = harness.crud.updateAnnotationComment(pdfComment, 'new persisted note');
+
+        expect(result).toBe(true);
+        expect(editor.comment).toBe('new persisted note');
+        expect(editor.addToAnnotationStorage).toHaveBeenCalledTimes(1);
+        expect(harness.scheduleAnnotationCommentsSync).toHaveBeenCalledWith(true);
     });
 });

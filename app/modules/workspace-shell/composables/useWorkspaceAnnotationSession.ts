@@ -112,6 +112,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         bringAnnotationNoteToFront,
         isSameAnnotationComment,
         consumePendingEmbeddedTextUpdates,
+        restorePendingEmbeddedTextUpdates,
     } = useAnnotationNoteWindows({
         annotationComments,
         markAnnotationDirty,
@@ -178,5 +179,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         bringAnnotationNoteToFront,
         isSameAnnotationComment,
         consumePendingEmbeddedTextUpdates,
+        restorePendingEmbeddedTextUpdates,
     };
 };

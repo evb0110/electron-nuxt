@@ -1,4 +1,5 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
@@ -9,8 +10,14 @@ import {
     shallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { useFileOperations } from '@app/composables/useFileOperations';
+
+const toastAddMock = vi.fn();
+
+vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
 
 function cast<T>(value: unknown): T {
     return value as T;
@@ -87,7 +94,9 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
             ])),
             persistAllAnnotationNotes: vi.fn(async (_force: boolean) => true),
             consumePendingEmbeddedTextUpdates: vi.fn(() => null),
+            restorePendingEmbeddedTextUpdates: vi.fn(),
             consumePendingEmbeddedAnnotationDeletes: vi.fn(() => null),
+            restorePendingEmbeddedAnnotationDeletes: vi.fn(),
             annotationNoteWindowsCount: ref(0),
             loadRecentFiles: vi.fn(),
             markShapeStateSaved: vi.fn(),
@@ -104,6 +113,10 @@ function createDeps(overrides: Partial<Parameters<typeof useFileOperations>[0]> 
 }
 
 describe('useFileOperations', () => {
+    beforeEach(() => {
+        toastAddMock.mockClear();
+    });
+
     it('serializes and saves when working copy has pending annotation-related changes', async () => {
         const {
             deps,
@@ -219,7 +232,7 @@ describe('useFileOperations', () => {
     it('uses PDF.js saveDocument when live annotation storage has modified ids', async () => {
         const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
             resetModified: vi.fn(),
-            modifiedIds: { ids: new Set(['annot-1']) },
+            modifiedIds: { ids: new Set(['3856R']) },
         } }));
         const {
             deps,
@@ -238,6 +251,51 @@ describe('useFileOperations', () => {
         expect(deps.getSourcePdfData).not.toHaveBeenCalled();
         expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
             7,
+            2,
+            3,
+            6,
+            4,
+            5,
+        ]);
+    });
+
+    it('uses source bytes when PDF.js serializable editor id maps back to a pending existing annotation ref', async () => {
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'Updated note');
+        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+            resetModified: vi.fn(),
+            modifiedIds: { ids: new Set(['3856R']) },
+            serializable: {
+                map: new Map([[
+                    'pdfjs_internal_editor_0',
+                    { id: '3856R' },
+                ]]),
+                hash: 'existing-note-hash',
+                transfer: [],
+            },
+        } }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            pdfDocument: livePdfDocument,
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            saveDocument: vi.fn(async () => new Uint8Array([7])),
+            getSourcePdfData: vi.fn(async () => new Uint8Array([9])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+        expect(deps.serializePdfForSave).toHaveBeenCalledWith(
+            new Uint8Array([9]),
+            expect.objectContaining({ pendingTexts }),
+        );
+        expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
+            9,
             2,
             3,
             6,
@@ -284,7 +342,7 @@ describe('useFileOperations', () => {
         ]);
     });
 
-    it('uses PDF.js saveDocument for editor-only annotations that are not yet materialized', async () => {
+    it('uses source bytes for replayable new editor-only FreeText notes', async () => {
         const {
             deps,
             saveFile,
@@ -320,10 +378,10 @@ describe('useFileOperations', () => {
 
         await handleSave();
 
-        expect(deps.saveDocument).toHaveBeenCalledOnce();
-        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
-            8,
+            9,
             2,
             3,
             6,
@@ -332,7 +390,7 @@ describe('useFileOperations', () => {
         ]);
     });
 
-    it('uses PDF.js saveDocument for editor-only annotations with temporary non-ref ids', async () => {
+    it('uses source bytes for replayable new editor-only FreeText notes with temporary non-ref ids', async () => {
         const {
             deps,
             saveFile,
@@ -368,10 +426,10 @@ describe('useFileOperations', () => {
 
         await handleSave();
 
-        expect(deps.saveDocument).toHaveBeenCalledOnce();
-        expect(deps.getSourcePdfData).not.toHaveBeenCalled();
+        expect(deps.saveDocument).not.toHaveBeenCalled();
+        expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         expect(Array.from(saveFile.mock.calls[0]?.[0] ?? [])).toEqual([
-            10,
+            9,
             2,
             3,
             6,
@@ -564,6 +622,47 @@ describe('useFileOperations', () => {
         expect(deps.clearPendingPersistedShapeStateForNextReload).toHaveBeenCalledOnce();
     });
 
+    it('restores consumed embedded annotation updates when serialized persistence fails', async () => {
+        const pendingTexts = new Map<string, string>();
+        pendingTexts.set('ann:0:3856R', 'Unsaved retry text');
+        const pendingDeletes = [{
+            id: '3856R',
+            stableKey: 'ann:0:3856R',
+            sortIndex: null,
+            pageIndex: 0,
+            pageNumber: 1,
+            text: 'Unsaved retry text',
+            kindLabel: 'Note',
+            subtype: 'FreeText',
+            author: null,
+            modifiedAt: Date.now(),
+            color: null,
+            uid: null,
+            annotationId: '3856R',
+            source: 'pdf',
+            hasNote: true,
+            markerRect: null,
+        } satisfies IAnnotationCommentSummary];
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => pendingTexts),
+            consumePendingEmbeddedAnnotationDeletes: vi.fn(() => pendingDeletes),
+            saveFile: vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            })),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        await handleSave();
+
+        expect(deps.restorePendingEmbeddedTextUpdates).toHaveBeenCalledWith(pendingTexts);
+        expect(deps.restorePendingEmbeddedAnnotationDeletes).toHaveBeenCalledWith(pendingDeletes);
+        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
+    });
+
     it('restores the prepared managed shape state when persistence fails after priming saved bytes', async () => {
         const snapshot = { snapshot: 'prepared' };
         const { deps } = createDeps({
@@ -611,12 +710,12 @@ describe('useFileOperations', () => {
         expect(deps.clearPendingPersistedShapeStateForNextReload).toHaveBeenCalledOnce();
     });
 
-    it('stops the saving state when PDF.js saveDocument stalls', async () => {
+    it('surfaces a toast and stops the saving state when PDF.js saveDocument stalls', async () => {
         vi.useFakeTimers();
         const stalledSave = new Promise<Uint8Array | null>(() => undefined);
         const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
             resetModified: vi.fn(),
-            modifiedIds: { ids: new Set(['annot-1']) },
+            modifiedIds: { ids: new Set(['3856R']) },
         } }));
         const { deps } = createDeps({
             annotationDirty: ref(true),
@@ -635,6 +734,98 @@ describe('useFileOperations', () => {
             expect(deps.serializePdfForSave).not.toHaveBeenCalled();
             expect(deps.saveFile).not.toHaveBeenCalled();
             expect(deps.isSaving.value).toBe(false);
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: 'PDF.js saveDocument timed out',
+            }));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('blocks same-tick duplicate save calls before note persistence awaits', async () => {
+        const deferredNotes = createDeferred<boolean>();
+        const { deps } = createDeps({
+            annotationNoteWindowsCount: ref(1),
+            persistAllAnnotationNotes: vi.fn(() => deferredNotes.promise),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const firstSave = handleSave();
+        const secondSave = await handleSave();
+
+        expect(secondSave).toBe(false);
+        expect(deps.persistAllAnnotationNotes).toHaveBeenCalledOnce();
+        expect(deps.isSaving.value).toBe(true);
+
+        deferredNotes.resolve(true);
+        await firstSave;
+
+        expect(deps.isSaving.value).toBe(false);
+    });
+
+    it('surfaces a toast when PDF.js saveDocument returns no data repeatedly', async () => {
+        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+            resetModified: vi.fn(),
+            modifiedIds: { ids: new Set(['3856R']) },
+        } }));
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            pdfDocument: livePdfDocument,
+            saveDocument: vi.fn(async () => null),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        const result = await handleSave();
+
+        expect(result).toBe(false);
+        expect(deps.saveDocument).toHaveBeenCalledTimes(4);
+        expect(deps.serializePdfForSave).not.toHaveBeenCalled();
+        expect(deps.saveFile).not.toHaveBeenCalled();
+        expect(deps.isSaving.value).toBe(false);
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'error',
+            title: 'errors.file.save',
+            description: 'saveDocument returned no data',
+        }));
+    });
+
+    it('falls back to source bytes when deferred embedded note updates make PDF.js saveDocument stall', async () => {
+        vi.useFakeTimers();
+        const stalledSave = new Promise<Uint8Array | null>(() => undefined);
+        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+            resetModified: vi.fn(),
+            modifiedIds: { ids: new Set(['3856R']) },
+        } }));
+        const {
+            deps,
+            saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            pdfDocument: livePdfDocument,
+            saveDocument: vi.fn(() => stalledSave),
+            getSourcePdfData: vi.fn(async () => new Uint8Array([42])),
+            consumePendingEmbeddedTextUpdates: vi.fn(() => new Map([[
+                'ann:0:3856R',
+                'persist me',
+            ]])),
+        });
+        const { handleSave } = useFileOperations(deps);
+
+        try {
+            const result = await handleSave();
+
+            expect(result).toBe(true);
+            expect(deps.saveDocument).not.toHaveBeenCalled();
+            expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
+            expect(deps.serializePdfForSave).toHaveBeenCalledWith(
+                new Uint8Array([42]),
+                expect.objectContaining({ pendingTexts: expect.any(Map) }),
+            );
+            expect(saveFile).toHaveBeenCalledOnce();
+            expect(deps.isSaving.value).toBe(false);
+            expect(toastAddMock).not.toHaveBeenCalled();
         } finally {
             vi.useRealTimers();
         }

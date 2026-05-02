@@ -66,6 +66,23 @@ describe('hasAnnotationChanges', () => {
         expect(result).toBe(true);
     });
 
+    it('returns true when annotation storage has serializable entries without modified ids', () => {
+        const pdfDocument = {annotationStorage: {
+            modifiedIds: {ids: new Set()},
+            serializable: {map: new Map([[
+                'pdfjs_internal_editor_0',
+                {value: 'changed'},
+            ]])},
+        }} as Partial<PDFDocumentProxy> as PDFDocumentProxy;
+
+        const result = hasAnnotationChanges({
+            pdfViewerRef: ref(null),
+            pdfDocument: shallowRef(pdfDocument),
+        });
+
+        expect(result).toBe(true);
+    });
+
     it('returns false when annotation storage access fails', () => {
         const throwingDocument = {} as Partial<PDFDocumentProxy> as PDFDocumentProxy;
         Object.defineProperty(throwingDocument, 'annotationStorage', {get: () => {

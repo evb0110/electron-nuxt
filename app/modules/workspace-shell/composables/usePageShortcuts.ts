@@ -118,6 +118,15 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         return true;
     }
 
+    function handleSaveShortcut(event: KeyboardEvent, key: string, shouldHandleRendererAccelerators: boolean) {
+        if (key !== 's' || event.shiftKey || !shouldHandleRendererAccelerators) {
+            return false;
+        }
+        event.preventDefault();
+        deps.handleSave();
+        return true;
+    }
+
     function preventReactiveLetterShortcut(event: KeyboardEvent, key: string, shouldHandleRendererAccelerators: boolean) {
         if (key === 'b' || key === 'f') {
             event.preventDefault();
@@ -170,8 +179,7 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     function handleKeyboardShortcut(event: KeyboardEvent) {
         suppressBrowserDefaultForConflictingAccelerator(event);
 
-        editableBlocked.value = isEditingText(event.target);
-        if (!isActive.value || editableBlocked.value) {
+        if (!isActive.value) {
             return;
         }
 
@@ -196,10 +204,19 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         const key = event.key.toLowerCase();
         const shouldHandleRendererAccelerators = shouldHandleRendererMenuAccelerators();
 
-        preventReactiveLetterShortcut(event, key, shouldHandleRendererAccelerators);
+        if (handleSaveShortcut(event, key, shouldHandleRendererAccelerators)) {
+            return;
+        }
         if (handlePrintShortcut(event, key, shouldHandleRendererAccelerators)) {
             return;
         }
+
+        editableBlocked.value = isEditingText(event.target);
+        if (editableBlocked.value) {
+            return;
+        }
+
+        preventReactiveLetterShortcut(event, key, shouldHandleRendererAccelerators);
         handleZoomShortcut(event, shouldHandleRendererAccelerators);
     }
 
@@ -227,14 +244,6 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
     // Letter shortcuts — reactive via whenever
     whenever(() => modReady.value && (keys.b?.value ?? false), () => deps.handleToggleSidebar());
     whenever(() => modReady.value && (keys.f?.value ?? false), () => openSearch());
-    whenever(
-        () => modReady.value
-            && (keys.s?.value ?? false)
-            && !(keys.shift?.value ?? false)
-            && shouldHandleRendererMenuAccelerators(),
-        () => deps.handleSave(),
-    );
-
     // Pointerdown — close menus on outside clicks
     function handleGlobalPointerDown(event: PointerEvent) {
         if (!isActive.value) {
