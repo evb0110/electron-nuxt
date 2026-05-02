@@ -23,7 +23,7 @@ interface IUsePdfViewerRenderStallRecoveryOptions {
     scheduleReload: (isReload?: boolean) => void;
 }
 
-export function usePdfViewerRenderStallRecovery(options: IUsePdfViewerRenderStallRecoveryOptions) {
+export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStallRecoveryOptions) => {
     const {
         src,
         isLoading,
@@ -155,4 +155,4 @@ export function usePdfViewerRenderStallRecovery(options: IUsePdfViewerRenderStal
         consumePendingInvalidation,
         handlePageRenderStall,
     };
-}
+};

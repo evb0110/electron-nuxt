@@ -21,7 +21,7 @@ interface IUseAppShellUpdatesDialogOptions {
     installUpdateNow: () => Promise<void>;
 }
 
-export function useAppShellUpdatesDialog(options: IUseAppShellUpdatesDialogOptions) {
+export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptions) => {
     const { t } = useTypedI18n();
 
     const updatesDialogTitle = computed(() => {
@@ -88,4 +88,4 @@ export function useAppShellUpdatesDialog(options: IUseAppShellUpdatesDialogOptio
         updatesDialogDescription,
         updatesDialogTitle,
     };
-}
+};

@@ -39,7 +39,7 @@ interface IUseDocumentWorkspaceToolbarOptions {
     isResizingSidebar: Ref<boolean>;
 }
 
-export function useDocumentWorkspaceToolbar(options: IUseDocumentWorkspaceToolbarOptions) {
+export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolbarOptions) => {
     const analytics = useAnalytics();
     const sidebarToggleCheckpointTimers = new Set<ReturnType<typeof setTimeout>>();
 
@@ -249,4 +249,4 @@ export function useDocumentWorkspaceToolbar(options: IUseDocumentWorkspaceToolba
             runToolbarAction(options.handleUndo);
         },
     };
-}
+};

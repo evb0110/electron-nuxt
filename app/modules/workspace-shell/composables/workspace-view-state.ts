@@ -31,7 +31,7 @@ interface IWorkspaceViewStateDeps {
     } | null>;
 }
 
-export function useWorkspaceViewState(deps: IWorkspaceViewStateDeps) {
+export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
     const isFitWidthActive = computed(
         () => deps.zoomMode.value === 'fit-width',
     );
@@ -103,4 +103,4 @@ export function useWorkspaceViewState(deps: IWorkspaceViewStateDeps) {
         enableDragMode,
         handleGoToPage,
     };
-}
+};

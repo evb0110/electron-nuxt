@@ -11,7 +11,7 @@ function omitCount(record: Record<string, number>, key: string) {
     return rest;
 }
 
-export function useWorkspaceRestoreTracker() {
+export const useWorkspaceRestoreTracker = () => {
     const restoringTabCounts = useRestoringTabCounts();
 
     function start(tabId: string) {
@@ -43,4 +43,4 @@ export function useWorkspaceRestoreTracker() {
         finish,
         has,
     };
-}
+};

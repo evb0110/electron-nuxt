@@ -28,7 +28,7 @@ export function workspaceHasPdf(workspace: IWorkspaceHasPdfState | null | undefi
     return typeof workspace.hasPdf === 'boolean' ? workspace.hasPdf : workspace.hasPdf.value;
 }
 
-export function useWorkspaceShellState(options: IUseWorkspaceShellStateOptions): IWorkspaceShellState {
+export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions): IWorkspaceShellState => {
     const activeTab = computed(() => {
         const tabId = options.activeTabId.value;
         if (!tabId) {
@@ -56,4 +56,4 @@ export function useWorkspaceShellState(options: IUseWorkspaceShellStateOptions):
         hasDocument,
         tabCount,
     };
-}
+};

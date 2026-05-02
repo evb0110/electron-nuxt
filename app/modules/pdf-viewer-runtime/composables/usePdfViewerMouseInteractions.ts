@@ -31,7 +31,7 @@ function isCommentTarget(target: EventTarget | null) {
     return target instanceof HTMLElement && Boolean(target.closest(COMMENT_TARGET_SELECTOR));
 }
 
-export function usePdfViewerMouseInteractions(options: IUsePdfViewerMouseInteractionsOptions) {
+export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInteractionsOptions) => {
     const {
         isSnipActive,
         isViewerPanDragModeActive,
@@ -116,4 +116,4 @@ export function usePdfViewerMouseInteractions(options: IUsePdfViewerMouseInterac
         handleViewerDblClick,
         handleViewerContextMenu,
     };
-}
+};

@@ -712,9 +712,9 @@ function applySummaryMemory(
     };
 }
 
-export function useAnnotationIdentity(
+export const useAnnotationIdentity = (
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>,
-) {
+) => {
     const editorRuntimeIds = new WeakMap<IPdfjsEditor, string>();
     let editorRuntimeIdCounter = 0;
     let commentSummaryMemory = new Map<string, ISummaryMemoryEntry>();
@@ -848,4 +848,4 @@ export function useAnnotationIdentity(
         findCommentByAnnotationId,
         clearMemory,
     };
-}
+};

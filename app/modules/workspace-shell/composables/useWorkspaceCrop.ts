@@ -15,7 +15,7 @@ interface IUseWorkspaceCropOptions {
     workingCopyPath: Ref<TDocumentRef | null>;
 }
 
-export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
+export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
     const cropDialogOpen = ref(false);
     const cropDialogLoading = ref(false);
     const cropDialogMargins = ref<ICropMargins>({
@@ -131,4 +131,4 @@ export function useWorkspaceCrop(options: IUseWorkspaceCropOptions) {
         isCropSelecting,
         handleCrop,
     };
-}
+};

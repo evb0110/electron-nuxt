@@ -87,7 +87,7 @@ interface IUsePdfViewerRerenderCoordinatorOptions {
     consumeSuppressedZoomRerender?: (nextZoom: number) => boolean;
 }
 
-export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCoordinatorOptions) {
+export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCoordinatorOptions) => {
     const {
         viewerContainer,
         pdfDocument,
@@ -383,4 +383,4 @@ export function usePdfViewerRerenderCoordinator(options: IUsePdfViewerRerenderCo
     });
 
     return {reRenderVisiblePagesAndSyncCurrentPage};
-}
+};

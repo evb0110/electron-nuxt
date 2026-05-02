@@ -13,7 +13,7 @@ interface IUseMenuSyncDeps extends IUseWorkspaceShellStateOptions {shellState?: 
 
 export { workspaceHasPdf } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 
-export function useMenuSync(deps: IUseMenuSyncDeps) {
+export const useMenuSync = (deps: IUseMenuSyncDeps) => {
     const autoShellState = useWorkspaceShellState(deps);
     const shellState = deps.shellState ?? autoShellState;
     let lastSyncedMenuDocumentState: boolean | null = null;
@@ -61,4 +61,4 @@ export function useMenuSync(deps: IUseMenuSyncDeps) {
         shellState,
         workspaceHasPdf,
     };
-}
+};

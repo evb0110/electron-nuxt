@@ -70,7 +70,7 @@ interface IWorkspaceInteractionControlsOptions {
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
 }
 
-export function useWorkspaceInteractionControls(options: IWorkspaceInteractionControlsOptions) {
+export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionControlsOptions) => {
     const {
         isActive,
         appSettings,
@@ -231,4 +231,4 @@ export function useWorkspaceInteractionControls(options: IWorkspaceInteractionCo
         captureSplitPayload,
         restoreSplitPayload,
     };
-}
+};

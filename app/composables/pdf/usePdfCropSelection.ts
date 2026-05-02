@@ -27,7 +27,7 @@ interface IPageTarget {
 
 const MIN_SELECTION_SIZE = 5;
 
-export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
+export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
     const state = ref<TCropSelectionState>('idle');
     const selectionRect = ref<ILocalRect | null>(null);
     const isSelecting = computed(() => state.value === 'selecting');
@@ -223,4 +223,4 @@ export function usePdfCropSelection(options: IUsePdfCropSelectionOptions) {
         onPointerEnd: pointerDragHandlers.onPointerEnd,
         cancelSelection,
     };
-}
+};

@@ -368,7 +368,7 @@ export async function writePngBlobToClipboard(blob: Blob) {
     await globalThis.navigator.clipboard.write([clipboardItem]);
 }
 
-export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
+export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
     const state = ref<TSnipState>('idle');
     const selectionRect = ref<ILocalRect | null>(null);
     const flashRect = ref<ILocalRect | null>(null);
@@ -580,4 +580,4 @@ export function usePdfRegionSnip(options: IUsePdfRegionSnipOptions) {
         onPointerEnd: pointerDragHandlers.onPointerEnd,
         cancelCapture,
     };
-}
+};

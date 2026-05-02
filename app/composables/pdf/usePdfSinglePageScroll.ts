@@ -278,9 +278,9 @@ interface IUsePdfSinglePageScrollOptions {
     emitCurrentPage: (page: number) => void;
 }
 
-export function usePdfSinglePageScroll(
+export const usePdfSinglePageScroll = (
     options: IUsePdfSinglePageScrollOptions,
-) {
+) => {
     const {
         viewerContainer,
         numPages,
@@ -731,4 +731,4 @@ export function usePdfSinglePageScroll(
         searchNavigationTargetPage,
         resetContinuousScrollState,
     };
-}
+};

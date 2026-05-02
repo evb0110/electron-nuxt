@@ -89,7 +89,7 @@ interface IViewerScrollContext {
     zoomScrollExpected: boolean;
 }
 
-export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
+export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) => {
     const {
         viewerContainer,
         src,
@@ -718,4 +718,4 @@ export function usePdfViewerWheelZoom(options: IUsePdfViewerWheelZoomOptions) {
         isZoomInteractionLocked,
         setZoomRerenderBusy,
     };
-}
+};

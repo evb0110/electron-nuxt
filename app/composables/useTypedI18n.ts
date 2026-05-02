@@ -17,7 +17,7 @@ interface IAppTypedI18nComposer {
     loadLocaleMessages: (locale: TLocale) => Promise<void>;
 }
 
-export function useTypedI18n(): IAppTypedI18nComposer {
+export const useTypedI18n = (): IAppTypedI18nComposer => {
     const composer = useI18n();
     const typedComposer = createTypedI18nComposer<typeof composer, typeof composer.t, TLocale>(composer);
     const locale = computed<TLocale>(() => (
@@ -46,4 +46,4 @@ export function useTypedI18n(): IAppTypedI18nComposer {
         locale,
         t,
     };
-}
+};

@@ -34,7 +34,7 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionD
     onOpenDjvuError: (error: unknown) => void;
 }
 
-export function useWorkspaceDocumentLifecycleEffects(options: IWorkspaceDocumentLifecycleEffectsOptions) {
+export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocumentLifecycleEffectsOptions) => {
     const {
         pendingDjvu,
         openDjvuFile,
@@ -133,4 +133,4 @@ export function useWorkspaceDocumentLifecycleEffects(options: IWorkspaceDocument
         closeAllAnnotationNotes,
         loadRecentFiles,
     });
-}
+};

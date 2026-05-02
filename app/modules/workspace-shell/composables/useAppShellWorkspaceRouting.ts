@@ -90,7 +90,7 @@ function readWorkspaceToolbarSnapshot(workspace: IWorkspaceExpose) {
     }
 }
 
-export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutingOptions) {
+export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutingOptions) => {
     const {
         activeGroupId,
         activeTabId,
@@ -382,4 +382,4 @@ export function useAppShellWorkspaceRouting(options: IUseAppShellWorkspaceRoutin
         beginOpenPathsInAppropriateTab,
         handleWindowTabsAction,
     };
-}
+};

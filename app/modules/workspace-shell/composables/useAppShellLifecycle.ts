@@ -17,7 +17,7 @@ interface IUseAppShellLifecycleOptions {
     closeUpdatesDialog: () => void;
 }
 
-export function useAppShellLifecycle(options: IUseAppShellLifecycleOptions) {
+export const useAppShellLifecycle = (options: IUseAppShellLifecycleOptions) => {
     const {
         dirtyTabCloseDialogOpen,
         updatesDialogOpen,
@@ -67,4 +67,4 @@ export function useAppShellLifecycle(options: IUseAppShellLifecycleOptions) {
             closeUpdatesDialog();
         }
     });
-}
+};

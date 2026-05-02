@@ -48,7 +48,7 @@ interface IUsePdfViewerWheelZoomSessionOptions extends IZoomVirtualizationLogOpt
     effectiveScale: Ref<number>;
 }
 
-export function usePdfViewerWheelZoomSession(options: IUsePdfViewerWheelZoomSessionOptions) {
+export const usePdfViewerWheelZoomSession = (options: IUsePdfViewerWheelZoomSessionOptions) => {
     const {
         viewerContainer,
         effectiveScale,
@@ -321,4 +321,4 @@ export function usePdfViewerWheelZoomSession(options: IUsePdfViewerWheelZoomSess
         getZoomRerenderBusyLockUntilMs,
         getExpectedZoomScrollUntilMs,
     };
-}
+};

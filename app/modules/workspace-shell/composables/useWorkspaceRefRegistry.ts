@@ -6,7 +6,7 @@ import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 
 interface IUseWorkspaceRefRegistryOptions { activeTabId: Ref<string | null>; }
 
-export function useWorkspaceRefRegistry(options: IUseWorkspaceRefRegistryOptions) {
+export const useWorkspaceRefRegistry = (options: IUseWorkspaceRefRegistryOptions) => {
     const workspaceRefs = shallowRef<Map<string, IWorkspaceExpose>>(new Map());
     const pendingWorkspaceWaiters = new Map<string, Set<(workspace: IWorkspaceExpose) => void>>();
     const WORKSPACE_REF_WAIT_TIMEOUT_MS = 4000;
@@ -110,4 +110,4 @@ export function useWorkspaceRefRegistry(options: IUseWorkspaceRefRegistryOptions
         waitForWorkspace,
         workspaceRefs,
     };
-}
+};

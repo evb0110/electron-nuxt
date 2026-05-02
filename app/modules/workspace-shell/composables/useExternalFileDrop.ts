@@ -51,7 +51,7 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
     return paths;
 }
 
-export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
+export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
     const { openPathsInAppropriateTab } = options;
     let queue: Promise<void> = Promise.resolve();
     let lifecycleToken = 0;
@@ -125,4 +125,4 @@ export function useExternalFileDrop(options: IUseExternalFileDropOptions) {
     }
 
     return { cleanup };
-}
+};

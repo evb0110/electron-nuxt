@@ -124,7 +124,7 @@ function pruneCache(
     });
 }
 
-export function useWorkspaceSplitCache() {
+export const useWorkspaceSplitCache = () => {
     const splitPayloadCache = useSplitPayloadCache();
     const splitPayloadCacheRevision = useSplitPayloadCacheRevision();
 
@@ -228,4 +228,4 @@ export function useWorkspaceSplitCache() {
         has,
         clear,
     };
-}
+};

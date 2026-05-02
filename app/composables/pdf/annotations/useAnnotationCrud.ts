@@ -158,7 +158,7 @@ interface IUseAnnotationCrudOptions {
     emitAnnotationToolCancel: () => void;
 }
 
-export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
+export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
     const {
         viewerContainer,
         pdfDocument,
@@ -1535,4 +1535,4 @@ export function useAnnotationCrud(options: IUseAnnotationCrudOptions) {
         handleAnnotationCommentContextMenu,
         handleAnnotationEditorDblClick,
     };
-}
+};

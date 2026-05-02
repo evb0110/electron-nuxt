@@ -287,7 +287,7 @@ function getAnalyticsEnabledFlagFromRuntimeConfig() {
     return useRuntimeConfig().public?.analyticsEnabled ?? false;
 }
 
-export function useAnalytics() {
+export const useAnalytics = () => {
     const enabledFlag = getAnalyticsEnabledFlagFromRuntimeConfig();
 
     function mergeDocumentContext(nextContext: Partial<IAnalyticsDocumentContext>) {
@@ -372,4 +372,4 @@ export function useAnalytics() {
         setDocumentContext,
         track,
     };
-}
+};

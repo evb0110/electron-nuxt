@@ -45,7 +45,7 @@ function normalizeSplitPayloadTotalPages(total: number | undefined, fallbackPage
     return Math.max(fallbackPage, Math.floor(total));
 }
 
-export function useWorkspaceSplitPayload(options: IUseWorkspaceSplitPayloadOptions) {
+export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptions) => {
     function createPdfSnapshotPayload(snapshotPath: TDocumentRef, isDirty: boolean): TPdfSnapshotSplitPayload {
         const normalizedCurrentPage = normalizeSplitPayloadPage(options.currentPage.value) ?? 1;
         return {
@@ -179,4 +179,4 @@ export function useWorkspaceSplitPayload(options: IUseWorkspaceSplitPayloadOptio
         captureSplitPayload,
         restoreSplitPayload,
     };
-}
+};

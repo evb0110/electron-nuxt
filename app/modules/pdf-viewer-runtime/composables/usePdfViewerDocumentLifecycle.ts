@@ -127,7 +127,7 @@ interface IUsePdfViewerDocumentLifecycleOptions {
     };
 }
 
-export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLifecycleOptions) {
+export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLifecycleOptions) => {
     let documentLoadToken = 0;
     const isLoadFromSourceActive = ref(false);
 
@@ -565,4 +565,4 @@ export function usePdfViewerDocumentLifecycle(options: IUsePdfViewerDocumentLife
         scheduleRecoverInitialRender,
         scheduleLoadFromSource,
     };
-}
+};

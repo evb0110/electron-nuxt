@@ -56,7 +56,7 @@ export function regionRectStyle(rect: ILocalRect | null): CSSProperties {
     };
 }
 
-export function usePdfRegionSelectionOverlay(options: IRegionSelectionOverlayOptions) {
+export const usePdfRegionSelectionOverlay = (options: IRegionSelectionOverlayOptions) => {
     function handlePointerDown(event: PointerEvent) {
         if (!options.isActive() || event.button !== 0) {
             return;
@@ -111,12 +111,12 @@ export function usePdfRegionSelectionOverlay(options: IRegionSelectionOverlayOpt
         handleContextMenu,
         handleWheel,
     };
-}
+};
 
-export function useEmittedPdfRegionSelectionOverlay(
+export const useEmittedPdfRegionSelectionOverlay = (
     props: IRegionSelectionOverlayBaseProps,
     emit: IRegionSelectionOverlayEmits,
-) {
+) => {
     return usePdfRegionSelectionOverlay({
         isActive: () => props.active,
         onPointerStart: payload => emit('pointer-start', payload),
@@ -124,4 +124,4 @@ export function useEmittedPdfRegionSelectionOverlay(
         onPointerEnd: payload => emit('pointer-end', payload),
         onCancel: () => emit('cancel'),
     });
-}
+};

@@ -25,7 +25,7 @@ interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     ensureAtLeastOneTab: () => void;
 }
 
-export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
+export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const {
         tabs,
         activeTabId,
@@ -199,4 +199,4 @@ export function useTabsShellBindings(options: IUseTabsShellBindingsOptions) {
         menuCleanups.forEach(cleanup => cleanup());
         stopTabKeyboardShortcutListener();
     });
-}
+};

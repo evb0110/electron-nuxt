@@ -163,7 +163,7 @@ function resolvePlacementCoordinate(value: number | null | undefined) {
     return clamp(Number.isFinite(value) ? Number(value) : 0.5, 0, 1);
 }
 
-export function usePdfImagePlacement(options: IUsePdfImagePlacementOptions) {
+export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
     const {
         viewerContainer,
         currentPage,
@@ -323,4 +323,4 @@ export function usePdfImagePlacement(options: IUsePdfImagePlacementOptions) {
         clearPendingImagePlacement,
         restorePendingImagePlacement,
     };
-}
+};
