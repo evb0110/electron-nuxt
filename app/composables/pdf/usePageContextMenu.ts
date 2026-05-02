@@ -9,12 +9,14 @@ interface IPageContextMenuState {
 }
 
 export const usePageContextMenu = () => {
-    const createInitialPageContextMenuState = (): IPageContextMenuState => ({
-        visible: false,
-        x: 0,
-        y: 0,
-        pages: [],
-    });
+    function createInitialPageContextMenuState(): IPageContextMenuState {
+        return {
+            visible: false,
+            x: 0,
+            y: 0,
+            pages: [],
+        };
+    }
     const {
         menu: pageContextMenu,
         menuStyle: pageContextMenuStyle,

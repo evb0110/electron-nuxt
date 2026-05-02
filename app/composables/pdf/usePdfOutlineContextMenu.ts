@@ -35,12 +35,14 @@ export const usePdfOutlineContextMenu = (
         count: number;
     }
 
-    const createInitialBookmarkContextMenuState = (): IBookmarkContextMenuState => ({
-        visible: false,
-        x: 0,
-        y: 0,
-        itemId: null,
-    });
+    function createInitialBookmarkContextMenuState(): IBookmarkContextMenuState {
+        return {
+            visible: false,
+            x: 0,
+            y: 0,
+            itemId: null,
+        };
+    }
     const {
         menu: bookmarkContextMenu,
         showPositionedMenu,

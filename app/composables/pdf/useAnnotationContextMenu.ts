@@ -73,17 +73,19 @@ function resolveContextMenuDeleteActionLabel(
 export const useAnnotationContextMenu = () => {
     const { t } = useTypedI18n();
 
-    const createInitialAnnotationContextMenuState = (): IAnnotationContextMenuState => ({
-        visible: false,
-        x: 0,
-        y: 0,
-        comment: null,
-        hasSelection: false,
-        selectionText: '',
-        pageNumber: null,
-        pageX: null,
-        pageY: null,
-    });
+    function createInitialAnnotationContextMenuState(): IAnnotationContextMenuState {
+        return {
+            visible: false,
+            x: 0,
+            y: 0,
+            comment: null,
+            hasSelection: false,
+            selectionText: '',
+            pageNumber: null,
+            pageX: null,
+            pageY: null,
+        };
+    }
     const {
         menu: annotationContextMenu,
         menuStyle: annotationContextMenuStyle,
