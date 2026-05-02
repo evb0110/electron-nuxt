@@ -5,7 +5,7 @@ import type {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/platform-api';
 import type { IShapeAnnotation } from '@app/types/annotations';
-import { BrowserLogger } from '@app/utils/browser-logger';
+import { collectLivePdfJsAnnotationChangeIds } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
 
 interface IWorkspacePdfViewerForAnnotationUtils {
     saveDocument: () => Promise<Uint8Array | null>;
@@ -70,24 +70,5 @@ export function hasAnnotationChanges(deps: IHasAnnotationChangesDeps) {
         return false;
     }
 
-    try {
-        const storage = document.annotationStorage;
-        if (!storage) {
-            return false;
-        }
-
-        // PDF.js keeps modified annotation IDs in an internal set-like structure.
-        const modifiedIds = storage.modifiedIds?.ids;
-        if (modifiedIds && typeof modifiedIds.size === 'number') {
-            if (modifiedIds.size > 0) {
-                return true;
-            }
-        }
-
-        const serializableMap = storage.serializable?.map;
-        return serializableMap instanceof Map && serializableMap.size > 0;
-    } catch (error) {
-        BrowserLogger.debug('workspace', 'Failed to inspect annotation storage dirty state', error);
-        return false;
-    }
+    return collectLivePdfJsAnnotationChangeIds(document).hasChanges;
 }

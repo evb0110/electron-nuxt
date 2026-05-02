@@ -20,6 +20,7 @@ import {
     useFileOperations,
     type IFileOperationsDeps,
 } from '@app/composables/useFileOperations';
+import { getEmbeddedMutationBaseData as resolveEmbeddedMutationBaseData } from '@app/services/pdf-save/pdfSaveBaseData';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getSearchCapability } from '@app/utils/platform-search';
 import {
@@ -306,8 +307,17 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         }
     }
 
+    async function getEmbeddedMutationBaseData() {
+        return resolveEmbeddedMutationBaseData({
+            hasAnnotationChanges,
+            saveDocument: () => pdfViewerRef.value?.saveDocument() ?? Promise.resolve(null),
+            getSourcePdfData,
+        });
+    }
+
     return {
         getSourcePdfData,
+        getEmbeddedMutationBaseData,
         serializePdfForSave,
         rewriteMarkupSubtypes,
         serializeShapeAnnotations,

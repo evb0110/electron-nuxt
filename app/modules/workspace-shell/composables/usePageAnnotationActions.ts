@@ -98,8 +98,7 @@ interface IPageAnnotationActionsDeps {
     removeAnnotationFromCache: (stableKey: string) => void;
     markAnnotationDirty: () => void;
     queuePendingEmbeddedAnnotationDelete: (comment: IAnnotationCommentSummary) => void;
-    hasAnnotationChanges: () => boolean;
-    getSourcePdfData: () => Promise<Uint8Array | null>;
+    getEmbeddedMutationBaseData: () => Promise<Uint8Array | null>;
     embedPlacedImageToPage: (
         data: Uint8Array,
         placement: IPdfPlacedImageFinalizePayload,
@@ -133,8 +132,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         annotationNoteWindows,
         loadPdfFromData,
         waitForPdfReload,
-        hasAnnotationChanges,
-        getSourcePdfData,
+        getEmbeddedMutationBaseData,
         embedPlacedImageToPage,
     } = deps;
 
@@ -649,14 +647,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     let imageFinalizeInFlight = false;
-
-    async function getEmbeddedMutationBaseData() {
-        if (hasAnnotationChanges()) {
-            return pdfViewerRef.value?.saveDocument() ?? null;
-        }
-
-        return getSourcePdfData();
-    }
 
     async function handleFinalizePlacedImage(placement: IPdfPlacedImageFinalizePayload) {
         if (imageFinalizeInFlight || !pdfViewerRef.value) {

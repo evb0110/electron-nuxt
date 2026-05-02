@@ -36,6 +36,8 @@ const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
     ],
 };
 
+type TRecentFilesGrantWindow = Window & { electronAPI?: { documents?: { recentFiles?: { add?: (value: string) => Promise<void> } } } };
+
 function getToolbarActionIconHints(label: string) {
     return TOOLBAR_ACTION_ICON_HINTS[label] ?? [];
 }
@@ -305,6 +307,13 @@ async function openPathInApp(
 
             const openResult = await runWithExecutionContextRetry(page, async () => {
                 return evaluateInPage(page, async (path: string) => {
+                    const documents = (window as TRecentFilesGrantWindow).electronAPI?.documents;
+                    try {
+                        await documents?.recentFiles?.add?.(path);
+                    } catch {
+                        // Direct-open also exists in browser-like automation contexts where recent files are unavailable.
+                    }
+
                     const openFileDirect = (window as Window & { __openFileDirect?: (value: string) => Promise<void> }).__openFileDirect;
                     if (typeof openFileDirect !== 'function') {
                         return false;
@@ -1168,7 +1177,7 @@ export async function resizeSidebarBy(page: Page, deltaX: number, steps = 12) {
     await delay(150);
 }
 
-export async function saveViaWindowHandle(page: Page) {
+export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const saved = await page.evaluate(async () => {
         const save = (window as Window & { __handleSave?: () => Promise<void> }).__handleSave;
         if (typeof save !== 'function') {
@@ -1190,5 +1199,5 @@ export async function saveViaWindowHandle(page: Page) {
 
         const savingStatuses = Array.from(document.querySelectorAll('.note-window__status, .pdf-annotation-note-window__status'));
         return savingStatuses.length === 0;
-    }, {timeout: DEFAULT_TIMEOUT_MS});
+    }, {timeout: timeoutMs});
 }

@@ -390,8 +390,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         },
         markAnnotationDirty,
         queuePendingEmbeddedAnnotationDelete,
-        hasAnnotationChanges,
-        getSourcePdfData: pageSaveOrchestration.getSourcePdfData,
+        getEmbeddedMutationBaseData: pageSaveOrchestration.getEmbeddedMutationBaseData,
         embedPlacedImageToPage,
     });
     const {
