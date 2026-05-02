@@ -149,6 +149,39 @@ describe('fileOps path security', () => {
         expect(mocks.writeFile).toHaveBeenCalledWith('/tmp/electron-test/safe.pdf', new Uint8Array([9]));
     });
 
+    it('does not write temp PDF bytes when managed working copy recovery fails', async () => {
+        const error = new Error('Working copy directory was removed and the original file is unavailable');
+        Object.assign(error, { code: 'WORKING_COPY_MISSING' });
+        mocks.ensureWorkingCopyDirectory.mockRejectedValue(error);
+
+        await expect(
+            handleFileWrite(
+                {} as never,
+                '/tmp/electron-test/safe.pdf',
+                new Uint8Array([9]),
+            ),
+        ).rejects.toMatchObject({ code: 'WORKING_COPY_MISSING' });
+
+        expect(mocks.writeFile).not.toHaveBeenCalled();
+    });
+
+    it('rechecks managed working copy directories and retries when the write races cleanup', async () => {
+        const enoent = new Error('missing parent');
+        Object.assign(enoent, { code: 'ENOENT' });
+        mocks.writeFile
+            .mockRejectedValueOnce(enoent)
+            .mockResolvedValueOnce(undefined);
+
+        await handleFileWrite(
+            {} as never,
+            '/tmp/electron-test/safe.pdf',
+            new Uint8Array([9]),
+        );
+
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledTimes(2);
+        expect(mocks.writeFile).toHaveBeenCalledTimes(2);
+    });
+
     it('falls back to mapped working copy for original file path reads', async () => {
         mocks.resolveAllowedReadPath
             .mockResolvedValueOnce(null)

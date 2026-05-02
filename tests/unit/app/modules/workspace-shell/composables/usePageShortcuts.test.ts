@@ -60,21 +60,26 @@ function createDeps() {
 
 let capturedOnEventFired: ((e: unknown) => void) | undefined;
 let capturedPointerDown: ((e: PointerEvent) => void) | undefined;
+let capturedKeyDown: ((e: KeyboardEvent) => void) | undefined;
 
 describe('usePageShortcuts', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
         const windowMock = {
-            addEventListener: vi.fn((event: string, listener: (e: PointerEvent) => void) => {
+            addEventListener: vi.fn((event: string, listener: EventListener) => {
                 if (event === 'pointerdown') {
                     capturedPointerDown = listener;
+                }
+                if (event === 'keydown') {
+                    capturedKeyDown = listener;
                 }
             }),
             removeEventListener: vi.fn(),
         };
         vi.stubGlobal('window', windowMock);
         capturedPointerDown = undefined;
+        capturedKeyDown = undefined;
         mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(false);
 
         mocks.useMagicKeys.mockImplementation((opts?: { onEventFired?: (e: unknown) => void }) => {
@@ -89,6 +94,9 @@ describe('usePageShortcuts', () => {
 
         expect(window.addEventListener).toHaveBeenCalledWith(
             'pointerdown', expect.any(Function),
+        );
+        expect(window.addEventListener).toHaveBeenCalledWith(
+            'keydown', expect.any(Function), { capture: true },
         );
     });
 
@@ -224,6 +232,84 @@ describe('usePageShortcuts', () => {
 
         expect(preventDefault).toHaveBeenCalled();
         expect(deps.handleSave).toHaveBeenCalledOnce();
+    });
+
+    it('captures web Cmd/Ctrl+S before editable controls can swallow it', async () => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        const stopPropagation = vi.fn();
+
+        capturedKeyDown?.(cast<KeyboardEvent>({
+            key: 's',
+            code: 'KeyS',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: { nodeName: 'TEXTAREA' },
+            preventDefault,
+            stopPropagation,
+        }));
+
+        expect(preventDefault).toHaveBeenCalledOnce();
+        expect(stopPropagation).toHaveBeenCalledOnce();
+        expect(deps.handleSave).toHaveBeenCalledOnce();
+    });
+
+    it('captures web Cmd/Ctrl+P before editable controls can swallow it', async () => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        const stopPropagation = vi.fn();
+
+        capturedKeyDown?.(cast<KeyboardEvent>({
+            key: 'p',
+            code: 'KeyP',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: { nodeName: 'TEXTAREA' },
+            preventDefault,
+            stopPropagation,
+        }));
+
+        expect(preventDefault).toHaveBeenCalledOnce();
+        expect(stopPropagation).toHaveBeenCalledOnce();
+        expect(deps.handlePrint).toHaveBeenCalledOnce();
+    });
+
+    it('does not capture Cmd/Ctrl+S in Electron where the menu accelerator owns save', async () => {
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(false);
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        const stopPropagation = vi.fn();
+
+        capturedKeyDown?.(cast<KeyboardEvent>({
+            key: 's',
+            code: 'KeyS',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: { nodeName: 'TEXTAREA' },
+            preventDefault,
+            stopPropagation,
+        }));
+
+        expect(preventDefault).not.toHaveBeenCalled();
+        expect(stopPropagation).not.toHaveBeenCalled();
+        expect(deps.handleSave).not.toHaveBeenCalled();
     });
 
     it('does not intercept Cmd/Ctrl+S in Electron where the menu accelerator owns save', async () => {

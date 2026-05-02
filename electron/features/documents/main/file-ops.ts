@@ -253,7 +253,16 @@ export async function handleFileWrite(
     }
 
     await ensureWorkingCopyDirectory(resolvedPath);
-    await writeFile(resolvedPath, payload);
+    try {
+        await writeFile(resolvedPath, payload);
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException | null)?.code;
+        if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+            throw error;
+        }
+        await ensureWorkingCopyDirectory(resolvedPath);
+        await writeFile(resolvedPath, payload);
+    }
     return true;
 }
 
