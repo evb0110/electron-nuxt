@@ -266,63 +266,101 @@ describe('createBrowserSearchCapability', () => {
         expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
     });
 
-    it('offloads uncached extraction to the browser search worker when available', async () => {
+    it('streams uncached browser search results as direct extraction scans pages', async () => {
+        const pageTexts = [
+            'alpha sign',
+            'beta sign',
+        ];
+        const getPage = vi.fn(async (pageNumber: number) => ({
+            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
-        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
-        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockReturnValue({
-            requestId: 7,
-            promise: Promise.resolve({
-                pageCount: 2,
-                pageTexts: [
-                    'alpha foo',
-                    'beta',
-                ],
-            }),
-        });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: pageTexts.length,
+            getPage,
+            destroy: vi.fn(async () => {}),
+        }) });
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/search-capability');
         const { capability } = createBrowserSearchCapability();
-        const result = await capability.run('/tmp/test.pdf', 'foo', { requestId: 'worker-search' });
+        const progressUpdates: Array<{
+            processed: number;
+            resultCount: number;
+        }> = [];
+        capability.onProgress((progress) => {
+            progressUpdates.push({
+                processed: progress.processed,
+                resultCount: progress.results?.length ?? 0,
+            });
+        });
+        const result = await capability.run('/tmp/test.pdf', 'sign', { requestId: 'stream-search' });
 
-        expect(result.results).toEqual([expect.objectContaining({
-            pageNumber: 1,
-            pageMatchIndex: 0,
-        })]);
-        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).toHaveBeenCalledWith(
-            'extractDocumentText',
-            { pdfPath: '/tmp/test.pdf' },
-        );
-        expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
+        expect(result.results).toEqual([
+            expect.objectContaining({ pageNumber: 1 }),
+            expect.objectContaining({ pageNumber: 2 }),
+        ]);
+        expect(progressUpdates).toContainEqual({
+            processed: 1,
+            resultCount: 1,
+        });
+        expect(progressUpdates).toContainEqual({
+            processed: 2,
+            resultCount: 2,
+        });
+        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).not.toHaveBeenCalled();
+        expect(pdfjsModule.getDocument).toHaveBeenCalledOnce();
+        expect(getPage).toHaveBeenCalledTimes(2);
     });
 
-    it('cancels active browser-worker extraction when search is canceled', async () => {
+    it('cancels active direct browser extraction when search is canceled', async () => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
-        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
-        let rejectWorkerRequest: (error: Error) => void = () => {};
-        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockReturnValue({
-            requestId: 19,
-            promise: new Promise<{
-                pageCount: number;
-                pageTexts: string[];
-            }>((_resolve, reject) => {
-                rejectWorkerRequest = reject;
-            }),
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        let firstPageRead = false;
+        let releaseFirstPageRead: () => void = () => {};
+        const firstPageReadGate = new Promise<void>((resolve) => {
+            releaseFirstPageRead = resolve;
         });
+        const getPage = vi.fn(async (pageNumber: number) => ({
+            getTextContent: vi.fn(async () => {
+                if (pageNumber === 1) {
+                    firstPageRead = true;
+                    await firstPageReadGate;
+                }
+                return {items: [{str: `page ${pageNumber} foo`}]};
+            }),
+            cleanup: vi.fn(async () => {}),
+        }));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: 3,
+            getPage,
+            destroy: vi.fn(async () => {}),
+        }) });
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/search-capability');
         const { capability } = createBrowserSearchCapability();
         const runPromise = capability.run('/tmp/test.pdf', 'foo', { requestId: 'cancel-me' });
 
         await vi.waitFor(() => {
-            expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).toHaveBeenCalledOnce();
+            expect(firstPageRead).toBe(true);
         });
         await capability.cancel('cancel-me');
-        rejectWorkerRequest(new Error('ERR_BROWSER_SEARCH_CANCELED'));
+        releaseFirstPageRead();
 
         await expect(runPromise).resolves.toEqual({
             results: [],
             truncated: false,
         });
-        expect(browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest).toHaveBeenCalledWith(19);
+        expect(getPage.mock.calls.length).toBeLessThan(3);
     });
 });

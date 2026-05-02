@@ -225,11 +225,14 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
             return;
         }
 
-        if (handleDeleteShortcut(event)) {
-            return;
-        }
-
         if (!hasMod || !pdfSrc.value) {
+            editableBlocked.value = isEditingText(event.target);
+            if (editableBlocked.value) {
+                return;
+            }
+            if (handleDeleteShortcut(event)) {
+                return;
+            }
             return;
         }
 

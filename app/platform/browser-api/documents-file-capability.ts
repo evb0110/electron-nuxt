@@ -1424,6 +1424,7 @@ export function createBrowserDocumentsFileCapability(
         },
         recentFiles: {
             async get() {
+                await browserDocumentStore.recoverRecentFilesIfStorageMissing();
                 const recentFiles = browserDocumentStore.getRecentFiles();
                 const validatedFiles: IRecentFile[] = [];
 

@@ -32,6 +32,7 @@ export const usePdfSearch = () => {
     const { t } = useTypedI18n();
     const analytics = useAnalytics();
     const searchQuery = ref('');
+    const submittedSearchQuery = ref('');
     const searchOptions = ref<Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>>({
         matchCase: false,
         wholeWord: false,
@@ -102,6 +103,77 @@ export const usePdfSearch = () => {
             return t('errors.search.browserTooLarge');
         }
         return t('errors.search.unavailable');
+    }
+
+    function applySearchResponse(
+        response: IPdfSearchResponse,
+        query: string,
+        options: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>,
+        searchId: string,
+    ) {
+        const mergedResults: IPdfSearchMatch[] = [];
+        const matchesMap = new Map<number, IPdfPageMatches>();
+
+        response.results.forEach((result, idx) => {
+            mergedResults.push({
+                pageIndex: result.pageNumber - 1,
+                pageMatchIndex: result.pageMatchIndex,
+                matchIndex: result.matchIndex,
+                startOffset: result.startOffset,
+                endOffset: result.endOffset,
+                excerpt: result.excerpt,
+            });
+
+            const pageIndex = result.pageNumber - 1;
+            if (!matchesMap.has(pageIndex)) {
+                const pageMatches = {
+                    pageIndex,
+                    pageText: '',
+                    searchQuery: query,
+                    searchOptions: { ...options },
+                    matches: [],
+                };
+
+                matchesMap.set(pageIndex, pageMatches);
+
+                BrowserLogger.debug('pdf-search', `Created pageMatches for page ${result.pageNumber}`, { searchId });
+            }
+
+            const pageMatch = matchesMap.get(pageIndex)!;
+            pageMatch.matches.push({
+                matchIndex: result.matchIndex,
+                start: result.startOffset,
+                end: result.endOffset,
+            });
+
+            if (idx < 3) {
+                BrowserLogger.debug('pdf-search', `Result ${idx}`, {
+                    searchId,
+                    page: result.pageNumber,
+                    startOffset: result.startOffset,
+                    endOffset: result.endOffset,
+                });
+            }
+        });
+
+        matchesMap.forEach((pageMatchData) => {
+            pageMatchData.signatureToken = buildPageMatchSignatureToken(pageMatchData);
+        });
+
+        results.value = mergedResults;
+        pageMatches.value = matchesMap;
+        isTruncated.value = response.truncated;
+
+        if (mergedResults.length === 0) {
+            currentResultIndex.value = -1;
+            return;
+        }
+
+        if (currentResultIndex.value < 0) {
+            currentResultIndex.value = 0;
+        } else if (currentResultIndex.value >= mergedResults.length) {
+            currentResultIndex.value = mergedResults.length - 1;
+        }
     }
 
     const debouncedPerformSearch = useDebounceFn(async (payload: {
@@ -188,6 +260,7 @@ export const usePdfSearch = () => {
             isSearching.value = true;
             isTruncated.value = false;
             searchError.value = null;
+            submittedSearchQuery.value = query;
             results.value = [];
             pageMatches.value = new Map();
             currentResultIndex.value = -1;
@@ -209,6 +282,12 @@ export const usePdfSearch = () => {
                     processed: progress.processed,
                     total: progress.total,
                 };
+                if (progress.results) {
+                    applySearchResponse({
+                        results: progress.results,
+                        truncated: Boolean(progress.truncated),
+                    }, query, options, searchId);
+                }
             });
 
             const response: IPdfSearchResponse = await api.run(pdfPath, query, {
@@ -221,108 +300,22 @@ export const usePdfSearch = () => {
                 return;
             }
 
-            // Transform backend results to frontend format
-            const mergedResults: IPdfSearchMatch[] = [];
-            const matchesMap = new Map<number, IPdfPageMatches>();
-
             BrowserLogger.info('pdf-search', `Processing ${response.results.length} results`, {
                 searchId,
                 query, 
             });
-
-            response.results.forEach((result, idx) => {
-                mergedResults.push({
-                    pageIndex: result.pageNumber - 1,
-                    pageMatchIndex: result.pageMatchIndex,
-                    matchIndex: result.matchIndex,
-                    startOffset: result.startOffset,
-                    endOffset: result.endOffset,
-                    excerpt: result.excerpt,
-                });
-
-                // Build page matches for highlighting
-                const pageIndex = result.pageNumber - 1;
-                if (!matchesMap.has(pageIndex)) {
-                    const pageMatches = {
-                        pageIndex,
-                        pageText: '', // Not required for highlighting (PDF.js text layer is the source of truth)
-                        searchQuery: query, // Store the search query for text item matching
-                        searchOptions: { ...options },
-                        matches: [],
-                    };
-
-                    matchesMap.set(pageIndex, pageMatches);
-
-                    BrowserLogger.debug('pdf-search', `Created pageMatches for page ${result.pageNumber}`, { searchId });
-                }
-
-                const pageMatch = matchesMap.get(pageIndex)!;
-                pageMatch.matches.push({
-                    matchIndex: result.matchIndex,
-                    start: result.startOffset,
-                    end: result.endOffset,
-                });
-
-                if (idx < 3) {
-                    BrowserLogger.debug('pdf-search', `Result ${idx}`, {
-                        searchId,
-                        page: result.pageNumber,
-                        startOffset: result.startOffset,
-                        endOffset: result.endOffset,
-                    });
-                }
-            });
-
-            BrowserLogger.info('pdf-search', `Created ${matchesMap.size} pageMatches entries`, { searchId });
-            BrowserLogger.debug(
-                'pdf-search',
-                'pageMatches map',
-                () => Object.fromEntries(
-                    Array.from(matchesMap.entries()).map((entry) => {
-                        const [
-                            pageIdx,
-                            data,
-                        ] = entry;
-
-                        return [
-                            `page-${pageIdx + 1}`,
-                            {
-                                searchQuery: data.searchQuery,
-                                matchesCount: data.matches.length,
-                            },
-                        ];
-                    }),
-                ),
-            );
-
-            matchesMap.forEach((pageMatchData) => {
-                pageMatchData.signatureToken = buildPageMatchSignatureToken(pageMatchData);
-            });
-
-            results.value = mergedResults;
-            pageMatches.value = matchesMap;
+            applySearchResponse(response, query, options, searchId);
             isTruncated.value = response.truncated;
             analytics.track('search_executed', {
                 durationMs: Math.max(0, Date.now() - requestedAt),
                 matchCase: options.matchCase,
                 pageCountBucket: bucketPageCount(pageCount),
                 queryLengthBucket: bucketQueryLength(query.length),
-                resultCount: mergedResults.length,
+                resultCount: response.results.length,
                 truncated: response.truncated,
                 useRegex: options.useRegex,
                 wholeWord: options.wholeWord,
             });
-
-            if (mergedResults.length === 0) {
-                currentResultIndex.value = -1;
-                return;
-            }
-
-            if (currentResultIndex.value < 0) {
-                currentResultIndex.value = 0;
-            } else if (currentResultIndex.value >= mergedResults.length) {
-                currentResultIndex.value = mergedResults.length - 1;
-            }
         } finally {
             if (activeRequestId === requestId) {
                 activeRequestId = null;
@@ -424,6 +417,7 @@ export const usePdfSearch = () => {
         cleanupProgressListener();
         isSearching.value = false;
         searchQuery.value = '';
+        submittedSearchQuery.value = '';
         searchError.value = null;
         results.value = [];
         pageMatches.value = new Map();
@@ -458,6 +452,7 @@ export const usePdfSearch = () => {
 
     return {
         searchQuery,
+        submittedSearchQuery,
         searchOptions,
         results,
         pageMatches,

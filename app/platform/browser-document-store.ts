@@ -621,6 +621,10 @@ function readRecentFilesFromStorage() {
     return parseRecentFilesPayload(raw);
 }
 
+function hasRecentFilesStorageSnapshot() {
+    return safeGetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY) !== null;
+}
+
 function writeRecentFilesToCookie(recentFiles: IRecentFile[]) {
     if (typeof document === 'undefined') {
         return;
@@ -676,6 +680,23 @@ function pruneRecentFiles(recentFiles: IRecentFile[]) {
         recentFiles: keptRecentFiles,
         evictedRefs: Array.from(evictedRefs),
     };
+}
+
+function buildRecentFilesFromPersistedRecords(
+    records: IBrowserPersistedDocumentRecord[],
+) {
+    return records
+        .filter((record) => {
+            const retention = record.retention ?? defaultRetentionForKind(record.kind);
+            return record.kind !== 'working' && retention !== 'transient';
+        })
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map(record => ({
+            originalPath: record.ref,
+            fileName: record.saveName ?? record.fileName,
+            timestamp: record.updatedAt,
+            fileSize: record.fileSize,
+        }));
 }
 
 function parseChunkKey(key: string): IChunkKeyRecord | null {
@@ -1320,6 +1341,17 @@ export class BrowserDocumentStore {
         return recentFiles;
     }
 
+    public async recoverRecentFilesIfStorageMissing() {
+        if (hasRecentFilesStorageSnapshot()) {
+            return readRecentFilesFromStorage();
+        }
+
+        const records = await this.getAllPersistedRecords();
+        const { recentFiles } = pruneRecentFiles(buildRecentFilesFromPersistedRecords(records));
+        writeRecentFilesToStorage(recentFiles);
+        return recentFiles;
+    }
+
     public async removeRecentFile(ref: string) {
         const currentRecentFiles = readRecentFilesFromStorage();
         const nextRecentFiles = currentRecentFiles.filter(
@@ -1383,7 +1415,9 @@ export class BrowserDocumentStore {
             return;
         }
 
-        const currentRecentFiles = readRecentFilesFromStorage();
+        const currentRecentFiles = hasRecentFilesStorageSnapshot()
+            ? readRecentFilesFromStorage()
+            : buildRecentFilesFromPersistedRecords(records);
         const {
             recentFiles,
             evictedRefs,

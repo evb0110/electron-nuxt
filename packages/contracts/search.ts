@@ -24,6 +24,8 @@ export interface IPdfSearchProgress {
     requestId: string;
     processed: number;
     total: number;
+    results?: IPdfSearchResult[];
+    truncated?: boolean;
 }
 
 export interface IPdfSearchRequestOptions {

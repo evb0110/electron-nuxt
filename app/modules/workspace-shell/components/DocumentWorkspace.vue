@@ -218,6 +218,7 @@
                 <PdfSidebar
                     v-model:active-tab="sidebarTab"
                     v-model:search-query="searchQuery"
+                    :submitted-search-query="submittedSearchQuery"
                     :search-options="searchOptions"
                     :is-open="showSidebar"
                     :pdf-document="pdfDocument"
@@ -693,6 +694,7 @@ const {
     handleAnnotationState,
     handleAnnotationModified,
     searchQuery,
+    submittedSearchQuery,
     searchOptions,
     results,
     pageMatches,

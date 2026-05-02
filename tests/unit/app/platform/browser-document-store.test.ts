@@ -18,12 +18,14 @@ import {
 
 describe('BrowserDocumentStore', () => {
     let indexedDbFactory: FakeIndexedDbFactory;
+    let localStorage: MemoryStorage;
 
     beforeEach(() => {
         vi.unstubAllGlobals();
         indexedDbFactory = new FakeIndexedDbFactory();
+        localStorage = new MemoryStorage();
         vi.stubGlobal('indexedDB', indexedDbFactory);
-        vi.stubGlobal('window', {localStorage: new MemoryStorage()});
+        vi.stubGlobal('window', {localStorage});
         vi.stubGlobal('document', {cookie: ''});
     });
 
@@ -212,6 +214,61 @@ describe('BrowserDocumentStore', () => {
 
         await expect(rehydratedStore.exists(recentSourceRef)).resolves.toBe(true);
         await expect(rehydratedStore.exists(staleDurableRef)).resolves.toBe(false);
+    });
+
+    it('recovers recent files from durable persisted documents when browser recent storage is missing', async () => {
+        const store = new BrowserDocumentStore();
+        const firstRef = await store.createStoredDocument(
+            'first.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const secondRef = await store.createStoredDocument(
+            'second.pdf',
+            new Uint8Array([2]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        await store.touchRecentFile(firstRef);
+        await store.touchRecentFile(secondRef);
+        localStorage.clear();
+
+        const rehydratedStore = new BrowserDocumentStore();
+        const recoveredFiles = await rehydratedStore.recoverRecentFilesIfStorageMissing();
+
+        expect(recoveredFiles.map(file => file.originalPath).sort()).toEqual([
+            firstRef,
+            secondRef,
+        ].sort());
+        await expect(rehydratedStore.exists(firstRef)).resolves.toBe(true);
+        await expect(rehydratedStore.exists(secondRef)).resolves.toBe(true);
+    });
+
+    it('does not recover persisted documents after recent files are intentionally cleared', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'cleared.pdf',
+            new Uint8Array([1]),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        await store.touchRecentFile(ref);
+        await store.clearRecentFiles();
+
+        const rehydratedStore = new BrowserDocumentStore();
+
+        await expect(rehydratedStore.recoverRecentFilesIfStorageMissing()).resolves.toEqual([]);
+        await expect(rehydratedStore.exists(ref)).resolves.toBe(false);
     });
 
     it('evicts old recent blobs once the persisted recent-file budget is exceeded', async () => {

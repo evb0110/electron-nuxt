@@ -126,7 +126,7 @@
                     <PdfSearchResults
                         :results="searchResults"
                         :current-result-index="currentResultIndex"
-                        :search-query="searchQuery"
+                        :search-query="submittedSearchQuery ?? ''"
                         :search-options="searchOptions"
                         :page-labels="pageLabels"
                         :is-searching="isSearching"
@@ -175,6 +175,7 @@ interface IProps {
     searchResults: IPdfSearchMatch[];
     currentResultIndex: number;
     searchQuery: string;
+    submittedSearchQuery?: string;
     searchOptions: Required<Pick<IPdfSearchRequestOptions, 'matchCase' | 'wholeWord' | 'useRegex'>>;
     totalMatches: number;
     isSearching: boolean;

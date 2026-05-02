@@ -424,6 +424,39 @@ describe('usePageShortcuts', () => {
         expect(deps.pdfViewerRef.value?.deleteSelectedShape).toHaveBeenCalledOnce();
     });
 
+    it('does not intercept Delete or Backspace inside editable fields', async () => {
+        const deps = createDeps();
+        const fakeInput = {
+            isContentEditable: false,
+            closest: (selector: string) => selector.includes('input') ? fakeInput : null,
+        };
+        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
+        vi.stubGlobal('HTMLElement', class HTMLElementStub {});
+        Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        for (const key of [
+            'Delete',
+            'Backspace',
+        ]) {
+            const preventDefault = vi.fn();
+            capturedOnEventFired?.(cast<KeyboardEvent>({
+                type: 'keydown',
+                key,
+                code: key,
+                metaKey: false,
+                ctrlKey: false,
+                altKey: false,
+                target: fakeInput,
+                preventDefault,
+            }));
+
+            expect(preventDefault).not.toHaveBeenCalled();
+        }
+        expect(deps.pdfViewerRef.value?.deleteSelectedShape).not.toHaveBeenCalled();
+    });
+
     it('ignores modified Alt shortcuts', async () => {
         const deps = createDeps();
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
