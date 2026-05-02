@@ -23,6 +23,9 @@ import { getErrorMessage } from '@app/utils/error';
 import { buildPdfAnnotationSavePlan } from '@app/services/pdf-save/pdfAnnotationSavePlanner';
 import { collectLivePdfJsAnnotationChangeIds } from '@app/services/pdf-save/pdfAnnotationStorageChanges';
 
+const SLOW_SAVE_PHASE_WARN_MS = 5_000;
+const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
+
 class SaveDocumentTimeoutError extends Error {
     constructor() {
         super('PDF.js saveDocument timed out');
@@ -128,6 +131,65 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         return workingCopyPath.value?.split(/[\\/]/u).pop() ?? undefined;
     }
 
+    function nowMs() {
+        return typeof performance !== 'undefined'
+            ? performance.now()
+            : Date.now();
+    }
+
+    function getSaveDebugContext() {
+        return {
+            hasWorkingCopyPath: Boolean(workingCopyPath.value),
+            documentPages: pdfDocument.value?.numPages ?? null,
+            annotationDirty: annotationDirty.value,
+            pageLabelsDirty: pageLabelsDirty.value,
+            bookmarksDirty: bookmarksDirty.value,
+            hasAnnotationChanges: hasAnnotationChanges(),
+            hasShapeChanges: hasShapeChanges?.() ?? false,
+            annotationNoteWindowsCount: annotationNoteWindowsCount.value,
+        };
+    }
+
+    function logSavePhase(
+        phase: string,
+        startedAtMs: number,
+        data?: Record<string, unknown>,
+        slowThresholdMs = SLOW_SAVE_PHASE_WARN_MS,
+    ) {
+        const durationMs = Math.round(nowMs() - startedAtMs);
+        const payload = () => ({
+            ...getSaveDebugContext(),
+            ...data,
+            phase,
+            durationMs,
+        });
+        if (durationMs >= slowThresholdMs) {
+            BrowserLogger.warn('workspace', 'Slow PDF save phase', payload);
+            return;
+        }
+
+        BrowserLogger.debug('workspace', 'Completed PDF save phase', payload);
+    }
+
+    async function timedSavePhase<T>(
+        phase: string,
+        operation: () => Promise<T>,
+        describeResult?: (result: T) => Record<string, unknown>,
+    ) {
+        const startedAtMs = nowMs();
+        try {
+            const result = await operation();
+            logSavePhase(phase, startedAtMs, describeResult?.(result));
+            return result;
+        } catch (error) {
+            logSavePhase(phase, startedAtMs, {
+                failed: true,
+                error,
+            });
+            throw error;
+        }
+    }
+
     function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSummary) {
         const subtype = comment.subtype?.trim().toLowerCase();
         return comment.source === 'editor'
@@ -149,7 +211,17 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         data: Uint8Array,
         saveMode: TPdfSaveMode,
     ): Promise<IPdfSaveResult | null> {
-        const validation = await validatePdfData(data, getValidationFileName());
+        const validation = await timedSavePhase(
+            'validate-pdf-data',
+            () => validatePdfData(data, getValidationFileName()),
+            result => ({
+                bytes: data.byteLength,
+                saveMode,
+                isValid: result.isValid,
+                warningCount: result.warnings.length,
+                errorCount: result.errors.length,
+            }),
+        );
         if (!validation.isValid) {
             BrowserLogger.warn('workspace', 'Save aborted because PDF validation failed', {
                 errors: validation.errors,
@@ -176,18 +248,36 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             saveMode?: TPdfSaveMode;
         },
     ): Promise<IPdfSaveResult | null> {
-        const data = await serializePdfForSave(rawData, {
-            includeShapes: opts?.includeShapes,
-            rewriteShapeState: opts?.rewriteShapeState,
-            pendingTexts,
-            pendingDeletes,
-        });
+        const data = await timedSavePhase(
+            'serialize-pdf-for-save',
+            () => serializePdfForSave(rawData, {
+                includeShapes: opts?.includeShapes,
+                rewriteShapeState: opts?.rewriteShapeState,
+                pendingTexts,
+                pendingDeletes,
+            }),
+            result => ({
+                inputBytes: rawData.byteLength,
+                outputBytes: result.byteLength,
+                includeShapes: Boolean(opts?.includeShapes),
+                rewriteShapeState: Boolean(opts?.rewriteShapeState),
+                pendingTexts: pendingTexts?.size ?? 0,
+                pendingDeletes: pendingDeletes?.length ?? 0,
+            }),
+        );
 
         return validatePdfSaveData(data, opts?.saveMode ?? 'rewrite');
     }
 
     async function validateWorkingCopySnapshot(saveMode: TPdfSaveMode) {
-        const data = await readWorkingCopyBytes();
+        const data = await timedSavePhase(
+            'read-working-copy-bytes',
+            readWorkingCopyBytes,
+            result => ({
+                bytes: result?.byteLength ?? null,
+                saveMode,
+            }),
+        );
         if (!data) {
             return null;
         }
@@ -234,16 +324,24 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
 
     async function saveDocumentWithRetry(maxAttempts = 4, retryDelayMs = 50) {
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            const attemptStartedAtMs = nowMs();
             try {
-                return await withTimeout(async () => {
+                const data = await withTimeout(async () => {
                     const data = await saveDocument();
                     if (!data) {
                         throw new Error('saveDocument returned no data');
                     }
                     return data;
                 }, PDF_SAVE_TIMEOUT_MS);
+                logSavePhase('pdfjs-save-document', attemptStartedAtMs, {
+                    attempt,
+                    maxAttempts,
+                    bytes: data.byteLength,
+                });
+                return data;
             } catch (error) {
                 const timedOut = isTimeoutError(error);
+                const durationMs = Math.round(nowMs() - attemptStartedAtMs);
                 BrowserLogger.warn(
                     'workspace',
                     timedOut
@@ -253,6 +351,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                         attempt,
                         maxAttempts,
                         timedOut,
+                        durationMs,
                         error,
                     },
                 );
@@ -369,7 +468,15 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 pendingTexts: opts?.pendingTexts?.size ?? 0,
                 pendingDeletes: opts?.pendingDeletes?.length ?? 0,
             });
-            return getSourcePdfData();
+            return timedSavePhase(
+                'read-source-pdf-bytes',
+                getSourcePdfData,
+                result => ({
+                    route: plan.route,
+                    reason: plan.reason,
+                    bytes: result?.byteLength ?? null,
+                }),
+            );
         }
 
         try {
@@ -379,7 +486,11 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 throw error;
             }
             BrowserLogger.warn('workspace', 'Falling back to source PDF bytes after PDF.js saveDocument failed', error);
-            return getSourcePdfData();
+            return timedSavePhase(
+                'read-source-pdf-bytes-after-pdfjs-fallback',
+                getSourcePdfData,
+                result => ({ bytes: result?.byteLength ?? null }),
+            );
         }
     }
 
@@ -466,7 +577,16 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 shapeStateDirty,
             );
             armPersistedShapeStateAdoption(shapeStateDirty);
-            const persisted = await persist(saveResult.finalBytes, { saveMode: saveResult.saveMode });
+            const persisted = await timedSavePhase(
+                `persist-${mode}`,
+                () => persist(saveResult.finalBytes, { saveMode: saveResult.saveMode }),
+                result => ({
+                    bytes: saveResult.finalBytes.byteLength,
+                    saveMode: saveResult.saveMode,
+                    success: result.success,
+                    didSaveAs: result.didSaveAs,
+                }),
+            );
             if (finalizeSuccessfulSave(persisted, { markShapeStateSaved: !reloadWaiter })) {
                 preparedShapeStateSnapshot = null;
                 trackSaveCompleted(mode, persisted, true);
@@ -566,7 +686,15 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         }
 
         armPersistedShapeStateAdoption(shapeStateDirty);
-        const persisted = await persist({ saveMode: saveResult.saveMode });
+        const persisted = await timedSavePhase(
+            `persist-${mode}-working-copy`,
+            () => persist({ saveMode: saveResult.saveMode }),
+            result => ({
+                saveMode: saveResult.saveMode,
+                success: result.success,
+                didSaveAs: result.didSaveAs,
+            }),
+        );
         if (!finalizeSuccessfulSave(persisted, {
             resetAnnotationStorage: false,
             markShapeStateSaved: !reloadWaiter,
@@ -623,6 +751,8 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         if (hasSaveOperationInProgress()) {
             return false;
         }
+        const saveStartedAtMs = nowMs();
+        let saveSucceededForTelemetry = false;
         isSaving.value = true;
         let reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null = null;
         let finalizedReloadWaiter = false;
@@ -676,6 +806,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                     if (!saveSucceeded) {
                         restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
                     }
+                    saveSucceededForTelemetry = saveSucceeded;
                     return saveSucceeded;
                 }
                 saveSucceeded = await saveUnserializedWorkingCopy(
@@ -687,6 +818,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
                 );
                 await finalizeSaveReload(reloadWaiter, saveSucceeded, { markShapeStateSavedOnSuccess: Boolean(reloadWaiter) });
                 finalizedReloadWaiter = true;
+                saveSucceededForTelemetry = saveSucceeded;
                 return saveSucceeded;
             }
 
@@ -709,6 +841,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             if (!saveSucceeded) {
                 restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
             }
+            saveSucceededForTelemetry = saveSucceeded;
             return saveSucceeded;
         } catch (error) {
             restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
@@ -723,6 +856,12 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             if (reloadWaiter && !finalizedReloadWaiter) {
                 reloadWaiter.cancel();
             }
+            logSavePhase(
+                'handle-save-total',
+                saveStartedAtMs,
+                { success: saveSucceededForTelemetry },
+                SLOW_SAVE_TOTAL_WARN_MS,
+            );
             isSaving.value = false;
         }
     }
@@ -731,6 +870,8 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
         if (hasSaveOperationInProgress()) {
             return false;
         }
+        const saveStartedAtMs = nowMs();
+        let saveSucceededForTelemetry = false;
         isSavingAs.value = true;
         let reloadWaiter: ReturnType<NonNullable<IFileOperationsDeps['preparePostSaveReload']>> | null = null;
         let finalizedReloadWaiter = false;
@@ -782,6 +923,7 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             if (!saveSucceeded) {
                 restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
             }
+            saveSucceededForTelemetry = saveSucceeded;
             return saveSucceeded;
         } catch (error) {
             restorePendingEmbeddedAnnotationChanges(pendingTexts, pendingDeletes);
@@ -796,6 +938,12 @@ export const useFileOperations = (deps: IFileOperationsDeps) => {
             if (reloadWaiter && !finalizedReloadWaiter) {
                 reloadWaiter.cancel();
             }
+            logSavePhase(
+                'handle-save-as-total',
+                saveStartedAtMs,
+                { success: saveSucceededForTelemetry },
+                SLOW_SAVE_TOTAL_WARN_MS,
+            );
             isSavingAs.value = false;
         }
     }

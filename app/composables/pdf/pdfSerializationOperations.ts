@@ -1393,7 +1393,7 @@ function applyEmbeddedNoteTextUpdates(
         stableKey,
         text,
     ] of pendingUpdates) {
-        const comment = commentsByKey.get(stableKey);
+        const comment = commentsByKey.get(stableKey) ?? buildCommentFromEmbeddedUpdateStableKey(stableKey);
         if (!comment) {
             continue;
         }
@@ -1409,6 +1409,39 @@ function applyEmbeddedNoteTextUpdates(
     }
 
     return modified;
+}
+
+function buildCommentFromEmbeddedUpdateStableKey(
+    stableKey: string,
+): IAnnotationCommentSummary | null {
+    const match = stableKey.trim().match(/^ann:(\d+):(\d+R(?:\d+)?)$/iu);
+    if (!match?.[1] || !match[2]) {
+        return null;
+    }
+
+    const pageIndex = Number(match[1]);
+    if (!Number.isInteger(pageIndex) || pageIndex < 0 || !parsePdfJsAnnotationRef(match[2])) {
+        return null;
+    }
+
+    return {
+        id: match[2],
+        stableKey,
+        sortIndex: null,
+        pageIndex,
+        pageNumber: pageIndex + 1,
+        text: '',
+        kindLabel: 'Note',
+        subtype: 'FreeText',
+        author: null,
+        modifiedAt: null,
+        color: null,
+        uid: null,
+        annotationId: match[2],
+        source: 'pdf',
+        hasNote: true,
+        markerRect: null,
+    };
 }
 
 function applyPageLabels(
