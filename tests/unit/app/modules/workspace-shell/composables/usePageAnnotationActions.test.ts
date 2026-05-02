@@ -163,6 +163,11 @@ function createHarness() {
         removeAnnotationFromCache: vi.fn(),
         markAnnotationDirty: vi.fn(),
         queuePendingEmbeddedAnnotationDelete: vi.fn(),
+        hasAnnotationChanges: vi.fn(() => false),
+        getSourcePdfData: vi.fn(async () => new Uint8Array([
+            6,
+            6,
+        ])),
         embedPlacedImageToPage: vi.fn(async (_data: Uint8Array, _placement: IPdfPlacedImageFinalizePayload) => new Uint8Array([
             7,
             7,
@@ -425,6 +430,7 @@ describe('usePageAnnotationActions', () => {
     it('finalizes a placed image by embedding it into the reloaded PDF', async () => {
         const {
             deps,
+            viewer,
             actions,
         } = createHarness();
         const finalized = await actions.handleFinalizePlacedImage({
@@ -447,8 +453,8 @@ describe('usePageAnnotationActions', () => {
 
         expect(finalized).toBe(true);
         expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(new Uint8Array([
-            9,
-            9,
+            6,
+            6,
         ]), expect.objectContaining({
             pageNumber: 4,
             rotationDegrees: 90,
@@ -463,6 +469,40 @@ describe('usePageAnnotationActions', () => {
             pushHistory: true,
             persistWorkingCopy: true,
         });
+        expect(viewer.saveDocument).not.toHaveBeenCalled();
+    });
+
+    it('materializes live PDF.js annotations before finalizing placed images', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        deps.hasAnnotationChanges.mockReturnValue(true);
+
+        await actions.handleFinalizePlacedImage({
+            pageNumber: 4,
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.15,
+            rotationDegrees: 0,
+            fileName: 'image.png',
+            mimeType: 'image/png',
+            bytes: new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            targetPixelWidth: 240,
+            targetPixelHeight: 120,
+        });
+
+        expect(viewer.saveDocument).toHaveBeenCalledOnce();
+        expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(new Uint8Array([
+            9,
+            9,
+        ]), expect.any(Object));
     });
 
     it('serializes delete requests through a single queue', async () => {
@@ -543,6 +583,37 @@ describe('usePageAnnotationActions', () => {
 
         await actions.handleDeleteAnnotationComment(comment);
 
+        expect(deleteEmbeddedAnnotationOffThread).toHaveBeenCalledWith(new Uint8Array([
+            6,
+            6,
+        ]), comment);
+        expect(viewer.saveDocument).not.toHaveBeenCalled();
+        expect(deps.loadPdfFromData).toHaveBeenCalledWith(new Uint8Array([
+            8,
+            8,
+        ]), {
+            pushHistory: true,
+            persistWorkingCopy: true,
+        });
+        expect(deps.waitForPdfReload).toHaveBeenCalledWith(1);
+        expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
+        expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
+    });
+
+    it('materializes live PDF.js annotations before embedded stamp delete reloads', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        deps.hasAnnotationChanges.mockReturnValue(true);
+        const comment = createComment('stamp-delete-with-live-edits');
+        comment.source = 'editor';
+        comment.annotationId = '12R0';
+        comment.subtype = 'Stamp';
+
+        await actions.handleDeleteAnnotationComment(comment);
+
         expect(viewer.saveDocument).toHaveBeenCalledOnce();
         expect(deleteEmbeddedAnnotationOffThread).toHaveBeenCalledWith(new Uint8Array([
             9,
@@ -555,9 +626,6 @@ describe('usePageAnnotationActions', () => {
             pushHistory: true,
             persistWorkingCopy: true,
         });
-        expect(deps.waitForPdfReload).toHaveBeenCalledWith(1);
-        expect(viewer.suppressAnnotationStableKey).not.toHaveBeenCalled();
-        expect(deps.queuePendingEmbeddedAnnotationDelete).not.toHaveBeenCalled();
     });
 
     it('marks embedded delete dirty when viewer delete could not resolve the note locally', async () => {
