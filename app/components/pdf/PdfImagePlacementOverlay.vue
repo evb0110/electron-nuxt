@@ -194,15 +194,29 @@ function getRemPx() {
     return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
 }
 
+function resolveCursorThemeColors() {
+    const styles = getComputedStyle(document.documentElement);
+    const fill = styles.getPropertyValue('--ui-text').trim() || '#0f172a';
+    const outline = styles.getPropertyValue('--ui-bg').trim() || '#ffffff';
+    return {
+        fill,
+        outline,
+    };
+}
+
 function buildVirtualCursorSvg(mode: IActiveInteraction['mode'], handle?: TImagePlacementResizeHandle) {
+    const {
+        fill,
+        outline,
+    } = resolveCursorThemeColors();
     if (mode === 'rotate') {
-        return '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" fill="#0f172a" stroke="white" stroke-width="0.5"/></svg>';
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" fill="${fill}" stroke="${outline}" stroke-width="0.5"/></svg>`;
     }
     if (mode === 'move') {
-        return '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M13 6v5h5V8l4 4-4 4v-3h-5v5h3l-4 4-4-4h3v-5H6v3l-4-4 4-4v3h5V6H8l4-4 4 4h-3z" fill="#0f172a" stroke="white" stroke-width="0.5"/></svg>';
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M13 6v5h5V8l4 4-4 4v-3h-5v5h3l-4 4-4-4h3v-5H6v3l-4-4 4-4v3h5V6H8l4-4 4 4h-3z" fill="${fill}" stroke="${outline}" stroke-width="0.5"/></svg>`;
     }
     const angleDeg = IMAGE_PLACEMENT_HANDLE_ANGLES_FOR_CURSOR[handle ?? 'e'] + (placement?.rotationDegrees ?? 0);
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g transform="rotate(${angleDeg} 12 12)"><line x1="6" y1="12" x2="18" y2="12" stroke="white" stroke-width="4" stroke-linecap="round"/><path d="M8.5 9 L5 12 L8.5 15" fill="none" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 9 L19 12 L15.5 15" fill="none" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><line x1="6" y1="12" x2="18" y2="12" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/><path d="M8.5 9 L5 12 L8.5 15" fill="none" stroke="#0f172a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 9 L19 12 L15.5 15" fill="none" stroke="#0f172a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><g transform="rotate(${angleDeg} 12 12)"><line x1="6" y1="12" x2="18" y2="12" stroke="${outline}" stroke-width="4" stroke-linecap="round"/><path d="M8.5 9 L5 12 L8.5 15" fill="none" stroke="${outline}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 9 L19 12 L15.5 15" fill="none" stroke="${outline}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><line x1="6" y1="12" x2="18" y2="12" stroke="${fill}" stroke-width="2" stroke-linecap="round"/><path d="M8.5 9 L5 12 L8.5 15" fill="none" stroke="${fill}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M15.5 9 L19 12 L15.5 15" fill="none" stroke="${fill}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`;
 }
 
 const IMAGE_PLACEMENT_HANDLE_ANGLES_FOR_CURSOR: Record<TImagePlacementResizeHandle, number> = {
