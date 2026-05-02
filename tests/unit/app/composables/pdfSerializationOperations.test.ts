@@ -815,6 +815,35 @@ describe('serializePdfEdits free-text note rect application', () => {
         expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeInstanceOf(PDFDict);
     });
 
+    it('updates embedded note text by stable object ref even when comment cache is stale', async () => {
+        const {
+            bytes,
+            noteRefs,
+        } = await createPdfWithFreeTextNotes([{
+            pageIndex: 0,
+            rect: [
+                100,
+                500,
+                200,
+                600,
+            ],
+            contents: 'old note',
+        }]);
+        const noteRef = noteRefs[0]!;
+
+        const payload = createEmptyPayload();
+        payload.pendingEmbeddedTextUpdates = [[
+            `ann:0:${noteRef.objectNumber}R${noteRef.generationNumber}`,
+            'edited note',
+        ]];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, noteRef);
+
+        expect(getPdfDictContents(dict ?? null)).toBe('edited note');
+    });
+
     it('ignores comments with malformed marker rects', async () => {
         const {
             bytes,
