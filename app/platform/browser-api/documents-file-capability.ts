@@ -1,4 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
+import { withTimeout } from 'es-toolkit/promise';
 import { loadPdfStructure } from '@contracts/pdf-conformance-load';
 import type {
     IDocumentsFileCapability,
@@ -77,10 +78,84 @@ const BROWSER_LARGE_SAVE_HANDLE_HINT = 'Use a browser with local file system acc
 const BROWSER_DOWNLOAD_FALLBACK_MAX_BYTES = 64 * 1024 * 1024;
 const BROWSER_OPEN_PICKER_MODE_SESSION_KEY = 'evb-viewer:browser:open-picker-mode';
 const BROWSER_OPEN_PICKER_MODE_INPUT = 'input';
+const BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS = 120_000;
+const BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS = 180_000;
+
+type TFileSystemPermissionMode = 'read' | 'readwrite';
+type TFileSystemPermissionState = 'granted' | 'denied' | 'prompt';
+type TPermissionCapableFileHandle = FileSystemFileHandle & {
+    queryPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
+    requestPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
+};
 
 function isFileSystemAccessDeniedError(error: unknown) {
     return error instanceof DOMException
         && (error.name === 'NotAllowedError' || error.name === 'SecurityError');
+}
+
+function createBrowserFileWriteTimeoutError(phase: string) {
+    return new Error(
+        `Browser file save did not finish while waiting for ${phase}. `
+        + 'If Chrome is showing a file permission prompt, choose Save changes or Cancel and try again.',
+    );
+}
+
+function createBrowserFileWritePermissionError() {
+    return new Error(
+        'Browser write permission was not granted for this file. '
+        + 'Choose Save changes in the browser prompt, or use Save As to pick a new output file.',
+    );
+}
+
+function normalizeBrowserFileHandleError(error: unknown) {
+    return error instanceof Error ? error : new Error(String(error));
+}
+
+async function runBrowserFileHandlePhase<T>(
+    phase: string,
+    timeoutMs: number,
+    operation: () => Promise<T>,
+) {
+    try {
+        return await withTimeout(operation, timeoutMs);
+    } catch (error) {
+        if (
+            error instanceof Error
+            && (error.name === 'TimeoutError' || error.constructor.name === 'TimeoutError')
+        ) {
+            throw createBrowserFileWriteTimeoutError(phase);
+        }
+        throw error;
+    }
+}
+
+async function ensureFileHandleWritePermission(handle: FileSystemFileHandle) {
+    const permissionHandle = handle as TPermissionCapableFileHandle;
+    const descriptor = { mode: 'readwrite' as const };
+    const queryPermission = permissionHandle.queryPermission?.bind(permissionHandle);
+    const requestPermission = permissionHandle.requestPermission?.bind(permissionHandle);
+
+    const currentPermission = queryPermission
+        ? await runBrowserFileHandlePhase(
+            'file write permission check',
+            BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
+            () => queryPermission(descriptor),
+        )
+        : 'granted';
+    if (currentPermission === 'granted') {
+        return;
+    }
+
+    const nextPermission = requestPermission
+        ? await runBrowserFileHandlePhase(
+            'file write permission',
+            BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
+            () => requestPermission(descriptor),
+        )
+        : currentPermission;
+    if (nextPermission !== 'granted') {
+        throw createBrowserFileWritePermissionError();
+    }
 }
 
 function getBrowserSessionStorage() {
@@ -607,16 +682,55 @@ export async function writeBytesToHandle(
     handle: FileSystemFileHandle,
     data: Uint8Array,
 ) {
-    const writable = await handle.createWritable();
-    await writable.write(toBrowserOwnedArrayBuffer(data));
-    await writable.close();
+    await ensureFileHandleWritePermission(handle);
+    const writable = await runBrowserFileHandlePhase(
+        'opening file for writing',
+        BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
+        () => handle.createWritable(),
+    );
+    let writeError: unknown = null;
+    let closeError: unknown = null;
+
+    try {
+        await runBrowserFileHandlePhase(
+            'writing file bytes',
+            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
+            () => writable.write(toBrowserOwnedArrayBuffer(data)),
+        );
+    } catch (error) {
+        writeError = error;
+    }
+
+    try {
+        await runBrowserFileHandlePhase(
+            'closing file writer',
+            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
+            () => writable.close(),
+        );
+    } catch (error) {
+        closeError = error;
+    }
+
+    if (writeError) {
+        throw normalizeBrowserFileHandleError(writeError);
+    }
+    if (closeError) {
+        throw normalizeBrowserFileHandleError(closeError);
+    }
 }
 
 async function writeDocumentRefToHandle(
     handle: FileSystemFileHandle,
     ref: TDocumentRef,
 ) {
-    const writable = await handle.createWritable();
+    await ensureFileHandleWritePermission(handle);
+    const writable = await runBrowserFileHandlePhase(
+        'opening file for writing',
+        BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
+        () => handle.createWritable(),
+    );
+    let writeError: unknown = null;
+    let closeError: unknown = null;
 
     try {
         const { size } = await browserDocumentStore.stat(ref);
@@ -626,13 +740,34 @@ async function writeDocumentRefToHandle(
                 offset,
                 Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, size - offset),
             );
-            await writable.write(toBrowserOwnedArrayBuffer(chunk));
+            await runBrowserFileHandlePhase(
+                'writing file chunk',
+                BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
+                () => writable.write(toBrowserOwnedArrayBuffer(chunk)),
+            );
             if (offset > 0) {
                 await yieldToBrowser();
             }
         }
-    } finally {
-        await writable.close();
+    } catch (error) {
+        writeError = error;
+    }
+
+    try {
+        await runBrowserFileHandlePhase(
+            'closing file writer',
+            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
+            () => writable.close(),
+        );
+    } catch (error) {
+        closeError = error;
+    }
+
+    if (writeError) {
+        throw normalizeBrowserFileHandleError(writeError);
+    }
+    if (closeError) {
+        throw normalizeBrowserFileHandleError(closeError);
     }
 }
 

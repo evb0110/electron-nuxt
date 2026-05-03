@@ -967,10 +967,14 @@ describe('createBrowserDocumentsFileCapability', () => {
         } = await loadBrowserDocumentsFileCapability();
         const writes: Uint8Array[] = [];
         const savedBytes = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
+        const queryPermission = vi.fn(async () => 'granted' as const);
+        const requestPermission = vi.fn(async () => 'granted' as const);
         const handle = cast<FileSystemFileHandle>({
             kind: 'file',
             name: 'large-save.pdf',
             getFile: vi.fn(async () => new File([savedBytes], 'large-save.pdf', { type: 'application/pdf' })),
+            queryPermission,
+            requestPermission,
             createWritable: vi.fn(async () => ({
                 write: vi.fn(async (chunk: ArrayBuffer) => {
                     const chunkBytes = new Uint8Array(chunk);
@@ -1002,6 +1006,8 @@ describe('createBrowserDocumentsFileCapability', () => {
 
         await expect(capability.saveFile(workingRef)).resolves.toBe(true);
 
+        expect(queryPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
+        expect(requestPermission).not.toHaveBeenCalled();
         const savedEntry = await browserDocumentStore.requireEntry(sourceRef);
         expect(savedEntry.storageMode).toBe('handle');
         await expect(browserDocumentStore.stat(sourceRef)).resolves.toEqual({ size: BROWSER_MAX_FULL_READ_BYTES + 1 });
@@ -1012,6 +1018,96 @@ describe('createBrowserDocumentsFileCapability', () => {
             68,
             70,
         ]));
+    });
+
+    it('requests browser write permission before saving to an existing file handle', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const queryPermission = vi.fn(async () => 'prompt' as const);
+        const requestPermission = vi.fn(async () => 'granted' as const);
+        const createWritable = vi.fn(async () => ({
+            write: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+        }));
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'needs-permission.pdf',
+            getFile: vi.fn(async () => new File([new Uint8Array([1])], 'needs-permission.pdf', { type: 'application/pdf' })),
+            queryPermission,
+            requestPermission,
+            createWritable,
+        });
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'needs-permission.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: handle,
+                storageMode: 'handle',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        await browserDocumentStore.write(workingRef, new Uint8Array([
+            37,
+            80,
+            68,
+            70,
+        ]));
+
+        await expect(capability.saveFile(workingRef)).resolves.toBe(true);
+
+        expect(queryPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
+        expect(requestPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
+        expect(createWritable).toHaveBeenCalledOnce();
+    });
+
+    it('fails browser saves without opening the writer when write permission is denied', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const queryPermission = vi.fn(async () => 'prompt' as const);
+        const requestPermission = vi.fn(async () => 'denied' as const);
+        const createWritable = vi.fn(async () => ({
+            write: vi.fn(async () => {}),
+            close: vi.fn(async () => {}),
+        }));
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'denied.pdf',
+            getFile: vi.fn(async () => new File([new Uint8Array([1])], 'denied.pdf', { type: 'application/pdf' })),
+            queryPermission,
+            requestPermission,
+            createWritable,
+        });
+        const sourceRef = await browserDocumentStore.createStoredDocument(
+            'denied.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: handle,
+                storageMode: 'handle',
+            },
+        );
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        await browserDocumentStore.write(workingRef, new Uint8Array([
+            37,
+            80,
+            68,
+            70,
+        ]));
+
+        await expect(capability.saveFile(workingRef)).rejects.toThrow(
+            'Browser write permission was not granted for this file.',
+        );
+
+        expect(createWritable).not.toHaveBeenCalled();
     });
 
     it('streams oversized browser save-as to a picked file handle', async () => {
