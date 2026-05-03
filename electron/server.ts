@@ -2,15 +2,6 @@ import {
     spawn,
     type ChildProcess,
 } from 'child_process';
-import { createServer } from 'net';
-import {
-    existsSync,
-    readFileSync,
-    unlinkSync,
-    writeFileSync,
-} from 'fs';
-import { join } from 'path';
-import { app } from 'electron';
 import { retry } from 'es-toolkit/function';
 import {
     delay,
@@ -24,14 +15,21 @@ import {
     SERVER_READY_TIMEOUT_MS,
 } from '@electron/config/constants';
 import {
-    getRuntimeIdentityUrl,
-    isTrustedRuntimeIdentityPayload,
-} from '@contracts/runtime-identity';
-import { isTimeoutError } from '@contracts/timeout-error';
-import { runElectronCommand } from '@electron/utils/exec';
+    clearOwnershipMarker as clearOwnershipMarkerFile,
+    readOwnershipMarker,
+    writeOwnershipMarker as writeOwnershipMarkerFile,
+    type IServerOwnershipMarker,
+} from '@electron/server/ownership';
+import { readProcessCommandLine } from '@electron/server/process-command';
+import { reserveLocalPort } from '@electron/server/ports';
+import {
+    isServerRunning as checkServerRunning,
+    isTrustedRuntimeServer as checkTrustedRuntimeServer,
+} from '@electron/server/health';
 import { createLogger } from '@electron/utils/logger';
 import { terminateProcessTree } from '@electron/utils/process-tree';
 import { getErrorMessage } from '@electron/utils/error';
+import { isTimeoutError } from '@contracts/timeout-error';
 
 const logger = createLogger('server');
 
@@ -39,7 +37,6 @@ let nuxtProcess: ChildProcess | null = null;
 let serverReady: Promise<void> | null = null;
 let usingExternalServer = false;
 let stoppingServerPromise: Promise<void> | null = null;
-const SERVER_OWNERSHIP_FILE = 'nuxt-server-owner.json';
 const HAS_FIXED_SERVER_PORT = Boolean(process.env.EVB_SERVER_PORT?.trim());
 const WAIT_FOR_EXTERNAL_DEV_SERVER = process.env.EVB_WAIT_FOR_EXTERNAL_DEV_SERVER === '1';
 function parseIntegerEnv(
@@ -92,108 +89,23 @@ const SERVER_STOP_GRACE_MS = (() => {
     });
 })();
 
-interface IServerOwnershipMarker {
-    pid: number;
-    entryPath: string;
-    port?: number;
-    createdAt: number;
-    version: 1;
-}
-
-function getOwnershipMarkerPath() {
-    return join(app.getPath('userData'), SERVER_OWNERSHIP_FILE);
-}
-
-function readOwnershipMarker(): IServerOwnershipMarker | null {
-    const markerPath = getOwnershipMarkerPath();
-    if (!existsSync(markerPath)) {
-        return null;
-    }
-
-    try {
-        const content = readFileSync(markerPath, 'utf-8');
-        const parsed = JSON.parse(content) as Partial<IServerOwnershipMarker>;
-        if (
-            typeof parsed?.pid !== 'number'
-            || !Number.isInteger(parsed.pid)
-            || parsed.pid <= 0
-            || typeof parsed.entryPath !== 'string'
-        ) {
-            return null;
-        }
-
-        return {
-            pid: parsed.pid,
-            entryPath: parsed.entryPath,
-            port: typeof parsed.port === 'number' && Number.isInteger(parsed.port) && parsed.port > 0
-                ? parsed.port
-                : undefined,
-            createdAt: typeof parsed.createdAt === 'number' ? parsed.createdAt : Date.now(),
-            version: 1,
-        };
-    } catch {
-        return null;
-    }
-}
-
 function writeOwnershipMarker(pid: number) {
-    if (!Number.isInteger(pid) || pid <= 0) {
-        return;
-    }
-
-    const markerPath = getOwnershipMarkerPath();
-    const marker: IServerOwnershipMarker = {
-        pid,
+    writeOwnershipMarkerFile(pid, {
         entryPath: config.server.entryPath,
         port: config.server.port,
-        createdAt: Date.now(),
-        version: 1,
-    };
-    try {
-        writeFileSync(markerPath, JSON.stringify(marker), 'utf-8');
-    } catch (err) {
-        logger.warn(`Failed to write server ownership marker: ${getErrorMessage(err)}`);
-    }
+    }, message => logger.warn(message));
 }
 
 function clearOwnershipMarker() {
-    const markerPath = getOwnershipMarkerPath();
-    try {
-        if (existsSync(markerPath)) {
-            unlinkSync(markerPath);
-        }
-    } catch (err) {
-        logger.warn(`Failed to clear server ownership marker: ${getErrorMessage(err)}`);
-    }
+    clearOwnershipMarkerFile(message => logger.warn(message));
 }
 
 async function isServerRunning() {
-    try {
-        const response = await fetch(config.server.url, {
-            method: 'HEAD',
-            signal: AbortSignal.timeout(SERVER_HEALTH_FETCH_TIMEOUT_MS),
-        });
-        return response.ok;
-    } catch {
-        return false;
-    }
+    return checkServerRunning(config.server.url, SERVER_HEALTH_FETCH_TIMEOUT_MS);
 }
 
 async function isTrustedRuntimeServer() {
-    try {
-        const response = await fetch(getRuntimeIdentityUrl(config.server.url), {
-            headers: { Accept: 'application/json' },
-            signal: AbortSignal.timeout(SERVER_HEALTH_FETCH_TIMEOUT_MS),
-        });
-        if (!response.ok) {
-            return false;
-        }
-
-        const payload = await response.json();
-        return isTrustedRuntimeIdentityPayload(payload);
-    } catch {
-        return false;
-    }
+    return checkTrustedRuntimeServer(config.server.url, SERVER_HEALTH_FETCH_TIMEOUT_MS);
 }
 
 export function shouldWaitForExternalDevServer(options: {
@@ -221,29 +133,6 @@ async function waitForExternalDevServer(startTime: number) {
     throw new Error(`External Nuxt dev server did not become ready at ${config.server.url}`);
 }
 
-async function reserveLocalPort() {
-    return new Promise<number>((resolve, reject) => {
-        const probe = createServer();
-        probe.unref();
-        probe.once('error', reject);
-        probe.listen(0, '127.0.0.1', () => {
-            const address = probe.address();
-            const port = typeof address === 'object' && address ? address.port : null;
-            probe.close((closeError) => {
-                if (closeError) {
-                    reject(closeError);
-                    return;
-                }
-                if (!port || !Number.isInteger(port) || port <= 0) {
-                    reject(new Error('Failed to reserve runtime port'));
-                    return;
-                }
-                resolve(port);
-            });
-        });
-    });
-}
-
 async function configureRuntimeServerPort() {
     if (config.isDev || HAS_FIXED_SERVER_PORT) {
         return;
@@ -266,55 +155,14 @@ async function configureRuntimeServerPort() {
     throw new Error('Unable to find an isolated runtime server port');
 }
 
-function normalizeProcessCommandLine(value: string) {
-    return value.replaceAll('\0', ' ').trim();
-}
-
-async function readProcessCommandLine(pid: number) {
-    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
-        return null;
-    }
-
-    try {
-        if (process.platform === 'win32') {
-            const result = await runElectronCommand('powershell', [
-                '-NoProfile',
-                '-NonInteractive',
-                '-Command',
-                `try { (Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}").CommandLine } catch { "" }`,
-            ], {
-                timeoutMs: 3_000,
-                maxStdoutBytes: 32 * 1024,
-                maxStderrBytes: 8 * 1024,
-            });
-            return normalizeProcessCommandLine(result.stdout);
-        }
-
-        const result = await runElectronCommand('ps', [
-            '-p',
-            String(pid),
-            '-o',
-            'command=',
-        ], {
-            timeoutMs: 3_000,
-            maxStdoutBytes: 32 * 1024,
-            maxStderrBytes: 8 * 1024,
-        });
-        return normalizeProcessCommandLine(result.stdout);
-    } catch {
-        return null;
-    }
-}
-
 function isOwnedRuntimeServerCommandLine(
     commandLine: string,
     marker: IServerOwnershipMarker,
 ) {
-    const normalizedCommandLine = normalizeProcessCommandLine(commandLine);
     return (
-        normalizedCommandLine.length > 0
+        commandLine.length > 0
         && marker.entryPath === config.server.entryPath
-        && normalizedCommandLine.includes(marker.entryPath)
+        && commandLine.includes(marker.entryPath)
     );
 }
 

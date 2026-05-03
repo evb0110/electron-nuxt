@@ -57,16 +57,16 @@ export type TPluralCategory = Intl.LDMLPluralRule;
 export type TMessageInterpolationValue = string | number;
 export type TMessageParams = Record<string, TMessageInterpolationValue>;
 
-export type TPluralForms<TText extends string = string> = {
+export interface IPluralForms<TText extends string = string> {
     other: TText;
     zero?: TText;
     one?: TText;
     two?: TText;
     few?: TText;
     many?: TText;
-};
+}
 
-export interface IPluralMessage<TForms extends TPluralForms<string> = TPluralForms<string>> {
+export interface IPluralMessage<TForms extends IPluralForms<string> = IPluralForms<string>> {
     kind: typeof PLURAL_MESSAGE_KIND;
     forms: TForms;
 }
@@ -125,7 +125,7 @@ function getPluralCategory(locale: string, count: number): TPluralCategory {
     return getPluralRules(locale).select(count);
 }
 
-function getFirstDefinedForm(forms: TPluralForms<string>): string {
+function getFirstDefinedForm(forms: IPluralForms<string>): string {
     return forms.zero
         ?? forms.one
         ?? forms.two

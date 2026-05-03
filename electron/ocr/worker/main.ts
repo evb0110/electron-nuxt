@@ -32,7 +32,7 @@ import {
 } from '../../utils/concurrency';
 import type {
     TOcrWorkerCompleteResult,
-    TOcrWorkerLogMessage,
+    IOcrWorkerLogMessage,
     TOcrWorkerOutboundMessage,
     IOcrPageWithWords,
     IOcrPdfPageRequest,
@@ -229,7 +229,7 @@ const activeJobControllers = new Map<string, AbortController>();
 
 const log: TWorkerLog = (level, message) => {
     const timestamp = new Date().toISOString();
-    const payload: TOcrWorkerLogMessage = {
+    const payload: IOcrWorkerLogMessage = {
         type: 'log',
         level,
         message: `[${timestamp}] [ocr-worker] ${message}`,

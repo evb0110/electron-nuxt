@@ -4,23 +4,23 @@ export type TPluralCategory = Intl.LDMLPluralRule;
 export type TMessageInterpolationValue = string | number;
 export type TMessageParams = Record<string, TMessageInterpolationValue>;
 
-export type TPluralForms<TText extends string = string> = {
+export interface IPluralForms<TText extends string = string> {
     other: TText;
     zero?: TText;
     one?: TText;
     two?: TText;
     few?: TText;
     many?: TText;
-};
+}
 
-export interface IPluralMessage<TForms extends TPluralForms<string> = TPluralForms<string>> {
+export interface IPluralMessage<TForms extends IPluralForms<string> = IPluralForms<string>> {
     kind: typeof PLURAL_MESSAGE_KIND;
     forms: TForms;
 }
 
 export type TTranslationLeaf = string | IPluralMessage;
 
-export function plural<const TForms extends TPluralForms<string>>(forms: TForms): IPluralMessage<TForms> {
+export function plural<const TForms extends IPluralForms<string>>(forms: TForms): IPluralMessage<TForms> {
     return {
         kind: PLURAL_MESSAGE_KIND,
         forms,
@@ -90,7 +90,7 @@ function fallbackForm(forms: string[], template: string, ...indices: number[]) {
     return template;
 }
 
-function getFirstDefinedForm(forms: TPluralForms<string>): string {
+function getFirstDefinedForm(forms: IPluralForms<string>): string {
     return forms.zero
         ?? forms.one
         ?? forms.two

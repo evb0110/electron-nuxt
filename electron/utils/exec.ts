@@ -1,10 +1,10 @@
 import {runNativeCommand} from '@electron/native-tools/command-runner';
 
-type TRunCommandResult = {
+interface IRunCommandResult {
     stdout: string;
     stderr: string;
     exitCode: number;
-};
+}
 
 export async function runElectronCommand(
     command: string,
@@ -19,7 +19,7 @@ export async function runElectronCommand(
         allowedExitCodes?: number[];
         signal?: AbortSignal;
     } = {},
-): Promise<TRunCommandResult> {
+): Promise<IRunCommandResult> {
     const {
         cwd,
         env,

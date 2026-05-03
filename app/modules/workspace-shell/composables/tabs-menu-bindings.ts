@@ -31,13 +31,13 @@ type TCleanup = () => void;
 type TMenuRunAction = (actionName: string, action: () => unknown) => void;
 type TNoArgMenuRegister = (handler: () => void) => unknown;
 type TDocumentMenuApi = NonNullable<IPlatformApi['documents']>;
-type TDocumentMenuAction = {
+interface IDocumentMenuAction {
     name: string;
     register: keyof TDocumentMenuApi;
     run: (deps: ITabsMenuBindingDeps) => unknown;
-};
+}
 
-const documentMenuActions: TDocumentMenuAction[] = [
+const documentMenuActions: IDocumentMenuAction[] = [
     {
         name: 'open-pdf',
         register: 'onMenuOpenPdf',

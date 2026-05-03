@@ -1,7 +1,7 @@
 import type {
     IBrowserSearchWorkerRequestMap,
     IBrowserSearchWorkerResultMap,
-    TBrowserSearchWorkerRequest,
+    IBrowserSearchWorkerRequest,
     TBrowserSearchWorkerRequestType,
     TBrowserSearchWorkerResponse,
 } from '@app/platform/browser-api/browser-search-worker.types';
@@ -11,11 +11,11 @@ import {
 } from '@app/platform/browser-api/browser-worker-client';
 import { getErrorMessage } from '@app/utils/error';
 
-type TPendingWorkerRequest = {
+interface IPendingWorkerRequest {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
     onProgress?: TBrowserSearchWorkerProgressHandler;
-};
+}
 
 type TBrowserSearchWorkerProgressHandler = (progress: {
     processed: number;
@@ -32,7 +32,7 @@ export class BrowserSearchWorkerUnavailableError extends Error {
 }
 
 function settleSearchWorkerResponse(
-    pendingWorkerRequests: Map<number, TPendingWorkerRequest>,
+    pendingWorkerRequests: Map<number, IPendingWorkerRequest>,
     result: TBrowserSearchWorkerResponse,
     scheduleIdleWorkerTermination: () => void,
 ) {
@@ -63,7 +63,7 @@ export function canUseBrowserSearchWorker() {
 
 const browserSearchWorkerClient = new BrowserWorkerClient<
     TBrowserSearchWorkerResponse,
-    TPendingWorkerRequest
+    IPendingWorkerRequest
 >({
     idleTtlMs: BROWSER_SEARCH_WORKER_IDLE_TTL_MS,
     createWorker: () => {
@@ -92,7 +92,7 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
     requestId: number;
     promise: Promise<IBrowserSearchWorkerResultMap[K]>;
 } {
-    const request: TBrowserSearchWorkerRequest<K> = {
+    const request: IBrowserSearchWorkerRequest<K> = {
         id: browserSearchWorkerClient.createRequestId(),
         type,
         payload,

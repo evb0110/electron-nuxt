@@ -211,11 +211,11 @@ async function pruneLogDirectory(force = false) {
     }
 
     logDirPrunePromise = (async () => {
-        type TFileEntry = {
+        interface IFileEntry {
             path: string;
             size: number;
             mtimeMs: number;
-        };
+        }
 
         let entries: string[] = [];
         try {
@@ -224,7 +224,7 @@ async function pruneLogDirectory(force = false) {
             return;
         }
 
-        const files: TFileEntry[] = [];
+        const files: IFileEntry[] = [];
         let totalBytes = 0;
 
         for (const entry of entries) {

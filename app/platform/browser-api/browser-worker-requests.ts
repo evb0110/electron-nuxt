@@ -1,7 +1,7 @@
-export type TPendingBrowserWorkerRequest<TValue = unknown> = {
+export interface IPendingBrowserWorkerRequest<TValue = unknown> {
     resolve: (value: TValue) => void;
     reject: (error: Error) => void;
-};
+}
 
 export type TBrowserWorkerResult<TData = unknown> =
     | {
@@ -16,7 +16,7 @@ export type TBrowserWorkerResult<TData = unknown> =
     };
 
 export function settleBrowserWorkerResult<TData>(
-    pendingRequests: Map<number, TPendingBrowserWorkerRequest<TData>>,
+    pendingRequests: Map<number, IPendingBrowserWorkerRequest<TData>>,
     result: TBrowserWorkerResult<TData>,
     onSettled: () => void,
 ) {

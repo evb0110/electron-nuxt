@@ -10,9 +10,9 @@ import {
 } from '@app/utils/platform-documents';
 
 type TPageOpsRotation = 90 | 180 | 270;
-type TPageOpsResult = { success: boolean };
-type TPageOperationRunner<TResult extends TPageOpsResult> = (path: TDocumentRef) => Promise<TResult>;
-type TPageOperationSuccess<TResult extends TPageOpsResult> = (result: TResult) => boolean;
+interface IPageOpsResult {success: boolean;}
+type TPageOperationRunner<TResult extends IPageOpsResult> = (path: TDocumentRef) => Promise<TResult>;
+type TPageOperationSuccess<TResult extends IPageOpsResult> = (result: TResult) => boolean;
 
 interface IPageOperationBatchProgress {
     processed: number;
@@ -62,7 +62,7 @@ export const usePageOperations = (deps: {
         resetSearchCache();
     }
 
-    async function runOperation<TResult extends TPageOpsResult>(options: {
+    async function runOperation<TResult extends IPageOpsResult>(options: {
         operationName: string;
         errorKey: TPageOperationErrorKey;
         run: TPageOperationRunner<TResult>;

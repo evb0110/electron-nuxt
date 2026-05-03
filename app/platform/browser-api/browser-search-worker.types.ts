@@ -13,11 +13,11 @@ interface IBrowserSearchWorkerResultMap {
 
 type TBrowserSearchWorkerRequestType = keyof IBrowserSearchWorkerRequestMap;
 
-type TBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType = TBrowserSearchWorkerRequestType> = {
+interface IBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType = TBrowserSearchWorkerRequestType> {
     id: number;
     type: K;
     payload: IBrowserSearchWorkerRequestMap[K];
-};
+}
 
 type TBrowserSearchWorkerProgressResponse = {
     [K in TBrowserSearchWorkerRequestType]: {
@@ -40,21 +40,21 @@ type TBrowserSearchWorkerSuccessResponse = {
     };
 }[TBrowserSearchWorkerRequestType];
 
-type TBrowserSearchWorkerErrorResponse = {
+interface IBrowserSearchWorkerErrorResponse {
     id: number;
     ok: false;
     error: string;
-};
+}
 
 type TBrowserSearchWorkerResponse =
     | TBrowserSearchWorkerProgressResponse
     | TBrowserSearchWorkerSuccessResponse
-    | TBrowserSearchWorkerErrorResponse;
+    | IBrowserSearchWorkerErrorResponse;
 
 export type {
     IBrowserSearchWorkerRequestMap,
     IBrowserSearchWorkerResultMap,
-    TBrowserSearchWorkerRequest,
+    IBrowserSearchWorkerRequest,
     TBrowserSearchWorkerRequestType,
     TBrowserSearchWorkerResponse,
 };

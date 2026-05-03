@@ -1,21 +1,13 @@
 import { parentPort } from 'worker_threads';
 import { stat } from 'fs/promises';
 import type { IPdfSearchIndex } from '@electron/search/index-builder';
-import {
-    buildSearchIndex,
-    loadSearchIndex,
-} from '@electron/search/index-builder';
 import type {
-    ISearchExcerpt,
     ISearchMatch,
     ISearchWorkerRequest,
     TSearchWorkerInboundMessage,
     TSearchWorkerOutboundMessage,
 } from '@electron/search/protocol';
-import {
-    EXCERPT_CONTEXT_CHARS,
-    SEARCH_RESULT_LIMIT,
-} from '@electron/config/constants';
+import { SEARCH_RESULT_LIMIT } from '@electron/config/constants';
 import {
     createAbortError,
     isAbortError,
@@ -26,15 +18,14 @@ import {
     isFiniteWorkerMessageNumber,
     isWorkerMessageRecord,
 } from '@electron/utils/worker-message';
+import {
+    buildExcerpt,
+    findPageMatches,
+} from '@electron/search/worker/search-match';
+import type { ICachedIndex } from '@electron/search/worker/search-index-cache';
+import { ensureSearchIndex } from '@electron/search/worker/search-index-cache';
 
-type TCachedIndex = {
-    mtimeMs: number;
-    index: IPdfSearchIndex;
-    accessedAt: number;
-    validatedTextBudget: boolean;
-};
-
-type TSearchRequestContext = {
+interface ISearchRequestContext {
     requestId: string;
     pdfPath: string;
     normalizedQuery: string;
@@ -44,12 +35,12 @@ type TSearchRequestContext = {
     wholeWord: boolean;
     useRegex: boolean;
     signal: AbortSignal;
-};
+}
 
-type TSearchExecutionResult = {
+interface ISearchExecutionResult {
     results: ISearchMatch[];
     truncated: boolean;
-};
+}
 
 const PROGRESS_THROTTLE_MS = 60;
 const SEARCH_INDEX_CACHE_MAX_ENTRIES = (() => {
@@ -94,7 +85,13 @@ const SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES = (() => {
     }
     return Math.min(parsed, 1024 * 1024 * 1024);
 })();
-const indexCache = new Map<string, TCachedIndex>();
+const searchIndexCacheOptions = {
+    maxEntries: SEARCH_INDEX_CACHE_MAX_ENTRIES,
+    ttlMs: SEARCH_INDEX_CACHE_TTL_MS,
+    maxPageTextBytes: SEARCH_WORKER_MAX_PAGE_TEXT_BYTES,
+    maxTotalTextBytes: SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES,
+};
+const indexCache = new Map<string, ICachedIndex>();
 const cancelledRequests = new Map<string, number>();
 const requestAbortControllers = new Map<string, AbortController>();
 const progressSentAt = new Map<string, number>();
@@ -173,136 +170,6 @@ async function fileExists(filePath: string) {
     } catch {
         return false;
     }
-}
-
-function getIndexPath(pdfPath: string) {
-    return `${pdfPath}.index.json`;
-}
-
-function pruneIndexCache(now = Date.now()) {
-    for (const [
-        pdfPath,
-        entry,
-    ] of indexCache.entries()) {
-        if (now - entry.accessedAt > SEARCH_INDEX_CACHE_TTL_MS) {
-            indexCache.delete(pdfPath);
-        }
-    }
-
-    if (indexCache.size <= SEARCH_INDEX_CACHE_MAX_ENTRIES) {
-        return;
-    }
-
-    const sortedByLeastRecentlyUsed = Array.from(indexCache.entries())
-        .sort((left, right) => left[1].accessedAt - right[1].accessedAt);
-    const overflowCount = indexCache.size - SEARCH_INDEX_CACHE_MAX_ENTRIES;
-    for (let index = 0; index < overflowCount; index += 1) {
-        const entry = sortedByLeastRecentlyUsed[index];
-        if (!entry) {
-            break;
-        }
-        indexCache.delete(entry[0]);
-    }
-}
-
-function validateIndexTextBudget(index: IPdfSearchIndex) {
-    let totalTextBytes = 0;
-
-    for (const page of index.pages) {
-        const pageText = page.text ?? '';
-        const pageTextBytes = Buffer.byteLength(pageText, 'utf8');
-        if (pageTextBytes > SEARCH_WORKER_MAX_PAGE_TEXT_BYTES) {
-            throw new Error(
-                `Search index page ${page.pageNumber} is too large (${Math.round(pageTextBytes / 1024)}KB > `
-                + `${Math.round(SEARCH_WORKER_MAX_PAGE_TEXT_BYTES / 1024)}KB limit)`,
-            );
-        }
-
-        totalTextBytes += pageTextBytes;
-        if (totalTextBytes > SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES) {
-            throw new Error(
-                `Search index resident text budget exceeded (${Math.round(totalTextBytes / (1024 * 1024))}MB > `
-                + `${Math.round(SEARCH_WORKER_MAX_TOTAL_TEXT_BYTES / (1024 * 1024))}MB limit)`,
-            );
-        }
-    }
-}
-
-function buildExcerpt(
-    text: string,
-    startOffset: number,
-    endOffset: number,
-): ISearchExcerpt {
-    const excerptStart = Math.max(0, startOffset - EXCERPT_CONTEXT_CHARS);
-    const excerptEnd = Math.min(text.length, endOffset + EXCERPT_CONTEXT_CHARS);
-
-    const beforeRaw = text.slice(excerptStart, startOffset);
-    const match = text.slice(startOffset, endOffset);
-    const afterRaw = text.slice(endOffset, excerptEnd);
-
-    const before = beforeRaw.replace(/\s+/g, ' ').trimStart();
-    const after = afterRaw.replace(/\s+/g, ' ').trimEnd();
-
-    return {
-        prefix: excerptStart > 0,
-        suffix: excerptEnd < text.length,
-        before,
-        match,
-        after,
-    };
-}
-
-function escapeRegex(value: string) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function buildSearchRegex(query: string, options: {
-    matchCase: boolean;
-    wholeWord: boolean;
-    useRegex: boolean;
-}) {
-    const basePattern = options.useRegex ? query : escapeRegex(query);
-    const pattern = options.wholeWord
-        ? `(?<![\\p{L}\\p{N}_])(?:${basePattern})(?![\\p{L}\\p{N}_])`
-        : basePattern;
-    const flags = options.matchCase ? 'gu' : 'giu';
-    return new RegExp(pattern, flags);
-}
-
-function findPageMatches(
-    pageText: string,
-    query: string,
-    options: {
-        matchCase: boolean;
-        wholeWord: boolean;
-        useRegex: boolean;
-    },
-) {
-    const matcher = buildSearchRegex(query, options);
-    const results: Array<{
-        startOffset: number;
-        endOffset: number;
-    }> = [];
-
-    let match = matcher.exec(pageText);
-    while (match) {
-        const matchedText = match[0] ?? '';
-
-        if (matchedText.length === 0) {
-            matcher.lastIndex = match.index + 1;
-            match = matcher.exec(pageText);
-            continue;
-        }
-
-        results.push({
-            startOffset: match.index,
-            endOffset: match.index + matchedText.length,
-        });
-
-        match = matcher.exec(pageText);
-    }
-
-    return results;
 }
 
 function isCancelled(requestId: string) {
@@ -399,7 +266,7 @@ function postEmptySearchComplete(requestId: string) {
 
 function postSearchComplete(
     requestId: string,
-    result: TSearchExecutionResult,
+    result: ISearchExecutionResult,
 ) {
     postMessage({
         type: 'complete',
@@ -427,147 +294,7 @@ function postSearchError(
     });
 }
 
-async function loadCachedIndex(pdfPath: string): Promise<TCachedIndex | null> {
-    const now = Date.now();
-    pruneIndexCache(now);
-    const indexPath = getIndexPath(pdfPath);
-
-    let mtimeMs: number;
-    try {
-        mtimeMs = (await stat(indexPath)).mtimeMs;
-    } catch {
-        indexCache.delete(pdfPath);
-        return null;
-    }
-
-    const cached = indexCache.get(pdfPath);
-    if (cached && cached.mtimeMs === mtimeMs) {
-        cached.accessedAt = now;
-        return cached;
-    }
-
-    const index = await loadSearchIndex(pdfPath);
-    if (!index) {
-        indexCache.delete(pdfPath);
-        return null;
-    }
-
-    const entry: TCachedIndex = {
-        mtimeMs,
-        index,
-        accessedAt: now,
-        validatedTextBudget: false,
-    };
-    validateIndexTextBudget(entry.index);
-    entry.validatedTextBudget = true;
-    indexCache.set(pdfPath, entry);
-    pruneIndexCache(now);
-    return entry;
-}
-
-async function cacheBuiltIndex(
-    pdfPath: string,
-    index: IPdfSearchIndex,
-): Promise<TCachedIndex> {
-    const now = Date.now();
-    pruneIndexCache(now);
-    const indexPath = getIndexPath(pdfPath);
-    let mtimeMs: number;
-    try {
-        mtimeMs = (await stat(indexPath)).mtimeMs;
-    } catch {
-        mtimeMs = Date.now();
-    }
-
-    const entry: TCachedIndex = {
-        mtimeMs,
-        index,
-        accessedAt: now,
-        validatedTextBudget: false,
-    };
-    validateIndexTextBudget(entry.index);
-    entry.validatedTextBudget = true;
-    indexCache.set(pdfPath, entry);
-    pruneIndexCache(now);
-    return entry;
-}
-
-async function ensureSearchIndex(
-    requestId: string,
-    pdfPath: string,
-    options: {
-        pageCount?: number;
-        signal?: AbortSignal;
-    },
-): Promise<TCachedIndex> {
-    const expectedCount = options.pageCount;
-    const { signal } = options;
-    throwIfCancelled(requestId, signal);
-
-    let entry = await loadCachedIndex(pdfPath);
-    throwIfCancelled(requestId, signal);
-    if (!entry) {
-        entry = await cacheBuiltIndex(
-            pdfPath,
-            await buildSearchIndex(pdfPath, [], {
-                pageCount: expectedCount,
-                signal,
-            }),
-        );
-        return entry;
-    }
-
-    // Detect stale indexes where all pages have empty text (e.g. previous
-    // pdftotext extraction failed silently) and force a rebuild.
-    const hasAnyText = entry.index.pages.some(page => (page.text ?? '').length > 0);
-    if (!hasAnyText && entry.index.pages.length > 0) {
-        entry = await cacheBuiltIndex(
-            pdfPath,
-            await buildSearchIndex(pdfPath, [], {
-                pageCount: expectedCount,
-                signal,
-            }),
-        );
-        return entry;
-    }
-
-    if (
-        typeof expectedCount === 'number'
-        && expectedCount > 0
-        && entry.index.pages.length < expectedCount
-    ) {
-        entry = await cacheBuiltIndex(
-            pdfPath,
-            await buildSearchIndex(pdfPath, [], {
-                pageCount: expectedCount,
-                signal,
-            }),
-        );
-    } else if (typeof expectedCount === 'number' && expectedCount > 0) {
-        const inRangeCount = entry.index.pages.reduce((count, page) => (
-            count + (page.pageNumber >= 1 && page.pageNumber <= expectedCount ? 1 : 0)
-        ), 0);
-
-        if (inRangeCount < expectedCount) {
-            entry = await cacheBuiltIndex(
-                pdfPath,
-                await buildSearchIndex(pdfPath, [], {
-                    pageCount: expectedCount,
-                    signal,
-                }),
-            );
-        }
-    }
-
-    if (!entry.validatedTextBudget) {
-        validateIndexTextBudget(entry.index);
-        entry.validatedTextBudget = true;
-    }
-
-    return entry;
-}
-
-async function createSearchRequestContext(request: ISearchWorkerRequest): Promise<TSearchRequestContext> {
+async function createSearchRequestContext(request: ISearchWorkerRequest): Promise<ISearchRequestContext> {
     const {
         requestId,
         pdfPath,
@@ -604,7 +331,7 @@ async function createSearchRequestContext(request: ISearchWorkerRequest): Promis
     };
 }
 
-async function getRequestSearchIndex(context: TSearchRequestContext) {
+async function getRequestSearchIndex(context: ISearchRequestContext) {
     const {
         requestId,
         pdfPath,
@@ -612,16 +339,22 @@ async function getRequestSearchIndex(context: TSearchRequestContext) {
         signal,
     } = context;
 
-    const indexEntry = await ensureSearchIndex(requestId, pdfPath, {
-        pageCount,
-        signal,
-    });
+    const indexEntry = await ensureSearchIndex(
+        indexCache,
+        pdfPath,
+        searchIndexCacheOptions,
+        {
+            pageCount,
+            signal,
+            throwIfCancelled: abortSignal => throwIfCancelled(requestId, abortSignal),
+        },
+    );
     throwIfCancelled(requestId, signal);
     return indexEntry;
 }
 
 function getTotalPages(
-    indexEntry: TCachedIndex,
+    indexEntry: ICachedIndex,
     pageCount?: number,
 ) {
     return typeof pageCount === 'number' && pageCount > 0
@@ -638,7 +371,7 @@ function isPageSearchable(
 
 function appendPageMatches(
     params: {
-        context: TSearchRequestContext;
+        context: ISearchRequestContext;
         page: IPdfSearchIndex['pages'][number];
         results: ISearchMatch[];
         globalMatchIndex: number;
@@ -697,9 +430,9 @@ function appendPageMatches(
 }
 
 function searchIndex(
-    context: TSearchRequestContext,
-    indexEntry: TCachedIndex,
-): TSearchExecutionResult {
+    context: ISearchRequestContext,
+    indexEntry: ICachedIndex,
+): ISearchExecutionResult {
     const totalPages = getTotalPages(indexEntry, context.pageCount);
     sendProgress(context.requestId, 0, totalPages, true);
 
