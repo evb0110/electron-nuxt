@@ -521,17 +521,26 @@ describe('serializePdfEdits embedded geometric shapes', () => {
 
 async function createPdfWithHighlightAnnotations(
     rectsByPage: number[][][],
-    options: { withAppearance?: boolean } = {},
+    options: {
+        quadPointsByPage?: number[][][];
+        withAppearance?: boolean;
+    } = {},
 ) {
     const doc = await PDFDocument.create();
     const refs: PDFRef[][] = [];
-    for (const pageRects of rectsByPage) {
+    for (const [
+        pageIndex,
+        pageRects,
+    ] of rectsByPage.entries()) {
         const page = doc.addPage([
             600,
             800,
         ]);
         const pageRefs: PDFRef[] = [];
-        for (const rect of pageRects) {
+        for (const [
+            rectIndex,
+            rect,
+        ] of pageRects.entries()) {
             const dict = doc.context.obj({
                 Type: PDFName.of('Annot'),
                 Subtype: PDFName.of('Highlight'),
@@ -545,6 +554,10 @@ async function createPdfWithHighlightAnnotations(
                     ? { AP: doc.context.obj({ N: doc.context.register(doc.context.formXObject([], {})) }) }
                     : {}),
             });
+            const quadPoints = options.quadPointsByPage?.[pageIndex]?.[rectIndex];
+            if (quadPoints) {
+                dict.set(PDFName.of('QuadPoints'), doc.context.obj(quadPoints.map(value => PDFNumber.of(value))));
+            }
             pageRefs.push(doc.context.register(dict));
         }
         if (pageRefs.length > 0) {
@@ -699,6 +712,68 @@ describe('serializePdfEdits markup subtype rewrites', () => {
 
         expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
         expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeUndefined();
+    });
+
+    it('clips overlapping saved highlight QuadPoints when rewriting to Underline', async () => {
+        const overlappingQuadPoints = [
+            60,
+            700,
+            520,
+            700,
+            60,
+            520,
+            520,
+            520,
+            60,
+            580,
+            520,
+            580,
+            60,
+            400,
+            520,
+            400,
+        ];
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            400,
+            520,
+            700,
+        ]]], { quadPointsByPage: [[overlappingQuadPoints]] });
+        const targetRef = refs[0]![0]!;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeOverrides = [[
+            `${targetRef.objectNumber}R`,
+                'Underline' satisfies TMarkupSubtype,
+        ]];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+        const quadPoints = getNumberArray(dict!, 'QuadPoints');
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
+        expect(quadPoints).toEqual([
+            60,
+            700,
+            520,
+            700,
+            60,
+            550,
+            520,
+            550,
+            60,
+            550,
+            520,
+            550,
+            60,
+            400,
+            520,
+            400,
+        ]);
     });
 
     it('does not throw or mutate when override targets a missing ref', async () => {
