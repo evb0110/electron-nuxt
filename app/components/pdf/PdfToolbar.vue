@@ -265,6 +265,7 @@ import {
 } from '@app/utils/reader-command-surface';
 
 const {
+    hasPdf,
     surface = undefined,
     variant = 'editor',
     documentBusy = false,

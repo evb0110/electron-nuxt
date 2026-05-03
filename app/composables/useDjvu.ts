@@ -282,6 +282,7 @@ export const useDjvu = () => {
         subsample: number,
         preserveBookmarks: boolean,
         loadPdfFromPath: (path: TDocumentRef) => Promise<void>,
+        setOriginalPath?: (path: TDocumentRef | null) => void,
     ) {
         if (!djvuSourcePath.value) {
             return;
@@ -349,6 +350,7 @@ export const useDjvu = () => {
             const openResult = await documents.openPdfDirect(result.pdfPath);
             if (openResult && openResult.kind === 'pdf') {
                 await loadPdfFromPath(openResult.workingPath);
+                setOriginalPath?.(openResult.originalPath);
             }
         } catch (error) {
             const message = error instanceof Error && error.message.trim().length > 0
