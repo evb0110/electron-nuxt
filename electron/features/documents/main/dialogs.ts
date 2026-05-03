@@ -331,6 +331,10 @@ async function resolveRevealablePath(filePath: string) {
     }
 
     const normalizedPath = resolve(filePath);
+    if (isAllowedOpenPath(normalizedPath) && existsSync(normalizedPath)) {
+        return normalizedPath;
+    }
+
     if (!isKnownWorkingCopyOriginalPath(normalizedPath) || !existsSync(normalizedPath)) {
         return null;
     }

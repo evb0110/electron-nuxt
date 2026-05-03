@@ -86,7 +86,9 @@ export const useWorkspaceFileLifecycleController = () => {
     });
 
     function handleDjvuConvert(subsample: number, preserveBookmarks: boolean) {
-        return djvuConvertToPdf(subsample, preserveBookmarks, loadPdfFromPath);
+        return djvuConvertToPdf(subsample, preserveBookmarks, loadPdfFromPath, (path) => {
+            originalPath.value = path;
+        });
     }
 
     function handleDjvuCancel() {
