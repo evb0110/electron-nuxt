@@ -23,6 +23,10 @@ interface IUiManagerWithUnselectAll {unselectAll: () => void;}
 
 interface IUiManagerWithGetActive {getActive: () => unknown;}
 
+interface IUiManagerWithSetActiveEditor {setActiveEditor: (editor: unknown | null) => void;}
+
+interface IUiManagerWithDefaultParamUpdater {__evbUpdateDefaultParams?: (type: number, value: unknown) => boolean;}
+
 
 function isPdfjsEditor(value: unknown): value is IPdfjsEditor {
     if (!isRecord(value)) {
@@ -111,6 +115,12 @@ function hasGetActive(
     return getOptionalFunction(uiManager, 'getActive') !== null;
 }
 
+function hasSetActiveEditor(
+    uiManager: AnnotationEditorUIManager,
+): uiManager is AnnotationEditorUIManager & IUiManagerWithSetActiveEditor {
+    return getOptionalFunction(uiManager, 'setActiveEditor') !== null;
+}
+
 export function setSelectedEditor(
     uiManager: AnnotationEditorUIManager,
     editor: unknown,
@@ -126,6 +136,11 @@ export function setSelectedEditor(
 
 export function clearSelectedEditorState(uiManager: AnnotationEditorUIManager) {
     let cleared = false;
+    if (hasSetActiveEditor(uiManager)) {
+        uiManager.setActiveEditor(null);
+        cleared = true;
+    }
+
     if (hasUnselectAll(uiManager)) {
         uiManager.unselectAll();
         cleared = true;
@@ -142,6 +157,26 @@ export function clearSelectedEditorState(uiManager: AnnotationEditorUIManager) {
     }
 
     return cleared;
+}
+
+export function setEditorDefaultParamUpdater(
+    uiManager: AnnotationEditorUIManager,
+    updater: (type: number, value: unknown) => boolean,
+) {
+    (uiManager as AnnotationEditorUIManager & IUiManagerWithDefaultParamUpdater).__evbUpdateDefaultParams = updater;
+}
+
+export function updateEditorDefaultParams(
+    uiManager: AnnotationEditorUIManager,
+    type: number,
+    value: unknown,
+) {
+    const updater = (uiManager as AnnotationEditorUIManager & IUiManagerWithDefaultParamUpdater)
+        .__evbUpdateDefaultParams;
+    if (typeof updater === 'function') {
+        return updater(type, value);
+    }
+    return false;
 }
 
 export function getEditorsOnPage(

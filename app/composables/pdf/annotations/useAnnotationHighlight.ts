@@ -537,6 +537,8 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                     applySubtypeOverrideToEditor,
                     clearEditorSelectionVisuals,
                 });
+            } else {
+                clearEditorSelectionVisuals(targetEditor);
             }
         } catch (error) {
             BrowserLogger.warn('annotations', `Failed to highlight selection: ${errorToLogText(error)}`);

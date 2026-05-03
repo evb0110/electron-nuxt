@@ -12,6 +12,7 @@ import {
     shallowRef,
 } from 'vue';
 import { shouldIgnoreEditorEvent } from '@app/composables/pdf/annotations/annotationEditorEventGuards';
+import { updateEditorDefaultParams } from '@app/services/pdfjs/annotationEditorAdapter';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
@@ -37,6 +38,7 @@ class FakeAnnotationEditorUIManager {
     paste = vi.fn(async () => {});
     redo = vi.fn();
     removeEditListeners = vi.fn();
+    registerEditorTypes = vi.fn();
     undo = vi.fn();
     unselectAll = vi.fn();
     updateParams = vi.fn();
@@ -47,6 +49,14 @@ class FakeAnnotationEditorUIManager {
     constructor(..._args: unknown[]) {
         annotationUiManagerInstances.push(this);
     }
+}
+
+function cast<T>(value: unknown): T {
+    return value as T;
+}
+
+function asAnnotationEditorUIManager(uiManager: FakeAnnotationEditorUIManager) {
+    return cast<AnnotationEditorUIManager>(uiManager);
 }
 
 class FakeEventBus {
@@ -214,6 +224,8 @@ async function createBridgeHarness(
             applyAnnotationSettings: vi.fn(),
             setAnnotationTool: vi.fn(async () => {}),
             maybeAutoResetAnnotationTool,
+            captureHighlightEditorClassFromTypes: vi.fn(),
+            enforceHighlightDefaultsForNewEditor: vi.fn(),
         }),
         getMarkupSubtype: () => ({
             TOOL_TO_MARKUP_SUBTYPE: {},
@@ -357,5 +369,15 @@ describe('useAnnotationEditorBridge', () => {
 
         expect(uiManager.unselectAll).not.toHaveBeenCalled();
         expect(uiManager.__setSelectedSpy).not.toHaveBeenCalledWith(null);
+    });
+
+    it('installs a default-param updater for toolbar settings', async () => {
+        const { uiManager } = await createBridgeHarness('text');
+        const editorType = { updateDefaultParams: vi.fn() };
+
+        uiManager.registerEditorTypes([editorType]);
+
+        expect(updateEditorDefaultParams(asAnnotationEditorUIManager(uiManager), 31, '#2563eb')).toBe(true);
+        expect(editorType.updateDefaultParams).toHaveBeenCalledWith(31, '#2563eb');
     });
 });

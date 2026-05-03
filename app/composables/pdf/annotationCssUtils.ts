@@ -36,24 +36,6 @@ export function toCssColor(
     return null;
 }
 
-export function colorWithOpacity(color: string, opacity: number) {
-    if (color.startsWith('#') && (color.length === 7 || color.length === 4)) {
-        const hex = color.length === 4
-            ? color
-                .slice(1)
-                .split('')
-                .map(c => c + c)
-                .join('')
-            : color.slice(1);
-        const r = Number.parseInt(hex.slice(0, 2), 16);
-        const g = Number.parseInt(hex.slice(2, 4), 16);
-        const b = Number.parseInt(hex.slice(4, 6), 16);
-        return `rgba(${r}, ${g}, ${b}, ${opacity})`;
-    }
-
-    return color;
-}
-
 export function escapeCssAttr(value: string) {
     if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
         return CSS.escape(value);

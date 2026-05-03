@@ -11,6 +11,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import {
+    isSelectionMarkupTool,
     isNoteEligibleComment,
     markerRectCenterDistance,
 } from '@app/composables/pdf/annotations/annotationRules';
@@ -1325,6 +1326,9 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
 
     async function prepareClickedEditorForCommentInteraction(clickTarget: HTMLElement, clickedEditorMatch: IEditorTargetMatch | null) {
         if (!clickedEditorMatch) {
+            return;
+        }
+        if (isSelectionMarkupTool(annotationTool.value)) {
             return;
         }
         if (annotationTool.value !== 'none') {
