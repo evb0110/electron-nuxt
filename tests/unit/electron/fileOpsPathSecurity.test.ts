@@ -257,6 +257,46 @@ describe('fileOps path security', () => {
         ]));
     });
 
+    it('allows direct stats for DjVu files approved for native viewing', async () => {
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.isAllowedDjvuViewingPath.mockReturnValue(true);
+        mocks.realpathSync.mockReturnValue('/Users/alice/Documents/file.djvu');
+
+        const result = await handleFileStat({} as never, '/Users/alice/Documents/file.djvu');
+
+        expect(mocks.isAllowedDjvuViewingPath).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
+        expect(mocks.statSync).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
+        expect(result).toEqual({ size: 123 });
+    });
+
+    it('allows direct range reads for DjVu files approved for native viewing', async () => {
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.isAllowedDjvuViewingPath.mockReturnValue(true);
+        mocks.realpathSync.mockReturnValue('/Users/alice/Documents/file.djvu');
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer) => {
+            buffer.set([
+                6,
+                7,
+            ]);
+            return { bytesRead: 2 };
+        });
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        const content = await handleFileReadRange({} as never, '/Users/alice/Documents/file.djvu', 10, 2);
+
+        expect(mocks.isAllowedDjvuViewingPath).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
+        expect(mocks.open).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu', 'r');
+        expect(content).toEqual(new Uint8Array([
+            6,
+            7,
+        ]));
+        expect(close).toHaveBeenCalled();
+    });
+
     it('still rejects direct PDF source reads outside the temp sandbox', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
 

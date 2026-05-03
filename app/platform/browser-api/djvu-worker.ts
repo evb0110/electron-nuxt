@@ -4,6 +4,7 @@ import {
     isBrowserDocumentRef,
 } from '@app/platform/browser-document-store';
 import { loadDjvuJs } from '@app/platform/browser-api/djvujs-loader';
+import { readDocumentBytes } from '@app/utils/document-bytes';
 
 function toOwnedArrayBuffer(bytes: Uint8Array) {
     if (
@@ -20,7 +21,7 @@ function toOwnedArrayBuffer(bytes: Uint8Array) {
 export async function createDjvuWorkerFromPath(djvuPath: TDocumentRef) {
     const djvuGlobal = await loadDjvuJs();
     const worker = new djvuGlobal.Worker();
-    const bytes = await browserDocumentStore.read(djvuPath);
+    const bytes = await readDocumentBytes(djvuPath);
     const buffer = toOwnedArrayBuffer(bytes);
 
     await worker.createDocument(buffer, {});

@@ -132,6 +132,32 @@ async function resolveReadablePath(
     return resolveDirectSourceReadPath(normalizedPath, extension, senderId);
 }
 
+async function resolveExistingReadableBinaryPath(
+    event: Electron.IpcMainInvokeEvent,
+    filePath: unknown,
+) {
+    const normalizedPath = normalizeNonEmptyPath(filePath);
+    const extension = extname(normalizedPath).toLowerCase();
+    if (!ALLOWED_BINARY_READ_EXTENSIONS.has(extension)) {
+        throw new Error('Invalid file type: only PDF and DjVu files are allowed');
+    }
+
+    const resolvedPath = await resolveReadablePath(
+        normalizedPath,
+        extension,
+        event.sender?.id,
+    );
+    if (!resolvedPath) {
+        throw new Error('Invalid file path: reads only allowed within temp directory');
+    }
+
+    if (!existsSync(resolvedPath)) {
+        throw new Error(`File not found: ${normalizedPath}`);
+    }
+
+    return resolvedPath;
+}
+
 async function resolveExistingReadablePdfPath(filePath: unknown) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = extname(normalizedPath).toLowerCase();
@@ -201,21 +227,21 @@ export async function handleFileRead(event: Electron.IpcMainInvokeEvent, filePat
 }
 
 export async function handleFileStat(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
 ): Promise<{ size: number }> {
-    const resolvedPath = await resolveExistingReadablePdfPath(filePath);
+    const resolvedPath = await resolveExistingReadableBinaryPath(event, filePath);
     const s = statSync(resolvedPath);
     return { size: s.size };
 }
 
 export async function handleFileReadRange(
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     filePath: unknown,
     offset: unknown,
     length: unknown,
 ): Promise<Uint8Array> {
-    const resolvedPath = await resolveExistingReadablePdfPath(filePath);
+    const resolvedPath = await resolveExistingReadableBinaryPath(event, filePath);
     const off = Number(offset);
     const len = Number(length);
     if (
