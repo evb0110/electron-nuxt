@@ -1653,6 +1653,7 @@ defineExpose({
     updateAnnotationComment: commentCrud.updateAnnotationComment,
     deleteAnnotationComment: commentCrud.deleteAnnotationComment,
     getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
+    getMarkupSubtypeHints: annotations.editor.getMarkupSubtypeHints,
     getAllShapes: shapeComposable.getAllShapes,
     getDeletedEmbeddedShapeAnnotationIds: shapeComposable.getDeletedEmbeddedAnnotationIds,
     getDeletedEmbeddedShapeStableKeys: shapeComposable.getDeletedEmbeddedShapeStableKeys,
@@ -1979,6 +1980,34 @@ defineExpose({
     fill: transparent !important;
     fill-opacity: 0 !important;
     mix-blend-mode: normal !important;
+}
+
+.pdfViewer .annotationEditorLayer .highlightEditor.pdf-markup-subtype-fragmented::after,
+.pdfViewer .annotation-editor-layer .highlightEditor.pdf-markup-subtype-fragmented::after {
+    content: none !important;
+}
+
+.pdfViewer .annotationEditorLayer .highlightEditor .pdf-markup-subtype-fragments,
+.pdfViewer .annotation-editor-layer .highlightEditor .pdf-markup-subtype-fragments {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.pdfViewer .annotationEditorLayer .highlightEditor .pdf-markup-subtype-fragment,
+.pdfViewer .annotation-editor-layer .highlightEditor .pdf-markup-subtype-fragment {
+    position: absolute;
+    pointer-events: none;
+}
+
+.pdfViewer .annotationEditorLayer .highlightEditor .pdf-markup-subtype-fragment--underline,
+.pdfViewer .annotation-editor-layer .highlightEditor .pdf-markup-subtype-fragment--underline {
+    border-bottom: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, var(--ui-primary));
+}
+
+.pdfViewer .annotationEditorLayer .highlightEditor .pdf-markup-subtype-fragment--strikeout,
+.pdfViewer .annotation-editor-layer .highlightEditor .pdf-markup-subtype-fragment--strikeout {
+    border-top: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, var(--ui-error));
 }
 
 .pdfViewer .annotationEditorLayer .highlightEditor[class*='pdf-markup-subtype-underline']::after,

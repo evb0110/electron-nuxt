@@ -13,7 +13,10 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type { IPagePointTarget } from '@app/composables/pdf/annotations/types';
-import type { IPdfjsEditor } from '@app/types/pdfjs';
+import type {
+    IPdfjsEditor,
+    IPdfjsHighlightBox,
+} from '@app/types/pdfjs';
 import { markerRectCenterDistance } from '@app/composables/pdf/annotations/annotationRules';
 import {
     getCommentText,
@@ -47,6 +50,8 @@ interface IHighlightMarkupSubtype {
     TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
     isSelectionMarkupTool: (tool: TAnnotationTool) => boolean;
     setEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number, s: TMarkupSubtype) => void;
+    resolveEditorMarkupSubtypeOverride: (e: IPdfjsEditor, pi: number) => TMarkupSubtype | null;
+    resolveEditorSubtypeFromPresentation: (e: IPdfjsEditor) => TMarkupSubtype | null;
     syncMarkupSubtypePresentationForEditors: () => void;
 }
 
@@ -192,6 +197,201 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             run();
         }, delayMs);
         subtypeRetryTimers.add(timer);
+    }
+
+    function cloneHighlightBoxes(boxes: readonly IPdfjsHighlightBox[]) {
+        return boxes.map(box => ({ ...box }));
+    }
+
+    function boxesOverlapVertically(left: IPdfjsHighlightBox, right: IPdfjsHighlightBox) {
+        return Math.min(left.y + left.height, right.y + right.height) > Math.max(left.y, right.y);
+    }
+
+    function subtractOverlappingBoxes(
+        sourceBox: IPdfjsHighlightBox,
+        replacementBoxes: readonly IPdfjsHighlightBox[],
+    ) {
+        const intervals: Array<[number, number]> = [[
+            sourceBox.x,
+            sourceBox.x + sourceBox.width,
+        ]];
+
+        for (const replacementBox of replacementBoxes) {
+            if (!boxesOverlapVertically(sourceBox, replacementBox)) {
+                continue;
+            }
+            const overlapLeft = Math.max(sourceBox.x, replacementBox.x);
+            const overlapRight = Math.min(sourceBox.x + sourceBox.width, replacementBox.x + replacementBox.width);
+            if (overlapRight <= overlapLeft) {
+                continue;
+            }
+
+            for (let index = intervals.length - 1; index >= 0; index -= 1) {
+                const [
+                    intervalLeft,
+                    intervalRight,
+                ] = intervals[index]!;
+                if (overlapRight <= intervalLeft || overlapLeft >= intervalRight) {
+                    continue;
+                }
+                const nextIntervals: Array<[number, number]> = [];
+                if (overlapLeft > intervalLeft) {
+                    nextIntervals.push([
+                        intervalLeft,
+                        overlapLeft,
+                    ]);
+                }
+                if (overlapRight < intervalRight) {
+                    nextIntervals.push([
+                        overlapRight,
+                        intervalRight,
+                    ]);
+                }
+                intervals.splice(index, 1, ...nextIntervals);
+            }
+        }
+
+        const MIN_FRAGMENT_WIDTH = 0.0005;
+        return intervals
+            .filter(([
+                left,
+                right,
+            ]) => right - left >= MIN_FRAGMENT_WIDTH)
+            .map(([
+                left,
+                right,
+            ]) => ({
+                ...sourceBox,
+                x: left,
+                width: right - left,
+            }));
+    }
+
+    function subtractMarkupBoxes(
+        sourceBoxes: readonly IPdfjsHighlightBox[],
+        replacementBoxes: readonly IPdfjsHighlightBox[],
+    ) {
+        return sourceBoxes.flatMap(box => subtractOverlappingBoxes(box, replacementBoxes));
+    }
+
+    function areMarkupBoxesEqual(
+        leftBoxes: readonly IPdfjsHighlightBox[],
+        rightBoxes: readonly IPdfjsHighlightBox[],
+    ) {
+        if (leftBoxes.length !== rightBoxes.length) {
+            return false;
+        }
+        return leftBoxes.every((leftBox, index) => {
+            const rightBox = rightBoxes[index];
+            return Boolean(
+                rightBox
+                && leftBox.x === rightBox.x
+                && leftBox.y === rightBox.y
+                && leftBox.width === rightBox.width
+                && leftBox.height === rightBox.height,
+            );
+        });
+    }
+
+    function getEditorMarkupBoxes(editor: IPdfjsEditor) {
+        if (editor.__evbMarkupBoxes?.length) {
+            return editor.__evbMarkupBoxes;
+        }
+        if (
+            Number.isFinite(editor.x)
+            && Number.isFinite(editor.y)
+            && Number.isFinite(editor.width)
+            && Number.isFinite(editor.height)
+            && (editor.width ?? 0) > 0
+            && (editor.height ?? 0) > 0
+        ) {
+            return [{
+                x: editor.x!,
+                y: editor.y!,
+                width: editor.width!,
+                height: editor.height!,
+            }];
+        }
+        return null;
+    }
+
+    function getEditorMarkupSubtype(
+        editor: IPdfjsEditor,
+        pageIndex: number,
+        markupSubtype: IHighlightMarkupSubtype,
+    ) {
+        return markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex)
+            ?? markupSubtype.resolveEditorSubtypeFromPresentation(editor);
+    }
+
+    function removeEditorWithoutSelection(editor: IPdfjsEditor) {
+        try {
+            editor.remove?.();
+        } catch (removeError) {
+            BrowserLogger.debug('annotations', `Failed to remove overlapped markup editor: ${errorToLogText(removeError)}`);
+            try {
+                editor.delete?.();
+            } catch (deleteError) {
+                BrowserLogger.debug('annotations', `Failed to delete overlapped markup editor: ${errorToLogText(deleteError)}`);
+            }
+        }
+    }
+
+    function createReplacementMarkupEditor(
+        layer: ReturnType<typeof getAnnotationEditorLayer>,
+        sourceEditor: IPdfjsEditor,
+        pageIndex: number,
+        subtype: TMarkupSubtype,
+        boxes: IPdfjsHighlightBox[],
+        markupSubtype: IHighlightMarkupSubtype,
+    ) {
+        const replacementEditor = asPdfjsEditor(layer?.createAndAddNewEditor(
+            new PointerEvent('pointerdown'),
+            false,
+            {
+                methodOfCreation: 'toolbar',
+                boxes: cloneHighlightBoxes(boxes),
+                color: sourceEditor.color,
+                opacity: sourceEditor.opacity,
+                text: '',
+            },
+        ));
+        if (!replacementEditor) {
+            return;
+        }
+        replacementEditor.__evbMarkupBoxes = cloneHighlightBoxes(boxes);
+        replacementEditor.__evbMarkupSubtypeColor = sourceEditor.__evbMarkupSubtypeColor ?? null;
+        markupSubtype.setEditorMarkupSubtypeOverride(replacementEditor, pageIndex, subtype);
+    }
+
+    function replaceOverlappingSelectionMarkup(
+        pageIndex: number,
+        replacementBoxes: readonly IPdfjsHighlightBox[],
+        replacementSubtype: TMarkupSubtype | null,
+        getEditorsForPage: (pageIndex: number) => IPdfjsEditor[],
+        layer: ReturnType<typeof getAnnotationEditorLayer>,
+        markupSubtype: IHighlightMarkupSubtype,
+    ) {
+        if (!replacementSubtype || replacementSubtype === 'Highlight') {
+            return;
+        }
+
+        for (const editor of getEditorsForPage(pageIndex)) {
+            const existingSubtype = getEditorMarkupSubtype(editor, pageIndex, markupSubtype);
+            const existingBoxes = getEditorMarkupBoxes(editor);
+            if (existingSubtype !== replacementSubtype || !existingBoxes) {
+                continue;
+            }
+
+            const remainingBoxes = subtractMarkupBoxes(existingBoxes, replacementBoxes);
+            if (areMarkupBoxesEqual(remainingBoxes, existingBoxes)) {
+                continue;
+            }
+            if (remainingBoxes.length > 0) {
+                createReplacementMarkupEditor(layer, editor, pageIndex, existingSubtype, remainingBoxes, markupSubtype);
+            }
+            removeEditorWithoutSelection(editor);
+        }
     }
 
     function cacheCurrentTextSelection() {
@@ -407,7 +607,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         const pageNumber = getPageNumberForTextLayer(textLayer);
         const pageIndex = Math.max(0, pageNumber - 1);
         const getEditorsForPage = (editorPageIndex: number) => getEditorsOnPage(uiManager, editorPageIndex);
-        const editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
 
         selection?.removeAllRanges();
         cachedSelectionRange = null;
@@ -417,6 +616,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         const markupSubtypeOverride = markupSubtype.TOOL_TO_MARKUP_SUBTYPE[annotationTool.value] ?? null;
         let createdAnnotation = false;
         let deferredNoteSummary: IAnnotationCommentSummary | null = null;
+        let editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
         const modeRestored = createModeRestoredDeferred();
 
         const resolveCreatedEditor = async (createdEditor: IPdfjsEditor | null) => {
@@ -440,6 +640,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             if (!editor || !markupSubtypeOverride) {
                 return false;
             }
+            editor.__evbMarkupBoxes = cloneHighlightBoxes(boxes);
             markupSubtype.setEditorMarkupSubtypeOverride(editor, pageIndex, markupSubtypeOverride);
             queueMicrotask(() => {
                 markupSubtype.syncMarkupSubtypePresentationForEditors();
@@ -491,6 +692,15 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             await uiManager.waitForEditorsRendered(pageNumber);
 
             const layer = getAnnotationEditorLayer(uiManager, pageNumber - 1);
+            replaceOverlappingSelectionMarkup(
+                pageIndex,
+                boxes,
+                markupSubtypeOverride,
+                getEditorsForPage,
+                layer,
+                markupSubtype,
+            );
+            editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
             const createdEditor = layer?.createAndAddNewEditor(
                 new PointerEvent('pointerdown'),
                 false,

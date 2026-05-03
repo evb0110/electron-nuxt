@@ -14,7 +14,10 @@ import type {
     IPdfSerializationSavePayload,
     IPdfSerializedPlacedImagePayload,
 } from '@app/composables/pdf/pdfSerializationOperations';
-import { collectMarkupSubtypeHints } from '@app/composables/pdf/pdfSerializationSubtypeHints';
+import {
+    collectMarkupSubtypeHints,
+    type IMarkupSubtypeHint,
+} from '@app/composables/pdf/pdfSerializationSubtypeHints';
 import {
     deleteEmbeddedAnnotationOffThread,
     serializePdfEditsOffThread,
@@ -39,6 +42,7 @@ export interface IPdfSerializationDeps {
     bookmarkItems?: Ref<IPdfBookmarkEntry[]>;
     untitledBookmarkLabel?: string;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype> | undefined;
+    getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
     getAllShapes: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
@@ -64,6 +68,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         bookmarkItems,
         untitledBookmarkLabel = '',
         getMarkupSubtypeOverrides,
+        getMarkupSubtypeHints,
         getAllShapes,
         getDeletedEmbeddedShapeAnnotationIds,
         getDeletedEmbeddedShapeStableKeys,
@@ -198,7 +203,10 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
     function applyMarkupPayload(payload: IPdfSerializationSavePayload) {
         payload.markupSubtypeOverrides = Array.from(getMarkupSubtypeOverrides()?.entries() ?? []);
-        payload.markupSubtypeHints = collectMarkupSubtypeHints(annotationComments.value);
+        payload.markupSubtypeHints = [
+            ...(getMarkupSubtypeHints?.() ?? []),
+            ...collectMarkupSubtypeHints(annotationComments.value),
+        ];
     }
 
     function applyShapePayload(
@@ -260,6 +268,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             thresholdMs: 25,
             details: {
                 markupOverrides: payload.markupSubtypeOverrides.length,
+                markupHints: payload.markupSubtypeHints.length,
                 shapes: payload.shapes.length,
                 deletedShapeAnnotationIds: payload.deletedShapeAnnotationIds.length,
                 freeTextComments: payload.freeTextComments.length,

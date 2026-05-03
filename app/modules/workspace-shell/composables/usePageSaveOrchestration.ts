@@ -16,6 +16,7 @@ import type {
 } from '@app/types/pdf';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { usePdfSerialization } from '@app/composables/pdf/usePdfSerialization';
+import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
 import {
     useFileOperations,
     type IFileOperationsDeps,
@@ -42,6 +43,7 @@ interface IPdfViewerForSave {
     adoptPersistedManagedShapesOnNextImport?: () => void;
     clearPendingManagedShapeImportAdoption?: () => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype> | undefined;
+    getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
     getAllShapes: () => IShapeAnnotation[];
     markSavedShapeState?: () => void;
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
@@ -168,6 +170,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         bookmarkItems,
         untitledBookmarkLabel: t('bookmarks.untitled'),
         getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
+        getMarkupSubtypeHints: () => pdfViewerRef.value?.getMarkupSubtypeHints?.(),
         getAllShapes: () => pdfViewerRef.value?.getAllShapes() ?? [],
         getDeletedEmbeddedShapeAnnotationIds: () => pdfViewerRef.value?.getDeletedEmbeddedShapeAnnotationIds() ?? [],
         getDeletedEmbeddedShapeStableKeys: () => pdfViewerRef.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
