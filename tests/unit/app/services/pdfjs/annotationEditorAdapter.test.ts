@@ -7,11 +7,14 @@ import {
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import {
+    clearSelectedEditorState,
     getEditorById,
     getEditorByUidFromLayer,
     selectCommentByUid,
     setSelectedEditor,
+    setEditorDefaultParamUpdater,
     unselectAllEditors,
+    updateEditorDefaultParams,
 } from '@app/services/pdfjs/annotationEditorAdapter';
 
 function asUiManager<T extends object>(value: T): AnnotationEditorUIManager {
@@ -109,5 +112,31 @@ describe('annotationEditorAdapter', () => {
 
         expect(unselected).toBe(true);
         expect(unselectAll).toHaveBeenCalledOnce();
+    });
+
+    it('clears the active editor before unselecting selection state', () => {
+        const setActiveEditor = vi.fn();
+        const unselectAll = vi.fn();
+        const cleared = clearSelectedEditorState(asUiManager({
+            setActiveEditor,
+            unselectAll,
+        }));
+
+        expect(cleared).toBe(true);
+        expect(setActiveEditor).toHaveBeenCalledWith(null);
+        expect(unselectAll).toHaveBeenCalledOnce();
+        const setActiveCallOrder = setActiveEditor.mock.invocationCallOrder[0] ?? 0;
+        const unselectAllCallOrder = unselectAll.mock.invocationCallOrder[0] ?? 0;
+        expect(setActiveCallOrder).toBeLessThan(unselectAllCallOrder);
+    });
+
+    it('uses the runtime default-param updater when installed', () => {
+        const uiManager = asUiManager({});
+        const updater = vi.fn(() => true);
+
+        setEditorDefaultParamUpdater(uiManager, updater);
+
+        expect(updateEditorDefaultParams(uiManager, 31, '#2563eb')).toBe(true);
+        expect(updater).toHaveBeenCalledWith(31, '#2563eb');
     });
 });

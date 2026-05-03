@@ -22,6 +22,11 @@ import type {
 } from 'vue';
 import { defaultDocument } from '@vueuse/core';
 import { normalizePdfJsAnnotationId } from '@app/composables/pdf/pdfSerializationRefs';
+import {
+    disconnectHighlightCompositeOverlay,
+    observeHighlightCompositeOverlay,
+    refreshHighlightCompositeOverlay,
+} from '@app/composables/pdf/pdfHighlightCompositeOverlay';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import { getShellCapability } from '@app/utils/platform-shell';
@@ -142,6 +147,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
     const annotationEditorLayers = new Map<number, TAnnotationEditorLayer>();
     const drawLayers = new Map<number, TDrawLayer>();
+    const annotationEditorLayerContainers = new Map<number, HTMLElement>();
     const hiddenAnnotationSignatures = new Map<number, string>();
     const managedAnnotationSignatures = new Map<number, string>();
     const annotationEditorLayerDisabledDocuments =
@@ -643,7 +649,10 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 activeLayer,
             );
             saveAnnotationEditorSignatures(pageNumber, signatures);
+            annotationEditorLayerContainers.set(pageNumber, container);
             hideHiddenManagedEditors(pageNumber);
+            observeHighlightCompositeOverlay(container);
+            scheduleHighlightCompositeRefresh(container);
             return true;
         } catch (error) {
             disableAnnotationEditorLayerForCurrentDocument(error, pageNumber);
@@ -758,6 +767,16 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         return activeLayer;
     }
 
+    function scheduleHighlightCompositeRefresh(container: HTMLElement) {
+        if (typeof window === 'undefined') {
+            refreshHighlightCompositeOverlay(container);
+            return;
+        }
+        window.requestAnimationFrame(() => {
+            refreshHighlightCompositeOverlay(container);
+        });
+    }
+
     function applyAnnotationEditorLayerMode(
         annotationEditorLayerDiv: HTMLElement,
         annotationUiManager: AnnotationEditorUIManager,
@@ -785,6 +804,11 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     function cleanupEditorLayer(pageNumber: number) {
         hiddenAnnotationSignatures.delete(pageNumber);
         managedAnnotationSignatures.delete(pageNumber);
+        const container = annotationEditorLayerContainers.get(pageNumber);
+        if (container) {
+            disconnectHighlightCompositeOverlay(container);
+            annotationEditorLayerContainers.delete(pageNumber);
+        }
         const editorLayer = annotationEditorLayers.get(pageNumber);
         if (editorLayer) {
             try {
@@ -834,6 +858,10 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             }
         }
         drawLayers.clear();
+        for (const container of annotationEditorLayerContainers.values()) {
+            disconnectHighlightCompositeOverlay(container);
+        }
+        annotationEditorLayerContainers.clear();
     }
 
     return {

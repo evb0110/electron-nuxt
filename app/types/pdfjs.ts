@@ -29,6 +29,7 @@ export interface IPdfjsEditor {
     __evbPendingAnchorRect?: IAnnotationMarkerRect | null;
     __evbResolvedPageIndex?: number;
     __evbPlacementAttemptId?: string | null;
+    __evbMarkupSubtypeColor?: string | null;
     getData?: () => {
         modificationDate?: string | null;
         creationDate?: string | null;

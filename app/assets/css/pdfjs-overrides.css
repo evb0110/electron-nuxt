@@ -152,26 +152,86 @@
     stroke-width: 0 !important;
 }
 
-/* Prevent double-painted editor-origin markup after reload:
-   when the non-editing editor layer is visible, hide matching
-   annotation-layer editor replicas to keep highlight intensity stable. */
+/* Text highlights are emitted as fully opaque, opacity-preblended colours.
+   They are composited into one per-page overlay before blending with the page:
+   same-colour overlaps do not stack, and different-colour overlaps use the
+   topmost/latest annotation colour instead of mixing into a third colour. */
+.pdfViewer .pdf-highlight-composite-overlay,
+.pdf-viewer-container .pdf-highlight-composite-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none !important;
+    mix-blend-mode: darken !important;
+}
+
+.pdfViewer .highlight.pdf-highlight-composite-source:is(.canvasWrapper svg):not(.free),
+.pdf-viewer-container .highlight.pdf-highlight-composite-source:is(.canvasWrapper svg):not(.free) {
+    visibility: hidden !important;
+}
+
+/* Prevent double-painted editor-origin markup:
+   whenever the editor layer is visible (idle OR while editing highlights),
+   hide annotation-layer editor replicas so saved highlights don't stack
+   visually on top of their editor-layer twins. */
 .pdfViewer .page:has(
     .annotationEditorLayer.nonEditing:not([hidden]),
-    .annotation-editor-layer.nonEditing:not([hidden])
+    .annotation-editor-layer.nonEditing:not([hidden]),
+    .annotationEditorLayer.highlightEditing:not([hidden]),
+    .annotation-editor-layer.highlightEditing:not([hidden])
 ) .annotationLayer .editorAnnotation,
 .pdfViewer .page:has(
     .annotationEditorLayer.nonEditing:not([hidden]),
-    .annotation-editor-layer.nonEditing:not([hidden])
+    .annotation-editor-layer.nonEditing:not([hidden]),
+    .annotationEditorLayer.highlightEditing:not([hidden]),
+    .annotation-editor-layer.highlightEditing:not([hidden])
 ) .annotation-layer .editorAnnotation,
 .pdf-viewer-container .page:has(
     .annotationEditorLayer.nonEditing:not([hidden]),
-    .annotation-editor-layer.nonEditing:not([hidden])
+    .annotation-editor-layer.nonEditing:not([hidden]),
+    .annotationEditorLayer.highlightEditing:not([hidden]),
+    .annotation-editor-layer.highlightEditing:not([hidden])
 ) .annotationLayer .editorAnnotation,
 .pdf-viewer-container .page:has(
     .annotationEditorLayer.nonEditing:not([hidden]),
-    .annotation-editor-layer.nonEditing:not([hidden])
+    .annotation-editor-layer.nonEditing:not([hidden]),
+    .annotationEditorLayer.highlightEditing:not([hidden]),
+    .annotation-editor-layer.highlightEditing:not([hidden])
 ) .annotation-layer .editorAnnotation {
     opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* Allow text selection through existing highlights while a selection-markup
+   tool is active.
+   Vendor CSS sets .highlightEditor .internal { pointer-events: auto },
+   which intercepts mousedown and prevents dragging across already-highlighted
+   text to make a new highlight. Vendor CSS also sets cursor:pointer for any
+   .selectedEditor .highlightEditor .internal, which leaks onto a freshly
+   created highlight before the .selectedEditor class is cleared. The app
+   restores PDF.js back to NONE after creating selection markup so browser
+   text selection keeps working; therefore .highlightEditing is only transient
+   and the durable selector is the app-level .is-selection-markup-tool class. */
+.pdfViewer.is-selection-markup-tool .annotationEditorLayer .highlightEditor .internal,
+.pdfViewer.is-selection-markup-tool .annotation-editor-layer .highlightEditor .internal,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotationEditorLayer .highlightEditor .internal,
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .annotation-editor-layer .highlightEditor .internal {
+    pointer-events: none !important;
+    cursor: text !important;
+}
+
+/* Painted highlight bodies live in the DrawLayer SVG inside .canvasWrapper,
+   OUTSIDE the editor layer. SVG <path> defaults to pointer-events:visiblePainted,
+   so the filled yellow shape intercepts mousedown on every highlighted glyph.
+   The highlight/highlightOutline classes are on the SVG root, not descendants
+   inside the SVG. Disable them only during selection-markup authoring; select
+   and comment interactions can still use the editor layer in idle mode. */
+.pdfViewer.is-selection-markup-tool .highlight:is(.canvasWrapper svg),
+.pdfViewer.is-selection-markup-tool .highlightOutline:is(.canvasWrapper svg),
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .highlight:is(.canvasWrapper svg),
+.pdf-viewer-container .pdfViewer.is-selection-markup-tool .highlightOutline:is(.canvasWrapper svg) {
     pointer-events: none !important;
 }
 

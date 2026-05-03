@@ -41,6 +41,7 @@ import {
     clearSelectedEditorState,
     getEditorConstructor,
     getEditorsOnPage,
+    setEditorDefaultParamUpdater,
     unselectAllEditors,
 } from '@app/services/pdfjs/annotationEditorAdapter';
 import { BrowserLogger } from '@app/utils/browser-logger';
@@ -83,6 +84,8 @@ interface IEditorBridgeDeps {
         applyAnnotationSettings: (settings: IAnnotationSettings | null) => void;
         setAnnotationTool: (tool: TAnnotationTool) => Promise<void>;
         maybeAutoResetAnnotationTool: () => void;
+        captureHighlightEditorClassFromTypes: (types: readonly unknown[]) => void;
+        enforceHighlightDefaultsForNewEditor: (editor: IPdfjsEditor | null | undefined) => void;
     };
     getMarkupSubtype: () => {
         TOOL_TO_MARKUP_SUBTYPE: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
@@ -263,12 +266,26 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         };
     }
 
-    function syncSelectedEditorParamToDefaults(
+    const registeredEditorTypes = new Set<IPdfjsEditorConstructorLike>();
+
+    function captureRegisteredEditorTypes(types: readonly unknown[]) {
+        for (const type of types) {
+            if (
+                (typeof type === 'function' || typeof type === 'object')
+                && type !== null
+                && typeof (type as IPdfjsEditorConstructorLike).updateDefaultParams === 'function'
+            ) {
+                registeredEditorTypes.add(type);
+            }
+        }
+    }
+
+    function updateDefaultParamsForAllEditorTypes(
         uiManager: TAnnotationEditorUIManager,
         type: TEditorParamType,
         value: TEditorParamValue,
     ) {
-        const constructors = new Set<IPdfjsEditorConstructorLike>();
+        const constructors = new Set<IPdfjsEditorConstructorLike>(registeredEditorTypes);
         for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
             for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
                 const ctor = getEditorConstructor(editor);
@@ -277,13 +294,16 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 }
             }
         }
+        let didUpdate = false;
         constructors.forEach((ctor) => {
             try {
                 ctor.updateDefaultParams?.(type, value);
+                didUpdate = true;
             } catch (error) {
                 BrowserLogger.debug('annotations', `Failed to sync editor default params: ${errorToLogText(error)}`);
             }
         });
+        return didUpdate;
     }
 
     function destroyAnnotationEditor() {
@@ -354,6 +374,25 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         const commentSync = getCommentSync();
         const toolManager = getToolManager();
 
+        const uiManagerWithRegister = uiManager as TAnnotationEditorUIManager
+            & { registerEditorTypes?: (types: readonly unknown[]) => void };
+        if (typeof uiManagerWithRegister.registerEditorTypes === 'function') {
+            const originalRegisterEditorTypes = uiManagerWithRegister.registerEditorTypes.bind(uiManager);
+            uiManagerWithRegister.registerEditorTypes = (types: readonly unknown[]) => {
+                captureRegisteredEditorTypes(types);
+                toolManager.captureHighlightEditorClassFromTypes(types);
+                return originalRegisterEditorTypes(types);
+            };
+        }
+        setEditorDefaultParamUpdater(
+            uiManager,
+            (type, value) => updateDefaultParamsForAllEditorTypes(
+                uiManager,
+                type,
+                toEditorParamValue(value),
+            ),
+        );
+
         const originalUpdateParams = uiManager.updateParams.bind(uiManager);
         uiManager.updateParams = (type, value) => {
             const hasSelection = 'hasSelection' in uiManager
@@ -376,7 +415,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
             if (hasSelection
                 && type !== AnnotationEditorParamsType.CREATE
                 && type !== AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL) {
-                syncSelectedEditorParamToDefaults(uiManager, type, resolvedValue);
+                updateDefaultParamsForAllEditorTypes(uiManager, type, resolvedValue);
             }
             return result;
         };
@@ -431,6 +470,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
             const result = originalAddToAnnotationStorage(editor);
             const editorObject = editor as object | null;
             const normalizedEditor = asPdfjsEditor(editor);
+            toolManager.enforceHighlightDefaultsForNewEditor(normalizedEditor);
             const editorSubtype = normalizedEditor
                 ? detectEditorSubtype(normalizedEditor)
                 : null;
