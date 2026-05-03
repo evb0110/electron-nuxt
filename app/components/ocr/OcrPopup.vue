@@ -304,6 +304,7 @@ const props = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:open', value: boolean): void;
+    (e: 'update:running', value: boolean): void;
     (e: 'ocrComplete', payload: {
         pdfData: Uint8Array;
         sourceWorkingCopyPath: TDocumentRef;
@@ -393,7 +394,10 @@ watch(isOpen, (value) => {
     }
 });
 
+watch(() => progress.value.isRunning, value => emit('update:running', value), {immediate: true});
+
 onBeforeUnmount(() => {
+    emit('update:running', false);
     stopCopyLogsStateReset();
     stopSuccessStateReset();
 });
