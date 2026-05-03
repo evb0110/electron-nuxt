@@ -152,6 +152,27 @@ export function writeVersion(version) {
     writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 }
 
+export function restoreVersionIfChanged(
+    expectedVersion,
+    {
+        readVersionFn = readVersion,
+        stderr = process.stderr,
+        writeVersionFn = writeVersion,
+    } = {},
+) {
+    const actualVersion = readVersionFn();
+    if (actualVersion === expectedVersion) {
+        return false;
+    }
+
+    stderr.write(
+        `Release verification changed package.json version from ${expectedVersion} to ${actualVersion}; `
+        + `restoring ${expectedVersion} before committing.\n`,
+    );
+    writeVersionFn(expectedVersion);
+    return true;
+}
+
 export function bumpVersion(version, level) {
     const match = version.match(SEMVER_PATTERN);
     if (!match) {
