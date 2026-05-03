@@ -51,7 +51,7 @@
                         :title="bookmark.bold ? t('bookmarks.disableBold') : t('bookmarks.enableBold')"
                         @click="emit('toggle-bold', bookmark.id)"
                     >
-                        B
+                        <UIcon name="i-lucide-bold" class="bookmarks-style-toggle-icon" />
                     </button>
                     <button
                         type="button"
@@ -60,7 +60,7 @@
                         :title="bookmark.italic ? t('bookmarks.disableItalic') : t('bookmarks.enableItalic')"
                         @click="emit('toggle-italic', bookmark.id)"
                     >
-                        I
+                        <UIcon name="i-lucide-italic" class="bookmarks-style-toggle-icon" />
                     </button>
                     <button
                         type="button"
@@ -69,7 +69,7 @@
                         :title="t('bookmarks.defaultColor')"
                         @click="emit('set-color', { id: bookmark.id, color: null })"
                     >
-                        A
+                        <span class="bookmarks-style-toggle-letter">A</span>
                     </button>
                 </div>
                 <div class="bookmarks-context-menu-color-row">
@@ -177,6 +177,10 @@ const menuStyle = computed(() => ({
 .bookmarks-style-toggle {
     width: 24px;
     height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
     border: 1px solid var(--ui-border);
     border-radius: 5px;
     background: var(--ui-bg);
@@ -186,14 +190,24 @@ const menuStyle = computed(() => ({
     cursor: pointer;
 }
 
+.bookmarks-style-toggle-icon {
+    width: 0.95rem;
+    height: 0.95rem;
+}
+
+.bookmarks-style-toggle-letter {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
 .bookmarks-style-toggle:nth-child(2) {
     font-style: italic;
 }
 
 .bookmarks-style-toggle.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 50%, var(--ui-border) 50%);
+    border-color: var(--ui-primary);
     color: var(--ui-primary);
-    background: color-mix(in srgb, var(--ui-primary) 9%, var(--ui-bg) 91%);
+    background: color-mix(in srgb, var(--ui-primary) 18%, var(--ui-bg) 82%);
 }
 
 .bookmarks-context-menu-color-row {
@@ -210,6 +224,7 @@ const menuStyle = computed(() => ({
 }
 
 .bookmarks-color-swatch.is-active {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-primary) 45%, transparent 55%);
+    border-color: var(--ui-bg);
+    box-shadow: 0 0 0 1px var(--ui-bg), 0 0 0 3px var(--ui-primary);
 }
 </style>

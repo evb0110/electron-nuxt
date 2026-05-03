@@ -26,7 +26,7 @@
                         :aria-label="t('annotations.decreaseWidth')"
                         @click="nudgeWidth(-activeWidthControl.step)"
                     >
-                        -
+                        <UIcon name="i-lucide-minus" class="style-step-icon" />
                     </button>
                     <input
                         id="annotation-width-input"
@@ -44,7 +44,7 @@
                         :aria-label="t('annotations.increaseWidth')"
                         @click="nudgeWidth(activeWidthControl.step)"
                     >
-                        +
+                        <UIcon name="i-lucide-plus" class="style-step-icon" />
                     </button>
                 </div>
             </div>
@@ -361,8 +361,10 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .swatch.is-active {
-    border-color: var(--app-pdf-style-active-border);
-    box-shadow: 0 0 0 2px var(--app-pdf-style-active-bg);
+    border-color: var(--ui-bg);
+    box-shadow:
+        0 0 0 1px var(--ui-bg),
+        0 0 0 3px var(--ui-primary);
 }
 
 .style-range {
@@ -393,15 +395,22 @@ function applyDrawStyle(style: TDrawStyle) {
 }
 
 .style-step-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: 1px solid var(--ui-border);
     border-radius: 0.4rem;
     background: var(--ui-bg);
     color: var(--ui-text-highlighted);
     width: 1.8rem;
     height: 1.8rem;
-    font-size: 1rem;
-    line-height: 1;
+    padding: 0;
     cursor: pointer;
+}
+
+.style-step-icon {
+    width: 0.95rem;
+    height: 0.95rem;
 }
 
 .style-step-button:hover {

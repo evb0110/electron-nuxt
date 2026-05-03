@@ -127,9 +127,9 @@ const toolItems = computed<IToolItem[]>(() => [
 }
 
 .tool-button.is-active {
-    border-color: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border) 45%);
-    background: color-mix(in srgb, var(--ui-primary) 12%, var(--ui-bg) 88%);
-    color: var(--ui-text-highlighted);
+    border-color: var(--ui-primary);
+    background: color-mix(in srgb, var(--ui-primary) 22%, var(--ui-bg) 78%);
+    color: var(--ui-primary);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-primary) 24%, transparent);
 }
 

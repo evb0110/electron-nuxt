@@ -178,6 +178,7 @@
     --app-pdf-context-menu-panel-action-border: var(--ui-border);
     --app-pdf-thumbnail-shadow: 0 1px 4px rgb(0 0 0 / 0.1), 0 0 1px rgb(0 0 0 / 0.06);
     --app-pdf-thumbnail-shadow-active: 0 2px 8px rgb(0 0 0 / 0.14), 0 0 1px rgb(0 0 0 / 0.08);
+    --app-image-placement-shadow: rgb(0 0 0 / 0.3);
     --app-pdf-outline-range-indicator: oklch(76% 0.18 74);
     --app-pdf-shape-selection-stroke: var(--ui-primary);
     --app-pdf-text-selection-bg: rgb(0 0 255 / 0.25);
@@ -300,6 +301,7 @@
     --app-notes-item-selected-ring: color-mix(in srgb, var(--ui-primary) 60%, var(--ui-border) 40%);
     --app-pdf-thumbnail-shadow: 0 1px 4px rgb(0 0 0 / 0.25), 0 0 1px rgb(0 0 0 / 0.15);
     --app-pdf-thumbnail-shadow-active: 0 2px 8px rgb(0 0 0 / 0.35), 0 0 1px rgb(0 0 0 / 0.2);
+    --app-image-placement-shadow: rgb(0 0 0 / 0.5);
     --app-pdf-outline-range-indicator: oklch(72% 0.15 74);
     --app-pdf-text-selection-bg: rgb(255 200 0 / 0.35);
     --app-pdf-link-hover-bg: rgb(255 255 0 / 0.25);

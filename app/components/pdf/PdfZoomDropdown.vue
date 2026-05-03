@@ -487,12 +487,12 @@ function applyCustomZoom() {
     justify-content: center;
     gap: 0.375rem;
     padding: 0.375rem 0.25rem;
-    border: none;
+    border: 1px solid transparent;
     background: transparent;
     color: var(--ui-text-muted);
     font-size: 0.8125rem;
     cursor: pointer;
-    transition: background-color 150ms ease, color 150ms ease;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
 }
 
 .zoom-toggle-btn + .zoom-toggle-btn {
@@ -505,8 +505,9 @@ function applyCustomZoom() {
 }
 
 .zoom-toggle-btn.is-active {
-    background-color: var(--ui-bg-elevated);
-    color: var(--ui-text);
+    background-color: color-mix(in oklab, var(--ui-primary) 14%, var(--ui-bg) 86%);
+    border-color: var(--ui-primary);
+    color: var(--ui-primary);
     font-weight: 600;
 }
 

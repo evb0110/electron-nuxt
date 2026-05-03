@@ -122,9 +122,9 @@ const { t } = useTypedI18n();
 }
 
 .settings-swatch.is-active {
+    border-color: var(--ui-bg);
     box-shadow:
-        0 0 0 2px var(--ui-bg),
-        0 0 0 3.5px var(--ui-primary),
-        inset 0 0 0 1px color-mix(in srgb, var(--ui-bg-inverted) 12%, transparent);
+        0 0 0 1px var(--ui-bg),
+        0 0 0 3px var(--ui-primary);
 }
 </style>

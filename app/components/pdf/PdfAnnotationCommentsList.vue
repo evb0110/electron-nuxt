@@ -327,9 +327,11 @@ function openComment(comment: IAnnotationCommentSummary) {
 }
 
 .note-item.is-active {
-    border-color: var(--app-notes-item-selected-ring);
+    border-color: var(--ui-primary);
     border-width: 2px;
     padding: calc(0.5rem - 1px);
+    background: color-mix(in oklab, var(--ui-primary) 8%, var(--ui-bg) 92%);
+    box-shadow: inset 3px 0 0 0 var(--ui-primary);
 }
 
 .note-item-top {
