@@ -196,6 +196,8 @@ function getRemPx() {
 
 function resolveCursorThemeColors() {
     const styles = getComputedStyle(document.documentElement);
+    // Fallbacks shadow the design tokens --ui-text and --ui-bg for SVG
+    // attribute strings (canvas/inline-style requires concrete colors).
     const fill = styles.getPropertyValue('--ui-text').trim() || '#0f172a';
     const outline = styles.getPropertyValue('--ui-bg').trim() || '#ffffff';
     return {
@@ -520,7 +522,7 @@ onBeforeUnmount(() => {
     width: 24px;
     height: 24px;
     transform: translate(-12px, -12px);
-    filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.3));
+    filter: drop-shadow(0 1px 2px var(--app-image-placement-shadow));
 }
 
 .pdf-image-placement {
