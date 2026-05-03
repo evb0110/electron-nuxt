@@ -34,6 +34,18 @@ type TDevRecoveryLogger = (
 
 interface IInstallDevRecoveryOptions { log?: TDevRecoveryLogger; }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isReloadEvent(value: unknown): value is IReloadEvent {
+    return isRecord(value)
+        && typeof value.timestamp === 'number'
+        && typeof value.reason === 'string'
+        && typeof value.reloadId === 'string'
+        && typeof value.blocked === 'boolean';
+}
+
 /**
  * In development, Vite can transiently fail module fetches after dependency optimize changes.
  * This recovery logic does a bounded auto-reload with guardrails to avoid loops.
@@ -103,14 +115,7 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
                 return [];
             }
             return parsed
-                .filter((entry): entry is IReloadEvent => (
-                    !!entry
-                    && typeof entry === 'object'
-                    && typeof (entry as IReloadEvent).timestamp === 'number'
-                    && typeof (entry as IReloadEvent).reason === 'string'
-                    && typeof (entry as IReloadEvent).reloadId === 'string'
-                    && typeof (entry as IReloadEvent).blocked === 'boolean'
-                ))
+                .filter(isReloadEvent)
                 .slice(-MAX_RELOAD_HISTORY);
         } catch {
             return [];
@@ -142,10 +147,8 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
     }
 
     function getViteReloadPayloadType(payload: unknown) {
-        return payload
-            && typeof payload === 'object'
-            && 'type' in payload
-            ? (payload as {type?: unknown;}).type
+        return isRecord(payload)
+            ? payload.type
             : undefined;
     }
 
@@ -193,12 +196,16 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
         }
 
         try {
-            const parsed = JSON.parse(raw) as IDevReloadEventMarker;
-            if (!parsed || typeof parsed.timestamp !== 'number') {
+            const parsed = JSON.parse(raw);
+            if (!isRecord(parsed) || typeof parsed.timestamp !== 'number') {
                 return null;
             }
 
-            return normalizeRecentViteReloadMarker(parsed);
+            return normalizeRecentViteReloadMarker({
+                timestamp: parsed.timestamp,
+                event: typeof parsed.event === 'string' ? parsed.event : undefined,
+                payload: parsed.payload,
+            });
         } catch {
             return null;
         }

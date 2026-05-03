@@ -14,11 +14,15 @@ const DEFAULT_BROWSER_OCR_SETTINGS: IOcrSettings = {
     selectedLanguages: ['eng'],
 };
 
-const VALID_PAGE_RANGES = new Set<TOcrPageRange>([
+const VALID_PAGE_RANGES: ReadonlySet<string> = new Set<TOcrPageRange>([
     'all',
     'current',
     'custom',
 ]);
+
+function isOcrPageRange(value: string): value is TOcrPageRange {
+    return VALID_PAGE_RANGES.has(value);
+}
 
 function sanitizeSelectedLanguages(value: unknown) {
     if (!Array.isArray(value)) {
@@ -35,8 +39,8 @@ function sanitizeSelectedLanguages(value: unknown) {
 }
 
 function sanitizePageRange(value: unknown): TOcrPageRange {
-    return typeof value === 'string' && VALID_PAGE_RANGES.has(value as TOcrPageRange)
-        ? value as TOcrPageRange
+    return typeof value === 'string' && isOcrPageRange(value)
+        ? value
         : DEFAULT_BROWSER_OCR_SETTINGS.pageRange;
 }
 

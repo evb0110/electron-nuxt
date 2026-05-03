@@ -4,6 +4,7 @@ import type {
     TAppLocale,
     TAppTheme,
 } from '@contracts/shared';
+import { LOCALE_CODES } from '@i18n-core';
 
 export const BROWSER_SETTINGS_COOKIE_KEY = 'evb_viewer_settings';
 export const BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180;
@@ -11,6 +12,7 @@ export const BROWSER_THEME_COOKIE_KEY = 'nuxt-color-mode';
 export const BROWSER_LOCALE_COOKIE_KEY = 'i18n_redirected';
 
 type TBrowserSettingsCookiePayload = Omit<ISettingsData, 'theme' | 'locale'>;
+const SUPPORTED_LOCALES: ReadonlySet<string> = new Set<TAppLocale>(LOCALE_CODES);
 
 function parseRawBrowserSettingsPayload(raw: unknown): Partial<ISettingsData> | null {
     if (!raw) {
@@ -33,7 +35,7 @@ function parseRawBrowserSettingsPayload(raw: unknown): Partial<ISettingsData> | 
 }
 
 function isAppLocale(value: unknown): value is TAppLocale {
-    return typeof value === 'string';
+    return typeof value === 'string' && SUPPORTED_LOCALES.has(value);
 }
 
 function isAppTheme(value: unknown): value is TAppTheme {

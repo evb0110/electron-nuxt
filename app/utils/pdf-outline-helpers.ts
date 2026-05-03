@@ -43,12 +43,17 @@ function normalizeOutlineDest(value: unknown): IOutlineItemRaw['dest'] {
     return null;
 }
 
-function normalizeOutlineColor(value: unknown): ArrayLike<number> | null {
-    if (!value || typeof value !== 'object' || typeof (value as { length?: unknown }).length !== 'number') {
-        return null;
-    }
+function isOutlineColorCandidate(value: unknown): value is ArrayLike<number> {
+    return isRecord(value)
+        && typeof value.length === 'number'
+        && value.length >= 3
+        && typeof value[0] === 'number'
+        && typeof value[1] === 'number'
+        && typeof value[2] === 'number';
+}
 
-    return value as ArrayLike<number>;
+function normalizeOutlineColor(value: unknown): ArrayLike<number> | null {
+    return isOutlineColorCandidate(value) ? value : null;
 }
 
 function normalizeOutlineItem(value: unknown): IOutlineItemRaw | null {
@@ -78,7 +83,7 @@ export function parseOutlineItems(value: unknown): IOutlineItemRaw[] {
 
     return value
         .map(normalizeOutlineItem)
-        .filter((item): item is IOutlineItemRaw => item !== null);
+        .filter(item => item !== null);
 }
 
 export function convertOutlineColorToHex(color: ArrayLike<number> | null | undefined): string | null {

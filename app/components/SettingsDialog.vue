@@ -64,6 +64,7 @@ import type {
     TDefaultZoomPreset,
     TPdfViewMode,
 } from '@contracts/shared';
+import { LOCALE_CODES } from '@i18n-core';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdf-colors';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
@@ -72,6 +73,19 @@ import SettingsViewerDefaultsPanel from '@app/components/settings/SettingsViewer
 
 const open = defineModel<boolean>('open', { required: true });
 const { isDesktopRuntime } = useRuntimeEnvironment();
+const SUPPORTED_LOCALES: ReadonlySet<string> = new Set<TAppLocale>(LOCALE_CODES);
+const DEFAULT_ZOOM_PRESETS: ReadonlySet<string> = new Set<TDefaultZoomPreset>([
+    'fit-width',
+    'fit-height',
+    '100',
+    '125',
+    '150',
+]);
+const DEFAULT_VIEW_MODES: ReadonlySet<string> = new Set<TPdfViewMode>([
+    'single',
+    'facing',
+    'facing-first-single',
+]);
 
 const {
     t,
@@ -293,14 +307,34 @@ function applyTheme(theme: TAppTheme) {
     updateSetting('theme', theme);
 }
 
+function readSelectValue(payload: string | { value: string }) {
+    return typeof payload === 'string' ? payload : payload.value;
+}
+
+function isDefaultZoomPreset(value: string): value is TDefaultZoomPreset {
+    return DEFAULT_ZOOM_PRESETS.has(value);
+}
+
+function isPdfViewMode(value: string): value is TPdfViewMode {
+    return DEFAULT_VIEW_MODES.has(value);
+}
+
+function isAppLocale(value: string): value is TAppLocale {
+    return SUPPORTED_LOCALES.has(value);
+}
+
 function applyZoomPreset(preset: string | { value: string }) {
-    const value = (typeof preset === 'string' ? preset : preset.value) as TDefaultZoomPreset;
-    updateSetting('defaultZoomPreset', value);
+    const value = readSelectValue(preset);
+    if (isDefaultZoomPreset(value)) {
+        updateSetting('defaultZoomPreset', value);
+    }
 }
 
 function applyViewMode(mode: string | { value: string }) {
-    const value = (typeof mode === 'string' ? mode : mode.value) as TPdfViewMode;
-    updateSetting('defaultViewMode', value);
+    const value = readSelectValue(mode);
+    if (isPdfViewMode(value)) {
+        updateSetting('defaultViewMode', value);
+    }
 }
 
 function applyScrollMode(mode: boolean | { value: boolean }) {
@@ -309,9 +343,11 @@ function applyScrollMode(mode: boolean | { value: boolean }) {
 }
 
 async function applyLocale(locale: string | { value: string }) {
-    const code = (typeof locale === 'string' ? locale : locale.value) as TAppLocale;
-    await setLocale(code);
-    updateSetting('locale', code);
+    const code = readSelectValue(locale);
+    if (isAppLocale(code)) {
+        await setLocale(code);
+        updateSetting('locale', code);
+    }
 }
 
 function handleCheckForUpdates() {

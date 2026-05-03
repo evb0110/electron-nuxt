@@ -11,14 +11,14 @@ import { trim } from 'es-toolkit/string';
 import type { ISettingsData } from './shared';
 
 const DEFAULT_ANNOTATION_COLOR = '#ffd400';
-const DEFAULT_ZOOM_PRESETS = new Set<ISettingsData['defaultZoomPreset']>([
+const DEFAULT_ZOOM_PRESETS: ReadonlySet<string> = new Set<ISettingsData['defaultZoomPreset']>([
     'fit-width',
     'fit-height',
     '100',
     '125',
     '150',
 ]);
-const DEFAULT_VIEW_MODES = new Set<ISettingsData['defaultViewMode']>([
+const DEFAULT_VIEW_MODES: ReadonlySet<string> = new Set<ISettingsData['defaultViewMode']>([
     'single',
     'facing',
     'facing-first-single',
@@ -39,6 +39,14 @@ const SUPPORTED_LOCALES = new Set<string>(LOCALE_CODES);
 
 function isLocale(locale: string): locale is TLocale {
     return SUPPORTED_LOCALES.has(locale);
+}
+
+function isDefaultZoomPreset(value: string): value is ISettingsData['defaultZoomPreset'] {
+    return DEFAULT_ZOOM_PRESETS.has(value);
+}
+
+function isDefaultViewMode(value: string): value is ISettingsData['defaultViewMode'] {
+    return DEFAULT_VIEW_MODES.has(value);
 }
 
 export function normalizeTheme(theme: unknown): ISettingsData['theme'] {
@@ -62,8 +70,8 @@ function normalizeDefaultZoomPreset(value: unknown): ISettingsData['defaultZoomP
         return DEFAULT_SETTINGS.defaultZoomPreset;
     }
 
-    return DEFAULT_ZOOM_PRESETS.has(value as ISettingsData['defaultZoomPreset'])
-        ? value as ISettingsData['defaultZoomPreset']
+    return isDefaultZoomPreset(value)
+        ? value
         : DEFAULT_SETTINGS.defaultZoomPreset;
 }
 
@@ -72,8 +80,8 @@ function normalizeDefaultViewMode(value: unknown): ISettingsData['defaultViewMod
         return DEFAULT_SETTINGS.defaultViewMode;
     }
 
-    return DEFAULT_VIEW_MODES.has(value as ISettingsData['defaultViewMode'])
-        ? value as ISettingsData['defaultViewMode']
+    return isDefaultViewMode(value)
+        ? value
         : DEFAULT_SETTINGS.defaultViewMode;
 }
 

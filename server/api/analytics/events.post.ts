@@ -21,7 +21,7 @@ import {
     isAnalyticsWriteAllowed,
 } from '../../utils/analytics';
 
-const VALID_EVENT_NAMES = new Set<TAnalyticsEventName>(ANALYTICS_EVENT_NAMES);
+const VALID_EVENT_NAMES: ReadonlySet<string> = new Set<TAnalyticsEventName>(ANALYTICS_EVENT_NAMES);
 const MAX_EVENT_COUNT = 20;
 const MAX_STRING_LENGTH = 2_000;
 const MAX_OBJECT_KEYS = 40;
@@ -33,6 +33,10 @@ type TSanitizedPayloadEntry = [string, unknown];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isAnalyticsEventName(value: string): value is TAnalyticsEventName {
+    return VALID_EVENT_NAMES.has(value);
 }
 
 function sanitizeString(value: unknown, maxLength: number) {
@@ -115,7 +119,7 @@ function parseEventEnvelope(value: unknown): IAnalyticsEventEnvelope | null {
     }
 
     const name = sanitizeString(value.name, 80);
-    if (!name || !VALID_EVENT_NAMES.has(name as TAnalyticsEventName)) {
+    if (!name || !isAnalyticsEventName(name)) {
         return null;
     }
 
@@ -136,7 +140,7 @@ function parseEventEnvelope(value: unknown): IAnalyticsEventEnvelope | null {
     }
 
     return {
-        name: name as TAnalyticsEventName,
+        name,
         occurredAt: parseOccurredAt(value.occurredAt).toISOString(),
         path,
         locale,
@@ -170,7 +174,7 @@ export default defineEventHandler(async (event) => {
 
     const parsedEvents = rawEvents
         .map(entry => parseEventEnvelope(entry))
-        .filter((entry): entry is IAnalyticsEventEnvelope => entry !== null);
+        .filter(entry => entry !== null);
     if (parsedEvents.length === 0) {
         return {
             ok: true,
