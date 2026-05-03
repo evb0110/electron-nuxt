@@ -8,6 +8,7 @@ import type {
     Ref,
 } from 'vue';
 import type { ICropSelectionResult } from '@app/types/crop';
+import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
 import type {
     IPdfPageMetric,
     IScrollSnapshot,
@@ -54,6 +55,7 @@ export interface IPdfViewerExpose {
     removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromInternalCache: (stableKey: string) => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
+    getMarkupSubtypeHints?: () => IMarkupSubtypeHint[];
     getAllShapes: () => IShapeAnnotation[];
     markSavedShapeState?: () => void;
     getDeletedEmbeddedShapeAnnotationIds: () => string[];

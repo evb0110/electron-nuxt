@@ -1,11 +1,12 @@
-import {
+import UTIF, { type IUtifFrame } from 'utif';
+
+export type { IUtifFrame };
+
+const {
     decode,
     decodeImage,
     toRGBA8,
-    type IUtifFrame,
-} from 'utif';
-
-export type { IUtifFrame };
+} = UTIF;
 
 export interface IDecodedTiffFrame {
     frame: IUtifFrame;

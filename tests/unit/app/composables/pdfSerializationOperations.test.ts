@@ -519,7 +519,10 @@ describe('serializePdfEdits embedded geometric shapes', () => {
     });
 });
 
-async function createPdfWithHighlightAnnotations(rectsByPage: number[][][]) {
+async function createPdfWithHighlightAnnotations(
+    rectsByPage: number[][][],
+    options: { withAppearance?: boolean } = {},
+) {
     const doc = await PDFDocument.create();
     const refs: PDFRef[][] = [];
     for (const pageRects of rectsByPage) {
@@ -538,6 +541,9 @@ async function createPdfWithHighlightAnnotations(rectsByPage: number[][][]) {
                     PDFNumber.of(rect[2]!),
                     PDFNumber.of(rect[3]!),
                 ],
+                ...(options.withAppearance
+                    ? { AP: doc.context.obj({ N: doc.context.register(doc.context.formXObject([], {})) }) }
+                    : {}),
             });
             pageRefs.push(doc.context.register(dict));
         }
@@ -667,6 +673,32 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         const dict = getAnnotDict(doc, targetRef);
 
         expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
+    });
+
+    it('removes a stale Highlight appearance stream when rewriting subtype', async () => {
+        const {
+            bytes,
+            refs,
+        } = await createPdfWithHighlightAnnotations([[[
+            60,
+            480,
+            180,
+            680,
+        ]]], { withAppearance: true });
+        const targetRef = refs[0]![0]!;
+
+        const payload = createEmptyPayload();
+        payload.markupSubtypeOverrides = [[
+            `${targetRef.objectNumber}R`,
+                'Underline' satisfies TMarkupSubtype,
+        ]];
+
+        const result = await serializePdfEdits(bytes, payload);
+        const doc = await PDFDocument.load(result, { updateMetadata: false });
+        const dict = getAnnotDict(doc, targetRef);
+
+        expect(dict?.get(PDFName.of('Subtype'))?.toString()).toBe('/Underline');
+        expect(dict?.lookupMaybe(PDFName.of('AP'), PDFDict)).toBeUndefined();
     });
 
     it('does not throw or mutate when override targets a missing ref', async () => {

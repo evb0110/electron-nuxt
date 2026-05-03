@@ -86,6 +86,8 @@ function createHighlightHarness(viewerContainer: IFakeViewerContainer) {
             TOOL_TO_MARKUP_SUBTYPE: {},
             isSelectionMarkupTool: () => false,
             setEditorMarkupSubtypeOverride: () => {},
+            resolveEditorMarkupSubtypeOverride: () => null,
+            resolveEditorSubtypeFromPresentation: () => null,
             syncMarkupSubtypePresentationForEditors: () => {},
         }),
         getSync: () => ({

@@ -1019,6 +1019,9 @@ function applySubtypeRewriteToDict(
         return false;
     }
     dict.set(subtypeName, PDFName.of(pdfSubtypeName));
+    // PDF.js stores the selected-text editor as a Highlight appearance stream.
+    // Once we rewrite the subtype, that stale appearance would still render as a highlight.
+    dict.delete(PDFName.of('AP'));
     return true;
 }
 

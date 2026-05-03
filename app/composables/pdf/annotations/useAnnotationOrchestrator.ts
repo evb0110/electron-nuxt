@@ -157,6 +157,7 @@ export const useAnnotationOrchestrator = (options: IUseAnnotationOrchestratorOpt
         applyAnnotationSettings: toolState.applyAnnotationSettings,
         updateModeWithRetry: toolState.updateModeWithRetry,
         getMarkupSubtypeOverrides: toolState.getMarkupSubtypeOverrides,
+        getMarkupSubtypeHints: toolState.getMarkupSubtypeHints,
         ensureFreeTextEditorCanResize: freeTextResize.ensureFreeTextEditorCanResize,
     };
 

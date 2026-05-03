@@ -1,5 +1,12 @@
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 
+export interface IPdfjsHighlightBox {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
 export interface IPdfjsEditor {
     id?: string;
     div?: HTMLElement;
@@ -30,6 +37,7 @@ export interface IPdfjsEditor {
     __evbResolvedPageIndex?: number;
     __evbPlacementAttemptId?: string | null;
     __evbMarkupSubtypeColor?: string | null;
+    __evbMarkupBoxes?: IPdfjsHighlightBox[] | null;
     getData?: () => {
         modificationDate?: string | null;
         creationDate?: string | null;

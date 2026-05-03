@@ -9,17 +9,22 @@ import type {
 } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import type {
+    IAnnotationMarkerRect,
     IAnnotationSettings,
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import type { IMarkupSubtypeHint } from '@app/composables/pdf/pdfSerializationSubtypeHints';
 import {
     isAuthoringAnnotationTool,
     isSelectionMarkupTool,
     shouldForceTextMarkup,
     TOOL_TO_MARKUP_SUBTYPE,
 } from '@app/composables/pdf/annotations/annotationRules';
-import type { IPdfjsEditor } from '@app/types/pdfjs';
+import type {
+    IPdfjsEditor,
+    IPdfjsHighlightBox,
+} from '@app/types/pdfjs';
 import {
     rectIoU,
     rectCenterDistance,
@@ -37,6 +42,9 @@ import { BrowserLogger } from '@app/utils/browser-logger';
 
 const MARKUP_EDITOR_CLASS_PREFIX = 'pdf-markup-subtype-';
 const MARKUP_DRAW_LAYER_CLASS_PREFIX = 'pdf-markup-subtype-draw-';
+const MARKUP_FRAGMENTED_EDITOR_CLASS = 'pdf-markup-subtype-fragmented';
+const MARKUP_FRAGMENT_LAYER_CLASS = 'pdf-markup-subtype-fragments';
+const MARKUP_FRAGMENT_CLASS = 'pdf-markup-subtype-fragment';
 const MAX_HIGHLIGHT_DRAW_LAYER_FALLBACK_DISTANCE = 40;
 const OPAQUE_HIGHLIGHT_OPACITY = 1;
 
@@ -87,6 +95,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     const markupSubtypeOverrides = new Map<string, TMarkupSubtype>();
     const editorMarkupSubtypeOverrides = new Map<string, TMarkupSubtype>();
     const markupSubtypeColorOverrides = new Map<string, string>();
+    const markupSubtypeGeometryHints = new Map<string, IMarkupSubtypeHint>();
     let editorObjectMarkupSubtypeOverrides = new WeakMap<IPdfjsEditor, TMarkupSubtype>();
     let editorObjectMarkupSubtypeColorOverrides = new WeakMap<IPdfjsEditor, string>();
     let editorDrawLayerHighlightRefs = new WeakMap<IPdfjsEditor, SVGElement>();
@@ -103,6 +112,75 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
             run();
         }, delayMs);
         markupSubtypeRetryTimers.add(timer);
+    }
+
+    function isFinitePositiveRect(rect: IAnnotationMarkerRect | null | undefined): rect is IAnnotationMarkerRect {
+        return Boolean(
+            rect
+            && Number.isFinite(rect.left)
+            && Number.isFinite(rect.top)
+            && Number.isFinite(rect.width)
+            && Number.isFinite(rect.height)
+            && rect.width > 0
+            && rect.height > 0,
+        );
+    }
+
+    function rectFromEditor(editor: IPdfjsEditor): IAnnotationMarkerRect | null {
+        const rect = {
+            left: editor.x ?? Number.NaN,
+            top: editor.y ?? Number.NaN,
+            width: editor.width ?? Number.NaN,
+            height: editor.height ?? Number.NaN,
+        };
+        return isFinitePositiveRect(rect) ? rect : null;
+    }
+
+    function rectFromMarkupBoxes(boxes: readonly IPdfjsHighlightBox[] | null | undefined): IAnnotationMarkerRect | null {
+        if (!boxes?.length) {
+            return null;
+        }
+        let left = Number.POSITIVE_INFINITY;
+        let top = Number.POSITIVE_INFINITY;
+        let right = Number.NEGATIVE_INFINITY;
+        let bottom = Number.NEGATIVE_INFINITY;
+
+        for (const box of boxes) {
+            if (
+                !Number.isFinite(box.x)
+                || !Number.isFinite(box.y)
+                || !Number.isFinite(box.width)
+                || !Number.isFinite(box.height)
+                || box.width <= 0
+                || box.height <= 0
+            ) {
+                continue;
+            }
+            left = Math.min(left, box.x);
+            top = Math.min(top, box.y);
+            right = Math.max(right, box.x + box.width);
+            bottom = Math.max(bottom, box.y + box.height);
+        }
+
+        const rect = {
+            left,
+            top,
+            width: right - left,
+            height: bottom - top,
+        };
+        return isFinitePositiveRect(rect) ? rect : null;
+    }
+
+    function resolveEditorMarkupSubtypeHintRect(editor: IPdfjsEditor) {
+        return rectFromEditor(editor) ?? rectFromMarkupBoxes(editor.__evbMarkupBoxes);
+    }
+
+    function toRelativePercent(value: number, origin: number, size: number) {
+        return `${((value - origin) / size) * 100}%`;
+    }
+
+    function toPercent(value: number, size: number) {
+        return `${(value / size) * 100}%`;
     }
 
     function getAnnotationMode(tool: TAnnotationTool) {
@@ -614,11 +692,65 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
             `${MARKUP_EDITOR_CLASS_PREFIX}underline`,
             `${MARKUP_EDITOR_CLASS_PREFIX}strikeout`,
             `${MARKUP_EDITOR_CLASS_PREFIX}squiggly`,
+            MARKUP_FRAGMENTED_EDITOR_CLASS,
         );
         delete div.dataset.markupSubtype;
         delete div.dataset.markupSubtypeColor;
         div.style.removeProperty('--pdf-markup-subtype-color');
+        div.querySelector(`.${MARKUP_FRAGMENT_LAYER_CLASS}`)?.remove();
         clearMarkupSubtypeDrawLayerClass(editor);
+    }
+
+    function appendMarkupSubtypeFragment(
+        layer: HTMLElement,
+        subtype: TMarkupSubtype,
+        editorRect: IAnnotationMarkerRect,
+        box: IPdfjsHighlightBox,
+    ) {
+        const fragment = document.createElement('span');
+        fragment.classList.add(
+            MARKUP_FRAGMENT_CLASS,
+            `${MARKUP_FRAGMENT_CLASS}--${subtype.toLowerCase()}`,
+        );
+
+        fragment.style.left = toRelativePercent(box.x, editorRect.left, editorRect.width);
+        fragment.style.width = toPercent(box.width, editorRect.width);
+        if (subtype === 'StrikeOut') {
+            fragment.style.top = toRelativePercent(box.y + (box.height / 2), editorRect.top, editorRect.height);
+            fragment.style.height = '0';
+        } else {
+            fragment.style.top = toRelativePercent(box.y, editorRect.top, editorRect.height);
+            fragment.style.height = toPercent(box.height, editorRect.height);
+        }
+        layer.append(fragment);
+    }
+
+    function applyMarkupSubtypeFragments(
+        editor: IPdfjsEditor,
+        subtype: TMarkupSubtype | null,
+        color: string | null,
+    ) {
+        const div = editor.div;
+        if (!div || !subtype || subtype === 'Highlight' || !editor.__evbMarkupBoxes?.length) {
+            return;
+        }
+        const editorRect = resolveEditorMarkupSubtypeHintRect(editor);
+        if (!editorRect) {
+            return;
+        }
+
+        const layer = document.createElement('div');
+        layer.className = MARKUP_FRAGMENT_LAYER_CLASS;
+        layer.setAttribute('aria-hidden', 'true');
+        if (color) {
+            layer.style.setProperty('--pdf-markup-subtype-color', color);
+        }
+
+        for (const box of editor.__evbMarkupBoxes) {
+            appendMarkupSubtypeFragment(layer, subtype, editorRect, box);
+        }
+        div.classList.add(MARKUP_FRAGMENTED_EDITOR_CLASS);
+        div.append(layer);
     }
 
     function applyEditorMarkupSubtypePresentation(
@@ -645,6 +777,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
             div.dataset.markupSubtypeColor = subtypeColor;
             div.style.setProperty('--pdf-markup-subtype-color', subtypeColor);
         }
+        applyMarkupSubtypeFragments(editor, subtype, subtypeColor);
     }
 
     function resolveEditorSubtypeFromPresentation(editor: IPdfjsEditor): TMarkupSubtype | null {
@@ -702,6 +835,15 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         if (editor.annotationElementId) {
             markupSubtypeOverrides.set(editor.annotationElementId, subtype);
         }
+        const markerRect = resolveEditorMarkupSubtypeHintRect(editor);
+        if (markerRect) {
+            markupSubtypeGeometryHints.set(identity, {
+                subtype,
+                pageIndex,
+                markerRect,
+                consumed: false,
+            });
+        }
         const color = resolveEditorColor(editor) ?? resolveMarkupSubtypeColor(subtype);
         storeEditorMarkupSubtypeColor(editor, pageIndex, color);
         applyEditorMarkupSubtypePresentation(editor, subtype, pageIndex);
@@ -726,10 +868,19 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         return markupSubtypeOverrides;
     }
 
+    function getMarkupSubtypeHints() {
+        return Array.from(markupSubtypeGeometryHints.values()).map(hint => ({
+            ...hint,
+            markerRect: { ...hint.markerRect },
+            consumed: false,
+        }));
+    }
+
     function clearOverrides() {
         markupSubtypeOverrides.clear();
         editorMarkupSubtypeOverrides.clear();
         markupSubtypeColorOverrides.clear();
+        markupSubtypeGeometryHints.clear();
         editorObjectMarkupSubtypeOverrides = new WeakMap();
         editorObjectMarkupSubtypeColorOverrides = new WeakMap();
         editorDrawLayerHighlightRefs = new WeakMap();
@@ -764,6 +915,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         setEditorMarkupSubtypeOverride,
         resolveEditorMarkupSubtypeOverride,
         getMarkupSubtypeOverrides,
+        getMarkupSubtypeHints,
         markupSubtypeOverrides,
         clearOverrides,
     };
