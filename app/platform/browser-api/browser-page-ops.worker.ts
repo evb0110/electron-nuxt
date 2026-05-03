@@ -10,7 +10,7 @@ import {
 } from '@app/platform/browser-api/browser-page-ops-core';
 import type {
     IBrowserPageOpsWorkerResultMap,
-    TBrowserPageOpsWorkerRequest,
+    IBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerResponse,
 } from '@app/platform/browser-api/browser-page-ops-worker.types';
 import { getErrorMessage } from '@app/utils/error';
@@ -27,7 +27,7 @@ function toTransferableUint8Array(data: Uint8Array) {
 }
 
 async function handleDeleteRequest(
-    request: TBrowserPageOpsWorkerRequest<'deletePages'>,
+    request: IBrowserPageOpsWorkerRequest<'deletePages'>,
 ) {
     return deletePdfPages(
         request.payload.data,
@@ -36,7 +36,7 @@ async function handleDeleteRequest(
 }
 
 async function handleExtractRequest(
-    request: TBrowserPageOpsWorkerRequest<'extractPages'>,
+    request: IBrowserPageOpsWorkerRequest<'extractPages'>,
 ) {
     return extractPdfPages(
         request.payload.data,
@@ -45,7 +45,7 @@ async function handleExtractRequest(
 }
 
 async function handleReorderRequest(
-    request: TBrowserPageOpsWorkerRequest<'reorderPages'>,
+    request: IBrowserPageOpsWorkerRequest<'reorderPages'>,
 ) {
     return reorderPdfPages(
         request.payload.data,
@@ -54,7 +54,7 @@ async function handleReorderRequest(
 }
 
 async function handleInsertRequest(
-    request: TBrowserPageOpsWorkerRequest<'insertPages'>,
+    request: IBrowserPageOpsWorkerRequest<'insertPages'>,
 ) {
     return insertPdfPages(
         request.payload.data,
@@ -64,7 +64,7 @@ async function handleInsertRequest(
 }
 
 async function handleRotateRequest(
-    request: TBrowserPageOpsWorkerRequest<'rotate'>,
+    request: IBrowserPageOpsWorkerRequest<'rotate'>,
 ) {
     return rotatePdfBytes(
         request.payload.data,
@@ -74,7 +74,7 @@ async function handleRotateRequest(
 }
 
 async function handleCropRequest(
-    request: TBrowserPageOpsWorkerRequest<'crop'>,
+    request: IBrowserPageOpsWorkerRequest<'crop'>,
 ) {
     return cropPdfBytes(
         request.payload.data,
@@ -84,7 +84,7 @@ async function handleCropRequest(
 }
 
 async function handleRemoveCropRequest(
-    request: TBrowserPageOpsWorkerRequest<'removeCrop'>,
+    request: IBrowserPageOpsWorkerRequest<'removeCrop'>,
 ) {
     return removeCropPdfBytes(
         request.payload.data,
@@ -93,7 +93,7 @@ async function handleRemoveCropRequest(
 }
 
 async function handleGetPageGeometryRequest(
-    request: TBrowserPageOpsWorkerRequest<'getPageGeometry'>,
+    request: IBrowserPageOpsWorkerRequest<'getPageGeometry'>,
 ) {
     return getPageGeometryFromPdfBytes(
         request.payload.data,
@@ -102,31 +102,31 @@ async function handleGetPageGeometryRequest(
 }
 
 async function handleRequest(
-    request: TBrowserPageOpsWorkerRequest,
+    request: IBrowserPageOpsWorkerRequest,
 ) {
     switch (request.type) {
         case 'deletePages':
-            return handleDeleteRequest(request as TBrowserPageOpsWorkerRequest<'deletePages'>);
+            return handleDeleteRequest(request as IBrowserPageOpsWorkerRequest<'deletePages'>);
         case 'extractPages':
-            return handleExtractRequest(request as TBrowserPageOpsWorkerRequest<'extractPages'>);
+            return handleExtractRequest(request as IBrowserPageOpsWorkerRequest<'extractPages'>);
         case 'reorderPages':
-            return handleReorderRequest(request as TBrowserPageOpsWorkerRequest<'reorderPages'>);
+            return handleReorderRequest(request as IBrowserPageOpsWorkerRequest<'reorderPages'>);
         case 'insertPages':
-            return handleInsertRequest(request as TBrowserPageOpsWorkerRequest<'insertPages'>);
+            return handleInsertRequest(request as IBrowserPageOpsWorkerRequest<'insertPages'>);
         case 'rotate':
-            return handleRotateRequest(request as TBrowserPageOpsWorkerRequest<'rotate'>);
+            return handleRotateRequest(request as IBrowserPageOpsWorkerRequest<'rotate'>);
         case 'crop':
-            return handleCropRequest(request as TBrowserPageOpsWorkerRequest<'crop'>);
+            return handleCropRequest(request as IBrowserPageOpsWorkerRequest<'crop'>);
         case 'removeCrop':
-            return handleRemoveCropRequest(request as TBrowserPageOpsWorkerRequest<'removeCrop'>);
+            return handleRemoveCropRequest(request as IBrowserPageOpsWorkerRequest<'removeCrop'>);
         case 'getPageGeometry':
-            return handleGetPageGeometryRequest(request as TBrowserPageOpsWorkerRequest<'getPageGeometry'>);
+            return handleGetPageGeometryRequest(request as IBrowserPageOpsWorkerRequest<'getPageGeometry'>);
         default:
             throw new Error(`Unsupported browser page-op worker request: ${String(request.type)}`);
     }
 }
 
-self.addEventListener('message', async (event: MessageEvent<TBrowserPageOpsWorkerRequest>) => {
+self.addEventListener('message', async (event: MessageEvent<IBrowserPageOpsWorkerRequest>) => {
     const request = event.data;
 
     try {

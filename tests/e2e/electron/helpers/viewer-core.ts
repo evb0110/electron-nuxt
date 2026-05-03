@@ -36,7 +36,7 @@ const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
     ],
 };
 
-type TRecentFilesGrantWindow = Window & { electronAPI?: { documents?: { recentFiles?: { add?: (value: string) => Promise<void> } } } };
+interface IRecentFilesGrantApi {electronAPI?: { documents?: { recentFiles?: { add?: (value: string) => Promise<void>; }; }; };}
 
 function getToolbarActionIconHints(label: string) {
     return TOOLBAR_ACTION_ICON_HINTS[label] ?? [];
@@ -58,16 +58,16 @@ function describeError(error: unknown) {
     return String(error);
 }
 
-type TWorkspaceHistorySnapshot = {
+interface IWorkspaceHistorySnapshot {
     canUndo?: boolean;
     canRedo?: boolean;
-};
+}
 
-type TWorkspaceHistoryController = {
+interface IWorkspaceHistoryController {
     handleUndo?: () => void;
     handleRedo?: () => void;
-    getToolbarSnapshot?: () => TWorkspaceHistorySnapshot;
-};
+    getToolbarSnapshot?: () => IWorkspaceHistorySnapshot;
+}
 
 async function triggerHistoryShortcut(page: Page, ariaLabel: string) {
     const isMac = process.platform === 'darwin';
@@ -104,7 +104,7 @@ async function triggerWorkspaceHistoryAction(page: Page, ariaLabel: string) {
     }
 
     return page.evaluate((label: string) => {
-        let workspace: TWorkspaceHistoryController | null = null;
+        let workspace: IWorkspaceHistoryController | null = null;
 
         for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
             const component = (element as HTMLElement & {__vueParentComponent?: {
@@ -124,7 +124,7 @@ async function triggerWorkspaceHistoryAction(page: Page, ariaLabel: string) {
                 if (!candidate || typeof candidate !== 'object') {
                     continue;
                 }
-                const resolvedWorkspace = candidate as TWorkspaceHistoryController;
+                const resolvedWorkspace = candidate as IWorkspaceHistoryController;
                 if (
                     typeof resolvedWorkspace.handleUndo === 'function'
                     || typeof resolvedWorkspace.handleRedo === 'function'
@@ -307,7 +307,7 @@ async function openPathInApp(
 
             const openResult = await runWithExecutionContextRetry(page, async () => {
                 return evaluateInPage(page, async (path: string) => {
-                    const documents = (window as TRecentFilesGrantWindow).electronAPI?.documents;
+                    const documents = (window as Window & IRecentFilesGrantApi).electronAPI?.documents;
                     try {
                         await documents?.recentFiles?.add?.(path);
                     } catch {

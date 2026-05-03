@@ -20,8 +20,8 @@ import {
     resolveCommentPdfRefInDocument,
 } from '@app/composables/pdf/pdfSerializationRefs';
 
-type TLiteralObject = { [key: string]: PDFObject | string | number | boolean | null | undefined | TLiteralObject | TLiteralArray };
-type TLiteralArray = Array<PDFObject | string | number | boolean | null | undefined | TLiteralObject | TLiteralArray>;
+interface ILiteralObject { [key: string]: PDFObject | string | number | boolean | null | undefined | ILiteralObject | TLiteralArray; }
+type TLiteralArray = Array<PDFObject | string | number | boolean | null | undefined | ILiteralObject | TLiteralArray>;
 
 vi.mock('@app/composables/pdf/pdfAnnotationUtils', () => ({ markerRectIoU: () => 0 }));
 
@@ -119,7 +119,7 @@ async function createPdfWithFixtures(fixtures: IAnnotationFixture[]) {
     fixtures.forEach((fixture, index) => {
         const left = 60 + (index * 18);
         const top = 700 - (index * 18);
-        const annotShape: TLiteralObject = {
+        const annotShape: ILiteralObject = {
             Type: PDFName.of('Annot'),
             Subtype: PDFName.of(fixture.subtype ?? 'Text'),
             Rect: [

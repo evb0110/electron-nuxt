@@ -40,13 +40,13 @@ const DJVU_ESTIMATE_CACHE_TTL_MS = (() => {
     return parsed;
 })();
 
-type TDjvuEstimateCacheEntry = {
+interface IDjvuEstimateCacheEntry {
     estimates: IDjvuSizeEstimate[];
     cachedAt: number;
     accessedAt: number;
-};
+}
 
-const estimateCache = new Map<string, TDjvuEstimateCacheEntry>();
+const estimateCache = new Map<string, IDjvuEstimateCacheEntry>();
 
 async function estimatePdfSizeBytes(
     imagePath: string,

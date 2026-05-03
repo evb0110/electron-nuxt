@@ -7,10 +7,10 @@ import {
 
 type TPdfHighlightMode = 'dom' | 'css';
 
-export type THighlightRange = {
+export interface IHighlightRange {
     range: Range;
     isCurrent: boolean;
-};
+}
 
 export function canUseHighlightAPI() {
     return typeof CSS !== 'undefined'
@@ -52,7 +52,7 @@ export function createHighlightRangesInSpan(
     spanStartOffset: number,
     matches: IPdfSearchHighlightMatchRange[],
     precomputedMatches?: IPdfSearchHighlightMatchRange[],
-): THighlightRange[] {
+): IHighlightRange[] {
     const text = textNode.nodeValue ?? '';
     const relevantMatches = getRelevantHighlightMatches(text.length, spanStartOffset, matches, precomputedMatches);
 
@@ -60,7 +60,7 @@ export function createHighlightRangesInSpan(
         return [];
     }
 
-    const ranges: THighlightRange[] = [];
+    const ranges: IHighlightRange[] = [];
     for (const match of relevantMatches) {
         const {
             start: matchStartInSpan,

@@ -430,18 +430,18 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         }
     }
 
-    type THighlightEditorCtor = {
+    interface IHighlightEditorCtor {
         _editorType?: number;
         _defaultOpacity?: number;
-    };
+    }
 
-    let highlightEditorClass: THighlightEditorCtor | null = null;
+    let highlightEditorClass: IHighlightEditorCtor | null = null;
 
-    function isHighlightEditorCtor(ctor: unknown): ctor is THighlightEditorCtor {
+    function isHighlightEditorCtor(ctor: unknown): ctor is IHighlightEditorCtor {
         if (!ctor) {
             return false;
         }
-        const candidate = ctor as THighlightEditorCtor;
+        const candidate = ctor as IHighlightEditorCtor;
         return candidate._editorType === AnnotationEditorType.HIGHLIGHT
             && typeof candidate._defaultOpacity === 'number';
     }

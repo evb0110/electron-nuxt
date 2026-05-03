@@ -95,21 +95,21 @@ export interface IElectronRunCommandRequest {
     args: unknown[];
 }
 
-type TElectronRunCommandSuccessResponse = {
+interface IElectronRunCommandSuccessResponse {
     success: true;
     result: unknown;
     error?: never;
-};
+}
 
-type TElectronRunCommandFailureResponse = {
+interface IElectronRunCommandFailureResponse {
     success: false;
     error: string;
     result?: never;
-};
+}
 
 export type TElectronRunCommandResponse = MergeExclusive<
-    TElectronRunCommandSuccessResponse,
-    TElectronRunCommandFailureResponse
+    IElectronRunCommandSuccessResponse,
+    IElectronRunCommandFailureResponse
 >;
 
 export function isElectronRunCommand(value: unknown): value is TElectronRunCommand {

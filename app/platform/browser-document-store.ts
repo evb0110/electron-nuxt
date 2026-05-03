@@ -594,12 +594,13 @@ async function readFileHandleSize(handle: FileSystemFileHandle) {
 }
 
 async function ensureFileHandleReadPermission(handle: FileSystemFileHandle) {
-    type TFileSystemHandlePermissionDescriptor = { mode: 'read' };
+    interface IFileSystemHandlePermissionDescriptor {mode: 'read';}
+
     const permissionHandle = handle as FileSystemFileHandle & {
-        queryPermission?: (descriptor?: TFileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
-        requestPermission?: (descriptor?: TFileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
+        queryPermission?: (descriptor?: IFileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
+        requestPermission?: (descriptor?: IFileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
     };
-    const descriptor: TFileSystemHandlePermissionDescriptor = { mode: 'read' };
+    const descriptor: IFileSystemHandlePermissionDescriptor = { mode: 'read' };
 
     if (typeof permissionHandle.queryPermission === 'function') {
         const currentPermission = await permissionHandle.queryPermission(descriptor);

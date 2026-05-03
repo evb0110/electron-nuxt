@@ -3,7 +3,7 @@ import { createPdfjsDocumentInitFromBrowserDocument } from '@app/platform/browse
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import { extractBrowserSearchPageText } from '@app/platform/browser-api/browser-search-text';
 import type {
-    TBrowserSearchWorkerRequest,
+    IBrowserSearchWorkerRequest,
     TBrowserSearchWorkerResponse,
 } from '@app/platform/browser-api/browser-search-worker.types';
 import { getErrorMessage } from '@app/utils/error';
@@ -12,7 +12,7 @@ const canceledRequestIds = new Set<number>();
 
 
 async function handleExtractDocumentTextRequest(
-    request: TBrowserSearchWorkerRequest<'extractDocumentText'>,
+    request: IBrowserSearchWorkerRequest<'extractDocumentText'>,
 ) {
     const loadingTask = pdfjsLib.getDocument(
         await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, request.payload.pdfPath),
@@ -52,19 +52,19 @@ async function handleExtractDocumentTextRequest(
 }
 
 function handleCancelRequest(
-    request: TBrowserSearchWorkerRequest<'cancel'>,
+    request: IBrowserSearchWorkerRequest<'cancel'>,
 ) {
     canceledRequestIds.add(request.payload.requestId);
     return { canceled: true };
 }
 
-self.addEventListener('message', async (event: MessageEvent<TBrowserSearchWorkerRequest>) => {
+self.addEventListener('message', async (event: MessageEvent<IBrowserSearchWorkerRequest>) => {
     const request = event.data;
 
     try {
         if (request.type === 'cancel') {
             const data = handleCancelRequest(
-                request as TBrowserSearchWorkerRequest<'cancel'>,
+                request as IBrowserSearchWorkerRequest<'cancel'>,
             );
             const response: TBrowserSearchWorkerResponse = {
                 id: request.id,
@@ -77,7 +77,7 @@ self.addEventListener('message', async (event: MessageEvent<TBrowserSearchWorker
         }
 
         const data = await handleExtractDocumentTextRequest(
-            request as TBrowserSearchWorkerRequest<'extractDocumentText'>,
+            request as IBrowserSearchWorkerRequest<'extractDocumentText'>,
         );
         const response: TBrowserSearchWorkerResponse = {
             id: request.id,

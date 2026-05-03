@@ -43,11 +43,11 @@ export interface IOcrWorkerStartPayload {
     renderDpi?: number;
 }
 
-export type TOcrWorkerInboundMessage = {
+export interface IOcrWorkerInboundMessage {
     type: 'start';
     jobId: string;
     data: IOcrWorkerStartPayload;
-};
+}
 
 interface IOcrWorkerProgressPayload {
     requestId: string;
@@ -68,28 +68,28 @@ export type TOcrWorkerCompleteResult =
         errors: string[];
     };
 
-export type TOcrWorkerProgressMessage = {
+export interface IOcrWorkerProgressMessage {
     type: 'progress';
     jobId: string;
     progress: IOcrWorkerProgressPayload;
-};
+}
 
-export type TOcrWorkerCompleteMessage = {
+export interface IOcrWorkerCompleteMessage {
     type: 'complete';
     jobId: string;
     result: TOcrWorkerCompleteResult;
-};
+}
 
-export type TOcrWorkerLogMessage = {
+export interface IOcrWorkerLogMessage {
     type: 'log';
     level: TOcrWorkerLogLevel;
     message: string;
-};
+}
 
 export type TOcrWorkerOutboundMessage =
-    | TOcrWorkerProgressMessage
-    | TOcrWorkerCompleteMessage
-    | TOcrWorkerLogMessage;
+    | IOcrWorkerProgressMessage
+    | IOcrWorkerCompleteMessage
+    | IOcrWorkerLogMessage;
 
 export type TRotation = 0 | 90 | 180 | 270;
 

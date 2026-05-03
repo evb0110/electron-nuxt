@@ -9,11 +9,11 @@ interface IBrowserPdfCombineWorkerResultMap {combinePdfs: {data: Uint8Array;};}
 
 type TBrowserPdfCombineWorkerRequestType = keyof IBrowserPdfCombineWorkerRequestMap;
 
-type TBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCombineWorkerRequestType = TBrowserPdfCombineWorkerRequestType> = {
+interface IBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCombineWorkerRequestType = TBrowserPdfCombineWorkerRequestType> {
     id: number;
     type: K;
     payload: IBrowserPdfCombineWorkerRequestMap[K];
-};
+}
 
 type TBrowserPdfCombineWorkerResponse =
     | {
@@ -34,7 +34,7 @@ export type {
     IBrowserPdfCombineInput,
     IBrowserPdfCombineWorkerRequestMap,
     IBrowserPdfCombineWorkerResultMap,
-    TBrowserPdfCombineWorkerRequest,
+    IBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerRequestType,
     TBrowserPdfCombineWorkerResponse,
 };

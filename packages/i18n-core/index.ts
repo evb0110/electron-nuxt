@@ -16,7 +16,7 @@ export {
     type TMessageInterpolationValue,
     type TMessageParams,
     type TPluralCategory,
-    type TPluralForms,
+    type IPluralForms,
     type TTranslationLeaf,
 } from './message-format';
 

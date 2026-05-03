@@ -124,15 +124,15 @@ describe('useOcr', () => {
     });
 
     it('clears previous searchable PDF results when a later OCR run fails', async () => {
-        type TOcrCompleteTestResult = {
+        interface IOcrCompleteTestResult {
             requestId: string;
             success: boolean;
             pdfPath?: string;
             requiresCleanupAck?: boolean;
             errors: string[];
-        };
-        let completeHandler: ((result: TOcrCompleteTestResult) => void) | null = null;
-        const emitComplete = (result: TOcrCompleteTestResult) => {
+        }
+        let completeHandler: ((result: IOcrCompleteTestResult) => void) | null = null;
+        const emitComplete = (result: IOcrCompleteTestResult) => {
             const handler = completeHandler;
             if (!handler) {
                 throw new Error('OCR completion handler was not registered');

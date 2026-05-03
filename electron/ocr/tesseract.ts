@@ -7,7 +7,7 @@ import { parseIntegerEnv } from '@electron/utils/env';
 import { buildTesseractEnv } from '@electron/ocr/tesseract-env';
 import { createTesseractFinalize } from '@electron/ocr/tesseract-finalize';
 
-type TTesseractSpawnOptions = {threads?: number;};
+interface ITesseractSpawnOptions {threads?: number;}
 
 interface IOcrResult {
     success: boolean;
@@ -23,7 +23,7 @@ const TESSERACT_MAX_STDERR_BYTES = parseIntegerEnv('EVB_TESSERACT_MAX_STDERR_BYT
 export async function runOcr(
     imageBuffer: Buffer,
     languages: string[],
-    options?: TTesseractSpawnOptions,
+    options?: ITesseractSpawnOptions,
 ): Promise<IOcrResult> {
     const languageConfig = resolveTesseractLanguageConfig(languages);
     await ensureTessdataLanguages(languageConfig.orderedLanguages);

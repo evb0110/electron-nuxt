@@ -9,13 +9,26 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { config } from '@electron/config';
-import { WINDOW_RENDERER_READY_TIMEOUT_MS } from '@electron/config/constants';
 import { te } from '@electron/i18n';
 import { stopServer } from '@electron/server';
 import { createLogger } from '@electron/utils/logger';
 import { createWindowRuntime } from '@electron/window/runtime';
 import { createWindowSecurity } from '@electron/window/security';
 import { getErrorMessage } from '@electron/utils/error';
+import {
+    deleteWindowRendererReadyState,
+    markWindowRendererReady as markRendererReady,
+    setWindowRendererReadyCallback,
+    waitForInitialRendererReady,
+} from '@electron/window/renderer-ready';
+import { loadStartupPlaceholder } from '@electron/window/startup-placeholder';
+import {
+    getAllRegisteredAppWindows,
+    getRegisteredMainWindow,
+    getWindowByIdFromRegistry,
+    registerAppWindow,
+    unregisterAppWindow,
+} from '@electron/window/registry';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -49,21 +62,11 @@ function logWindowStartup(phase: string, details?: Record<string, unknown>) {
     });
 }
 
-const appWindows = new Map<number, BrowserWindow>();
-let mainWindowId: number | null = null;
 let createMainWindowPromise: Promise<BrowserWindow> | null = null;
-const windowStartupWaiters = new Map<number, IWindowStartupWaiter>();
-const windowRendererReadyCallbacks = new Map<number, () => void>();
 
 interface ICreateAppWindowOptions {
     setAsMain?: boolean;
     waitForInitialRendererReady?: boolean;
-}
-interface IWindowStartupWaiter {
-    resolve: () => void;
-    reject: (error: Error) => void;
-    retryableConnectionRefusalSeen: boolean;
-    timeoutHandle: NodeJS.Timeout | null;
 }
 interface IAttachShowLifecycleOptions {blockShowUntilRendererReady?: boolean;}
 
@@ -118,94 +121,6 @@ function showAndFocusMaximizedWindow(window: BrowserWindow) {
     }
 }
 
-function buildStartupPlaceholderHtml() {
-    return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>${config.window.title}</title>
-<style>
-html,
-body {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  background: #fff;
-  color: #475569;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  line-height: 1;
-}
-body {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.loader {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  width: 128px;
-  height: 43px;
-  min-height: 43px;
-  font-size: 13px;
-  line-height: 13px;
-}
-.spinner {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  border-radius: 999px;
-  background: conic-gradient(
-    from 0deg,
-    rgba(0, 0, 0, 0.12) 0deg,
-    rgba(0, 0, 0, 0.12) 260deg,
-    rgba(0, 0, 0, 0.5) 360deg
-  );
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
-  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0);
-  animation: spin 0.9s linear infinite;
-  will-change: transform;
-  transform: translateZ(0);
-}
-@keyframes spin {
-  from { transform: translateZ(0) rotate(0deg); }
-  to { transform: translateZ(0) rotate(360deg); }
-}
-.text {
-  height: 13px;
-  margin: 0;
-  font-weight: 400;
-  letter-spacing: 0.2px;
-}
-</style>
-</head>
-<body>
-<main class="loader" role="status" aria-live="polite">
-  <div class="spinner" aria-hidden="true"></div>
-  <div class="text">Loading...</div>
-</main>
-</body>
-</html>`;
-}
-
-async function loadStartupPlaceholder(window: BrowserWindow) {
-    try {
-        await window.loadURL('about:blank');
-        if (window.isDestroyed()) {
-            return;
-        }
-
-        await window.webContents.executeJavaScript(`
-            document.open();
-            document.write(${JSON.stringify(buildStartupPlaceholderHtml())});
-            document.close();
-        `);
-    } catch (error) {
-        logger.warn(`Failed to load startup placeholder: ${formatErrorMessage(error)}`);
-    }
-}
-
 async function lockRendererZoom(window: BrowserWindow) {
     try {
         await window.webContents.setVisualZoomLevelLimits(1, 1);
@@ -216,134 +131,6 @@ async function lockRendererZoom(window: BrowserWindow) {
             `Failed to lock renderer zoom: ${getErrorMessage(error)}`,
         );
     }
-}
-
-function syncWindowRegistry() {
-    const allWindows = BrowserWindow.getAllWindows().filter(window => !window.isDestroyed());
-    const activeIds = new Set(allWindows.map(window => window.id));
-
-    for (const window of allWindows) {
-        appWindows.set(window.id, window);
-    }
-
-    for (const windowId of appWindows.keys()) {
-        if (!activeIds.has(windowId)) {
-            appWindows.delete(windowId);
-        }
-    }
-
-    if (mainWindowId !== null && !activeIds.has(mainWindowId)) {
-        mainWindowId = allWindows[0]?.id ?? null;
-    }
-}
-
-function waitForInitialRendererReady(
-    window: BrowserWindow,
-    initialLoadPromise: Promise<void>,
-) {
-    return new Promise<void>((resolve, reject) => {
-        let settled = false;
-
-        const cleanup = () => {
-            window.webContents.removeListener('did-fail-load', handleFailLoad);
-            window.webContents.removeListener('render-process-gone', handleRenderProcessGone);
-            window.removeListener('closed', handleClosed);
-
-            const waiter = windowStartupWaiters.get(window.id);
-            if (waiter?.timeoutHandle) {
-                clearTimeout(waiter.timeoutHandle);
-            }
-            windowStartupWaiters.delete(window.id);
-        };
-
-        const resolveReady = () => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            cleanup();
-            resolve();
-        };
-
-        const rejectReady = (error: Error) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            cleanup();
-            reject(error);
-        };
-
-        const handleFailLoad = (
-            _event: unknown,
-            errorCode: number,
-            errorDescription: string,
-            validatedURL: string,
-            isMainFrame?: boolean,
-        ) => {
-            if (isMainFrame === false) {
-                return;
-            }
-
-            const waiter = windowStartupWaiters.get(window.id);
-            if (
-                waiter
-                && !config.isDev
-                && !waiter.retryableConnectionRefusalSeen
-                && errorCode === -102
-                && windowSecurity.isRuntimeServerUrl(validatedURL)
-            ) {
-                waiter.retryableConnectionRefusalSeen = true;
-                return;
-            }
-
-            rejectReady(new Error(
-                `Initial renderer load failed (${errorCode}: ${errorDescription}) for ${validatedURL}`,
-            ));
-        };
-
-        const handleRenderProcessGone = (
-            _event: unknown,
-            details: {
-                reason: string;
-                exitCode: number;
-            },
-        ) => {
-            rejectReady(new Error(
-                `Renderer process exited before startup completed (${details.reason}, exitCode=${details.exitCode})`,
-            ));
-        };
-
-        const handleClosed = () => {
-            rejectReady(new Error('Window closed before renderer startup completed'));
-        };
-
-        const timeoutHandle = setTimeout(() => {
-            rejectReady(new Error(`Renderer startup timed out after ${WINDOW_RENDERER_READY_TIMEOUT_MS}ms`));
-        }, WINDOW_RENDERER_READY_TIMEOUT_MS);
-        timeoutHandle.unref?.();
-
-        windowStartupWaiters.set(window.id, {
-            resolve: resolveReady,
-            reject: rejectReady,
-            retryableConnectionRefusalSeen: false,
-            timeoutHandle,
-        });
-
-        window.webContents.on('did-fail-load', handleFailLoad);
-        window.webContents.on('render-process-gone', handleRenderProcessGone);
-        window.on('closed', handleClosed);
-
-        void initialLoadPromise.catch((error) => {
-            queueMicrotask(() => {
-                const waiter = windowStartupWaiters.get(window.id);
-                if (!waiter || waiter.retryableConnectionRefusalSeen) {
-                    return;
-                }
-                rejectReady(new Error(`Initial loadURL failed: ${formatErrorMessage(error)}`));
-            });
-        });
-    });
 }
 
 async function promptUnresponsiveRendererRecovery(
@@ -555,7 +342,7 @@ function attachShowLifecycle(
         window.webContents.removeListener('did-start-navigation', onStartNavigation);
         window.webContents.removeListener('did-finish-load', onFinishLoad);
         window.webContents.removeListener('did-fail-load', onFailLoad);
-        windowRendererReadyCallbacks.delete(window.id);
+        deleteWindowRendererReadyState(window.id);
     };
 
     const showWindowNow = async () => {
@@ -788,7 +575,7 @@ function attachShowLifecycle(
         void showWindowNow();
     };
 
-    windowRendererReadyCallbacks.set(window.id, onRendererReadyForShow);
+    setWindowRendererReadyCallback(window.id, onRendererReadyForShow);
     window.webContents.on('did-start-navigation', onStartNavigation);
     window.webContents.on('did-finish-load', onFinishLoad);
     window.webContents.on('did-fail-load', onFailLoad);
@@ -809,12 +596,7 @@ function attachShowLifecycle(
             stabilityCheckTimeout = null;
         }
 
-        appWindows.delete(window.id);
-        windowRendererReadyCallbacks.delete(window.id);
-        if (mainWindowId === window.id) {
-            mainWindowId = null;
-            syncWindowRegistry();
-        }
+        unregisterAppWindow(window.id);
     });
 }
 
@@ -839,19 +621,17 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         },
     });
 
-    appWindows.set(window.id, window);
-
-    const shouldSetMain = options.setAsMain ?? mainWindowId === null;
-    if (shouldSetMain) {
-        mainWindowId = window.id;
-    }
+    registerAppWindow(window, { setAsMain: options.setAsMain });
 
     const shouldWaitForInitialRendererReady = options.waitForInitialRendererReady ?? false;
     windowSecurity.hardenWindowWebContents(window);
     attachRendererDiagnostics(window);
     attachShowLifecycle(window, { blockShowUntilRendererReady: shouldWaitForInitialRendererReady });
 
-    const startupPlaceholderPromise = loadStartupPlaceholder(window);
+    const startupPlaceholderPromise = loadStartupPlaceholder(window, {
+        title: config.window.title,
+        logger,
+    });
     const runtimeReadyPromise = windowRuntime.ensureReady();
     void runtimeReadyPromise.catch(() => {});
 
@@ -867,7 +647,10 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         logger.error(`Initial loadURL failed: ${getErrorMessage(error)}`);
     });
     const initialRendererReadyPromise = shouldWaitForInitialRendererReady
-        ? waitForInitialRendererReady(window, initialLoadPromise)
+        ? waitForInitialRendererReady(window, initialLoadPromise, {
+            isDev: config.isDev,
+            isRuntimeServerUrl: url => windowSecurity.isRuntimeServerUrl(url),
+        })
         : null;
     window.webContents.on('did-finish-load', () => {
         void lockRendererZoom(window);
@@ -896,18 +679,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
 }
 
 export function markWindowRendererReady(windowId: number) {
-    windowRendererReadyCallbacks.get(windowId)?.();
-
-    const waiter = windowStartupWaiters.get(windowId);
-    if (!waiter) {
-        return;
-    }
-
-    if (waiter.timeoutHandle) {
-        clearTimeout(waiter.timeoutHandle);
-    }
-    windowStartupWaiters.delete(windowId);
-    waiter.resolve();
+    markRendererReady(windowId);
 }
 
 export async function createWindow(options: { waitForInitialRendererReady?: boolean; } = {}) {
@@ -932,24 +704,11 @@ export async function createWindow(options: { waitForInitialRendererReady?: bool
 }
 
 export function getWindowById(windowId: number) {
-    const fromRegistry = appWindows.get(windowId);
-    if (fromRegistry && !fromRegistry.isDestroyed()) {
-        return fromRegistry;
-    }
-
-    const fromElectron = BrowserWindow.fromId(windowId);
-    if (!fromElectron || fromElectron.isDestroyed()) {
-        appWindows.delete(windowId);
-        return null;
-    }
-
-    appWindows.set(windowId, fromElectron);
-    return fromElectron;
+    return getWindowByIdFromRegistry(windowId);
 }
 
 export function getAllAppWindows() {
-    syncWindowRegistry();
-    return Array.from(appWindows.values()).filter(window => !window.isDestroyed());
+    return getAllRegisteredAppWindows();
 }
 
 export function hasWindows() {
@@ -957,17 +716,5 @@ export function hasWindows() {
 }
 
 export function getMainWindow() {
-    if (mainWindowId !== null) {
-        const mainWindow = getWindowById(mainWindowId);
-        if (mainWindow) {
-            return mainWindow;
-        }
-    }
-
-    const fallback = getAllAppWindows()[0] ?? null;
-    if (fallback) {
-        mainWindowId = fallback.id;
-    }
-
-    return fallback;
+    return getRegisteredMainWindow();
 }

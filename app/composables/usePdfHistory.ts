@@ -8,7 +8,7 @@ import {
     createPdfReloadWaiter,
 } from '@app/composables/pdf/pdfReloadWaiter';
 
-type TWaitForPdfReloadOptions = { captureScrollSnapshot?: boolean; };
+interface IWaitForPdfReloadOptions {captureScrollSnapshot?: boolean;}
 
 export const usePdfHistory = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
@@ -61,7 +61,7 @@ export const usePdfHistory = (deps: {
      */
     function preparePdfReloadWaiter(
         pageToRestore: number,
-        opts?: TWaitForPdfReloadOptions,
+        opts?: IWaitForPdfReloadOptions,
     ) {
         const shouldCaptureScrollSnapshot = opts?.captureScrollSnapshot !== false;
         const normalizedPageToRestore = Math.max(1, Math.floor(pageToRestore));
@@ -85,7 +85,7 @@ export const usePdfHistory = (deps: {
 
     function waitForPdfReload(
         pageToRestore: number,
-        opts?: TWaitForPdfReloadOptions,
+        opts?: IWaitForPdfReloadOptions,
     ) {
         return preparePdfReloadWaiter(pageToRestore, opts).promise;
     }

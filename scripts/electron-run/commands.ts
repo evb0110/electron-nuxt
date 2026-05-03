@@ -359,7 +359,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
     const { page } = context.sessionState;
     const pdfPath = parseRequiredStringArg(args, 0, 'PDF path required');
     const requestedBasename = basename(pdfPath).toLowerCase();
-    type TViewerSnapshot = {
+    interface IViewerSnapshot {
         viewerIndex: number;
         isVisible: boolean;
         numPages: number | null;
@@ -370,8 +370,8 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
         renderedCanvasCount: number;
         renderedTextSpanCount: number;
         visibleSkeletonCount: number;
-    };
-    type TOpenPdfState = {
+    }
+    interface IOpenPdfState {
         numPages: number | null;
         currentPage: number | null;
         isLoading: boolean | null;
@@ -386,13 +386,13 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
         viewerCount: number;
         visibleViewerCount: number;
         matchingViewerCount: number;
-        viewers: TViewerSnapshot[];
+        viewers: IViewerSnapshot[];
         openTrigger?: {
             token: string;
             status: 'pending' | 'resolved' | 'rejected';
             error: string | null;
         } | null;
-    };
+    }
 
     const isRequestedDocumentLoaded = (workingCopyPath: string | null | undefined) => {
         if (!workingCopyPath) {
@@ -400,13 +400,13 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
         }
         return basename(workingCopyPath).toLowerCase() === requestedBasename;
     };
-    const isViewerReady = (viewer: Pick<TViewerSnapshot, 'numPages' | 'isLoading' | 'renderedPageContainers' | 'renderedCanvasCount' | 'renderedTextSpanCount'>) => {
+    const isViewerReady = (viewer: Pick<IViewerSnapshot, 'numPages' | 'isLoading' | 'renderedPageContainers' | 'renderedCanvasCount' | 'renderedTextSpanCount'>) => {
         const hasPages = (viewer.numPages ?? 0) > 0 || viewer.renderedPageContainers > 0;
         const notLoading = viewer.isLoading === false || viewer.isLoading === null;
         const hasRenderedContent = viewer.renderedCanvasCount > 0 || viewer.renderedTextSpanCount > 0;
         return hasPages && notLoading && hasRenderedContent;
     };
-    const findRequestedReadyViewer = (state: TOpenPdfState) => {
+    const findRequestedReadyViewer = (state: IOpenPdfState) => {
         return state.viewers
             .filter(viewer => (
                 isRequestedDocumentLoaded(viewer.workingCopyPath)
@@ -542,7 +542,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
             matchingViewerCount,
             viewers,
             openTrigger,
-        } satisfies TOpenPdfState;
+        } satisfies IOpenPdfState;
     }, requestedBasename, token);
 
     const beforeState = await readViewerState();
@@ -591,7 +591,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
     }, pdfPath, OPEN_PDF_TRIGGER_TIMEOUT_MS);
 
     const start = Date.now();
-    let lastState: TOpenPdfState = beforeState;
+    let lastState: IOpenPdfState = beforeState;
     while (Date.now() - start < OPEN_PDF_READY_TIMEOUT_MS) {
         lastState = await readViewerState(triggerToken);
 
@@ -616,7 +616,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
         throw new Error(`openPdf readiness timeout for ${pdfPath} (viewer paths: ${loadedPaths || '<none>'})`);
     }
 
-    const normalizedState: TOpenPdfState = {
+    const normalizedState: IOpenPdfState = {
         ...state,
         numPages: readyViewer.numPages,
         currentPage: readyViewer.currentPage,

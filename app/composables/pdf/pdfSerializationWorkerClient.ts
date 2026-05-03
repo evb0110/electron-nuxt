@@ -9,7 +9,7 @@ import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import {
     settleBrowserWorkerResult,
     type TBrowserWorkerResult,
-    type TPendingBrowserWorkerRequest,
+    type IPendingBrowserWorkerRequest,
 } from '@app/platform/browser-api/browser-worker-requests';
 import {
     BrowserWorkerClient,
@@ -34,11 +34,11 @@ interface ISerializationWorkerRequestMap {
 
 type TSerializationWorkerRequestType = keyof ISerializationWorkerRequestMap;
 
-type TSerializationWorkerRequest<K extends TSerializationWorkerRequestType = TSerializationWorkerRequestType> = {
+interface ISerializationWorkerRequest<K extends TSerializationWorkerRequestType = TSerializationWorkerRequestType> {
     id: number;
     type: K;
     payload: ISerializationWorkerRequestMap[K];
-};
+}
 
 type TSerializationWorkerResult = TBrowserWorkerResult<Uint8Array | null>;
 
@@ -57,7 +57,7 @@ function toTransferableUint8Array(data: Uint8Array): Uint8Array<ArrayBuffer> {
 }
 
 function buildWorkerRequestWithTransfers(
-    request: TSerializationWorkerRequest,
+    request: ISerializationWorkerRequest,
 ) {
     switch (request.type) {
         case 'save': {
@@ -70,7 +70,7 @@ function buildWorkerRequestWithTransfers(
                         ...payload,
                         data: transferableData,
                     },
-                } as TSerializationWorkerRequest<'save'>,
+                } as ISerializationWorkerRequest<'save'>,
                 transfer: [transferableData.buffer] satisfies Transferable[],
             };
         }
@@ -84,7 +84,7 @@ function buildWorkerRequestWithTransfers(
                         ...payload,
                         data: transferableData,
                     },
-                } as TSerializationWorkerRequest<'updateEmbeddedText'>,
+                } as ISerializationWorkerRequest<'updateEmbeddedText'>,
                 transfer: [transferableData.buffer] satisfies Transferable[],
             };
         }
@@ -98,7 +98,7 @@ function buildWorkerRequestWithTransfers(
                         ...payload,
                         data: transferableData,
                     },
-                } as TSerializationWorkerRequest<'deleteEmbeddedAnnotation'>,
+                } as ISerializationWorkerRequest<'deleteEmbeddedAnnotation'>,
                 transfer: [transferableData.buffer] satisfies Transferable[],
             };
         }
@@ -116,7 +116,7 @@ function canUseSerializationWorker() {
 
 const serializationWorkerClient = new BrowserWorkerClient<
     TSerializationWorkerResult,
-    TPendingBrowserWorkerRequest<Uint8Array | null>
+    IPendingBrowserWorkerRequest<Uint8Array | null>
 >({
     idleTtlMs: SERIALIZATION_WORKER_IDLE_TTL_MS,
     createWorker: () => new Worker(
@@ -128,7 +128,7 @@ const serializationWorkerClient = new BrowserWorkerClient<
 });
 
 async function runDirect(
-    request: TSerializationWorkerRequest,
+    request: ISerializationWorkerRequest,
 ) {
     switch (request.type) {
         case 'save': {
@@ -153,7 +153,7 @@ async function runDirect(
 }
 
 async function runDirectWithYield(
-    request: TSerializationWorkerRequest,
+    request: ISerializationWorkerRequest,
 ) {
     await yieldToBrowser();
     const result = await runDirect(request);
@@ -165,7 +165,7 @@ async function runSerializationWorkerRequest<K extends TSerializationWorkerReque
     type: K,
     payload: ISerializationWorkerRequestMap[K],
 ) {
-    const request: TSerializationWorkerRequest<K> = {
+    const request: ISerializationWorkerRequest<K> = {
         id: serializationWorkerClient.createRequestId(),
         type,
         payload,

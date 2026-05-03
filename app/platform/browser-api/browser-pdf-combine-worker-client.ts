@@ -2,14 +2,14 @@ import type {
     IBrowserPdfCombineInput,
     IBrowserPdfCombineWorkerRequestMap,
     IBrowserPdfCombineWorkerResultMap,
-    TBrowserPdfCombineWorkerRequest,
+    IBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerRequestType,
     TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browser-pdf-combine-worker.types';
 import { toTransferableUint8Array } from '@app/platform/browser-api/browser-worker-transfer';
 import {
     settleBrowserWorkerResult,
-    type TPendingBrowserWorkerRequest,
+    type IPendingBrowserWorkerRequest,
 } from '@app/platform/browser-api/browser-worker-requests';
 import {
     BrowserWorkerClient,
@@ -18,7 +18,7 @@ import {
 import { getErrorMessage } from '@app/utils/error';
 
 type TAnyBrowserPdfCombineWorkerRequest = {
-    [K in TBrowserPdfCombineWorkerRequestType]: TBrowserPdfCombineWorkerRequest<K>;
+    [K in TBrowserPdfCombineWorkerRequestType]: IBrowserPdfCombineWorkerRequest<K>;
 }[TBrowserPdfCombineWorkerRequestType];
 
 const BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS = 15_000;
@@ -56,7 +56,7 @@ export function canUseBrowserPdfCombineWorker() {
 
 const browserPdfCombineWorkerClient = new BrowserWorkerClient<
     TBrowserPdfCombineWorkerResponse,
-    TPendingBrowserWorkerRequest
+    IPendingBrowserWorkerRequest
 >({
     idleTtlMs: BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS,
     createWorker: () => {
@@ -81,7 +81,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
     type: K,
     payload: IBrowserPdfCombineWorkerRequestMap[K],
 ): Promise<IBrowserPdfCombineWorkerResultMap[K]> {
-    const request: TBrowserPdfCombineWorkerRequest<K> = {
+    const request: IBrowserPdfCombineWorkerRequest<K> = {
         id: browserPdfCombineWorkerClient.createRequestId(),
         type,
         payload,

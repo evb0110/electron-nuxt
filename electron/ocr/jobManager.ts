@@ -1,20 +1,10 @@
 import type { IpcMainInvokeEvent } from 'electron';
-import {
-    BrowserWindow,
-    app,
-} from 'electron';
-import {
-    dirname,
-    join,
-} from 'path';
-import { existsSync } from 'fs';
+import { BrowserWindow } from 'electron';
 import {
     stat,
     unlink,
 } from 'fs/promises';
-import { fileURLToPath } from 'url';
-import { Worker } from 'worker_threads';
-import { uniq } from 'es-toolkit/array';
+import type { Worker } from 'worker_threads';
 import { withTimeout } from 'es-toolkit/promise';
 import {
     OCR_JOB_IDLE_TIMEOUT_MS,
@@ -26,34 +16,30 @@ import {
     OCR_WORKER_POOL_SIZE,
     OCR_WORKER_TERMINATE_TIMEOUT_MS,
 } from '@electron/ocr/jobManager.config';
+import { prepareLanguageModelsForJob } from '@electron/ocr/jobManager.modelPrep';
 import {
     createAbortError,
-    createTimeoutError,
     isAbortError,
     isScopedJobOwnedBySender,
     parseWorkerMessage,
     toScopedOcrJobId,
 } from '@electron/ocr/jobManager.protocol';
 import { createPendingResultFileStore } from '@electron/ocr/jobManager.resultFiles';
+import { createOcrWorker } from '@electron/ocr/jobManager.worker';
 import type {
     IOcrActiveJob,
     IOcrPreparingJob,
     IOcrQueuedJob,
 } from '@electron/ocr/jobManager.types';
-import { ensureTessdataLanguages } from '@electron/ocr/language-models';
-import { getOcrToolPaths } from '@electron/ocr/paths';
 import type {
     IOcrPdfPageRequest,
-    TOcrWorkerInboundMessage,
+    IOcrWorkerInboundMessage,
     TOcrWorkerOutboundMessage,
 } from '@electron/ocr/worker/types';
 import { createLogger } from '@electron/utils/logger';
 import { OCR_EVENT_CHANNELS } from '@electron/features/ocr/contract';
 import { getErrorMessage } from '@electron/utils/error';
 import { sendToLiveWindow } from '@electron/utils/ipc-window';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 const log = createLogger('ocr-ipc');
 const OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS = (() => {
@@ -97,24 +83,6 @@ function getJobWindow(webContentsId: number) {
     return BrowserWindow.getAllWindows().find(
         window => window.webContents.id === webContentsId,
     );
-}
-
-function getWorkerPath(): string {
-    const defaultPath = join(__dirname, 'ocr-worker.js');
-    if (!app?.isPackaged && existsSync(defaultPath)) {
-        return defaultPath;
-    }
-
-    const unpackedPath = defaultPath.replace('app.asar', 'app.asar.unpacked');
-    if (unpackedPath !== defaultPath && existsSync(unpackedPath)) {
-        return unpackedPath;
-    }
-
-    if (existsSync(defaultPath)) {
-        return defaultPath;
-    }
-
-    throw new Error(`OCR worker script not found. lookedFor="${unpackedPath}", fallback="${defaultPath}"`);
 }
 
 function getBufferedBytes() {
@@ -228,33 +196,6 @@ function abortPreparingJob(
         preparingJob.abortController.abort(createAbortError(reason));
     }
     return true;
-}
-
-function createOcrWorker(): Worker {
-    const paths = getOcrToolPaths();
-    const workerPath = getWorkerPath();
-
-    if (!existsSync(workerPath)) {
-        throw new Error(`OCR worker unavailable at path: ${workerPath}`);
-    }
-
-    log.debug(`Creating OCR worker: ${workerPath}`);
-    log.debug(
-        `Tool paths: tesseract=${paths.tesseract}, pdftoppm=${paths.pdftoppm}, qpdf=${paths.qpdf}, popplerData=${paths.popplerDataDir || 'none'}, fontConfig=${paths.popplerFontConfigDir || 'none'}`,
-    );
-
-    return new Worker(workerPath, {workerData: {
-        tesseractBinary: paths.tesseract,
-        tessdataPath: paths.tessdata,
-        pdftoppmBinary: paths.pdftoppm,
-        pdftotextBinary: paths.pdftotext,
-        pdfimagesBinary: paths.pdfimages,
-        popplerDataDir: paths.popplerDataDir,
-        popplerFontConfigDir: paths.popplerFontConfigDir,
-        qpdfBinary: paths.qpdf,
-        unpaperBinary: paths.unpaper,
-        tempDir: app.getPath('temp'),
-    }});
 }
 
 function removeQueuedJob(scopedJobId: string) {
@@ -550,7 +491,7 @@ function startQueuedJob(job: IOcrQueuedJob) {
     });
 
     try {
-        const startMessage: TOcrWorkerInboundMessage = {
+        const startMessage: IOcrWorkerInboundMessage = {
             type: 'start',
             // Keep worker-visible job ids sender-agnostic so renderer callbacks
             // continue matching the requestId generated in the UI.
@@ -637,28 +578,6 @@ function createPreparingJob(
     };
 }
 
-function logMissingLanguageModels(languages: string[]) {
-    const tessdataDir = getOcrToolPaths().tessdata;
-    const missingLanguages = languages.filter(languageCode =>
-        !existsSync(join(tessdataDir, `${languageCode}.traineddata`)),
-    );
-    if (missingLanguages.length > 0) {
-        log.warn(`Missing OCR language models in ${tessdataDir}; downloading: ${missingLanguages.join(', ')}`);
-    }
-}
-
-function startModelPrepTimeout(preparingJob: IOcrPreparingJob) {
-    const modelPrepTimeout = setTimeout(() => {
-        if (!preparingJob.abortController.signal.aborted) {
-            preparingJob.abortController.abort(
-                createTimeoutError(`OCR model preparation timed out after ${OCR_MODEL_PREP_TIMEOUT_MS}ms`),
-            );
-        }
-    }, OCR_MODEL_PREP_TIMEOUT_MS);
-    modelPrepTimeout.unref?.();
-    return modelPrepTimeout;
-}
-
 function getAbortedPreparationResult(
     event: IpcMainInvokeEvent,
     scopedJobId: string,
@@ -678,19 +597,19 @@ function getAbortedPreparationResult(
     return null;
 }
 
-async function prepareLanguageModelsForJob(
+async function prepareLanguageModelsForQueueJob(
     event: IpcMainInvokeEvent,
     preparingJob: IOcrPreparingJob,
     scopedJobId: string,
     requestId: string,
     pages: IOcrPdfPageRequest[],
 ) {
-    const languages = uniq(pages.flatMap(page => page.languages));
-    logMissingLanguageModels(languages);
-
-    const modelPrepTimeout = startModelPrepTimeout(preparingJob);
     try {
-        await ensureTessdataLanguages(languages, { signal: preparingJob.abortController.signal });
+        await prepareLanguageModelsForJob(
+            preparingJob,
+            pages,
+            OCR_MODEL_PREP_TIMEOUT_MS,
+        );
         return null;
     } catch (error) {
         if (preparingJob.abortController.signal.aborted) {
@@ -705,8 +624,6 @@ async function prepareLanguageModelsForJob(
             }
         }
         throw error;
-    } finally {
-        clearTimeout(modelPrepTimeout);
     }
 }
 
@@ -788,7 +705,7 @@ export async function handleOcrCreateSearchablePdfAsync(
             return createQueueFailure(requestId, capacityResult.error);
         }
 
-        const modelPrepResult = await prepareLanguageModelsForJob(
+        const modelPrepResult = await prepareLanguageModelsForQueueJob(
             event,
             preparingJob,
             scopedJobId,

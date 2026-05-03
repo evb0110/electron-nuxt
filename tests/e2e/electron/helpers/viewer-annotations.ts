@@ -28,15 +28,15 @@ function resolveToolId(label: string): string {
     return TOOL_LABEL_TO_ID[label] ?? label.toLowerCase();
 }
 
-type TAnnotationUiManagerHolder = { value?: unknown };
+interface IAnnotationUiManagerHolder { value?: unknown; }
 
-type TPdfViewerWorkspaceInstance = {$?: {setupState?: {
+interface IPdfViewerWorkspaceInstance {$?: {setupState?: {
     pdfViewerRef?: {value?: {
-        $?: {setupState?: {annotationUiManager?: TAnnotationUiManagerHolder;};};
-        annotationUiManager?: TAnnotationUiManagerHolder;
+        $?: {setupState?: {annotationUiManager?: IAnnotationUiManagerHolder;};};
+        annotationUiManager?: IAnnotationUiManagerHolder;
     };};
-    annotationUiManager?: TAnnotationUiManagerHolder;
-};};};
+    annotationUiManager?: IAnnotationUiManagerHolder;
+};};}
 
 async function waitForActiveAnnotationTool(
     page: Page,
@@ -1258,7 +1258,7 @@ export async function deleteLatestFreeTextAnnotation(page: Page) {
                     };
                 }
 
-                let workspaceInstance: TPdfViewerWorkspaceInstance | null = null;
+                let workspaceInstance: IPdfViewerWorkspaceInstance | null = null;
 
                 for (const element of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
                     const component = (element as HTMLElement & {__vueParentComponent?: {
