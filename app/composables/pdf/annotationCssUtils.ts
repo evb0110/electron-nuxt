@@ -1,5 +1,20 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
+function isRgbObject(value: unknown): value is {
+    r: number;
+    g: number;
+    b: number;
+} {
+    return typeof value === 'object'
+        && value !== null
+        && 'r' in value
+        && 'g' in value
+        && 'b' in value
+        && typeof value.r === 'number'
+        && typeof value.g === 'number'
+        && typeof value.b === 'number';
+}
+
 export function toCssColor(
     color: string | number[] | {
         r: number;
@@ -20,17 +35,8 @@ export function toCssColor(
         return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${opacity})`;
     }
 
-    if (
-        typeof (color as { r?: number }).r === 'number'
-        && typeof (color as { g?: number }).g === 'number'
-        && typeof (color as { b?: number }).b === 'number'
-    ) {
-        const rgb = color as {
-            r: number;
-            g: number;
-            b: number;
-        };
-        return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
+    if (isRgbObject(color)) {
+        return `rgba(${color.r}, ${color.g}, ${color.b}, ${opacity})`;
     }
 
     return null;

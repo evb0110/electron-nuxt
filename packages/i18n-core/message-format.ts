@@ -27,14 +27,16 @@ export function plural<const TForms extends IPluralForms<string>>(forms: TForms)
     };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
 export function isPluralMessage(value: unknown): value is IPluralMessage {
-    return typeof value === 'object'
-        && value !== null
-        && 'kind' in value
-        && (value as {kind?: unknown;}).kind === PLURAL_MESSAGE_KIND
-        && 'forms' in value
-        && typeof (value as {forms?: unknown;}).forms === 'object'
-        && (value as {forms?: unknown;}).forms !== null;
+    if (!isRecord(value)) {
+        return false;
+    }
+
+    return value.kind === PLURAL_MESSAGE_KIND && isRecord(value.forms);
 }
 
 export function normalizeTranslationParams(rawParams?: number | TMessageParams): TMessageParams | undefined {
@@ -50,11 +52,11 @@ export function getNestedTranslationLeaf(messages: Record<string, unknown>, path
     let current: unknown = messages;
 
     for (const part of parts) {
-        if (!current || typeof current !== 'object' || !(part in current)) {
+        if (!isRecord(current) || !(part in current)) {
             return null;
         }
 
-        current = (current as Record<string, unknown>)[part];
+        current = current[part];
     }
 
     return typeof current === 'string' || isPluralMessage(current)

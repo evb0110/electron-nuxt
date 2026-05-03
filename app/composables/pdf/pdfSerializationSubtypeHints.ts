@@ -23,17 +23,32 @@ function isMarkupSubtype(value: unknown): value is TMarkupSubtype {
         || value === 'Squiggly';
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
 function isValidMarkerRect(value: unknown): value is IAnnotationMarkerRect {
-    if (!value || typeof value !== 'object') {
+    if (!isRecord(value)) {
         return false;
     }
-    const candidate = value as Partial<IAnnotationMarkerRect>;
-    return Number.isFinite(candidate.left)
-        && Number.isFinite(candidate.top)
-        && Number.isFinite(candidate.width)
-        && Number.isFinite(candidate.height)
-        && (candidate.width as number) > 0
-        && (candidate.height as number) > 0;
+
+    const {
+        left,
+        top,
+        width,
+        height,
+    } = value;
+
+    return typeof left === 'number'
+        && typeof top === 'number'
+        && typeof width === 'number'
+        && typeof height === 'number'
+        && Number.isFinite(left)
+        && Number.isFinite(top)
+        && Number.isFinite(width)
+        && Number.isFinite(height)
+        && width > 0
+        && height > 0;
 }
 
 export function collectMarkupSubtypeHints(comments: IAnnotationCommentSummary[]): IMarkupSubtypeHint[] {

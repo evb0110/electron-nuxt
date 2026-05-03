@@ -7,10 +7,10 @@ import {
 import { clamp } from 'es-toolkit/math';
 
 type TNonNullPageLabelStyle = Exclude<TPageLabelStyle, null>;
-const PAGE_LABEL_STYLE_SET = new Set<TNonNullPageLabelStyle>(PAGE_LABEL_STYLE_VALUES);
+const PAGE_LABEL_STYLE_SET: ReadonlySet<string> = new Set<TNonNullPageLabelStyle>(PAGE_LABEL_STYLE_VALUES);
 
 function isNonNullPageLabelStyle(style: unknown): style is TNonNullPageLabelStyle {
-    return typeof style === 'string' && PAGE_LABEL_STYLE_SET.has(style as TNonNullPageLabelStyle);
+    return typeof style === 'string' && PAGE_LABEL_STYLE_SET.has(style);
 }
 
 function toPositiveInt(value: unknown, fallback: number) {
@@ -270,7 +270,7 @@ function inferCandidates(label: string): IPdfPageLabelRange[] {
 
 export function normalizePageLabelRanges(ranges: IPdfPageLabelRange[], totalPages: number): IPdfPageLabelRange[] {
     if (totalPages <= 0) {
-        return [] as IPdfPageLabelRange[];
+        return [];
     }
 
     const deduped = new Map<number, IPdfPageLabelRange>();
@@ -307,7 +307,7 @@ export function normalizePageLabelRanges(ranges: IPdfPageLabelRange[], totalPage
 
 export function buildPageLabelsFromRanges(totalPages: number, ranges: IPdfPageLabelRange[]): string[] {
     if (totalPages <= 0) {
-        return [] as string[];
+        return [];
     }
 
     const normalizedRanges = normalizePageLabelRanges(ranges, totalPages);
@@ -338,7 +338,7 @@ export function buildPageLabelsFromRanges(totalPages: number, ranges: IPdfPageLa
 
 export function derivePageLabelRangesFromLabels(pageLabels: string[] | null, totalPages: number): IPdfPageLabelRange[] {
     if (totalPages <= 0) {
-        return [] as IPdfPageLabelRange[];
+        return [];
     }
 
     if (!pageLabels || pageLabels.length !== totalPages) {
