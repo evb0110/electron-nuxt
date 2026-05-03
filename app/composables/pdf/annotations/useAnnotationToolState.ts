@@ -47,6 +47,8 @@ const MARKUP_FRAGMENT_LAYER_CLASS = 'pdf-markup-subtype-fragments';
 const MARKUP_FRAGMENT_CLASS = 'pdf-markup-subtype-fragment';
 const MAX_HIGHLIGHT_DRAW_LAYER_FALLBACK_DISTANCE = 40;
 const OPAQUE_HIGHLIGHT_OPACITY = 1;
+const SAME_MARKUP_LINE_CENTER_TOLERANCE_RATIO = 0.35;
+const MIN_MARKUP_FRAGMENT_SIZE = 0.0005;
 
 type TAnnotationEditorMode = Parameters<AnnotationEditorUIManager['updateMode']>[0];
 
@@ -59,6 +61,128 @@ interface IHighlightDrawLayerCandidate {
     distance: number;
     overlapScore: number;
     svg: SVGElement;
+}
+
+interface IIndexedHighlightBox {
+    box: IPdfjsHighlightBox;
+    centerY: number;
+    index: number;
+}
+
+interface IHighlightLineGroup {
+    boxes: IIndexedHighlightBox[];
+    top: number;
+    bottom: number;
+    centerY: number;
+    averageHeight: number;
+}
+
+function isFinitePositiveHighlightBox(box: IPdfjsHighlightBox) {
+    return Number.isFinite(box.x)
+        && Number.isFinite(box.y)
+        && Number.isFinite(box.width)
+        && Number.isFinite(box.height)
+        && box.width > 0
+        && box.height > 0;
+}
+
+function createHighlightLineGroup(indexedBox: IIndexedHighlightBox): IHighlightLineGroup {
+    const { box } = indexedBox;
+    return {
+        boxes: [indexedBox],
+        top: box.y,
+        bottom: box.y + box.height,
+        centerY: indexedBox.centerY,
+        averageHeight: box.height,
+    };
+}
+
+function addBoxToHighlightLineGroup(group: IHighlightLineGroup, indexedBox: IIndexedHighlightBox) {
+    const { box } = indexedBox;
+    group.boxes.push(indexedBox);
+    group.top = Math.min(group.top, box.y);
+    group.bottom = Math.max(group.bottom, box.y + box.height);
+    group.centerY = group.boxes.reduce((sum, item) => sum + item.centerY, 0) / group.boxes.length;
+    group.averageHeight = group.boxes.reduce((sum, item) => sum + item.box.height, 0) / group.boxes.length;
+}
+
+function belongsToHighlightLineGroup(group: IHighlightLineGroup, indexedBox: IIndexedHighlightBox) {
+    const tolerance = Math.max(group.averageHeight, indexedBox.box.height) * SAME_MARKUP_LINE_CENTER_TOLERANCE_RATIO;
+    return Math.abs(indexedBox.centerY - group.centerY) <= tolerance;
+}
+
+function groupHighlightBoxesByLine(boxes: readonly IPdfjsHighlightBox[]) {
+    const sortedBoxes = boxes
+        .map((box, index) => ({
+            box: { ...box },
+            centerY: box.y + (box.height / 2),
+            index,
+        }))
+        .filter(indexedBox => isFinitePositiveHighlightBox(indexedBox.box))
+        .sort((left, right) => left.centerY - right.centerY || left.box.x - right.box.x);
+    const groups: IHighlightLineGroup[] = [];
+
+    for (const indexedBox of sortedBoxes) {
+        const previousGroup = groups.at(-1);
+        if (previousGroup && belongsToHighlightLineGroup(previousGroup, indexedBox)) {
+            addBoxToHighlightLineGroup(previousGroup, indexedBox);
+            continue;
+        }
+        groups.push(createHighlightLineGroup(indexedBox));
+    }
+
+    return groups;
+}
+
+export function normalizeMarkupSubtypeFragmentBoxes(
+    boxes: readonly IPdfjsHighlightBox[],
+): IPdfjsHighlightBox[] {
+    const groups = groupHighlightBoxesByLine(boxes);
+    if (groups.length === 0) {
+        return [];
+    }
+    if (groups.length === 1) {
+        return groups[0]!.boxes
+            .sort((left, right) => left.index - right.index)
+            .map(({ box }) => ({ ...box }));
+    }
+
+    const normalizedBoxes = new Map<number, IPdfjsHighlightBox>();
+    groups.forEach((group, groupIndex) => {
+        const previousGroup = groups[groupIndex - 1] ?? null;
+        const nextGroup = groups[groupIndex + 1] ?? null;
+        let lineTop = group.top;
+        let lineBottom = group.bottom;
+
+        if (previousGroup) {
+            lineTop = Math.max(lineTop, (previousGroup.centerY + group.centerY) / 2);
+        }
+        if (nextGroup) {
+            lineBottom = Math.min(lineBottom, (group.centerY + nextGroup.centerY) / 2);
+        }
+        if (lineBottom - lineTop < MIN_MARKUP_FRAGMENT_SIZE) {
+            lineTop = group.top;
+            lineBottom = group.bottom;
+        }
+
+        for (const {
+            box,
+            index,
+        } of group.boxes) {
+            normalizedBoxes.set(index, {
+                ...box,
+                y: lineTop,
+                height: lineBottom - lineTop,
+            });
+        }
+    });
+
+    return [...normalizedBoxes]
+        .sort((left, right) => left[0] - right[0])
+        .map(([
+            ,
+            box,
+        ]) => box);
 }
 
 interface IUseAnnotationToolStateOptions {
@@ -746,7 +870,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
             layer.style.setProperty('--pdf-markup-subtype-color', color);
         }
 
-        for (const box of editor.__evbMarkupBoxes) {
+        for (const box of normalizeMarkupSubtypeFragmentBoxes(editor.__evbMarkupBoxes)) {
             appendMarkupSubtypeFragment(layer, subtype, editorRect, box);
         }
         div.classList.add(MARKUP_FRAGMENTED_EDITOR_CLASS);

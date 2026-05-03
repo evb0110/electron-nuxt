@@ -368,4 +368,50 @@ describe('useAnnotationToolState', () => {
         expect(manager.resolveHighlightColorForTool(settings, 'strikethrough')).toBe('#ff0000');
         expect(manager.resolveHighlightOpacityForTool(settings, 'strikethrough')).toBe(0.8);
     });
+
+    it('clips overlapping multi-line markup boxes into non-overlapping fragment bands', async () => {
+        const { normalizeMarkupSubtypeFragmentBoxes } = await import('@app/composables/pdf/annotations/useAnnotationToolState');
+        const boxes = [
+            {
+                x: 0.10,
+                y: 0.10,
+                width: 0.30,
+                height: 0.20,
+            },
+            {
+                x: 0.45,
+                y: 0.105,
+                width: 0.20,
+                height: 0.19,
+            },
+            {
+                x: 0.10,
+                y: 0.22,
+                width: 0.40,
+                height: 0.20,
+            },
+        ];
+
+        const normalized = normalizeMarkupSubtypeFragmentBoxes(boxes);
+
+        expect(normalized).toHaveLength(3);
+        expect(normalized[0]).toEqual(expect.objectContaining({
+            x: boxes[0]!.x,
+            width: boxes[0]!.width,
+            y: 0.10,
+        }));
+        expect(normalized[1]).toEqual(expect.objectContaining({
+            x: boxes[1]!.x,
+            width: boxes[1]!.width,
+            y: 0.10,
+        }));
+        expect(normalized[2]).toEqual(expect.objectContaining({
+            x: boxes[2]!.x,
+            width: boxes[2]!.width,
+        }));
+        expect(normalized[0]!.y + normalized[0]!.height).toBeCloseTo(normalized[2]!.y, 6);
+        expect(normalized[1]!.y + normalized[1]!.height).toBeCloseTo(normalized[2]!.y, 6);
+        expect(normalized[2]!.height).toBeLessThan(boxes[2]!.height);
+        expect(boxes[0]!.height).toBe(0.20);
+    });
 });

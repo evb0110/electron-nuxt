@@ -1982,11 +1982,6 @@ defineExpose({
     mix-blend-mode: normal !important;
 }
 
-.pdfViewer .annotationEditorLayer .highlightEditor.pdf-markup-subtype-fragmented::after,
-.pdfViewer .annotation-editor-layer .highlightEditor.pdf-markup-subtype-fragmented::after {
-    content: none !important;
-}
-
 .pdfViewer .annotationEditorLayer .highlightEditor .pdf-markup-subtype-fragments,
 .pdfViewer .annotation-editor-layer .highlightEditor .pdf-markup-subtype-fragments {
     position: absolute;
@@ -2030,6 +2025,14 @@ defineExpose({
     top: 50%;
     border-top: max(1.5px, calc(var(--total-scale-factor, 1) * 1px)) solid var(--pdf-markup-subtype-color, var(--ui-error));
     pointer-events: none;
+}
+
+.pdfViewer .annotationEditorLayer .highlightEditor.pdf-markup-subtype-fragmented[class*='pdf-markup-subtype-underline']::after,
+.pdfViewer .annotation-editor-layer .highlightEditor.pdf-markup-subtype-fragmented[class*='pdf-markup-subtype-underline']::after,
+.pdfViewer .annotationEditorLayer .highlightEditor.pdf-markup-subtype-fragmented[class*='pdf-markup-subtype-strikeout']::after,
+.pdfViewer .annotation-editor-layer .highlightEditor.pdf-markup-subtype-fragmented[class*='pdf-markup-subtype-strikeout']::after {
+    content: none !important;
+    border: 0 !important;
 }
 
 /* ── Dark Mode (Invert Colors) Overrides ───────────────────────────── */
