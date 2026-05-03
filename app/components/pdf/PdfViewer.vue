@@ -550,6 +550,7 @@ function clearPendingManagedShapeImportAdoption() {
 const managedEmbeddedAnnotationIds = computed(() =>
     collectEmbeddedShapeAnnotationIds(shapeComposable.getAllShapes()),
 );
+const visuallySuppressedAnnotationIds = ref<Set<string>>(new Set());
 
 const hiddenEmbeddedAnnotationIds = computed(() => {
     const ids = new Set(managedEmbeddedAnnotationIds.value);
@@ -559,8 +560,34 @@ const hiddenEmbeddedAnnotationIds = computed(() => {
             ids.add(normalizedId);
         }
     });
+    visuallySuppressedAnnotationIds.value.forEach((id) => {
+        const normalizedId = normalizePdfJsAnnotationId(id);
+        if (normalizedId) {
+            ids.add(normalizedId);
+        }
+    });
     return ids;
 });
+
+function suppressAnnotationId(annotationId: string) {
+    annotations.commentSync.suppressAnnotationId(annotationId);
+    const normalizedId = normalizePdfJsAnnotationId(annotationId);
+    if (!normalizedId || visuallySuppressedAnnotationIds.value.has(normalizedId)) {
+        return;
+    }
+
+    visuallySuppressedAnnotationIds.value = new Set([
+        ...visuallySuppressedAnnotationIds.value,
+        normalizedId,
+    ]);
+}
+
+function clearVisuallySuppressedAnnotationIds() {
+    if (visuallySuppressedAnnotationIds.value.size === 0) {
+        return;
+    }
+    visuallySuppressedAnnotationIds.value = new Set();
+}
 
 function syncHiddenEmbeddedAnnotationDom() {
     const container = viewerContainer.value;
@@ -855,6 +882,21 @@ function queueDeletedEmbeddedShapePageRefresh(pageNumber: number) {
     });
 }
 
+function refreshHiddenAnnotationPage(comment: IAnnotationCommentSummary) {
+    const pageNumber = Number.isFinite(comment.pageNumber) && comment.pageNumber > 0
+        ? Math.floor(comment.pageNumber)
+        : currentPage.value;
+    queueDeletedEmbeddedShapePageRefresh(pageNumber);
+}
+
+function removeAnnotationFromDom(comment: IAnnotationCommentSummary) {
+    if (comment.annotationId) {
+        suppressAnnotationId(comment.annotationId);
+    }
+    commentCrud.removeAnnotationFromDom(comment);
+    refreshHiddenAnnotationPage(comment);
+}
+
 function refreshDeletedEmbeddedShape(shape: IShapeAnnotation | null) {
     BrowserLogger.debug('pdf-shapes', 'Refreshing deleted embedded shape page', () => ({
         shapeId: shape?.id ?? null,
@@ -878,6 +920,10 @@ watch(hiddenEmbeddedAnnotationIds, () => {
         syncHiddenEmbeddedAnnotationDom();
         hideManagedAnnotationEditors();
     });
+});
+
+watch(pdfDocument, () => {
+    clearVisuallySuppressedAnnotationIds();
 });
 
 function relayPageRenderStall(payload: IPageRenderStallPayload) {
@@ -1622,9 +1668,9 @@ defineExpose({
     clearPendingImagePlacement,
     restorePendingImagePlacement,
     invalidatePages,
-    suppressAnnotationId: annotations.commentSync.suppressAnnotationId,
+    suppressAnnotationId,
     suppressAnnotationStableKey: annotations.commentSync.suppressAnnotationStableKey,
-    removeAnnotationFromDom: commentCrud.removeAnnotationFromDom,
+    removeAnnotationFromDom,
     removeAnnotationFromInternalCache: (stableKey: string) => {
         pendingMarkerMoves.delete(stableKey);
         annotationCommentsCache.value = annotationCommentsCache.value.filter(c => c.stableKey !== stableKey);
