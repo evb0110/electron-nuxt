@@ -31,6 +31,7 @@ import {
     escapeCssAttr,
     errorToLogText,
 } from '@app/composables/pdf/annotationCssUtils';
+import { removeAnnotationCommentDom } from '@app/composables/pdf/annotations/annotationDomRemoval';
 import {
     findEditorForComment as findEditorForCommentHelper,
     findEditorByAnnotationElementId as findEditorByAnnotationElementIdHelper,
@@ -1512,22 +1513,11 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
 
     function removeAnnotationFromDom(comment: IAnnotationCommentSummary) {
         const container = viewerContainer.value;
-        const annotationId = comment.annotationId;
-        if (!container || !annotationId) {
+        if (!container) {
             return;
         }
 
-        const selector = `[data-annotation-id="${escapeCssAttr(annotationId)}"]`;
-        container.querySelectorAll<HTMLElement>(selector).forEach(el => el.remove());
-
-        container.querySelectorAll<HTMLElement>(
-            '.annotationLayer .popup[data-annotation-id], .annotation-layer .popup[data-annotation-id]',
-        ).forEach((popup) => {
-            const parentAnnotationId = popup.closest<HTMLElement>('[data-annotation-id]')?.dataset.annotationId;
-            if (parentAnnotationId === annotationId) {
-                popup.remove();
-            }
-        });
+        removeAnnotationCommentDom(container, comment);
     }
 
     return {
