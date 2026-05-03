@@ -8,6 +8,7 @@ import {
     getUpstream,
     readVersion,
     requireNamedBranch,
+    restoreVersionIfChanged,
     run,
     shouldSkipGitHubReleaseWait,
     stageFiles,
@@ -47,6 +48,8 @@ async function main() {
             'run',
             'release:verify',
         ], {stdio: 'inherit'});
+
+        restoreVersionIfChanged(nextVersion);
 
         // Release verification should not generate any tracked diffs besides the
         // intentional version bump. If it does, fail here instead of silently
