@@ -7,11 +7,11 @@ const projectRoot = path.resolve(currentDir, '..');
 const allowlistPath = path.join(projectRoot, 'scripts', 'build-warning-allowlist.json');
 
 function isWarningHeader(line) {
-    return /^\s*WARN\b/u.test(line);
+    return /^\s*(?:WARN\b|\[warn\])/u.test(line);
 }
 
 function getWarningHeaderLine(line) {
-    const headerTail = line.replace(/^\s*WARN\s*/u, '').trim();
+    const headerTail = line.replace(/^\s*(?:WARN\s*|\[warn\]\s*)/u, '').trim();
     return headerTail.length > 0 ? `WARN ${headerTail}` : 'WARN';
 }
 

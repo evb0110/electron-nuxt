@@ -17,7 +17,7 @@
     "dev:web": "pnpm exec nuxi dev --host 127.0.0.1 --port 3235",
     "build": "pnpm exec nuxi build",
     "build:desktop": "pnpm run build && pnpm run build:electron",
-    "build:strict": "mkdir -p .tmp && bash -c 'set -o pipefail; pnpm run build:desktop 2>&1 | tee .tmp/build.log' && node scripts/check-build-warnings.mjs .tmp/build.log",
+    "build:strict": "node scripts/run-build-strict.mjs",
     "build:icons": "bash scripts/build-icons.sh",
     "build:electron": "node scripts/build-electron.mjs",
     "preview": "pnpm exec nuxi preview",
