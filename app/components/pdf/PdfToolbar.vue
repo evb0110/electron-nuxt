@@ -25,7 +25,7 @@
                 :active="showSidebar"
                 :tooltip="t('toolbar.toggleSidebar')"
                 :shortcut="shortcutLabels.toggleSidebar"
-                :disabled="!hasPdf || canToggleSidebar === false"
+                :disabled="!hasInteractiveDocument || canToggleSidebar === false"
                 @click="emit('toggle-sidebar')"
             />
 
@@ -37,7 +37,7 @@
                     icon="lucide:save"
                     :tooltip="t('toolbar.save')"
                     :shortcut="shortcutLabels.save"
-                    :disabled="!hasPdf || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
+                    :disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
                     :loading="isSaving"
                     @click="emit('save')"
                 />
@@ -46,7 +46,7 @@
                     icon="lucide:save-all"
                     :tooltip="t('toolbar.saveAs')"
                     :shortcut="shortcutLabels.saveAs"
-                    :disabled="!hasPdf || isAnySaving || isHistoryBusy || isDjvuMode"
+                    :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
                     :loading="isSavingAs"
                     @click="emit('save-as')"
                 />
@@ -55,7 +55,7 @@
                     icon="lucide:printer"
                     :tooltip="t('toolbar.print')"
                     :shortcut="shortcutLabels.print"
-                    :disabled="!hasPdf || isAnySaving || isHistoryBusy || isDjvuMode"
+                    :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
                     :loading="isPreparingPrint"
                     @click="emit('print')"
                 />
@@ -69,7 +69,7 @@
                     icon="lucide:undo-2"
                     :tooltip="t('toolbar.undo')"
                     :shortcut="shortcutLabels.undo"
-                    :disabled="!hasPdf || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
+                    :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
                     @click="emit('undo')"
                 />
                 <ToolbarButton
@@ -77,7 +77,7 @@
                     icon="lucide:redo-2"
                     :tooltip="t('toolbar.redo')"
                     :shortcut="shortcutLabels.redo"
-                    :disabled="!hasPdf || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
+                    :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
                     @click="emit('redo')"
                 />
             </template>
@@ -117,7 +117,7 @@
                         :active="isFitWidthActive"
                         :tooltip="t('zoom.fitWidth')"
                         :shortcut="shortcutLabels.fitWidth"
-                        :disabled="!hasPdf"
+                        :disabled="!hasInteractiveDocument"
                         grouped
                         @click="emit('fit-width')"
                     />
@@ -128,7 +128,7 @@
                         :active="isFitHeightActive"
                         :tooltip="t('zoom.fitHeight')"
                         :shortcut="shortcutLabels.fitHeight"
-                        :disabled="!hasPdf"
+                        :disabled="!hasInteractiveDocument"
                         grouped
                         @click="emit('fit-height')"
                     />
@@ -138,7 +138,7 @@
                         icon="lucide:scroll"
                         :active="continuousScroll"
                         :tooltip="t('zoom.continuousScroll')"
-                        :disabled="!hasPdf"
+                        :disabled="!hasInteractiveDocument"
                         grouped
                         @click="emit('toggle-continuous-scroll')"
                     />
@@ -152,7 +152,7 @@
                 icon="lucide:message-square-plus"
                 :active="isPlacingPageNote"
                 :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
-                :disabled="!hasPdf || isDjvuMode"
+                :disabled="!hasInteractiveDocument || isDjvuMode"
                 @click="emit('quick-note')"
             />
 
@@ -162,7 +162,7 @@
                         icon="lucide:message-square-plus"
                         :active="isPlacingPageNote"
                         :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
-                        :disabled="!hasPdf || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || isDjvuMode"
                         grouped
                         @click="emit('quick-note')"
                     />
@@ -172,7 +172,7 @@
                         icon="lucide:hand"
                         :active="dragMode && !isPlacingPageNote"
                         :tooltip="t('zoom.handTool')"
-                        :disabled="!hasPdf"
+                        :disabled="!hasInteractiveDocument"
                         grouped
                         @click="emit('enable-drag')"
                     />
@@ -182,7 +182,7 @@
                         icon="lucide:text-cursor"
                         :active="!dragMode && !isPlacingPageNote"
                         :tooltip="t('zoom.textSelect')"
-                        :disabled="!hasPdf"
+                        :disabled="!hasInteractiveDocument"
                         grouped
                         @click="emit('disable-drag')"
                     />
@@ -198,7 +198,7 @@
                 icon="lucide:scan"
                 :active="isCapturingRegion"
                 :tooltip="t('toolbar.captureRegion')"
-                :disabled="!hasPdf"
+                :disabled="!hasInteractiveDocument"
                 @click="emit('capture-region')"
             />
             <ToolbarButton
@@ -206,7 +206,7 @@
                 icon="lucide:crop"
                 :active="isCropSelecting"
                 :tooltip="t('toolbar.crop')"
-                :disabled="!hasPdf || isDjvuMode"
+                :disabled="!hasInteractiveDocument || isDjvuMode"
                 @click="emit('crop')"
             />
 
@@ -223,7 +223,7 @@
                 icon="lucide:file-text"
                 :tooltip="t('toolbar.exportDocx')"
                 :shortcut="shortcutLabels.exportDocx"
-                :disabled="!hasPdf || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
+                :disabled="!hasInteractiveDocument || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
                 :loading="isExportingDocx"
                 @click="emit('export-docx')"
             />
@@ -267,9 +267,11 @@ import {
 const {
     surface = undefined,
     variant = 'editor',
+    documentBusy = false,
 } = defineProps<{
     hasPdf: boolean;
     variant?: 'editor' | 'reader';
+    documentBusy?: boolean;
     canToggleSidebar?: boolean;
     canSave: boolean;
     canUndo: boolean;
@@ -330,6 +332,7 @@ const {
 } = useFullscreen();
 
 const shortcutLabels = getShortcutLabels();
+const hasInteractiveDocument = computed(() => hasPdf && !documentBusy);
 
 function isCommandInline(command: TReaderCommandId) {
     return isReaderCommandInline(surface, command);

@@ -29,7 +29,7 @@
                     <button
                         v-if="isCommandInMenu('toggle-sidebar')"
                         :class="['overflow-menu-item', { 'is-active': showSidebar }]"
-                        :disabled="!hasPdf || canToggleSidebar === false"
+                        :disabled="!hasInteractiveDocument || canToggleSidebar === false"
                         @click="emit('toggle-sidebar'); close()"
                     >
                         <UIcon name="i-lucide-panel-left" class="overflow-menu-icon" />
@@ -43,7 +43,7 @@
                     <button
                         v-if="isCommandInMenu('export-docx')"
                         class="overflow-menu-item"
-                        :disabled="!hasPdf || !canExportDocx || isExportingDocx"
+                        :disabled="!hasInteractiveDocument || !canExportDocx || isExportingDocx"
                         @click="emit('export-docx'); close()"
                     >
                         <UIcon name="i-lucide-file-text" class="overflow-menu-icon" />
@@ -52,7 +52,7 @@
                     <button
                         v-if="isCommandInMenu('continuous-scroll')"
                         :class="['overflow-menu-item', { 'is-active': continuousScroll }]"
-                        :disabled="!hasPdf"
+                        :disabled="!hasInteractiveDocument"
                         @click="emit('toggle-continuous-scroll'); close()"
                     >
                         <UIcon name="i-lucide-scroll" class="overflow-menu-icon" />
@@ -89,7 +89,7 @@
                         <button
                             v-if="isCommandInMenu('capture-region') && canCaptureRegion"
                             :class="['overflow-menu-item', { 'is-active': isCapturingRegion }]"
-                            :disabled="!hasPdf"
+                            :disabled="!hasInteractiveDocument"
                             @click="emit('capture-region'); close()"
                         >
                             <UIcon name="i-lucide-scan" class="overflow-menu-icon" />
@@ -103,7 +103,7 @@
                         <button
                             v-if="isCommandInMenu('crop') && canCrop"
                             :class="['overflow-menu-item', { 'is-active': isCropSelecting }]"
-                            :disabled="!hasPdf || isDjvuMode"
+                            :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('crop'); close()"
                         >
                             <UIcon name="i-lucide-crop" class="overflow-menu-icon" />
@@ -117,7 +117,7 @@
                         <button
                             v-if="isCommandInMenu('quick-note') && canQuickNote"
                             :class="['overflow-menu-item', { 'is-active': isPlacingPageNote }]"
-                            :disabled="!hasPdf || isDjvuMode"
+                            :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('quick-note'); close()"
                         >
                             <UIcon name="i-lucide-message-square-plus" class="overflow-menu-icon" />
@@ -131,7 +131,7 @@
                         <button
                             v-if="isCommandInMenu('ocr') && canUseOcr"
                             class="overflow-menu-item"
-                            :disabled="!hasPdf || isDjvuMode"
+                            :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('open-ocr'); close()"
                         >
                             <UIcon name="i-lucide-scan-text" class="overflow-menu-icon" />
@@ -141,7 +141,7 @@
                         <button
                             v-if="isCommandInMenu('view-mode')"
                             :class="['overflow-menu-item', { 'is-active': viewMode === 'single' }]"
-                            :disabled="!hasPdf"
+                            :disabled="!hasInteractiveDocument"
                             @click="emit('set-view-mode', 'single'); close()"
                         >
                             <UIcon name="i-lucide-file" class="overflow-menu-icon" />
@@ -155,7 +155,7 @@
                         <button
                             v-if="isCommandInMenu('view-mode')"
                             :class="['overflow-menu-item', { 'is-active': viewMode === 'facing' }]"
-                            :disabled="!hasPdf"
+                            :disabled="!hasInteractiveDocument"
                             @click="emit('set-view-mode', 'facing'); close()"
                         >
                             <UIcon name="i-lucide-book-open" class="overflow-menu-icon" />
@@ -169,7 +169,7 @@
                         <button
                             v-if="isCommandInMenu('view-mode')"
                             :class="['overflow-menu-item', { 'is-active': viewMode === 'facing-first-single' }]"
-                            :disabled="!hasPdf"
+                            :disabled="!hasInteractiveDocument"
                             @click="emit('set-view-mode', 'facing-first-single'); close()"
                         >
                             <span class="overflow-menu-icon overflow-menu-icon--facing-first-single">
@@ -187,7 +187,7 @@
                         <button
                             v-if="isCommandInMenu('fit-width')"
                             :class="['overflow-menu-item', { 'is-active': isFitWidthActive }]"
-                            :disabled="!hasPdf"
+                            :disabled="!hasInteractiveDocument"
                             @click="emit('fit-width'); close()"
                         >
                             <UIcon name="i-lucide-move-horizontal" class="overflow-menu-icon" />
@@ -201,7 +201,7 @@
                         <button
                             v-if="isCommandInMenu('fit-height')"
                             :class="['overflow-menu-item', { 'is-active': isFitHeightActive }]"
-                            :disabled="!hasPdf"
+                            :disabled="!hasInteractiveDocument"
                             @click="emit('fit-height'); close()"
                         >
                             <UIcon name="i-lucide-move-vertical" class="overflow-menu-icon" />
@@ -215,7 +215,7 @@
                         <button
                             v-if="isCommandInMenu('drag-mode')"
                             :class="['overflow-menu-item', { 'is-active': dragMode }]"
-                            :disabled="!hasPdf"
+                            :disabled="!hasInteractiveDocument"
                             @click="emit('enable-drag'); close()"
                         >
                             <UIcon name="i-lucide-hand" class="overflow-menu-icon" />
@@ -229,7 +229,7 @@
                         <button
                             v-if="isCommandInMenu('text-select')"
                             :class="['overflow-menu-item', { 'is-active': !dragMode }]"
-                            :disabled="!hasPdf"
+                            :disabled="!hasInteractiveDocument"
                             @click="emit('disable-drag'); close()"
                         >
                             <UIcon name="i-lucide-text-cursor" class="overflow-menu-icon" />
@@ -250,7 +250,7 @@
                         <button
                             v-if="isCommandInMenu('save')"
                             class="overflow-menu-item"
-                            :disabled="!hasPdf || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
+                            :disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
                             @click="emit('save'); close()"
                         >
                             <UIcon name="i-lucide-save" class="overflow-menu-icon" />
@@ -259,7 +259,7 @@
                         <button
                             v-if="isCommandInMenu('save-as') && canSaveAs"
                             class="overflow-menu-item"
-                            :disabled="!hasPdf || isAnySaving || isHistoryBusy || isDjvuMode"
+                            :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
                             @click="emit('save-as'); close()"
                         >
                             <UIcon name="i-lucide-save-all" class="overflow-menu-icon" />
@@ -268,7 +268,7 @@
                         <button
                             v-if="isCommandInMenu('print') && canPrint"
                             class="overflow-menu-item"
-                            :disabled="!hasPdf || isAnySaving || isHistoryBusy || isDjvuMode || isPreparingPrint"
+                            :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode || isPreparingPrint"
                             @click="emit('print'); close()"
                         >
                             <UIcon name="i-lucide-printer" class="overflow-menu-icon" />
@@ -277,7 +277,7 @@
                         <button
                             v-if="isCommandInMenu('undo')"
                             class="overflow-menu-item"
-                            :disabled="!hasPdf || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
+                            :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
                             @click="emit('undo'); close()"
                         >
                             <UIcon name="i-lucide-undo-2" class="overflow-menu-icon" />
@@ -286,7 +286,7 @@
                         <button
                             v-if="isCommandInMenu('redo')"
                             class="overflow-menu-item"
-                            :disabled="!hasPdf || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
+                            :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
                             @click="emit('redo'); close()"
                         >
                             <UIcon name="i-lucide-redo-2" class="overflow-menu-icon" />
@@ -338,6 +338,7 @@ interface IProps {
     isCapturingRegion: boolean
     isCropSelecting: boolean
     isPlacingPageNote: boolean
+    documentBusy?: boolean
     surface?: IReaderCommandSurface
     triggerIcon: string
 }
@@ -377,6 +378,7 @@ const isOpen = computed({
     get: () => props.open,
     set: (value: boolean) => emit('update:open', value),
 });
+const hasInteractiveDocument = computed(() => props.hasPdf && props.documentBusy !== true);
 
 function close() {
     isOpen.value = false;

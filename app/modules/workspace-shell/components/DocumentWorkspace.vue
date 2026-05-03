@@ -24,6 +24,7 @@
                 :is-capturing-region="isCapturingRegion"
                 :is-crop-selecting="isCropSelecting"
                 :is-placing-page-note="annotationPlacingPageNote"
+                :document-busy="isDocumentBusy"
                 :surface="toolbarSurface"
                 @open-file="handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
@@ -57,6 +58,7 @@
                         :is-preparing-print="isPreparingPrint"
                         :is-djvu-mode="isDjvuMode"
                         :can-use-djvu="canUseDjvu"
+                        :document-busy="isDocumentBusy"
                         @update:open="handleDropdownOpen('appMenu', $event)"
                         @open-file="handleOpenFileFromUi"
                         @save="handleToolbarSave"
@@ -87,9 +89,10 @@
                         :open="ocrPopupOpen"
                         :is-exporting-docx="isExportingDocx"
                         :external-error="docxExportError"
-                        :disabled="isDjvuMode || !toolbarHasPdf"
+                        :disabled="isDjvuMode || isConversionBusy || !toolbarHasPdf"
                         :hide-trigger="isCollapsed(2)"
                         @update:open="handleDropdownOpen('ocr', $event)"
+                        @update:running="isOcrRunning = $event"
                         @export-docx="handleExportDocx"
                         @ocr-complete="handleOcrComplete"
                     />
@@ -102,7 +105,7 @@
                         v-model:view-mode="viewMode"
                         :effective-zoom="effectiveZoom"
                         :open="zoomDropdownOpen"
-                        :disabled="!toolbarHasPdf"
+                        :disabled="!toolbarHasPdf || isDocumentBusy"
                         :compact-level="0"
                         @update:effective-zoom="effectiveZoom = $event"
                         @update:open="handleDropdownOpen('zoom', $event)"
@@ -115,7 +118,7 @@
                         :total-pages="totalPages"
                         :view-mode="viewMode"
                         :page-labels="pageLabels"
-                        :disabled="!toolbarHasPdf"
+                        :disabled="!toolbarHasPdf || isDocumentBusy"
                         :compact-level="collapseTier >= 5 ? 2 : collapseTier >= 4 ? 1 : 0"
                         @go-to-page="handleGoToPage"
                         @update:open="handleDropdownOpen('page', $event)"
@@ -152,6 +155,7 @@
                         :is-capturing-region="isCapturingRegion"
                         :is-crop-selecting="isCropSelecting"
                         :is-placing-page-note="annotationPlacingPageNote"
+                        :document-busy="isDocumentBusy"
                         :surface="toolbarSurface"
                         trigger-icon="i-lucide-ellipsis"
                         @update:open="handleDropdownOpen('overflow', $event)"
@@ -584,6 +588,7 @@ const hasDesktopRuntime = computed(() => isDesktopRuntime.value);
 const canUseOcr = hasDesktopRuntime;
 const canUseDjvu = true;
 const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
+const isOcrRunning = ref(false);
 
 const emit = defineEmits<{
     'update-tab': [updates: TTabUpdate];
@@ -852,7 +857,10 @@ const toolbarShowSidebar = computed(() => (
 const canToggleSidebar = computed(() => (
     toolbarHasPdf.value
     && !showNativeDjvuViewer.value
+    && !isDocumentBusy.value
 ));
+const isConversionBusy = computed(() => conversionState.value.isConverting);
+const isDocumentBusy = computed(() => isConversionBusy.value || isOcrRunning.value);
 function handleViewerTotalPagesUpdate(value: number) {
     // During split restore the PdfViewer emits totalPages=0 while it starts
     // loading the "new" source, overwriting the pre-seeded cache value.

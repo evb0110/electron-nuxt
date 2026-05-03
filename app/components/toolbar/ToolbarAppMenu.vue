@@ -24,7 +24,7 @@
                     </button>
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
                         @click="emit('save'); close()"
                     >
                         <UIcon name="i-lucide-save" class="app-menu-icon" />
@@ -33,7 +33,7 @@
                     </button>
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
                         @click="emit('save-as'); close()"
                     >
                         <UIcon name="i-lucide-save-all" class="app-menu-icon" />
@@ -42,7 +42,7 @@
                     </button>
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || isPreparingPrint"
+                        :disabled="!hasInteractiveDocument || isPreparingPrint"
                         @click="emit('print'); close()"
                     >
                         <UIcon
@@ -63,7 +63,7 @@
                     <div class="app-menu-divider" />
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || !canExportDocx || isExportingDocx"
+                        :disabled="!hasInteractiveDocument || !canExportDocx || isExportingDocx"
                         @click="emit('export-docx'); close()"
                     >
                         <UIcon name="i-lucide-file-text" class="app-menu-icon" />
@@ -72,7 +72,7 @@
                     </button>
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf"
+                        :disabled="!hasInteractiveDocument"
                         @click="emit('export-images'); close()"
                     >
                         <UIcon name="i-lucide-image" class="app-menu-icon" />
@@ -80,7 +80,7 @@
                     </button>
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf"
+                        :disabled="!hasInteractiveDocument"
                         @click="emit('export-multi-page-tiff'); close()"
                     >
                         <UIcon name="i-lucide-images" class="app-menu-icon" />
@@ -90,6 +90,7 @@
                         <div class="app-menu-divider" />
                         <button
                             class="app-menu-item"
+                            :disabled="documentBusy"
                             @click="emit('convert-to-pdf'); close()"
                         >
                             <UIcon name="i-lucide-refresh-cw" class="app-menu-icon" />
@@ -104,7 +105,7 @@
                 <div class="app-menu-section">
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
                         @click="emit('undo'); close()"
                     >
                         <UIcon name="i-lucide-undo-2" class="app-menu-icon" />
@@ -113,7 +114,7 @@
                     </button>
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
                         @click="emit('redo'); close()"
                     >
                         <UIcon name="i-lucide-redo-2" class="app-menu-icon" />
@@ -123,7 +124,7 @@
                     <div class="app-menu-divider" />
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || isDjvuMode"
                         @click="emit('insert-image-from-file'); close()"
                     >
                         <UIcon name="i-lucide-image-plus" class="app-menu-icon" />
@@ -131,7 +132,7 @@
                     </button>
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || isDjvuMode"
                         @click="emit('paste-image-from-clipboard'); close()"
                     >
                         <UIcon name="i-lucide-clipboard-paste" class="app-menu-icon" />
@@ -145,7 +146,7 @@
                 <div class="app-menu-section">
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || isDjvuMode"
                         @click="emit('delete-pages'); close()"
                     >
                         <UIcon name="i-lucide-trash-2" class="app-menu-icon" />
@@ -153,7 +154,7 @@
                     </button>
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || isDjvuMode"
                         @click="emit('extract-pages'); close()"
                     >
                         <UIcon name="i-lucide-file-output" class="app-menu-icon" />
@@ -162,7 +163,7 @@
                     <div class="app-menu-divider" />
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || isDjvuMode"
                         @click="emit('rotate-cw'); close()"
                     >
                         <UIcon name="i-lucide-rotate-cw" class="app-menu-icon" />
@@ -170,7 +171,7 @@
                     </button>
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || isDjvuMode"
                         @click="emit('rotate-ccw'); close()"
                     >
                         <UIcon name="i-lucide-rotate-ccw" class="app-menu-icon" />
@@ -179,7 +180,7 @@
                     <div class="app-menu-divider" />
                     <button
                         class="app-menu-item"
-                        :disabled="!hasPdf || isDjvuMode"
+                        :disabled="!hasInteractiveDocument || isDjvuMode"
                         @click="emit('insert-pages'); close()"
                     >
                         <UIcon name="i-lucide-file-plus" class="app-menu-icon" />
@@ -209,6 +210,7 @@ interface IProps {
     isPreparingPrint: boolean
     isDjvuMode: boolean
     canUseDjvu: boolean
+    documentBusy?: boolean
 }
 
 const props = defineProps<IProps>();
@@ -236,6 +238,7 @@ const emit = defineEmits<{
 }>();
 
 const shortcutLabels = getShortcutLabels();
+const hasInteractiveDocument = computed(() => props.hasPdf && props.documentBusy !== true);
 
 const isOpen = computed({
     get: () => props.open,
