@@ -24,6 +24,7 @@ const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
 const BROWSER_PRINT_LOAD_SETTLE_DELAY_MS = 300;
 const BROWSER_PRINT_FRAME_MIN_WIDTH_PX = 1280;
 const BROWSER_PRINT_FRAME_MIN_HEIGHT_PX = 1600;
+const PDF_MIME_TYPE = 'application/pdf';
 
 function isCrossOriginFrameAccessError(error: unknown) {
     if (!(error instanceof Error)) {
@@ -83,6 +84,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
     const printStatus = computed(() => isPreparingPrint.value ? t('print.preparing') : null);
     let removeAfterPrintListener: (() => void) | null = null;
     let browserPrintCleanupTimer: number | null = null;
+    let activeBrowserPrintUrl: string | null = null;
 
     function shouldBypassNativePrintDialog() {
         return false;
@@ -101,6 +103,15 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
         browserPrintCleanupTimer = null;
     }
 
+    function clearActiveBrowserPrintUrl() {
+        if (!activeBrowserPrintUrl) {
+            return;
+        }
+
+        revokeBrowserPrintUrl(activeBrowserPrintUrl);
+        activeBrowserPrintUrl = null;
+    }
+
     function cleanupPrintFrame() {
         if (typeof window !== 'undefined' && removeAfterPrintListener) {
             removeAfterPrintListener();
@@ -110,6 +121,8 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
         if (typeof window !== 'undefined') {
             clearBrowserPrintCleanupTimer();
         }
+
+        clearActiveBrowserPrintUrl();
 
         if (activePrintFrame.value) {
             activePrintFrame.value.remove();
@@ -183,6 +196,25 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
         activePrintFrame.value = frame;
 
         return frame;
+    }
+
+    function createBrowserPrintUrl(printablePdf: Blob | Uint8Array) {
+        if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+            throw new Error('Browser PDF printing is unavailable');
+        }
+
+        if (printablePdf instanceof Blob) {
+            return URL.createObjectURL(printablePdf);
+        }
+
+        const pdfBytes = new Uint8Array(printablePdf);
+        return URL.createObjectURL(new Blob([pdfBytes.buffer], { type: PDF_MIME_TYPE }));
+    }
+
+    function revokeBrowserPrintUrl(printUrl: string) {
+        if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+            URL.revokeObjectURL(printUrl);
+        }
     }
 
     function waitForPrintFrameLoad(frame: HTMLIFrameElement) {
@@ -279,6 +311,52 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
         }
     }
 
+    async function printPdfWithBrowserPdfViewer(printablePdf: Blob | Uint8Array) {
+        const frame = createHiddenPrintFrame();
+        const printUrl = createBrowserPrintUrl(printablePdf);
+        activeBrowserPrintUrl = printUrl;
+        const frameLoad = waitForPrintFrameLoad(frame);
+
+        frame.src = printUrl;
+
+        try {
+            await frameLoad;
+
+            const frameWindow = frame.contentWindow;
+            if (!frameWindow) {
+                throw new Error('Missing print frame window');
+            }
+
+            const afterPrint = () => {
+                cleanupPrintFrame();
+            };
+            window.addEventListener('afterprint', afterPrint, { once: true });
+            removeAfterPrintListener = () => {
+                window.removeEventListener('afterprint', afterPrint);
+            };
+            try {
+                frameWindow.addEventListener('afterprint', afterPrint, { once: true });
+                removeAfterPrintListener = () => {
+                    window.removeEventListener('afterprint', afterPrint);
+                    frameWindow.removeEventListener('afterprint', afterPrint);
+                };
+            } catch (error) {
+                if (!isCrossOriginFrameAccessError(error)) {
+                    throw error;
+                }
+            }
+            browserPrintCleanupTimer = window.setTimeout(afterPrint, BROWSER_PRINT_CLEANUP_TIMEOUT_MS);
+
+            await waitForPrintFrameReady(frameWindow);
+            printDialogOpen.value = false;
+            frameWindow.focus();
+            frameWindow.print();
+        } catch (error) {
+            cleanupPrintFrame();
+            throw error;
+        }
+    }
+
     async function tryOpenNativePrintDialogForPdfData(
         printablePdfData: Uint8Array,
         options: { force?: boolean; } = {},
@@ -340,14 +418,21 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
         nativeFallback: () => Promise<boolean>,
     ) {
         try {
-            await printPdfInHiddenFrame(printablePdf);
+            await printPdfWithBrowserPdfViewer(printablePdf);
             return true;
-        } catch (browserError) {
-            if (await nativeFallback()) {
+        } catch (pdfViewerPrintError) {
+            try {
+                await printPdfInHiddenFrame(printablePdf);
                 return true;
-            }
+            } catch (browserError) {
+                if (await nativeFallback()) {
+                    return true;
+                }
 
-            throw browserError;
+                throw browserError instanceof Error
+                    ? browserError
+                    : pdfViewerPrintError;
+            }
         }
     }
 
