@@ -12,6 +12,12 @@ describe('collapseRepeatedPdfSearchPageText', () => {
         expect(collapseRepeatedPdfSearchPageText(pageText.repeat(3))).toBe(pageText);
     });
 
+    it('collapses OCR overlay stacks with more than four copies', () => {
+        const pageText = 'В. 0. Гиргас АРАВСКО-РУССКИЙ СЛОВАРЬ К ВОТАНО и ХАДИСАМ\n';
+
+        expect(collapseRepeatedPdfSearchPageText(pageText.repeat(6))).toBe(pageText);
+    });
+
     it('keeps short repeated phrases because they can be real page content', () => {
         expect(collapseRepeatedPdfSearchPageText('ha '.repeat(4))).toBe('ha '.repeat(4));
     });

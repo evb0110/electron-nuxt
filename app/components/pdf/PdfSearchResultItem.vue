@@ -98,7 +98,7 @@ const matchIndicator = computed(() => (props.result.pageMatchIndex ?? props.resu
 }
 
 .pdf-search-result-highlight {
-    padding: 0 0.1rem;
+    padding: 0;
     border-radius: 0.2rem;
     background: var(--app-pdf-search-result-highlight-bg);
     color: var(--ui-text);

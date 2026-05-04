@@ -45,6 +45,7 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
 
     const {
         openSearch,
+        searchFocusRequest,
         openAnnotations,
         closeSearch,
         handleSearch,
@@ -88,6 +89,7 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
         isTruncated,
         minQueryLength,
         openSearch,
+        searchFocusRequest,
         openAnnotations,
         closeSearch,
         handleSearch,

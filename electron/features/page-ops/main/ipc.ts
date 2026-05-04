@@ -11,6 +11,7 @@ import {
 } from 'fs';
 import {
     rename,
+    rm,
     unlink,
     writeFile,
 } from 'fs/promises';
@@ -190,6 +191,29 @@ function validateInsertPageArgs(
     };
 }
 
+async function unlinkIfPresent(filePath: string) {
+    try {
+        await unlink(filePath);
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException | null)?.code;
+        if (code !== 'ENOENT') {
+            log.debug(`Failed to remove page-op artifact "${filePath}": ${getErrorMessage(error)}`);
+        }
+    }
+}
+
+async function clearWorkingCopyOcrArtifacts(workingCopyPath: string) {
+    await Promise.all([
+        rm(`${workingCopyPath}.ocr`, {
+            recursive: true,
+            force: true,
+        }).catch(error => {
+            log.debug(`Failed to remove OCR sidecar for page-op mutation: ${getErrorMessage(error)}`);
+        }),
+        unlinkIfPresent(`${workingCopyPath}.index.json`),
+    ]);
+}
+
 async function handlePageOpsDelete(
     _event: Electron.IpcMainInvokeEvent,
     workingCopyPath: string,
@@ -207,7 +231,9 @@ async function handlePageOpsDelete(
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
-        return deletePages(queuedWorkingCopyPath, pages, totalPages);
+        const operationResult = await deletePages(queuedWorkingCopyPath, pages, totalPages);
+        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
+        return operationResult;
     });
     return {
         success: true,
@@ -272,7 +298,9 @@ async function handlePageOpsReorder(
 
     const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
-        return reorderPages(queuedWorkingCopyPath, newOrder);
+        const operationResult = await reorderPages(queuedWorkingCopyPath, newOrder);
+        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
+        return operationResult;
     });
     return {
         success: true,
@@ -323,6 +351,7 @@ async function handlePageOpsInsert(
             result.filePaths,
             insertArgs.afterPage,
         );
+        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};
 }
@@ -456,6 +485,7 @@ async function handlePageOpsRotate(
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
         await rotatePages(queuedWorkingCopyPath, pages, angle);
+        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};
 }
@@ -482,6 +512,7 @@ async function handlePageOpsInsertFile(
             sourcePaths,
             insertArgs.afterPage,
         );
+        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};
 }
@@ -511,6 +542,7 @@ async function handlePageOpsCrop(
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
         await cropPages(queuedWorkingCopyPath, pages, margins);
+        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};
 }
@@ -526,6 +558,7 @@ async function handlePageOpsRemoveCrop(
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
         const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
         await removeCropFromPages(queuedWorkingCopyPath, pages);
+        await clearWorkingCopyOcrArtifacts(queuedWorkingCopyPath);
     });
     return {success: true};
 }

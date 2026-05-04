@@ -30,7 +30,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('worker_threads', () => ({parentPort: mocks.parentPort}));
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
 vi.mock('@electron/search/index-builder', () => ({
-    SEARCH_INDEX_SCHEMA_VERSION: 3,
+    SEARCH_INDEX_SCHEMA_VERSION: 4,
     loadSearchIndex: mocks.loadSearchIndex,
     buildSearchIndex: mocks.buildSearchIndex,
 }));
@@ -72,7 +72,7 @@ describe('search worker warmup and cache behavior', () => {
 
         mocks.loadSearchIndex.mockResolvedValue(null);
         mocks.buildSearchIndex.mockResolvedValue({
-            schemaVersion: 3,
+            schemaVersion: 4,
             pdfPath: TEST_PDF_PATH,
             createdAt: Date.now(),
             pageCount: 1,
@@ -236,6 +236,39 @@ describe('search worker warmup and cache behavior', () => {
         });
     });
 
+    it('rebuilds current-schema on-disk indexes when the PDF is newer', async () => {
+        mocks.loadSearchIndex.mockResolvedValue({
+            schemaVersion: 4,
+            pdfPath: TEST_PDF_PATH,
+            createdAt: Date.now(),
+            pageCount: 1,
+            pages: [{
+                pageNumber: 1,
+                text: PAGE_TEXT,
+            }],
+        });
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        expect(handleMessage).toBeTypeOf('function');
+
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'warm-source-newer',
+                pdfPath: TEST_PDF_PATH,
+                query: '',
+                pageCount: 1,
+                warmup: true,
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(1);
+        });
+        expect(mocks.loadSearchIndex).not.toHaveBeenCalled();
+    });
+
     it('streams matches while a stale index is being rebuilt', async () => {
         mocks.buildSearchIndex.mockImplementation(async (
             _pdfPath: string,
@@ -247,7 +280,7 @@ describe('search worker warmup and cache behavior', () => {
                 text: 'needle on the first page',
             });
             return {
-                schemaVersion: 3,
+                schemaVersion: 4,
                 pdfPath: TEST_PDF_PATH,
                 createdAt: Date.now(),
                 pageCount: 2,

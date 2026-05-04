@@ -88,3 +88,32 @@ describe('runOcr setup failure cleanup', () => {
         expect(child.kill).toHaveBeenCalledWith('SIGKILL');
     });
 });
+
+describe('Tesseract TSV geometry parsing', () => {
+    it('uses line-level vertical geometry for word boxes', async () => {
+        const { parseTsvOutput } = await import('@electron/ocr/worker/tesseract-runner');
+        const tsv = [
+            'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
+            '4\t1\t1\t1\t1\t0\t10\t40\t160\t50\t-1\t',
+            '5\t1\t1\t1\t1\t1\t10\t55\t70\t20\t92\tTITLE',
+            '5\t1\t1\t1\t1\t2\t90\t65\t40\t12\t91\tword',
+        ].join('\n');
+
+        expect(parseTsvOutput(tsv)).toEqual([
+            {
+                text: 'TITLE',
+                x: 10,
+                y: 40,
+                width: 70,
+                height: 50,
+            },
+            {
+                text: 'word',
+                x: 90,
+                y: 40,
+                width: 40,
+                height: 50,
+            },
+        ]);
+    });
+});

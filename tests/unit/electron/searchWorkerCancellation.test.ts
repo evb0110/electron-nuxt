@@ -32,7 +32,7 @@ vi.mock('worker_threads', () => ({parentPort: mocks.parentPort}));
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
 
 vi.mock('@electron/search/index-builder', () => ({
-    SEARCH_INDEX_SCHEMA_VERSION: 3,
+    SEARCH_INDEX_SCHEMA_VERSION: 4,
     loadSearchIndex: mocks.loadSearchIndex,
     buildSearchIndex: mocks.buildSearchIndex,
 }));

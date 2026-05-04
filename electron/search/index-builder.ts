@@ -3,7 +3,13 @@ import {
     readFile,
     writeFile,
 } from 'fs/promises';
-import { join } from 'path';
+import {
+    isAbsolute,
+    join,
+    relative,
+    resolve,
+    sep,
+} from 'path';
 import type { IOcrWord } from '@contracts/shared';
 import {
     OCR_TEXT_LAYER_INDEX_SOURCE,
@@ -42,7 +48,7 @@ export interface IPdfSearchIndex {
 const log = createLogger('index-builder');
 
 const STORE_WORD_BOXES = false;
-export const SEARCH_INDEX_SCHEMA_VERSION = 3;
+export const SEARCH_INDEX_SCHEMA_VERSION = 4;
 
 interface IOcrIndexV2Manifest {
     version: number;
@@ -97,10 +103,40 @@ function isPositiveInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
+function isExpectedPageNumber(
+    pageNumber: number,
+    expectedCount: number | undefined,
+) {
+    return pageNumber >= 1 && (!isPositiveInteger(expectedCount) || pageNumber <= expectedCount);
+}
+
 function finiteNumberOrUndefined(value: unknown) {
     return typeof value === 'number' && Number.isFinite(value)
         ? value
         : undefined;
+}
+
+function resolveManifestPagePath(
+    ocrDir: string,
+    relativePath: unknown,
+) {
+    if (typeof relativePath !== 'string' || relativePath.length === 0) {
+        return null;
+    }
+
+    const resolvedOcrDir = resolve(ocrDir);
+    const resolvedPath = resolve(resolvedOcrDir, relativePath);
+    const relativePathFromDir = relative(resolvedOcrDir, resolvedPath);
+    if (
+        relativePathFromDir === ''
+        || relativePathFromDir === '..'
+        || relativePathFromDir.startsWith(`..${sep}`)
+        || isAbsolute(relativePathFromDir)
+    ) {
+        return null;
+    }
+
+    return resolvedPath;
 }
 
 /**
@@ -109,6 +145,7 @@ function finiteNumberOrUndefined(value: unknown) {
  */
 async function loadOcrIndexText(
     pdfPath: string,
+    expectedCount?: number,
     onPageIndexed?: (page: IPageIndex) => void,
     signal?: AbortSignal,
 ): Promise<Map<number, string> | null> {
@@ -139,16 +176,24 @@ async function loadOcrIndexText(
         ] of Object.entries(manifest.pages)) {
             throwIfAborted(signal);
             const pageNum = parseInt(pageNumStr, 10);
-            if (!Number.isInteger(pageNum) || pageNum < 1) {
+            if (!Number.isInteger(pageNum) || !isExpectedPageNumber(pageNum, expectedCount)) {
                 log.warn(`Skipping OCR page with invalid page number "${pageNumStr}" in manifest`);
                 continue;
             }
-            const pagePath = join(ocrDir, pageInfo.path);
+            const pagePath = resolveManifestPagePath(ocrDir, pageInfo.path);
+            if (!pagePath) {
+                log.warn(`Skipping OCR page ${pageNum} with invalid manifest path`);
+                continue;
+            }
 
             if (existsSync(pagePath)) {
                 const pageJson = await readFile(pagePath, 'utf-8');
                 throwIfAborted(signal);
                 const pageData = JSON.parse(pageJson) as IOcrIndexV2Page;
+                if (pageData.pageNumber !== undefined && pageData.pageNumber !== pageNum) {
+                    log.warn(`Skipping OCR page ${pageNum} with mismatched page data ${pageData.pageNumber}`);
+                    continue;
+                }
                 const words = Array.isArray(pageData.words) ? pageData.words : [];
                 const text = words.length > 0
                     ? buildOcrTextLayerIndexText(words)
@@ -533,7 +578,7 @@ export async function buildSearchIndex(
 
     // Try OCR v2 index first - this is the preferred source for OCR'd PDFs
     // as it matches the text layer that PDF.js will display
-    const ocrTexts = await loadOcrIndexText(pdfPath, onPageIndexed, signal);
+    const ocrTexts = await loadOcrIndexText(pdfPath, expectedCount, onPageIndexed, signal);
     if (ocrTexts && ocrTexts.size > 0) {
         return buildIndexFromOcrTexts(pdfPath, ocrTexts, expectedCount, signal);
     }

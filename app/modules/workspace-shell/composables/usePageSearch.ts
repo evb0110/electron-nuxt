@@ -38,9 +38,12 @@ export const usePageSearch = (deps: IPageSearchDeps) => {
         clearSearch,
     } = deps;
 
+    const searchFocusRequest = ref(0);
+
     function openSearch() {
         showSidebar.value = true;
         sidebarTab.value = 'search';
+        searchFocusRequest.value += 1;
     }
 
     function openAnnotations() {
@@ -89,6 +92,7 @@ export const usePageSearch = (deps: IPageSearchDeps) => {
 
     return {
         openSearch,
+        searchFocusRequest,
         openAnnotations,
         closeSearch,
         handleSearch,
