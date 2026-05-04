@@ -27,6 +27,10 @@ const __dirname = dirname(__filename);
 const log = createLogger('search-ipc');
 let appCleanupRegistered = false;
 
+function isWorkingCopyPathCandidate(pdfPath: string) {
+    return /(?:^|[/\\])pdf-work-[^/\\]+[/\\]/u.test(pdfPath);
+}
+
 const SEARCH_PAGE_COUNT_MAX = (() => {
     const parsed = Number.parseInt(process.env.EVB_SEARCH_PAGE_COUNT_MAX ?? '20000', 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
@@ -140,9 +144,11 @@ export function resolveSearchWorkerPath(workerBaseDir = __dirname): string {
 }
 
 export async function resolveSearchablePdfPath(pdfPath: string): Promise<string | null> {
-    const directResolvedPath = await resolveAllowedReadPath(pdfPath);
-    if (directResolvedPath) {
-        return directResolvedPath;
+    if (isWorkingCopyPathCandidate(pdfPath)) {
+        const directResolvedPath = await resolveAllowedReadPath(pdfPath);
+        if (directResolvedPath) {
+            return directResolvedPath;
+        }
     }
 
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(pdfPath);
@@ -151,6 +157,11 @@ export async function resolveSearchablePdfPath(pdfPath: string): Promise<string 
         if (mappedResolvedPath) {
             return mappedResolvedPath;
         }
+    }
+
+    const directResolvedPath = await resolveAllowedReadPath(pdfPath);
+    if (directResolvedPath) {
+        return directResolvedPath;
     }
 
     return null;
