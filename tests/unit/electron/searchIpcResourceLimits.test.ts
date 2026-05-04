@@ -5,7 +5,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type * as FsPromises from 'fs/promises';
 
 type TRegisteredHandler = (...args: unknown[]) => unknown;
 
@@ -33,7 +32,7 @@ const mocks = vi.hoisted(() => ({
         error: vi.fn(),
     },
     autoCompleteSearch: true,
-    stat: vi.fn(),
+    existsSync: vi.fn(),
 }));
 
 function emitWorkerEvent(
@@ -119,13 +118,7 @@ vi.mock('electron', () => ({
 vi.mock('@electron/utils/path-validator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
 vi.mock('@electron/ipc/workingCopy', () => ({findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => mocks.logger}));
-vi.mock('fs/promises', async () => {
-    const actual = await vi.importActual<typeof FsPromises>('fs/promises');
-    return {
-        ...actual,
-        stat: (...args: unknown[]) => mocks.stat(...args),
-    };
-});
+vi.mock('fs', () => ({existsSync: (...args: unknown[]) => mocks.existsSync(...args)}));
 
 function createInvokeEvent(senderId: number) {
     const sender = {
@@ -167,14 +160,10 @@ describe('search IPC worker resource limits', () => {
         delete process.env.EVB_SEARCH_WORKER_MAX_ACTIVE;
         delete process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS;
         delete process.env.EVB_SEARCH_REQUEST_TIMEOUT_MS;
-        delete process.env.EVB_SEARCH_PDF_MAX_BYTES;
 
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/allowed.pdf');
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
-        mocks.stat.mockResolvedValue({
-            isFile: () => true,
-            size: 1024,
-        });
+        mocks.existsSync.mockReturnValue(false);
     });
 
     it('fails fast when cap is reached and no idle worker can be reused', async () => {
@@ -397,12 +386,8 @@ describe('search IPC worker resource limits', () => {
         }
     });
 
-    it('rejects oversized PDFs before dispatching to the search worker', async () => {
+    it('dispatches huge PDFs to the search worker instead of declaring search unavailable by file size', async () => {
         process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '4';
-        mocks.stat.mockResolvedValue({
-            isFile: () => true,
-            size: 300 * 1024 * 1024,
-        });
 
         const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
         registerSearchHandlers();
@@ -415,7 +400,35 @@ describe('search IPC worker resource limits', () => {
                 query: 'needle',
                 requestId: 'large-req',
             },
-        )).rejects.toThrow('PDF is too large for in-app search');
-        expect(mocks.workerRecords).toHaveLength(0);
+        )).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+        expect(mocks.workerRecords).toHaveLength(1);
+    });
+
+    it('prefers the active working copy for original-path searches', async () => {
+        process.env.EVB_SEARCH_WORKER_MAX_ACTIVE = '4';
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/work/large.pdf');
+        mocks.resolveAllowedReadPath.mockImplementation(async (path: string) => path);
+
+        const { registerSearchHandlers } = await import('@electron/features/search/main/ipc');
+        registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+
+        await expect(searchHandler(
+            createInvokeEvent(101),
+            {
+                pdfPath: '/Users/example/large.pdf',
+                query: 'needle',
+                requestId: 'original-path-req',
+            },
+        )).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+
+        expect(mocks.workerRecords[0]?.postMessageCalls[0]?.payload)
+            .toEqual(expect.objectContaining({pdfPath: '/tmp/work/large.pdf'}));
     });
 });
