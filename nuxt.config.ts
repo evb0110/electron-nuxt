@@ -38,6 +38,29 @@ const nitroOutputDir = process.env.VERCEL === '1' || process.env.NOW_BUILDER ===
 
 const isDev = process.env.NODE_ENV !== 'production';
 const appDir = fileURLToPath(new URL('./app', import.meta.url));
+const knownSourcemapWarningPlugins = new Set([
+    '@tailwindcss/vite:generate:build',
+    'nuxt:module-preload-polyfill',
+    'nuxt:server-devonly:transform',
+]);
+
+interface IRollupLog {
+    code?: string;
+    message?: string;
+    plugin?: string;
+}
+
+type TRollupLogLevel = 'debug' | 'info' | 'warn';
+type TRollupLogHandler = (level: TRollupLogLevel, log: IRollupLog) => void;
+
+function isKnownSourcemapWarning(log: IRollupLog) {
+    if (log.code !== 'SOURCEMAP_BROKEN') {
+        return false;
+    }
+
+    const plugin = log.plugin ?? log.message?.match(/a plugin \(([^)]+)\)/u)?.[1];
+    return plugin ? knownSourcemapWarningPlugins.has(plugin) : false;
+}
 
 export default defineNuxtConfig({
     app: {
@@ -625,16 +648,26 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
             },
         },
         build: {
+            sourcemap: false,
             // Electron desktop bundle tolerates larger chunks, but still split heavy vendors to keep rebuilds snappier.
             chunkSizeWarningLimit: 1400,
-            rollupOptions: {output: {manualChunks: {
-                'vendor-pdfjs': [
-                    'pdfjs-dist',
-                    'pdfjs-dist/web/pdf_viewer.mjs',
-                ],
-                'vendor-pdf-lib': ['pdf-lib'],
-                'vendor-vueuse': ['@vueuse/core'],
-            }}},
+            rollupOptions: {
+                onLog(level: TRollupLogLevel, log: IRollupLog, handler: TRollupLogHandler) {
+                    if (level === 'warn' && isKnownSourcemapWarning(log)) {
+                        return;
+                    }
+
+                    handler(level, log);
+                },
+                output: {manualChunks: {
+                    'vendor-pdfjs': [
+                        'pdfjs-dist',
+                        'pdfjs-dist/web/pdf_viewer.mjs',
+                    ],
+                    'vendor-pdf-lib': ['pdf-lib'],
+                    'vendor-vueuse': ['@vueuse/core'],
+                }},
+            },
         },
         optimizeDeps: {
             include: [
