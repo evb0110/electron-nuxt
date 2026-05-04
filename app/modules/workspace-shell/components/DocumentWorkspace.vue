@@ -300,8 +300,8 @@
                         :annotation-cursor-mode="annotationCursorMode"
                         :annotation-keep-active="annotationKeepActive"
                         :annotation-settings="annotationSettings"
-                        :search-page-matches="pageMatches"
-                        :current-search-match="currentResult"
+                        :search-page-matches="viewerSearchPageMatches"
+                        :current-search-match="viewerCurrentSearchMatch"
                         :working-copy-path="workingCopyPath"
                         :author-name="appSettings.authorName"
                         @update:zoom="zoom = $event"
@@ -550,6 +550,7 @@ import type {
     TOpenFileResult,
 } from '@contracts/platform-api';
 import type { TTabUpdate } from '@app/types/tabs';
+import type { IPdfPageMatches } from '@app/types/pdf';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
@@ -830,6 +831,14 @@ const {
     initFromStorage,
     hasPdf,
 } = w;
+
+const hiddenSearchPageMatches = new Map<number, IPdfPageMatches>();
+const viewerSearchPageMatches = computed(() => (
+    showSidebar.value ? pageMatches.value : hiddenSearchPageMatches
+));
+const viewerCurrentSearchMatch = computed(() => (
+    showSidebar.value ? currentResult.value : null
+));
 
 const viewerSourcePdfData = computed(() => pdfData.value);
 
