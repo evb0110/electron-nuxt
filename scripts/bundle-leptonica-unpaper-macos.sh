@@ -1,6 +1,6 @@
 #!/bin/bash
 # Bundle Leptonica and minimal Unpaper for macOS
-# Prerequisites: Tesseract already bundled, Meson + pkg-config installed
+# Prerequisites: Tesseract already bundled, Meson + pkg-config + sphinx-doc installed
 # Usage: ./scripts/bundle-leptonica-unpaper-macos.sh
 set -e
 
@@ -31,6 +31,19 @@ fi
 
 if ! command -v pkg-config &> /dev/null; then
   echo "Error: pkg-config is required. Install with: brew install pkg-config"
+  exit 1
+fi
+
+if ! command -v sphinx-build &> /dev/null && command -v brew &> /dev/null; then
+  SPHINX_BIN="$(brew --prefix sphinx-doc 2>/dev/null || true)/bin"
+  if [ -x "$SPHINX_BIN/sphinx-build" ]; then
+    export PATH="$SPHINX_BIN:$PATH"
+  fi
+fi
+
+if ! command -v sphinx-build &> /dev/null; then
+  echo "Error: sphinx-build is required. Install with: brew install sphinx-doc"
+  echo "If Homebrew leaves sphinx-doc keg-only, add its bin directory to PATH."
   exit 1
 fi
 
