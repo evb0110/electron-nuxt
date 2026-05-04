@@ -44,8 +44,10 @@ jobs:
       - name: Bundle native tools (macOS Intel)
         timeout-minutes: 30
         run: |
-          brew install tesseract poppler qpdf djvulibre ffmpeg meson pkg-config
-          pip3 install sphinx --break-system-packages
+          brew install tesseract poppler qpdf djvulibre ffmpeg meson pkg-config sphinx-doc
+          SPHINX_BIN="$(brew --prefix sphinx-doc)/bin"
+          echo "$SPHINX_BIN" >> "$GITHUB_PATH"
+          export PATH="$SPHINX_BIN:$PATH"
           bash scripts/bundle-tesseract-macos.sh
           bash scripts/bundle-leptonica-unpaper-macos.sh
           bash scripts/bundle-pdf-tools-macos.sh
