@@ -1,6 +1,7 @@
 import { stat } from 'fs/promises';
 import type { IPdfSearchIndex } from '@electron/search/index-builder';
 import {
+    SEARCH_INDEX_SCHEMA_VERSION,
     buildSearchIndex,
     loadSearchIndex,
 } from '@electron/search/index-builder';
@@ -23,6 +24,7 @@ interface IEnsureSearchIndexOptions {
     pageCount?: number;
     signal?: AbortSignal;
     throwIfCancelled: (signal?: AbortSignal) => void;
+    onPageIndexed?: (page: IPdfSearchIndex['pages'][number]) => void;
 }
 
 export function getIndexPath(pdfPath: string) {
@@ -160,6 +162,10 @@ function shouldRebuildCachedIndex(
     entry: ICachedIndex,
     expectedCount?: number,
 ) {
+    if (entry.index.schemaVersion !== SEARCH_INDEX_SCHEMA_VERSION) {
+        return true;
+    }
+
     const hasAnyText = entry.index.pages.some(page => (page.text ?? '').length > 0);
     if (!hasAnyText && entry.index.pages.length > 0) {
         return true;
@@ -199,6 +205,7 @@ export async function ensureSearchIndex(
             await buildSearchIndex(pdfPath, [], {
                 pageCount: expectedCount,
                 signal,
+                onPageIndexed: ensureOptions.onPageIndexed,
             }),
             cacheOptions,
         );

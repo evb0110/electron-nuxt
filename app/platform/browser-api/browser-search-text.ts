@@ -1,23 +1,26 @@
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
+import { collapseRepeatedPdfSearchPageText } from '@contracts/search';
 
 export async function extractBrowserSearchPageText(page: {
     getTextContent: PDFPageProxy['getTextContent'];
     cleanup?: PDFPageProxy['cleanup'];
 }) {
-    const content = await page.getTextContent();
+    const content = await page.getTextContent({
+        includeMarkedContent: true,
+        disableNormalization: true,
+    });
     const textChunks: string[] = [];
 
     for (let index = 0; index < content.items.length; index += 128) {
         const chunk = content.items.slice(index, index + 128);
-        const normalizedChunk = chunk
-            .map(item => ('str' in item ? String(item.str ?? '') : ''))
-            .join(' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-        if (normalizedChunk) {
-            textChunks.push(normalizedChunk);
+        for (const item of chunk) {
+            if ('str' in item) {
+                textChunks.push(String(item.str ?? ''));
+                if (item.hasEOL) {
+                    textChunks.push('\n');
+                }
+            }
         }
 
         if (index + 128 < content.items.length) {
@@ -25,7 +28,7 @@ export async function extractBrowserSearchPageText(page: {
         }
     }
 
-    const text = textChunks.join(' ').trim();
+    const text = collapseRepeatedPdfSearchPageText(textChunks.join(''));
 
     try {
         await Promise.resolve(page.cleanup?.());

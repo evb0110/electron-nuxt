@@ -3,7 +3,7 @@
 /* ── Class-Based Search Highlights ─────────────────────────────────── */
 
 .pdfViewer .pdf-search-highlight {
-    background-color: rgb(255 230 0 / 0.5);
+    background-color: var(--app-pdf-search-highlight-bg);
     color: transparent;
     border-radius: 2px;
     padding: 0;
@@ -11,35 +11,45 @@
 }
 
 .pdfViewer .pdf-search-highlight--current {
-    background-color: rgb(255 150 0 / 0.6);
+    background-color: var(--app-pdf-search-highlight-current-bg);
     outline-offset: 0;
 }
 
 /* ── Dark Mode – Class-Based ───────────────────────────────────────── */
 
+.pdf-viewer-container--dark .pdfViewer {
+    --app-pdf-search-highlight-bg: rgb(255 230 0 / 42%);
+    --app-pdf-search-highlight-current-bg: rgb(255 150 0 / 56%);
+}
+
 .pdf-viewer-container--dark .pdfViewer .pdf-search-highlight {
-    background-color: rgb(255 230 0 / 0.6);
+    background-color: var(--app-pdf-search-highlight-bg);
 }
 
 .pdf-viewer-container--dark .pdfViewer .pdf-search-highlight--current {
-    background-color: rgb(255 150 0 / 0.8);
-    outline: 2px solid rgb(255 100 0 / 0.9);
+    background-color: var(--app-pdf-search-highlight-current-bg);
+    outline: 2px solid var(--app-pdf-search-highlight-current-outline);
 }
 
 /* ── CSS Custom Highlight API (Electron/Chromium) ──────────────────── */
 
 ::highlight(pdf-search-match) {
-    background-color: rgb(255 230 0 / 0.5);
+    background-color: var(--app-pdf-search-highlight-bg);
 }
 
 ::highlight(pdf-search-current-match) {
-    background-color: rgb(255 150 0 / 0.7);
+    background-color: var(--app-pdf-search-highlight-current-bg);
+}
+
+.pdf-viewer-container--dark {
+    --app-pdf-search-highlight-bg: rgb(255 230 0 / 42%);
+    --app-pdf-search-highlight-current-bg: rgb(255 150 0 / 56%);
 }
 
 .pdf-viewer-container--dark ::highlight(pdf-search-match) {
-    background-color: rgb(255 230 0 / 0.6);
+    background-color: var(--app-pdf-search-highlight-bg);
 }
 
 .pdf-viewer-container--dark ::highlight(pdf-search-current-match) {
-    background-color: rgb(255 150 0 / 0.8);
+    background-color: var(--app-pdf-search-highlight-current-bg);
 }

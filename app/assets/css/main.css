@@ -155,6 +155,9 @@
     --app-pdf-comment-marker-badge-shadow: 0 1px 3px color-mix(in srgb, var(--ui-bg-inverted) 22%, transparent);
     --app-pdf-comment-marker-badge-border-active: color-mix(in oklab, var(--app-pdf-note-text) 72%, var(--app-pdf-note-border) 28%);
     --app-pdf-comment-marker-badge-shadow-active: 0 1px 4px color-mix(in srgb, var(--ui-bg-inverted) 32%, transparent);
+    --app-pdf-search-highlight-bg: rgb(255 230 0 / 32%);
+    --app-pdf-search-highlight-current-bg: rgb(255 150 0 / 42%);
+    --app-pdf-search-highlight-current-outline: rgb(255 100 0 / 72%);
     --app-pdf-search-result-highlight-bg: color-mix(in oklab, var(--ui-primary) 25%, transparent);
     --app-pdf-search-result-focus-ring: color-mix(in oklab, var(--ui-primary) 52%, transparent);
     --app-pdf-context-menu-border: var(--ui-border);

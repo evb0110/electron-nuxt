@@ -135,6 +135,67 @@ describe('usePdfSearch', () => {
         ]);
     });
 
+    it('shows streamed matches before the backend finishes the full document search', async () => {
+        let progressListener: ((progress: {
+            requestId: string;
+            processed: number;
+            total: number;
+            results?: Array<{
+                pageNumber: number;
+                pageMatchIndex: number;
+                matchIndex: number;
+                startOffset: number;
+                endOffset: number;
+            }>;
+            truncated?: boolean;
+        }) => void) | null = null;
+        let resolveSearch: (value: {
+            results: unknown[];
+            truncated: boolean;
+        }) => void = () => {};
+
+        mockSearch.onProgress.mockImplementation((listener) => {
+            progressListener = listener;
+            return vi.fn();
+        });
+        mockSearch.run.mockImplementation(async (_pdfPath, _query, options) => new Promise((resolve) => {
+            progressListener?.({
+                requestId: options.requestId,
+                processed: 3,
+                total: 928,
+                results: [{
+                    pageNumber: 3,
+                    pageMatchIndex: 0,
+                    matchIndex: 0,
+                    startOffset: 8,
+                    endOffset: 12,
+                }],
+                truncated: false,
+            });
+            resolveSearch = resolve;
+        }));
+
+        const { usePdfSearch } = await import('@app/composables/usePdfSearch');
+        const search = usePdfSearch();
+
+        const promise = search.search('араб', '/tmp/work.pdf', 928);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+
+        expect(search.isSearching.value).toBe(false);
+        expect(search.totalMatches.value).toBe(1);
+        expect(search.currentResult.value).toEqual(expect.objectContaining({
+            pageIndex: 2,
+            startOffset: 8,
+            endOffset: 12,
+        }));
+
+        resolveSearch({
+            results: [],
+            truncated: false,
+        });
+        await promise;
+    });
+
     it('cancels active searches on clear and resets backend cache explicitly', async () => {
         let requestId = '';
         let resolveSearch: (value: {

@@ -40,6 +40,7 @@ interface IPreparedSearchDocumentCache {
 }
 
 interface IPersistedSearchDocumentCacheRecord {
+    version?: number;
     pdfPath: string;
     fileSize: number;
     pageCount: number;
@@ -72,6 +73,7 @@ const BROWSER_SEARCH_MAX_BYTES = 64 * 1024 * 1024;
 const SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES = 16 * 1024 * 1024;
 const SEARCH_CACHE_DB_NAME = 'evb-browser-search-cache';
 const SEARCH_CACHE_DB_VERSION = 1;
+const SEARCH_CACHE_RECORD_VERSION = 3;
 const SEARCH_CACHE_STORE = 'document-text';
 
 function createBrowserSearchTooLargeError() {
@@ -305,6 +307,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         if (!record) {
             return null;
         }
+        if (record.version !== SEARCH_CACHE_RECORD_VERSION) {
+            return null;
+        }
         if (record.fileSize !== fileSize) {
             return null;
         }
@@ -482,6 +487,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             pageTexts = Array.from({ length: pageCount }, (_value, index) => pageTexts[index] ?? '');
             if (!canceled) {
                 await persistSearchCacheRecord({
+                    version: SEARCH_CACHE_RECORD_VERSION,
                     pdfPath,
                     fileSize,
                     pageCount,
@@ -501,6 +507,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
         if (!canceled) {
             await persistSearchCacheRecord({
+                version: SEARCH_CACHE_RECORD_VERSION,
                 pdfPath,
                 fileSize,
                 pageCount: extractedDocumentText.pageCount,

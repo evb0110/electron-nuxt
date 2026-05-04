@@ -1,0 +1,38 @@
+import type { IOcrWord } from './shared';
+
+export const OCR_TEXT_LAYER_INDEX_SOURCE = 'ocr-v2-text-layer';
+export const OCR_TEXT_LAYER_INDEX_VERSION = 1;
+
+export function buildOcrTextLayerItemText(word: Pick<IOcrWord, 'text'>) {
+    return `${word.text} `;
+}
+
+export function isLastOcrWordInLine(
+    words: readonly IOcrWord[],
+    index: number,
+): boolean {
+    if (index === words.length - 1) {
+        return true;
+    }
+
+    const currentWord = words[index];
+    const nextWord = words[index + 1];
+    if (!currentWord || !nextWord) {
+        return true;
+    }
+
+    return Math.abs(nextWord.y - currentWord.y) > currentWord.height * 0.5;
+}
+
+export function buildOcrTextLayerIndexText(words: readonly IOcrWord[]) {
+    const parts: string[] = [];
+
+    words.forEach((word, index) => {
+        parts.push(buildOcrTextLayerItemText(word));
+        if (isLastOcrWordInLine(words, index)) {
+            parts.push('\n');
+        }
+    });
+
+    return parts.join('');
+}

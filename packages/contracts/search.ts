@@ -56,6 +56,40 @@ export function buildPdfSearchRegex(
     return new RegExp(pattern, flags);
 }
 
+const MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH = 48;
+const MIN_TWO_COPY_PAGE_TEXT_SEGMENT_LENGTH = 160;
+
+export function collapseRepeatedPdfSearchPageText(text: string) {
+    for (let repeatCount = 4; repeatCount >= 2; repeatCount -= 1) {
+        if (text.length % repeatCount !== 0) {
+            continue;
+        }
+
+        const segmentLength = text.length / repeatCount;
+        const minSegmentLength = repeatCount === 2
+            ? MIN_TWO_COPY_PAGE_TEXT_SEGMENT_LENGTH
+            : MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH;
+        if (segmentLength < minSegmentLength) {
+            continue;
+        }
+
+        const firstSegment = text.slice(0, segmentLength);
+        let isRepeated = true;
+        for (let index = 1; index < repeatCount; index += 1) {
+            if (text.slice(index * segmentLength, (index + 1) * segmentLength) !== firstSegment) {
+                isRepeated = false;
+                break;
+            }
+        }
+
+        if (isRepeated) {
+            return firstSegment;
+        }
+    }
+
+    return text;
+}
+
 export function findPdfSearchMatches(
     text: string,
     matcherOrQuery: RegExp | string,

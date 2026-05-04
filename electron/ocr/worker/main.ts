@@ -427,13 +427,12 @@ async function processOcrPage(
         return {
             pageData,
             pdfPath: ocrResult.pdfPath,
+            pageImagePath,
         };
     } catch (err) {
         const errMsg = getErrorMessage(err);
         log('warn', `Failed to process page ${page.pageNumber}: ${errMsg}`);
         return { error: `Failed to process page ${page.pageNumber}: ${errMsg}` };
-    } finally {
-        await unlinkIfPresent(pageImagePath);
     }
 }
 
@@ -446,6 +445,7 @@ async function processOcrPages(
     const errors: string[] = [];
     const ocrPageData: IOcrPageWithWords[] = [];
     const ocrPdfMap: Map<number, string> = new Map();
+    const pageImageMap: Map<number, string> = new Map();
     let processedCount = 0;
 
     sendProgress(jobId, targetPages[0]?.pageNumber ?? 0, 0, targetPages.length);
@@ -457,6 +457,9 @@ async function processOcrPages(
         }
         if (result.pdfPath) {
             ocrPdfMap.set(page.pageNumber, result.pdfPath);
+        }
+        if (result.pageImagePath) {
+            pageImageMap.set(page.pageNumber, result.pageImagePath);
         }
         if (result.error) {
             errors.push(result.error);
@@ -476,6 +479,7 @@ async function processOcrPages(
         errors,
         ocrPageData,
         ocrPdfMap,
+        pageImageMap,
     };
 }
 
@@ -587,6 +591,7 @@ async function assembleMergedOcrPdf(
     jobId: string,
     sourcePdfPath: string,
     ocrPdfMap: Map<number, string>,
+    pageImageMap: Map<number, string>,
     pageCount: number,
     sessionId: string,
     trackTempFile: (path: string) => string,
@@ -596,15 +601,15 @@ async function assembleMergedOcrPdf(
         return await assembleSearchablePdf(
             sourcePdfPath,
             ocrPdfMap,
+            pageImageMap,
             pageCount,
             paths.tempDir,
             sessionId,
-            paths.qpdfBinary,
             log,
             trackTempFile,
         );
-    } catch (qpdfErr) {
-        const errMsg = getErrorMessage(qpdfErr);
+    } catch (mergeErr) {
+        const errMsg = getErrorMessage(mergeErr);
         errors.push(`Failed to merge OCR'd pages with original PDF: ${errMsg}`);
         sendComplete(jobId, {
             success: false,
@@ -662,11 +667,11 @@ async function processOcrJob(
             signal: abortController.signal,
             trackTempFile,
         });
-
         const {
             errors,
             ocrPageData,
             ocrPdfMap,
+            pageImageMap,
         } = await processOcrPages(jobId, targetPages, concurrency, pageContext);
 
         log('debug', `OCR done. ocrPageData=${ocrPageData.length}, ocrPdfMap=${ocrPdfMap.size}, errors=${errors.length}, renderDpi=${effectiveRenderDpi}`);
@@ -691,6 +696,7 @@ async function processOcrJob(
             jobId,
             sourcePdfPath,
             ocrPdfMap,
+            pageImageMap,
             pageCount,
             sessionId,
             trackTempFile,

@@ -232,6 +232,7 @@ function sendProgress(
     processed: number,
     total: number,
     force = false,
+    partialResult?: ISearchExecutionResult,
 ) {
     const now = Date.now();
     const lastSentAt = progressSentAt.get(requestId) ?? 0;
@@ -250,6 +251,8 @@ function sendProgress(
         requestId,
         processed,
         total,
+        results: partialResult?.results,
+        truncated: partialResult?.truncated,
     });
 }
 
@@ -339,6 +342,7 @@ async function getRequestSearchIndex(context: ISearchRequestContext) {
         signal,
     } = context;
 
+    const streamIndexedPage = createIndexedPageResultStreamer(context);
     const indexEntry = await ensureSearchIndex(
         indexCache,
         pdfPath,
@@ -347,6 +351,7 @@ async function getRequestSearchIndex(context: ISearchRequestContext) {
             pageCount,
             signal,
             throwIfCancelled: abortSignal => throwIfCancelled(requestId, abortSignal),
+            onPageIndexed: streamIndexedPage,
         },
     );
     throwIfCancelled(requestId, signal);
@@ -426,6 +431,51 @@ function appendPageMatches(
     return {
         globalMatchIndex,
         truncated,
+    };
+}
+
+function createIndexedPageResultStreamer(context: ISearchRequestContext) {
+    if (context.shouldWarmup || context.normalizedQuery.length === 0) {
+        return undefined;
+    }
+
+    const results: ISearchMatch[] = [];
+    const totalPages = typeof context.pageCount === 'number' && context.pageCount > 0
+        ? context.pageCount
+        : 0;
+    let globalMatchIndex = 0;
+    let processedCount = 0;
+    let truncated = false;
+
+    return (page: IPdfSearchIndex['pages'][number]) => {
+        throwIfCancelled(context.requestId, context.signal);
+        const total = totalPages || Math.max(processedCount + 1, page.pageNumber);
+        if (!isPageSearchable(page, total)) {
+            return;
+        }
+
+        processedCount += 1;
+        if (!truncated && results.length < SEARCH_RESULT_LIMIT) {
+            const previousResultCount = results.length;
+            const pageResult = appendPageMatches({
+                context,
+                page,
+                results,
+                globalMatchIndex,
+            });
+            globalMatchIndex = pageResult.globalMatchIndex;
+            truncated = pageResult.truncated;
+
+            if (results.length !== previousResultCount || truncated) {
+                sendProgress(context.requestId, processedCount, total, true, {
+                    results: [...results],
+                    truncated,
+                });
+                return;
+            }
+        }
+
+        sendProgress(context.requestId, processedCount, total);
     };
 }
 
