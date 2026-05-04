@@ -38,6 +38,21 @@ interface IWindowMenuActionOptions {
     args?: unknown[];
 }
 
+interface ITextAwareWindowMenuActionOptions extends IWindowMenuActionOptions {nativeEditCommand: 'undo' | 'redo';}
+
+const TEXT_EDITING_FOCUS_SCRIPT = `
+(() => {
+    const element = document.activeElement;
+    if (!(element instanceof HTMLElement)) {
+        return false;
+    }
+    return element.isContentEditable
+        || Boolean(element.closest('[contenteditable="true"], [contenteditable=""]'))
+        || element instanceof HTMLInputElement
+        || element instanceof HTMLTextAreaElement;
+})()
+`;
+
 function getFocusedAppWindow() {
     const focusedWindow = BrowserWindow.getFocusedWindow();
     if (focusedWindow && !focusedWindow.isDestroyed()) {
@@ -184,6 +199,46 @@ function createWindowMenuAction(options: IWindowMenuActionOptions): MenuItemCons
     };
 }
 
+async function isTextEditingFocused(window: BrowserWindow) {
+    try {
+        return Boolean(await window.webContents.executeJavaScript(TEXT_EDITING_FOCUS_SCRIPT, true));
+    } catch (error) {
+        logger.warn(`Failed to inspect focused edit target: ${getErrorMessage(error)}`);
+        return false;
+    }
+}
+
+function createTextAwareWindowMenuAction(options: ITextAwareWindowMenuActionOptions): MenuItemConstructorOptions {
+    const {
+        label,
+        channel,
+        accelerator,
+        enabled = true,
+        args = [],
+        nativeEditCommand,
+    } = options;
+
+    return {
+        label,
+        ...(accelerator ? { accelerator } : {}),
+        click: async (_item, window) => {
+            const targetWindow = resolveWindowFromMenuContext(window);
+            if (!targetWindow) {
+                return;
+            }
+
+            if (await isTextEditingFocused(targetWindow)) {
+                targetWindow.webContents[nativeEditCommand]();
+                return;
+            }
+
+            if (enabled) {
+                sendToWindow(targetWindow, channel, ...args);
+            }
+        },
+    };
+}
+
 function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
     const recentFiles = getRecentFilesSync();
 
@@ -309,26 +364,25 @@ function getEditMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                 channel: 'menu:pasteImageFromClipboard',
             }),
             { type: 'separator' },
-            createWindowMenuAction({
+            createTextAwareWindowMenuAction({
                 label: te('menu.undo'),
                 accelerator: 'CmdOrCtrl+Z',
                 enabled: documentActionsEnabled,
                 channel: 'menu:undo',
+                nativeEditCommand: 'undo',
             }),
-            createWindowMenuAction({
+            createTextAwareWindowMenuAction({
                 label: te('menu.redo'),
                 accelerator: config.isMac ? 'Cmd+Shift+Z' : 'Ctrl+Y',
                 enabled: documentActionsEnabled,
                 channel: 'menu:redo',
+                nativeEditCommand: 'redo',
             }),
             { type: 'separator' },
-            {
-                label: te('menu.copy'),
-                accelerator: 'CmdOrCtrl+C',
-                click: (_item, window) => {
-                    (resolveWindowFromMenuContext(window))?.webContents.copy();
-                },
-            },
+            { role: 'cut' },
+            { role: 'copy' },
+            { role: 'paste' },
+            { role: 'selectAll' },
         ],
     };
 }

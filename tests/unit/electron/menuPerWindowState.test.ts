@@ -9,11 +9,24 @@ import {
 interface IMenuItemLike {
     label?: string;
     enabled?: boolean;
+    role?: string;
+    click?: (item: unknown, window?: unknown) => unknown;
     submenu?: IMenuItemLike[] | unknown;
 }
 
 interface ITestWindow {
     id: number;
+    webContents: {
+        send: ReturnType<typeof vi.fn>;
+        copy: ReturnType<typeof vi.fn>;
+        cut: ReturnType<typeof vi.fn>;
+        paste: ReturnType<typeof vi.fn>;
+        selectAll: ReturnType<typeof vi.fn>;
+        undo: ReturnType<typeof vi.fn>;
+        redo: ReturnType<typeof vi.fn>;
+        executeJavaScript: ReturnType<typeof vi.fn>;
+        isDestroyed: ReturnType<typeof vi.fn>;
+    };
     isDestroyed: () => boolean;
     getTitle: () => string;
     on: (event: string, handler: (...args: unknown[]) => void) => ITestWindow;
@@ -50,6 +63,13 @@ vi.mock('electron', () => {
         readonly webContents = {
             send: vi.fn(),
             copy: vi.fn(),
+            cut: vi.fn(),
+            paste: vi.fn(),
+            selectAll: vi.fn(),
+            undo: vi.fn(),
+            redo: vi.fn(),
+            executeJavaScript: vi.fn(async () => false),
+            isDestroyed: vi.fn(() => false),
         };
 
         constructor(id: number, title: string) {
@@ -144,6 +164,11 @@ function isMoveToNewWindowEnabled(template: IMenuItemLike[]) {
     return Boolean(moveItem?.enabled);
 }
 
+function getEditMenuSubmenu(template: IMenuItemLike[]) {
+    const editMenu = template.find(item => item.label === 'menu.actions');
+    return Array.isArray(editMenu?.submenu) ? editMenu.submenu : [];
+}
+
 describe('menu per-window document state', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -206,5 +231,58 @@ describe('menu per-window document state', () => {
         setMenuTabCount(1, 2);
         template = getLastMenuTemplate();
         expect(isMoveToNewWindowEnabled(template)).toBe(true);
+    });
+
+    it('keeps native edit roles available for focused text inputs', () => {
+        const window = mocks.createWindow(1, 'Window');
+
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+
+        const roles = getEditMenuSubmenu(getLastMenuTemplate())
+            .map(item => item.role)
+            .filter(Boolean);
+
+        expect(roles).toEqual(expect.arrayContaining([
+            'cut',
+            'copy',
+            'paste',
+            'selectAll',
+        ]));
+    });
+
+    it('routes undo to the focused text input instead of the document action', async () => {
+        const window = mocks.createWindow(1, 'Window');
+        window.webContents.executeJavaScript.mockResolvedValueOnce(true);
+
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+        setMenuDocumentState(1, true);
+
+        const undoItem = getEditMenuSubmenu(getLastMenuTemplate())
+            .find(item => item.label === 'menu.undo');
+        await undoItem?.click?.({}, window);
+
+        expect(window.webContents.undo).toHaveBeenCalledOnce();
+        expect(window.webContents.send).not.toHaveBeenCalledWith('menu:undo');
+    });
+
+    it('routes undo to the document action when text input is not focused', async () => {
+        const window = mocks.createWindow(1, 'Window');
+        window.webContents.executeJavaScript.mockResolvedValueOnce(false);
+
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+        setMenuDocumentState(1, true);
+
+        const undoItem = getEditMenuSubmenu(getLastMenuTemplate())
+            .find(item => item.label === 'menu.undo');
+        await undoItem?.click?.({}, window);
+
+        expect(window.webContents.undo).not.toHaveBeenCalled();
+        expect(window.webContents.send).toHaveBeenCalledWith('menu:undo');
     });
 });

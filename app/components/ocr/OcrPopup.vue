@@ -315,6 +315,7 @@ const {
     loadLanguages,
     runOcr,
     cancelOcr,
+    clearResults,
     toggleLanguage,
 } = useOcr();
 
@@ -484,6 +485,7 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
             sourceWorkingCopyPath,
         });
         activeOcrSourcePath.value = null;
+        clearResults();
     }
 });
 </script>
