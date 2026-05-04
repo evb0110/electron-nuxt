@@ -1,9 +1,8 @@
 <template>
-    <UPopover
+    <UModal
         v-model:open="isOpen"
-        mode="click"
-        :disabled="disabled"
-        :content="{ side: 'bottom', align: 'end', sideOffset: 8, collisionPadding: 8 }"
+        :title="t('ocr.runTitle')"
+        :ui="{ content: 'sm:max-w-md', footer: 'justify-end gap-2' }"
     >
         <button
             v-if="!hideTrigger"
@@ -24,14 +23,8 @@
         </button>
         <span v-else class="hidden-trigger" aria-hidden="true" />
 
-        <template #content>
-            <div class="ocr-popup">
-                <div class="header">
-                    <span class="title">{{ t('ocr.runTitle') }}</span>
-                </div>
-
-                <div class="divider" />
-
+        <template #body>
+            <div class="ocr-body flex flex-col gap-4">
                 <!-- Page Range Selection -->
                 <div class="section">
                     <div class="label">{{ t('ocr.pages') }}</div>
@@ -171,107 +164,104 @@
                 </div>
 
                 <!-- Progress Display -->
-                <template v-if="progress.isRunning">
-                    <div class="divider" />
-                    <div class="progress flex flex-col gap-1.5">
-                        <UProgress :value="progressPercent" />
-                        <span class="progress-text">
-                            <template v-if="progress.phase === 'preparing'">
-                                {{ t('ocr.preparing') }}
-                            </template>
-                            <template v-else>
-                                {{
-                                    t('ocr.processingPage', {
-                                        page: progress.currentPage,
-                                        processed: progress.processedCount,
-                                        total: progress.totalPages,
-                                    })
-                                }}
-                            </template>
-                        </span>
-                    </div>
-                </template>
+                <div
+                    v-if="progress.isRunning"
+                    class="progress flex flex-col gap-1.5"
+                >
+                    <UProgress :value="progressPercent" />
+                    <span class="progress-text">
+                        <template v-if="progress.phase === 'preparing'">
+                            {{ t('ocr.preparing') }}
+                        </template>
+                        <template v-else>
+                            {{
+                                t('ocr.processingPage', {
+                                    page: progress.currentPage,
+                                    processed: progress.processedCount,
+                                    total: progress.totalPages,
+                                })
+                            }}
+                        </template>
+                    </span>
+                </div>
 
                 <!-- Error Display -->
-                <template v-if="effectiveError">
-                    <div class="divider" />
-                    <div class="error">
-                        <UIcon name="i-lucide-alert-circle" class="size-4" />
-                        <div class="error-content flex flex-1 flex-col gap-2">
-                            <span class="error-text">{{ effectiveError }}</span>
-                            <UTooltip :text="copyLogsTooltip" :delay-duration="1200">
-                                <UButton
-                                    icon="i-lucide-copy"
-                                    variant="ghost"
-                                    color="neutral"
-                                    size="xs"
-                                    class="copy-logs"
-                                    :loading="isCopyingLogs"
-                                    :aria-label="t('ocr.copyLogs')"
-                                    @click="handleCopyLogs"
-                                />
-                            </UTooltip>
-                        </div>
+                <div
+                    v-if="effectiveError"
+                    class="error"
+                >
+                    <UIcon name="i-lucide-alert-circle" class="size-4" />
+                    <div class="error-content flex flex-1 flex-col gap-2">
+                        <span class="error-text">{{ effectiveError }}</span>
+                        <UTooltip :text="copyLogsTooltip" :delay-duration="1200">
+                            <UButton
+                                icon="i-lucide-copy"
+                                variant="ghost"
+                                color="neutral"
+                                size="xs"
+                                class="copy-logs"
+                                :loading="isCopyingLogs"
+                                :aria-label="t('ocr.copyLogs')"
+                                @click="handleCopyLogs"
+                            />
+                        </UTooltip>
                     </div>
-                </template>
+                </div>
 
                 <!-- Results Summary -->
-                <template v-if="hasResults && !progress.isRunning">
-                    <div class="divider" />
-                    <div class="results">
-                        <UIcon name="i-lucide-check-circle" class="size-4" />
-                        <span>{{ t('ocr.complete') }}</span>
-                    </div>
-                </template>
-
-                <div class="divider" />
-
-                <!-- Actions -->
-                <div class="actions flex justify-end gap-2">
-                    <UTooltip :text="t('ocr.exportDocx')" :delay-duration="1200">
-                        <UButton
-                            icon="i-lucide-file-text"
-                            variant="ghost"
-                            color="neutral"
-                            size="sm"
-                            :loading="isExporting"
-                            :disabled="isExporting || progress.isRunning || !workingCopyPath"
-                            :aria-label="t('ocr.exportDocx')"
-                            @click="handleExportDocx"
-                        />
-                    </UTooltip>
-                    <UTooltip
-                        v-if="!progress.isRunning"
-                        :text="t('ocr.start')"
-                        :delay-duration="1200"
-                    >
-                        <UButton
-                            icon="i-lucide-play"
-                            color="primary"
-                            size="sm"
-                            :disabled="settings.selectedLanguages.length === 0"
-                            :aria-label="t('ocr.start')"
-                            @click="handleRunOcr"
-                        />
-                    </UTooltip>
-                    <UTooltip
-                        v-else
-                        :text="t('ocr.cancel')"
-                        :delay-duration="1200"
-                    >
-                        <UButton
-                            icon="i-lucide-x"
-                            color="neutral"
-                            variant="soft"
-                            size="sm"
-                            :aria-label="t('ocr.cancel')"
-                            @click="handleCancel"
-                        />
-                    </UTooltip>
+                <div
+                    v-if="hasResults && !progress.isRunning"
+                    class="results"
+                >
+                    <UIcon name="i-lucide-check-circle" class="size-4" />
+                    <span>{{ t('ocr.complete') }}</span>
                 </div>
             </div>
         </template>
-    </UPopover>
+
+        <template #footer>
+            <UTooltip :text="t('ocr.exportDocx')" :delay-duration="1200">
+                <UButton
+                    icon="i-lucide-file-text"
+                    variant="ghost"
+                    color="neutral"
+                    size="sm"
+                    :loading="isExporting"
+                    :disabled="isExporting || progress.isRunning || !workingCopyPath"
+                    :aria-label="t('ocr.exportDocx')"
+                    @click="handleExportDocx"
+                />
+            </UTooltip>
+            <UTooltip
+                v-if="!progress.isRunning"
+                :text="t('ocr.start')"
+                :delay-duration="1200"
+            >
+                <UButton
+                    icon="i-lucide-play"
+                    color="primary"
+                    size="sm"
+                    :disabled="settings.selectedLanguages.length === 0"
+                    :aria-label="t('ocr.start')"
+                    @click="handleRunOcr"
+                />
+            </UTooltip>
+            <UTooltip
+                v-else
+                :text="t('ocr.cancel')"
+                :delay-duration="1200"
+            >
+                <UButton
+                    icon="i-lucide-x"
+                    color="neutral"
+                    variant="soft"
+                    size="sm"
+                    :aria-label="t('ocr.cancel')"
+                    @click="handleCancel"
+                />
+            </UTooltip>
+        </template>
+    </UModal>
 </template>
 
 <script setup lang="ts">
@@ -499,12 +489,6 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
 </script>
 
 <style scoped>
-.ocr-popup {
-    padding: 0.25rem;
-    min-width: 16rem;
-    max-width: 20rem;
-}
-
 .hidden-trigger {
     display: block;
     width: var(--toolbar-control-height);
@@ -570,31 +554,12 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     cursor: wait;
 }
 
-.header {
-    padding: 0.5rem 0.75rem 0.25rem;
-}
-
-.title {
-    font-weight: 600;
-    font-size: 0.875rem;
-}
-
-.section {
-    padding: 0.25rem 0.75rem;
-}
-
 .label {
     font-size: 0.6875rem;
     color: var(--ui-text-muted);
     margin-bottom: 0.5rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-}
-
-.divider {
-    height: 1px;
-    background-color: var(--ui-border);
-    margin: 0.25rem 0;
 }
 
 .radio-item {
@@ -639,10 +604,6 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     accent-color: var(--ui-primary);
 }
 
-.progress {
-    padding: 0.5rem 0.75rem;
-}
-
 .progress-text {
     font-size: 0.75rem;
     color: var(--ui-text-muted);
@@ -650,7 +611,6 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
 }
 
 .error {
-    padding: 0.5rem 0.75rem;
     display: flex;
     align-items: flex-start;
     gap: 0.5rem;
@@ -675,15 +635,10 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
 }
 
 .results {
-    padding: 0.5rem 0.75rem;
     display: flex;
     align-items: center;
     gap: 0.5rem;
     color: var(--ui-success);
     font-size: 0.75rem;
-}
-
-.actions {
-    padding: 0.25rem 0.75rem 0.5rem;
 }
 </style>
