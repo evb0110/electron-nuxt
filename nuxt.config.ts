@@ -46,12 +46,9 @@ const knownSourcemapWarningPlugins = new Set([
 
 interface IRollupLog {
     code?: string;
-    message?: string;
+    message: string;
     plugin?: string;
 }
-
-type TRollupLogLevel = 'debug' | 'info' | 'warn';
-type TRollupLogHandler = (level: TRollupLogLevel, log: IRollupLog) => void;
 
 function isKnownSourcemapWarning(log: IRollupLog) {
     if (log.code !== 'SOURCEMAP_BROKEN') {
@@ -652,7 +649,7 @@ body { margin: 0; background: var(--app-window-bg); color: var(--ui-text); }
             // Electron desktop bundle tolerates larger chunks, but still split heavy vendors to keep rebuilds snappier.
             chunkSizeWarningLimit: 1400,
             rollupOptions: {
-                onLog(level: TRollupLogLevel, log: IRollupLog, handler: TRollupLogHandler) {
+                onLog(level, log, handler) {
                     if (level === 'warn' && isKnownSourcemapWarning(log)) {
                         return;
                     }
