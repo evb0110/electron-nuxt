@@ -153,6 +153,14 @@ export type {
     TPdfViewMode,
 } from './shared';
 
+export {
+    OCR_TEXT_LAYER_INDEX_SOURCE,
+    OCR_TEXT_LAYER_INDEX_VERSION,
+    buildOcrTextLayerIndexText,
+    buildOcrTextLayerItemText,
+    isLastOcrWordInLine,
+} from './ocr-text';
+
 export type {
     IDjvuSplitPayload,
     IEmptySplitPayload,

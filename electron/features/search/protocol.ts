@@ -44,6 +44,8 @@ type TSearchWorkerOutboundByType = {
         requestId: string;
         processed: number;
         total: number;
+        results?: ISearchMatch[];
+        truncated?: boolean;
     };
     complete: {
         requestId: string;

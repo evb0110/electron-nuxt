@@ -7,6 +7,7 @@ import '@electron/search/dom-polyfill';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/logger';
+import { collapseRepeatedPdfSearchPageText } from '@contracts/search';
 
 const log = createLogger('pdfjs-text-extractor');
 
@@ -15,7 +16,10 @@ interface IPageText {
     text: string;
 }
 
-interface IExtractPdfjsTextOptions {signal?: AbortSignal;}
+interface IExtractPdfjsTextOptions {
+    signal?: AbortSignal;
+    onPageText?: (page: IPageText) => void;
+}
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -61,7 +65,10 @@ export async function extractTextWithPdfjs(
     pdfPath: string,
     options: IExtractPdfjsTextOptions = {},
 ): Promise<IPageText[]> {
-    const { signal } = options;
+    const {
+        signal,
+        onPageText,
+    } = options;
     log.debug(`Extracting text with pdfjs-dist: ${pdfPath}`);
     throwIfAborted(signal);
 
@@ -84,7 +91,10 @@ export async function extractTextWithPdfjs(
                 void doc.destroy();
             });
             const content = await withAbortSignal(
-                page.getTextContent({disableNormalization: true}),
+                page.getTextContent({
+                    includeMarkedContent: true,
+                    disableNormalization: true,
+                }),
                 signal,
                 () => {
                     void doc.destroy();
@@ -104,10 +114,12 @@ export async function extractTextWithPdfjs(
                 }
             }
 
-            pages.push({
+            const pageText = {
                 pageNumber: i,
-                text: parts.join(''),
-            });
+                text: collapseRepeatedPdfSearchPageText(parts.join('')),
+            };
+            pages.push(pageText);
+            onPageText?.(pageText);
         }
 
         log.debug(`Extracted ${pages.length} pages with pdfjs-dist`);

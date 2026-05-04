@@ -2,6 +2,10 @@ import type { PageViewport } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/platform-api';
 import type { IPdfRawDims } from '@app/types/pdf';
 import type { IOcrWord } from '@contracts/shared';
+import {
+    buildOcrTextLayerItemText,
+    isLastOcrWordInLine,
+} from '@contracts/ocr-text';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     sharedOcrTextContentCache,
@@ -191,7 +195,7 @@ export const useOcrTextContent = () => {
         // For horizontal text, scaleX and scaleY are the font size
         // PDF.js uses transform[0] and transform[3] to compute font height
         return {
-            str: word.text + ' ', // Add trailing space for copy/paste word separation
+            str: buildOcrTextLayerItemText(word),
             dir: textDir,
             transform: [
                 pdfH,
@@ -206,26 +210,6 @@ export const useOcrTextContent = () => {
             fontName: 'ocr-sans',
             hasEOL: isLastInLine,
         };
-    }
-
-    /**
-     * Determines if a word is the last in its line based on Y position gap.
-     * A significant Y gap to the next word indicates a line break.
-     */
-    function isLastWordInLine(
-        words: IOcrWord[],
-        idx: number,
-    ): boolean {
-        if (idx === words.length - 1) {
-            return true;
-        }
-
-        const currentWord = words[idx]!;
-        const nextWord = words[idx + 1]!;
-
-        // If the next word's Y position differs significantly from the current,
-        // we're at a line break. Use half the word height as threshold.
-        return Math.abs(nextWord.y - currentWord.y) > currentWord.height * 0.5;
     }
 
     /**
@@ -262,7 +246,7 @@ export const useOcrTextContent = () => {
                 word,
                 pageData,
                 viewport,
-                isLastWordInLine(pageData.words, idx),
+                isLastOcrWordInLine(pageData.words, idx),
                 textDir,
             ),
         );

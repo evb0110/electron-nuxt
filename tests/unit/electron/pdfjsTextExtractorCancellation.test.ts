@@ -62,35 +62,87 @@ describe('extractTextWithPdfjs cancellation', () => {
         expect(mocks.loadingDestroy).toHaveBeenCalledOnce();
     });
 
-    it('keeps successful extraction behavior unchanged', async () => {
+    it('emits each page as soon as pdfjs text extraction finishes it', async () => {
         const { extractTextWithPdfjs } = await import('@electron/search/pdfjs-text-extractor');
-        const page = {getTextContent: vi.fn().mockResolvedValue({items: [
-            {
-                str: 'Hello',
-                hasEOL: true,
-            },
-            {
-                str: 'World',
-                hasEOL: false,
-            },
-        ]})};
+        const pageOne = {getTextContent: vi.fn().mockResolvedValue({items: [{
+            str: 'Hello',
+            hasEOL: true,
+        }]})};
+        const pageTwo = {getTextContent: vi.fn().mockResolvedValue({items: [{
+            str: 'World',
+            hasEOL: false,
+        }]})};
         const doc = {
-            numPages: 1,
-            getPage: vi.fn().mockResolvedValue(page),
+            numPages: 2,
+            getPage: vi.fn(async (pageNumber: number) => pageNumber === 1 ? pageOne : pageTwo),
             destroy: mocks.docDestroy,
         };
+        const onPageText = vi.fn();
 
         mocks.getDocument.mockReturnValue({
             promise: Promise.resolve(doc),
             destroy: mocks.loadingDestroy,
         });
 
-        const result = await extractTextWithPdfjs('/tmp/file.pdf');
+        const result = await extractTextWithPdfjs('/tmp/file.pdf', { onPageText });
 
-        expect(result).toEqual([{
+        expect(onPageText).toHaveBeenNthCalledWith(1, {
             pageNumber: 1,
-            text: 'Hello\nWorld',
-        }]);
+            text: 'Hello\n',
+        });
+        expect(onPageText).toHaveBeenNthCalledWith(2, {
+            pageNumber: 2,
+            text: 'World',
+        });
+        expect(result).toEqual([
+            {
+                pageNumber: 1,
+                text: 'Hello\n',
+            },
+            {
+                pageNumber: 2,
+                text: 'World',
+            },
+        ]);
         expect(mocks.docDestroy).toHaveBeenCalledOnce();
+    });
+
+    it('collapses exact repeated hidden text streams before emitting page text', async () => {
+        const { extractTextWithPdfjs } = await import('@electron/search/pdfjs-text-extractor');
+        const repeatedText = 'СЛОВАРЬ\nАРАБСКОЙ ХРЕСТОМАТИИ И КОРАНУ. СОСТАВИЛЪ ПРОФ. В. ГИРГАСЪ.\n';
+        const pageOne = {getTextContent: vi.fn().mockResolvedValue({items: [
+            {
+                str: repeatedText,
+                hasEOL: false,
+            },
+            {
+                str: repeatedText,
+                hasEOL: false,
+            },
+            {
+                str: repeatedText,
+                hasEOL: false,
+            },
+        ]})};
+        const doc = {
+            numPages: 1,
+            getPage: vi.fn(async () => pageOne),
+            destroy: mocks.docDestroy,
+        };
+        const onPageText = vi.fn();
+
+        mocks.getDocument.mockReturnValue({
+            promise: Promise.resolve(doc),
+            destroy: mocks.loadingDestroy,
+        });
+
+        await expect(extractTextWithPdfjs('/tmp/file.pdf', { onPageText })).resolves.toEqual([{
+            pageNumber: 1,
+            text: repeatedText,
+        }]);
+        expect(onPageText).toHaveBeenCalledWith({
+            pageNumber: 1,
+            text: repeatedText,
+        });
     });
 });

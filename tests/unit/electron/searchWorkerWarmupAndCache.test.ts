@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('worker_threads', () => ({parentPort: mocks.parentPort}));
 vi.mock('fs/promises', () => ({stat: mocks.stat}));
 vi.mock('@electron/search/index-builder', () => ({
+    SEARCH_INDEX_SCHEMA_VERSION: 3,
     loadSearchIndex: mocks.loadSearchIndex,
     buildSearchIndex: mocks.buildSearchIndex,
 }));
@@ -44,6 +45,13 @@ vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
 
 const TEST_PDF_PATH = '/tmp/test-search.pdf';
 const PAGE_TEXT = 'XxUniquePageTextxX';
+
+interface IIndexedSearchPageForTest {
+    pageNumber: number;
+    text: string;
+}
+
+interface IBuildSearchIndexOptionsForTest {onPageIndexed?: (page: IIndexedSearchPageForTest) => void;}
 
 describe('search worker warmup and cache behavior', () => {
     beforeEach(() => {
@@ -64,6 +72,7 @@ describe('search worker warmup and cache behavior', () => {
 
         mocks.loadSearchIndex.mockResolvedValue(null);
         mocks.buildSearchIndex.mockResolvedValue({
+            schemaVersion: 3,
             pdfPath: TEST_PDF_PATH,
             createdAt: Date.now(),
             pageCount: 1,
@@ -194,5 +203,98 @@ describe('search worker warmup and cache behavior', () => {
         } finally {
             toLowerSpy.mockRestore();
         }
+    });
+
+    it('rebuilds stale on-disk indexes from the previous schema', async () => {
+        mocks.loadSearchIndex.mockResolvedValue({
+            pdfPath: TEST_PDF_PATH,
+            createdAt: Date.now(),
+            pageCount: 1,
+            pages: [{
+                pageNumber: 1,
+                text: PAGE_TEXT,
+            }],
+        });
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        expect(handleMessage).toBeTypeOf('function');
+
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'warm-stale',
+                pdfPath: TEST_PDF_PATH,
+                query: '',
+                pageCount: 1,
+                warmup: true,
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.buildSearchIndex).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    it('streams matches while a stale index is being rebuilt', async () => {
+        mocks.buildSearchIndex.mockImplementation(async (
+            _pdfPath: string,
+            _pageData: unknown[],
+            options: IBuildSearchIndexOptionsForTest,
+        ) => {
+            options.onPageIndexed?.({
+                pageNumber: 1,
+                text: 'needle on the first page',
+            });
+            return {
+                schemaVersion: 3,
+                pdfPath: TEST_PDF_PATH,
+                createdAt: Date.now(),
+                pageCount: 2,
+                pages: [
+                    {
+                        pageNumber: 1,
+                        text: 'needle on the first page',
+                    },
+                    {
+                        pageNumber: 2,
+                        text: 'second page',
+                    },
+                ],
+            };
+        });
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        expect(handleMessage).toBeTypeOf('function');
+
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'search-stream',
+                pdfPath: TEST_PDF_PATH,
+                query: 'needle',
+                pageCount: 2,
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+                type: 'progress',
+                requestId: 'search-stream',
+                results: [expect.objectContaining({
+                    pageNumber: 1,
+                    startOffset: 0,
+                    endOffset: 6,
+                })],
+                truncated: false,
+            }));
+        });
+        await vi.waitFor(() => {
+            expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+                type: 'complete',
+                requestId: 'search-stream',
+            }));
+        });
     });
 });

@@ -62,7 +62,10 @@ describe('buildSearchIndex cancellation', () => {
             signal: controller.signal,
         });
 
-        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/file.pdf', {signal: controller.signal});
+        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledWith('/tmp/file.pdf', {
+            signal: controller.signal,
+            onPageText: expect.any(Function),
+        });
         expect(mocks.extractTextFromPdf).toHaveBeenCalledWith('/tmp/file.pdf', {
             pageCount: 1,
             signal: controller.signal,
@@ -114,6 +117,7 @@ describe('buildSearchIndex assembly', () => {
     it('skips PDF text extraction when existing index already covers expected pages', async () => {
         const { buildSearchIndex } = await import('@electron/search/index-builder');
         const cachedIndex = {
+            schemaVersion: 3,
             pdfPath: '/tmp/file.pdf',
             createdAt: 1,
             pages: [
@@ -179,7 +183,7 @@ describe('buildSearchIndex assembly', () => {
         expect(result.pageCount).toBe(3);
     });
 
-    it('prefers OCR pageData text over previously extracted text and reconstructs from words', async () => {
+    it('prefers OCR pageData words over previously extracted text and raw OCR text', async () => {
         const { buildSearchIndex } = await import('@electron/search/index-builder');
         mocks.extractTextWithPdfjs.mockResolvedValue([
             {
@@ -231,12 +235,12 @@ describe('buildSearchIndex assembly', () => {
             }),
             expect.objectContaining({
                 pageNumber: 2,
-                text: 'hello world',
+                text: 'hello world \n',
             }),
         ]);
     });
 
-    it('uses OCR v2 manifest when present and persists index best-effort', async () => {
+    it('uses OCR v2 words as text-layer-compatible search text and persists index best-effort', async () => {
         const { buildSearchIndex } = await import('@electron/search/index-builder');
         mocks.existsSync.mockReturnValue(true);
         const manifest = {
@@ -262,13 +266,45 @@ describe('buildSearchIndex assembly', () => {
             if (path.endsWith('page-1.json')) {
                 return JSON.stringify({
                     pageNumber: 1,
-                    text: 'ocr-page-1',
+                    text: 'alpha ghost beta',
+                    words: [
+                        {
+                            text: 'alpha',
+                            x: 0,
+                            y: 0,
+                            width: 10,
+                            height: 10,
+                        },
+                        {
+                            text: 'beta',
+                            x: 20,
+                            y: 0,
+                            width: 10,
+                            height: 10,
+                        },
+                    ],
                 });
             }
             if (path.endsWith('page-2.json')) {
                 return JSON.stringify({
                     pageNumber: 2,
-                    text: 'ocr-page-2',
+                    text: 'line one\nline two',
+                    words: [
+                        {
+                            text: 'line',
+                            x: 0,
+                            y: 0,
+                            width: 10,
+                            height: 10,
+                        },
+                        {
+                            text: 'two',
+                            x: 0,
+                            y: 20,
+                            width: 10,
+                            height: 10,
+                        },
+                    ],
                 });
             }
             throw new Error('ENOENT');
@@ -282,13 +318,18 @@ describe('buildSearchIndex assembly', () => {
         expect(result.pages).toEqual([
             expect.objectContaining({
                 pageNumber: 1,
-                text: 'ocr-page-1',
+                text: 'alpha beta \n',
             }),
             expect.objectContaining({
                 pageNumber: 2,
-                text: 'ocr-page-2',
+                text: 'line \ntwo \n',
             }),
         ]);
         expect(result.pageCount).toBe(2);
+        expect(result.schemaVersion).toBe(3);
+        expect(result.textSource).toEqual({
+            kind: 'ocr-v2-text-layer',
+            version: 1,
+        });
     });
 });

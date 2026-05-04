@@ -22,13 +22,16 @@
    tokens so highlights remain visible under the CSS invert() filter. */
 
 .pdf-viewer-container--dark .pdfViewer {
+    --app-pdf-search-highlight-bg: rgb(255 230 0 / 42%);
+    --app-pdf-search-highlight-current-bg: rgb(255 150 0 / 56%);
+
     .pdf-search-highlight {
-        background-color: rgb(255 230 0 / 0.6);
+        background-color: var(--app-pdf-search-highlight-bg);
     }
 
     .pdf-search-highlight--current {
-        background-color: rgb(255 150 0 / 0.8);
-        outline: 2px solid rgb(255 100 0 / 0.9);
+        background-color: var(--app-pdf-search-highlight-current-bg);
+        outline: 2px solid var(--app-pdf-search-highlight-current-outline);
     }
 }
 
@@ -43,11 +46,14 @@
 }
 
 .pdf-viewer-container--dark {
+    --app-pdf-search-highlight-bg: rgb(255 230 0 / 42%);
+    --app-pdf-search-highlight-current-bg: rgb(255 150 0 / 56%);
+
     ::highlight(pdf-search-match) {
-        background-color: rgb(255 230 0 / 0.6);
+        background-color: var(--app-pdf-search-highlight-bg);
     }
 
     ::highlight(pdf-search-current-match) {
-        background-color: rgb(255 150 0 / 0.8);
+        background-color: var(--app-pdf-search-highlight-current-bg);
     }
 }

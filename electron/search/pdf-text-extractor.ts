@@ -7,6 +7,7 @@ import {
     isAbortError,
 } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
+import { collapseRepeatedPdfSearchPageText } from '@contracts/search';
 
 const log = createLogger('pdf-text-extractor');
 const PDFTOTEXT_TIMEOUT_MS = (() => {
@@ -101,7 +102,7 @@ export async function extractTextFromPdf(
 
         const pageTexts: IPageText[] = pages.map((text, index) => ({
             pageNumber: index + 1,
-            text: text.trim(),
+            text: collapseRepeatedPdfSearchPageText(text.trim()),
         }));
 
         return pageTexts;

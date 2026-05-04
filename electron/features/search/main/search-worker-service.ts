@@ -155,6 +155,30 @@ function parseWorkerOutboundMessage(value: unknown): TSearchWorkerOutboundMessag
             if (!isFiniteWorkerMessageNumber(value.processed) || !isFiniteWorkerMessageNumber(value.total)) {
                 return null;
             }
+            if (value.results !== undefined && !Array.isArray(value.results)) {
+                return null;
+            }
+            if (value.truncated !== undefined && typeof value.truncated !== 'boolean') {
+                return null;
+            }
+            if (Array.isArray(value.results)) {
+                const results: TSearchMatch[] = [];
+                for (const result of value.results) {
+                    const parsedResult = parseSearchMatch(result);
+                    if (!parsedResult) {
+                        return null;
+                    }
+                    results.push(parsedResult);
+                }
+                return {
+                    type: 'progress',
+                    requestId: value.requestId,
+                    processed: value.processed,
+                    total: value.total,
+                    results,
+                    truncated: Boolean(value.truncated),
+                };
+            }
             return {
                 type: 'progress',
                 requestId: value.requestId,
@@ -320,6 +344,8 @@ export class SearchWorkerService {
             requestId: string;
             processed: number;
             total: number;
+            results?: TSearchMatch[];
+            truncated?: boolean;
         },
     ) {
         const sender = webContents.fromId(senderId);
@@ -533,6 +559,8 @@ export class SearchWorkerService {
                     requestId: message.requestId,
                     processed: message.processed,
                     total: message.total,
+                    results: message.results,
+                    truncated: message.truncated,
                 });
                 return;
             case 'complete':
