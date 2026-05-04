@@ -32,7 +32,7 @@ describe('check-build-warnings', () => {
 
     it('allows Nuxt Nitro cache-driver externalization warnings from Windows file URLs', async () => {
         const result = await runWarningCheck([
-            '[warn] "file:///D:/a/evb-viewer/evb-viewer/node_modules/.pnpm/@nuxt+nitro-server@4.4.2_hash/node_modules/@nuxt/nitro-server/dist/runtime/utils/cache-driver.js" is imported by "virtual:#nitro-internal-virtual/storage", but could not be resolved \u2013 treating it as an external dependency.',
+            '[warn] "file:///D:/a/evb-viewer/evb-viewer/node_modules/.pnpm/@nuxt+nitro-server@4.4.2_hash/node_modules/@nuxt/nitro-server/dist/runtime/utils/cache-driver.js" is imported by "\u0000virtual:#nitro-internal-virtual/storage", but could not be resolved \u2013 treating it as an external dependency.',
             '',
         ].join('\n'));
 
