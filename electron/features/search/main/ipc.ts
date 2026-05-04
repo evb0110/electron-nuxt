@@ -140,6 +140,11 @@ export function resolveSearchWorkerPath(workerBaseDir = __dirname): string {
 }
 
 export async function resolveSearchablePdfPath(pdfPath: string): Promise<string | null> {
+    const directResolvedPath = await resolveAllowedReadPath(pdfPath);
+    if (directResolvedPath) {
+        return directResolvedPath;
+    }
+
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(pdfPath);
     if (mappedWorkingCopyPath) {
         const mappedResolvedPath = await resolveAllowedReadPath(mappedWorkingCopyPath);
@@ -148,7 +153,7 @@ export async function resolveSearchablePdfPath(pdfPath: string): Promise<string 
         }
     }
 
-    return resolveAllowedReadPath(pdfPath);
+    return null;
 }
 
 const searchWorkerService = new SearchWorkerService(resolveSearchWorkerPath);
