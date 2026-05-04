@@ -13,8 +13,24 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, '..');
 const buildLogPath = path.join(projectRoot, '.tmp', 'build.log');
 
-export function getPnpmCommand(platform = process.platform) {
-    return platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+export function getPnpmInvocation(args, platform = process.platform) {
+    if (platform === 'win32') {
+        return {
+            command: 'cmd.exe',
+            args: [
+                '/d',
+                '/s',
+                '/c',
+                'pnpm',
+                ...args,
+            ],
+        };
+    }
+
+    return {
+        command: 'pnpm',
+        args,
+    };
 }
 
 const COLLAPSED_WARNING_PATTERNS = [/\b(?:WARN|\[warn\])\s+\[plugin @tailwindcss\/vite:generate:build\] Sourcemap is likely to be incorrect: a plugin \(@tailwindcss\/vite:generate:build\) was used to transform files, but didn't generate a sourcemap for the transformation\. Consult the plugin documentation for help(?: \(x\d+\))?$/u];
@@ -131,10 +147,11 @@ function run(command, args, options = {}) {
 
 async function main() {
     mkdirSync(path.dirname(buildLogPath), { recursive: true });
-    const output = await run(getPnpmCommand(), [
+    const buildInvocation = getPnpmInvocation([
         'run',
         'build:desktop',
     ]);
+    const output = await run(buildInvocation.command, buildInvocation.args);
     writeFileSync(buildLogPath, output);
     await run('node', [
         'scripts/check-build-warnings.mjs',

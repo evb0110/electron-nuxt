@@ -6,19 +6,48 @@ import {
     it,
 } from 'vitest';
 
-type TBuildStrictModule = { getPnpmCommand: (platform?: NodeJS.Platform) => string };
+type TPnpmInvocation = {
+    args: string[];
+    command: string;
+};
 
-const { getPnpmCommand } = await import(
+type TBuildStrictModule = { getPnpmInvocation: (args: string[], platform?: NodeJS.Platform) => TPnpmInvocation };
+
+const { getPnpmInvocation } = await import(
     pathToFileURL(path.join(process.cwd(), 'scripts/run-build-strict.mjs')).href
 ) as TBuildStrictModule;
 
 describe('run-build-strict', () => {
-    it('uses the Windows pnpm command shim for child processes', () => {
-        expect(getPnpmCommand('win32')).toBe('pnpm.cmd');
+    it('uses cmd.exe for Windows pnpm child processes', () => {
+        expect(getPnpmInvocation([
+            'run',
+            'build:desktop',
+        ], 'win32')).toEqual({
+            args: [
+                '/d',
+                '/s',
+                '/c',
+                'pnpm',
+                'run',
+                'build:desktop',
+            ],
+            command: 'cmd.exe',
+        });
     });
 
     it('uses pnpm directly on POSIX platforms', () => {
-        expect(getPnpmCommand('darwin')).toBe('pnpm');
-        expect(getPnpmCommand('linux')).toBe('pnpm');
+        const args = [
+            'run',
+            'build:desktop',
+        ];
+
+        expect(getPnpmInvocation(args, 'darwin')).toEqual({
+            args,
+            command: 'pnpm',
+        });
+        expect(getPnpmInvocation(args, 'linux')).toEqual({
+            args,
+            command: 'pnpm',
+        });
     });
 });
