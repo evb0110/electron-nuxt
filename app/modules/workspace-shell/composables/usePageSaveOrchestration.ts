@@ -107,6 +107,7 @@ interface IPageSaveOrchestrationDeps extends TSharedSaveOperationDeps {
 
 export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     const { t } = useTypedI18n();
+    const toast = useToast();
 
     const {
         pdfData,
@@ -274,6 +275,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         const warmupPageCountHint = totalPages.value > 0 ? totalPages.value : undefined;
 
         clearOcrCache(payload.sourceWorkingCopyPath);
+        resetSearchCache();
 
         const restorePromise = waitForPdfReload(pageToRestore).catch((error) => {
             restoreError = error;
@@ -285,18 +287,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 persistWorkingCopy: true,
             });
 
-            if (warmupWorkingPath) {
-                // Prewarm search index and worker caches after OCR persistence so
-                // first user search does not pay the indexing setup cost.
-                void getSearchCapability().warmIndex(warmupWorkingPath, {pageCount: warmupPageCountHint}).catch((error) => {
-                    const warmIndexError: unknown = error;
-                    BrowserLogger.debug('pdf-search', 'Failed to prewarm search index after OCR', {
-                        path: warmupWorkingPath,
-                        pageCount: warmupPageCountHint,
-                        error: warmIndexError,
-                    });
-                });
-            }
         } catch (error) {
             void restorePromise;
             throw error;
@@ -308,6 +298,23 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 ? restoreError
                 : new Error(String(restoreError));
         }
+
+        if (warmupWorkingPath) {
+            // Prewarm search index and worker caches after OCR persistence and reload cache reset.
+            void getSearchCapability().warmIndex(warmupWorkingPath, {pageCount: warmupPageCountHint}).catch((error) => {
+                const warmIndexError: unknown = error;
+                BrowserLogger.debug('pdf-search', 'Failed to prewarm search index after OCR', {
+                    path: warmupWorkingPath,
+                    pageCount: warmupPageCountHint,
+                    error: warmIndexError,
+                });
+            });
+        }
+
+        toast.add({
+            color: 'success',
+            title: t('ocr.complete'),
+        });
     }
 
     async function getEmbeddedMutationBaseData() {

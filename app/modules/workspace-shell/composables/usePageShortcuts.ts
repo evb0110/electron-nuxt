@@ -127,6 +127,15 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         return true;
     }
 
+    function handleSearchShortcut(event: KeyboardEvent, key: string) {
+        if (key !== 'f' || event.shiftKey) {
+            return false;
+        }
+        event.preventDefault();
+        openSearch();
+        return true;
+    }
+
     function preventReactiveLetterShortcut(event: KeyboardEvent, key: string, shouldHandleRendererAccelerators: boolean) {
         if (key === 'b' || key === 'f') {
             event.preventDefault();
@@ -245,6 +254,9 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
         if (handlePrintShortcut(event, key, shouldHandleRendererAccelerators)) {
             return;
         }
+        if (handleSearchShortcut(event, key)) {
+            return;
+        }
 
         editableBlocked.value = isEditingText(event.target);
         if (editableBlocked.value) {
@@ -278,7 +290,6 @@ export const usePageShortcuts = (deps: IPageShortcutsDeps) => {
 
     // Letter shortcuts — reactive via whenever
     whenever(() => modReady.value && (keys.b?.value ?? false), () => deps.handleToggleSidebar());
-    whenever(() => modReady.value && (keys.f?.value ?? false), () => openSearch());
     // Pointerdown — close menus on outside clicks
     function handleGlobalPointerDown(event: PointerEvent) {
         if (!isActive.value) {

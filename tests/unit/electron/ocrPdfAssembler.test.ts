@@ -100,4 +100,49 @@ describe('assembleSearchablePdf', () => {
         expect(extractedText).toContain('NEW OCR');
         expect(extractedText).not.toContain('OLD TEXT');
     });
+
+    it('replaces a previously OCRed page instead of stacking another text layer', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-assembler-'));
+        const originalPath = join(tempDir, 'original.pdf');
+        const firstOcrPath = join(tempDir, 'ocr-first.pdf');
+        const secondOcrPath = join(tempDir, 'ocr-second.pdf');
+        const imagePath = join(tempDir, 'page.png');
+        await createPdfWithText(originalPath, 'ORIGINAL TEXT');
+        await createPdfWithText(firstOcrPath, 'FIRST OCR');
+        await createPdfWithText(secondOcrPath, 'SECOND OCR');
+        await writeFile(imagePath, ONE_PIXEL_PNG);
+
+        const pageImages = new Map<number, string>();
+        pageImages.set(1, imagePath);
+        const firstOcrPages = new Map<number, string>();
+        firstOcrPages.set(1, firstOcrPath);
+        const secondOcrPages = new Map<number, string>();
+        secondOcrPages.set(1, secondOcrPath);
+        const firstOutputPath = await assembleSearchablePdf(
+            originalPath,
+            firstOcrPages,
+            pageImages,
+            1,
+            tempDir,
+            'first-session',
+            vi.fn(),
+            path => path,
+        );
+        const secondOutputPath = await assembleSearchablePdf(
+            firstOutputPath,
+            secondOcrPages,
+            pageImages,
+            1,
+            tempDir,
+            'second-session',
+            vi.fn(),
+            path => path,
+        );
+
+        const extractedText = await extractPdfText(secondOutputPath);
+
+        expect(extractedText).toContain('SECOND OCR');
+        expect(extractedText).not.toContain('FIRST OCR');
+        expect(extractedText).not.toContain('ORIGINAL TEXT');
+    });
 });

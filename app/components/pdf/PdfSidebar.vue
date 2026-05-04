@@ -180,6 +180,7 @@ interface IProps {
     totalMatches: number;
     isSearching: boolean;
     searchError?: string | null;
+    searchFocusRequest?: number;
     searchProgress?: {
         processed: number;
         total: number;
@@ -317,6 +318,16 @@ watch(
         const sidebarClosed = wasOpen && !isOpen;
         if (leftAnnotations || sidebarClosed) {
             emit('update:annotation-tool', 'none');
+        }
+    },
+    { flush: 'post' },
+);
+
+watch(
+    () => props.searchFocusRequest,
+    async () => {
+        if (props.isOpen && activeTab.value === 'search') {
+            await focusSearch();
         }
     },
     { flush: 'post' },

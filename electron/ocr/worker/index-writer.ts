@@ -1,6 +1,7 @@
 import {
     lstat,
     mkdir,
+    readFile,
     realpath,
     rename,
     writeFile,
@@ -33,6 +34,68 @@ function isPathInsideBaseDir(baseDir: string, candidatePath: string) {
 
 function isPathInsideAnyBaseDir(baseDirs: string[], candidatePath: string) {
     return baseDirs.some(baseDir => isPathInsideBaseDir(baseDir, candidatePath));
+}
+
+async function readExistingOcrIndexV2Manifest(ocrDir: string): Promise<IOcrIndexV2Manifest | null> {
+    try {
+        const rawManifest = await readFile(join(ocrDir, 'manifest.json'), 'utf-8');
+        const manifest = JSON.parse(rawManifest) as Partial<IOcrIndexV2Manifest>;
+        if (
+            manifest.version !== 2
+            || typeof manifest.pages !== 'object'
+            || manifest.pages === null
+            || typeof manifest.source?.pdfPath !== 'string'
+            || !Number.isInteger(manifest.pageCount)
+        ) {
+            return null;
+        }
+        return manifest as IOcrIndexV2Manifest;
+    } catch {
+        return null;
+    }
+}
+
+function parseManifestPageNumber(value: string) {
+    const pageNumber = Number.parseInt(value, 10);
+    return Number.isInteger(pageNumber) && pageNumber > 0 ? pageNumber : null;
+}
+
+function shouldPreserveExistingOcrManifest(
+    manifest: IOcrIndexV2Manifest | null,
+    workingCopyPath: string,
+    pageCount: number,
+) {
+    return !!manifest
+        && manifest.pageCount === pageCount
+        && resolve(manifest.source.pdfPath) === resolve(workingCopyPath);
+}
+
+function copyPreservedPageMappings(
+    manifest: IOcrIndexV2Manifest | null,
+    workingCopyPath: string,
+    pageCount: number,
+) {
+    if (!manifest || !shouldPreserveExistingOcrManifest(manifest, workingCopyPath, pageCount)) {
+        return {};
+    }
+
+    const pages: IOcrIndexV2Manifest['pages'] = {};
+    for (const [
+        rawPageNumber,
+        pageMapping,
+    ] of Object.entries(manifest.pages)) {
+        const pageNumber = parseManifestPageNumber(rawPageNumber);
+        if (
+            pageNumber !== null
+            && pageNumber <= pageCount
+            && typeof pageMapping.path === 'string'
+            && pageMapping.path.length > 0
+        ) {
+            pages[pageNumber] = { path: pageMapping.path };
+        }
+    }
+
+    return pages;
 }
 
 export async function resolveSafeOcrIndexBasePath(
@@ -92,6 +155,7 @@ export async function writeOcrIndexV2(
 ): Promise<void> {
     const ocrDir = `${workingCopyPath}.ocr`;
     await mkdir(ocrDir, { recursive: true });
+    const existingManifest = await readExistingOcrIndexV2Manifest(ocrDir);
 
     const manifest: IOcrIndexV2Manifest = {
         version: 2,
@@ -104,7 +168,7 @@ export async function writeOcrIndexV2(
             languages,
             renderDpi: extractionDpi,
         },
-        pages: {},
+        pages: copyPreservedPageMappings(existingManifest, workingCopyPath, pageCount),
     };
 
     for (const pd of ocrPageData) {

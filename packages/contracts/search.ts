@@ -58,9 +58,15 @@ export function buildPdfSearchRegex(
 
 const MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH = 48;
 const MIN_TWO_COPY_PAGE_TEXT_SEGMENT_LENGTH = 160;
+const MAX_REPEATED_PAGE_TEXT_COPIES = 16;
 
 export function collapseRepeatedPdfSearchPageText(text: string) {
-    for (let repeatCount = 4; repeatCount >= 2; repeatCount -= 1) {
+    const maxRepeatCount = Math.min(
+        MAX_REPEATED_PAGE_TEXT_COPIES,
+        Math.floor(text.length / MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH),
+    );
+
+    for (let repeatCount = maxRepeatCount; repeatCount >= 2; repeatCount -= 1) {
         if (text.length % repeatCount !== 0) {
             continue;
         }

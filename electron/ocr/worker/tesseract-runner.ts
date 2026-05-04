@@ -274,8 +274,43 @@ export async function runOcrFileBased(
     });
 }
 
-function parseTsvOutput(tsvContent: string): IOcrWord[] {
+interface ITsvLineBox {
+    top: number;
+    height: number;
+}
+
+function parsePositiveTsvInt(value: string | undefined) {
+    const parsed = parseInt(value ?? '', 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseTsvLineBoxes(tsvContent: string): Map<string, ITsvLineBox> {
+    const lineBoxes = new Map<string, ITsvLineBox>();
+
+    for (const row of iterateTsvRows(tsvContent)) {
+        const level = parseInt(row.parts[0]!, 10);
+        if (level !== 4) {
+            continue;
+        }
+
+        const top = parsePositiveTsvInt(row.parts[7]);
+        const height = parsePositiveTsvInt(row.parts[9]);
+        if (top === null || height === null) {
+            continue;
+        }
+
+        lineBoxes.set(getTsvLineKey(row.parts), {
+            top,
+            height,
+        });
+    }
+
+    return lineBoxes;
+}
+
+export function parseTsvOutput(tsvContent: string): IOcrWord[] {
     const words: IOcrWord[] = [];
+    const lineBoxes = parseTsvLineBoxes(tsvContent);
 
     for (const {
         parts,
@@ -290,12 +325,14 @@ function parseTsvOutput(tsvContent: string): IOcrWord[] {
         if (confidence < 20) continue;
         if (width <= 0 || height <= 0) continue;
 
+        const lineBox = lineBoxes.get(getTsvLineKey(parts));
+
         words.push({
             text,
             x: left,
-            y: top,
+            y: lineBox?.top ?? top,
             width,
-            height,
+            height: lineBox?.height ?? height,
         });
     }
 
@@ -358,7 +395,7 @@ function parseTsvText(tsvContent: string): string {
     return state.outputLines.join('\n').trim();
 }
 
-function* iterateTsvWordRows(tsvContent: string): Generator<{
+function* iterateTsvRows(tsvContent: string): Generator<{
     parts: string[];
     text: string;
 }> {
@@ -368,18 +405,29 @@ function* iterateTsvWordRows(tsvContent: string): Generator<{
     }
 
     for (let i = 1; i < lines.length; i++) {
-        const line = lines[i]?.trim();
-        if (!line) continue;
+        const line = lines[i];
+        if (!line?.trim()) continue;
 
         const parts = line.split('\t');
         if (parts.length < 12) continue;
-
-        const level = parseInt(parts[0]!, 10);
-        if (level !== 5) continue;
 
         yield {
             parts,
             text: (parts[11] || '').trim(),
         };
+    }
+}
+
+function* iterateTsvWordRows(tsvContent: string): Generator<{
+    parts: string[];
+    text: string;
+}> {
+    for (const row of iterateTsvRows(tsvContent)) {
+        const { parts } = row;
+
+        const level = parseInt(parts[0]!, 10);
+        if (level !== 5) continue;
+
+        yield row;
     }
 }

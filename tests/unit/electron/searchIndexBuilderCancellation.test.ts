@@ -117,7 +117,7 @@ describe('buildSearchIndex assembly', () => {
     it('skips PDF text extraction when existing index already covers expected pages', async () => {
         const { buildSearchIndex } = await import('@electron/search/index-builder');
         const cachedIndex = {
-            schemaVersion: 3,
+            schemaVersion: 4,
             pdfPath: '/tmp/file.pdf',
             createdAt: 1,
             pages: [
@@ -326,10 +326,62 @@ describe('buildSearchIndex assembly', () => {
             }),
         ]);
         expect(result.pageCount).toBe(2);
-        expect(result.schemaVersion).toBe(3);
+        expect(result.schemaVersion).toBe(4);
         expect(result.textSource).toEqual({
             kind: 'ocr-v2-text-layer',
             version: 1,
         });
+    });
+
+    it('ignores stale OCR v2 sidecar pages outside the current page count', async () => {
+        const { buildSearchIndex } = await import('@electron/search/index-builder');
+        mocks.existsSync.mockImplementation((path: string) => (
+            path.endsWith('manifest.json') || path.endsWith('page-3.json')
+        ));
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path.endsWith('manifest.json')) {
+                return JSON.stringify({
+                    version: 2,
+                    createdAt: 1,
+                    source: { pdfPath: '/tmp/file.pdf' },
+                    pageCount: 3,
+                    pageBox: 'cropped',
+                    ocr: {
+                        engine: 'tesseract',
+                        languages: ['eng'],
+                        renderDpi: 300,
+                    },
+                    pages: { 3: { path: 'page-3.json' } },
+                });
+            }
+            if (path.endsWith('page-3.json')) {
+                return JSON.stringify({
+                    pageNumber: 3,
+                    text: 'stale sidecar text',
+                    words: [],
+                });
+            }
+            throw new Error('ENOENT');
+        });
+        mocks.extractTextWithPdfjs.mockResolvedValue([{
+            pageNumber: 1,
+            text: 'current pdf text',
+        }]);
+        mocks.extractTextFromPdf.mockResolvedValue([]);
+
+        const result = await buildSearchIndex('/tmp/file.pdf', [], { pageCount: 2 });
+
+        expect(result.pages).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                text: 'current pdf text',
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                text: '',
+            }),
+        ]);
+        expect(result.pages.some(page => page.pageNumber === 3)).toBe(false);
+        expect(mocks.extractTextWithPdfjs).toHaveBeenCalledOnce();
     });
 });

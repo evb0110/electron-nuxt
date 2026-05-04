@@ -235,6 +235,7 @@
                     :total-matches="totalMatches"
                     :is-searching="isSearching"
                     :search-error="searchError"
+                    :search-focus-request="searchFocusRequest"
                     :search-progress="searchProgress"
                     :is-truncated="isTruncated"
                     :min-query-length="minQueryLength"
@@ -716,6 +717,7 @@ const {
     handleSearchNext,
     handleSearchPrevious,
     handleGoToResult,
+    searchFocusRequest,
     handleSave,
     handleSaveAs,
     handlePrint,

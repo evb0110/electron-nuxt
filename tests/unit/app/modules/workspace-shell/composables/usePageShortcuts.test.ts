@@ -382,6 +382,36 @@ describe('usePageShortcuts', () => {
         expect(preventDefault).not.toHaveBeenCalled();
     });
 
+    it('opens search for Cmd/Ctrl+F even when focus starts in an editable field', async () => {
+        const deps = createDeps();
+        const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
+        usePageShortcuts(deps);
+
+        const preventDefault = vi.fn();
+        const fakeInput = {
+            isContentEditable: false,
+            closest: (selector: string) => selector.includes('input') ? fakeInput : null,
+        };
+        // eslint-disable-next-line @typescript-eslint/no-extraneous-class
+        vi.stubGlobal('HTMLElement', class HTMLElementStub {});
+        Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
+
+        capturedOnEventFired?.(cast<KeyboardEvent>({
+            type: 'keydown',
+            key: 'f',
+            code: 'KeyF',
+            metaKey: true,
+            ctrlKey: false,
+            altKey: false,
+            shiftKey: false,
+            target: fakeInput,
+            preventDefault,
+        }));
+
+        expect(preventDefault).toHaveBeenCalledOnce();
+        expect(deps.openSearch).toHaveBeenCalledOnce();
+    });
+
     it('handles Escape to close context menus', async () => {
         const deps = createDeps();
         deps.annotationContextMenuVisible.value = true;

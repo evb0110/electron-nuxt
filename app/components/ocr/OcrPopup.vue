@@ -57,13 +57,15 @@
                             <span>{{ t('ocr.customRange') }}</span>
                         </label>
                     </div>
-                    <UInput
-                        v-if="settings.pageRange === 'custom'"
-                        v-model="settings.customRange"
-                        :placeholder="t('ocr.customRangePlaceholder')"
-                        size="sm"
-                        class="custom-input"
-                    />
+                    <div class="custom-input-slot">
+                        <UInput
+                            v-show="settings.pageRange === 'custom'"
+                            v-model="settings.customRange"
+                            :placeholder="t('ocr.customRangePlaceholder')"
+                            size="sm"
+                            class="custom-input"
+                        />
+                    </div>
                 </div>
 
                 <!-- Language Selection -->
@@ -164,57 +166,60 @@
                 </div>
 
                 <!-- Progress Display -->
-                <div
-                    v-if="progress.isRunning"
-                    class="progress flex flex-col gap-1.5"
-                >
-                    <UProgress :value="progressPercent" />
-                    <span class="progress-text">
-                        <template v-if="progress.phase === 'preparing'">
-                            {{ t('ocr.preparing') }}
-                        </template>
-                        <template v-else>
-                            {{
-                                t('ocr.processingPage', {
-                                    page: progress.currentPage,
-                                    processed: progress.processedCount,
-                                    total: progress.totalPages,
-                                })
-                            }}
-                        </template>
-                    </span>
-                </div>
-
-                <!-- Error Display -->
-                <div
-                    v-if="effectiveError"
-                    class="error"
-                >
-                    <UIcon name="i-lucide-alert-circle" class="size-4" />
-                    <div class="error-content flex flex-1 flex-col gap-2">
-                        <span class="error-text">{{ effectiveError }}</span>
-                        <UTooltip :text="copyLogsTooltip" :delay-duration="1200">
-                            <UButton
-                                icon="i-lucide-copy"
-                                variant="ghost"
-                                color="neutral"
-                                size="xs"
-                                class="copy-logs"
-                                :loading="isCopyingLogs"
-                                :aria-label="t('ocr.copyLogs')"
-                                @click="handleCopyLogs"
-                            />
-                        </UTooltip>
+                <div class="status-slot">
+                    <!-- Progress Display -->
+                    <div
+                        v-if="progress.isRunning"
+                        class="progress flex flex-col gap-1.5"
+                    >
+                        <UProgress :value="progressPercent" />
+                        <span class="progress-text">
+                            <template v-if="progress.phase === 'preparing'">
+                                {{ t('ocr.preparing') }}
+                            </template>
+                            <template v-else>
+                                {{
+                                    t('ocr.processingPage', {
+                                        page: progress.currentPage,
+                                        processed: progress.processedCount,
+                                        total: progress.totalPages,
+                                    })
+                                }}
+                            </template>
+                        </span>
                     </div>
-                </div>
 
-                <!-- Results Summary -->
-                <div
-                    v-if="hasResults && !progress.isRunning"
-                    class="results"
-                >
-                    <UIcon name="i-lucide-check-circle" class="size-4" />
-                    <span>{{ t('ocr.complete') }}</span>
+                    <!-- Error Display -->
+                    <div
+                        v-else-if="effectiveError"
+                        class="error"
+                    >
+                        <UIcon name="i-lucide-alert-circle" class="size-4" />
+                        <div class="error-content flex flex-1 flex-col gap-2">
+                            <span class="error-text">{{ effectiveError }}</span>
+                            <UTooltip :text="copyLogsTooltip" :delay-duration="1200">
+                                <UButton
+                                    icon="i-lucide-copy"
+                                    variant="ghost"
+                                    color="neutral"
+                                    size="xs"
+                                    class="copy-logs"
+                                    :loading="isCopyingLogs"
+                                    :aria-label="t('ocr.copyLogs')"
+                                    @click="handleCopyLogs"
+                                />
+                            </UTooltip>
+                        </div>
+                    </div>
+
+                    <!-- Results Summary -->
+                    <div
+                        v-else-if="hasResults"
+                        class="results"
+                    >
+                        <UIcon name="i-lucide-check-circle" class="size-4" />
+                        <span>{{ t('ocr.complete') }}</span>
+                    </div>
                 </div>
             </div>
         </template>
@@ -576,8 +581,13 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     accent-color: var(--ui-primary);
 }
 
+.custom-input-slot {
+    min-height: 2.5rem;
+    padding-top: 0.5rem;
+}
+
 .custom-input {
-    margin-top: 0.5rem;
+    width: 100%;
 }
 
 .group-label {
@@ -610,6 +620,10 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     font-size: 0.75rem;
     color: var(--ui-text-muted);
     text-align: center;
+}
+
+.status-slot {
+    min-height: 2.75rem;
 }
 
 .error {

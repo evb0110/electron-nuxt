@@ -51,6 +51,7 @@ const mocks = vi.hoisted(() => ({
     ensureWorkingCopyDirectory: vi.fn(),
     writeFile: vi.fn(),
     rename: vi.fn(),
+    rm: vi.fn(),
     unlink: vi.fn(),
 }));
 
@@ -70,6 +71,7 @@ vi.mock('fs', () => ({existsSync: (path: string) => mocks.existsSync(path)}));
 vi.mock('fs/promises', () => ({
     writeFile: (...args: unknown[]) => mocks.writeFile(...args),
     rename: (...args: unknown[]) => mocks.rename(...args),
+    rm: (...args: unknown[]) => mocks.rm(...args),
     unlink: (...args: unknown[]) => mocks.unlink(...args),
 }));
 vi.mock('@electron/utils/path-validator', () => ({isAllowedWritePath: (path: string) => mocks.isAllowedWritePath(path)}));
@@ -135,6 +137,7 @@ describe('registerPageOpsHandlers', () => {
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
         mocks.writeFile.mockResolvedValue(undefined);
         mocks.rename.mockResolvedValue(undefined);
+        mocks.rm.mockResolvedValue(undefined);
         mocks.unlink.mockResolvedValue(undefined);
 
         mocks.deletePages.mockResolvedValue({pageCount: 1});
@@ -313,5 +316,17 @@ describe('registerPageOpsHandlers', () => {
             expect.stringMatching(/^\/tmp\/pdf-work-1\/tmp-.+\.pdf$/),
             '/tmp/pdf-work-1/work.pdf',
         );
+    });
+
+    it('removes stale OCR artifacts after mutating the working copy', async () => {
+        const handler = getHandler('page-ops:rotate');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 90)).resolves.toEqual({success: true});
+
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/a.pdf.ocr', {
+            recursive: true,
+            force: true,
+        });
+        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/a.pdf.index.json');
     });
 });

@@ -8,6 +8,7 @@ import {
 
 export interface ICachedIndex {
     mtimeMs: number;
+    sourceMtimeMs: number;
     index: IPdfSearchIndex;
     accessedAt: number;
     validatedTextBudget: boolean;
@@ -29,6 +30,26 @@ interface IEnsureSearchIndexOptions {
 
 export function getIndexPath(pdfPath: string) {
     return `${pdfPath}.index.json`;
+}
+
+async function statMtimeMs(filePath: string): Promise<number | null> {
+    try {
+        return (await stat(filePath)).mtimeMs;
+    } catch {
+        return null;
+    }
+}
+
+async function getSearchSourceMtimeMs(pdfPath: string) {
+    const [
+        pdfMtimeMs,
+        ocrManifestMtimeMs,
+    ] = await Promise.all([
+        statMtimeMs(pdfPath),
+        statMtimeMs(`${pdfPath}.ocr/manifest.json`),
+    ]);
+
+    return Math.max(pdfMtimeMs ?? 0, ocrManifestMtimeMs ?? 0);
 }
 
 export function pruneIndexCache(
@@ -96,18 +117,22 @@ export async function loadCachedIndex(
     pruneIndexCache(indexCache, options, now);
     const indexPath = getIndexPath(pdfPath);
 
-    let mtimeMs: number;
-    try {
-        mtimeMs = (await stat(indexPath)).mtimeMs;
-    } catch {
+    const mtimeMs = await statMtimeMs(indexPath);
+    if (mtimeMs === null) {
         indexCache.delete(pdfPath);
         return null;
     }
+    const sourceMtimeMs = await getSearchSourceMtimeMs(pdfPath);
 
     const cached = indexCache.get(pdfPath);
-    if (cached && cached.mtimeMs === mtimeMs) {
+    if (cached && cached.mtimeMs === mtimeMs && cached.sourceMtimeMs === sourceMtimeMs) {
         cached.accessedAt = now;
         return cached;
+    }
+
+    if (sourceMtimeMs > mtimeMs) {
+        indexCache.delete(pdfPath);
+        return null;
     }
 
     const index = await loadSearchIndex(pdfPath);
@@ -118,6 +143,7 @@ export async function loadCachedIndex(
 
     const entry: ICachedIndex = {
         mtimeMs,
+        sourceMtimeMs,
         index,
         accessedAt: now,
         validatedTextBudget: false,
@@ -138,15 +164,12 @@ export async function cacheBuiltIndex(
     const now = Date.now();
     pruneIndexCache(indexCache, options, now);
     const indexPath = getIndexPath(pdfPath);
-    let mtimeMs: number;
-    try {
-        mtimeMs = (await stat(indexPath)).mtimeMs;
-    } catch {
-        mtimeMs = Date.now();
-    }
+    const mtimeMs = await statMtimeMs(indexPath) ?? Date.now();
+    const sourceMtimeMs = await getSearchSourceMtimeMs(pdfPath);
 
     const entry: ICachedIndex = {
         mtimeMs,
+        sourceMtimeMs,
         index,
         accessedAt: now,
         validatedTextBudget: false,

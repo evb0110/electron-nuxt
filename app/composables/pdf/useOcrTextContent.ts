@@ -45,6 +45,53 @@ interface ITextContent {
     lang: string | null;
 }
 
+function normalizeWordsToLineHeights(words: IOcrWord[]): IOcrWord[] {
+    const normalizedWords = words.map(word => ({ ...word }));
+    if (normalizedWords.length <= 1) {
+        return normalizedWords;
+    }
+
+    let lineStartIndex = 0;
+
+    function areWordsOnSameVisualLine(currentWord: IOcrWord, nextWord: IOcrWord) {
+        const currentCenter = currentWord.y + currentWord.height / 2;
+        const nextCenter = nextWord.y + nextWord.height / 2;
+        const maxHeight = Math.max(currentWord.height, nextWord.height);
+
+        return Math.abs(nextCenter - currentCenter) <= maxHeight * 0.5;
+    }
+
+    function applyLineBox(lineEndIndex: number) {
+        if (lineEndIndex <= lineStartIndex) {
+            return;
+        }
+
+        const lineWords = normalizedWords.slice(lineStartIndex, lineEndIndex + 1);
+        const lineTop = Math.min(...lineWords.map(word => word.y));
+        const lineBottom = Math.max(...lineWords.map(word => word.y + word.height));
+        const lineHeight = lineBottom - lineTop;
+
+        if (!Number.isFinite(lineTop) || !Number.isFinite(lineHeight) || lineHeight <= 0) {
+            return;
+        }
+
+        for (let index = lineStartIndex; index <= lineEndIndex; index += 1) {
+            normalizedWords[index]!.y = lineTop;
+            normalizedWords[index]!.height = lineHeight;
+        }
+    }
+
+    for (let index = 0; index < normalizedWords.length - 1; index += 1) {
+        if (!areWordsOnSameVisualLine(normalizedWords[index]!, normalizedWords[index + 1]!)) {
+            applyLineBox(index);
+            lineStartIndex = index + 1;
+        }
+    }
+    applyLineBox(normalizedWords.length - 1);
+
+    return normalizedWords;
+}
+
 /**
  * Composable for loading OCR index data and converting it to PDF.js TextContent format.
  *
@@ -240,13 +287,15 @@ export const useOcrTextContent = () => {
 
         const ascentRatio = getAscentRatio();
 
+        const words = normalizeWordsToLineHeights(pageData.words);
+
         // Convert OCR words to TextItems
-        const items: ITextItem[] = pageData.words.map((word, idx) =>
+        const items: ITextItem[] = words.map((word, idx) =>
             transformWordToTextItem(
                 word,
                 pageData,
                 viewport,
-                isLastOcrWordInLine(pageData.words, idx),
+                isLastOcrWordInLine(words, idx),
                 textDir,
             ),
         );
