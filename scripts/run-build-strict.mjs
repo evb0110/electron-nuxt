@@ -4,11 +4,18 @@ import {
     writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {
+    fileURLToPath,
+    pathToFileURL,
+} from 'node:url';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, '..');
 const buildLogPath = path.join(projectRoot, '.tmp', 'build.log');
+
+export function getPnpmCommand(platform = process.platform) {
+    return platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+}
 
 const COLLAPSED_WARNING_PATTERNS = [/\b(?:WARN|\[warn\])\s+\[plugin @tailwindcss\/vite:generate:build\] Sourcemap is likely to be incorrect: a plugin \(@tailwindcss\/vite:generate:build\) was used to transform files, but didn't generate a sourcemap for the transformation\. Consult the plugin documentation for help(?: \(x\d+\))?$/u];
 
@@ -124,7 +131,7 @@ function run(command, args, options = {}) {
 
 async function main() {
     mkdirSync(path.dirname(buildLogPath), { recursive: true });
-    const output = await run('pnpm', [
+    const output = await run(getPnpmCommand(), [
         'run',
         'build:desktop',
     ]);
@@ -135,18 +142,20 @@ async function main() {
     ]);
 }
 
-main().catch((error) => {
-    if (
-        error
-        && typeof error === 'object'
-        && 'output' in error
-        && typeof error.output === 'string'
-        && error.output.length > 0
-    ) {
-        mkdirSync(path.dirname(buildLogPath), { recursive: true });
-        writeFileSync(buildLogPath, error.output);
-    }
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main().catch((error) => {
+        if (
+            error
+            && typeof error === 'object'
+            && 'output' in error
+            && typeof error.output === 'string'
+            && error.output.length > 0
+        ) {
+            mkdirSync(path.dirname(buildLogPath), { recursive: true });
+            writeFileSync(buildLogPath, error.output);
+        }
 
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-});
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+    });
+}
