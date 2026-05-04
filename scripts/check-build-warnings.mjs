@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const nulCharacter = String.fromCharCode(0);
+
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, '..');
 const allowlistPath = path.join(projectRoot, 'scripts', 'build-warning-allowlist.json');
@@ -78,6 +80,10 @@ function getWarningSignature(block) {
     return lines[0] ?? block;
 }
 
+function normalizeWarningSignature(signature) {
+    return signature.replaceAll(nulCharacter, '');
+}
+
 async function main() {
     const logPathArgument = process.argv[2];
     if (!logPathArgument) {
@@ -100,7 +106,9 @@ async function main() {
     const allowlistMatchers = allowedWarningPatterns.map(pattern => new RegExp(pattern, 'u'));
 
     const warningBlocks = parseWarningBlocks(logRaw);
-    const warningSignatures = warningBlocks.map(getWarningSignature);
+    const warningSignatures = warningBlocks.map(block =>
+        normalizeWarningSignature(getWarningSignature(block)),
+    );
     const unknownWarnings = warningSignatures.filter(signature =>
         !allowlistMatchers.some(matcher => matcher.test(signature)),
     );
