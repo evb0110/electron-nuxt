@@ -7,7 +7,6 @@ import {
     ipcMain,
 } from 'electron';
 import { existsSync } from 'fs';
-import { stat } from 'fs/promises';
 import {
     dirname,
     join,
@@ -16,7 +15,6 @@ import { fileURLToPath } from 'url';
 import { SEARCH_CHANNELS } from '@electron/features/search/contract';
 import type { ISearchResponse } from '@electron/features/search/protocol';
 import { findWorkingCopyPathByOriginalPath } from '@electron/ipc/workingCopy';
-import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/logger';
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import {
@@ -36,21 +34,6 @@ const SEARCH_PAGE_COUNT_MAX = (() => {
     }
     return Math.min(parsed, 1_000_000);
 })();
-const SEARCH_PDF_MAX_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_SEARCH_PDF_MAX_BYTES ?? `${256 * 1024 * 1024}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 1024 * 1024) {
-        return 256 * 1024 * 1024;
-    }
-    return Math.min(parsed, 2 * 1024 * 1024 * 1024);
-})();
-
-class SearchPdfTooLargeError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = 'SearchPdfTooLargeError';
-    }
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
@@ -157,40 +140,18 @@ export function resolveSearchWorkerPath(workerBaseDir = __dirname): string {
 }
 
 export async function resolveSearchablePdfPath(pdfPath: string): Promise<string | null> {
-    const directResolvedPath = await resolveAllowedReadPath(pdfPath);
-    if (directResolvedPath) {
-        return directResolvedPath;
-    }
-
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(pdfPath);
-    if (!mappedWorkingCopyPath) {
-        return null;
+    if (mappedWorkingCopyPath) {
+        const mappedResolvedPath = await resolveAllowedReadPath(mappedWorkingCopyPath);
+        if (mappedResolvedPath) {
+            return mappedResolvedPath;
+        }
     }
 
-    return resolveAllowedReadPath(mappedWorkingCopyPath);
+    return resolveAllowedReadPath(pdfPath);
 }
 
 const searchWorkerService = new SearchWorkerService(resolveSearchWorkerPath);
-
-async function assertSearchPdfWithinLimits(pdfPath: string) {
-    try {
-        const fileStat = await stat(pdfPath);
-        if (!fileStat.isFile()) {
-            return;
-        }
-        if (fileStat.size > SEARCH_PDF_MAX_BYTES) {
-            throw new SearchPdfTooLargeError(
-                `PDF is too large for in-app search (${Math.round(fileStat.size / (1024 * 1024))}MB > `
-                + `${Math.round(SEARCH_PDF_MAX_BYTES / (1024 * 1024))}MB limit)`,
-            );
-        }
-    } catch (error) {
-        if (error instanceof SearchPdfTooLargeError) {
-            throw error;
-        }
-        log.warn(`Unable to verify search PDF size limit for ${pdfPath}: ${getErrorMessage(error)}`);
-    }
-}
 
 async function handlePdfSearch(
     event: IpcMainInvokeEvent,
@@ -222,7 +183,6 @@ async function handlePdfSearch(
     if (!resolvedPdfPath) {
         throw new Error('Invalid PDF path: search only allowed within temp directory');
     }
-    await assertSearchPdfWithinLimits(resolvedPdfPath);
 
     return searchWorkerService.dispatchSearchRequest(event, {
         resolvedPdfPath,
@@ -250,7 +210,6 @@ async function handlePdfSearchWarmIndex(
     if (!resolvedPdfPath) {
         throw new Error('Invalid PDF path: search only allowed within temp directory');
     }
-    await assertSearchPdfWithinLimits(resolvedPdfPath);
 
     await searchWorkerService.dispatchSearchRequest(event, {
         resolvedPdfPath,
