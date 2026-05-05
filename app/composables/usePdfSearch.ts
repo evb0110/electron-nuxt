@@ -287,9 +287,6 @@ export const usePdfSearch = () => {
                         results: progress.results,
                         truncated: Boolean(progress.truncated),
                     }, query, options, searchId);
-                    if (progress.results.length > 0) {
-                        isSearching.value = false;
-                    }
                 }
             });
 

@@ -1,20 +1,5 @@
 <template>
     <div class="pdf-search-results flex flex-col">
-        <div
-            v-if="isSearching"
-            class="pdf-search-results-status"
-        >
-            <UIcon name="i-lucide-loader-2" class="pdf-search-results-spinner size-4" />
-            <span class="pdf-search-results-status-label">
-                {{ t('searchResults.searching') }}
-            </span>
-            <span
-                v-if="progressText"
-                class="pdf-search-results-status-progress"
-            >
-                ({{ progressText }})
-            </span>
-        </div>
         <PdfPanelEmptyState
             v-if="!trimmedQuery"
             icon="i-lucide-search"
@@ -40,13 +25,28 @@
             :description="t('searchResults.noResultsHint')"
         />
         <div
-            v-else-if="results.length > 0"
+            v-else-if="isSearching || results.length > 0"
             class="pdf-search-results-list-shell flex flex-1 min-h-0 flex-col"
         >
             <div class="pdf-search-results-header">
-                {{ t('searchResults.resultCount', { count: results.length }) }} {{ t('searchResults.forQuery', { query: trimmedQuery }) }}
+                <span class="pdf-search-results-header-summary">
+                    {{ t('searchResults.resultCount', { count: results.length }) }} {{ t('searchResults.forQuery', { query: trimmedQuery }) }}
+                </span>
+                <UIcon
+                    v-if="isSearching"
+                    name="i-lucide-loader-2"
+                    class="pdf-search-results-spinner pdf-search-results-header-spinner size-4"
+                    aria-live="polite"
+                    :aria-label="t('searchResults.searching')"
+                />
+                <span
+                    v-if="isSearching && progressText"
+                    class="pdf-search-results-header-progress"
+                >
+                    {{ progressText }}
+                </span>
                 <div
-                    v-if="isTruncated"
+                    v-if="!isSearching && isTruncated"
                     class="pdf-search-results-truncated"
                 >
                     {{ t('searchResults.showingFirst', { count: results.length }) }}
@@ -253,46 +253,44 @@ watch(
 
 
 .pdf-search-results-header {
+    display: flex;
+    min-width: 0;
     min-height: 36px;
+    align-items: center;
+    gap: 12px;
     padding: 8px 12px;
     font-size: 12px;
     color: var(--ui-text-muted);
     border-bottom: 1px solid var(--ui-border);
     font-variant-numeric: tabular-nums;
-}
-
-.pdf-search-results-truncated {
-    margin-top: 4px;
-    font-size: 11px;
-    color: var(--ui-text-dimmed);
-}
-
-.pdf-search-results-status {
-    display: flex;
-    min-height: 40px;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    overflow: hidden;
-    color: var(--ui-text-muted);
-    border-bottom: 1px solid var(--ui-border);
     white-space: nowrap;
 }
 
-.pdf-search-results-status-label {
-    flex: 0 0 auto;
-}
-
-.pdf-search-results-status-progress {
-    display: inline-block;
-    min-width: 18ch;
-}
-
-.pdf-search-results-status span {
+.pdf-search-results-header-summary {
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-variant-numeric: tabular-nums;
+}
+
+.pdf-search-results-header-spinner {
+    color: var(--ui-text-dimmed);
+}
+
+.pdf-search-results-header-progress {
+    flex: 0 0 auto;
+    margin-left: 0;
+    color: var(--ui-text-dimmed);
+}
+
+.pdf-search-results-header-spinner:first-of-type {
+    margin-left: auto;
+}
+
+.pdf-search-results-truncated {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--ui-text-dimmed);
 }
 
 .pdf-search-results-spinner {

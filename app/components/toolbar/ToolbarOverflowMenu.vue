@@ -11,83 +11,18 @@
                 color="neutral"
                 class="toolbar-icon-button"
                 :aria-label="t('toolbar.moreTools')"
+                aria-haspopup="menu"
+                :aria-expanded="isOpen"
             />
         </UTooltip>
 
         <template #content>
             <div class="overflow-menu">
-                <!-- Tier 1: ExportDocx, Continuous Scroll, Settings -->
-                <div v-if="collapseTier >= 1" class="overflow-menu-section">
-                    <button
-                        v-if="isCommandInMenu('open-file')"
-                        class="overflow-menu-item"
-                        @click="emit('open-file'); close()"
-                    >
-                        <UIcon name="i-lucide-folder-open" class="overflow-menu-icon" />
-                        <span class="overflow-menu-label">{{ t('toolbar.openPdf') }}</span>
-                    </button>
-                    <button
-                        v-if="isCommandInMenu('toggle-sidebar')"
-                        :class="['overflow-menu-item', { 'is-active': showSidebar }]"
-                        :disabled="!hasInteractiveDocument || canToggleSidebar === false"
-                        @click="emit('toggle-sidebar'); close()"
-                    >
-                        <UIcon name="i-lucide-panel-left" class="overflow-menu-icon" />
-                        <span class="overflow-menu-label">{{ t('toolbar.toggleSidebar') }}</span>
-                        <UIcon
-                            v-if="showSidebar"
-                            name="i-lucide-check"
-                            class="overflow-menu-check"
-                        />
-                    </button>
-                    <button
-                        v-if="isCommandInMenu('export-docx')"
-                        class="overflow-menu-item"
-                        :disabled="!hasInteractiveDocument || !canExportDocx || isExportingDocx"
-                        @click="emit('export-docx'); close()"
-                    >
-                        <UIcon name="i-lucide-file-text" class="overflow-menu-icon" />
-                        <span class="overflow-menu-label">{{ t('toolbar.exportDocx') }}</span>
-                    </button>
-                    <button
-                        v-if="isCommandInMenu('continuous-scroll')"
-                        :class="['overflow-menu-item', { 'is-active': continuousScroll }]"
-                        :disabled="!hasInteractiveDocument"
-                        @click="emit('toggle-continuous-scroll'); close()"
-                    >
-                        <UIcon name="i-lucide-scroll" class="overflow-menu-icon" />
-                        <span class="overflow-menu-label">{{ t('zoom.continuousScroll') }}</span>
-                        <UIcon
-                            v-if="continuousScroll"
-                            name="i-lucide-check"
-                            class="overflow-menu-check"
-                        />
-                    </button>
-                    <button
-                        v-if="isCommandInMenu('fullscreen')"
-                        class="overflow-menu-item"
-                        :disabled="!fullscreenSupported"
-                        @click="toggleFullscreen(); close()"
-                    >
-                        <UIcon :name="isFullscreen ? 'i-lucide-shrink' : 'i-lucide-expand'" class="overflow-menu-icon" />
-                        <span class="overflow-menu-label">{{ t('toolbar.fullscreen') }}</span>
-                    </button>
-                    <button
-                        v-if="isCommandInMenu('settings')"
-                        class="overflow-menu-item"
-                        @click="emit('open-settings'); close()"
-                    >
-                        <UIcon name="i-lucide-settings" class="overflow-menu-icon" />
-                        <span class="overflow-menu-label">{{ t('toolbar.settings') }}</span>
-                    </button>
-                </div>
-
-                <!-- Tier 2: CaptureRegion, OCR, ViewMode, FitW/FitH, Hand/TextSelect -->
-                <template v-if="collapseTier >= 2">
-                    <div class="overflow-menu-divider" />
+                <template v-if="hasToolItems">
+                    <div class="overflow-menu-section-header">{{ t('toolbar.annotations') }}</div>
                     <div class="overflow-menu-section">
                         <button
-                            v-if="isCommandInMenu('capture-region') && canCaptureRegion"
+                            v-if="shouldShowMenuCommand('capture-region', 2) && canCaptureRegion"
                             :class="['overflow-menu-item', { 'is-active': isCapturingRegion }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('capture-region'); close()"
@@ -101,7 +36,7 @@
                             />
                         </button>
                         <button
-                            v-if="isCommandInMenu('crop') && canCrop"
+                            v-if="shouldShowMenuCommand('crop', 2) && canCrop"
                             :class="['overflow-menu-item', { 'is-active': isCropSelecting }]"
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('crop'); close()"
@@ -115,7 +50,7 @@
                             />
                         </button>
                         <button
-                            v-if="isCommandInMenu('quick-note') && canQuickNote"
+                            v-if="shouldShowMenuCommand('quick-note', 2) && canQuickNote"
                             :class="['overflow-menu-item', { 'is-active': isPlacingPageNote }]"
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('quick-note'); close()"
@@ -129,7 +64,7 @@
                             />
                         </button>
                         <button
-                            v-if="isCommandInMenu('ocr') && canUseOcr"
+                            v-if="shouldShowMenuCommand('ocr', 2) && canUseOcr"
                             class="overflow-menu-item"
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('open-ocr'); close()"
@@ -137,9 +72,29 @@
                             <UIcon name="i-lucide-scan-text" class="overflow-menu-icon" />
                             <span class="overflow-menu-label">{{ t('ocr.button') }}</span>
                         </button>
-                        <div class="overflow-menu-divider" />
+                    </div>
+                </template>
+
+                <template v-if="hasViewItems">
+                    <div v-if="hasToolItems" class="overflow-menu-divider" />
+                    <div class="overflow-menu-section-header">{{ t('menu.view') }}</div>
+                    <div class="overflow-menu-section">
                         <button
-                            v-if="isCommandInMenu('view-mode')"
+                            v-if="shouldShowMenuCommand('toggle-sidebar')"
+                            :class="['overflow-menu-item', { 'is-active': showSidebar }]"
+                            :disabled="!hasInteractiveDocument || canToggleSidebar === false"
+                            @click="emit('toggle-sidebar'); close()"
+                        >
+                            <UIcon name="i-lucide-panel-left" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('toolbar.toggleSidebar') }}</span>
+                            <UIcon
+                                v-if="showSidebar"
+                                name="i-lucide-check"
+                                class="overflow-menu-check"
+                            />
+                        </button>
+                        <button
+                            v-if="shouldShowMenuCommand('view-mode', 2)"
                             :class="['overflow-menu-item', { 'is-active': viewMode === 'single' }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('set-view-mode', 'single'); close()"
@@ -153,7 +108,7 @@
                             />
                         </button>
                         <button
-                            v-if="isCommandInMenu('view-mode')"
+                            v-if="shouldShowMenuCommand('view-mode', 2)"
                             :class="['overflow-menu-item', { 'is-active': viewMode === 'facing' }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('set-view-mode', 'facing'); close()"
@@ -167,7 +122,7 @@
                             />
                         </button>
                         <button
-                            v-if="isCommandInMenu('view-mode')"
+                            v-if="shouldShowMenuCommand('view-mode', 2)"
                             :class="['overflow-menu-item', { 'is-active': viewMode === 'facing-first-single' }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('set-view-mode', 'facing-first-single'); close()"
@@ -183,9 +138,8 @@
                                 class="overflow-menu-check"
                             />
                         </button>
-                        <div class="overflow-menu-divider" />
                         <button
-                            v-if="isCommandInMenu('fit-width')"
+                            v-if="shouldShowMenuCommand('fit-width', 2)"
                             :class="['overflow-menu-item', { 'is-active': isFitWidthActive }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('fit-width'); close()"
@@ -199,7 +153,7 @@
                             />
                         </button>
                         <button
-                            v-if="isCommandInMenu('fit-height')"
+                            v-if="shouldShowMenuCommand('fit-height', 2)"
                             :class="['overflow-menu-item', { 'is-active': isFitHeightActive }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('fit-height'); close()"
@@ -213,7 +167,21 @@
                             />
                         </button>
                         <button
-                            v-if="isCommandInMenu('drag-mode')"
+                            v-if="shouldShowMenuCommand('continuous-scroll', 1)"
+                            :class="['overflow-menu-item', { 'is-active': continuousScroll }]"
+                            :disabled="!hasInteractiveDocument"
+                            @click="emit('toggle-continuous-scroll'); close()"
+                        >
+                            <UIcon name="i-lucide-scroll" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('zoom.continuousScroll') }}</span>
+                            <UIcon
+                                v-if="continuousScroll"
+                                name="i-lucide-check"
+                                class="overflow-menu-check"
+                            />
+                        </button>
+                        <button
+                            v-if="shouldShowMenuCommand('drag-mode', 2)"
                             :class="['overflow-menu-item', { 'is-active': dragMode }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('enable-drag'); close()"
@@ -227,7 +195,7 @@
                             />
                         </button>
                         <button
-                            v-if="isCommandInMenu('text-select')"
+                            v-if="shouldShowMenuCommand('text-select', 2)"
                             :class="['overflow-menu-item', { 'is-active': !dragMode }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('disable-drag'); close()"
@@ -240,57 +208,29 @@
                                 class="overflow-menu-check"
                             />
                         </button>
+                        <button
+                            v-if="shouldShowMenuCommand('fullscreen')"
+                            class="overflow-menu-item"
+                            :disabled="!fullscreenSupported"
+                            @click="toggleFullscreen(); close()"
+                        >
+                            <UIcon :name="isFullscreen ? 'i-lucide-shrink' : 'i-lucide-expand'" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('toolbar.fullscreen') }}</span>
+                        </button>
                     </div>
                 </template>
 
-                <!-- Tier 3: Save, SaveAs, Undo/Redo -->
-                <template v-if="collapseTier >= 3">
-                    <div class="overflow-menu-divider" />
+                <template v-if="hasShellItems">
+                    <div v-if="hasToolItems || hasViewItems" class="overflow-menu-divider" />
+                    <div class="overflow-menu-section-header">{{ t('toolbar.moreTools') }}</div>
                     <div class="overflow-menu-section">
                         <button
-                            v-if="isCommandInMenu('save')"
+                            v-if="shouldShowMenuCommand('settings')"
                             class="overflow-menu-item"
-                            :disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
-                            @click="emit('save'); close()"
+                            @click="emit('open-settings'); close()"
                         >
-                            <UIcon name="i-lucide-save" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('toolbar.save') }}</span>
-                        </button>
-                        <button
-                            v-if="isCommandInMenu('save-as') && canSaveAs"
-                            class="overflow-menu-item"
-                            :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
-                            @click="emit('save-as'); close()"
-                        >
-                            <UIcon name="i-lucide-save-all" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('toolbar.saveAs') }}</span>
-                        </button>
-                        <button
-                            v-if="isCommandInMenu('print') && canPrint"
-                            class="overflow-menu-item"
-                            :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode || isPreparingPrint"
-                            @click="emit('print'); close()"
-                        >
-                            <UIcon name="i-lucide-printer" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('toolbar.print') }}</span>
-                        </button>
-                        <button
-                            v-if="isCommandInMenu('undo')"
-                            class="overflow-menu-item"
-                            :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
-                            @click="emit('undo'); close()"
-                        >
-                            <UIcon name="i-lucide-undo-2" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('toolbar.undo') }}</span>
-                        </button>
-                        <button
-                            v-if="isCommandInMenu('redo')"
-                            class="overflow-menu-item"
-                            :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
-                            @click="emit('redo'); close()"
-                        >
-                            <UIcon name="i-lucide-redo-2" class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('toolbar.redo') }}</span>
+                            <UIcon name="i-lucide-settings" class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('toolbar.settings') }}</span>
                         </button>
                     </div>
                 </template>
@@ -303,6 +243,7 @@
 import type { TPdfViewMode } from '@contracts/shared';
 import {
     isReaderCommandInMenu,
+    isReaderCommandInline,
     type TReaderCommandId,
     type IReaderCommandSurface,
 } from '@app/utils/reader-command-surface';
@@ -380,12 +321,40 @@ const isOpen = computed({
 });
 const hasInteractiveDocument = computed(() => props.hasPdf && props.documentBusy !== true);
 
+const hasToolItems = computed(() => (
+    (props.canCaptureRegion && shouldShowMenuCommand('capture-region', 2))
+    || (props.canCrop && shouldShowMenuCommand('crop', 2))
+    || (props.canQuickNote && shouldShowMenuCommand('quick-note', 2))
+    || (props.canUseOcr && shouldShowMenuCommand('ocr', 2))
+));
+
+const hasViewItems = computed(() => (
+    shouldShowMenuCommand('toggle-sidebar')
+    || shouldShowMenuCommand('view-mode', 2)
+    || shouldShowMenuCommand('fit-width', 2)
+    || shouldShowMenuCommand('fit-height', 2)
+    || shouldShowMenuCommand('continuous-scroll', 1)
+    || shouldShowMenuCommand('drag-mode', 2)
+    || shouldShowMenuCommand('text-select', 2)
+    || shouldShowMenuCommand('fullscreen')
+));
+
+const hasShellItems = computed(() => shouldShowMenuCommand('settings'));
+
 function close() {
     isOpen.value = false;
 }
 
-function isCommandInMenu(command: TReaderCommandId) {
-    return isReaderCommandInMenu(props.surface, command);
+function shouldShowMenuCommand(command: TReaderCommandId, collapseTier = Number.POSITIVE_INFINITY) {
+    if (!isReaderCommandInMenu(props.surface, command)) {
+        return false;
+    }
+
+    if (!isReaderCommandInline(props.surface, command)) {
+        return true;
+    }
+
+    return props.collapseTier >= collapseTier;
 }
 </script>
 
@@ -404,6 +373,15 @@ function isCommandInMenu(command: TReaderCommandId) {
     height: 1px;
     background-color: var(--ui-border);
     margin: 0.25rem 0;
+}
+
+.overflow-menu-section-header {
+    padding: 0.5rem 0.75rem 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ui-text-muted);
 }
 
 .overflow-menu-item {
@@ -475,6 +453,13 @@ function isCommandInMenu(command: TReaderCommandId) {
 
 .overflow-menu-label {
     flex: 1;
+}
+
+.overflow-menu-shortcut {
+    margin-left: 1rem;
+    flex-shrink: 0;
+    color: var(--ui-text-muted);
+    font-size: 0.75rem;
 }
 
 .overflow-menu-check {
