@@ -303,6 +303,7 @@ export default {
         'file': 'Ficheiro',
         'openFile': 'Abrir Ficheiro...',
         'openRecent': 'Abrir Recente',
+        'edit': 'Editar',
         'save': 'Guardar',
         'saveAs': 'Guardar Como...',
         'print': 'Print...',

@@ -300,6 +300,7 @@ export default {
         'file': 'Bestand',
         'openFile': 'Bestand openen...',
         'openRecent': 'Recent geopend',
+        'edit': 'Bewerken',
         'save': 'Opslaan',
         'saveAs': 'Opslaan als...',
         'print': 'Print...',

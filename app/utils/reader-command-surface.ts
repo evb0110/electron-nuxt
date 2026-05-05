@@ -30,13 +30,18 @@ function createSurface(options: {
     }) as IReaderCommandSurface;
 }
 
-const allCommands = Object.fromEntries(READER_COMMANDS.map(command => [
+const allCommands = Object.freeze(Object.fromEntries(READER_COMMANDS.map(command => [
     command,
     true,
-]));
+]))) as TReaderCommandMap;
+
+const desktopInlineCommands = {
+    ...allCommands,
+    'open-file': false,
+};
 
 export const DESKTOP_EDITOR_READER_COMMAND_SURFACE = createSurface({
-    inline: allCommands,
+    inline: desktopInlineCommands,
     menu: allCommands,
 });
 

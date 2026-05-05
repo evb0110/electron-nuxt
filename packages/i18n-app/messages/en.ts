@@ -300,6 +300,7 @@ export default {
         'file': 'File',
         'openFile': 'Open File...',
         'openRecent': 'Open Recent',
+        'edit': 'Edit',
         'save': 'Save',
         'saveAs': 'Save As...',
         'print': 'Print...',
