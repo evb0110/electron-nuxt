@@ -17,6 +17,13 @@ import {
 
 type TDocumentsPreloadFileClient = Omit<IDocumentsFileCapability, 'getPathForFile'> & IImageExportCapability;
 
+function assertPositiveInteger(value: number, label: string) {
+    if (!Number.isInteger(value) || value < 1) {
+        throw new TypeError(`${label} must be a positive integer`);
+    }
+    return value;
+}
+
 export function createDocumentsPreloadFileClient(
     ipcRenderer: IpcRenderer,
 ): TDocumentsPreloadFileClient {
@@ -79,12 +86,15 @@ export function createDocumentsPreloadFileClient(
                     ? assertNonEmptyString(fileName, 'printPdfData.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
             ),
-        printPdfPath: (path: string, fileName?: string) =>
+        printPdfPath: (path: string, fileName?: string, pageNumbers?: number[]) =>
             invoke(
                 DOCUMENTS_CHANNELS.pdfPrintPath,
                 assertAbsolutePath(path, 'printPdfPath.path'),
                 typeof fileName === 'string'
                     ? assertNonEmptyString(fileName, 'printPdfPath.fileName', MAX_IPC_FILE_NAME_LENGTH)
+                    : undefined,
+                Array.isArray(pageNumbers)
+                    ? pageNumbers.map((pageNumber, index) => assertPositiveInteger(pageNumber, `printPdfPath.pageNumbers[${index}]`))
                     : undefined,
             ),
         writeFile: (path: string, data: Uint8Array) =>

@@ -56,9 +56,19 @@
                     :tooltip="t('toolbar.print')"
                     :shortcut="shortcutLabels.print"
                     :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
-                    :loading="isPreparingPrint"
+                    :loading="isPreparingPrint && !isPreparingCurrentPagePrint"
                     @click="emit('print')"
                 />
+                <ToolbarButton
+                    v-if="isCommandInline('print-current-page')"
+                    icon="lucide:printer"
+                    :tooltip="t('toolbar.printCurrentPage')"
+                    :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
+                    :loading="isPreparingCurrentPagePrint"
+                    @click="emit('print-current-page')"
+                >
+                    <PrintCurrentPageIcon class="size-full" />
+                </ToolbarButton>
             </template>
 
             <div class="toolbar-separator" />
@@ -257,6 +267,7 @@
 
 <script setup lang="ts">
 import ToolbarButton from '@app/components/ToolbarButton.vue';
+import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 import { getShortcutLabels } from '@app/constants/shortcuts';
 import {
     isReaderCommandInline,
@@ -285,6 +296,7 @@ const {
     isExportingDocx: boolean;
     isOpeningDocument?: boolean;
     isPreparingPrint?: boolean;
+    isPreparingCurrentPagePrint?: boolean;
     isFitWidthActive: boolean;
     isFitHeightActive: boolean;
     showSidebar: boolean;
@@ -303,6 +315,7 @@ const emit = defineEmits<{
     'save': [];
     'save-as': [];
     'print': [];
+    'print-current-page': [];
     'export-docx': [];
     'undo': [];
     'redo': [];

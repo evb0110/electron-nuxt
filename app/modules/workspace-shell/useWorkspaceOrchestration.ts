@@ -501,6 +501,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     const workspacePrint = useWorkspacePrint({
         totalPages,
+        currentPage,
         selectedPages: selectedThumbnailPages,
         sourcePdf: pdfSrc,
         workingCopyPath,

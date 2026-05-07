@@ -156,6 +156,7 @@ function createState(options?: {
     const scope = effectScope();
     const state = scope.run(() => useWorkspacePrint({
         totalPages: ref(10),
+        currentPage: ref(4),
         selectedPages: ref([
             3,
             1,
@@ -297,6 +298,87 @@ describe('useWorkspacePrint', () => {
             expect(buildBrowserPrintFrameMarkupMock).not.toHaveBeenCalled();
             expect(renderPdfPagesForBrowserPrintMock).not.toHaveBeenCalled();
             expect(state.printDialogOpen.value).toBe(false);
+            expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('prints only the current page through native path page extraction', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({ success: true });
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: null,
+            workingCopyPath: '/tmp/current-page.pdf',
+            fileName: 'current-page.pdf',
+        });
+
+        try {
+            await state.handlePrintCurrentPage();
+
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/tmp/current-page.pdf',
+                'current-page.pdf',
+                [4],
+            );
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
+            expect(state.isPreparingPrint.value).toBe(false);
+            expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('falls back to a one-page printable PDF when native current-page extraction is unavailable', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({
+            success: false,
+            error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+        });
+        buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(4, 5, 6));
+        const appFrame = createFakeFrame();
+        vi.stubGlobal('document', {
+            body: { append: vi.fn() },
+            createElement: vi.fn((tag: string) => {
+                if (tag !== 'iframe') {
+                    throw new Error(`Unexpected element: ${tag}`);
+                }
+                return appFrame.frame;
+            }),
+        });
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: null,
+            workingCopyPath: '/tmp/current-page.pdf',
+            fileName: 'current-page.pdf',
+        });
+
+        try {
+            const printPromise = state.handlePrintCurrentPage();
+            await flushMicrotasks(12);
+
+            expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
+            expect(buildPrintablePdfDataMock).toHaveBeenCalledWith(
+                Uint8Array.of(9, 8, 7),
+                {
+                    pageNumbers: [4],
+                    viewMode: 'single',
+                    orientation: 'auto',
+                },
+            );
+
+            appFrame.frame.trigger('load');
+            await printPromise;
+
+            expect(createObjectURLMock).toHaveBeenCalledWith(expect.any(Blob));
+            expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
+            expect(state.isPreparingPrint.value).toBe(false);
             expect(state.printError.value).toBeNull();
         } finally {
             scope.stop();

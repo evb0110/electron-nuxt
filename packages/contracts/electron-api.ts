@@ -399,7 +399,7 @@ export interface IDocumentsFileCapability {
         canceled?: boolean;
         error?: string;
     }>;
-    printPdfPath: (path: TDocumentRef, fileName?: string) => Promise<{
+    printPdfPath: (path: TDocumentRef, fileName?: string, pageNumbers?: number[]) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;

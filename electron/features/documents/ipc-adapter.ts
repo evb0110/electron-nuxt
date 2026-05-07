@@ -80,8 +80,8 @@ export function registerDocumentsIpcAdapter(
     );
     registrar.handle(
         DOCUMENTS_CHANNELS.pdfPrintPath,
-        (event: IpcMainInvokeEvent, filePath: string, fileName?: string) =>
-            service.printPdfPath(event, filePath, fileName),
+        (event: IpcMainInvokeEvent, filePath: string, fileName?: string, pageNumbers?: number[]) =>
+            service.printPdfPath(event, filePath, fileName, pageNumbers),
     );
     registrar.handle(DOCUMENTS_CHANNELS.fileWrite, (event: IpcMainInvokeEvent, filePath: string, data: Uint8Array) =>
         service.writeFile(event, filePath, data),

@@ -81,7 +81,7 @@ export function createDocumentsService(): IDocumentsService {
         openPdfInDefaultAppData: (event, data, fileName) => handleOpenPdfInDefaultAppData(event, data, fileName),
         openPdfInDefaultAppPath: (event, filePath, fileName) => handleOpenPdfInDefaultAppPath(event, filePath, fileName),
         printPdfData: (event, data, fileName) => handlePrintPdfData(event, data, fileName),
-        printPdfPath: (event, filePath, fileName) => handlePrintPdfPath(event, filePath, fileName),
+        printPdfPath: (event, filePath, fileName, pageNumbers) => handlePrintPdfPath(event, filePath, fileName, pageNumbers),
         writeFile: (event, filePath, data) => handleFileWrite(event, filePath, data),
         writeDocxFile: (event, filePath, data) => handleFileWriteDocx(event, filePath, data),
         saveFile: (event, workingPath) => handleFileSave(event, workingPath),
