@@ -32,6 +32,104 @@
                     >
                         {{ t('errors.runtime.reload') }}
                     </UButton>
+                    <UButton
+                        v-if="fatalRuntimeError.detail"
+                        color="neutral"
+                        variant="soft"
+                        icon="i-lucide-copy"
+                        @click="copyText(fatalRuntimeError.detail)"
+                    >
+                        {{ t('errors.runtime.copy') }}
+                    </UButton>
+                </div>
+            </div>
+        </div>
+        <div
+            v-if="runtimeErrorReports.length > 0"
+            class="fixed bottom-4 right-4 z-40 w-[min(32rem,calc(100vw-2rem))]"
+        >
+            <div
+                class="rounded-lg border border-[color:var(--ui-border)] bg-[color:var(--ui-bg)] p-4 shadow-[var(--shadow-popup)]"
+            >
+                <div class="flex items-start gap-3">
+                    <UIcon name="i-lucide-circle-x" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-error)]" />
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2">
+                            <p class="truncate text-sm font-medium text-[color:var(--ui-text)]">
+                                {{ t('errors.runtime.reportReady') }}
+                            </p>
+                            <UBadge
+                                color="error"
+                                variant="soft"
+                                size="sm"
+                            >
+                                {{ runtimeErrorReportCount }}
+                            </UBadge>
+                        </div>
+                        <p class="mt-1 text-xs text-[color:var(--ui-text-dimmed)]">
+                            {{ t('errors.runtime.reportDescription') }}
+                        </p>
+                        <div
+                            v-if="showRuntimeErrorDetails"
+                            class="mt-3 space-y-3"
+                        >
+                            <div
+                                v-for="report in runtimeErrorReports"
+                                :key="report.id"
+                                class="rounded-md bg-[color:var(--ui-bg-elevated)] p-3"
+                            >
+                                <div class="flex items-center gap-2">
+                                    <p class="truncate text-xs font-medium text-[color:var(--ui-text)]">
+                                        {{ report.title }}
+                                    </p>
+                                    <UBadge
+                                        v-if="report.count > 1"
+                                        color="error"
+                                        variant="soft"
+                                        size="sm"
+                                    >
+                                        {{ report.count }}
+                                    </UBadge>
+                                </div>
+                                <p class="mt-1 text-xs text-[color:var(--ui-text-dimmed)]">
+                                    {{ report.source }}
+                                </p>
+                                <pre class="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words text-xs text-[color:var(--ui-text-muted)]">{{ report.detail }}</pre>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex shrink-0 gap-1">
+                        <UTooltip :text="t('errors.runtime.copy')" :delay-duration="400">
+                            <UButton
+                                color="neutral"
+                                variant="ghost"
+                                size="xs"
+                                icon="i-lucide-copy"
+                                :aria-label="t('errors.runtime.copy')"
+                                @click="copyText(formatRuntimeErrorReports())"
+                            />
+                        </UTooltip>
+                        <UTooltip :text="t('errors.runtime.details')" :delay-duration="400">
+                            <UButton
+                                color="neutral"
+                                variant="ghost"
+                                size="xs"
+                                :icon="showRuntimeErrorDetails ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'"
+                                :aria-label="t('errors.runtime.details')"
+                                @click="showRuntimeErrorDetails = !showRuntimeErrorDetails"
+                            />
+                        </UTooltip>
+                        <UTooltip :text="t('errors.runtime.dismiss')" :delay-duration="400">
+                            <UButton
+                                color="neutral"
+                                variant="ghost"
+                                size="xs"
+                                icon="i-lucide-x"
+                                :aria-label="t('errors.runtime.dismiss')"
+                                @click="clearRuntimeErrorReports"
+                            />
+                        </UTooltip>
+                    </div>
                 </div>
             </div>
         </div>
@@ -75,6 +173,11 @@ const {
     clearFatalRuntimeError,
     reloadAfterFatalRuntimeError,
 } = useFatalRuntimeError();
+const {
+    reports: runtimeErrorReports,
+    clearRuntimeErrorReports,
+} = useRuntimeErrorReports();
+const showRuntimeErrorDetails = ref(false);
 const route = useRoute();
 const colorMode = useColorMode();
 const localeHead = useLocaleHead({
@@ -90,6 +193,40 @@ const fatalRuntimeTitle = computed(() => fatalRuntimeError.value?.kind === 'star
 const fatalRuntimeDescription = computed(() => fatalRuntimeError.value?.kind === 'startup'
     ? t('errors.runtime.startupDescription')
     : t('errors.runtime.description'));
+const runtimeErrorReportCount = computed(() => runtimeErrorReports.value.reduce(
+    (total, report) => total + report.count,
+    0,
+));
+
+function formatRuntimeErrorReport(report: {
+    title: string;
+    source: string;
+    detail: string;
+    count: number;
+}) {
+    return [
+        report.title,
+        `${t('errors.runtime.source')}: ${report.source}`,
+        `${t('errors.runtime.count')}: ${report.count}`,
+        '',
+        report.detail,
+    ].join('\n');
+}
+
+function formatRuntimeErrorReports() {
+    return runtimeErrorReports.value.map(formatRuntimeErrorReport).join('\n\n---\n\n');
+}
+
+async function copyText(value: string) {
+    if (!import.meta.client || !navigator.clipboard) {
+        return;
+    }
+    try {
+        await navigator.clipboard.writeText(value);
+    } catch (error) {
+        BrowserLogger.warn('runtime-errors', 'Failed to copy runtime error report', error);
+    }
+}
 
 if (localeCookie.value !== settings.value.locale) {
     localeCookie.value = settings.value.locale;

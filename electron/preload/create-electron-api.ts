@@ -5,6 +5,7 @@ import type {
 import type { ISettingsData } from '@contracts/shared';
 import type {
     IAppUpdateStatus,
+    IDebugLogEntry,
     IElectronAPI,
     IMenuEventUnsubscribe,
     IRendererLogEntry,
@@ -100,6 +101,7 @@ interface ICoreEventMap {
     'menu:focusEditorGroup': 'left' | 'right' | 'up' | 'down';
     'menu:moveTabToGroup': 'left' | 'right' | 'up' | 'down';
     'menu:copyTabToGroup': 'left' | 'right' | 'up' | 'down';
+    'debug:log': IDebugLogEntry;
 }
 
 function stringifyDetails(details?: Record<string, unknown>) {
@@ -168,6 +170,8 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
             get: () => invokeWithStartupTrace('settings:get', () => invokeCore('settings:get')),
             save: (settings: ISettingsData) => invokeCore('settings:save', settings),
             getDebugLogs: () => Promise.resolve(getDebugLogMessages()),
+            onDebugLog: (callback): IMenuEventUnsubscribe =>
+                eventSubscriber.onPayload('debug:log', callback),
             rendererLog: (entry: IRendererLogEntry) => ipcRenderer.send('renderer:log', entry),
             onMenuOpenSettings: (callback): IMenuEventUnsubscribe =>
                 eventSubscriber.onNoArg('menu:openSettings', callback),

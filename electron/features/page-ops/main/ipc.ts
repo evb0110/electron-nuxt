@@ -99,6 +99,16 @@ function validateWorkingCopyPath(path: unknown): string {
     return canonicalPath;
 }
 
+async function resolveWorkingCopyPath(path: unknown): Promise<string> {
+    const normalizedPath = typeof path === 'string' ? path.trim() : '';
+    if (!normalizedPath) {
+        throw new Error('Invalid working copy path');
+    }
+
+    await ensureWorkingCopyDirectory(normalizedPath);
+    return validateWorkingCopyPath(normalizedPath);
+}
+
 function formatPageRange(pages: number[]) {
     const sorted = [...pages].sort((a, b) => a - b);
     const parts: string[] = [];
@@ -169,7 +179,10 @@ function validateInsertPageArgs(
     totalPages: unknown,
     afterPage: unknown,
 ) {
-    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
+    if (!normalizedWorkingCopyPath) {
+        throw new Error('Invalid working copy path');
+    }
 
     if (typeof totalPages !== 'number' || !Number.isSafeInteger(totalPages) || totalPages < 1) {
         throw new Error('Invalid totalPages');
@@ -221,7 +234,7 @@ async function handlePageOpsDelete(
     pages: number[],
     totalPages: number,
 ) {
-    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
     if (!Number.isSafeInteger(totalPages) || totalPages < 1) {
         throw new Error('Invalid totalPages');
     }
@@ -247,7 +260,7 @@ async function handlePageOpsExtract(
     workingCopyPath: string,
     pages: number[],
 ) {
-    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
     validatePageNumbers(pages, 'extractPages', {requireUnique: true});
 
     const baseName = basename(normalizedWorkingCopyPath, extname(normalizedWorkingCopyPath));
@@ -294,7 +307,7 @@ async function handlePageOpsReorder(
     workingCopyPath: string,
     newOrder: number[],
 ) {
-    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
     validatePageNumbers(newOrder, 'reorderPages', {requireUnique: true});
     validateReorderPermutation(newOrder);
 
@@ -317,7 +330,7 @@ async function handlePageOpsInsert(
     afterPage: number,
 ) {
     const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
-    const { normalizedWorkingCopyPath } = insertArgs;
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath);
 
     const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
     const dialogOptions = {
@@ -473,7 +486,7 @@ async function handlePageOpsRotate(
     pages: number[],
     angle: TRotationAngle,
 ) {
-    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
     validatePageNumbers(pages, 'rotatePages', {requireUnique: true});
 
     if (![
@@ -501,7 +514,7 @@ async function handlePageOpsInsertFile(
     _requestId?: string,
 ) {
     const insertArgs = validateInsertPageArgs(workingCopyPath, totalPages, afterPage);
-    const { normalizedWorkingCopyPath } = insertArgs;
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(insertArgs.normalizedWorkingCopyPath);
     if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) {
         throw new Error('Invalid source paths');
     }
@@ -525,7 +538,7 @@ async function handlePageOpsCrop(
     pages: number[],
     margins: ICropMargins,
 ) {
-    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
     validatePageNumbers(pages, 'cropPages', {requireUnique: true});
     if (
         !margins
@@ -554,7 +567,7 @@ async function handlePageOpsRemoveCrop(
     workingCopyPath: string,
     pages: number[],
 ) {
-    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
     validatePageNumbers(pages, 'removeCrop', {requireUnique: true});
 
     await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async () => {
@@ -570,7 +583,7 @@ async function handlePageOpsGetPageGeometry(
     workingCopyPath: string,
     pageNumber: number,
 ) {
-    const normalizedWorkingCopyPath = validateWorkingCopyPath(workingCopyPath);
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath);
     if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
         throw new Error('Invalid page number');
     }
