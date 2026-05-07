@@ -999,6 +999,7 @@ interface IRendererState {
     electronAPI: string;
     nuxtRootChildren: number;
     bodyTextLength: number;
+    bodyTextSnippet: string;
     url: string;
 }
 
@@ -1011,6 +1012,7 @@ function readRendererState(page: Page): Promise<IRendererState> {
             electronAPI: typeof (window as any).electronAPI,
             nuxtRootChildren: nuxtEl?.children.length ?? 0,
             bodyTextLength: (document.body?.innerText ?? '').trim().length,
+            bodyTextSnippet: (document.body?.innerText ?? '').trim().replace(/\s+/g, ' ').slice(0, 240),
             url: window.location.href,
         };
     });
@@ -1031,6 +1033,7 @@ async function waitForRendererBindings(page: Page, timeoutMs = RENDERER_READY_TI
         electronAPI: 'undefined',
         nuxtRootChildren: 0,
         bodyTextLength: 0,
+        bodyTextSnippet: '',
         url: page.url(),
     };
     while (Date.now() - start < timeoutMs) {
@@ -1410,7 +1413,7 @@ async function waitForReadyRenderer(
         if (watcher.sawOutdatedOptimizeDep()) {
             throw createViteOptimizeDepError(watcher.optimizeDepUrl() ?? 'Outdated Optimize Dep while waiting for renderer bindings');
         }
-        throw new Error(`Renderer readiness timeout (openFileDirect=${rendererState.openFileDirect}, electronAPI=${rendererState.electronAPI}, nuxtChildren=${rendererState.nuxtRootChildren}, text=${rendererState.bodyTextLength}, url=${rendererState.url})`);
+        throw new Error(`Renderer readiness timeout (openFileDirect=${rendererState.openFileDirect}, electronAPI=${rendererState.electronAPI}, nuxtChildren=${rendererState.nuxtRootChildren}, text=${rendererState.bodyTextLength}, url=${rendererState.url}, body="${rendererState.bodyTextSnippet}")`);
     }
     return currentPage;
 }
