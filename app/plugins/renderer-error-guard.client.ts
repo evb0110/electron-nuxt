@@ -44,6 +44,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
 
     const { setFatalRuntimeError } = useFatalRuntimeError();
+    const { reportRuntimeError } = useRuntimeErrorReports();
     const windowWithFlag = window as Window & {[INSTALL_FLAG]?: boolean};
     if (windowWithFlag[INSTALL_FLAG]) {
         return;
@@ -52,6 +53,11 @@ export default defineNuxtPlugin((nuxtApp) => {
 
     const report = (message: string, details: Record<string, unknown>) => {
         BrowserLogger.error('renderer-guard', message, details);
+        reportRuntimeError({
+            title: message,
+            source: 'renderer-guard',
+            error: details,
+        });
     };
 
     const previousHandler = nuxtApp.vueApp.config.errorHandler;

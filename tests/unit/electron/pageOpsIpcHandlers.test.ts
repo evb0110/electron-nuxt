@@ -29,6 +29,10 @@ function createDeferred<T = undefined>(): IDeferred<T> {
     };
 }
 
+function flushQueuedMutationStart() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
     ipcHandle: vi.fn<(channel: string, handler: TRegisteredHandler) => void>(),
@@ -194,8 +198,7 @@ describe('registerPageOpsHandlers', () => {
             pageCount: number 
         }>;
 
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushQueuedMutationStart();
 
         expect(mocks.reorderPages).toHaveBeenCalledTimes(1);
 
@@ -237,8 +240,7 @@ describe('registerPageOpsHandlers', () => {
         const first = handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 90) as Promise<{ success: boolean }>;
         const second = handler({sender: {id: 1}}, '/tmp/b.pdf', [1], 90) as Promise<{ success: boolean }>;
 
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushQueuedMutationStart();
 
         expect(mocks.rotatePages).toHaveBeenCalledTimes(2);
 
@@ -266,8 +268,7 @@ describe('registerPageOpsHandlers', () => {
         const first = handler({sender: {id: 1}}, '/tmp/fail.pdf', [1], 3);
         const second = handler({sender: {id: 1}}, '/tmp/fail.pdf', [2], 3);
 
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushQueuedMutationStart();
 
         expect(mocks.deletePages).toHaveBeenCalledTimes(1);
 
@@ -308,6 +309,26 @@ describe('registerPageOpsHandlers', () => {
         expect(mocks.allowOpenPath).toHaveBeenCalledWith('/tmp/extracted-pages.pdf');
         expect(mocks.extractPages.mock.invocationCallOrder[0]).toBeLessThan(
             mocks.allowOpenPath.mock.invocationCallOrder[0]!,
+        );
+    });
+
+    it('recovers the working copy before validating an extract request', async () => {
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/extracted-pages.pdf',
+        });
+
+        const handler = getHandler('page-ops:extract');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/pdf-work-1/work.pdf', [1]))
+            .resolves.toEqual({
+                success: true,
+                destPath: '/tmp/extracted-pages.pdf',
+            });
+
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf');
+        expect(mocks.ensureWorkingCopyDirectory.mock.invocationCallOrder[0]).toBeLessThan(
+            mocks.isAllowedWritePath.mock.invocationCallOrder[0]!,
         );
     });
 

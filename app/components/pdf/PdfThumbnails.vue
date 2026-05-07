@@ -1,6 +1,7 @@
 <template>
   <div
     ref="containerRef"
+    tabindex="0"
     class="pdf-thumbnails app-scrollbar"
     :class="{
       'is-reorder-dragging': isDragging,
@@ -13,6 +14,7 @@
     @dragover="handleExternalDragOver"
     @dragleave="handleExternalDragLeave"
     @drop="handleExternalDrop"
+    @keydown="handleContainerKeyDown"
   >
     <div class="pdf-thumbnails-virtual-wrapper" :style="virtualWrapperStyle">
       <div
@@ -136,6 +138,7 @@ let currentPageSyncRunId = 0;
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
 const thumbnailItemHeight = ref(DEFAULT_THUMBNAIL_ITEM_HEIGHT);
+const selectionFocusPage = ref<number | null>(null);
 
 const multiSelection = useMultiSelection<number>();
 const selectedPagesSet = computed(() => new Set(props.selectedPages ?? []));
@@ -233,6 +236,7 @@ function handleThumbnailClick(event: MouseEvent, page: number) {
         shift: event.shiftKey,
         meta: event.metaKey || event.ctrlKey,
     });
+    selectionFocusPage.value = page;
     const normalized = normalizeSelectedPageNumbers(
         Array.from(multiSelection.selected.value),
         props.totalPages,
@@ -245,6 +249,7 @@ function handleThumbnailContextMenu(event: MouseEvent, page: number) {
     if (!isSelected(page)) {
         multiSelection.selected.value = new Set([page]);
         multiSelection.anchor.value = page;
+        selectionFocusPage.value = page;
         emit('update:selected-pages', [page]);
     }
     const pages = normalizeSelectedPageNumbers(
@@ -415,6 +420,96 @@ function getPageBounds(page: number) {
         bottom: top + height,
         height,
     };
+}
+
+function clampPage(page: number) {
+    return Math.max(1, Math.min(props.totalPages, page));
+}
+
+function getKeyboardSelectionBasePage() {
+    if (
+        selectionFocusPage.value !== null
+        && selectionFocusPage.value >= 1
+        && selectionFocusPage.value <= props.totalPages
+    ) {
+        return selectionFocusPage.value;
+    }
+
+    const normalized = normalizeSelectedPageNumbers(props.selectedPages ?? [], props.totalPages);
+    return normalized.at(-1) ?? clampPage(props.currentPage);
+}
+
+function getKeyboardSelectionAnchorPage(basePage: number) {
+    if (
+        multiSelection.anchor.value !== null
+        && multiSelection.anchor.value >= 1
+        && multiSelection.anchor.value <= props.totalPages
+    ) {
+        return multiSelection.anchor.value;
+    }
+
+    const normalized = normalizeSelectedPageNumbers(props.selectedPages ?? [], props.totalPages);
+    return normalized[0] ?? basePage;
+}
+
+function scrollPageIntoKeyboardView(page: number) {
+    const container = resolveVisibleContainer('keyboard-selection');
+    if (!container) {
+        return;
+    }
+
+    const targetScrollTop = resolveCurrentPageSyncScrollTop(container, page);
+    if (targetScrollTop !== null) {
+        applyThumbnailScrollTop(container, targetScrollTop);
+    }
+}
+
+function handleContainerKeyDown(event: KeyboardEvent) {
+    if (
+        !event.shiftKey
+        || event.altKey
+        || event.metaKey
+        || event.ctrlKey
+        || props.totalPages <= 0
+        || isDragging.value
+        || isExternalDragOver.value
+    ) {
+        return;
+    }
+
+    const direction = (() => {
+        if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+            return -1;
+        }
+        if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+            return 1;
+        }
+        return 0;
+    })();
+
+    if (direction === 0) {
+        return;
+    }
+
+    event.preventDefault();
+    markUserInteraction('keyboard-selection');
+
+    const basePage = getKeyboardSelectionBasePage();
+    const nextFocusPage = clampPage(basePage + direction);
+    const anchorPage = getKeyboardSelectionAnchorPage(basePage);
+    const allPages = Array.from({ length: props.totalPages }, (_, i) => i + 1);
+
+    multiSelection.anchor.value = anchorPage;
+    multiSelection.toggle(nextFocusPage, allPages, {shift: true});
+    selectionFocusPage.value = nextFocusPage;
+
+    const normalized = normalizeSelectedPageNumbers(
+        Array.from(multiSelection.selected.value),
+        props.totalPages,
+    );
+    emit('update:selected-pages', normalized);
+    emit('go-to-page', nextFocusPage);
+    scrollPageIntoKeyboardView(nextFocusPage);
 }
 
 function getMaxScrollTop(container: HTMLElement) {
@@ -738,6 +833,7 @@ watch(
 
         if (normalized.length === 0) {
             multiSelection.anchor.value = null;
+            selectionFocusPage.value = null;
             return;
         }
 
@@ -746,6 +842,12 @@ watch(
             !normalized.includes(multiSelection.anchor.value)
         ) {
             multiSelection.anchor.value = normalized[normalized.length - 1] ?? null;
+        }
+        if (
+            selectionFocusPage.value === null ||
+            !normalized.includes(selectionFocusPage.value)
+        ) {
+            selectionFocusPage.value = normalized[normalized.length - 1] ?? null;
         }
     },
     {

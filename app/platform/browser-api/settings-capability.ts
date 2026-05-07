@@ -106,6 +106,7 @@ export const browserSettingsCapability: ISettingsCapability = {
     getDebugLogs(): Promise<IDebugLogEntry[]> {
         return Promise.resolve([]);
     },
+    onDebugLog: noopUnsubscribe,
     rendererLog(_entry: IRendererLogEntry) {},
     onMenuOpenSettings: noopUnsubscribe,
 };

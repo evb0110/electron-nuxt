@@ -44,6 +44,7 @@ export const usePageOperations = (deps: {
 }) => {
     const analytics = useAnalytics();
     const { t } = useTypedI18n();
+    const { reportRuntimeError } = useRuntimeErrorReports();
     const {
         workingCopyPath,
         ensureHistoryBaselineForExternalMutation,
@@ -109,6 +110,11 @@ export const usePageOperations = (deps: {
             return true;
         } catch (e) {
             BrowserLogger.error('page-ops', `${options.operationName} failed`, e);
+            reportRuntimeError({
+                title: t(options.errorKey, undefined),
+                source: `page-ops:${options.operationName}`,
+                error: e,
+            });
             error.value = e instanceof Error ? e.message : t(options.errorKey, undefined);
             return false;
         } finally {
