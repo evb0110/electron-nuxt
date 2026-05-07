@@ -13,7 +13,11 @@
             :aria-pressed="active"
             @click="emit('click')"
         >
-            <Icon v-if="!loading" :name="icon" :class="iconClass" />
+            <span v-if="!loading" :class="iconClass">
+                <slot>
+                    <Icon :name="icon" class="size-full" />
+                </slot>
+            </span>
             <Icon v-else name="lucide:loader-2" :class="[iconClass, 'animate-spin']" />
         </button>
     </UTooltip>

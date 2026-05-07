@@ -46,7 +46,7 @@ export interface IDocumentsService {
         canceled?: boolean;
         error?: string;
     }>;
-    printPdfPath: (event: IpcMainInvokeEvent, filePath: string, fileName?: string) => Promise<{
+    printPdfPath: (event: IpcMainInvokeEvent, filePath: string, fileName?: string, pageNumbers?: number[]) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;

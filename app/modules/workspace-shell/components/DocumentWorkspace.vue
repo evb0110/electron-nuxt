@@ -14,6 +14,7 @@
                 :is-exporting-docx="isExportingDocx"
                 :is-opening-document="pendingDocumentOpen"
                 :is-preparing-print="isPreparingPrint"
+                :is-preparing-current-page-print="isPreparingCurrentPagePrint"
                 :is-fit-width-active="isFitWidthActive"
                 :is-fit-height-active="isFitHeightActive"
                 :show-sidebar="toolbarShowSidebar"
@@ -31,6 +32,7 @@
                 @save="handleToolbarSave"
                 @save-as="handleToolbarSaveAs"
                 @print="handlePrint"
+                @print-current-page="handlePrintCurrentPage"
                 @export-docx="handleToolbarExportDocx"
                 @undo="handleToolbarUndo"
                 @redo="handleToolbarRedo"
@@ -56,6 +58,7 @@
                         :is-history-busy="isHistoryBusy"
                         :is-exporting-docx="isExportingDocx"
                         :is-preparing-print="isPreparingPrint"
+                        :is-preparing-current-page-print="isPreparingCurrentPagePrint"
                         :is-djvu-mode="isDjvuMode"
                         :can-use-djvu="canUseDjvu"
                         :document-busy="isDocumentBusy"
@@ -64,6 +67,7 @@
                         @save="handleToolbarSave"
                         @save-as="handleToolbarSaveAs"
                         @print="handlePrint"
+                        @print-current-page="handlePrintCurrentPage"
                         @combine-images="handleCombineImages"
                         @export-docx="handleToolbarExportDocx"
                         @export-images="handleExportImages()"
@@ -143,6 +147,7 @@
                         :is-history-busy="isHistoryBusy"
                         :is-exporting-docx="isExportingDocx"
                         :is-preparing-print="isPreparingPrint"
+                        :is-preparing-current-page-print="isPreparingCurrentPagePrint"
                         :can-export-docx="canExportDocx"
                         :can-use-ocr="canUseOcr"
                         :show-sidebar="toolbarShowSidebar"
@@ -165,6 +170,7 @@
                         @save="handleToolbarSave"
                         @save-as="handleToolbarSaveAs"
                         @print="handlePrint"
+                        @print-current-page="handlePrintCurrentPage"
                         @export-docx="handleToolbarExportDocx"
                         @open-ocr="handleDropdownOpen('ocr', true)"
                         @undo="handleToolbarUndo"
@@ -721,6 +727,7 @@ const {
     handleSave,
     handleSaveAs,
     handlePrint,
+    handlePrintCurrentPage,
     handleExportDocx,
     handleExportImages,
     handleExportMultiPageTiff,
@@ -731,6 +738,7 @@ const {
     isAnySaving,
     isExportingDocx,
     isPreparingPrint,
+    isPreparingCurrentPagePrint,
     canSave,
     isFitWidthActive,
     isFitHeightActive,

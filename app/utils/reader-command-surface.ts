@@ -65,6 +65,7 @@ export const MOBILE_READER_COMMAND_SURFACE = createSurface({
         ocr: true,
         'open-file': true,
         print: true,
+        'print-current-page': true,
         'quick-note': true,
         'save-as': true,
         settings: true,

@@ -46,6 +46,7 @@ function isPathPdfSource(value: TPdfSource | null): value is Extract<TPdfSource,
 
 interface IWorkspacePrintDeps {
     totalPages: Readonly<Ref<number>>;
+    currentPage: Readonly<Ref<number>>;
     selectedPages: Readonly<Ref<number[]>>;
     sourcePdf: Readonly<Ref<TPdfSource | null>>;
     workingCopyPath: Readonly<Ref<string | null>>;
@@ -65,10 +66,12 @@ interface IWorkspacePrintState {
     printDialogOpen: Ref<boolean>;
     printDialogSelectedPages: Ref<number[]>;
     isPreparingPrint: Ref<boolean>;
+    isPreparingCurrentPagePrint: Readonly<Ref<boolean>>;
     printError: Ref<string | null>;
     printStatus: Ref<string | null>;
     handlePrint: () => void;
     handleQuickPrint: () => Promise<void>;
+    handlePrintCurrentPage: () => Promise<void>;
     handlePrintDialogOpenChange: (isOpen: boolean) => void;
     handlePrintDialogSubmit: (payload: IPrintDialogSubmitPayload) => Promise<void>;
 }
@@ -79,9 +82,13 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
     const printDialogOpen = ref(false);
     const printDialogSelectedPages = ref<number[]>([]);
     const isPreparingPrint = ref(false);
+    const activePrintAction = ref<'default' | 'current-page' | null>(null);
     const printError = ref<string | null>(null);
     const activePrintFrame = ref<HTMLIFrameElement | null>(null);
     const printStatus = computed(() => isPreparingPrint.value ? t('print.preparing') : null);
+    const isPreparingCurrentPagePrint = computed(() => (
+        isPreparingPrint.value && activePrintAction.value === 'current-page'
+    ));
     let removeAfterPrintListener: (() => void) | null = null;
     let browserPrintCleanupTimer: number | null = null;
     let activeBrowserPrintUrl: string | null = null;
@@ -136,6 +143,15 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
             .sort((left, right) => left - right);
     }
 
+    function normalizeCurrentPage() {
+        const page = deps.currentPage.value;
+        if (!Number.isInteger(page) || page < 1 || page > deps.totalPages.value) {
+            return null;
+        }
+
+        return page;
+    }
+
     function handlePrint() {
         printDialogSelectedPages.value = normalizeSelectedPages();
         resetPrintError();
@@ -160,8 +176,27 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
         }
 
         await handlePrintDialogSubmit(defaultPayload, {
+            action: 'default',
             reopenDialogOnError: false,
             skipSourceDirectPrint: directPrintFromMetrics === false,
+        });
+    }
+
+    async function handlePrintCurrentPage() {
+        const currentPrintPage = normalizeCurrentPage();
+        if (currentPrintPage === null) {
+            return;
+        }
+
+        resetPrintError();
+        await handlePrintDialogSubmit({
+            pageNumbers: [currentPrintPage],
+            viewMode: 'single',
+            orientation: 'auto',
+        }, {
+            action: 'current-page',
+            reopenDialogOnError: false,
+            preferNativePathPageExtraction: true,
         });
     }
 
@@ -383,7 +418,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
 
     async function tryOpenNativePrintDialogForResolvedPath(
         path: string | null | undefined,
-        options: { force?: boolean; } = {},
+        options: {
+            force?: boolean;
+            pageNumbers?: number[];
+        } = {},
     ) {
         if (!path) {
             return false;
@@ -393,10 +431,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
             return false;
         }
 
-        const result = await getDocumentsCapability().printPdfPath(
-            path,
-            deps.fileName.value ?? undefined,
-        );
+        const fileName = deps.fileName.value ?? undefined;
+        const result = options.pageNumbers
+            ? await getDocumentsCapability().printPdfPath(path, fileName, options.pageNumbers)
+            : await getDocumentsCapability().printPdfPath(path, fileName);
         if (isNativePrintCapabilityUnavailable(result)) {
             return false;
         }
@@ -409,7 +447,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
         throw new Error(result.error || 'Failed to open the native print dialog');
     }
 
-    async function tryOpenNativePrintDialogForPath(options: { force?: boolean; } = {}) {
+    async function tryOpenNativePrintDialogForPath(options: {
+        force?: boolean;
+        pageNumbers?: number[];
+    } = {}) {
         return tryOpenNativePrintDialogForResolvedPath(deps.workingCopyPath.value, options);
     }
 
@@ -510,14 +551,34 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
     async function handlePrintDialogSubmit(
         payload: IPrintDialogSubmitPayload,
         options: {
+            action?: 'default' | 'current-page';
             reopenDialogOnError?: boolean;
+            preferNativePathPageExtraction?: boolean;
             skipSourceDirectPrint?: boolean;
         } = {},
     ) {
         isPreparingPrint.value = true;
+        activePrintAction.value = options.action ?? 'default';
         resetPrintError();
 
         try {
+            if (
+                options.preferNativePathPageExtraction
+                && !deps.hasPendingUnsavedChanges.value
+                && (
+                    await tryOpenNativePrintDialogForPath({ pageNumbers: payload.pageNumbers })
+                    || (
+                        isPathPdfSource(deps.sourcePdf.value)
+                        && await tryOpenNativePrintDialogForResolvedPath(
+                            deps.sourcePdf.value.path,
+                            { pageNumbers: payload.pageNumbers },
+                        )
+                    )
+                )
+            ) {
+                return;
+            }
+
             if (!options.skipSourceDirectPrint && await tryOpenDirectPrintFromCurrentSource(payload)) {
                 return;
             }
@@ -558,6 +619,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
             }
         } finally {
             isPreparingPrint.value = false;
+            activePrintAction.value = null;
         }
     }
 
@@ -569,10 +631,12 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
         printDialogOpen,
         printDialogSelectedPages,
         isPreparingPrint,
+        isPreparingCurrentPagePrint,
         printError,
         printStatus,
         handlePrint,
         handleQuickPrint,
+        handlePrintCurrentPage,
         handlePrintDialogOpenChange,
         handlePrintDialogSubmit,
     };

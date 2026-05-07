@@ -19,12 +19,14 @@ import { pathToFileURL } from 'url';
 import { resolveAllowedReadPath } from '@electron/utils/path-validator';
 import { createLogger } from '@electron/utils/logger';
 import { getErrorMessage } from '@electron/utils/error';
+import { extractPages } from '@electron/features/page-ops/main/qpdf';
 
 const logger = createLogger('documents-print');
 const PRINT_LOAD_SETTLE_DELAY_MS = 300;
 const PRINT_WINDOW_WIDTH_PX = 1280;
 const PRINT_WINDOW_HEIGHT_PX = 1600;
 const DEFAULT_APP_TEMP_PREFIX = 'open-in-default-app-';
+const PRINT_PAGE_TEMP_PREFIX = 'print-pages-';
 const DEFAULT_APP_TEMP_CLEANUP_DELAY_MS = 5 * 60 * 1000;
 const DEFAULT_APP_TEMP_MAX_AGE_MS = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS;
 const scheduledDefaultAppTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
@@ -143,6 +145,19 @@ async function resolveAllowedPdfPath(filePath: string) {
         throw new Error('Invalid PDF path');
     }
     return resolvedPath;
+}
+
+function normalizePrintPageNumbers(pageNumbers?: number[]) {
+    if (!Array.isArray(pageNumbers) || pageNumbers.length === 0) {
+        return null;
+    }
+
+    const normalized = Array.from(new Set(pageNumbers));
+    if (normalized.some(pageNumber => !Number.isInteger(pageNumber) || pageNumber < 1)) {
+        throw new Error('Invalid print page numbers');
+    }
+
+    return normalized.sort((left, right) => left - right);
 }
 
 function createPrintWindow(ownerWindow?: BrowserWindow) {
@@ -285,8 +300,21 @@ export async function handlePrintPdfPath(
     event: Electron.IpcMainInvokeEvent,
     filePath: string,
     _fileName?: string,
+    pageNumbers?: number[],
 ): Promise<IPrintPdfResult> {
     const ownerWindow = BrowserWindow.fromWebContents(event.sender) ?? undefined;
     const resolvedPath = await resolveAllowedPdfPath(filePath);
-    return openNativePrintDialogForPath(ownerWindow, resolvedPath);
+    const normalizedPageNumbers = normalizePrintPageNumbers(pageNumbers);
+    if (!normalizedPageNumbers) {
+        return openNativePrintDialogForPath(ownerWindow, resolvedPath);
+    }
+
+    const tempFileName = `${PRINT_PAGE_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(_fileName)}`;
+    const tempPath = join(app.getPath('temp'), tempFileName);
+    try {
+        await extractPages(resolvedPath, tempPath, normalizedPageNumbers);
+        return await openNativePrintDialogForPath(ownerWindow, tempPath);
+    } finally {
+        await unlink(tempPath).catch(() => undefined);
+    }
 }

@@ -50,11 +50,24 @@
                             @click="emit('print'); close()"
                         >
                             <UIcon
-                                :name="isPreparingPrint ? 'i-lucide-loader-circle' : 'i-lucide-printer'"
-                                :class="['app-menu-icon', { 'animate-spin': isPreparingPrint }]"
+                                :name="isPreparingPrint && !isPreparingCurrentPagePrint ? 'i-lucide-loader-circle' : 'i-lucide-printer'"
+                                :class="['app-menu-icon', { 'animate-spin': isPreparingPrint && !isPreparingCurrentPagePrint }]"
                             />
                             <span class="app-menu-label">{{ t('menu.print') }}</span>
                             <span class="app-menu-shortcut">{{ shortcutLabels.print }}</span>
+                        </button>
+                        <button
+                            class="app-menu-item"
+                            :disabled="!hasInteractiveDocument || isPreparingPrint || isDjvuMode"
+                            @click="emit('print-current-page'); close()"
+                        >
+                            <UIcon
+                                v-if="isPreparingCurrentPagePrint"
+                                name="i-lucide-loader-circle"
+                                class="app-menu-icon animate-spin"
+                            />
+                            <PrintCurrentPageIcon v-else class="app-menu-icon" />
+                            <span class="app-menu-label">{{ t('menu.printCurrentPage') }}</span>
                         </button>
                         <div class="app-menu-divider" />
                         <button
@@ -233,6 +246,7 @@
 
 <script setup lang="ts">
 import { getShortcutLabels } from '@app/constants/shortcuts';
+import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 
 const { t } = useTypedI18n();
 
@@ -247,6 +261,7 @@ interface IProps {
     isHistoryBusy: boolean
     isExportingDocx: boolean
     isPreparingPrint: boolean
+    isPreparingCurrentPagePrint?: boolean
     isDjvuMode: boolean
     canUseDjvu: boolean
     documentBusy?: boolean
@@ -260,6 +275,7 @@ const emit = defineEmits<{
     (e: 'save'): void
     (e: 'save-as'): void
     (e: 'print'): void
+    (e: 'print-current-page'): void
     (e: 'combine-images'): void
     (e: 'export-docx'): void
     (e: 'export-images'): void

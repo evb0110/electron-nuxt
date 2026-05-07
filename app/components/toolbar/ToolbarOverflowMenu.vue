@@ -18,7 +18,40 @@
 
         <template #content>
             <div class="overflow-menu">
+                <template v-if="hasDocumentItems">
+                    <div class="overflow-menu-section-header">{{ t('menu.file') }}</div>
+                    <div class="overflow-menu-section">
+                        <button
+                            v-if="shouldShowMenuCommand('print', 3) && canPrint"
+                            class="overflow-menu-item"
+                            :disabled="!hasInteractiveDocument || isPreparingPrint || isDjvuMode"
+                            @click="emit('print'); close()"
+                        >
+                            <UIcon
+                                :name="isPreparingPrint && !isPreparingCurrentPagePrint ? 'i-lucide-loader-circle' : 'i-lucide-printer'"
+                                :class="['overflow-menu-icon', { 'animate-spin': isPreparingPrint && !isPreparingCurrentPagePrint }]"
+                            />
+                            <span class="overflow-menu-label">{{ t('toolbar.print') }}</span>
+                        </button>
+                        <button
+                            v-if="shouldShowMenuCommand('print-current-page', 3)"
+                            class="overflow-menu-item"
+                            :disabled="!hasInteractiveDocument || isPreparingPrint || isDjvuMode"
+                            @click="emit('print-current-page'); close()"
+                        >
+                            <UIcon
+                                v-if="isPreparingCurrentPagePrint"
+                                name="i-lucide-loader-circle"
+                                class="overflow-menu-icon animate-spin"
+                            />
+                            <PrintCurrentPageIcon v-else class="overflow-menu-icon" />
+                            <span class="overflow-menu-label">{{ t('toolbar.printCurrentPage') }}</span>
+                        </button>
+                    </div>
+                </template>
+
                 <template v-if="hasToolItems">
+                    <div v-if="hasDocumentItems" class="overflow-menu-divider" />
                     <div class="overflow-menu-section-header">{{ t('toolbar.annotations') }}</div>
                     <div class="overflow-menu-section">
                         <button
@@ -247,6 +280,7 @@ import {
     type TReaderCommandId,
     type IReaderCommandSurface,
 } from '@app/utils/reader-command-surface';
+import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 
 const { t } = useTypedI18n();
 
@@ -267,6 +301,7 @@ interface IProps {
     isHistoryBusy: boolean
     isExportingDocx: boolean
     isPreparingPrint?: boolean
+    isPreparingCurrentPagePrint?: boolean
     canExportDocx: boolean
     canUseOcr: boolean
     showSidebar: boolean
@@ -291,6 +326,7 @@ const emit = defineEmits<{
     (e: 'save'): void
     (e: 'save-as'): void
     (e: 'print'): void
+    (e: 'print-current-page'): void
     (e: 'export-docx'): void
     (e: 'open-file'): void
     (e: 'open-ocr'): void
@@ -320,6 +356,11 @@ const isOpen = computed({
     set: (value: boolean) => emit('update:open', value),
 });
 const hasInteractiveDocument = computed(() => props.hasPdf && props.documentBusy !== true);
+
+const hasDocumentItems = computed(() => (
+    (props.canPrint && shouldShowMenuCommand('print', 3))
+    || shouldShowMenuCommand('print-current-page', 3)
+));
 
 const hasToolItems = computed(() => (
     (props.canCaptureRegion && shouldShowMenuCommand('capture-region', 2))

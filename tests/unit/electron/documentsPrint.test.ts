@@ -35,12 +35,15 @@ const mocks = vi.hoisted(() => {
         readdir: vi.fn<() => Promise<string[]>>(async () => []),
         randomUUID: vi.fn(() => 'print-job-id'),
         resolveAllowedReadPath: vi.fn(async (path: string) => path),
+        extractPages: vi.fn(async () => {}),
         stat: vi.fn<(path: string) => Promise<{
             ctimeMs: number;
             mtimeMs: number;
+            size?: number;
         }>>(async () => ({
             ctimeMs: 0,
             mtimeMs: 0,
+            size: 1,
         })),
         unlink: vi.fn(async () => {}),
         writeFile: vi.fn(async () => {}),
@@ -63,6 +66,7 @@ vi.mock('fs/promises', () => ({
 vi.mock('crypto', () => ({ randomUUID: mocks.randomUUID }));
 
 vi.mock('@electron/utils/path-validator', () => ({resolveAllowedReadPath: mocks.resolveAllowedReadPath}));
+vi.mock('@electron/features/page-ops/main/qpdf', () => ({extractPages: mocks.extractPages}));
 
 vi.mock('@electron/utils/logger', () => ({ createLogger: () => ({
     debug: vi.fn(),
@@ -90,6 +94,7 @@ describe('documents print', () => {
         mocks.stat.mockResolvedValue({
             ctimeMs: 0,
             mtimeMs: 0,
+            size: 1,
         });
     });
 
@@ -98,8 +103,9 @@ describe('documents print', () => {
     });
 
     async function settleNativePrint<T>(promise: Promise<T>) {
-        await Promise.resolve();
-        await Promise.resolve();
+        for (let index = 0; index < 4; index += 1) {
+            await Promise.resolve();
+        }
         expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(300);
         return promise;
@@ -145,6 +151,28 @@ describe('documents print', () => {
             Buffer.from(Uint8Array.of(1, 2, 3)),
         );
         expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-job-id-document.pdf');
+    });
+
+    it('extracts requested pages to a temporary PDF before opening the native print dialog', async () => {
+        vi.useFakeTimers();
+        const resultPromise = handlePrintPdfPath(
+            { sender: {} } as never,
+            '/tmp/source.pdf',
+            'source.pdf',
+            [4],
+        );
+        const result = await settleNativePrint(resultPromise);
+
+        expect(result).toEqual({ success: true });
+        expect(mocks.extractPages).toHaveBeenCalledWith(
+            '/tmp/source.pdf',
+            '/tmp/print-pages-print-job-id-source.pdf',
+            [4],
+        );
+        expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
+            pathToFileURL('/tmp/print-pages-print-job-id-source.pdf').toString(),
+        );
+        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/print-pages-print-job-id-source.pdf');
     });
 
     it('opens an existing PDF path in the default desktop app', async () => {
