@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => ({
     runCommand: vi.fn(),
     getNativeToolPaths: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
+    allowOpenPath: vi.fn(),
     writeFile: vi.fn(),
     rename: vi.fn(),
     rm: vi.fn(),
@@ -56,7 +57,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
-    BrowserWindow: { getFocusedWindow: () => mocks.getFocusedWindow() },
+    BrowserWindow: {
+        fromWebContents: () => null,
+        getFocusedWindow: () => mocks.getFocusedWindow(),
+    },
     dialog: {
         showSaveDialog: (...args: unknown[]) => mocks.showSaveDialog(...args),
         showOpenDialog: (...args: unknown[]) => mocks.showOpenDialog(...args),
@@ -98,6 +102,7 @@ vi.mock('@electron/image/pdf-conversion', () => ({
 vi.mock('@electron/i18n', () => ({te: (key: string) => key}));
 vi.mock('@electron/native-tools/exec', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runCommand(...args)}));
 vi.mock('@electron/native-tools/paths', () => ({getNativeToolPaths: () => mocks.getNativeToolPaths()}));
+vi.mock('@electron/ipc/openPathCapabilities', () => ({allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args)}));
 vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -274,6 +279,36 @@ describe('registerPageOpsHandlers', () => {
             pageCount: 2,
         });
         expect(mocks.deletePages).toHaveBeenCalledTimes(2);
+    });
+
+    it('allows the extracted PDF path before returning it for a new-tab open', async () => {
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/extracted-pages',
+        });
+
+        const handler = getHandler('page-ops:extract');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/work.pdf', [
+            1,
+            2,
+        ])).resolves.toEqual({
+            success: true,
+            destPath: '/tmp/extracted-pages.pdf',
+        });
+
+        expect(mocks.extractPages).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            '/tmp/extracted-pages.pdf',
+            [
+                1,
+                2,
+            ],
+        );
+        expect(mocks.allowOpenPath).toHaveBeenCalledWith('/tmp/extracted-pages.pdf');
+        expect(mocks.extractPages.mock.invocationCallOrder[0]).toBeLessThan(
+            mocks.allowOpenPath.mock.invocationCallOrder[0]!,
+        );
     });
 
     it('rejects invalid crop margins before reaching page crop mutations', async () => {

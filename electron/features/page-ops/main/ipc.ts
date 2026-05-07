@@ -48,6 +48,7 @@ import { createLogger } from '@electron/utils/logger';
 import { isAllowedWritePath } from '@electron/utils/path-validator';
 import { getErrorMessage } from '@electron/utils/error';
 import { ensureWorkingCopyDirectory } from '@electron/ipc/workingCopy';
+import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
 
 const log = createLogger('page-ops-ipc');
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -281,6 +282,7 @@ async function handlePageOpsExtract(
         const queuedWorkingCopyPath = validateWorkingCopyPath(normalizedWorkingCopyPath);
         await extractPages(queuedWorkingCopyPath, destPath, pages);
     });
+    allowOpenPath(destPath);
     return {
         success: true,
         destPath,
