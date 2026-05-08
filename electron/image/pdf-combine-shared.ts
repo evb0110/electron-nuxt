@@ -1,4 +1,3 @@
-import { nativeImage } from 'electron';
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
 import { encode } from 'fast-png';
@@ -40,6 +39,15 @@ export const PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS = [
 const SUPPORTED_IMAGE_EXTENSION_SET = new Set<string>(
     PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
 );
+
+async function normalizeImageWithElectron(sourcePath: string) {
+    const { nativeImage } = await import('electron');
+    const image = nativeImage.createFromPath(sourcePath);
+    if (image.isEmpty()) {
+        throw new Error(`Unsupported or unreadable image: ${sourcePath}`);
+    }
+    return image.toPNG();
+}
 
 function appendEmbeddedImagePage(
     targetPdf: PDFDocument,
@@ -131,11 +139,7 @@ async function appendBitmapPage(
     } else if (extension === '.jpg' || extension === '.jpeg') {
         embeddedImage = await targetPdf.embedJpg(originalBytes);
     } else {
-        const image = nativeImage.createFromPath(sourcePath);
-        if (image.isEmpty()) {
-            throw new Error(`Unsupported or unreadable image: ${sourcePath}`);
-        }
-        embeddedImage = await targetPdf.embedPng(image.toPNG());
+        embeddedImage = await targetPdf.embedPng(await normalizeImageWithElectron(sourcePath));
     }
 
     return appendEmbeddedImagePage(targetPdf, embeddedImage, dpi);

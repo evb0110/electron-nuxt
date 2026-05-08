@@ -208,28 +208,31 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
     });
 
-    it('rejects large worker startup failures instead of falling back to the main thread', async () => {
+    it('falls back to in-process conversion for large worker startup failures', async () => {
         mocks.stat.mockResolvedValue({
             isFile: () => true,
             size: 32 * 1024 * 1024,
         });
 
-        await expect(createPdfFromInputPaths(['/tmp/input.pdf']))
-            .rejects
-            .toThrow('Image combine worker unavailable and local fallback is disabled for files larger than 8 inputs or 16MB');
+        const result = await createPdfFromInputPaths(['/tmp/input.pdf']);
 
+        expect(Array.from(result)).toEqual([
+            9,
+            9,
+            9,
+        ]);
         expect(mocks.workerCtor).toHaveBeenCalledTimes(1);
-        expect(mocks.create).not.toHaveBeenCalled();
+        expect(mocks.create).toHaveBeenCalledTimes(1);
         expect(mocks.loggerWarn).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps worker combine path for bmp/webp/gif inputs', async () => {
+    it('keeps worker combine path for worker-safe image inputs', async () => {
         mocks.workerState.mode = 'success';
 
         const inputPaths = [
-            '/tmp/input.webp',
-            '/tmp/input.bmp',
-            '/tmp/input.gif',
+            '/tmp/input.png',
+            '/tmp/input.jpg',
+            '/tmp/input.tiff',
         ];
         const result = await createPdfFromInputPaths(inputPaths);
 

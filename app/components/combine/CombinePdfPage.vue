@@ -170,6 +170,7 @@ import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import { formatBytes } from '@app/utils/formatters';
 import { getErrorMessage } from '@app/utils/error';
 import { getDocumentsCapability } from '@app/utils/platform-documents';
+import { hasElectronAPI } from '@app/utils/platform';
 import { BROWSER_COMBINE_IMAGE_EXTENSIONS } from '@app/platform/browser-api/browser-platform-helpers';
 import { browserDocumentStore } from '@app/platform/browser-document-store';
 import { createCombinedPdfFromPaths } from '@app/platform/browser-api/documents-file-capability';
@@ -387,22 +388,52 @@ function handleCombineProgress(nextProgress: ICombineProgress) {
     progress.value = nextProgress;
 }
 
-async function combineFiles() {
-    if (files.value.length === 0 || isCombining.value) {
-        return;
+async function combineElectronFiles() {
+    const documents = getDocumentsCapability();
+    const inputPaths = files.value
+        .map(entry => documents.getPathForFile(entry.file).trim())
+        .filter(path => path.length > 0);
+
+    if (inputPaths.length !== files.value.length) {
+        throw new Error(t('errors.file.open'));
     }
 
-    isCombining.value = true;
-    combineError.value = null;
-    lastRejectedCount.value = 0;
-    progress.value = {
-        processed: 0,
-        total: files.value.length,
-        percent: 0,
-        elapsedMs: 0,
-        estimatedRemainingMs: null,
-    };
+    const requestId = crypto.randomUUID();
+    const stopProgress = documents.onOpenPdfDirectBatchProgress((nextProgress) => {
+        if (nextProgress.requestId !== requestId) {
+            return;
+        }
 
+        handleCombineProgress({
+            processed: nextProgress.processed,
+            total: nextProgress.total,
+            percent: nextProgress.percent,
+            elapsedMs: nextProgress.elapsedMs,
+            estimatedRemainingMs: nextProgress.estimatedRemainingMs,
+        });
+    });
+
+    try {
+        const result = await documents.openPdfDirectBatch(inputPaths, requestId);
+        if (!result) {
+            throw new Error(t('errors.file.open'));
+        }
+
+        progress.value = {
+            processed: files.value.length,
+            total: files.value.length,
+            percent: 100,
+            elapsedMs: progress.value?.elapsedMs ?? 0,
+            estimatedRemainingMs: null,
+        };
+        emit('open-result', result);
+        clearFiles();
+    } finally {
+        stopProgress();
+    }
+}
+
+async function combineBrowserFiles() {
     let refs: string[] = [];
     try {
         refs = await registerCombineInputFiles();
@@ -425,12 +456,38 @@ async function combineFiles() {
             isGenerated: true,
         });
         clearFiles();
-    } catch (error) {
-        combineError.value = getErrorMessage(error) || t('errors.file.open');
     } finally {
         if (refs.length > 0) {
             void cleanupRegisteredRefs(refs);
         }
+    }
+}
+
+async function combineFiles() {
+    if (files.value.length === 0 || isCombining.value) {
+        return;
+    }
+
+    isCombining.value = true;
+    combineError.value = null;
+    lastRejectedCount.value = 0;
+    progress.value = {
+        processed: 0,
+        total: files.value.length,
+        percent: 0,
+        elapsedMs: 0,
+        estimatedRemainingMs: null,
+    };
+
+    try {
+        if (hasElectronAPI()) {
+            await combineElectronFiles();
+        } else {
+            await combineBrowserFiles();
+        }
+    } catch (error) {
+        combineError.value = getErrorMessage(error) || t('errors.file.open');
+    } finally {
         isCombining.value = false;
     }
 }
@@ -440,8 +497,11 @@ async function combineFiles() {
 .combine-page {
     display: grid;
     grid-template-columns: minmax(17rem, 24rem) minmax(0, 1fr);
+    align-items: stretch;
     gap: 1.25rem;
     width: min(100%, 76rem);
+    height: 100%;
+    min-height: 0;
     margin: 0 auto;
 }
 
@@ -457,6 +517,7 @@ async function combineFiles() {
     position: sticky;
     top: 0;
     display: flex;
+    align-self: start;
     min-height: 22rem;
     flex-direction: column;
     align-items: center;
@@ -517,8 +578,10 @@ async function combineFiles() {
     display: flex;
     min-width: 0;
     min-height: 28rem;
+    max-height: 100%;
     flex-direction: column;
     gap: 0.9rem;
+    overflow: hidden;
     padding: 1rem;
 }
 
@@ -640,6 +703,7 @@ async function combineFiles() {
 
 .combine-progress {
     display: flex;
+    flex-shrink: 0;
     flex-direction: column;
     gap: 0.45rem;
     border: 1px solid var(--ui-border);
@@ -662,6 +726,7 @@ async function combineFiles() {
 }
 
 .combine-actions {
+    flex-shrink: 0;
     border-top: 1px solid var(--app-start-row-divider);
     padding-top: 0.85rem;
 }

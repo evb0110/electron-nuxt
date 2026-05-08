@@ -1,8 +1,12 @@
 import type { IpcMainInvokeEvent } from 'electron';
+import { existsSync } from 'fs';
+import { isAbsolute } from 'path';
 import type { IIpcMainRegistrar } from '@contracts/ipc-main';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import {createDocumentsService} from '@electron/features/documents/service';
 import type { IDocumentsService } from '@electron/features/documents/ports';
+import { allowOpenPath } from '@electron/ipc/openPathCapabilities';
+import { isSupportedOpenPath } from '@electron/image/pdf-conversion';
 
 export function registerDocumentsIpcAdapter(
     registrar: IIpcMainRegistrar,
@@ -20,6 +24,14 @@ export function registerDocumentsIpcAdapter(
         (event: IpcMainInvokeEvent, filePaths: string[], requestId?: string) =>
             service.openPdfDirectBatch(event, filePaths, requestId),
     );
+    registrar.handle(DOCUMENTS_CHANNELS.allowRendererFileOpen, (_event: IpcMainInvokeEvent, filePath: string) => {
+        const normalizedPath = typeof filePath === 'string' ? filePath.trim() : '';
+        if (!normalizedPath || !isAbsolute(normalizedPath) || !existsSync(normalizedPath) || !isSupportedOpenPath(normalizedPath)) {
+            return false;
+        }
+
+        return allowOpenPath(normalizedPath) !== null;
+    });
     registrar.handle(
         DOCUMENTS_CHANNELS.createWorkingCopyFromData,
         (event: IpcMainInvokeEvent, fileName: string, data: Uint8Array, originalPath?: string) =>
