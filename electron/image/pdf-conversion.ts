@@ -60,46 +60,16 @@ const PDF_COMBINE_WORKER_TIMEOUT_MS = (() => {
     }
     return parsed;
 })();
-const PDF_COMBINE_MAX_INPUT_FILES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_INPUT_FILES ?? '512', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 512;
-    }
-    return Math.min(parsed, 10_000);
-})();
-const PDF_COMBINE_MAX_SINGLE_FILE_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_SINGLE_FILE_MB ?? '512', 10);
-    if (!Number.isFinite(parsed) || parsed < 8) {
-        return 512 * 1024 * 1024;
-    }
-    return parsed * 1024 * 1024;
-})();
-const PDF_COMBINE_MAX_TOTAL_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_TOTAL_MB ?? '1536', 10);
-    if (!Number.isFinite(parsed) || parsed < 64) {
-        return 1536 * 1024 * 1024;
-    }
-    return parsed * 1024 * 1024;
-})();
-const PDF_COMBINE_LOCAL_FALLBACK_MAX_INPUT_FILES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_FALLBACK_MAX_INPUT_FILES ?? '8', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 8;
-    }
-    return Math.min(parsed, 64);
-})();
-const PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_FALLBACK_MAX_TOTAL_MB ?? '16', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 16 * 1024 * 1024;
-    }
-    return Math.min(parsed, 256) * 1024 * 1024;
-})();
-
 export const SUPPORTED_IMAGE_EXTENSIONS = PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS;
 
 const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
-    SUPPORTED_IMAGE_EXTENSIONS,
+    [
+        '.png',
+        '.jpg',
+        '.jpeg',
+        '.tif',
+        '.tiff',
+    ],
 );
 
 class PdfCombineWorkerStartupError extends Error {
@@ -203,7 +173,7 @@ export function buildCombinedPdfOutputPath(inputPaths: string[]): string {
     const dir = dirname(firstPath);
     const stem = basename(firstPath, extname(firstPath));
     const outputName =
-        inputPaths.length === 1 ? `${stem}.pdf` : `${stem}-combined.pdf`;
+        inputPaths.length === 1 ? `${stem}.pdf` : `combined-${Date.now()}.pdf`;
 
     return join(dir, outputName);
 }
@@ -251,11 +221,6 @@ function decodeWorkerPdfBytes(data: unknown): Uint8Array | null {
 }
 
 async function enforceInputResourceLimits(inputPaths: string[]) {
-    if (inputPaths.length > PDF_COMBINE_MAX_INPUT_FILES) {
-        throw new Error(`Too many input files (${inputPaths.length}). Max supported: ${PDF_COMBINE_MAX_INPUT_FILES}`);
-    }
-
-    let totalBytes = 0;
     for (const inputPath of inputPaths) {
         const fileStat = await stat(inputPath);
         if (!fileStat.isFile()) {
@@ -264,45 +229,7 @@ async function enforceInputResourceLimits(inputPaths: string[]) {
         if (fileStat.size <= 0) {
             throw new Error(`Input file is empty: ${inputPath}`);
         }
-        if (fileStat.size > PDF_COMBINE_MAX_SINGLE_FILE_BYTES) {
-            throw new Error(
-                `Input file exceeds size limit (${Math.round(fileStat.size / (1024 * 1024))}MB): ${inputPath}`,
-            );
-        }
-        totalBytes += fileStat.size;
-        if (totalBytes > PDF_COMBINE_MAX_TOTAL_BYTES) {
-            throw new Error(
-                `Combined input size exceeds limit (${Math.round(PDF_COMBINE_MAX_TOTAL_BYTES / (1024 * 1024))}MB)`,
-            );
-        }
     }
-}
-
-function getPdfCombineFallbackDisabledError() {
-    const maxMb = Math.floor(PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES / (1024 * 1024));
-    return new Error(
-        `Image combine worker unavailable and local fallback is disabled for files larger than ${PDF_COMBINE_LOCAL_FALLBACK_MAX_INPUT_FILES} inputs or ${maxMb}MB`,
-    );
-}
-
-async function canUseLocalCombineFallback(inputPaths: string[]) {
-    if (inputPaths.length > PDF_COMBINE_LOCAL_FALLBACK_MAX_INPUT_FILES) {
-        return false;
-    }
-
-    let totalBytes = 0;
-    for (const inputPath of inputPaths) {
-        const fileStat = await stat(inputPath);
-        if (!fileStat.isFile()) {
-            return false;
-        }
-        totalBytes += fileStat.size;
-        if (totalBytes > PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES) {
-            return false;
-        }
-    }
-
-    return true;
 }
 
 function createPdfFromInputPathsWorker(
@@ -466,13 +393,6 @@ export async function createPdfFromInputPaths(
                 }`,
             );
             throw workerError;
-        }
-
-        if (!(await canUseLocalCombineFallback(normalizedPaths))) {
-            logger.warn(
-                `Image combine worker unavailable, refusing unsafe local fallback for ${normalizedPaths.length} input(s)`,
-            );
-            throw getPdfCombineFallbackDisabledError();
         }
 
         logger.warn(

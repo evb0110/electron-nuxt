@@ -18,6 +18,7 @@ import type {
 } from '@contracts/window-tabs';
 import { getDebugLogMessages } from '@electron/preload/debug-log-buffer';
 import {createDocumentsPreloadClient} from '@electron/features/documents/preload-client';
+import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import {createOcrPreloadClient} from '@electron/features/ocr/preload-client';
 import {createSearchPreloadClient} from '@electron/features/search/preload-client';
 import {createDjvuPreloadClient} from '@electron/features/djvu/preload-client';
@@ -149,15 +150,36 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
     const invokeCore = createTypedIpcInvoker<ICoreInvokeMap>(ipcRenderer);
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
+    const pendingRendererFileOpenAllows = new Map<string, Promise<unknown>>();
+
+    function allowRendererFileOpen(filePath: string) {
+        const allowPromise = ipcRenderer
+            .invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, filePath)
+            .finally(() => {
+                pendingRendererFileOpenAllows.delete(filePath);
+            });
+        pendingRendererFileOpenAllows.set(filePath, allowPromise);
+        return allowPromise;
+    }
 
     const api = {
         documents: {
             ...baseDocuments,
+            openPdfDirectBatch: async (paths: string[], requestId?: string) => {
+                await Promise.all(paths.map(path => pendingRendererFileOpenAllows.get(path)).filter(Boolean));
+                return baseDocuments.openPdfDirectBatch(paths, requestId);
+            },
             recentFiles: {
                 ...baseDocuments.recentFiles,
                 get: () => invokeWithStartupTrace('recent-files:get', () => baseDocuments.recentFiles.get()),
             },
-            getPathForFile: (file: File) => electronWebUtils.getPathForFile(file),
+            getPathForFile: (file: File) => {
+                const filePath = electronWebUtils.getPathForFile(file);
+                if (filePath) {
+                    void allowRendererFileOpen(filePath);
+                }
+                return filePath;
+            },
         },
 
         ocr: createOcrPreloadClient(ipcRenderer),
