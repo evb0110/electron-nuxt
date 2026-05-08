@@ -278,19 +278,11 @@ onClickOutside(pageControlsRef, () => {
 .page-controls {
     display: flex;
     align-items: center;
-    gap: 0;
-    border: 1px solid var(--app-toolbar-group-border);
-    border-radius: 0.375rem;
-    overflow: hidden;
+    gap: 0.1rem;
 }
 
 .page-controls-item {
     display: flex;
-    border-radius: 0;
-}
-
-.page-controls-item + .page-controls-item {
-    border-left: 1px solid var(--app-toolbar-group-border);
 }
 
 .page-controls-display {
@@ -307,7 +299,7 @@ onClickOutside(pageControlsRef, () => {
     font-family: var(--app-font-mono);
     background: transparent;
     border: none;
-    border-radius: 0;
+    border-radius: 0.375rem;
     cursor: pointer;
     box-sizing: border-box;
     transition: background-color 0.1s ease, box-shadow 0.1s ease;

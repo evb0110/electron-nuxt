@@ -1,6 +1,7 @@
 export const DOCUMENTS_CHANNELS = {
     openPdfDialog: 'dialog:openPdf',
     openCombineDialog: 'dialog:openCombine',
+    openFolderDialog: 'dialog:openFolder',
     openImageDialog: 'dialog:openImage',
     openPdfDirect: 'dialog:openPdfDirect',
     openPdfDirectBatch: 'dialog:openPdfDirectBatch',

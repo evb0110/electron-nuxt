@@ -87,15 +87,15 @@
     --app-start-card-shadow: 0 1px 2px color-mix(in srgb, var(--ui-bg-inverted) 6%, transparent);
     --app-start-dropzone-border: color-mix(in oklab, var(--ui-border) 78%, var(--ui-primary) 22%);
     --app-start-dropzone-bg: color-mix(in oklab, var(--ui-bg) 96%, var(--ui-primary) 4%);
-    --app-start-dropzone-hover-border: color-mix(in oklab, var(--ui-primary) 60%, var(--ui-border) 40%);
-    --app-start-dropzone-hover-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-primary) 12%);
     --app-start-row-divider: color-mix(in oklab, var(--ui-border) 60%, transparent);
-    --app-start-row-hover-bg: color-mix(in oklab, var(--ui-bg) 95%, var(--ui-bg-muted) 5%);
+    --app-start-row-hover-bg: color-mix(in oklab, var(--ui-bg) 93%, var(--ui-text) 7%);
+    --app-start-row-remove-hover-bg: color-mix(in oklab, var(--ui-bg) 78%, var(--ui-text) 22%);
+    --app-start-row-remove-fg: var(--ui-text-dimmed);
+    --app-start-row-remove-hover-fg: var(--ui-text);
     --app-start-primary-grad-from: oklch(58% 0.16 248);
     --app-start-primary-grad-to: oklch(48% 0.18 252);
     --app-start-primary-shadow: 0 1px 2px color-mix(in srgb, var(--ui-primary) 35%, transparent), 0 4px 12px color-mix(in srgb, var(--ui-primary) 18%, transparent);
     --app-start-primary-fg: oklch(100% 0 0);
-    --app-start-primary-divider: color-mix(in srgb, oklch(100% 0 0) 28%, transparent);
 
     /* File-type badge palette (for FileTypeIcon) */
     --app-file-icon-pdf-fill: oklch(98% 0.012 30);
@@ -304,15 +304,15 @@
     --app-start-card-shadow: 0 1px 2px color-mix(in srgb, black 24%, transparent), 0 4px 12px color-mix(in srgb, black 18%, transparent);
     --app-start-dropzone-border: color-mix(in oklab, var(--ui-border) 70%, var(--ui-primary) 30%);
     --app-start-dropzone-bg: color-mix(in oklab, var(--ui-bg-elevated) 78%, var(--ui-primary) 8%);
-    --app-start-dropzone-hover-border: color-mix(in oklab, var(--ui-primary) 70%, var(--ui-border) 30%);
-    --app-start-dropzone-hover-bg: color-mix(in oklab, var(--ui-bg-elevated) 60%, var(--ui-primary) 16%);
     --app-start-row-divider: color-mix(in oklab, var(--ui-border) 60%, transparent);
-    --app-start-row-hover-bg: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-bg-elevated) 30%);
+    --app-start-row-hover-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-text) 12%);
+    --app-start-row-remove-hover-bg: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-text) 30%);
+    --app-start-row-remove-fg: var(--ui-text-dimmed);
+    --app-start-row-remove-hover-fg: var(--ui-text);
     --app-start-primary-grad-from: oklch(64% 0.16 248);
     --app-start-primary-grad-to: oklch(54% 0.18 252);
     --app-start-primary-shadow: 0 1px 2px color-mix(in srgb, black 30%, transparent), 0 6px 16px color-mix(in srgb, black 20%, transparent);
     --app-start-primary-fg: oklch(100% 0 0);
-    --app-start-primary-divider: color-mix(in srgb, oklch(100% 0 0) 32%, transparent);
 
     /* File-type badge palette — dark */
     --app-file-icon-pdf-fill: oklch(28% 0.012 30);

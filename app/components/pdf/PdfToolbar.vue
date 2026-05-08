@@ -368,8 +368,8 @@ function isCommandInline(command: TReaderCommandId) {
 .toolbar {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
-    padding: 0.42rem 0.55rem;
+    gap: 0.35rem;
+    padding: 0.5rem 0.65rem;
     border-bottom: 1px solid var(--ui-border);
     background:
         linear-gradient(
@@ -384,14 +384,14 @@ function isCommandInline(command: TReaderCommandId) {
     z-index: 10;
     transition: background-color 0.15s ease, border-color 0.15s ease;
 
-    --toolbar-control-height: 2rem;
-    --toolbar-icon-size: 17px;
+    --toolbar-control-height: 2.25rem;
+    --toolbar-icon-size: 18px;
 }
 
 .toolbar-section {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.3rem;
     min-width: 0;
 }
 
@@ -403,7 +403,7 @@ function isCommandInline(command: TReaderCommandId) {
     flex: 1;
     min-width: 0;
     justify-content: center;
-    gap: 0.3rem;
+    gap: 0.4rem;
     overflow: hidden;
 }
 
@@ -413,10 +413,10 @@ function isCommandInline(command: TReaderCommandId) {
 
 .toolbar-separator {
     width: 1px;
-    height: 1.15rem;
-    background: color-mix(in oklab, var(--ui-border) 70%, transparent 30%);
+    height: 1.25rem;
+    background: color-mix(in oklab, var(--ui-border) 60%, transparent 40%);
     flex-shrink: 0;
-    margin: 0 0.2rem;
+    margin: 0 0.25rem;
 }
 
 .toolbar-separator:first-child,
@@ -428,27 +428,19 @@ function isCommandInline(command: TReaderCommandId) {
 .toolbar-button-group {
     display: flex;
     align-items: center;
-    border: 1px solid var(--app-toolbar-group-border);
-    border-radius: 0.375rem;
-    overflow: hidden;
+    gap: 0.1rem;
     flex-shrink: 0;
     min-width: max-content;
-    background: color-mix(in oklab, var(--app-toolbar-group-tint, transparent) 88%, var(--ui-bg) 12%);
 }
 
 .toolbar-group-item {
     display: flex;
-    border-radius: 0;
-}
-
-.toolbar-group-item + .toolbar-group-item {
-    border-left: 1px solid var(--app-toolbar-group-border);
 }
 
 .toolbar-inline-group {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.3rem;
     flex-shrink: 0;
     min-width: max-content;
 }
