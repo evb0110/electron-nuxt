@@ -1,121 +1,259 @@
 <template>
     <div class="empty-state">
-        <div class="empty-state-content flex flex-col items-center">
-            <div
-                v-if="openBatchProgress"
-                class="w-full mb-4 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-bg-elevated)] px-4 py-3"
-                role="status"
-                aria-live="polite"
-            >
-                <div class="flex items-center gap-2 text-sm text-[var(--ui-text)]">
-                    <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
-                    <span>{{ t('emptyState.preparingBatch') }}</span>
-                </div>
-                <p class="mt-2 text-xs text-[var(--ui-text-muted)]">
-                    {{ t('emptyState.preparingBatchProgress', {
-                        processed: displayProcessedCount(openBatchProgress.processed, openBatchProgress.total),
-                        total: openBatchProgress.total,
-                    }) }}
-                </p>
-                <UProgress :value="openBatchProgress.percent" class="mt-2" />
-                <p v-if="batchEtaText" class="mt-2 text-xs text-[var(--ui-text-dimmed)]">
-                    {{ t('emptyState.preparingBatchEta', { eta: batchEtaText }) }}
-                </p>
+        <div
+            v-if="openBatchProgress"
+            class="batch-progress"
+            role="status"
+            aria-live="polite"
+        >
+            <div class="flex items-center gap-2 text-sm text-[var(--ui-text)]">
+                <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+                <span>{{ t('emptyState.preparingBatch') }}</span>
             </div>
+            <p class="mt-2 text-xs text-[var(--ui-text-muted)]">
+                {{ t('emptyState.preparingBatchProgress', {
+                    processed: displayProcessedCount(openBatchProgress.processed, openBatchProgress.total),
+                    total: openBatchProgress.total,
+                }) }}
+            </p>
+            <UProgress :value="openBatchProgress.percent" class="mt-2" />
+            <p v-if="batchEtaText" class="mt-2 text-xs text-[var(--ui-text-dimmed)]">
+                {{ t('emptyState.preparingBatchEta', { eta: batchEtaText }) }}
+            </p>
+        </div>
 
-            <!-- No recent files: centered standalone prompt -->
-            <div v-if="!recentFilesResolved" class="flex flex-col items-center gap-3">
-                <UIcon
-                    name="i-lucide-loader-circle"
-                    class="open-file-icon animate-spin text-[var(--ui-text-dimmed)]"
-                />
-                <p class="empty-state-hint text-[var(--ui-text-muted)]">
-                    {{ t('common.loading') }}
-                </p>
-            </div>
+        <div v-else-if="!recentFilesResolved" class="empty-state-loading">
+            <UIcon
+                name="i-lucide-loader-circle"
+                class="size-7 animate-spin text-[var(--ui-text-dimmed)]"
+            />
+            <p class="text-sm text-[var(--ui-text-muted)]">{{ t('common.loading') }}</p>
+        </div>
 
-            <div v-else-if="recentFiles.length === 0" class="flex flex-col items-center gap-3">
-                <UTooltip :text="t('toolbar.openPdf')" :delay-duration="1200">
+        <div v-else class="start-shell">
+            <aside class="start-rail" :aria-label="t('emptyState.start')">
+                <nav class="rail-section" :aria-label="t('emptyState.start')">
+                    <p class="rail-section-title">{{ t('emptyState.start') }}</p>
                     <button
-                        class="open-file-action group"
-                        :aria-label="t('toolbar.openPdf')"
+                        type="button"
+                        class="rail-item is-active"
+                        aria-current="page"
+                    >
+                        <UIcon name="i-lucide-clock-3" class="rail-item-icon" />
+                        <span>{{ t('emptyState.recentFiles') }}</span>
+                    </button>
+                    <button
+                        type="button"
+                        class="rail-item"
+                        :title="t('emptyState.comingSoon')"
+                        disabled
+                    >
+                        <UIcon name="i-lucide-star" class="rail-item-icon" />
+                        <span>{{ t('emptyState.favorites') }}</span>
+                    </button>
+                </nav>
+
+                <nav class="rail-section" :aria-label="t('emptyState.sources')">
+                    <p class="rail-section-title">{{ t('emptyState.sources') }}</p>
+                    <button
+                        type="button"
+                        class="rail-item"
                         :disabled="openInProgress"
                         @click="emit('open-file')"
                     >
-                        <UIcon
-                            name="i-lucide-folder-open"
-                            class="open-file-icon text-[var(--ui-text-dimmed)] group-hover:text-[var(--ui-primary)] transition-colors"
-                        />
+                        <UIcon name="i-lucide-folder-open" class="rail-item-icon" />
+                        <span>{{ t('emptyState.openFile') }}</span>
                     </button>
-                </UTooltip>
-                <p class="empty-state-hint text-[var(--ui-text-muted)]">
-                    {{ isBrowserRuntime ? t('emptyState.openBrowser') : t('emptyState.openPdf') }}
-                </p>
-            </div>
-
-            <!-- Recent files: unified block with open-file integrated as last row -->
-            <div v-else class="recent-files">
-                <div class="recent-files-header flex items-center justify-between">
-                    <h3 class="text-sm font-medium text-[var(--ui-text-muted)]">
-                        {{ t('emptyState.recentFiles') }}
-                    </h3>
-                    <UTooltip :text="t('emptyState.clearRecentFiles')" :delay-duration="1200">
-                        <UButton
-                            icon="i-lucide-trash-2"
-                            variant="ghost"
-                            size="xs"
-                            color="neutral"
-                            :aria-label="t('emptyState.clearRecentFiles')"
-                            @click="emit('clear-recent')"
-                        />
-                    </UTooltip>
-                </div>
-                <ul class="recent-files-list flex flex-col gap-0.5">
-                    <li
-                        v-for="file in visibleRecentFiles"
-                        :key="file.originalPath"
-                        class="recent-file-item"
-                        :class="{ 'is-disabled': openInProgress }"
-                        @click="!openInProgress && emit('open-recent', file)"
+                    <button
+                        v-if="!isBrowserRuntime"
+                        type="button"
+                        class="rail-item"
+                        :title="t('emptyState.comingSoon')"
+                        disabled
                     >
-                        <UIcon
-                            name="i-lucide-file-text"
-                            class="size-5 text-[var(--ui-text-dimmed)] flex-shrink-0"
-                        />
-                        <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-                            <span class="recent-file-name">{{ file.fileName }}</span>
-                            <span v-if="!isBrowserDocumentRef(file.originalPath)" class="recent-file-path">{{ getParentFolder(file.originalPath) }}</span>
-                        </div>
-                        <span class="recent-file-time">{{ formatRelativeTimeLocalized(file.timestamp) }}</span>
-                        <UTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
-                            <UButton
-                                icon="i-lucide-x"
-                                size="xs"
-                                variant="ghost"
-                                color="neutral"
-                                class="recent-file-remove"
-                                :disabled="openInProgress"
-                                :aria-label="t('emptyState.removeFromRecent')"
-                                @click.stop="emit('remove-recent', file)"
-                            />
-                        </UTooltip>
-                    </li>
-                </ul>
+                        <UIcon name="i-lucide-folder" class="rail-item-icon" />
+                        <span>{{ t('emptyState.openFolder') }}</span>
+                    </button>
+                    <button
+                        v-if="!isBrowserRuntime"
+                        type="button"
+                        class="rail-item"
+                        :title="t('emptyState.comingSoon')"
+                        disabled
+                    >
+                        <UIcon name="i-lucide-scan" class="rail-item-icon" />
+                        <span>{{ t('emptyState.scanDocument') }}</span>
+                    </button>
+                </nav>
+
+                <nav class="rail-section" :aria-label="t('emptyState.tools')">
+                    <p class="rail-section-title">{{ t('emptyState.tools') }}</p>
+                    <button
+                        type="button"
+                        class="rail-item"
+                        :title="t('emptyState.comingSoon')"
+                        disabled
+                    >
+                        <UIcon name="i-lucide-scan-text" class="rail-item-icon" />
+                        <span>{{ t('emptyState.ocrSearch') }}</span>
+                    </button>
+                    <button
+                        type="button"
+                        class="rail-item"
+                        :title="t('emptyState.comingSoon')"
+                        disabled
+                    >
+                        <UIcon name="i-lucide-files" class="rail-item-icon" />
+                        <span>{{ t('emptyState.compareFiles') }}</span>
+                    </button>
+                    <button
+                        type="button"
+                        class="rail-item"
+                        :title="t('emptyState.comingSoon')"
+                        disabled
+                    >
+                        <UIcon name="i-lucide-layout-grid" class="rail-item-icon" />
+                        <span>{{ t('emptyState.batch') }}</span>
+                    </button>
+                </nav>
+
+                <div class="rail-tip" role="note">
+                    <UIcon name="i-lucide-lightbulb" class="rail-tip-icon" />
+                    <div class="rail-tip-copy">
+                        <strong>{{ t('emptyState.tipTitle') }}</strong>
+                        <span>{{ t('emptyState.tipBody') }}</span>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="start-main">
                 <button
-                    class="open-file-row group"
+                    class="start-dropzone"
+                    type="button"
                     :aria-label="t('toolbar.openPdf')"
                     :disabled="openInProgress"
                     @click="emit('open-file')"
                 >
-                    <UIcon
-                        name="i-lucide-folder-open"
-                        class="size-5 text-[var(--ui-text-dimmed)] group-hover:text-[var(--ui-primary)] flex-shrink-0 transition-colors"
-                    />
-                    <span class="open-file-row-label group-hover:text-[var(--ui-primary)] transition-colors">
-                        {{ t('emptyState.openAnother') }}
+                    <span class="dropzone-art" aria-hidden="true">
+                        <FileTypeIcon kind="document" class="dropzone-art-icon" />
+                    </span>
+                    <span class="dropzone-copy">
+                        <strong>{{ t('emptyState.dropTitle') }}</strong>
+                        <span>{{ t('emptyState.dropSubtitle') }}</span>
+                    </span>
+                    <span class="dropzone-divider">{{ t('emptyState.or') }}</span>
+                    <span class="dropzone-cta">
+                        <UIcon name="i-lucide-folder-open" class="dropzone-cta-icon" />
+                        <span>{{ t('emptyState.openFileEllipsis') }}</span>
+                        <UIcon name="i-lucide-chevron-down" class="dropzone-cta-chevron" />
                     </span>
                 </button>
-            </div>
+
+                <section class="start-recent" :aria-labelledby="recentFilesHeadingId">
+                    <header class="recent-header">
+                        <h3 :id="recentFilesHeadingId" class="recent-title">
+                            {{ t('emptyState.recentFiles') }}
+                        </h3>
+                        <div class="recent-controls">
+                            <label class="recent-search">
+                                <UIcon name="i-lucide-search" class="recent-search-icon" />
+                                <input
+                                    v-model="recentSearch"
+                                    type="search"
+                                    :placeholder="t('emptyState.searchPlaceholder')"
+                                    :aria-label="t('emptyState.searchRecentFiles')"
+                                >
+                            </label>
+                            <UTooltip :text="t('emptyState.clearRecentFiles')" :delay-duration="1200">
+                                <button
+                                    type="button"
+                                    class="recent-clear"
+                                    :disabled="recentFiles.length === 0"
+                                    :aria-label="t('emptyState.clearRecentFiles')"
+                                    @click="emit('clear-recent')"
+                                >
+                                    <UIcon name="i-lucide-trash-2" />
+                                    <span>{{ t('emptyState.clearHistory') }}</span>
+                                </button>
+                            </UTooltip>
+                        </div>
+                    </header>
+
+                    <div v-if="visibleRecentFiles.length > 0" class="recent-table" role="table">
+                        <div class="recent-row recent-row--head" role="row">
+                            <span role="columnheader" class="recent-col recent-col--name">{{ t('emptyState.columnName') }}</span>
+                            <span role="columnheader" class="recent-col recent-col--location">{{ t('emptyState.columnLocation') }}</span>
+                            <span role="columnheader" class="recent-col recent-col--time">{{ t('emptyState.columnOpened') }}</span>
+                            <span class="recent-col recent-col--remove" aria-hidden="true" />
+                        </div>
+                        <button
+                            v-for="file in visibleRecentFiles"
+                            :key="file.originalPath"
+                            type="button"
+                            class="recent-row recent-row--data"
+                            role="row"
+                            :class="{ 'is-disabled': openInProgress }"
+                            :disabled="openInProgress"
+                            @click="emit('open-recent', file)"
+                        >
+                            <span class="recent-col recent-col--name" role="cell">
+                                <span class="recent-file-icon" aria-hidden="true">
+                                    <FileTypeIcon :kind="getFileKind(file)" />
+                                </span>
+                                <span class="recent-file-name">{{ file.fileName }}</span>
+                            </span>
+                            <span class="recent-col recent-col--location" role="cell">
+                                <template v-if="!isBrowserDocumentRef(file.originalPath)">
+                                    {{ getParentFolder(file.originalPath) }}
+                                </template>
+                                <template v-else>{{ t('emptyState.locationBrowser') }}</template>
+                            </span>
+                            <span class="recent-col recent-col--time" role="cell">
+                                {{ formatRelativeTimeLocalized(file.timestamp) }}
+                            </span>
+                            <span class="recent-col recent-col--remove" role="cell">
+                                <UTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
+                                    <span
+                                        class="recent-remove"
+                                        role="button"
+                                        tabindex="0"
+                                        :aria-label="t('emptyState.removeFromRecent')"
+                                        @click.stop="emit('remove-recent', file)"
+                                        @keydown.enter.stop="emit('remove-recent', file)"
+                                        @keydown.space.stop.prevent="emit('remove-recent', file)"
+                                    >
+                                        <UIcon name="i-lucide-x" />
+                                    </span>
+                                </UTooltip>
+                            </span>
+                        </button>
+                    </div>
+
+                    <div v-else class="recent-empty">
+                        <UIcon
+                            :name="recentFiles.length === 0 ? 'i-lucide-folder-open' : 'i-lucide-search-x'"
+                            class="recent-empty-icon"
+                        />
+                        <p>{{ recentFiles.length === 0 ? t('emptyState.noRecentFiles') : t('emptyState.noSearchResults') }}</p>
+                    </div>
+
+                    <footer v-if="filteredRecentFiles.length > 0" class="recent-footer">
+                        <span class="recent-count">{{ recentItemsLabel }}</span>
+                        <button
+                            v-if="filteredRecentFiles.length > MAX_VISIBLE_RECENT_FILES"
+                            type="button"
+                            class="recent-show-more"
+                            @click="showAll = !showAll"
+                        >
+                            <span>{{ showAll ? t('emptyState.showLess') : t('emptyState.showMore') }}</span>
+                            <UIcon
+                                :name="showAll ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+                                class="recent-show-more-icon"
+                            />
+                        </button>
+                    </footer>
+                </section>
+            </main>
         </div>
     </div>
 </template>
@@ -129,6 +267,7 @@ import {
 } from '@app/utils/progress-formatting';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { isBrowserDocumentRef } from '@app/utils/document-ref';
+import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 
 interface IRecentFile {
     originalPath: TDocumentRef;
@@ -165,9 +304,27 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 const { isBrowserRuntime } = useRuntimeEnvironment();
 const MAX_VISIBLE_RECENT_FILES = 6;
+const recentFilesHeadingId = useId();
+const recentSearch = ref('');
+const showAll = ref(false);
 
 const batchEtaText = computed(() => formatEtaDuration(openBatchProgress?.estimatedRemainingMs ?? null));
-const visibleRecentFiles = computed(() => recentFiles.slice(0, MAX_VISIBLE_RECENT_FILES));
+const filteredRecentFiles = computed(() => {
+    const query = recentSearch.value.trim().toLocaleLowerCase();
+    if (!query) {
+        return recentFiles;
+    }
+    return recentFiles.filter((file) => {
+        const haystack = `${file.fileName} ${String(file.originalPath)}`.toLocaleLowerCase();
+        return haystack.includes(query);
+    });
+});
+const visibleRecentFiles = computed(() => (
+    showAll.value
+        ? filteredRecentFiles.value
+        : filteredRecentFiles.value.slice(0, MAX_VISIBLE_RECENT_FILES)
+));
+const recentItemsLabel = computed(() => t('emptyState.itemsCount', { count: filteredRecentFiles.value.length }));
 
 function formatRelativeTimeLocalized(timestamp: number) {
     return formatRelativeTime(timestamp, {
@@ -188,182 +345,653 @@ function getParentFolder(filePath: string) {
     return folderParts.join('/');
 }
 
+function getFileExtension(file: IRecentFile) {
+    const normalizedName = file.fileName.toLocaleLowerCase();
+    return normalizedName.match(/\.([a-z0-9]+)$/u)?.[1] ?? '';
+}
+
+function getFileKind(file: IRecentFile) {
+    const extension = getFileExtension(file);
+    if (extension === 'pdf') {
+        return 'pdf';
+    }
+    if (extension === 'djvu' || extension === 'djv') {
+        return 'djvu';
+    }
+    if ([
+        'png',
+        'jpg',
+        'jpeg',
+        'webp',
+        'tif',
+        'tiff',
+        'bmp',
+    ].includes(extension)) {
+        return 'image';
+    }
+    return 'document';
+}
 </script>
 
 <style lang="scss" scoped>
 .empty-state {
     width: 100%;
     height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: clamp(1.5rem, 3vh, 2.5rem) clamp(1rem, 2.2vw, 2rem);
-    overflow: auto;
+    overflow: hidden;
+    background: var(--app-start-bg);
+    color: var(--ui-text);
+    container-type: inline-size;
 }
 
-.empty-state-content {
-    width: min(100%, 640px);
-}
-
-/* Standalone open-file prompt (no recent files) */
-
-.empty-state-hint {
-    margin: 0;
-    text-align: center;
-    font-size: 0.8125rem;
-}
-
-.open-file-action {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1.25rem 1.75rem;
-    border-radius: 0.75rem;
-    border: 1px dashed var(--ui-border);
-    background: transparent;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.open-file-icon {
-    width: 2rem;
-    height: 2rem;
-}
-
-.open-file-action:hover {
-    border-color: var(--ui-primary);
-    background: color-mix(in oklab, var(--ui-bg) 95%, var(--ui-primary) 5%);
-    box-shadow: 0 2px 8px color-mix(in oklab, var(--ui-primary) 12%, transparent 88%);
-}
-
-.open-file-action:active {
-    transform: scale(0.97);
-}
-
-.open-file-action:disabled {
-    cursor: default;
-    opacity: 0.65;
-}
-
-.open-file-action:disabled:hover {
-    border-color: var(--ui-border);
-    background: transparent;
-    box-shadow: none;
-}
-
-/* Recent files block */
-
-.recent-files {
+.empty-state-loading {
     width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+}
+
+.batch-progress {
+    width: min(100%, 38rem);
+    margin: 2rem auto;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.5rem;
+    background: var(--ui-bg-elevated);
+    padding: 0.75rem 1rem;
+}
+
+.start-shell {
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    gap: 1.5rem;
+    width: 100%;
+    max-width: 1280px;
+    height: 100%;
+    min-height: 0;
+    margin: 0 auto;
+    padding: 1.25rem clamp(0.75rem, 2vw, 1.5rem) 1.5rem;
+}
+
+.start-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+    padding: 0.5rem 0.25rem;
+}
+
+.rail-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.18rem;
+}
+
+.rail-section-title {
+    margin: 0 0 0.3rem;
+    padding: 0 0.55rem;
+    color: var(--app-start-rail-section-fg);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.rail-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    height: 2rem;
+    padding: 0 0.55rem;
+    border: 0;
+    border-radius: 0.45rem;
+    background: transparent;
+    color: var(--app-start-rail-item-fg);
+    font-size: 0.83rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.rail-item:hover:not(:disabled) {
+    background: var(--app-start-rail-item-hover-bg);
+    color: var(--app-start-rail-item-active-fg);
+}
+
+.rail-item.is-active {
+    background: var(--app-start-rail-item-active-bg);
+    color: var(--app-start-rail-item-active-fg);
+    font-weight: 500;
+}
+
+.rail-item:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.rail-item-icon {
+    width: 1.05rem;
+    height: 1.05rem;
+    flex: 0 0 auto;
+    color: currentcolor;
+    opacity: 0.85;
+}
+
+.rail-tip {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    margin-top: auto;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid var(--app-start-rail-tip-border);
+    border-radius: 0.55rem;
+    background: var(--app-start-rail-tip-bg);
+    color: var(--ui-text);
+}
+
+.rail-tip-icon {
+    width: 1rem;
+    height: 1rem;
+    margin-top: 0.1rem;
+    color: color-mix(in oklab, var(--ui-primary) 70%, var(--ui-text) 30%);
+    flex: 0 0 auto;
+}
+
+.rail-tip-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.rail-tip-copy strong {
+    color: var(--ui-text);
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.rail-tip-copy span {
+    color: var(--ui-text-muted);
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
+.start-main {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-width: 0;
+    height: 100%;
     min-height: 0;
 }
 
-.recent-files-header {
-    margin-bottom: 0.5rem;
-    padding: 0 0.75rem;
+.start-dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.85rem;
+    width: 100%;
+    min-height: 17rem;
+    padding: 2.5rem 2.25rem;
+    border: 1.5px dashed var(--app-start-dropzone-border);
+    border-radius: 0.9rem;
+    background: var(--app-start-dropzone-bg);
+    color: var(--ui-text);
+    cursor: pointer;
+    text-align: center;
+    transition: background-color 0.14s ease, border-color 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
+    flex: 0 0 auto;
 }
 
-.recent-files-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    max-height: min(50vh, 28rem);
-    overflow-y: auto;
+.start-dropzone:hover:not(:disabled) {
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--ui-bg-inverted) 6%, transparent), 0 4px 16px color-mix(in srgb, var(--ui-primary) 6%, transparent);
 }
 
-.recent-file-item {
+.start-dropzone:hover:not(:disabled) {
+    border-color: var(--app-start-dropzone-hover-border);
+    background: var(--app-start-dropzone-hover-bg);
+}
+
+.start-dropzone:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
+.start-dropzone:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+.dropzone-art {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.4rem;
+    height: 3.85rem;
+    flex: 0 0 auto;
+    filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--ui-bg-inverted) 10%, transparent));
+}
+
+.dropzone-art-icon {
+    width: 100%;
+    height: 100%;
+}
+
+.dropzone-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.dropzone-copy strong {
+    color: var(--ui-text-highlighted);
+    font-size: 1.05rem;
+    font-weight: 650;
+    line-height: 1.3;
+}
+
+.dropzone-copy span {
+    color: var(--ui-text-muted);
+    font-size: 0.85rem;
+}
+
+.dropzone-divider {
+    color: var(--ui-text-dimmed);
+    font-size: 0.83rem;
+    margin: 0.15rem 0;
+    flex: 0 0 auto;
+}
+
+.dropzone-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-width: 13rem;
+    height: 2.65rem;
+    padding: 0 1.25rem;
+    border-radius: 0.55rem;
+    justify-content: center;
+    background: linear-gradient(180deg, var(--app-start-primary-grad-from) 0%, var(--app-start-primary-grad-to) 100%);
+    color: var(--app-start-primary-fg);
+    font-size: 0.83rem;
+    font-weight: 600;
+    box-shadow: var(--app-start-primary-shadow);
+    flex: 0 0 auto;
+    pointer-events: none;
+    transition: filter 0.14s ease;
+}
+
+.start-dropzone:hover:not(:disabled) .dropzone-cta {
+    filter: brightness(1.06);
+}
+
+.dropzone-cta-icon {
+    width: 0.95rem;
+    height: 0.95rem;
+}
+
+.dropzone-cta-chevron {
+    width: 0.85rem;
+    height: 0.85rem;
+    opacity: 0.85;
+    margin-left: 0.15rem;
+    padding-left: 0.35rem;
+    border-left: 1px solid var(--app-start-primary-divider);
+    box-sizing: content-box;
+}
+
+.start-recent {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--app-start-card-border);
+    border-radius: 0.65rem;
+    background: var(--app-start-card-bg);
+    box-shadow: var(--app-start-card-shadow);
+    overflow: hidden;
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+.recent-header {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.875rem 0.75rem;
-    border-radius: 0.375rem;
-    cursor: pointer;
-    transition: background-color $ease-standard;
+    gap: 0.85rem;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    padding: 0.85rem 1.05rem 0.75rem;
 }
 
-.recent-file-item:hover {
-    background: var(--ui-bg-elevated);
+.recent-title {
+    margin: 0;
+    color: var(--ui-text);
+    font-size: 0.93rem;
+    font-weight: 600;
 }
 
-.recent-file-item.is-disabled {
-    cursor: default;
-    opacity: 0.65;
+.recent-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
 }
 
-.recent-file-item.is-disabled:hover {
+.recent-search {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    width: 16rem;
+    height: 2rem;
+    padding: 0 0.65rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.4rem;
+    background: var(--ui-bg);
+    color: var(--ui-text-muted);
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.recent-search:focus-within {
+    border-color: var(--app-toolbar-focus-ring);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--app-toolbar-focus-ring) 18%, transparent);
+}
+
+.recent-search-icon {
+    width: 0.95rem;
+    height: 0.95rem;
+    flex: 0 0 auto;
+}
+
+.recent-search input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    outline: 0;
     background: transparent;
+    color: var(--ui-text);
+    font-size: 0.8125rem;
 }
 
+.recent-search input::placeholder {
+    color: var(--ui-text-dimmed);
+}
+
+.recent-clear {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    height: 2rem;
+    padding: 0 0.7rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 0.4rem;
+    background: var(--ui-bg);
+    color: var(--ui-text-muted);
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.recent-clear :deep(.iconify) {
+    width: 0.95rem;
+    height: 0.95rem;
+}
+
+.recent-clear:hover:not(:disabled) {
+    background: var(--app-start-row-hover-bg);
+    color: var(--ui-text);
+    border-color: color-mix(in oklab, var(--ui-border) 80%, var(--ui-text) 20%);
+}
+
+.recent-clear:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.recent-table {
+    display: grid;
+    grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) auto 1.6rem;
+    grid-auto-rows: min-content;
+    align-content: start;
+    border-top: 1px solid var(--app-start-row-divider);
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.recent-row {
+    display: grid;
+    grid-template-columns: subgrid;
+    grid-column: 1 / -1;
+    column-gap: 1rem;
+    align-items: center;
+    width: 100%;
+    padding: 0.6rem 1.05rem;
+    border-bottom: 1px solid var(--app-start-row-divider);
+    text-align: left;
+    background: transparent;
+    transition: background-color 0.1s ease;
+}
+
+.recent-row:last-child {
+    border-bottom: 0;
+}
+
+.recent-row--head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-block: 0.45rem;
+    background: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-bg-muted) 8%);
+    color: var(--ui-text-dimmed);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    box-shadow: inset 0 -1px 0 var(--app-start-row-divider);
+}
+
+.recent-row--data {
+    border: 0;
+    border-bottom: 1px solid var(--app-start-row-divider);
+    cursor: pointer;
+    color: var(--ui-text);
+}
+
+.recent-row--data:hover:not(.is-disabled, :disabled) {
+    background: var(--app-start-row-hover-bg);
+}
+
+.recent-row--data.is-disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+.recent-col {
+    min-width: 0;
+}
+
+.recent-col--name {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    min-width: 0;
+}
+
+.recent-col--location {
+    color: var(--ui-text-muted);
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.recent-col--time {
+    color: var(--ui-text-dimmed);
+    font-size: 0.78rem;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.recent-col--remove {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.recent-file-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.7rem;
+    height: 1.9rem;
+    flex: 0 0 auto;
+}
 
 .recent-file-name {
     color: var(--ui-text);
-    font-size: 0.875rem;
-    white-space: nowrap;
+    font-size: 0.88rem;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.recent-file-path {
-    font-size: 0.7rem;
+.recent-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 0.3rem;
     color: var(--ui-text-dimmed);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity 0.12s ease, background-color 0.12s ease, color 0.12s ease;
 }
 
-.recent-file-time {
-    font-size: 0.7rem;
-    color: var(--ui-text-muted);
-    flex-shrink: 0;
-    margin-left: auto;
+.recent-remove :deep(.iconify) {
+    width: 0.95rem;
+    height: 0.95rem;
 }
 
-.recent-file-remove {
-    opacity: 0.5;
-    transition: opacity $ease-standard;
-}
-
-.recent-file-item:hover .recent-file-remove,
-.recent-file-item:focus-within .recent-file-remove {
+.recent-row--data:hover .recent-remove,
+.recent-row--data:focus-within .recent-remove {
     opacity: 1;
 }
 
-/* Open-file row integrated into the list */
+.recent-remove:hover {
+    background: var(--app-chrome-subtle-hover);
+    color: var(--ui-text);
+}
 
-.open-file-row {
+.recent-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.65rem;
+    flex: 1 1 auto;
+    min-height: 14rem;
+    border-top: 1px solid var(--app-start-row-divider);
+    color: var(--ui-text-muted);
+    text-align: center;
+}
+
+.recent-empty p {
+    margin: 0;
+    font-size: 0.88rem;
+}
+
+.recent-empty-icon {
+    width: 2.25rem;
+    height: 2.25rem;
+    color: var(--ui-text-dimmed);
+    opacity: 0.7;
+}
+
+.recent-footer {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    width: 100%;
-    padding: 0.625rem 0.75rem;
-    margin-top: 2px;
-    border: none;
-    border-top: 1px dashed var(--ui-border);
-    border-radius: 0 0 0.375rem 0.375rem;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: auto;
+    padding: 0.6rem 1.05rem;
+    border-top: 1px solid var(--app-start-row-divider);
+    background: color-mix(in oklab, var(--ui-bg) 96%, var(--ui-bg-muted) 4%);
+}
+
+.recent-count {
+    color: var(--ui-text-dimmed);
+    font-size: 0.78rem;
+}
+
+.recent-show-more {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 0;
     background: transparent;
-    cursor: pointer;
-    transition: background-color $ease-standard;
-}
-
-.open-file-row:hover {
-    background: var(--ui-bg-elevated);
-}
-
-.open-file-row:active {
-    transform: scale(0.995);
-}
-
-.open-file-row:disabled {
-    cursor: default;
-    opacity: 0.65;
-}
-
-.open-file-row:disabled:hover {
-    background: transparent;
-}
-
-.open-file-row-label {
-    font-size: 0.875rem;
     color: var(--ui-text-muted);
+    font-size: 0.78rem;
+    cursor: pointer;
+    padding: 0.25rem 0.4rem;
+    border-radius: 0.3rem;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.recent-show-more:hover {
+    background: var(--app-start-row-hover-bg);
+    color: var(--ui-text);
+}
+
+.recent-show-more-icon {
+    width: 0.85rem;
+    height: 0.85rem;
+}
+
+@container (max-width: 880px) {
+    .start-shell {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.75rem;
+    }
+
+    .start-rail {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.5rem 1rem;
+        padding: 0.25rem 0;
+    }
+
+    .rail-tip {
+        grid-column: 1 / -1;
+    }
+}
+
+@container (max-width: 640px) {
+    .start-dropzone {
+        min-height: 11rem;
+        padding: 1.5rem 1.25rem;
+        gap: 0.6rem;
+    }
+
+    .dropzone-cta {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .recent-table {
+        grid-template-columns: minmax(0, 1fr) auto 1.6rem;
+    }
+
+    .recent-row {
+        column-gap: 0.7rem;
+    }
+
+    .recent-col--location {
+        display: none;
+    }
+
+    .recent-row--head .recent-col--location {
+        display: none;
+    }
 }
 </style>

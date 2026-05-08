@@ -18,7 +18,8 @@
             :title="triggerTooltip"
             type="button"
         >
-            <Icon v-if="!progress.isRunning" :name="triggerIcon" class="size-5" />
+            <Icon v-if="!progress.isRunning && !showSuccessState" name="lucide:scan-text" class="size-5" />
+            <Icon v-else-if="!progress.isRunning" :name="triggerIcon" class="size-5" />
             <Icon v-else name="lucide:loader-2" class="size-5 animate-spin" />
         </button>
         <span v-else class="hidden-trigger" aria-hidden="true" />
@@ -515,7 +516,7 @@ watch(() => results.value.searchablePdfData, (pdfData) => {
     border: 1px solid transparent;
     border-radius: 0.25rem;
     background: transparent;
-    color: var(--ui-text);
+    color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;
     transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
 }

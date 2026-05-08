@@ -357,7 +357,7 @@ function isCommandInline(command: TReaderCommandId) {
 /*
  * Toolbar layout
  * ──────────────
- * All interactive controls share --toolbar-control-height (2.25rem / 36px).
+ * All interactive controls share --toolbar-control-height (2rem / 32px).
  *
  * Two button types:
  *   1. ToolbarButton  — native <button> with <Icon>. Handles sizing, hover, disabled,
@@ -369,9 +369,14 @@ function isCommandInline(command: TReaderCommandId) {
     display: flex;
     align-items: center;
     gap: 0.25rem;
-    padding: 0.5rem;
+    padding: 0.42rem 0.55rem;
     border-bottom: 1px solid var(--ui-border);
-    background: var(--app-chrome);
+    background:
+        linear-gradient(
+            180deg,
+            color-mix(in oklab, var(--app-chrome) 90%, var(--ui-bg) 10%) 0%,
+            var(--app-chrome) 100%
+        );
     box-shadow: var(--app-chrome-depth);
     white-space: nowrap;
     overflow: hidden;
@@ -379,8 +384,8 @@ function isCommandInline(command: TReaderCommandId) {
     z-index: 10;
     transition: background-color 0.15s ease, border-color 0.15s ease;
 
-    --toolbar-control-height: 2.25rem;
-    --toolbar-icon-size: 18px;
+    --toolbar-control-height: 2rem;
+    --toolbar-icon-size: 17px;
 }
 
 .toolbar-section {
@@ -398,7 +403,7 @@ function isCommandInline(command: TReaderCommandId) {
     flex: 1;
     min-width: 0;
     justify-content: center;
-    gap: 0.25rem;
+    gap: 0.3rem;
     overflow: hidden;
 }
 
@@ -408,10 +413,10 @@ function isCommandInline(command: TReaderCommandId) {
 
 .toolbar-separator {
     width: 1px;
-    height: 1rem;
-    background: color-mix(in oklab, var(--ui-border) 55%, transparent 45%);
+    height: 1.15rem;
+    background: color-mix(in oklab, var(--ui-border) 70%, transparent 30%);
     flex-shrink: 0;
-    margin: 0 0.125rem;
+    margin: 0 0.2rem;
 }
 
 .toolbar-separator:first-child,
@@ -428,7 +433,7 @@ function isCommandInline(command: TReaderCommandId) {
     overflow: hidden;
     flex-shrink: 0;
     min-width: max-content;
-    background: var(--app-toolbar-group-tint, transparent);
+    background: color-mix(in oklab, var(--app-toolbar-group-tint, transparent) 88%, var(--ui-bg) 12%);
 }
 
 .toolbar-group-item {

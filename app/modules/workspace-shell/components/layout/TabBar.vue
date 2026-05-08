@@ -488,9 +488,9 @@ onClickOutside(contextMenuRef, () => {
     align-items: stretch;
     width: 100%;
     min-width: 0;
-    height: 36px;
-    min-height: 36px;
-    background: var(--app-chrome);
+    height: 38px;
+    min-height: 38px;
+    background: color-mix(in oklab, var(--app-chrome) 92%, var(--ui-bg) 8%);
     border-bottom: 1px solid var(--ui-border);
     user-select: none;
     -webkit-app-region: drag;
@@ -504,6 +504,7 @@ onClickOutside(contextMenuRef, () => {
     overflow: auto hidden;
     min-width: 0;
     scrollbar-width: none;
+    padding-top: 0.25rem;
 }
 
 .tab-list::-webkit-scrollbar {
@@ -517,9 +518,10 @@ onClickOutside(contextMenuRef, () => {
     padding: 0 8px 0 12px;
     min-width: 0;
     max-width: 200px;
-    height: 100%;
+    height: calc(100% - 0.25rem);
     border: none;
-    border-right: 1px solid var(--ui-border);
+    border-right: 1px solid color-mix(in oklab, var(--ui-border) 76%, transparent);
+    border-radius: 0.45rem 0.45rem 0 0;
     background: transparent;
     color: var(--ui-text-dimmed);
     font-size: 12px;
@@ -538,6 +540,7 @@ onClickOutside(contextMenuRef, () => {
     background: var(--ui-bg);
     color: var(--ui-text);
     font-weight: 500;
+    box-shadow: 0 -1px 0 color-mix(in oklab, var(--ui-border) 72%, transparent) inset;
 }
 
 .tab-label {
@@ -594,10 +597,12 @@ onClickOutside(contextMenuRef, () => {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    min-width: 28px;
-    height: 100%;
+    width: 30px;
+    min-width: 30px;
+    height: calc(100% - 0.25rem);
+    margin-top: 0;
     border: none;
+    border-radius: 0.45rem 0.45rem 0 0;
     background: transparent;
     color: var(--ui-text-dimmed);
     cursor: pointer;

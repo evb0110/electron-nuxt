@@ -354,6 +354,7 @@
                         :recent-files="recentFiles"
                         :recent-files-resolved="recentFilesResolved"
                         :open-batch-progress="openBatchProgress"
+                        :open-in-progress="pendingDocumentOpen"
                         @open-file="handleOpenFileFromUi"
                         @open-recent="openRecentFile"
                         @remove-recent="removeRecentFile"
