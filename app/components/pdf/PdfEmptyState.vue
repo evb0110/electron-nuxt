@@ -59,16 +59,6 @@
                         <UIcon name="i-lucide-copy-plus" class="rail-item-icon" />
                         <span>{{ t('menu.combineFiles') }}</span>
                     </button>
-                    <button
-                        v-if="!isBrowserRuntime"
-                        type="button"
-                        class="rail-item"
-                        :disabled="openInProgress"
-                        @click="emit('open-folder')"
-                    >
-                        <UIcon name="i-lucide-folder" class="rail-item-icon" />
-                        <span>{{ t('emptyState.openFolder') }}</span>
-                    </button>
                 </nav>
 
                 <nav class="rail-section" :aria-label="t('emptyState.workspace')">
@@ -83,38 +73,29 @@
                         <span>{{ t('toolbar.settings') }}</span>
                     </button>
                 </nav>
-
-                <div class="rail-tip" :aria-label="t('emptyState.supportedFormats')">
-                    <UIcon name="i-lucide-files" class="rail-tip-icon" />
-                    <div class="rail-tip-copy">
-                        <span>{{ t('emptyState.supportedFormats') }}</span>
-                        <strong>{{ t('emptyState.dropSubtitle') }}</strong>
-                    </div>
-                </div>
             </aside>
 
             <main class="start-main">
                 <template v-if="activeSection === 'recent'">
-                    <div class="start-dropzone" role="presentation">
-                        <span class="dropzone-art" aria-hidden="true">
-                            <FileTypeIcon kind="document" class="dropzone-art-icon" />
+                    <section class="start-open-panel" :aria-labelledby="openPanelButtonId">
+                        <span class="open-panel-art" aria-hidden="true">
+                            <FileTypeIcon kind="document" class="open-panel-art-icon" />
                         </span>
-                        <span class="dropzone-copy">
-                            <strong>{{ t('emptyState.dropTitle') }}</strong>
-                            <span>{{ t('emptyState.dropSubtitle') }}</span>
+                        <span class="open-panel-copy">
+                            <span>{{ t('emptyState.openSubtitle') }}</span>
                         </span>
-                        <span class="dropzone-divider">{{ t('emptyState.or') }}</span>
                         <button
+                            :id="openPanelButtonId"
                             type="button"
-                            class="dropzone-cta"
+                            class="open-panel-cta"
                             :aria-label="t('toolbar.openPdf')"
                             :disabled="openInProgress"
                             @click="emit('open-file')"
                         >
-                            <UIcon name="i-lucide-folder-open" class="dropzone-cta-icon" />
+                            <UIcon name="i-lucide-folder-open" class="open-panel-cta-icon" />
                             <span>{{ t('emptyState.openFileEllipsis') }}</span>
                         </button>
-                    </div>
+                    </section>
 
                     <section class="start-recent" :aria-labelledby="recentFilesHeadingId">
                         <header class="recent-header">
@@ -131,22 +112,20 @@
                                         :aria-label="t('emptyState.searchRecentFiles')"
                                     >
                                 </label>
-                                <UTooltip :text="t('emptyState.clearRecentFiles')" :delay-duration="1200">
-                                    <button
-                                        type="button"
-                                        class="recent-clear"
-                                        :disabled="recentFiles.length === 0"
-                                        :aria-label="t('emptyState.clearRecentFiles')"
-                                        @click="emit('clear-recent')"
-                                    >
-                                        <UIcon name="i-lucide-trash-2" />
-                                        <span>{{ t('emptyState.clearHistory') }}</span>
-                                    </button>
-                                </UTooltip>
+                                <button
+                                    type="button"
+                                    class="recent-clear"
+                                    :disabled="recentFiles.length === 0"
+                                    :aria-label="t('emptyState.clearRecentFiles')"
+                                    @click="requestClearRecent"
+                                >
+                                    <UIcon name="i-lucide-trash-2" />
+                                    <span>{{ t('emptyState.clearHistory') }}</span>
+                                </button>
                             </div>
                         </header>
 
-                        <div v-if="visibleRecentFiles.length > 0" class="recent-table" role="table">
+                        <div v-if="filteredRecentFiles.length > 0" class="recent-table" role="table">
                             <div class="recent-row recent-row--head" role="row">
                                 <span role="columnheader" class="recent-col recent-col--name">{{ t('emptyState.columnName') }}</span>
                                 <span role="columnheader" class="recent-col recent-col--location">{{ t('emptyState.columnLocation') }}</span>
@@ -154,7 +133,7 @@
                                 <span class="recent-col recent-col--remove" aria-hidden="true" />
                             </div>
                             <button
-                                v-for="file in visibleRecentFiles"
+                                v-for="file in filteredRecentFiles"
                                 :key="file.originalPath"
                                 type="button"
                                 class="recent-row recent-row--data"
@@ -206,18 +185,6 @@
 
                         <footer v-if="filteredRecentFiles.length > 0" class="recent-footer">
                             <span class="recent-count">{{ recentItemsLabel }}</span>
-                            <button
-                                v-if="filteredRecentFiles.length > MAX_VISIBLE_RECENT_FILES"
-                                type="button"
-                                class="recent-show-more"
-                                @click="showAll = !showAll"
-                            >
-                                <span>{{ showAll ? t('emptyState.showLess') : t('emptyState.showMore') }}</span>
-                                <UIcon
-                                    :name="showAll ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
-                                    class="recent-show-more-icon"
-                                />
-                            </button>
                         </footer>
                     </section>
                 </template>
@@ -239,6 +206,44 @@
                 />
             </main>
         </div>
+
+        <UModal
+            :open="clearHistoryDialogOpen"
+            :title="t('emptyState.clearHistoryConfirmTitle')"
+            :ui="{ footer: 'justify-end' }"
+            @update:open="clearHistoryDialogOpen = $event"
+        >
+            <template #description>
+                <span class="sr-only">
+                    {{ t('emptyState.clearHistoryConfirmDescription') }}
+                </span>
+            </template>
+
+            <template #body>
+                <div class="clear-history-confirm">
+                    <span class="clear-history-confirm-icon" aria-hidden="true">
+                        <UIcon name="i-lucide-triangle-alert" />
+                    </span>
+                    <p class="text-sm text-muted">
+                        {{ t('emptyState.clearHistoryConfirmDescription') }}
+                    </p>
+                </div>
+            </template>
+
+            <template #footer="{ close }">
+                <UButton
+                    :label="t('common.cancel')"
+                    color="neutral"
+                    variant="outline"
+                    @click="close"
+                />
+                <UButton
+                    :label="t('emptyState.clearHistoryConfirmAction')"
+                    color="error"
+                    @click="confirmClearRecent"
+                />
+            </template>
+        </UModal>
     </div>
 </template>
 
@@ -252,7 +257,6 @@ import {
     displayProcessedCount,
     formatEtaDuration,
 } from '@app/utils/progress-formatting';
-import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { isBrowserDocumentRef } from '@app/utils/document-ref';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
@@ -291,7 +295,6 @@ const {
 const emit = defineEmits<{
     'update:start-section': [section: TStartSection];
     'open-file': [];
-    'open-folder': [];
     'open-recent': [file: IRecentFile];
     'remove-recent': [file: IRecentFile];
     'clear-recent': [];
@@ -301,12 +304,11 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
-const { isBrowserRuntime } = useRuntimeEnvironment();
-const MAX_VISIBLE_RECENT_FILES = 6;
 const recentFilesHeadingId = useId();
+const openPanelButtonId = useId();
 const recentSearch = ref('');
-const showAll = ref(false);
 const activeSection = ref<TStartSection>(startSection);
+const clearHistoryDialogOpen = ref(false);
 const relativeTimeNow = useState('empty-state-relative-time-now', () => Date.now());
 
 const batchEtaText = computed(() => formatEtaDuration(openBatchProgress?.estimatedRemainingMs ?? null));
@@ -320,11 +322,6 @@ const filteredRecentFiles = computed(() => {
         return haystack.includes(query);
     });
 });
-const visibleRecentFiles = computed(() => (
-    showAll.value
-        ? filteredRecentFiles.value
-        : filteredRecentFiles.value.slice(0, MAX_VISIBLE_RECENT_FILES)
-));
 const recentItemsLabel = computed(() => t('emptyState.itemsCount', { count: filteredRecentFiles.value.length }));
 
 function formatRelativeTimeLocalized(timestamp: number) {
@@ -389,6 +386,18 @@ function handleCombineOpenResult(result: TOpenFileResult) {
     emit('open-combine-result', result);
 }
 
+function requestClearRecent() {
+    if (recentFiles.length === 0) {
+        return;
+    }
+    clearHistoryDialogOpen.value = true;
+}
+
+function confirmClearRecent() {
+    clearHistoryDialogOpen.value = false;
+    emit('clear-recent');
+}
+
 function setActiveSection(section: TStartSection) {
     activeSection.value = section;
     emit('update:start-section', section);
@@ -427,6 +436,29 @@ watch(() => startSection, (section) => {
     border-radius: 0.5rem;
     background: var(--ui-bg-elevated);
     padding: 0.75rem 1rem;
+}
+
+.clear-history-confirm {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.clear-history-confirm-icon {
+    display: inline-flex;
+    width: 2rem;
+    height: 2rem;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    background: var(--ui-error-50);
+    color: var(--ui-error-600);
+}
+
+:global(.dark) .clear-history-confirm-icon {
+    background: color-mix(in oklab, var(--ui-error) 18%, transparent);
+    color: var(--ui-error-400);
 }
 
 .start-shell {
@@ -526,40 +558,6 @@ watch(() => startSection, (section) => {
     line-height: 1;
 }
 
-.rail-tip {
-    display: flex;
-    gap: 0.65rem;
-    margin-top: auto;
-    padding: 0.7rem 0.65rem;
-    border: 1px solid var(--app-start-rail-tip-border);
-    border-radius: 0.55rem;
-    background: var(--app-start-rail-tip-bg);
-    color: var(--ui-text-muted);
-}
-
-.rail-tip-icon {
-    width: 1rem;
-    height: 1rem;
-    flex: 0 0 auto;
-    margin-top: 0.1rem;
-    color: var(--ui-text-dimmed);
-}
-
-.rail-tip-copy {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    gap: 0.18rem;
-    font-size: 0.74rem;
-    line-height: 1.25;
-}
-
-.rail-tip-copy strong {
-    color: var(--ui-text);
-    font-size: 0.78rem;
-    font-weight: 550;
-}
-
 .start-main {
     display: flex;
     flex-direction: column;
@@ -574,66 +572,50 @@ watch(() => startSection, (section) => {
     min-height: 0;
 }
 
-.start-dropzone {
+.start-open-panel {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    justify-content: center;
-    gap: 0.85rem;
+    gap: 1rem;
     width: 100%;
-    min-height: 17rem;
-    padding: 2.5rem 2.25rem;
-    border: 1.5px dashed var(--app-start-dropzone-border);
-    border-radius: 0.9rem;
-    background: var(--app-start-dropzone-bg);
+    padding: 0.85rem 1.05rem;
+    border: 1px solid var(--app-start-card-border);
+    border-radius: 0.65rem;
+    background: var(--app-start-card-bg);
     color: var(--ui-text);
-    text-align: center;
     flex: 0 0 auto;
 }
 
-.dropzone-art {
+.open-panel-art {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 3.4rem;
-    height: 3.85rem;
+    width: 2rem;
+    height: 2.25rem;
     flex: 0 0 auto;
     filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--ui-bg-inverted) 10%, transparent));
 }
 
-.dropzone-art-icon {
+.open-panel-art-icon {
     width: 100%;
     height: 100%;
 }
 
-.dropzone-copy {
+.open-panel-copy {
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.2rem;
     min-width: 0;
+    flex: 1 1 auto;
 }
 
-.dropzone-copy strong {
-    color: var(--ui-text-highlighted);
-    font-size: 1.05rem;
-    font-weight: 650;
-    line-height: 1.3;
-}
-
-.dropzone-copy span {
+.open-panel-copy span {
     color: var(--ui-text-muted);
     font-size: 0.85rem;
 }
 
-.dropzone-divider {
-    color: var(--ui-text-dimmed);
-    font-size: 0.83rem;
-    margin: 0.15rem 0;
-    flex: 0 0 auto;
-}
-
-.dropzone-cta {
+.open-panel-cta {
     display: inline-flex;
     align-items: center;
     gap: 0.55rem;
@@ -653,25 +635,25 @@ watch(() => startSection, (section) => {
     transition: filter 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
 }
 
-.dropzone-cta:hover:not(:disabled) {
+.open-panel-cta:hover:not(:disabled) {
     filter: brightness(1.06);
 }
 
-.dropzone-cta:active:not(:disabled) {
+.open-panel-cta:active:not(:disabled) {
     transform: translateY(1px);
 }
 
-.dropzone-cta:focus-visible {
+.open-panel-cta:focus-visible {
     outline: 2px solid var(--app-toolbar-focus-ring);
     outline-offset: 2px;
 }
 
-.dropzone-cta:disabled {
+.open-panel-cta:disabled {
     cursor: not-allowed;
     opacity: 0.6;
 }
 
-.dropzone-cta-icon {
+.open-panel-cta-icon {
     width: 0.95rem;
     height: 0.95rem;
 }
@@ -692,6 +674,7 @@ watch(() => startSection, (section) => {
     display: flex;
     align-items: center;
     gap: 0.85rem;
+    flex: 0 0 auto;
     flex-wrap: wrap;
     justify-content: space-between;
     padding: 0.85rem 1.05rem 0.75rem;
@@ -954,7 +937,7 @@ watch(() => startSection, (section) => {
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    margin-top: auto;
+    flex: 0 0 auto;
     padding: 0.6rem 1.05rem;
     border-top: 1px solid var(--app-start-row-divider);
     background: color-mix(in oklab, var(--ui-bg) 96%, var(--ui-bg-muted) 4%);
@@ -963,30 +946,6 @@ watch(() => startSection, (section) => {
 .recent-count {
     color: var(--ui-text-dimmed);
     font-size: 0.78rem;
-}
-
-.recent-show-more {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    border: 0;
-    background: transparent;
-    color: var(--ui-text-muted);
-    font-size: 0.78rem;
-    cursor: pointer;
-    padding: 0.25rem 0.4rem;
-    border-radius: 0.3rem;
-    transition: background-color 0.12s ease, color 0.12s ease;
-}
-
-.recent-show-more:hover {
-    background: var(--app-start-row-hover-bg);
-    color: var(--ui-text);
-}
-
-.recent-show-more-icon {
-    width: 0.85rem;
-    height: 0.85rem;
 }
 
 @container (max-width: 880px) {
@@ -1002,19 +961,26 @@ watch(() => startSection, (section) => {
         padding: 0.25rem 0;
     }
 
-    .rail-tip {
-        margin-top: 0;
-    }
 }
 
 @container (max-width: 640px) {
-    .start-dropzone {
-        min-height: 11rem;
-        padding: 1.5rem 1.25rem;
+    .start-open-panel {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 1rem 1.25rem;
         gap: 0.6rem;
+        text-align: center;
     }
 
-    .dropzone-cta {
+    .open-panel-art {
+        align-self: center;
+    }
+
+    .open-panel-copy {
+        align-items: center;
+    }
+
+    .open-panel-cta {
         width: 100%;
         justify-content: center;
     }
