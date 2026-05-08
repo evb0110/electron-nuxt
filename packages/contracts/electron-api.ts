@@ -373,6 +373,7 @@ export interface IDocumentsMenuCapability {
 export interface IDocumentsFileCapability {
     openPdfDialog: () => Promise<TOpenFileResult | null>;
     openCombineDialog: () => Promise<TOpenFileResult | null>;
+    openFolderDialog: () => Promise<TOpenFileResult | null>;
     openImageDialog: () => Promise<string | null>;
     openPdfDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
     openPdfDirectBatch: (paths: TDocumentRef[], requestId?: string) => Promise<TOpenFileResult | null>;

@@ -4,11 +4,15 @@ import {
     shell,
 } from 'electron';
 import { existsSync } from 'fs';
-import { copyFile } from 'fs/promises';
+import {
+    copyFile,
+    readdir,
+} from 'fs/promises';
 import {
     extname,
     basename,
     isAbsolute,
+    join,
     resolve,
 } from 'path';
 import { uniq } from 'es-toolkit/array';
@@ -428,6 +432,48 @@ export async function handleOpenPdfDialog(): Promise<IOpenFileResult | null> {
         return await openInputPaths(result.filePaths);
     } catch (err) {
         logger.error(`Failed to create working copy: ${getErrorMessage(err)}`);
+        throw errorWithDetails(te('errors.file.open'), err);
+    }
+}
+
+export async function handleOpenFolderDialog(): Promise<IOpenFileResult | null> {
+    const parentWindow = getOpenDialogParentWindow();
+    const dialogOptions = {
+        title: te('dialogs.openFolder'),
+        properties: ['openDirectory'],
+    } satisfies Electron.OpenDialogOptions;
+
+    const result = parentWindow
+        ? await dialog.showOpenDialog(parentWindow, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions);
+
+    if (result.canceled || result.filePaths.length === 0) {
+        return null;
+    }
+
+    const folderPath = result.filePaths[0]!;
+
+    let entries: string[];
+    try {
+        entries = await readdir(folderPath);
+    } catch (err) {
+        logger.error(`Failed to read folder contents: ${getErrorMessage(err)}`);
+        throw errorWithDetails(te('errors.file.open'), err);
+    }
+
+    const supportedPaths = entries
+        .map(entry => join(folderPath, entry))
+        .filter(path => isSupportedOpenPath(path))
+        .sort((a, b) => basename(a).localeCompare(basename(b)));
+
+    if (supportedPaths.length === 0) {
+        throw new Error(te('errors.file.folderEmpty'));
+    }
+
+    try {
+        return await openInputPaths(supportedPaths);
+    } catch (err) {
+        logger.error(`Failed to open folder contents: ${getErrorMessage(err)}`);
         throw errorWithDetails(te('errors.file.open'), err);
     }
 }

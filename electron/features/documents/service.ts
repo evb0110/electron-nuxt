@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron';
 import {
     handleCreateWorkingCopyFromData,
     handleOpenCombineDialog,
+    handleOpenFolderDialog,
     handleOpenImageDialog,
     handleCreateWorkingCopyFromPath,
     handleOpenPdfDialog,
@@ -61,6 +62,7 @@ export function createDocumentsService(): IDocumentsService {
     return {
         openPdfDialog: () => handleOpenPdfDialog(),
         openCombineDialog: () => handleOpenCombineDialog(),
+        openFolderDialog: () => handleOpenFolderDialog(),
         openImageDialog: () => handleOpenImageDialog(),
         openPdfDirect: (event, filePath) => handleOpenPdfDirect(event, filePath),
         openPdfDirectBatch: (event, filePaths, requestId) => handleOpenPdfDirectBatch(event, filePaths, requestId),

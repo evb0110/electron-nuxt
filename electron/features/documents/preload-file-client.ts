@@ -32,6 +32,7 @@ export function createDocumentsPreloadFileClient(
     return {
         openPdfDialog: () => invoke(DOCUMENTS_CHANNELS.openPdfDialog),
         openCombineDialog: () => invoke(DOCUMENTS_CHANNELS.openCombineDialog),
+        openFolderDialog: () => invoke(DOCUMENTS_CHANNELS.openFolderDialog),
         openImageDialog: () => invoke(DOCUMENTS_CHANNELS.openImageDialog),
         openPdfDirect: (path: string) => invoke(DOCUMENTS_CHANNELS.openPdfDirect, path),
         openPdfDirectBatch: (paths: string[], requestId?: string) =>

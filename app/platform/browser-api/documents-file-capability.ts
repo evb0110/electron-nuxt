@@ -1217,6 +1217,9 @@ export function createBrowserDocumentsFileCapability(
                 throw error;
             }
         },
+        openFolderDialog() {
+            return Promise.resolve(null);
+        },
         async openCombineDialog() {
             const pickedFiles = await pickFiles({
                 accept: OPEN_PDF_IMAGE_ACCEPT,

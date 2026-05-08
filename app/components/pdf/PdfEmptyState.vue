@@ -42,15 +42,6 @@
                         <UIcon name="i-lucide-clock-3" class="rail-item-icon" />
                         <span>{{ t('emptyState.recentFiles') }}</span>
                     </button>
-                    <button
-                        type="button"
-                        class="rail-item"
-                        :title="t('emptyState.comingSoon')"
-                        disabled
-                    >
-                        <UIcon name="i-lucide-star" class="rail-item-icon" />
-                        <span>{{ t('emptyState.favorites') }}</span>
-                    </button>
                 </nav>
 
                 <nav class="rail-section" :aria-label="t('emptyState.sources')">
@@ -68,72 +59,17 @@
                         v-if="!isBrowserRuntime"
                         type="button"
                         class="rail-item"
-                        :title="t('emptyState.comingSoon')"
-                        disabled
+                        :disabled="openInProgress"
+                        @click="emit('open-folder')"
                     >
                         <UIcon name="i-lucide-folder" class="rail-item-icon" />
                         <span>{{ t('emptyState.openFolder') }}</span>
                     </button>
-                    <button
-                        v-if="!isBrowserRuntime"
-                        type="button"
-                        class="rail-item"
-                        :title="t('emptyState.comingSoon')"
-                        disabled
-                    >
-                        <UIcon name="i-lucide-scan" class="rail-item-icon" />
-                        <span>{{ t('emptyState.scanDocument') }}</span>
-                    </button>
                 </nav>
-
-                <nav class="rail-section" :aria-label="t('emptyState.tools')">
-                    <p class="rail-section-title">{{ t('emptyState.tools') }}</p>
-                    <button
-                        type="button"
-                        class="rail-item"
-                        :title="t('emptyState.comingSoon')"
-                        disabled
-                    >
-                        <UIcon name="i-lucide-scan-text" class="rail-item-icon" />
-                        <span>{{ t('emptyState.ocrSearch') }}</span>
-                    </button>
-                    <button
-                        type="button"
-                        class="rail-item"
-                        :title="t('emptyState.comingSoon')"
-                        disabled
-                    >
-                        <UIcon name="i-lucide-files" class="rail-item-icon" />
-                        <span>{{ t('emptyState.compareFiles') }}</span>
-                    </button>
-                    <button
-                        type="button"
-                        class="rail-item"
-                        :title="t('emptyState.comingSoon')"
-                        disabled
-                    >
-                        <UIcon name="i-lucide-layout-grid" class="rail-item-icon" />
-                        <span>{{ t('emptyState.batch') }}</span>
-                    </button>
-                </nav>
-
-                <div class="rail-tip" role="note">
-                    <UIcon name="i-lucide-lightbulb" class="rail-tip-icon" />
-                    <div class="rail-tip-copy">
-                        <strong>{{ t('emptyState.tipTitle') }}</strong>
-                        <span>{{ t('emptyState.tipBody') }}</span>
-                    </div>
-                </div>
             </aside>
 
             <main class="start-main">
-                <button
-                    class="start-dropzone"
-                    type="button"
-                    :aria-label="t('toolbar.openPdf')"
-                    :disabled="openInProgress"
-                    @click="emit('open-file')"
-                >
+                <div class="start-dropzone" role="presentation">
                     <span class="dropzone-art" aria-hidden="true">
                         <FileTypeIcon kind="document" class="dropzone-art-icon" />
                     </span>
@@ -142,12 +78,17 @@
                         <span>{{ t('emptyState.dropSubtitle') }}</span>
                     </span>
                     <span class="dropzone-divider">{{ t('emptyState.or') }}</span>
-                    <span class="dropzone-cta">
+                    <button
+                        type="button"
+                        class="dropzone-cta"
+                        :aria-label="t('toolbar.openPdf')"
+                        :disabled="openInProgress"
+                        @click="emit('open-file')"
+                    >
                         <UIcon name="i-lucide-folder-open" class="dropzone-cta-icon" />
                         <span>{{ t('emptyState.openFileEllipsis') }}</span>
-                        <UIcon name="i-lucide-chevron-down" class="dropzone-cta-chevron" />
-                    </span>
-                </button>
+                    </button>
+                </div>
 
                 <section class="start-recent" :aria-labelledby="recentFilesHeadingId">
                     <header class="recent-header">
@@ -296,6 +237,7 @@ const {
 
 const emit = defineEmits<{
     'open-file': [];
+    'open-folder': [];
     'open-recent': [file: IRecentFile];
     'remove-recent': [file: IRecentFile];
     'clear-recent': [];
@@ -478,45 +420,6 @@ function getFileKind(file: IRecentFile) {
     opacity: 0.85;
 }
 
-.rail-tip {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.55rem;
-    margin-top: auto;
-    padding: 0.6rem 0.7rem;
-    border: 1px solid var(--app-start-rail-tip-border);
-    border-radius: 0.55rem;
-    background: var(--app-start-rail-tip-bg);
-    color: var(--ui-text);
-}
-
-.rail-tip-icon {
-    width: 1rem;
-    height: 1rem;
-    margin-top: 0.1rem;
-    color: color-mix(in oklab, var(--ui-primary) 70%, var(--ui-text) 30%);
-    flex: 0 0 auto;
-}
-
-.rail-tip-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
-}
-
-.rail-tip-copy strong {
-    color: var(--ui-text);
-    font-size: 0.78rem;
-    font-weight: 600;
-}
-
-.rail-tip-copy span {
-    color: var(--ui-text-muted);
-    font-size: 0.72rem;
-    line-height: 1.35;
-}
-
 .start-main {
     display: flex;
     flex-direction: column;
@@ -539,28 +442,8 @@ function getFileKind(file: IRecentFile) {
     border-radius: 0.9rem;
     background: var(--app-start-dropzone-bg);
     color: var(--ui-text);
-    cursor: pointer;
     text-align: center;
-    transition: background-color 0.14s ease, border-color 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
     flex: 0 0 auto;
-}
-
-.start-dropzone:hover:not(:disabled) {
-    box-shadow: 0 1px 2px color-mix(in srgb, var(--ui-bg-inverted) 6%, transparent), 0 4px 16px color-mix(in srgb, var(--ui-primary) 6%, transparent);
-}
-
-.start-dropzone:hover:not(:disabled) {
-    border-color: var(--app-start-dropzone-hover-border);
-    background: var(--app-start-dropzone-hover-bg);
-}
-
-.start-dropzone:active:not(:disabled) {
-    transform: translateY(1px);
-}
-
-.start-dropzone:disabled {
-    cursor: default;
-    opacity: 0.6;
 }
 
 .dropzone-art {
@@ -612,6 +495,7 @@ function getFileKind(file: IRecentFile) {
     min-width: 13rem;
     height: 2.65rem;
     padding: 0 1.25rem;
+    border: 0;
     border-radius: 0.55rem;
     justify-content: center;
     background: linear-gradient(180deg, var(--app-start-primary-grad-from) 0%, var(--app-start-primary-grad-to) 100%);
@@ -619,28 +503,32 @@ function getFileKind(file: IRecentFile) {
     font-size: 0.83rem;
     font-weight: 600;
     box-shadow: var(--app-start-primary-shadow);
+    cursor: pointer;
     flex: 0 0 auto;
-    pointer-events: none;
-    transition: filter 0.14s ease;
+    transition: filter 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
 }
 
-.start-dropzone:hover:not(:disabled) .dropzone-cta {
+.dropzone-cta:hover:not(:disabled) {
     filter: brightness(1.06);
+}
+
+.dropzone-cta:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
+.dropzone-cta:focus-visible {
+    outline: 2px solid var(--app-toolbar-focus-ring);
+    outline-offset: 2px;
+}
+
+.dropzone-cta:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
 }
 
 .dropzone-cta-icon {
     width: 0.95rem;
     height: 0.95rem;
-}
-
-.dropzone-cta-chevron {
-    width: 0.85rem;
-    height: 0.85rem;
-    opacity: 0.85;
-    margin-left: 0.15rem;
-    padding-left: 0.35rem;
-    border-left: 1px solid var(--app-start-primary-divider);
-    box-sizing: content-box;
 }
 
 .start-recent {
@@ -749,7 +637,7 @@ function getFileKind(file: IRecentFile) {
 
 .recent-table {
     display: grid;
-    grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) auto 1.6rem;
+    grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) auto 3.25rem;
     grid-auto-rows: min-content;
     align-content: start;
     border-top: 1px solid var(--app-start-row-divider);
@@ -766,7 +654,7 @@ function getFileKind(file: IRecentFile) {
     column-gap: 1rem;
     align-items: center;
     width: 100%;
-    padding: 0.6rem 1.05rem;
+    padding: 0.55rem 0 0.55rem 1.05rem;
     border-bottom: 1px solid var(--app-start-row-divider);
     text-align: left;
     background: transparent;
@@ -835,7 +723,8 @@ function getFileKind(file: IRecentFile) {
 
 .recent-col--remove {
     display: flex;
-    justify-content: flex-end;
+    justify-content: center;
+    padding-right: 0.55rem;
 }
 
 .recent-file-icon {
@@ -859,18 +748,19 @@ function getFileKind(file: IRecentFile) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    border-radius: 0.3rem;
-    color: var(--ui-text-dimmed);
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.375rem;
+    color: var(--app-start-row-remove-fg);
+    background: transparent;
     opacity: 0;
     cursor: pointer;
     transition: opacity 0.12s ease, background-color 0.12s ease, color 0.12s ease;
 }
 
 .recent-remove :deep(.iconify) {
-    width: 0.95rem;
-    height: 0.95rem;
+    width: 1rem;
+    height: 1rem;
 }
 
 .recent-row--data:hover .recent-remove,
@@ -879,8 +769,14 @@ function getFileKind(file: IRecentFile) {
 }
 
 .recent-remove:hover {
-    background: var(--app-chrome-subtle-hover);
-    color: var(--ui-text);
+    background: var(--app-start-row-remove-hover-bg);
+    color: var(--app-start-row-remove-hover-fg);
+}
+
+.recent-remove:focus-visible {
+    outline: 2px solid var(--app-toolbar-focus-ring);
+    outline-offset: 1px;
+    opacity: 1;
 }
 
 .recent-empty {
@@ -960,10 +856,6 @@ function getFileKind(file: IRecentFile) {
         gap: 0.5rem 1rem;
         padding: 0.25rem 0;
     }
-
-    .rail-tip {
-        grid-column: 1 / -1;
-    }
 }
 
 @container (max-width: 640px) {
@@ -979,7 +871,7 @@ function getFileKind(file: IRecentFile) {
     }
 
     .recent-table {
-        grid-template-columns: minmax(0, 1fr) auto 1.6rem;
+        grid-template-columns: minmax(0, 1fr) auto 2.5rem;
     }
 
     .recent-row {

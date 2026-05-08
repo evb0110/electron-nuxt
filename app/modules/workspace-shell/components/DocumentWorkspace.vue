@@ -356,6 +356,7 @@
                         :open-batch-progress="openBatchProgress"
                         :open-in-progress="pendingDocumentOpen"
                         @open-file="handleOpenFileFromUi"
+                        @open-folder="handleOpenFolderFromUi"
                         @open-recent="openRecentFile"
                         @remove-recent="removeRecentFile"
                         @clear-recent="clearRecentFiles"
@@ -823,6 +824,7 @@ const {
     handlePageContextMenuSelectAll,
     handlePageContextMenuInvertSelection,
     handleOpenFileFromUi,
+    handleOpenFolderFromUi,
     handleCombineImages,
     handleOpenFileDirectWithPersist,
     handleOpenFileDirectBatchWithPersist,

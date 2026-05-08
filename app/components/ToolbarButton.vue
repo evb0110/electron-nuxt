@@ -58,9 +58,9 @@ const tooltipText = computed(() => shortcut.trim()
     justify-content: center;
     width: var(--toolbar-control-height);
     height: var(--toolbar-control-height);
-    padding: 0.28rem;
+    padding: 0.32rem;
     border: 1px solid transparent;
-    border-radius: 0.25rem;
+    border-radius: 0.375rem;
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;
@@ -69,10 +69,6 @@ const tooltipText = computed(() => shortcut.trim()
 
 .toolbar-btn.is-toggle {
     color: var(--app-toolbar-control-inactive-fg);
-}
-
-.toolbar-btn.is-grouped {
-    border-radius: 0;
 }
 
 .toolbar-btn:hover {
