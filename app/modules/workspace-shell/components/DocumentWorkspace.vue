@@ -68,7 +68,7 @@
                         @save-as="handleToolbarSaveAs"
                         @print="handlePrint"
                         @print-current-page="handlePrintCurrentPage"
-                        @combine-images="handleCombineImages"
+                        @combine-images="emit('open-combine')"
                         @export-docx="handleToolbarExportDocx"
                         @export-images="handleExportImages()"
                         @export-multi-page-tiff="handleExportMultiPageTiff()"
@@ -355,11 +355,17 @@
                         :recent-files-resolved="recentFilesResolved"
                         :open-batch-progress="openBatchProgress"
                         :open-in-progress="pendingDocumentOpen"
+                        :start-section="startSection"
+                        can-combine-files
+                        @update:start-section="emit('update:start-section', $event)"
                         @open-file="handleOpenFileFromUi"
                         @open-folder="handleOpenFolderFromUi"
                         @open-recent="openRecentFile"
                         @remove-recent="removeRecentFile"
                         @clear-recent="clearRecentFiles"
+                        @open-settings="emit('open-settings')"
+                        @combine-files="emit('open-combine')"
+                        @open-combine-result="handleOpenFileWithResult"
                     />
                 </template>
             </WorkspaceViewerHost>
@@ -559,6 +565,7 @@ import type {
     TOpenFileResult,
 } from '@contracts/platform-api';
 import type { TTabUpdate } from '@app/types/tabs';
+import type { TStartSection } from '@app/types/start-page';
 import type { IPdfPageMatches } from '@app/types/pdf';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
@@ -583,6 +590,7 @@ const props = defineProps<{
     isActive: boolean;
     isTabTransitionBusy: boolean;
     pendingDocumentOpen?: boolean;
+    startSection?: TStartSection;
 }>();
 
 const canTeleportToolbar = computed(() => (
@@ -602,9 +610,11 @@ const isOcrRunning = ref(false);
 
 const emit = defineEmits<{
     'update-tab': [updates: TTabUpdate];
+    'update:start-section': [section: TStartSection];
     'open-in-new-tab': [result: TDocumentRef | TOpenFileResult];
     'request-close-tab': [];
     'open-settings': [];
+    'open-combine': [];
 }>();
 
 const { t } = useTypedI18n();

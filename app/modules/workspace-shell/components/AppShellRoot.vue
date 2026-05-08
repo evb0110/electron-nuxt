@@ -23,7 +23,7 @@
             </button>
         </div>
 
-        <div class="editor-global-toolbar-shell">
+        <div v-show="!activeToolPage" class="editor-global-toolbar-shell">
             <FallbackWorkspaceToolbar
                 v-show="showFallbackToolbar"
                 :snapshot="fallbackToolbarSnapshot"
@@ -45,11 +45,11 @@
                 @update:view-mode="fallbackViewMode = $event"
                 @update:current-page="fallbackCurrentPage = $event"
                 @open-file="handleFallbackToolbarOpenFile"
-                @open-settings="showSettings = true"
+                @open-settings="openSettingsPage"
                 @save="runFallbackWorkspaceAction((workspace) => workspace.handleSave())"
                 @save-as="runFallbackWorkspaceAction((workspace) => workspace.handleSaveAs())"
                 @print="runFallbackWorkspaceAction((workspace) => workspace.handlePrint())"
-                @combine-images="runFallbackWorkspaceAction((workspace) => workspace.handleCombineImages())"
+                @combine-images="openCombinePage"
                 @export-docx="runFallbackWorkspaceAction((workspace) => workspace.handleExportDocx())"
                 @export-images="runFallbackWorkspaceAction((workspace) => workspace.handleExportImages())"
                 @export-multi-page-tiff="runFallbackWorkspaceAction((workspace) => workspace.handleExportMultiPageTiff())"
@@ -84,12 +84,14 @@
         </div>
 
         <EditorGroupsHost
+            v-show="!activeToolPage"
             :layout="layout"
             :groups="groups"
             :tabs="tabs"
             :active-group-id="activeGroupId"
             :is-tab-transition-busy="isTabTransitionBusy"
             :tab-context-availability-by-group="tabContextAvailabilityByGroup"
+            :start-section-by-tab-id="startSectionByTabId"
             @activate-group="activateGroup"
             @activate-tab="activateTab"
             @close-tab="handleCloseTab"
@@ -99,15 +101,21 @@
             @tab-context-command="handleTabContextCommand"
             @set-workspace-ref="setWorkspaceRef"
             @update-tab="updateTab"
+            @update-tab-start-section="setTabStartSection"
             @open-in-new-tab="handleOpenInNewTab"
             @request-close-tab="handleCloseTab"
-            @open-settings="showSettings = true"
+            @open-settings="openSettingsPage"
+            @open-combine="openCombinePage"
             @update-split-ratio="setSplitRatio"
         />
 
-        <div id="editor-global-status-host" class="editor-global-status-host" />
+        <CombinePdfPage
+            v-if="activeToolPage === 'combine'"
+            @close="closeToolPage"
+            @open-result="handleCombineOpenResult"
+        />
 
-        <SettingsDialog v-if="showSettings" v-model:open="showSettings" />
+        <div v-show="!activeToolPage" id="editor-global-status-host" class="editor-global-status-host" />
         <DirtyTabCloseDialog
             :open="dirtyTabCloseDialogOpen"
             :target-name="dirtyTabCloseTargetName"
@@ -128,15 +136,16 @@
 </template>
 
 <script setup lang="ts">
-import SettingsDialog from '@app/components/SettingsDialog.vue';
 import { guardAsync } from '@app/utils/async-guard';
 import { BROWSER_INSTALL_HINT_COOKIE_KEY } from '@app/utils/browser-runtime-persistence';
 import { resolveAppWindowTitle } from '@app/utils/app-window-title';
 import { traceRendererStartup } from '@app/utils/startup-trace';
 import { syncBrowserWindowTitle } from '@app/platform/browser-window-tabs';
+import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
 import EditorGroupsHost from '@app/modules/workspace-shell/components/EditorGroupsHost.vue';
+import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
 import FallbackWorkspaceToolbar from '@app/modules/workspace-shell/components/FallbackWorkspaceToolbar.vue';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
 import { useAppShellLifecycle } from '@app/modules/workspace-shell/composables/useAppShellLifecycle';
@@ -159,7 +168,9 @@ import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composa
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import type { TPdfViewMode } from '@contracts/shared';
+import type { TStartSection } from '@app/types/start-page';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
+import type { TOpenFileResult } from '@contracts/platform-api';
 import { getPlatformAPI } from '@app/utils/platform';
 
 traceRendererStartup('index.vue script setup start');
@@ -189,7 +200,8 @@ const {
 
 const { t } = useTypedI18n();
 const analytics = useAnalytics();
-const showSettings = ref(false);
+const activeToolPage = ref<'combine' | null>(null);
+const startSectionByTabId = ref<Record<string, TStartSection>>({});
 const { isBrowserRuntime } = useRuntimeEnvironment();
 const runtimeConfig = useRuntimeConfig();
 const browserInstallHintCookie = useCookie<string | null>(
@@ -390,6 +402,7 @@ const {
     createTabInGroup: createTabInGroupFromRouting,
     handleFallbackToolbarOpenFile,
     handleOpenInNewTab,
+    openResultInAppropriateTab,
     openPathInAppropriateTab,
     openPathsInAppropriateTab,
     beginOpenPathsInAppropriateTab,
@@ -412,6 +425,72 @@ const {
 });
 function createTabInGroup(groupId: string) {
     createTabInGroupFromRouting(groupId);
+}
+
+function setTabStartSection(tabId: string, section: TStartSection) {
+    startSectionByTabId.value = {
+        ...startSectionByTabId.value,
+        [tabId]: section,
+    };
+}
+
+function isTabEmpty(tabId: string) {
+    const tab = getTabById(tabId);
+    if (!tab || hasDocumentMountHint(tab)) {
+        return false;
+    }
+
+    const workspace = workspaceRefs.value.get(tab.id);
+    if (!workspace) {
+        return true;
+    }
+
+    const snapshot = workspace.getToolbarSnapshot();
+    return !snapshot.hasPdf && !snapshot.isDjvuMode && !snapshot.isOpeningDocument;
+}
+
+function findEmptyTab() {
+    if (activeTabId.value && isTabEmpty(activeTabId.value)) {
+        return getTabById(activeTabId.value);
+    }
+
+    return tabs.value.find(tab => isTabEmpty(tab.id)) ?? null;
+}
+
+function activateTabById(tabId: string) {
+    const group = getGroupByTabId(tabId);
+    if (!group) {
+        return;
+    }
+
+    activateTab(group.id, tabId);
+}
+
+function openSettingsPage() {
+    activeToolPage.value = null;
+    const settingsTab = findEmptyTab() ?? createTab({
+        groupId: activeGroupId.value,
+        activate: true,
+    });
+
+    setTabStartSection(settingsTab.id, 'settings');
+    activateTabById(settingsTab.id);
+}
+
+function openCombinePage() {
+    activeToolPage.value = 'combine';
+}
+
+function closeToolPage() {
+    activeToolPage.value = null;
+}
+
+function handleCombineOpenResult(result: TOpenFileResult) {
+    closeToolPage();
+    guardAsync(openResultInAppropriateTab(result), {
+        scope: 'shell',
+        message: 'Failed to open combined PDF',
+    });
 }
 const {
     tabContextAvailabilityByGroup,
@@ -449,7 +528,10 @@ const {
     handleCloseTab,
 });
 
-const { cleanup: cleanupExternalFileDrop } = useExternalFileDrop({ openPathsInAppropriateTab });
+const { cleanup: cleanupExternalFileDrop } = useExternalFileDrop({
+    openPathsInAppropriateTab,
+    isEnabled: computed(() => activeToolPage.value === null),
+});
 
 const {
     loadRecentFiles,
@@ -590,9 +672,7 @@ useTabsShellBindings({
     clearRecentFiles,
     loadRecentFiles,
     ensureAtLeastOneTab,
-    openSettings: () => {
-        showSettings.value = true;
-    },
+    openSettings: openSettingsPage,
     checkForUpdates,
     splitEditor,
     focusGroup: focusEditorGroup,

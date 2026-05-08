@@ -8,6 +8,7 @@
             :active-group-id="activeGroupId"
             :is-tab-transition-busy="isTabTransitionBusy"
             :tab-context-availability-by-group="tabContextAvailabilityByGroup"
+            :start-section-by-tab-id="startSectionByTabId"
             @activate-group="emit('activate-group', $event)"
             @activate-tab="(groupId: string, tabId: string) => emit('activate-tab', groupId, tabId)"
             @close-tab="(groupId: string, tabId: string) => emit('close-tab', groupId, tabId)"
@@ -17,9 +18,11 @@
             @tab-context-command="(groupId: string, tabId: string, command: TTabContextCommand) => emit('tab-context-command', groupId, tabId, command)"
             @set-workspace-ref="(tabId: string, el: unknown) => emit('set-workspace-ref', tabId, el)"
             @update-tab="(tabId: string, updates: TTabUpdate) => emit('update-tab', tabId, updates)"
+            @update-tab-start-section="(tabId: string, section: TStartSection) => emit('update-tab-start-section', tabId, section)"
             @open-in-new-tab="(result: string | TOpenFileResult, groupId?: string) => emit('open-in-new-tab', result, groupId)"
             @request-close-tab="(groupId: string, tabId: string) => emit('request-close-tab', groupId, tabId)"
             @open-settings="emit('open-settings')"
+            @open-combine="emit('open-combine')"
             @update-split-ratio="(splitId: string, ratio: number) => emit('update-split-ratio', splitId, ratio)"
         />
     </div>
@@ -40,6 +43,7 @@ import type {
     ITab,
     TTabUpdate,
 } from '@app/types/tabs';
+import type { TStartSection } from '@app/types/start-page';
 
 defineOptions({ name: 'EditorGroupsHost' });
 
@@ -50,6 +54,7 @@ defineProps<{
     activeGroupId: string | null;
     isTabTransitionBusy: boolean;
     tabContextAvailabilityByGroup: Record<string, ITabContextAvailability>;
+    startSectionByTabId: Record<string, TStartSection>;
 }>();
 
 const emit = defineEmits<{
@@ -62,9 +67,11 @@ const emit = defineEmits<{
     'tab-context-command': [groupId: string, tabId: string, command: TTabContextCommand];
     'set-workspace-ref': [tabId: string, el: unknown];
     'update-tab': [tabId: string, updates: TTabUpdate];
+    'update-tab-start-section': [tabId: string, section: TStartSection];
     'open-in-new-tab': [result: string | TOpenFileResult, groupId?: string];
     'request-close-tab': [groupId: string, tabId: string];
     'open-settings': [];
+    'open-combine': [];
     'update-split-ratio': [splitId: string, ratio: number];
 }>();
 </script>

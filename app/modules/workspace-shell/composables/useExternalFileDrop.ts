@@ -1,9 +1,13 @@
 import { useEventListener } from '@vueuse/core';
+import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/platform-api';
 import { getDocumentPathForFile } from '@app/utils/platform-documents';
 import { isSupportedWorkspaceDocumentPath } from '@app/utils/supported-document-paths';
 
-interface IUseExternalFileDropOptions {openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;}
+interface IUseExternalFileDropOptions {
+    openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
+    isEnabled?: Ref<boolean>;
+}
 
 function hasExternalFilePayload(dataTransfer: DataTransfer | null) {
     if (!dataTransfer) {
@@ -21,6 +25,17 @@ function isSidebarDropArea(event: DragEvent) {
         return false;
     }
     return Boolean(target.closest('.pdf-sidebar-pages-thumbnails'));
+}
+
+function isToolDropArea(event: DragEvent) {
+    if (typeof Element === 'undefined') {
+        return false;
+    }
+    const target = event.target;
+    if (!(target instanceof Element)) {
+        return false;
+    }
+    return Boolean(target.closest('[data-combine-page]'));
 }
 
 function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
@@ -52,7 +67,10 @@ function getDroppedDocumentPaths(dataTransfer: DataTransfer | null) {
 }
 
 export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
-    const { openPathsInAppropriateTab } = options;
+    const {
+        openPathsInAppropriateTab,
+        isEnabled,
+    } = options;
     let queue: Promise<void> = Promise.resolve();
     let lifecycleToken = 0;
     let disposed = false;
@@ -72,7 +90,13 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
         if (disposed) {
             return false;
         }
+        if (isEnabled && !isEnabled.value) {
+            return false;
+        }
         if (isSidebarDropArea(event)) {
+            return false;
+        }
+        if (isToolDropArea(event)) {
             return false;
         }
         return hasExternalFilePayload(event.dataTransfer);

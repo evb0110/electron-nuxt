@@ -66,7 +66,17 @@ interface IPickedBrowserFile {
 }
 
 interface ICreateBrowserDocumentsFileCapabilityOptions {clearSearchCaches: () => void;}
-interface IBrowserBatchOpenProgressOptions {requestId?: string;}
+interface IBrowserBatchOpenProgress {
+    processed: number;
+    total: number;
+    percent: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number | null;
+}
+interface IBrowserBatchOpenProgressOptions {
+    requestId?: string;
+    onProgress?: (progress: IBrowserBatchOpenProgress) => void;
+}
 
 const pdfBinaryDecoder = new TextDecoder('latin1');
 const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
@@ -258,10 +268,6 @@ function emitBatchOpenProgress(
     startedAt: number,
 ) {
     const requestId = options?.requestId?.trim();
-    if (!requestId) {
-        return;
-    }
-
     const safeTotal = Math.max(total, 0);
     const safeProcessed = safeTotal > 0
         ? Math.min(Math.max(processed, 0), safeTotal)
@@ -276,14 +282,23 @@ function emitBatchOpenProgress(
             Math.round((elapsedMs / safeProcessed) * (safeTotal - safeProcessed)),
         )
         : null;
-
-    emitBrowserOpenPdfDirectBatchProgress({
-        requestId,
+    const progress = {
         processed: safeProcessed,
         total: safeTotal,
         percent,
         elapsedMs,
         estimatedRemainingMs,
+    };
+
+    options?.onProgress?.(progress);
+
+    if (!requestId) {
+        return;
+    }
+
+    emitBrowserOpenPdfDirectBatchProgress({
+        requestId,
+        ...progress,
     });
 }
 
