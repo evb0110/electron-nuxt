@@ -33,27 +33,31 @@
         <div v-else class="start-shell">
             <aside class="start-rail" :aria-label="t('emptyState.start')">
                 <nav class="rail-section" :aria-label="t('emptyState.start')">
-                    <p class="rail-section-title">{{ t('emptyState.start') }}</p>
-                    <button
-                        type="button"
-                        class="rail-item is-active"
-                        aria-current="page"
-                    >
-                        <UIcon name="i-lucide-clock-3" class="rail-item-icon" />
-                        <span>{{ t('emptyState.recentFiles') }}</span>
-                    </button>
-                </nav>
-
-                <nav class="rail-section" :aria-label="t('emptyState.sources')">
-                    <p class="rail-section-title">{{ t('emptyState.sources') }}</p>
                     <button
                         type="button"
                         class="rail-item"
-                        :disabled="openInProgress"
-                        @click="emit('open-file')"
+                        :class="{ 'is-active': activeSection === 'recent' }"
+                        :aria-current="activeSection === 'recent' ? 'page' : undefined"
+                        @click="showRecentFiles"
                     >
-                        <UIcon name="i-lucide-folder-open" class="rail-item-icon" />
-                        <span>{{ t('emptyState.openFile') }}</span>
+                        <UIcon name="i-lucide-clock-3" class="rail-item-icon" />
+                        <span>{{ t('emptyState.recentFiles') }}</span>
+                        <span v-if="recentFiles.length > 0" class="rail-count">{{ recentFiles.length }}</span>
+                    </button>
+                </nav>
+
+                <nav class="rail-section" :aria-label="t('menu.file')">
+                    <button
+                        v-if="canCombineFiles"
+                        type="button"
+                        class="rail-item"
+                        :class="{ 'is-active': activeSection === 'combine' }"
+                        :aria-current="activeSection === 'combine' ? 'page' : undefined"
+                        :disabled="openInProgress"
+                        @click="showCombinePage"
+                    >
+                        <UIcon name="i-lucide-copy-plus" class="rail-item-icon" />
+                        <span>{{ t('menu.combineFiles') }}</span>
                     </button>
                     <button
                         v-if="!isBrowserRuntime"
@@ -66,141 +70,183 @@
                         <span>{{ t('emptyState.openFolder') }}</span>
                     </button>
                 </nav>
+
+                <nav class="rail-section" :aria-label="t('emptyState.workspace')">
+                    <button
+                        type="button"
+                        class="rail-item"
+                        :class="{ 'is-active': activeSection === 'settings' }"
+                        :aria-current="activeSection === 'settings' ? 'page' : undefined"
+                        @click="showSettingsPage"
+                    >
+                        <UIcon name="i-lucide-settings" class="rail-item-icon" />
+                        <span>{{ t('toolbar.settings') }}</span>
+                    </button>
+                </nav>
+
+                <div class="rail-tip" :aria-label="t('emptyState.supportedFormats')">
+                    <UIcon name="i-lucide-files" class="rail-tip-icon" />
+                    <div class="rail-tip-copy">
+                        <span>{{ t('emptyState.supportedFormats') }}</span>
+                        <strong>{{ t('emptyState.dropSubtitle') }}</strong>
+                    </div>
+                </div>
             </aside>
 
             <main class="start-main">
-                <div class="start-dropzone" role="presentation">
-                    <span class="dropzone-art" aria-hidden="true">
-                        <FileTypeIcon kind="document" class="dropzone-art-icon" />
-                    </span>
-                    <span class="dropzone-copy">
-                        <strong>{{ t('emptyState.dropTitle') }}</strong>
-                        <span>{{ t('emptyState.dropSubtitle') }}</span>
-                    </span>
-                    <span class="dropzone-divider">{{ t('emptyState.or') }}</span>
-                    <button
-                        type="button"
-                        class="dropzone-cta"
-                        :aria-label="t('toolbar.openPdf')"
-                        :disabled="openInProgress"
-                        @click="emit('open-file')"
-                    >
-                        <UIcon name="i-lucide-folder-open" class="dropzone-cta-icon" />
-                        <span>{{ t('emptyState.openFileEllipsis') }}</span>
-                    </button>
-                </div>
-
-                <section class="start-recent" :aria-labelledby="recentFilesHeadingId">
-                    <header class="recent-header">
-                        <h3 :id="recentFilesHeadingId" class="recent-title">
-                            {{ t('emptyState.recentFiles') }}
-                        </h3>
-                        <div class="recent-controls">
-                            <label class="recent-search">
-                                <UIcon name="i-lucide-search" class="recent-search-icon" />
-                                <input
-                                    v-model="recentSearch"
-                                    type="search"
-                                    :placeholder="t('emptyState.searchPlaceholder')"
-                                    :aria-label="t('emptyState.searchRecentFiles')"
-                                >
-                            </label>
-                            <UTooltip :text="t('emptyState.clearRecentFiles')" :delay-duration="1200">
-                                <button
-                                    type="button"
-                                    class="recent-clear"
-                                    :disabled="recentFiles.length === 0"
-                                    :aria-label="t('emptyState.clearRecentFiles')"
-                                    @click="emit('clear-recent')"
-                                >
-                                    <UIcon name="i-lucide-trash-2" />
-                                    <span>{{ t('emptyState.clearHistory') }}</span>
-                                </button>
-                            </UTooltip>
-                        </div>
-                    </header>
-
-                    <div v-if="visibleRecentFiles.length > 0" class="recent-table" role="table">
-                        <div class="recent-row recent-row--head" role="row">
-                            <span role="columnheader" class="recent-col recent-col--name">{{ t('emptyState.columnName') }}</span>
-                            <span role="columnheader" class="recent-col recent-col--location">{{ t('emptyState.columnLocation') }}</span>
-                            <span role="columnheader" class="recent-col recent-col--time">{{ t('emptyState.columnOpened') }}</span>
-                            <span class="recent-col recent-col--remove" aria-hidden="true" />
-                        </div>
+                <template v-if="activeSection === 'recent'">
+                    <div class="start-dropzone" role="presentation">
+                        <span class="dropzone-art" aria-hidden="true">
+                            <FileTypeIcon kind="document" class="dropzone-art-icon" />
+                        </span>
+                        <span class="dropzone-copy">
+                            <strong>{{ t('emptyState.dropTitle') }}</strong>
+                            <span>{{ t('emptyState.dropSubtitle') }}</span>
+                        </span>
+                        <span class="dropzone-divider">{{ t('emptyState.or') }}</span>
                         <button
-                            v-for="file in visibleRecentFiles"
-                            :key="file.originalPath"
                             type="button"
-                            class="recent-row recent-row--data"
-                            role="row"
-                            :class="{ 'is-disabled': openInProgress }"
+                            class="dropzone-cta"
+                            :aria-label="t('toolbar.openPdf')"
                             :disabled="openInProgress"
-                            @click="emit('open-recent', file)"
+                            @click="emit('open-file')"
                         >
-                            <span class="recent-col recent-col--name" role="cell">
-                                <span class="recent-file-icon" aria-hidden="true">
-                                    <FileTypeIcon :kind="getFileKind(file)" />
-                                </span>
-                                <span class="recent-file-name">{{ file.fileName }}</span>
-                            </span>
-                            <span class="recent-col recent-col--location" role="cell">
-                                <template v-if="!isBrowserDocumentRef(file.originalPath)">
-                                    {{ getParentFolder(file.originalPath) }}
-                                </template>
-                                <template v-else>{{ t('emptyState.locationBrowser') }}</template>
-                            </span>
-                            <span class="recent-col recent-col--time" role="cell">
-                                {{ formatRelativeTimeLocalized(file.timestamp) }}
-                            </span>
-                            <span class="recent-col recent-col--remove" role="cell">
-                                <UTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
-                                    <span
-                                        class="recent-remove"
-                                        role="button"
-                                        tabindex="0"
-                                        :aria-label="t('emptyState.removeFromRecent')"
-                                        @click.stop="emit('remove-recent', file)"
-                                        @keydown.enter.stop="emit('remove-recent', file)"
-                                        @keydown.space.stop.prevent="emit('remove-recent', file)"
+                            <UIcon name="i-lucide-folder-open" class="dropzone-cta-icon" />
+                            <span>{{ t('emptyState.openFileEllipsis') }}</span>
+                        </button>
+                    </div>
+
+                    <section class="start-recent" :aria-labelledby="recentFilesHeadingId">
+                        <header class="recent-header">
+                            <h3 :id="recentFilesHeadingId" class="recent-title">
+                                {{ t('emptyState.recentFiles') }}
+                            </h3>
+                            <div class="recent-controls">
+                                <label class="recent-search">
+                                    <UIcon name="i-lucide-search" class="recent-search-icon" />
+                                    <input
+                                        v-model="recentSearch"
+                                        type="search"
+                                        :placeholder="t('emptyState.searchPlaceholder')"
+                                        :aria-label="t('emptyState.searchRecentFiles')"
                                     >
-                                        <UIcon name="i-lucide-x" />
-                                    </span>
+                                </label>
+                                <UTooltip :text="t('emptyState.clearRecentFiles')" :delay-duration="1200">
+                                    <button
+                                        type="button"
+                                        class="recent-clear"
+                                        :disabled="recentFiles.length === 0"
+                                        :aria-label="t('emptyState.clearRecentFiles')"
+                                        @click="emit('clear-recent')"
+                                    >
+                                        <UIcon name="i-lucide-trash-2" />
+                                        <span>{{ t('emptyState.clearHistory') }}</span>
+                                    </button>
                                 </UTooltip>
-                            </span>
-                        </button>
-                    </div>
+                            </div>
+                        </header>
 
-                    <div v-else class="recent-empty">
-                        <UIcon
-                            :name="recentFiles.length === 0 ? 'i-lucide-folder-open' : 'i-lucide-search-x'"
-                            class="recent-empty-icon"
-                        />
-                        <p>{{ recentFiles.length === 0 ? t('emptyState.noRecentFiles') : t('emptyState.noSearchResults') }}</p>
-                    </div>
+                        <div v-if="visibleRecentFiles.length > 0" class="recent-table" role="table">
+                            <div class="recent-row recent-row--head" role="row">
+                                <span role="columnheader" class="recent-col recent-col--name">{{ t('emptyState.columnName') }}</span>
+                                <span role="columnheader" class="recent-col recent-col--location">{{ t('emptyState.columnLocation') }}</span>
+                                <span role="columnheader" class="recent-col recent-col--time">{{ t('emptyState.columnOpened') }}</span>
+                                <span class="recent-col recent-col--remove" aria-hidden="true" />
+                            </div>
+                            <button
+                                v-for="file in visibleRecentFiles"
+                                :key="file.originalPath"
+                                type="button"
+                                class="recent-row recent-row--data"
+                                role="row"
+                                :class="{ 'is-disabled': openInProgress }"
+                                :disabled="openInProgress"
+                                @click="emit('open-recent', file)"
+                            >
+                                <span class="recent-col recent-col--name" role="cell">
+                                    <span class="recent-file-icon" aria-hidden="true">
+                                        <FileTypeIcon :kind="getFileKind(file)" />
+                                    </span>
+                                    <span class="recent-file-name">{{ file.fileName }}</span>
+                                </span>
+                                <span class="recent-col recent-col--location" role="cell">
+                                    <template v-if="!isBrowserDocumentRef(file.originalPath)">
+                                        {{ getParentFolder(file.originalPath) }}
+                                    </template>
+                                    <template v-else>{{ t('emptyState.locationBrowser') }}</template>
+                                </span>
+                                <span class="recent-col recent-col--time" role="cell">
+                                    {{ formatRelativeTimeLocalized(file.timestamp) }}
+                                </span>
+                                <span class="recent-col recent-col--remove" role="cell">
+                                    <UTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
+                                        <span
+                                            class="recent-remove"
+                                            role="button"
+                                            tabindex="0"
+                                            :aria-label="t('emptyState.removeFromRecent')"
+                                            @click.stop="emit('remove-recent', file)"
+                                            @keydown.enter.stop="emit('remove-recent', file)"
+                                            @keydown.space.stop.prevent="emit('remove-recent', file)"
+                                        >
+                                            <UIcon name="i-lucide-x" />
+                                        </span>
+                                    </UTooltip>
+                                </span>
+                            </button>
+                        </div>
 
-                    <footer v-if="filteredRecentFiles.length > 0" class="recent-footer">
-                        <span class="recent-count">{{ recentItemsLabel }}</span>
-                        <button
-                            v-if="filteredRecentFiles.length > MAX_VISIBLE_RECENT_FILES"
-                            type="button"
-                            class="recent-show-more"
-                            @click="showAll = !showAll"
-                        >
-                            <span>{{ showAll ? t('emptyState.showLess') : t('emptyState.showMore') }}</span>
+                        <div v-else class="recent-empty">
                             <UIcon
-                                :name="showAll ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
-                                class="recent-show-more-icon"
+                                :name="recentFiles.length === 0 ? 'i-lucide-folder-open' : 'i-lucide-search-x'"
+                                class="recent-empty-icon"
                             />
-                        </button>
-                    </footer>
-                </section>
+                            <p>{{ recentFiles.length === 0 ? t('emptyState.noRecentFiles') : t('emptyState.noSearchResults') }}</p>
+                        </div>
+
+                        <footer v-if="filteredRecentFiles.length > 0" class="recent-footer">
+                            <span class="recent-count">{{ recentItemsLabel }}</span>
+                            <button
+                                v-if="filteredRecentFiles.length > MAX_VISIBLE_RECENT_FILES"
+                                type="button"
+                                class="recent-show-more"
+                                @click="showAll = !showAll"
+                            >
+                                <span>{{ showAll ? t('emptyState.showLess') : t('emptyState.showMore') }}</span>
+                                <UIcon
+                                    :name="showAll ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+                                    class="recent-show-more-icon"
+                                />
+                            </button>
+                        </footer>
+                    </section>
+                </template>
+
+                <CombinePdfPage
+                    v-else-if="activeSection === 'combine'"
+                    class="start-tool-page"
+                    :show-back="false"
+                    :show-eyebrow="false"
+                    @close="showRecentFiles"
+                    @open-result="handleCombineOpenResult"
+                />
+                <SettingsPage
+                    v-else
+                    class="start-tool-page"
+                    :show-back="false"
+                    :show-eyebrow="false"
+                    @close="showRecentFiles"
+                />
             </main>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import type { TDocumentRef } from '@contracts/platform-api';
+import type {
+    TDocumentRef,
+    TOpenFileResult,
+} from '@contracts/platform-api';
 import { formatRelativeTime } from '@app/utils/formatters';
 import {
     displayProcessedCount,
@@ -208,7 +254,10 @@ import {
 } from '@app/utils/progress-formatting';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { isBrowserDocumentRef } from '@app/utils/document-ref';
+import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
+import SettingsPage from '@app/components/settings/SettingsPage.vue';
+import type { TStartSection } from '@app/types/start-page';
 
 interface IRecentFile {
     originalPath: TDocumentRef;
@@ -228,19 +277,27 @@ const {
     recentFilesResolved = true,
     openBatchProgress = null,
     openInProgress = false,
+    canCombineFiles = false,
+    startSection = 'recent',
 } = defineProps<{
     recentFiles: IRecentFile[];
     recentFilesResolved?: boolean;
     openBatchProgress?: IOpenBatchProgress | null;
     openInProgress?: boolean;
+    canCombineFiles?: boolean;
+    startSection?: TStartSection;
 }>();
 
 const emit = defineEmits<{
+    'update:start-section': [section: TStartSection];
     'open-file': [];
     'open-folder': [];
     'open-recent': [file: IRecentFile];
     'remove-recent': [file: IRecentFile];
     'clear-recent': [];
+    'open-settings': [];
+    'combine-files': [];
+    'open-combine-result': [result: TOpenFileResult];
 }>();
 
 const { t } = useTypedI18n();
@@ -249,6 +306,8 @@ const MAX_VISIBLE_RECENT_FILES = 6;
 const recentFilesHeadingId = useId();
 const recentSearch = ref('');
 const showAll = ref(false);
+const activeSection = ref<TStartSection>(startSection);
+const relativeTimeNow = useState('empty-state-relative-time-now', () => Date.now());
 
 const batchEtaText = computed(() => formatEtaDuration(openBatchProgress?.estimatedRemainingMs ?? null));
 const filteredRecentFiles = computed(() => {
@@ -277,7 +336,7 @@ function formatRelativeTimeLocalized(timestamp: number) {
         oneMinuteAgo: t('relativeTime.oneMinuteAgo'),
         minutesAgo: (count: number) => t('relativeTime.minutesAgo', { count }),
         justNow: t('relativeTime.justNow'),
-    });
+    }, relativeTimeNow.value);
 }
 
 function getParentFolder(filePath: string) {
@@ -313,6 +372,32 @@ function getFileKind(file: IRecentFile) {
     }
     return 'document';
 }
+
+function showRecentFiles() {
+    setActiveSection('recent');
+}
+
+function showCombinePage() {
+    setActiveSection('combine');
+}
+
+function showSettingsPage() {
+    setActiveSection('settings');
+}
+
+function handleCombineOpenResult(result: TOpenFileResult) {
+    emit('open-combine-result', result);
+}
+
+function setActiveSection(section: TStartSection) {
+    activeSection.value = section;
+    emit('update:start-section', section);
+}
+
+watch(() => startSection, (section) => {
+    activeSection.value = section;
+}, { immediate: true });
+
 </script>
 
 <style lang="scss" scoped>
@@ -369,16 +454,6 @@ function getFileKind(file: IRecentFile) {
     gap: 0.18rem;
 }
 
-.rail-section-title {
-    margin: 0 0 0.3rem;
-    padding: 0 0.55rem;
-    color: var(--app-start-rail-section-fg);
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: none;
-    letter-spacing: 0;
-}
-
 .rail-item {
     display: flex;
     align-items: center;
@@ -396,6 +471,13 @@ function getFileKind(file: IRecentFile) {
     transition: background-color 0.12s ease, color 0.12s ease;
 }
 
+.rail-item span:not(.rail-shortcut, .rail-count) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .rail-item:hover:not(:disabled) {
     background: var(--app-start-rail-item-hover-bg);
     color: var(--app-start-rail-item-active-fg);
@@ -408,7 +490,7 @@ function getFileKind(file: IRecentFile) {
 }
 
 .rail-item:disabled {
-    opacity: 0.5;
+    opacity: 0.62;
     cursor: default;
 }
 
@@ -420,11 +502,74 @@ function getFileKind(file: IRecentFile) {
     opacity: 0.85;
 }
 
+.rail-shortcut {
+    margin-left: auto;
+    color: var(--ui-text-dimmed);
+    font-size: 0.72rem;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.rail-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    margin-left: auto;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    background: var(--app-start-rail-item-hover-bg);
+    color: var(--ui-text-muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.rail-tip {
+    display: flex;
+    gap: 0.65rem;
+    margin-top: auto;
+    padding: 0.7rem 0.65rem;
+    border: 1px solid var(--app-start-rail-tip-border);
+    border-radius: 0.55rem;
+    background: var(--app-start-rail-tip-bg);
+    color: var(--ui-text-muted);
+}
+
+.rail-tip-icon {
+    width: 1rem;
+    height: 1rem;
+    flex: 0 0 auto;
+    margin-top: 0.1rem;
+    color: var(--ui-text-dimmed);
+}
+
+.rail-tip-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.18rem;
+    font-size: 0.74rem;
+    line-height: 1.25;
+}
+
+.rail-tip-copy strong {
+    color: var(--ui-text);
+    font-size: 0.78rem;
+    font-weight: 550;
+}
+
 .start-main {
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
     min-width: 0;
+    height: 100%;
+    min-height: 0;
+}
+
+.start-tool-page {
     height: 100%;
     min-height: 0;
 }
@@ -855,6 +1000,10 @@ function getFileKind(file: IRecentFile) {
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         gap: 0.5rem 1rem;
         padding: 0.25rem 0;
+    }
+
+    .rail-tip {
+        margin-top: 0;
     }
 }
 

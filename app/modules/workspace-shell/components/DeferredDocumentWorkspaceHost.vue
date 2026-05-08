@@ -1,30 +1,44 @@
 <template>
     <div class="workspace-host">
-        <component
-            :is="DocumentWorkspace"
+        <div
             v-if="workspaceRequested && DocumentWorkspace"
-            :key="workspaceRenderKey"
-            ref="workspaceRef"
-            :tab-id="tabId"
-            :is-active="isActive"
-            :is-tab-transition-busy="isTabTransitionBusy"
-            :pending-document-open="isDocumentOpenInFlight"
-            @update-tab="(updates) => emit('update-tab', updates)"
-            @open-in-new-tab="(result) => emit('open-in-new-tab', result)"
-            @request-close-tab="emit('request-close-tab')"
-            @open-settings="emit('open-settings')"
-        />
+            v-show="!isPlaceholderVisible"
+            class="workspace-host__workspace"
+        >
+            <component
+                :is="DocumentWorkspace"
+                :key="workspaceRenderKey"
+                ref="workspaceRef"
+                :tab-id="tabId"
+                :is-active="isActive && !isPlaceholderVisible"
+                :is-tab-transition-busy="isTabTransitionBusy"
+                :pending-document-open="isDocumentOpenInFlight"
+                :start-section="startSection"
+                @update-tab="(updates) => emit('update-tab', updates)"
+                @update:start-section="emit('update:start-section', $event)"
+                @open-in-new-tab="(result) => emit('open-in-new-tab', result)"
+                @request-close-tab="emit('request-close-tab')"
+                @open-settings="emit('open-settings')"
+                @open-combine="emit('open-combine')"
+            />
+        </div>
 
-        <div v-else class="workspace-host__placeholder">
+        <div v-if="isPlaceholderVisible" class="workspace-host__placeholder">
             <PdfEmptyState
                 :recent-files="recentFiles"
                 :recent-files-resolved="isResolved"
                 :open-batch-progress="null"
                 :open-in-progress="isDocumentOpenInFlight"
+                :start-section="startSection"
+                can-combine-files
+                @update:start-section="emit('update:start-section', $event)"
                 @open-file="handleOpenFileFromUi"
                 @open-recent="handleOpenRecentFromPlaceholder"
                 @remove-recent="handleRemoveRecentFromPlaceholder"
                 @clear-recent="handleClearRecentFromPlaceholder"
+                @open-settings="emit('open-settings')"
+                @combine-files="emit('open-combine')"
+                @open-combine-result="handleOpenCombineResultFromPlaceholder"
             />
         </div>
 
@@ -86,20 +100,24 @@ import { useRecentFiles } from '@app/composables/useRecentFiles';
 import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
+import type { TStartSection } from '@app/types/start-page';
 
 const props = defineProps<{
     tabId: string;
     isActive: boolean;
     isTabTransitionBusy: boolean;
     hasDocumentHint?: boolean;
+    startSection?: TStartSection;
 }>();
 const { t } = useTypedI18n();
 
 const emit = defineEmits<{
     'update-tab': [updates: TTabUpdate];
+    'update:start-section': [section: TStartSection];
     'open-in-new-tab': [result: string | TOpenFileResult];
     'request-close-tab': [];
     'open-settings': [];
+    'open-combine': [];
 }>();
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const LOADER_LOG_SECTION = 'loader';
@@ -164,6 +182,19 @@ const mountedWorkspace = computed<IWorkspaceExpose | null>(() => (
 const hasMountedWorkspace = computed(() => mountedWorkspace.value !== null);
 const hasWorkspaceChunkLoadError = computed(() => workspaceChunkLoadError.value !== null);
 const workspaceRenderKey = computed(() => `${props.tabId}:${workspaceRenderNonce.value}`);
+const workspaceVisibleDocument = computed(() => {
+    const workspace = mountedWorkspace.value;
+    if (!workspace) {
+        return false;
+    }
+
+    const snapshot = workspace.getToolbarSnapshot();
+    return snapshot.hasPdf || snapshot.isDjvuMode || snapshot.isOpeningDocument;
+});
+const isPlaceholderVisible = computed(() => (
+    !hasQueuedSplitRestore.value
+    && !workspaceVisibleDocument.value
+));
 const workspaceLoadErrorDescription = computed(() => {
     const message = getAsyncChunkLoadErrorMessage(workspaceChunkLoadError.value).trim();
     if (!message) {
@@ -184,6 +215,14 @@ const lastToolbarSnapshot = ref<IWorkspaceToolbarSnapshot>(createDefaultWorkspac
 
 function readWorkspaceToolbarSnapshot() {
     const workspace = mountedWorkspace.value;
+    if (isPlaceholderVisible.value) {
+        lastToolbarSnapshot.value = createDefaultWorkspaceToolbarSnapshot();
+        return {
+            ...lastToolbarSnapshot.value,
+            isOpeningDocument: isDocumentOpenInFlight.value,
+        };
+    }
+
     if (!workspace) {
         if (workspaceRequested.value || isDocumentOpenInFlight.value || hasQueuedSplitRestore.value) {
             return {
@@ -521,6 +560,12 @@ async function handleClearRecentFromPlaceholder() {
     await clearRecentFiles();
 }
 
+async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
+    await enqueueDocumentOpen(async () => {
+        await withWorkspace('openCombineResultFromPlaceholder', workspace => workspace.handleOpenFileWithResult(result));
+    });
+}
+
 async function handleOpenFileFromUi() {
     await enqueueDocumentOpen(async () => {
         await handleWorkspaceHostOpenFileFromUi({
@@ -533,7 +578,13 @@ async function handleOpenFileFromUi() {
 
 onMounted(() => {
     isHostUnmounted = false;
-    void preloadWorkspaceComponent('workspace-host-mounted');
+    void preloadWorkspaceComponent('workspace-host-mounted').then((preloadSucceeded) => {
+        if (isHostUnmounted || !preloadSucceeded || workspaceRequested.value) {
+            return;
+        }
+
+        workspaceRequested.value = true;
+    });
 
     BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Workspace host mounted; loading recent files', {tabId: props.tabId});
     void loadRecentFiles().finally(() => {
@@ -716,6 +767,14 @@ defineExpose(workspaceExpose);
 }
 
 .workspace-host__placeholder {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+}
+
+.workspace-host__workspace {
     display: flex;
     width: 100%;
     height: 100%;

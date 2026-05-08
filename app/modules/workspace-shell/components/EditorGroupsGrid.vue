@@ -30,10 +30,13 @@
                     :has-document-hint="hasDocumentMountHint(tab)"
                     :is-active="groupForLeaf!.id === activeGroupId && tab.id === groupForLeaf!.activeTabId"
                     :is-tab-transition-busy="isTabTransitionBusy"
+                    :start-section="startSectionByTabId[tab.id] ?? 'recent'"
                     @update-tab="(updates) => emit('update-tab', tab.id, updates)"
+                    @update:start-section="(section) => emit('update-tab-start-section', tab.id, section)"
                     @open-in-new-tab="(result) => emit('open-in-new-tab', result, groupForLeaf!.id)"
                     @request-close-tab="emit('request-close-tab', groupForLeaf!.id, tab.id)"
                     @open-settings="emit('open-settings')"
+                    @open-combine="emit('open-combine')"
                 />
             </div>
         </template>
@@ -54,6 +57,7 @@
                 :active-group-id="activeGroupId"
                 :is-tab-transition-busy="isTabTransitionBusy"
                 :tab-context-availability-by-group="tabContextAvailabilityByGroup"
+                :start-section-by-tab-id="startSectionByTabId"
                 @activate-group="(groupId) => emit('activate-group', groupId)"
                 @activate-tab="(groupId, tabId) => emit('activate-tab', groupId, tabId)"
                 @close-tab="(groupId, tabId) => emit('close-tab', groupId, tabId)"
@@ -63,9 +67,11 @@
                 @tab-context-command="(groupId, tabId, command) => emit('tab-context-command', groupId, tabId, command)"
                 @set-workspace-ref="(tabId, el) => emit('set-workspace-ref', tabId, el)"
                 @update-tab="(tabId, updates) => emit('update-tab', tabId, updates)"
+                @update-tab-start-section="(tabId, section) => emit('update-tab-start-section', tabId, section)"
                 @open-in-new-tab="(result, groupId) => emit('open-in-new-tab', result, groupId)"
                 @request-close-tab="(groupId, tabId) => emit('request-close-tab', groupId, tabId)"
                 @open-settings="emit('open-settings')"
+                @open-combine="emit('open-combine')"
                 @update-split-ratio="(splitId, ratio) => emit('update-split-ratio', splitId, ratio)"
             />
         </div>
@@ -86,6 +92,7 @@
                 :active-group-id="activeGroupId"
                 :is-tab-transition-busy="isTabTransitionBusy"
                 :tab-context-availability-by-group="tabContextAvailabilityByGroup"
+                :start-section-by-tab-id="startSectionByTabId"
                 @activate-group="(groupId) => emit('activate-group', groupId)"
                 @activate-tab="(groupId, tabId) => emit('activate-tab', groupId, tabId)"
                 @close-tab="(groupId, tabId) => emit('close-tab', groupId, tabId)"
@@ -95,9 +102,11 @@
                 @tab-context-command="(groupId, tabId, command) => emit('tab-context-command', groupId, tabId, command)"
                 @set-workspace-ref="(tabId, el) => emit('set-workspace-ref', tabId, el)"
                 @update-tab="(tabId, updates) => emit('update-tab', tabId, updates)"
+                @update-tab-start-section="(tabId, section) => emit('update-tab-start-section', tabId, section)"
                 @open-in-new-tab="(result, groupId) => emit('open-in-new-tab', result, groupId)"
                 @request-close-tab="(groupId, tabId) => emit('request-close-tab', groupId, tabId)"
                 @open-settings="emit('open-settings')"
+                @open-combine="emit('open-combine')"
                 @update-split-ratio="(splitId, ratio) => emit('update-split-ratio', splitId, ratio)"
             />
         </div>
@@ -125,6 +134,7 @@ import type { TOpenFileResult } from '@contracts/platform-api';
 import { hasDocumentMountHint } from '@app/modules/workspace-shell/composables/workspace-host-mounting';
 import DeferredDocumentWorkspaceHost from '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue';
 import TabBar from '@app/modules/workspace-shell/components/layout/TabBar.vue';
+import type { TStartSection } from '@app/types/start-page';
 
 defineOptions({name: 'EditorGroupsGrid'});
 
@@ -135,6 +145,7 @@ const props = defineProps<{
     activeGroupId: string | null;
     isTabTransitionBusy: boolean;
     tabContextAvailabilityByGroup: Record<string, ITabContextAvailability>;
+    startSectionByTabId: Record<string, TStartSection>;
 }>();
 
 const emit = defineEmits<{
@@ -147,9 +158,11 @@ const emit = defineEmits<{
     'tab-context-command': [groupId: string, tabId: string, command: TTabContextCommand];
     'set-workspace-ref': [tabId: string, el: unknown];
     'update-tab': [tabId: string, updates: TTabUpdate];
+    'update-tab-start-section': [tabId: string, section: TStartSection];
     'open-in-new-tab': [result: string | TOpenFileResult, groupId: string];
     'request-close-tab': [groupId: string, tabId: string];
     'open-settings': [];
+    'open-combine': [];
     'update-split-ratio': [splitId: string, ratio: number];
 }>();
 

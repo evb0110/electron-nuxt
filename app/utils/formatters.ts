@@ -34,8 +34,11 @@ interface IRelativeTimeLabels {
     justNow: string;
 }
 
-export function formatRelativeTime(timestamp: number, labels: IRelativeTimeLabels) {
-    const now = Date.now();
+export function formatRelativeTime(
+    timestamp: number,
+    labels: IRelativeTimeLabels,
+    now = Date.now(),
+) {
     const diff = now - timestamp;
     const seconds = Math.floor(diff / 1000);
     const minutes = Math.floor(seconds / 60);

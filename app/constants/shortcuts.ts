@@ -101,6 +101,10 @@ function isMacPlatform() {
     return typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
 }
 
+export function isMacPlatformHint(value: string) {
+    return /mac|macintosh|mac os|macos|darwin/iu.test(value);
+}
+
 function resolveModifierLabel(m: TModifier, isMac: boolean): string {
     if (m === 'mod') {
         return isMac ? 'Cmd' : 'Ctrl';
@@ -115,8 +119,7 @@ function formatShortcutLabel(def: IShortcutDef, isMac: boolean) {
     return parts.join('+');
 }
 
-export function getShortcutLabels() {
-    const isMac = isMacPlatform();
+export function getShortcutLabels(isMac = isMacPlatform()) {
     return Object.fromEntries(
         Object.entries(SHORTCUTS).map(([
             name,
