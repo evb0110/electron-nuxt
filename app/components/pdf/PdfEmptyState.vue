@@ -57,7 +57,7 @@
                         @click="showCombinePage"
                     >
                         <UIcon name="i-lucide-copy-plus" class="rail-item-icon" />
-                        <span>{{ t('menu.combineFiles') }}</span>
+                        <span>{{ t('dialogs.combineFiles') }}</span>
                     </button>
                 </nav>
 

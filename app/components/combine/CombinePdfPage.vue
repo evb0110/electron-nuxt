@@ -2,21 +2,23 @@
     <AppToolPageShell
         :title="t('combinePdf.title')"
         :eyebrow="t('combinePdf.pageEyebrow')"
-        :description="t('combinePdf.description')"
         icon="i-lucide-copy-plus"
         :show-back="showBack"
         :show-eyebrow="showEyebrow"
         @close="emit('close')"
     >
-        <div class="combine-page" data-combine-page>
+        <div
+            class="combine-page"
+            data-combine-page
+            :class="{ 'is-dragging': isDraggingOver }"
+            @dragenter.prevent="handleDragEnter"
+            @dragover.prevent="handleDragOver"
+            @dragleave="handleDragLeave"
+            @drop.prevent="handleDrop"
+        >
             <section
                 class="combine-dropzone"
                 data-combine-drop-zone
-                :class="{ 'is-dragging': isDraggingOver }"
-                @dragenter.prevent="handleDragEnter"
-                @dragover.prevent="handleDragOver"
-                @dragleave="handleDragLeave"
-                @drop.prevent="handleDrop"
             >
                 <input
                     ref="fileInputRef"
@@ -53,11 +55,12 @@
                         </p>
                     </div>
                     <UButton
+                        v-if="files.length > 0"
                         color="neutral"
                         variant="ghost"
                         icon="i-lucide-trash-2"
                         :label="t('combinePdf.clear')"
-                        :disabled="files.length === 0 || isCombining"
+                        :disabled="isCombining"
                         @click="clearFiles"
                     />
                 </header>
@@ -81,7 +84,6 @@
                 <div v-if="files.length === 0" class="combine-empty">
                     <UIcon name="i-lucide-file-plus-2" class="combine-empty-icon" />
                     <p>{{ t('combinePdf.emptyTitle') }}</p>
-                    <span>{{ t('combinePdf.emptyDescription') }}</span>
                 </div>
 
                 <ol v-else class="combine-file-list">
@@ -147,14 +149,13 @@
                     <UProgress :value="progress.percent" />
                 </div>
 
-                <footer class="combine-actions">
+                <footer v-if="files.length > 0" class="combine-actions">
                     <p>{{ t('combinePdf.outputHint') }}</p>
                     <UButton
                         color="primary"
-                        icon="i-lucide-file-output"
+                        icon="i-lucide-copy-plus"
                         :loading="isCombining"
                         :label="isCombining ? t('combinePdf.combining') : t('combinePdf.combineAction')"
-                        :disabled="files.length === 0"
                         @click="combineFiles"
                     />
                 </footer>
@@ -175,7 +176,7 @@ import { BROWSER_COMBINE_IMAGE_EXTENSIONS } from '@app/platform/browser-api/brow
 import { browserDocumentStore } from '@app/platform/browser-document-store';
 import { createCombinedPdfFromPaths } from '@app/platform/browser-api/documents-file-capability';
 
-type TCombineFileKind = 'pdf' | 'image' | 'document';
+type TCombineFileKind = 'pdf' | 'djvu' | 'image' | 'document';
 
 interface ICombineFile {
     id: string;
@@ -219,10 +220,14 @@ const combineError = ref<string | null>(null);
 const lastRejectedCount = ref(0);
 const COMBINE_FILE_ACCEPT = [
     '.pdf',
+    '.djvu',
+    '.djv',
     ...BROWSER_COMBINE_IMAGE_EXTENSIONS,
 ].join(',');
 const supportedExtensions = new Set([
     '.pdf',
+    '.djvu',
+    '.djv',
     ...BROWSER_COMBINE_IMAGE_EXTENSIONS,
 ]);
 
@@ -242,6 +247,9 @@ function getFileKind(fileName: string): TCombineFileKind {
     const extension = getFileExtension(fileName);
     if (extension === '.pdf') {
         return 'pdf';
+    }
+    if (extension === '.djvu' || extension === '.djv') {
+        return 'djvu';
     }
     if (BROWSER_COMBINE_IMAGE_EXTENSIONS.has(extension)) {
         return 'image';
@@ -530,7 +538,8 @@ async function combineFiles() {
     text-align: center;
 }
 
-.combine-dropzone.is-dragging {
+.combine-page.is-dragging .combine-dropzone,
+.combine-page.is-dragging .combine-empty {
     border-color: var(--ui-primary);
     background: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-primary) 12%);
 }
@@ -632,11 +641,6 @@ async function combineFiles() {
     margin: 0;
     color: var(--ui-text);
     font-weight: 600;
-}
-
-.combine-empty span {
-    max-width: 20rem;
-    font-size: 0.83rem;
 }
 
 .combine-file-list {

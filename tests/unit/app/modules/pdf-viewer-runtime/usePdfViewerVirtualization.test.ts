@@ -13,6 +13,7 @@ import {
     usePdfViewerVirtualization,
 } from '@app/modules/pdf-viewer-runtime/composables/usePdfViewerVirtualization';
 import { getPageRowBoundsForViewMode } from '@app/composables/pdf/pdfPageLayout';
+import type { IPdfPageMetric } from '@app/types/pdf';
 
 describe('expandVirtualWindowForAnchor', () => {
     it('keeps the existing window when no anchor page is provided', () => {
@@ -196,5 +197,44 @@ describe('usePdfViewerVirtualization', () => {
         ]);
         expect(virtualization.topVirtualSpacerStyle.value).toEqual({ height: '100px' });
         expect(virtualization.bottomVirtualSpacerStyle.value).toEqual({ height: '220px' });
+    });
+
+    it('does not size skeleton placeholders from a wider document fallback while page metrics hydrate', () => {
+        const pageMetrics = ref<IPdfPageMetric[]>([]);
+        pageMetrics.value[0] = {
+            width: 300,
+            height: 500,
+        };
+        pageMetrics.value[4] = {
+            width: 320,
+            height: 520,
+        };
+        const virtualization = usePdfViewerVirtualization({
+            bufferPages: computed(() => 0),
+            viewMode: computed(() => 'single'),
+            numPages: ref(6),
+            basePageWidth: ref(1200),
+            basePageHeight: ref(1600),
+            pageMetrics,
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(2),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 2,
+                end: 3,
+            }),
+            searchNavigationTargetPage: ref(null),
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+
+        expect(virtualization.getPagePlaceholderStyle(2)).toEqual({
+            width: '600px',
+            height: '1000px',
+        });
+        expect(virtualization.getPagePlaceholderStyle(4)).toEqual({
+            width: '640px',
+            height: '1040px',
+        });
     });
 });

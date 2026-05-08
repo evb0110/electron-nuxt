@@ -169,18 +169,16 @@ async function openInputPaths(
 
     const djvuPaths = normalizedPaths.filter(path => isDjvuPath(path));
     if (djvuPaths.length > 0) {
-        if (normalizedPaths.length !== 1 || djvuPaths.length !== 1) {
-            throw new Error(te('errors.file.invalid'));
+        if (normalizedPaths.length === 1 && djvuPaths.length === 1) {
+            const djvuPath = djvuPaths[0]!;
+            logger.info(`openInputPaths resolved DjVu path: ${djvuPath}`);
+            await addRecentInputs([djvuPath]);
+            return {
+                kind: 'djvu',
+                workingPath: '',
+                originalPath: djvuPath,
+            };
         }
-
-        const djvuPath = djvuPaths[0]!;
-        logger.info(`openInputPaths resolved DjVu path: ${djvuPath}`);
-        await addRecentInputs([djvuPath]);
-        return {
-            kind: 'djvu',
-            workingPath: '',
-            originalPath: djvuPath,
-        };
     }
 
     if (normalizedPaths.length === 1 && isPdfPath(normalizedPaths[0]!)) {

@@ -176,71 +176,6 @@
                 </div>
             </template>
         </UPopover>
-
-        <UPopover
-            v-model:open="pagesMenuOpen"
-            mode="click"
-            :content="menuContentOptions"
-        >
-            <button
-                type="button"
-                :class="['app-menu-trigger', { 'is-open': pagesMenuOpen }]"
-                aria-haspopup="menu"
-                :aria-expanded="pagesMenuOpen"
-            >
-                <span>{{ t('menu.pages') }}</span>
-                <UIcon name="i-lucide-chevron-down" class="app-menu-trigger-chevron" />
-            </button>
-
-            <template #content>
-                <div class="app-menu">
-                    <div class="app-menu-section">
-                        <button
-                            class="app-menu-item"
-                            :disabled="!hasInteractiveDocument || isDjvuMode"
-                            @click="emit('delete-pages'); close()"
-                        >
-                            <UIcon name="i-lucide-trash-2" class="app-menu-icon" />
-                            <span class="app-menu-label">{{ t('menu.deleteSelectedPages') }}</span>
-                        </button>
-                        <button
-                            class="app-menu-item"
-                            :disabled="!hasInteractiveDocument || isDjvuMode"
-                            @click="emit('extract-pages'); close()"
-                        >
-                            <UIcon name="i-lucide-file-output" class="app-menu-icon" />
-                            <span class="app-menu-label">{{ t('menu.extractSelectedPages') }}</span>
-                        </button>
-                        <div class="app-menu-divider" />
-                        <button
-                            class="app-menu-item"
-                            :disabled="!hasInteractiveDocument || isDjvuMode"
-                            @click="emit('rotate-cw'); close()"
-                        >
-                            <UIcon name="i-lucide-rotate-cw" class="app-menu-icon" />
-                            <span class="app-menu-label">{{ t('menu.rotateClockwise') }}</span>
-                        </button>
-                        <button
-                            class="app-menu-item"
-                            :disabled="!hasInteractiveDocument || isDjvuMode"
-                            @click="emit('rotate-ccw'); close()"
-                        >
-                            <UIcon name="i-lucide-rotate-ccw" class="app-menu-icon" />
-                            <span class="app-menu-label">{{ t('menu.rotateCounterclockwise') }}</span>
-                        </button>
-                        <div class="app-menu-divider" />
-                        <button
-                            class="app-menu-item"
-                            :disabled="!hasInteractiveDocument || isDjvuMode"
-                            @click="emit('insert-pages'); close()"
-                        >
-                            <UIcon name="i-lucide-file-plus" class="app-menu-icon" />
-                            <span class="app-menu-label">{{ t('menu.insertPages') }}</span>
-                        </button>
-                    </div>
-                </div>
-            </template>
-        </UPopover>
     </nav>
 </template>
 
@@ -285,14 +220,9 @@ const emit = defineEmits<{
     (e: 'redo'): void
     (e: 'insert-image-from-file'): void
     (e: 'paste-image-from-clipboard'): void
-    (e: 'delete-pages'): void
-    (e: 'extract-pages'): void
-    (e: 'rotate-cw'): void
-    (e: 'rotate-ccw'): void
-    (e: 'insert-pages'): void
 }>();
 
-type TAppMenu = 'file' | 'edit' | 'pages';
+type TAppMenu = 'file' | 'edit';
 
 const shortcutLabels = getShortcutLabels();
 const activeMenu = ref<TAppMenu | null>(null);
@@ -306,7 +236,6 @@ const menuContentOptions = {
 
 const fileMenuOpen = createMenuOpenModel('file');
 const editMenuOpen = createMenuOpenModel('edit');
-const pagesMenuOpen = createMenuOpenModel('pages');
 
 watch(() => props.open, (open) => {
     if (!open) {

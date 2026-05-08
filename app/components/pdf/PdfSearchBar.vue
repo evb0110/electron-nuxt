@@ -53,39 +53,33 @@
         </div>
 
         <div class="flex items-center gap-1">
-            <UTooltip :text="t('search.caseSensitive')" :delay-duration="1200">
-                <UButton
-                    label="Aa"
-                    :variant="options.matchCase ? 'soft' : 'ghost'"
-                    :color="options.matchCase ? 'primary' : 'neutral'"
-                    size="xs"
-                    class="min-w-auto px-1.5 text-[11px] font-semibold"
-                    :aria-label="t('search.caseSensitive')"
-                    @click="toggleOption('matchCase')"
-                />
-            </UTooltip>
-            <UTooltip :text="t('search.wholeWord')" :delay-duration="1200">
-                <UButton
-                    label="W"
-                    :variant="options.wholeWord ? 'soft' : 'ghost'"
-                    :color="options.wholeWord ? 'primary' : 'neutral'"
-                    size="xs"
-                    class="min-w-auto px-1.5 text-[11px] font-semibold"
-                    :aria-label="t('search.wholeWord')"
-                    @click="toggleOption('wholeWord')"
-                />
-            </UTooltip>
-            <UTooltip :text="t('search.regex')" :delay-duration="1200">
-                <UButton
-                    label=".*"
-                    :variant="options.useRegex ? 'soft' : 'ghost'"
-                    :color="options.useRegex ? 'primary' : 'neutral'"
-                    size="xs"
-                    class="min-w-auto px-1.5 text-[11px] font-semibold"
-                    :aria-label="t('search.regex')"
-                    @click="toggleOption('useRegex')"
-                />
-            </UTooltip>
+            <UButton
+                label="Aa"
+                :variant="options.matchCase ? 'soft' : 'ghost'"
+                :color="options.matchCase ? 'primary' : 'neutral'"
+                size="xs"
+                class="min-w-auto px-1.5 text-[11px] font-semibold"
+                :aria-label="t('search.caseSensitive')"
+                @click="toggleOption('matchCase')"
+            />
+            <UButton
+                label="W"
+                :variant="options.wholeWord ? 'soft' : 'ghost'"
+                :color="options.wholeWord ? 'primary' : 'neutral'"
+                size="xs"
+                class="min-w-auto px-1.5 text-[11px] font-semibold"
+                :aria-label="t('search.wholeWord')"
+                @click="toggleOption('wholeWord')"
+            />
+            <UButton
+                label=".*"
+                :variant="options.useRegex ? 'soft' : 'ghost'"
+                :color="options.useRegex ? 'primary' : 'neutral'"
+                size="xs"
+                class="min-w-auto px-1.5 text-[11px] font-semibold"
+                :aria-label="t('search.regex')"
+                @click="toggleOption('useRegex')"
+            />
         </div>
     </div>
 </template>

@@ -9,9 +9,11 @@ import {
     getLeadingSpacerHeightForPage,
     getTrailingSpacerHeight,
     getTrailingSpacerHeightForPage,
+    normalizePageMetrics,
     resolveDocumentBaseMetric,
     resolveSpreadBaseWidth,
 } from '@app/composables/pdf/pdfPageLayout';
+import type { IPdfPageMetric } from '@app/types/pdf';
 
 describe('pdfPageLayout', () => {
     it('builds per-page tops from variable page heights', () => {
@@ -182,5 +184,45 @@ describe('pdfPageLayout', () => {
         expect(resolveSpreadBaseWidth(pageMetrics, 'single', 4)).toBe(700);
         expect(resolveSpreadBaseWidth(pageMetrics, 'facing', 4)).toBe(980);
         expect(resolveSpreadBaseWidth(pageMetrics, 'facing-first-single', 4)).toBe(1020);
+    });
+
+    it('estimates missing page metrics from nearest known pages instead of the widest fallback', () => {
+        const sparseMetrics: IPdfPageMetric[] = [];
+        sparseMetrics[0] = {
+            width: 300,
+            height: 500,
+        };
+        sparseMetrics[3] = {
+            width: 320,
+            height: 520,
+        };
+
+        expect(normalizePageMetrics({
+            pageMetrics: sparseMetrics,
+            totalPages: 5,
+            fallbackWidth: 1200,
+            fallbackHeight: 1600,
+        })).toEqual([
+            {
+                width: 300,
+                height: 500,
+            },
+            {
+                width: 300,
+                height: 500,
+            },
+            {
+                width: 320,
+                height: 520,
+            },
+            {
+                width: 320,
+                height: 520,
+            },
+            {
+                width: 320,
+                height: 520,
+            },
+        ]);
     });
 });

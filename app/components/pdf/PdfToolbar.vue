@@ -1,5 +1,5 @@
 <template>
-    <header ref="toolbarRef" :class="['toolbar', `toolbar--${variant}`]">
+    <header :class="['toolbar', `toolbar--${variant}`]">
         <div class="toolbar-section toolbar-left">
             <slot
                 v-if="isCommandInline('app-menu')"
@@ -31,65 +31,77 @@
 
             <div class="toolbar-separator" />
 
-            <template v-if="!isCollapsed(3)">
-                <ToolbarButton
-                    v-if="isCommandInline('save')"
-                    icon="lucide:save"
-                    :tooltip="t('toolbar.save')"
-                    :shortcut="shortcutLabels.save"
-                    :disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
-                    :loading="isSaving"
-                    @click="emit('save')"
-                />
-                <ToolbarButton
-                    v-if="isCommandInline('save-as')"
-                    icon="lucide:save-all"
-                    :tooltip="t('toolbar.saveAs')"
-                    :shortcut="shortcutLabels.saveAs"
-                    :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
-                    :loading="isSavingAs"
-                    @click="emit('save-as')"
-                />
-                <ToolbarButton
-                    v-if="isCommandInline('print')"
-                    icon="lucide:printer"
-                    :tooltip="t('toolbar.print')"
-                    :shortcut="shortcutLabels.print"
-                    :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
-                    :loading="isPreparingPrint && !isPreparingCurrentPagePrint"
-                    @click="emit('print')"
-                />
-                <ToolbarButton
-                    v-if="isCommandInline('print-current-page')"
-                    icon="lucide:printer"
-                    :tooltip="t('toolbar.printCurrentPage')"
-                    :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
-                    :loading="isPreparingCurrentPagePrint"
-                    @click="emit('print-current-page')"
-                >
-                    <PrintCurrentPageIcon class="size-full" />
-                </ToolbarButton>
+            <template v-if="!isCollapsed(5)">
+                <div class="toolbar-action toolbar-action--save">
+                    <ToolbarButton
+                        v-if="isCommandInline('save')"
+                        icon="lucide:save"
+                        :tooltip="t('toolbar.save')"
+                        :shortcut="shortcutLabels.save"
+                        :disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :loading="isSaving"
+                        @click="emit('save')"
+                    />
+                </div>
+                <div class="toolbar-action toolbar-action--save-as">
+                    <ToolbarButton
+                        v-if="isCommandInline('save-as')"
+                        icon="lucide:save-all"
+                        :tooltip="t('toolbar.saveAs')"
+                        :shortcut="shortcutLabels.saveAs"
+                        :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :loading="isSavingAs"
+                        @click="emit('save-as')"
+                    />
+                </div>
+                <div class="toolbar-action toolbar-action--print">
+                    <ToolbarButton
+                        v-if="isCommandInline('print')"
+                        icon="lucide:printer"
+                        :tooltip="t('toolbar.print')"
+                        :shortcut="shortcutLabels.print"
+                        :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :loading="isPreparingPrint && !isPreparingCurrentPagePrint"
+                        @click="emit('print')"
+                    />
+                </div>
+                <div class="toolbar-action toolbar-action--print-current-page">
+                    <ToolbarButton
+                        v-if="isCommandInline('print-current-page')"
+                        icon="lucide:printer"
+                        :tooltip="t('toolbar.printCurrentPage')"
+                        :disabled="!hasInteractiveDocument || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :loading="isPreparingCurrentPagePrint"
+                        @click="emit('print-current-page')"
+                    >
+                        <PrintCurrentPageIcon class="size-full" />
+                    </ToolbarButton>
+                </div>
             </template>
 
             <div class="toolbar-separator" />
 
-            <template v-if="!isCollapsed(3)">
-                <ToolbarButton
-                    v-if="isCommandInline('undo')"
-                    icon="lucide:undo-2"
-                    :tooltip="t('toolbar.undo')"
-                    :shortcut="shortcutLabels.undo"
-                    :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
-                    @click="emit('undo')"
-                />
-                <ToolbarButton
-                    v-if="isCommandInline('redo')"
-                    icon="lucide:redo-2"
-                    :tooltip="t('toolbar.redo')"
-                    :shortcut="shortcutLabels.redo"
-                    :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
-                    @click="emit('redo')"
-                />
+            <template v-if="!isCollapsed(5)">
+                <div class="toolbar-action toolbar-action--undo">
+                    <ToolbarButton
+                        v-if="isCommandInline('undo')"
+                        icon="lucide:undo-2"
+                        :tooltip="t('toolbar.undo')"
+                        :shortcut="shortcutLabels.undo"
+                        :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
+                        @click="emit('undo')"
+                    />
+                </div>
+                <div class="toolbar-action toolbar-action--redo">
+                    <ToolbarButton
+                        v-if="isCommandInline('redo')"
+                        icon="lucide:redo-2"
+                        :tooltip="t('toolbar.redo')"
+                        :shortcut="shortcutLabels.redo"
+                        :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
+                        @click="emit('redo')"
+                    />
+                </div>
             </template>
         </div>
 
@@ -120,7 +132,7 @@
 
             <div class="toolbar-separator" />
 
-            <div v-if="!isCollapsed(2)" class="toolbar-button-group">
+            <div v-if="!isCollapsed(3)" class="toolbar-button-group toolbar-button-group--fit">
                 <div v-if="isCommandInline('fit-width')" class="toolbar-group-item">
                     <ToolbarButton
                         icon="lucide:move-horizontal"
@@ -143,7 +155,7 @@
                         @click="emit('fit-height')"
                     />
                 </div>
-                <div v-if="isCommandInline('continuous-scroll') && !isCollapsed(1)" class="toolbar-group-item">
+                <div v-if="isCommandInline('continuous-scroll') && !isCollapsed(2)" class="toolbar-group-item toolbar-group-item--continuous-scroll">
                     <ToolbarButton
                         icon="lucide:scroll"
                         :active="continuousScroll"
@@ -158,7 +170,7 @@
             <div class="toolbar-separator" />
 
             <ToolbarButton
-                v-if="isCommandInline('quick-note') && isCollapsed(2)"
+                v-if="isCommandInline('quick-note') && isCollapsed(4)"
                 icon="lucide:message-square-plus"
                 :active="isPlacingPageNote"
                 :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
@@ -166,8 +178,8 @@
                 @click="emit('quick-note')"
             />
 
-            <div v-else class="toolbar-button-group">
-                <div v-if="isCommandInline('quick-note')" class="toolbar-group-item">
+            <div v-else class="toolbar-button-group toolbar-button-group--interaction">
+                <div v-if="isCommandInline('quick-note')" class="toolbar-group-item toolbar-group-item--quick-note">
                     <ToolbarButton
                         icon="lucide:message-square-plus"
                         :active="isPlacingPageNote"
@@ -177,7 +189,7 @@
                         @click="emit('quick-note')"
                     />
                 </div>
-                <div v-if="isCommandInline('drag-mode')" class="toolbar-group-item">
+                <div v-if="isCommandInline('drag-mode')" class="toolbar-group-item toolbar-group-item--drag-mode">
                     <ToolbarButton
                         icon="lucide:hand"
                         :active="dragMode && !isPlacingPageNote"
@@ -187,7 +199,7 @@
                         @click="emit('enable-drag')"
                     />
                 </div>
-                <div v-if="isCommandInline('text-select')" class="toolbar-group-item">
+                <div v-if="isCommandInline('text-select')" class="toolbar-group-item toolbar-group-item--text-select">
                     <ToolbarButton
                         icon="lucide:text-cursor"
                         :active="!dragMode && !isPlacingPageNote"
@@ -203,47 +215,55 @@
         <div class="toolbar-separator" />
 
         <div class="toolbar-section toolbar-right">
-            <ToolbarButton
-                v-if="isCommandInline('capture-region') && !isCollapsed(2)"
-                icon="lucide:scan"
-                :active="isCapturingRegion"
-                :tooltip="t('toolbar.captureRegion')"
-                :disabled="!hasInteractiveDocument"
-                @click="emit('capture-region')"
-            />
-            <ToolbarButton
-                v-if="isCommandInline('crop') && !isCollapsed(2)"
-                icon="lucide:crop"
-                :active="isCropSelecting"
-                :tooltip="t('toolbar.crop')"
-                :disabled="!hasInteractiveDocument || isDjvuMode"
-                @click="emit('crop')"
-            />
+            <div class="toolbar-action toolbar-action--capture-region">
+                <ToolbarButton
+                    v-if="isCommandInline('capture-region') && !isCollapsed(3)"
+                    icon="lucide:scan"
+                    :active="isCapturingRegion"
+                    :tooltip="t('toolbar.captureRegion')"
+                    :disabled="!hasInteractiveDocument"
+                    @click="emit('capture-region')"
+                />
+            </div>
+            <div class="toolbar-action toolbar-action--crop">
+                <ToolbarButton
+                    v-if="isCommandInline('crop') && !isCollapsed(3)"
+                    icon="lucide:crop"
+                    :active="isCropSelecting"
+                    :tooltip="t('toolbar.crop')"
+                    :disabled="!hasInteractiveDocument || isDjvuMode"
+                    @click="emit('crop')"
+                />
+            </div>
 
-            <slot
-                v-if="isCommandInline('ocr')"
-                name="ocr"
-                :collapse-tier="collapseTier"
-                :has-overflow-items="hasOverflowItems"
-                :is-collapsed="isCollapsed"
-            />
+            <div class="toolbar-action toolbar-action--ocr">
+                <slot
+                    v-if="isCommandInline('ocr')"
+                    name="ocr"
+                    :collapse-tier="collapseTier"
+                    :has-overflow-items="hasOverflowItems"
+                    :is-collapsed="isCollapsed"
+                />
+            </div>
 
-            <ToolbarButton
-                v-if="isCommandInline('export-docx') && !isCollapsed(1)"
-                icon="lucide:file-text"
-                :tooltip="t('toolbar.exportDocx')"
-                :shortcut="shortcutLabels.exportDocx"
-                :disabled="!hasInteractiveDocument || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
-                :loading="isExportingDocx"
-                @click="emit('export-docx')"
-            />
+            <div class="toolbar-action toolbar-action--export-docx">
+                <ToolbarButton
+                    v-if="isCommandInline('export-docx') && !isCollapsed(3)"
+                    icon="lucide:file-text"
+                    :tooltip="t('toolbar.exportDocx')"
+                    :shortcut="shortcutLabels.exportDocx"
+                    :disabled="!hasInteractiveDocument || !canExportDocx || isAnySaving || isHistoryBusy || isExportingDocx"
+                    :loading="isExportingDocx"
+                    @click="emit('export-docx')"
+                />
+            </div>
 
-            <div v-if="!isCollapsed(2)" class="toolbar-separator" />
+            <div v-if="!isCollapsed(3)" class="toolbar-separator" />
 
             <slot
                 v-if="isCommandInline('overflow-menu')"
                 name="overflow-menu"
-                :collapse-tier="collapseTier"
+                :collapse-tier="overflowMenuCollapseTier"
                 :has-overflow-items="hasOverflowItems"
                 :is-collapsed="isCollapsed"
             />
@@ -333,13 +353,6 @@ const emit = defineEmits<{
 const { t } = useTypedI18n();
 
 const {
-    toolbarRef,
-    collapseTier,
-    hasOverflowItems,
-    isCollapsed,
-} = useToolbarOverflow();
-
-const {
     isFullscreen,
     isSupported: fullscreenSupported,
     toggleFullscreen,
@@ -347,9 +360,16 @@ const {
 
 const shortcutLabels = getShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && !documentBusy);
+const collapseTier = 0;
+const hasOverflowItems = true;
+const overflowMenuCollapseTier = 5;
 
 function isCommandInline(command: TReaderCommandId) {
     return isReaderCommandInline(surface, command);
+}
+
+function isCollapsed(_tier: number) {
+    return false;
 }
 </script>
 
@@ -383,6 +403,7 @@ function isCommandInline(command: TReaderCommandId) {
     position: relative;
     z-index: 10;
     transition: background-color 0.15s ease, border-color 0.15s ease;
+    container-type: inline-size;
 
     --toolbar-control-height: 2.25rem;
     --toolbar-icon-size: 18px;
@@ -408,6 +429,12 @@ function isCommandInline(command: TReaderCommandId) {
 }
 
 .toolbar-right {
+    flex-shrink: 0;
+}
+
+.toolbar-action {
+    display: flex;
+    align-items: center;
     flex-shrink: 0;
 }
 
@@ -443,6 +470,44 @@ function isCommandInline(command: TReaderCommandId) {
     gap: 0.3rem;
     flex-shrink: 0;
     min-width: max-content;
+}
+
+@container (max-width: 1500px) {
+    .toolbar--editor .toolbar-action--print-current-page,
+    .toolbar--editor .toolbar-action--save-as,
+    .toolbar--editor .toolbar-action--export-docx,
+    .toolbar--editor .toolbar-group-item--drag-mode,
+    .toolbar--editor .toolbar-group-item--text-select {
+        display: none;
+    }
+}
+
+@container (max-width: 1380px) {
+    .toolbar--editor .toolbar-action--print,
+    .toolbar--editor .toolbar-group-item--continuous-scroll {
+        display: none;
+    }
+}
+
+@container (max-width: 1260px) {
+    .toolbar--editor .toolbar-button-group--fit {
+        display: none;
+    }
+}
+
+@container (max-width: 1120px) {
+    .toolbar--editor .toolbar-action--capture-region,
+    .toolbar--editor .toolbar-action--crop,
+    .toolbar--editor .toolbar-action--ocr {
+        display: none;
+    }
+}
+
+@container (max-width: 980px) {
+    .toolbar--editor .toolbar-action--undo,
+    .toolbar--editor .toolbar-action--redo {
+        display: none;
+    }
 }
 
 .toolbar--reader {

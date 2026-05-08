@@ -20,6 +20,7 @@ const browserPdfCombineWorkerMock = vi.hoisted(() => ({
     })),
     run: vi.fn(),
 }));
+const browserDjvuCapabilityMock = vi.hoisted(() => ({convertToPdf: vi.fn()}));
 const utifMock = vi.hoisted(() => ({
     decode: vi.fn(() => []),
     decodeImage: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock('@app/platform/browser-api/browser-pdf-combine-worker-client', () => ({
     runBrowserPdfCombineWorkerRequest: (type: string, payload: unknown) =>
         browserPdfCombineWorkerMock.run(type, payload),
 }));
+vi.mock('@app/platform/browser-api/djvu-capability', () => ({browserDjvuCapability: {convertToPdf: browserDjvuCapabilityMock.convertToPdf}}));
 vi.mock('utif', () => {
     const decode = (...args: Parameters<typeof utifMock.decode>) => utifMock.decode(...args);
     const decodeImage = (...args: Parameters<typeof utifMock.decodeImage>) => utifMock.decodeImage(...args);
@@ -161,6 +163,7 @@ describe('createBrowserDocumentsFileCapability', () => {
         browserPdfCombineWorkerMock.canUse.mockReturnValue(false);
         browserPdfCombineWorkerMock.cloneInput.mockClear();
         browserPdfCombineWorkerMock.run.mockReset();
+        browserDjvuCapabilityMock.convertToPdf.mockReset();
         utifMock.decode.mockReset();
         utifMock.decode.mockReturnValue([]);
         utifMock.decodeImage.mockReset();
@@ -193,7 +196,7 @@ describe('createBrowserDocumentsFileCapability', () => {
         await expect(browserDocumentStore.exists(ref)).resolves.toBe(false);
     });
 
-    it('does not expose DjVu files in the browser combine picker', async () => {
+    it('exposes DjVu files in the browser combine picker', async () => {
         const showOpenFilePicker = vi.fn(async () => []);
         const { capability } = await loadBrowserDocumentsFileCapability({ windowOverrides: { showOpenFilePicker } });
 
@@ -201,11 +204,17 @@ describe('createBrowserDocumentsFileCapability', () => {
 
         const firstCall = showOpenFilePicker.mock.calls[0] as [{types?: Array<{ accept: Record<string, string[]>; }>;}] | undefined;
         const accept = firstCall?.[0]?.types?.[0]?.accept;
+        const expectedDjvuAccept = [
+            '.djvu',
+            '.djv',
+        ];
+        const expectedPickerTypes = [expect.objectContaining({accept: expect.objectContaining({'application/octet-stream': expectedDjvuAccept})})];
         expect(showOpenFilePicker).toHaveBeenCalledTimes(1);
         expect(showOpenFilePicker).toHaveBeenCalledWith(expect.objectContaining({
             multiple: true,
-            types: [expect.objectContaining({ accept: expect.not.objectContaining({'application/octet-stream': expect.anything()}) })],
+            types: expectedPickerTypes,
         }));
+        expect(accept?.['application/octet-stream']).toEqual(expectedDjvuAccept);
         expect(accept?.['image/*']).not.toContain('.svgz');
     });
 
@@ -492,6 +501,61 @@ describe('createBrowserDocumentsFileCapability', () => {
                 ]), 
             },
         ]});
+    });
+
+    it('converts DjVu files before combining mixed browser batches', async () => {
+        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
+        const { createCombinedPdfFromPaths } = await import('@app/platform/browser-api/documents-file-capability');
+        const pdfBytes = await createPdfBytes();
+        const pdfRef = await browserDocumentStore.createStoredDocument(
+            'first.pdf',
+            pdfBytes,
+            {
+                mimeType: 'application/pdf',
+                kind: 'source',
+                saveKind: 'pdf',
+            },
+        );
+        const djvuRef = await browserDocumentStore.createStoredDocument(
+            'scan.djvu',
+            new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            {
+                mimeType: 'application/octet-stream',
+                kind: 'source',
+                saveKind: 'generic',
+            },
+        );
+        let convertedRef: string | null = null;
+        browserDjvuCapabilityMock.convertToPdf.mockImplementation(async (_djvuPath: string, outputPath: string) => {
+            convertedRef = outputPath;
+            await browserDocumentStore.write(outputPath, pdfBytes);
+            return {
+                success: true,
+                pdfPath: outputPath,
+            };
+        });
+
+        const result = await createCombinedPdfFromPaths([
+            pdfRef,
+            djvuRef,
+        ]);
+        const combinedPdf = await PDFDocument.load(result);
+
+        expect(combinedPdf.getPageCount()).toBe(2);
+        expect(browserDjvuCapabilityMock.convertToPdf).toHaveBeenCalledWith(
+            djvuRef,
+            expect.stringMatching(/^browser:\/\/documents\//u),
+            {
+                subsample: 1,
+                preserveBookmarks: true,
+            },
+        );
+        expect(convertedRef).not.toBeNull();
+        await expect(browserDocumentStore.exists(convertedRef!)).resolves.toBe(false);
     });
 
     it('offloads TIFF combine jobs to the browser worker when available', async () => {

@@ -84,13 +84,13 @@
                 :working-copy-path="null"
                 :open="ocrPopupOpen"
                 :disabled="snapshot.isDjvuMode || !hasPdf"
-                :hide-trigger="isCollapsed(2)"
+                :hide-trigger="isCollapsed(3)"
                 @update:open="emit('update:ocrPopupOpen', $event)"
                 @export-docx="emit('export-docx')"
                 @ocr-complete="emit('ocr-complete')"
             />
         </template>
-        <template #zoom-dropdown>
+        <template #zoom-dropdown="{ collapseTier }">
             <PdfZoomDropdown
                 v-model:zoom="zoom"
                 v-model:zoom-mode="zoomMode"
@@ -99,7 +99,7 @@
                 :effective-zoom="effectiveZoom"
                 :open="zoomDropdownOpen"
                 :disabled="!hasPdf"
-                :compact-level="0"
+                :compact-level="collapseTier >= 1 ? 1 : 0"
                 @update:effective-zoom="emit('update:effectiveZoom', $event)"
                 @update:open="emit('update:zoomDropdownOpen', $event)"
             />
@@ -112,7 +112,7 @@
                 :view-mode="snapshot.viewMode"
                 :page-labels="null"
                 :disabled="!hasPdf"
-                :compact-level="collapseTier >= 5 ? 2 : collapseTier >= 4 ? 1 : 0"
+                :compact-level="collapseTier >= 3 ? 3 : collapseTier >= 2 ? 2 : collapseTier >= 1 ? 1 : 0"
                 @go-to-page="emit('go-to-page')"
                 @update:open="emit('update:pageDropdownOpen', $event)"
             />
@@ -122,21 +122,11 @@
                 v-if="hasOverflowItems"
                 :open="overflowMenuOpen"
                 :collapse-tier="collapseTier"
-                :can-save="snapshot.canSave"
-                can-save-as
-                can-print
-                :can-undo="snapshot.canUndo"
-                :can-redo="snapshot.canRedo"
                 can-toggle-sidebar
                 can-capture-region
                 can-crop
                 can-quick-note
                 :has-pdf="hasPdf"
-                :is-any-saving="snapshot.isAnySaving"
-                :is-history-busy="snapshot.isHistoryBusy"
-                :is-exporting-docx="snapshot.isExportingDocx"
-                :is-preparing-print="snapshot.isPreparingPrint"
-                :can-export-docx="snapshot.canExportDocx"
                 :can-use-ocr="canUseOcr"
                 :show-sidebar="snapshot.showSidebar"
                 :drag-mode="snapshot.dragMode"
@@ -151,15 +141,8 @@
                 :surface="toolbarSurface"
                 trigger-icon="i-lucide-ellipsis"
                 @update:open="emit('update:overflowMenuOpen', $event)"
-                @open-file="emit('open-file')"
                 @capture-region="emit('capture-region')"
                 @crop="emit('crop')"
-                @save="emit('save')"
-                @save-as="emit('save-as')"
-                @print="emit('print')"
-                @export-docx="emit('export-docx')"
-                @undo="emit('undo')"
-                @redo="emit('redo')"
                 @toggle-sidebar="emit('toggle-sidebar')"
                 @fit-width="emit('fit-width')"
                 @fit-height="emit('fit-height')"

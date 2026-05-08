@@ -27,11 +27,9 @@ import {
 import { syncBrowserWindowTitle } from '@app/platform/browser-window-tabs';
 import {
     OPEN_IMAGE_ACCEPT,
-    OPEN_PDF_IMAGE_ACCEPT,
     OPEN_INPUT_ACCEPT,
     buildDocxSaveTypes,
     buildImagePickerTypes,
-    buildOpenPdfImagePickerTypes,
     buildOpenPdfPickerTypes,
     buildPdfSaveTypes,
     ensureDocxExtension,
@@ -58,6 +56,7 @@ import {
 import { appendPdfImagePage } from '@app/platform/browser-api/pdf-image-pages';
 import { yieldToBrowser } from '@app/platform/browser-api/browser-yield';
 import { emitBrowserOpenPdfDirectBatchProgress } from '@app/platform/browser-api/documents-menu-capability';
+import { browserDjvuCapability } from '@app/platform/browser-api/djvu-capability';
 import { stripPdfEncryption } from '@app/utils/pdf-decrypt';
 
 interface IPickedBrowserFile {
@@ -334,6 +333,68 @@ function canCombineBrowserPathsOffThread(paths: string[]) {
         const fileName = getBrowserDocumentFileName(path);
         return isPdfFileName(fileName) || BROWSER_COMBINE_IMAGE_EXTENSIONS.has(getExtension(fileName));
     });
+}
+
+async function createBrowserPdfFromDjvuForCombine(path: string) {
+    const fileName = getBrowserDocumentFileName(path);
+    const outputName = ensurePdfExtension(fileName.replace(/\.[^.]+$/u, ''));
+    const outputRef = await browserDocumentStore.createStoredDocument(
+        outputName,
+        new Uint8Array(),
+        {
+            mimeType: 'application/pdf',
+            saveKind: 'pdf',
+            kind: 'output',
+            retention: 'transient',
+        },
+    );
+    const result = await browserDjvuCapability.convertToPdf(
+        path,
+        outputRef,
+        {
+            subsample: 1,
+            preserveBookmarks: true,
+        },
+    );
+
+    if (!result.success) {
+        await browserDocumentStore.remove(outputRef).catch(() => undefined);
+        throw new Error(result.error ?? `Failed to convert DjVu file: ${fileName}`);
+    }
+
+    return outputRef;
+}
+
+async function createBrowserCombineInputPaths(paths: string[]) {
+    const convertedRefs: string[] = [];
+    const combinePaths: string[] = [];
+
+    try {
+        for (let index = 0; index < paths.length; index += 1) {
+            if (index > 0) {
+                await yieldToBrowser();
+            }
+
+            const path = paths[index]!;
+            const fileName = getBrowserDocumentFileName(path);
+            if (!isDjvuFileName(fileName)) {
+                combinePaths.push(path);
+                continue;
+            }
+
+            const convertedRef = await createBrowserPdfFromDjvuForCombine(path);
+            convertedRefs.push(convertedRef);
+            combinePaths.push(convertedRef);
+        }
+
+        return {
+            combinePaths,
+            convertedRefs,
+        };
+    } catch (error) {
+        await Promise.allSettled(convertedRefs.map(ref => browserDocumentStore.remove(ref)));
+        throw error;
+    }
 }
 
 async function assertBrowserPathWithinFullReadBudget(
@@ -921,6 +982,23 @@ export async function createCombinedPdfFromPaths(
     progressOptions?: IBrowserBatchOpenProgressOptions,
 ) {
     await ensureBrowserCombinedPdfInputBudget(paths);
+    const {
+        combinePaths,
+        convertedRefs,
+    } = await createBrowserCombineInputPaths(paths);
+    try {
+        return await createCombinedPdfFromPreparedPaths(combinePaths, progressOptions);
+    } finally {
+        if (convertedRefs.length > 0) {
+            await Promise.allSettled(convertedRefs.map(ref => browserDocumentStore.remove(ref)));
+        }
+    }
+}
+
+async function createCombinedPdfFromPreparedPaths(
+    paths: string[],
+    progressOptions?: IBrowserBatchOpenProgressOptions,
+) {
     await ensureBrowserCombinedPdfRewriteBudget(paths);
     const startedAt = Date.now();
     const totalPaths = paths.length;
@@ -1074,17 +1152,15 @@ async function openDocumentPaths(
     );
 
     if (djvuPaths.length > 0) {
-        if (normalizedPaths.length !== 1 || djvuPaths.length !== 1) {
-            return null;
+        if (normalizedPaths.length === 1 && djvuPaths.length === 1) {
+            await browserDocumentStore.touchRecentFile(firstPath);
+            emitBatchOpenProgress(progressOptions, 1, 1, startedAt);
+            return {
+                kind: 'djvu',
+                workingPath: '',
+                originalPath: firstPath,
+            } satisfies TOpenFileResult;
         }
-
-        await browserDocumentStore.touchRecentFile(firstPath);
-        emitBatchOpenProgress(progressOptions, 1, 1, startedAt);
-        return {
-            kind: 'djvu',
-            workingPath: '',
-            originalPath: firstPath,
-        } satisfies TOpenFileResult;
     }
 
     if (normalizedPaths.length === 1 && isPdfFileName(firstFileName)) {
@@ -1130,7 +1206,7 @@ async function openDocumentPaths(
 
     for (const path of normalizedPaths.filter((path) => {
         const name = getBrowserDocumentFileName(path);
-        return isPdfFileName(name);
+        return isPdfFileName(name) || isDjvuFileName(name);
     })) {
         await browserDocumentStore.touchRecentFile(path);
     }
@@ -1237,9 +1313,9 @@ export function createBrowserDocumentsFileCapability(
         },
         async openCombineDialog() {
             const pickedFiles = await pickFiles({
-                accept: OPEN_PDF_IMAGE_ACCEPT,
+                accept: OPEN_INPUT_ACCEPT,
                 multiple: true,
-                pickerTypes: buildOpenPdfImagePickerTypes(),
+                pickerTypes: buildOpenPdfPickerTypes(),
             });
             if (pickedFiles.length === 0) {
                 return null;

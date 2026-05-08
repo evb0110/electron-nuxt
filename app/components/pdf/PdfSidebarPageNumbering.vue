@@ -104,19 +104,17 @@
                         {{ rangeErrorMessage }}
                     </p>
 
-                    <UTooltip :text="applyTargetSummary" :delay-duration="600">
-                        <UButton
-                            size="xs"
-                            variant="soft"
-                            color="primary"
-                            class="pdf-sidebar-pages-primary-button"
-                            :ui="{ base: 'justify-center text-center whitespace-nowrap' }"
-                            :disabled="applyTargetRange === null"
-                            @click="applyToTargetRange"
-                        >
-                            <span class="pdf-sidebar-pages-button-label">{{ t('pageNumbering.applyNumbering') }}</span>
-                        </UButton>
-                    </UTooltip>
+                    <UButton
+                        size="xs"
+                        variant="soft"
+                        color="primary"
+                        class="pdf-sidebar-pages-primary-button"
+                        :ui="{ base: 'justify-center text-center whitespace-nowrap' }"
+                        :disabled="applyTargetRange === null"
+                        @click="applyToTargetRange"
+                    >
+                        <span class="pdf-sidebar-pages-button-label">{{ t('pageNumbering.applyNumbering') }}</span>
+                    </UButton>
                 </div>
             </template>
         </UCollapsible>
@@ -237,7 +235,6 @@ function deriveContiguousSelectionRange(pages: number[]): IPdfPageRange | null {
 }
 
 const selectionRange = computed(() => deriveContiguousSelectionRange(props.selectedPages));
-const hasNonContiguousSelection = computed(() => props.selectedPages.length > 0 && selectionRange.value === null);
 
 const selectionSummary = computed(() => {
     if (props.selectedPages.length === 0) {
@@ -272,26 +269,6 @@ const applyTargetRange = computed(() => {
     }
 
     return selectionRange.value;
-});
-
-const applyTargetSummary = computed(() => {
-    if (pageRangeInput.value.trim().length > 0 && manualRange.value === null) {
-        return t('pageNumbering.targetUnavailableRange');
-    }
-
-    if (manualRange.value !== null) {
-        return t('pageNumbering.targetPages', { range: formatPageRange(manualRange.value) });
-    }
-
-    if (selectionRange.value !== null) {
-        return t('pageNumbering.targetSelectedPages', { range: formatPageRange(selectionRange.value) });
-    }
-
-    if (hasNonContiguousSelection.value) {
-        return t('pageNumbering.targetUnavailableNonContiguous');
-    }
-
-    return t('pageNumbering.targetNone');
 });
 
 function readEventValue(event: Event) {

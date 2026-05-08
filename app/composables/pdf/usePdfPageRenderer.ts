@@ -37,6 +37,7 @@ import {
     setupPagePlaceholderSizes,
     type IPageRange,
 } from '@app/composables/pdf/pdfPageBufferManager';
+import { normalizePageMetrics } from '@app/composables/pdf/pdfPageLayout';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     guardAsync,
@@ -519,13 +520,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
 
         const scale = toValue(options.effectiveScale);
-        const normalizedPageMetrics = Array.from(
-            { length: numPages.value },
-            (_, index) => pageMetrics.value[index] ?? {
-                width: baseWidth,
-                height: baseHeight,
-            } satisfies IPdfPageMetric,
-        );
+        const normalizedPageMetrics = normalizePageMetrics({
+            pageMetrics: pageMetrics.value,
+            totalPages: numPages.value,
+            fallbackWidth: baseWidth,
+            fallbackHeight: baseHeight,
+        });
         setupPagePlaceholderSizes(containerRoot, normalizedPageMetrics, scale);
     }
 
