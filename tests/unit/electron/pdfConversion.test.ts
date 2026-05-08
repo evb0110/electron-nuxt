@@ -15,9 +15,16 @@ const mocks = vi.hoisted(() => {
         2,
         3,
     ]));
+    const mkdtemp = vi.fn(async () => '/tmp/pdf-combine-djvu-test');
+    const rm = vi.fn(async () => undefined);
     const stat = vi.fn(async () => ({
         isFile: () => true,
         size: 1024,
+    }));
+    const convertDjvuToPdfFile = vi.fn(async () => ({
+        success: true,
+        outputPath: '/tmp/pdf-combine-djvu-test/output.pdf',
+        fileSize: 1024,
     }));
 
     const addPage = vi.fn();
@@ -41,7 +48,10 @@ const mocks = vi.hoisted(() => {
         workerCtor,
         loggerWarn,
         readFile,
+        mkdtemp,
+        rm,
         stat,
+        convertDjvuToPdfFile,
         create,
         load,
     };
@@ -125,7 +135,9 @@ vi.mock('worker_threads', () => ({Worker: class {
 }}));
 
 vi.mock('fs/promises', () => ({
+    mkdtemp: mocks.mkdtemp,
     readFile: mocks.readFile,
+    rm: mocks.rm,
     stat: mocks.stat,
 }));
 
@@ -146,6 +158,8 @@ vi.mock('@electron/utils/logger', () => ({createLogger: () => ({
     info: vi.fn(),
 })}));
 
+vi.mock('@electron/features/djvu/main/ddjvu-conversion', () => ({convertDjvuToPdfFile: mocks.convertDjvuToPdfFile}));
+
 const { createPdfFromInputPaths } =
     await import('@electron/image/pdf-conversion');
 
@@ -153,6 +167,13 @@ describe('createPdfFromInputPaths worker fallback', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.workerState.mode = 'startup-error';
+        mocks.mkdtemp.mockResolvedValue('/tmp/pdf-combine-djvu-test');
+        mocks.rm.mockResolvedValue(undefined);
+        mocks.convertDjvuToPdfFile.mockResolvedValue({
+            success: true,
+            outputPath: '/tmp/pdf-combine-djvu-test/output.pdf',
+            fileSize: 1024,
+        });
         mocks.stat.mockResolvedValue({
             isFile: () => true,
             size: 1024,
@@ -245,5 +266,30 @@ describe('createPdfFromInputPaths worker fallback', () => {
         expect(workerOptions.workerData?.inputPaths).toEqual(inputPaths);
         expect(mocks.create).not.toHaveBeenCalled();
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
+    });
+
+    it('converts DjVu inputs on the local combine path', async () => {
+        const result = await createPdfFromInputPaths([
+            '/tmp/input.pdf',
+            '/tmp/scan.djvu',
+        ]);
+
+        expect(Array.from(result)).toEqual([
+            9,
+            9,
+            9,
+        ]);
+        expect(mocks.workerCtor).not.toHaveBeenCalled();
+        expect(mocks.convertDjvuToPdfFile).toHaveBeenCalledWith(
+            '/tmp/scan.djvu',
+            expect.stringMatching(/^\/tmp\/pdf-combine-djvu-test\/.+\.pdf$/u),
+            expect.stringMatching(/^pdf-combine-djvu-/u),
+            { subsample: 1 },
+        );
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-combine-djvu-test', {
+            recursive: true,
+            force: true,
+        });
+        expect(mocks.load).toHaveBeenCalledTimes(2);
     });
 });

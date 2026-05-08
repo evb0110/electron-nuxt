@@ -94,14 +94,14 @@
                         :is-exporting-docx="isExportingDocx"
                         :external-error="docxExportError"
                         :disabled="isDjvuMode || isConversionBusy || !toolbarHasPdf"
-                        :hide-trigger="isCollapsed(2)"
+                        :hide-trigger="isCollapsed(3)"
                         @update:open="handleDropdownOpen('ocr', $event)"
                         @update:running="isOcrRunning = $event"
                         @export-docx="handleExportDocx"
                         @ocr-complete="handleOcrComplete"
                     />
                 </template>
-                <template #zoom-dropdown>
+                <template #zoom-dropdown="{ collapseTier }">
                     <PdfZoomDropdown
                         v-model:zoom="zoom"
                         v-model:zoom-mode="zoomMode"
@@ -110,7 +110,7 @@
                         :effective-zoom="effectiveZoom"
                         :open="zoomDropdownOpen"
                         :disabled="!toolbarHasPdf || isDocumentBusy"
-                        :compact-level="0"
+                        :compact-level="collapseTier >= 1 ? 1 : 0"
                         @update:effective-zoom="effectiveZoom = $event"
                         @update:open="handleDropdownOpen('zoom', $event)"
                     />
@@ -123,7 +123,7 @@
                         :view-mode="viewMode"
                         :page-labels="pageLabels"
                         :disabled="!toolbarHasPdf || isDocumentBusy"
-                        :compact-level="collapseTier >= 5 ? 2 : collapseTier >= 4 ? 1 : 0"
+                        :compact-level="collapseTier >= 3 ? 3 : collapseTier >= 2 ? 2 : collapseTier >= 1 ? 1 : 0"
                         @go-to-page="handleGoToPage"
                         @update:open="handleDropdownOpen('page', $event)"
                     />
@@ -133,22 +133,11 @@
                         v-if="hasOverflowItems"
                         :open="overflowMenuOpen"
                         :collapse-tier="collapseTier"
-                        :can-save="canSave"
-                        can-save-as
-                        can-print
-                        :can-undo="canUndo"
-                        :can-redo="canRedo"
                         :can-toggle-sidebar="canToggleSidebar"
                         can-capture-region
                         can-crop
                         can-quick-note
                         :has-pdf="toolbarHasPdf"
-                        :is-any-saving="isAnySaving"
-                        :is-history-busy="isHistoryBusy"
-                        :is-exporting-docx="isExportingDocx"
-                        :is-preparing-print="isPreparingPrint"
-                        :is-preparing-current-page-print="isPreparingCurrentPagePrint"
-                        :can-export-docx="canExportDocx"
                         :can-use-ocr="canUseOcr"
                         :show-sidebar="toolbarShowSidebar"
                         :drag-mode="dragMode"
@@ -164,17 +153,9 @@
                         :surface="toolbarSurface"
                         trigger-icon="i-lucide-ellipsis"
                         @update:open="handleDropdownOpen('overflow', $event)"
-                        @open-file="handleOpenFileFromUi"
                         @capture-region="handleToolbarCaptureRegion"
                         @crop="handleToolbarCrop"
-                        @save="handleToolbarSave"
-                        @save-as="handleToolbarSaveAs"
-                        @print="handlePrint"
-                        @print-current-page="handlePrintCurrentPage"
-                        @export-docx="handleToolbarExportDocx"
                         @open-ocr="handleDropdownOpen('ocr', true)"
-                        @undo="handleToolbarUndo"
-                        @redo="handleToolbarRedo"
                         @toggle-sidebar="handleToolbarToggleSidebar"
                         @fit-width="handleToolbarFitWidth"
                         @fit-height="handleToolbarFitHeight"

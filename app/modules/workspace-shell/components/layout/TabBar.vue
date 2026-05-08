@@ -505,6 +505,7 @@ onClickOutside(contextMenuRef, () => {
     min-width: 0;
     scrollbar-width: none;
     padding-top: 0.25rem;
+    padding-left: var(--app-tab-list-start-padding);
 }
 
 .tab-list::-webkit-scrollbar {

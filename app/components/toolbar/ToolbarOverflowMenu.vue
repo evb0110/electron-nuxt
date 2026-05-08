@@ -18,44 +18,11 @@
 
         <template #content>
             <div class="overflow-menu">
-                <template v-if="hasDocumentItems">
-                    <div class="overflow-menu-section-header">{{ t('menu.file') }}</div>
-                    <div class="overflow-menu-section">
-                        <button
-                            v-if="shouldShowMenuCommand('print', 3) && canPrint"
-                            class="overflow-menu-item"
-                            :disabled="!hasInteractiveDocument || isPreparingPrint || isDjvuMode"
-                            @click="emit('print'); close()"
-                        >
-                            <UIcon
-                                :name="isPreparingPrint && !isPreparingCurrentPagePrint ? 'i-lucide-loader-circle' : 'i-lucide-printer'"
-                                :class="['overflow-menu-icon', { 'animate-spin': isPreparingPrint && !isPreparingCurrentPagePrint }]"
-                            />
-                            <span class="overflow-menu-label">{{ t('toolbar.print') }}</span>
-                        </button>
-                        <button
-                            v-if="shouldShowMenuCommand('print-current-page', 3)"
-                            class="overflow-menu-item"
-                            :disabled="!hasInteractiveDocument || isPreparingPrint || isDjvuMode"
-                            @click="emit('print-current-page'); close()"
-                        >
-                            <UIcon
-                                v-if="isPreparingCurrentPagePrint"
-                                name="i-lucide-loader-circle"
-                                class="overflow-menu-icon animate-spin"
-                            />
-                            <PrintCurrentPageIcon v-else class="overflow-menu-icon" />
-                            <span class="overflow-menu-label">{{ t('toolbar.printCurrentPage') }}</span>
-                        </button>
-                    </div>
-                </template>
-
                 <template v-if="hasToolItems">
-                    <div v-if="hasDocumentItems" class="overflow-menu-divider" />
                     <div class="overflow-menu-section-header">{{ t('toolbar.annotations') }}</div>
                     <div class="overflow-menu-section">
                         <button
-                            v-if="shouldShowMenuCommand('capture-region', 2) && canCaptureRegion"
+                            v-if="shouldShowMenuCommand('capture-region', 3) && canCaptureRegion"
                             :class="['overflow-menu-item', { 'is-active': isCapturingRegion }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('capture-region'); close()"
@@ -69,7 +36,7 @@
                             />
                         </button>
                         <button
-                            v-if="shouldShowMenuCommand('crop', 2) && canCrop"
+                            v-if="shouldShowMenuCommand('crop', 3) && canCrop"
                             :class="['overflow-menu-item', { 'is-active': isCropSelecting }]"
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('crop'); close()"
@@ -83,7 +50,7 @@
                             />
                         </button>
                         <button
-                            v-if="shouldShowMenuCommand('quick-note', 2) && canQuickNote"
+                            v-if="shouldShowMenuCommand('quick-note', 4) && canQuickNote"
                             :class="['overflow-menu-item', { 'is-active': isPlacingPageNote }]"
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('quick-note'); close()"
@@ -97,7 +64,7 @@
                             />
                         </button>
                         <button
-                            v-if="shouldShowMenuCommand('ocr', 2) && canUseOcr"
+                            v-if="shouldShowMenuCommand('ocr', 3) && canUseOcr"
                             class="overflow-menu-item"
                             :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('open-ocr'); close()"
@@ -172,7 +139,7 @@
                             />
                         </button>
                         <button
-                            v-if="shouldShowMenuCommand('fit-width', 2)"
+                            v-if="shouldShowMenuCommand('fit-width', 3)"
                             :class="['overflow-menu-item', { 'is-active': isFitWidthActive }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('fit-width'); close()"
@@ -186,7 +153,7 @@
                             />
                         </button>
                         <button
-                            v-if="shouldShowMenuCommand('fit-height', 2)"
+                            v-if="shouldShowMenuCommand('fit-height', 3)"
                             :class="['overflow-menu-item', { 'is-active': isFitHeightActive }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('fit-height'); close()"
@@ -200,7 +167,7 @@
                             />
                         </button>
                         <button
-                            v-if="shouldShowMenuCommand('continuous-scroll', 1)"
+                            v-if="shouldShowMenuCommand('continuous-scroll', 2)"
                             :class="['overflow-menu-item', { 'is-active': continuousScroll }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('toggle-continuous-scroll'); close()"
@@ -214,7 +181,7 @@
                             />
                         </button>
                         <button
-                            v-if="shouldShowMenuCommand('drag-mode', 2)"
+                            v-if="shouldShowMenuCommand('drag-mode', 4)"
                             :class="['overflow-menu-item', { 'is-active': dragMode }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('enable-drag'); close()"
@@ -228,7 +195,7 @@
                             />
                         </button>
                         <button
-                            v-if="shouldShowMenuCommand('text-select', 2)"
+                            v-if="shouldShowMenuCommand('text-select', 4)"
                             :class="['overflow-menu-item', { 'is-active': !dragMode }]"
                             :disabled="!hasInteractiveDocument"
                             @click="emit('disable-drag'); close()"
@@ -280,7 +247,6 @@ import {
     type TReaderCommandId,
     type IReaderCommandSurface,
 } from '@app/utils/reader-command-surface';
-import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
 
 const { t } = useTypedI18n();
 
@@ -288,21 +254,10 @@ interface IProps {
     open: boolean
     collapseTier: number
     hasPdf: boolean
-    canSave: boolean
-    canSaveAs: boolean
-    canPrint: boolean
-    canUndo: boolean
-    canRedo: boolean
     canToggleSidebar?: boolean
     canCaptureRegion: boolean
     canCrop: boolean
     canQuickNote: boolean
-    isAnySaving: boolean
-    isHistoryBusy: boolean
-    isExportingDocx: boolean
-    isPreparingPrint?: boolean
-    isPreparingCurrentPagePrint?: boolean
-    canExportDocx: boolean
     canUseOcr: boolean
     showSidebar: boolean
     dragMode: boolean
@@ -323,15 +278,7 @@ const props = defineProps<IProps>();
 
 const emit = defineEmits<{
     (e: 'update:open', value: boolean): void
-    (e: 'save'): void
-    (e: 'save-as'): void
-    (e: 'print'): void
-    (e: 'print-current-page'): void
-    (e: 'export-docx'): void
-    (e: 'open-file'): void
     (e: 'open-ocr'): void
-    (e: 'undo'): void
-    (e: 'redo'): void
     (e: 'toggle-sidebar'): void
     (e: 'fit-width'): void
     (e: 'fit-height'): void
@@ -357,26 +304,21 @@ const isOpen = computed({
 });
 const hasInteractiveDocument = computed(() => props.hasPdf && props.documentBusy !== true);
 
-const hasDocumentItems = computed(() => (
-    (props.canPrint && shouldShowMenuCommand('print', 3))
-    || shouldShowMenuCommand('print-current-page', 3)
-));
-
 const hasToolItems = computed(() => (
-    (props.canCaptureRegion && shouldShowMenuCommand('capture-region', 2))
-    || (props.canCrop && shouldShowMenuCommand('crop', 2))
-    || (props.canQuickNote && shouldShowMenuCommand('quick-note', 2))
-    || (props.canUseOcr && shouldShowMenuCommand('ocr', 2))
+    (props.canCaptureRegion && shouldShowMenuCommand('capture-region', 3))
+    || (props.canCrop && shouldShowMenuCommand('crop', 3))
+    || (props.canQuickNote && shouldShowMenuCommand('quick-note', 4))
+    || (props.canUseOcr && shouldShowMenuCommand('ocr', 3))
 ));
 
 const hasViewItems = computed(() => (
     shouldShowMenuCommand('toggle-sidebar')
     || shouldShowMenuCommand('view-mode', 2)
-    || shouldShowMenuCommand('fit-width', 2)
-    || shouldShowMenuCommand('fit-height', 2)
-    || shouldShowMenuCommand('continuous-scroll', 1)
-    || shouldShowMenuCommand('drag-mode', 2)
-    || shouldShowMenuCommand('text-select', 2)
+    || shouldShowMenuCommand('fit-width', 3)
+    || shouldShowMenuCommand('fit-height', 3)
+    || shouldShowMenuCommand('continuous-scroll', 2)
+    || shouldShowMenuCommand('drag-mode', 4)
+    || shouldShowMenuCommand('text-select', 4)
     || shouldShowMenuCommand('fullscreen')
 ));
 

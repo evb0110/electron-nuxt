@@ -104,9 +104,13 @@
                                 color="neutral"
                                 variant="ghost"
                                 size="xs"
-                                icon="i-lucide-copy"
+                                :icon="recentlyCopiedReports ? 'i-lucide-check' : 'i-lucide-copy'"
+                                :class="[
+                                    'copy-report-button transition-transform duration-150 ease-out hover:scale-110 active:scale-90',
+                                    recentlyCopiedReports && 'copy-report-button--success',
+                                ]"
                                 :aria-label="t('errors.runtime.copy')"
-                                @click="copyText(formatRuntimeErrorReports())"
+                                @click="handleCopyReports"
                             />
                         </UTooltip>
                         <UTooltip :text="t('errors.runtime.details')" :delay-duration="400">
@@ -217,16 +221,43 @@ function formatRuntimeErrorReports() {
     return runtimeErrorReports.value.map(formatRuntimeErrorReport).join('\n\n---\n\n');
 }
 
-async function copyText(value: string) {
+async function copyText(value: string): Promise<boolean> {
     if (!import.meta.client || !navigator.clipboard) {
-        return;
+        return false;
     }
     try {
         await navigator.clipboard.writeText(value);
+        return true;
     } catch (error) {
         BrowserLogger.warn('runtime-errors', 'Failed to copy runtime error report', error);
+        return false;
     }
 }
+
+const recentlyCopiedReports = ref(false);
+let recentlyCopiedTimeout: ReturnType<typeof setTimeout> | null = null;
+
+async function handleCopyReports() {
+    const succeeded = await copyText(formatRuntimeErrorReports());
+    if (!succeeded) {
+        return;
+    }
+    recentlyCopiedReports.value = true;
+    if (recentlyCopiedTimeout) {
+        clearTimeout(recentlyCopiedTimeout);
+    }
+    recentlyCopiedTimeout = setTimeout(() => {
+        recentlyCopiedReports.value = false;
+        recentlyCopiedTimeout = null;
+    }, 1500);
+}
+
+onBeforeUnmount(() => {
+    if (recentlyCopiedTimeout) {
+        clearTimeout(recentlyCopiedTimeout);
+        recentlyCopiedTimeout = null;
+    }
+});
 
 if (localeCookie.value !== settings.value.locale) {
     localeCookie.value = settings.value.locale;
@@ -353,3 +384,38 @@ onMounted(async () => {
     }
 });
 </script>
+
+<style scoped>
+.copy-report-button {
+    transform-origin: center;
+}
+
+.copy-report-button--success {
+    color: var(--ui-success);
+    animation: copy-report-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes copy-report-pop {
+    0% {
+        transform: scale(1);
+    }
+
+    45% {
+        transform: scale(1.28);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .copy-report-button {
+        transition: none;
+    }
+
+    .copy-report-button--success {
+        animation: none;
+    }
+}
+</style>

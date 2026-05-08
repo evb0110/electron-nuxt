@@ -1,5 +1,14 @@
-import { readFile } from 'fs/promises';
-import { extname } from 'path';
+import {
+    mkdtemp,
+    readFile,
+    rm,
+} from 'fs/promises';
+import { randomUUID } from 'crypto';
+import { tmpdir } from 'os';
+import {
+    extname,
+    join,
+} from 'path';
 import { encode } from 'fast-png';
 import {
     PDFDocument,
@@ -11,6 +20,7 @@ import {
     readImageDpi,
     readTiffFrameDpi,
 } from '@electron/image/image-dpi';
+import { convertDjvuToPdfFile } from '@electron/features/djvu/main/ddjvu-conversion';
 
 export interface ICreateCombinedPdfProgress {
     processed: number;
@@ -81,6 +91,11 @@ export function isImagePath(filePath: string): boolean {
     return SUPPORTED_IMAGE_EXTENSION_SET.has(extname(filePath).toLowerCase());
 }
 
+function isDjvuPath(filePath: string): boolean {
+    const extension = extname(filePath).toLowerCase();
+    return extension === '.djvu' || extension === '.djv';
+}
+
 function estimateRemainingMs(elapsedMs: number, processed: number, total: number): number {
     if (processed <= 0 || total <= processed) {
         return 0;
@@ -123,6 +138,34 @@ async function appendPdfPages(
     }
 
     return copiedPages.length;
+}
+
+async function appendDjvuPages(
+    targetPdf: PDFDocument,
+    sourcePath: string,
+): Promise<number> {
+    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-combine-djvu-'));
+    const tempPdfPath = join(tempDir, `${randomUUID()}.pdf`);
+
+    try {
+        const result = await convertDjvuToPdfFile(
+            sourcePath,
+            tempPdfPath,
+            `pdf-combine-djvu-${randomUUID()}`,
+            { subsample: 1 },
+        );
+
+        if (!result.success) {
+            throw new Error(result.error ?? `Failed to convert DjVu file: ${sourcePath}`);
+        }
+
+        return await appendPdfPages(targetPdf, tempPdfPath);
+    } finally {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        }).catch(() => undefined);
+    }
 }
 
 async function appendBitmapPage(
@@ -208,6 +251,8 @@ export async function createCombinedPdf(
 
         if (extension === '.pdf') {
             pageCount += await appendPdfPages(targetPdf, sourcePath);
+        } else if (isDjvuPath(sourcePath)) {
+            pageCount += await appendDjvuPages(targetPdf, sourcePath);
         } else if (isImagePath(sourcePath)) {
             pageCount += await appendImagePages(targetPdf, sourcePath);
         } else {

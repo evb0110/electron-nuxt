@@ -44,6 +44,7 @@
     --app-toolbar-control-disabled-opacity: 0.4;
     --app-toolbar-group-border: var(--ui-border);
     --app-toolbar-focus-ring: color-mix(in oklab, var(--ui-border) 68%, var(--ui-text) 32%);
+    --app-tab-list-start-padding: 0.25rem;
     --app-tab-drag-shadow: 0 2px 8px color-mix(in srgb, var(--ui-bg-inverted) 15%, transparent);
     --app-tab-context-menu-shadow: var(--app-pdf-context-menu-grid-shadow);
     --app-editor-group-grid-bg: var(--app-window-bg);
@@ -80,8 +81,6 @@
     --app-start-rail-item-hover-bg: color-mix(in oklab, var(--ui-bg) 55%, var(--ui-border) 45%);
     --app-start-rail-item-fg: color-mix(in oklab, var(--ui-text) 78%, var(--ui-text-muted) 22%);
     --app-start-rail-section-fg: var(--ui-text-dimmed);
-    --app-start-rail-tip-bg: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-primary) 8%);
-    --app-start-rail-tip-border: color-mix(in oklab, var(--ui-border) 80%, var(--ui-primary) 20%);
     --app-start-card-bg: var(--ui-bg);
     --app-start-card-border: color-mix(in oklab, var(--ui-border) 88%, transparent);
     --app-start-card-shadow: 0 1px 2px color-mix(in srgb, var(--ui-bg-inverted) 6%, transparent);
@@ -297,8 +296,6 @@
     --app-start-rail-item-hover-bg: color-mix(in oklab, var(--ui-bg-elevated) 80%, transparent);
     --app-start-rail-item-fg: color-mix(in oklab, var(--ui-text) 78%, var(--ui-text-muted) 22%);
     --app-start-rail-section-fg: var(--ui-text-dimmed);
-    --app-start-rail-tip-bg: color-mix(in oklab, var(--ui-bg-elevated) 78%, var(--ui-primary) 22%);
-    --app-start-rail-tip-border: color-mix(in oklab, var(--ui-border) 70%, var(--ui-primary) 30%);
     --app-start-card-bg: var(--ui-bg);
     --app-start-card-border: color-mix(in oklab, var(--ui-border) 88%, transparent);
     --app-start-card-shadow: 0 1px 2px color-mix(in srgb, black 24%, transparent), 0 4px 12px color-mix(in srgb, black 18%, transparent);
