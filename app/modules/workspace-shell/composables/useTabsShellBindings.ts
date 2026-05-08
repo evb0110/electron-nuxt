@@ -13,6 +13,7 @@ import { shouldHandleRendererMenuAccelerators } from '@app/utils/platform-shortc
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
 type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab';
+type TRendererDocumentShortcutAction = 'open-file' | 'save-as' | 'export-docx' | 'undo' | 'redo';
 const RENDERER_MENU_SHORTCUT_ACTIONS: Partial<Record<string, TTabKeyboardShortcutAction>> = {
     t: 'new-tab',
     w: 'close-tab',
@@ -83,6 +84,55 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             : null;
     }
 
+    function isEditableShortcutTarget(target: EventTarget | null) {
+        if (typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) {
+            return false;
+        }
+
+        return Boolean(
+            target.isContentEditable
+            || target.closest('[contenteditable="true"], [contenteditable=""]')
+            || target.closest('input, textarea, select'),
+        );
+    }
+
+    function resolveRendererDocumentShortcutAction(event: KeyboardEvent): TRendererDocumentShortcutAction | null {
+        if (!shouldHandleRendererMenuAccelerators()) {
+            return null;
+        }
+
+        const mod = event.metaKey || event.ctrlKey;
+        if (!mod || event.altKey) {
+            return null;
+        }
+
+        const key = event.key.toLowerCase();
+        if (key === 'o' && !event.shiftKey) {
+            return 'open-file';
+        }
+
+        if (key === 's' && event.shiftKey) {
+            return 'save-as';
+        }
+
+        if (key === 'e' && event.shiftKey) {
+            return 'export-docx';
+        }
+
+        if (key === 'z') {
+            if (isEditableShortcutTarget(event.target)) {
+                return null;
+            }
+            return event.shiftKey ? 'redo' : 'undo';
+        }
+
+        if (key === 'y' && !event.shiftKey && !isEditableShortcutTarget(event.target)) {
+            return 'redo';
+        }
+
+        return null;
+    }
+
     function resolveCtrlTabShortcutAction(event: KeyboardEvent): TTabKeyboardShortcutAction | null {
         if (event.ctrlKey && event.key === 'Tab' && !event.shiftKey) {
             return 'next-tab';
@@ -120,7 +170,33 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         }
     }
 
+    function runRendererDocumentShortcutAction(action: TRendererDocumentShortcutAction) {
+        if (action === 'open-file') {
+            void handleFallbackToolbarOpenFile();
+            return;
+        }
+
+        const workspace = activeWorkspace.value;
+        if (action === 'save-as') {
+            void workspace?.handleSaveAs();
+        } else if (action === 'export-docx') {
+            void workspace?.handleExportDocx();
+        } else if (action === 'undo') {
+            void workspace?.handleUndo();
+        } else {
+            void workspace?.handleRedo();
+        }
+    }
+
     function handleTabKeyboardShortcut(event: KeyboardEvent) {
+        const documentAction = resolveRendererDocumentShortcutAction(event);
+        if (documentAction) {
+            event.preventDefault();
+            event.stopPropagation();
+            runRendererDocumentShortcutAction(documentAction);
+            return;
+        }
+
         const action = resolveTabKeyboardShortcutAction(event);
         if (!action) {
             return;

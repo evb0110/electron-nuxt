@@ -84,17 +84,17 @@
                         <span class="open-panel-copy">
                             <span>{{ t('emptyState.openSubtitle') }}</span>
                         </span>
-                        <button
+                        <UButton
                             :id="openPanelButtonId"
-                            type="button"
                             class="open-panel-cta"
+                            color="primary"
+                            icon="i-lucide-folder-open"
+                            size="lg"
+                            :label="t('emptyState.openFileEllipsis')"
                             :aria-label="t('toolbar.openPdf')"
                             :disabled="openInProgress"
                             @click="emit('open-file')"
-                        >
-                            <UIcon name="i-lucide-folder-open" class="open-panel-cta-icon" />
-                            <span>{{ t('emptyState.openFileEllipsis') }}</span>
-                        </button>
+                        />
                     </section>
 
                     <section class="start-recent" :aria-labelledby="recentFilesHeadingId">
@@ -616,46 +616,9 @@ watch(() => startSection, (section) => {
 }
 
 .open-panel-cta {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.55rem;
     min-width: 13rem;
-    height: 2.65rem;
-    padding: 0 1.25rem;
-    border: 0;
-    border-radius: 0.55rem;
-    justify-content: center;
-    background: linear-gradient(180deg, var(--app-start-primary-grad-from) 0%, var(--app-start-primary-grad-to) 100%);
-    color: var(--app-start-primary-fg);
-    font-size: 0.83rem;
-    font-weight: 600;
-    box-shadow: var(--app-start-primary-shadow);
-    cursor: pointer;
     flex: 0 0 auto;
-    transition: filter 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
-}
-
-.open-panel-cta:hover:not(:disabled) {
-    filter: brightness(1.06);
-}
-
-.open-panel-cta:active:not(:disabled) {
-    transform: translateY(1px);
-}
-
-.open-panel-cta:focus-visible {
-    outline: 2px solid var(--app-toolbar-focus-ring);
-    outline-offset: 2px;
-}
-
-.open-panel-cta:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-}
-
-.open-panel-cta-icon {
-    width: 0.95rem;
-    height: 0.95rem;
+    justify-content: center;
 }
 
 .start-recent {
