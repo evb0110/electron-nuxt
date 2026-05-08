@@ -56,9 +56,9 @@
             role="status"
             aria-live="polite"
         >
-            <div class="flex flex-col items-center gap-2">
+            <div class="workspace-host__loading-chip">
                 <UIcon name="i-lucide-loader-circle" class="workspace-host__spinner" />
-                <span class="text-sm text-[var(--ui-text-muted)]">{{ t('common.loading') }}</span>
+                <span class="workspace-host__loading-label">{{ t('common.loading') }}</span>
             </div>
         </div>
     </div>
@@ -730,12 +730,31 @@ defineExpose(workspaceExpose);
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--app-window-bg);
+    pointer-events: none;
+    background: transparent;
+}
+
+.workspace-host__loading-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.85rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--app-window-bg) 92%, transparent);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--ui-bg-inverted) 8%, transparent);
+}
+
+.workspace-host__loading-label {
+    color: var(--ui-text-muted);
+    font-size: 0.8125rem;
 }
 
 .workspace-host__spinner {
-    width: 1.25rem;
-    height: 1.25rem;
+    width: 1rem;
+    height: 1rem;
+    color: var(--ui-text-muted);
     animation: spin 1s linear infinite;
 }
 

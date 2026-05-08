@@ -65,7 +65,6 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
         options.isRestoringSplitPayload.value
         || hasQueuedSplitRestore.value
         || isExternallyRestoring.value
-        || options.pendingDocumentOpen.value
     ));
     const canCacheSplitPayloadForRemount = computed(() => (
         options.isTabTransitionBusy.value

@@ -38,7 +38,7 @@
     --app-toolbar-control-hover-bg: var(--app-chrome-hover);
     --app-toolbar-control-active-bg: color-mix(in oklab, var(--ui-bg) 84%, var(--ui-text) 16%);
     --app-toolbar-control-active-hover-bg: color-mix(in oklab, var(--ui-bg) 80%, var(--ui-text) 20%);
-    --app-toolbar-control-inactive-fg: color-mix(in oklab, var(--ui-text) 50%, var(--ui-text-muted) 50%);
+    --app-toolbar-control-inactive-fg: color-mix(in oklab, var(--ui-text) 72%, var(--ui-text-muted) 28%);
     --app-toolbar-control-hover-fg: var(--ui-text);
     --app-toolbar-control-disabled-fg: color-mix(in oklab, var(--ui-text-muted) 88%, var(--ui-border) 12%);
     --app-toolbar-control-disabled-opacity: 0.4;
@@ -70,6 +70,50 @@
     --app-chrome-depth: 0 1px 2px color-mix(in oklab, var(--ui-border) 28%, transparent 72%);
     --app-toolbar-group-tint: transparent;
     --app-pdf-viewer-bg: var(--ui-bg-muted);
+
+    /* Start / landing screen */
+    --app-start-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-bg-muted) 12%);
+    --app-start-rail-bg: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-bg-muted) 30%);
+    --app-start-rail-border: color-mix(in oklab, var(--ui-border) 80%, transparent);
+    --app-start-rail-item-active-bg: color-mix(in oklab, var(--ui-bg) 30%, var(--ui-border) 70%);
+    --app-start-rail-item-active-fg: var(--ui-text);
+    --app-start-rail-item-hover-bg: color-mix(in oklab, var(--ui-bg) 55%, var(--ui-border) 45%);
+    --app-start-rail-item-fg: color-mix(in oklab, var(--ui-text) 78%, var(--ui-text-muted) 22%);
+    --app-start-rail-section-fg: var(--ui-text-dimmed);
+    --app-start-rail-tip-bg: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-primary) 8%);
+    --app-start-rail-tip-border: color-mix(in oklab, var(--ui-border) 80%, var(--ui-primary) 20%);
+    --app-start-card-bg: var(--ui-bg);
+    --app-start-card-border: color-mix(in oklab, var(--ui-border) 88%, transparent);
+    --app-start-card-shadow: 0 1px 2px color-mix(in srgb, var(--ui-bg-inverted) 6%, transparent);
+    --app-start-dropzone-border: color-mix(in oklab, var(--ui-border) 78%, var(--ui-primary) 22%);
+    --app-start-dropzone-bg: color-mix(in oklab, var(--ui-bg) 96%, var(--ui-primary) 4%);
+    --app-start-dropzone-hover-border: color-mix(in oklab, var(--ui-primary) 60%, var(--ui-border) 40%);
+    --app-start-dropzone-hover-bg: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-primary) 12%);
+    --app-start-row-divider: color-mix(in oklab, var(--ui-border) 60%, transparent);
+    --app-start-row-hover-bg: color-mix(in oklab, var(--ui-bg) 95%, var(--ui-bg-muted) 5%);
+    --app-start-primary-grad-from: oklch(58% 0.16 248);
+    --app-start-primary-grad-to: oklch(48% 0.18 252);
+    --app-start-primary-shadow: 0 1px 2px color-mix(in srgb, var(--ui-primary) 35%, transparent), 0 4px 12px color-mix(in srgb, var(--ui-primary) 18%, transparent);
+    --app-start-primary-fg: oklch(100% 0 0);
+    --app-start-primary-divider: color-mix(in srgb, oklch(100% 0 0) 28%, transparent);
+
+    /* File-type badge palette (for FileTypeIcon) */
+    --app-file-icon-pdf-fill: oklch(98% 0.012 30);
+    --app-file-icon-pdf-stroke: oklch(82% 0.04 30);
+    --app-file-icon-pdf-fold: oklch(92% 0.04 30);
+    --app-file-icon-pdf-badge: oklch(58% 0.20 25);
+    --app-file-icon-djvu-fill: oklch(98% 0.012 235);
+    --app-file-icon-djvu-stroke: oklch(82% 0.04 235);
+    --app-file-icon-djvu-fold: oklch(92% 0.04 235);
+    --app-file-icon-djvu-badge: oklch(54% 0.13 235);
+    --app-file-icon-image-fill: oklch(98% 0.012 150);
+    --app-file-icon-image-stroke: oklch(82% 0.04 150);
+    --app-file-icon-image-fold: oklch(92% 0.04 150);
+    --app-file-icon-image-badge: oklch(56% 0.14 150);
+    --app-file-icon-doc-fill: oklch(97% 0.005 235);
+    --app-file-icon-doc-stroke: oklch(82% 0.012 235);
+    --app-file-icon-doc-fold: oklch(91% 0.012 235);
+    --app-file-icon-doc-line: oklch(74% 0.012 235);
     --app-snip-cutout-fill: color-mix(in oklab, var(--ui-bg) 62%, transparent);
     --app-snip-selection-border: color-mix(in oklab, var(--ui-primary) 90%, var(--ui-bg) 10%);
     --app-snip-selection-border-width: 1.5px;
@@ -243,6 +287,50 @@
     --app-chrome-depth: 0 1px 3px color-mix(in oklab, black 22%, transparent 78%);
     --app-toolbar-group-tint: transparent;
     --app-pdf-viewer-bg: color-mix(in oklab, var(--ui-bg-muted) 88%, var(--ui-text) 12%);
+
+    /* Start / landing screen — dark */
+    --app-start-bg: color-mix(in oklab, var(--ui-bg) 92%, black 8%);
+    --app-start-rail-bg: color-mix(in oklab, var(--ui-bg) 80%, var(--ui-bg-elevated) 20%);
+    --app-start-rail-border: color-mix(in oklab, var(--ui-border) 88%, transparent);
+    --app-start-rail-item-active-bg: color-mix(in oklab, var(--ui-bg-elevated) 70%, var(--ui-text) 6%);
+    --app-start-rail-item-active-fg: var(--ui-text);
+    --app-start-rail-item-hover-bg: color-mix(in oklab, var(--ui-bg-elevated) 80%, transparent);
+    --app-start-rail-item-fg: color-mix(in oklab, var(--ui-text) 78%, var(--ui-text-muted) 22%);
+    --app-start-rail-section-fg: var(--ui-text-dimmed);
+    --app-start-rail-tip-bg: color-mix(in oklab, var(--ui-bg-elevated) 78%, var(--ui-primary) 22%);
+    --app-start-rail-tip-border: color-mix(in oklab, var(--ui-border) 70%, var(--ui-primary) 30%);
+    --app-start-card-bg: var(--ui-bg);
+    --app-start-card-border: color-mix(in oklab, var(--ui-border) 88%, transparent);
+    --app-start-card-shadow: 0 1px 2px color-mix(in srgb, black 24%, transparent), 0 4px 12px color-mix(in srgb, black 18%, transparent);
+    --app-start-dropzone-border: color-mix(in oklab, var(--ui-border) 70%, var(--ui-primary) 30%);
+    --app-start-dropzone-bg: color-mix(in oklab, var(--ui-bg-elevated) 78%, var(--ui-primary) 8%);
+    --app-start-dropzone-hover-border: color-mix(in oklab, var(--ui-primary) 70%, var(--ui-border) 30%);
+    --app-start-dropzone-hover-bg: color-mix(in oklab, var(--ui-bg-elevated) 60%, var(--ui-primary) 16%);
+    --app-start-row-divider: color-mix(in oklab, var(--ui-border) 60%, transparent);
+    --app-start-row-hover-bg: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-bg-elevated) 30%);
+    --app-start-primary-grad-from: oklch(64% 0.16 248);
+    --app-start-primary-grad-to: oklch(54% 0.18 252);
+    --app-start-primary-shadow: 0 1px 2px color-mix(in srgb, black 30%, transparent), 0 6px 16px color-mix(in srgb, black 20%, transparent);
+    --app-start-primary-fg: oklch(100% 0 0);
+    --app-start-primary-divider: color-mix(in srgb, oklch(100% 0 0) 32%, transparent);
+
+    /* File-type badge palette — dark */
+    --app-file-icon-pdf-fill: oklch(28% 0.012 30);
+    --app-file-icon-pdf-stroke: oklch(40% 0.04 30);
+    --app-file-icon-pdf-fold: oklch(34% 0.04 30);
+    --app-file-icon-pdf-badge: oklch(62% 0.20 25);
+    --app-file-icon-djvu-fill: oklch(28% 0.012 235);
+    --app-file-icon-djvu-stroke: oklch(40% 0.04 235);
+    --app-file-icon-djvu-fold: oklch(34% 0.04 235);
+    --app-file-icon-djvu-badge: oklch(62% 0.13 235);
+    --app-file-icon-image-fill: oklch(28% 0.012 150);
+    --app-file-icon-image-stroke: oklch(40% 0.04 150);
+    --app-file-icon-image-fold: oklch(34% 0.04 150);
+    --app-file-icon-image-badge: oklch(62% 0.14 150);
+    --app-file-icon-doc-fill: oklch(28% 0.005 235);
+    --app-file-icon-doc-stroke: oklch(40% 0.012 235);
+    --app-file-icon-doc-fold: oklch(34% 0.012 235);
+    --app-file-icon-doc-line: oklch(62% 0.012 235);
     --app-snip-cutout-fill: color-mix(in oklab, var(--ui-bg) 55%, transparent);
     --app-snip-flash-fill: color-mix(in oklab, var(--ui-bg-elevated) 45%, var(--ui-primary) 55%);
     --app-snip-flash-glow: color-mix(in oklab, var(--ui-primary) 44%, transparent);

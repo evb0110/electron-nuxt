@@ -58,17 +58,17 @@ const tooltipText = computed(() => shortcut.trim()
     justify-content: center;
     width: var(--toolbar-control-height);
     height: var(--toolbar-control-height);
-    padding: 0.25rem;
+    padding: 0.28rem;
     border: 1px solid transparent;
     border-radius: 0.25rem;
     background: transparent;
-    color: var(--ui-text);
+    color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;
     transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
 }
 
 .toolbar-btn.is-toggle {
-    color: var(--ui-text);
+    color: var(--app-toolbar-control-inactive-fg);
 }
 
 .toolbar-btn.is-grouped {
@@ -77,7 +77,7 @@ const tooltipText = computed(() => shortcut.trim()
 
 .toolbar-btn:hover {
     background: var(--app-toolbar-control-hover-bg);
-    color: var(--ui-text);
+    color: var(--app-toolbar-control-hover-fg);
 }
 
 .toolbar-btn.is-toggle:hover {
