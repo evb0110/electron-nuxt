@@ -451,6 +451,7 @@ const {
     scaledMargin,
     computeFitWidthScale,
     effectiveScale,
+    isFitWidthScaleCurrent,
     invalidateScaleCache,
     resetScale,
 } = usePdfScale(
@@ -916,6 +917,44 @@ const {
 });
 pageRenderStallRecoveryHandler = handlePageRenderStallFromCore;
 
+async function applyFitWidthToCurrentPage() {
+    if (!pdfDocument.value || isLoading.value) {
+        return false;
+    }
+
+    const anchorSnapshot = captureViewerScrollSnapshot();
+    const updated = computeFitWidthScale(viewerContainer.value);
+    if (!updated) {
+        return false;
+    }
+
+    cancelInFlightRenders();
+    await reRenderAllVisiblePages(
+        () => ({ ...visibleRange.value }),
+        {
+            preserveExistingPages: true,
+            anchorSnapshot,
+            rerenderSource: 'fit-width-explicit',
+            renderBufferOverride: 0,
+        },
+    );
+    return true;
+}
+
+watch(currentPage, (next, previous) => {
+    if (
+        next === previous
+        || !continuousScroll.value
+        || fitMode.value !== 'width'
+        || zoomMode.value !== 'fit-width'
+        || isFitWidthScaleCurrent(viewerContainer.value)
+    ) {
+        return;
+    }
+
+    emit('update:zoomMode', 'custom');
+});
+
 const {
     handleViewerMouseDown,
     handleViewerMouseMove,
@@ -1197,6 +1236,7 @@ defineExpose({
     },
     captureScrollSnapshot: captureViewerScrollSnapshot,
     restoreScrollSnapshot: restoreViewerScrollSnapshot,
+    applyFitWidthToCurrentPage,
     ensurePageMetricsInRange: pdfDocumentResult.ensurePageMetricsInRange,
     getPageMetricsSnapshot: () => pageMetrics.value.map(metric => ({ ...metric })),
     waitForViewerLoadSettled,

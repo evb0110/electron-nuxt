@@ -153,13 +153,14 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }));
     });
 
-    it('rerenders fit-width when the current page changes to a different width', async () => {
+    it('does not rerender continuous fit-width when passive scrolling changes the current page', async () => {
         const currentPage = ref(1);
+        const continuousScroll = ref(true);
         const computeFitWidthScale = vi.fn(() => true);
         const cancelInFlightPageRenders = vi.fn();
         const reRenderAllVisiblePages = vi.fn(async () => {});
         const syncCurrentPageFromViewport = vi.fn(async () => {});
-        const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(2));
+        const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(currentPage.value));
 
         usePdfViewerRerenderCoordinator({
             viewerContainer: ref(null),
@@ -175,7 +176,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             fitMode: computed(() => 'width' as const),
             viewMode: computed(() => 'single' as const),
             isResizing: computed(() => false),
-            continuousScroll: computed(() => true),
+            continuousScroll: computed(() => continuousScroll.value),
             getVisibleRange: () => ({
                 start: 1,
                 end: 2,
@@ -206,9 +207,20 @@ describe('usePdfViewerRerenderCoordinator', () => {
         await nextTick();
         await nextTick();
 
+        expect(computeFitWidthScale).not.toHaveBeenCalled();
+        expect(buildResizeAnchorContext).not.toHaveBeenCalled();
+        expect(cancelInFlightPageRenders).not.toHaveBeenCalled();
+        expect(reRenderAllVisiblePages).not.toHaveBeenCalled();
+        expect(syncCurrentPageFromViewport).not.toHaveBeenCalled();
+
+        continuousScroll.value = false;
+        currentPage.value = 3;
+        await nextTick();
+        await nextTick();
+
         expect(computeFitWidthScale).toHaveBeenCalled();
         expect(buildResizeAnchorContext).toHaveBeenCalledWith({
-            preferredAnchorPage: 2,
+            preferredAnchorPage: 3,
             trustPreferredAnchorPage: true,
         });
         expect(cancelInFlightPageRenders).toHaveBeenCalled();

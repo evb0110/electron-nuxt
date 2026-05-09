@@ -294,6 +294,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         if (
             next === previous
             || fitMode.value !== 'width'
+            || continuousScroll.value
             || !pdfDocument.value
             || isLoading.value
             || isResizing.value

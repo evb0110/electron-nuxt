@@ -24,6 +24,7 @@ export interface IPdfViewerExpose {
         snapshot: IScrollSnapshot | null,
         options?: { fallbackPage?: number | null; },
     ) => void;
+    applyFitWidthToCurrentPage?: () => Promise<boolean>;
     waitForViewerLoadSettled?: () => Promise<void>;
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
     getPageMetricsSnapshot?: () => IPdfPageMetric[];

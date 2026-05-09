@@ -28,6 +28,7 @@ interface IWorkspaceViewStateDeps {
     pdfViewerRef: Ref<{
         scrollToPage: (page: number) => void;
         cancelCommentPlacement: () => void;
+        applyFitWidthToCurrentPage?: () => Promise<boolean>;
     } | null>;
 }
 
@@ -68,6 +69,10 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         deps.zoom.value = 1;
         deps.fitMode.value = mode;
         deps.zoomMode.value = mode === 'height' ? 'fit-height' : 'fit-width';
+
+        if (mode === 'width') {
+            void nextTick(() => deps.pdfViewerRef.value?.applyFitWidthToCurrentPage?.());
+        }
     }
 
     function enableDragMode() {
