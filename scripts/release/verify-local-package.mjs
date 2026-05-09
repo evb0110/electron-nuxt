@@ -31,7 +31,7 @@ export function getLocalReleaseBuildCommand() {
     };
 }
 
-export function getPackagingArgs(target) {
+export function getPackagingArgs(target, env = process.env) {
     if (target.platform === 'mac' && target.arch === 'x64') {
         return [
             'exec',
@@ -41,6 +41,20 @@ export function getPackagingArgs(target) {
             '--mac',
             'zip',
             '--x64',
+        ];
+    }
+
+    if (target.platform === 'mac' && !expectsUpdaterMetadata(target, env)) {
+        // Unsigned local mac verification intentionally drops updater metadata,
+        // so it only needs the manual-install DMG artifact.
+        return [
+            'exec',
+            'electron-builder',
+            '--publish',
+            'never',
+            '--mac',
+            'dmg',
+            `--${target.arch}`,
         ];
     }
 
@@ -54,14 +68,14 @@ export function getPackagingArgs(target) {
     ];
 }
 
-function assertReleaseArtifactsExist(target) {
+function assertReleaseArtifactsExist(target, env = process.env) {
     const distDir = resolve(process.cwd(), RELEASE_DIR);
     if (!existsSync(distDir)) {
         throw new Error(`${RELEASE_DIR}/ was not created by electron-builder`);
     }
 
     const files = readdirSync(distDir);
-    for (const pattern of getRequiredArtifactPatterns(target)) {
+    for (const pattern of getRequiredArtifactPatterns(target, env)) {
         const matched = files.some(file => pattern.test(file));
         if (!matched) {
             throw new Error(`Missing packaged artifact matching ${pattern} in ${RELEASE_DIR}/`);
@@ -198,13 +212,13 @@ function main() {
             `Packaging local release artifacts for ${target.platform}-${target.arch}...\n`,
         );
 
-        run('pnpm', getPackagingArgs(target), {
+        run('pnpm', getPackagingArgs(target, env), {
             env,
             stdio: 'inherit',
         });
 
         pruneUpdaterMetadataForLocalParity(target);
-        assertReleaseArtifactsExist(target);
+        assertReleaseArtifactsExist(target, env);
         validateUpdaterMetadata(target);
         verifyLocalPackageArtifacts(target);
 

@@ -58,15 +58,21 @@ export function getLocalReleaseTargets(options = {}) {
     }));
 }
 
-export function getRequiredArtifactPatterns(target) {
+export function getRequiredArtifactPatterns(target, env = process.env) {
     switch (target.platform) {
         case 'mac':
-            return target.arch === 'x64'
-                ? [ /\.zip$/ ]
-                : [
+            if (target.arch === 'x64') {
+                return [ /\.zip$/ ];
+            }
+
+            // Unsigned local mac verification prunes updater metadata; the DMG
+            // is the release-critical manual-install artifact in that mode.
+            return expectsUpdaterMetadata(target, env)
+                ? [
                     /\.dmg$/,
                     /\.zip$/,
-                ];
+                ]
+                : [ /\.dmg$/ ];
         case 'linux':
             return [
                 /\.AppImage$/,
