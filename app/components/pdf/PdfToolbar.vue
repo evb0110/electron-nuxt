@@ -221,7 +221,7 @@
                     icon="lucide:scan"
                     :active="isCapturingRegion"
                     :tooltip="t('toolbar.captureRegion')"
-                    :disabled="!hasInteractiveDocument"
+                    :disabled="!hasInteractiveDocument || isDjvuMode"
                     @click="emit('capture-region')"
                 />
             </div>

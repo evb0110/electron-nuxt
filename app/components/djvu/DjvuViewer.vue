@@ -18,9 +18,28 @@
         </div>
 
         <div
+            v-if="isInitialPreviewPending"
+            class="djvu-initial-loading"
+            role="status"
+            aria-live="polite"
+        >
+            <div class="djvu-initial-loading-chip">
+                <UIcon
+                    name="i-lucide-loader-circle"
+                    class="djvu-initial-loading-spinner"
+                />
+                <span class="text-sm text-muted">{{ t('common.loading') }}</span>
+            </div>
+        </div>
+
+        <div
             ref="viewerContainer"
             class="h-full w-full overflow-auto app-scrollbar"
-            :class="{ 'cursor-grab': dragMode, 'cursor-default': !dragMode }"
+            :class="{
+                'cursor-grab': dragMode,
+                'cursor-default': !dragMode,
+                'djvu-viewer-container--pending': isInitialPreviewPending,
+            }"
             @scroll="handleViewerScroll"
             @wheel="handleViewerWheel"
         >
@@ -146,7 +165,16 @@ const totalPages = computed(() => pageSizes.value.length);
 const scrollTop = ref(0);
 const currentPage = ref(1);
 const viewerError = ref<string | null>(null);
-const isLoading = ref(false);
+const isLoading = ref(Boolean(props.src));
+const hasVisiblePagePreview = computed(() => (
+    pageStates.value.some(state => Boolean(state.objectUrl))
+));
+const isInitialPreviewPending = computed(() => (
+    Boolean(props.src)
+    && isLoading.value
+    && !viewerError.value
+    && !hasVisiblePagePreview.value
+));
 const containerWidth = ref(0);
 const containerHeight = ref(0);
 const dragMode = computed(() => props.dragMode ?? false);
@@ -525,8 +553,8 @@ let queuedPageNumbers: number[] = [];
 let lastRenderedPageSet = new Set<number>();
 let wheelAccumulator: IWheelPageAccumulatorState = createWheelPageAccumulatorState();
 
-function emitLoading(nextLoading: boolean) {
-    if (isLoading.value === nextLoading) {
+function emitLoading(nextLoading: boolean, options: { force?: boolean } = {}) {
+    if (!options.force && isLoading.value === nextLoading) {
         return;
     }
 
@@ -662,6 +690,7 @@ function commitLoadedPagePreview(
     revokePageUrl(pageNumber);
     currentState.objectUrl = objectUrl;
     currentState.status = 'loaded';
+    finishInitialPreviewLoadIfSettled();
     return true;
 }
 
@@ -676,10 +705,35 @@ function markPagePreviewLoadFailed(
     }
 
     currentState.status = 'error';
+    finishInitialPreviewLoadIfSettled();
     BrowserLogger.warn('djvu-viewer', 'Failed to load DjVu page preview', {
         pageNumber,
         error,
     });
+}
+
+function finishInitialPreviewLoadIfSettled() {
+    if (!isLoading.value) {
+        return;
+    }
+
+    if (hasVisiblePagePreview.value) {
+        emitLoading(false);
+        return;
+    }
+
+    const desiredPageNumbers = getPreferredRenderedPageNumbers();
+    if (desiredPageNumbers.length === 0) {
+        return;
+    }
+
+    const desiredPagesSettled = desiredPageNumbers.every((pageNumber) => {
+        const state = pageStates.value[pageNumber - 1];
+        return state?.status === 'loaded' || state?.status === 'error';
+    });
+    if (desiredPagesSettled) {
+        emitLoading(false);
+    }
 }
 
 async function ensurePageLoaded(pageNumber: number) {
@@ -745,6 +799,7 @@ async function processRenderQueue() {
     });
 
     if (!nextPageNumber) {
+        finishInitialPreviewLoadIfSettled();
         return;
     }
 
@@ -1004,7 +1059,7 @@ watch(
             return;
         }
 
-        emitLoading(true);
+        emitLoading(true, { force: true });
 
         try {
             const worker = await createDjvuWorkerFromPath(src);
@@ -1031,6 +1086,10 @@ watch(
             emit('update:document', null);
             emit('update:totalPages', sizes.length);
             emit('update:currentPage', 1);
+            if (sizes.length === 0) {
+                emitLoading(false);
+                return;
+            }
 
             await nextTick();
             measureContainer();
@@ -1047,9 +1106,10 @@ watch(
                 src,
                 error,
             });
+            emitLoading(false);
         } finally {
             if (generation === loadGeneration) {
-                emitLoading(false);
+                finishInitialPreviewLoadIfSettled();
             }
         }
     },
@@ -1229,6 +1289,50 @@ defineExpose<IPdfViewerExpose>({
     font-size: 0.75rem;
     color: var(--ui-text-muted);
     backdrop-filter: blur(6px);
+}
+
+.djvu-viewer-container--pending {
+    pointer-events: none;
+    visibility: hidden;
+}
+
+.djvu-initial-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    background: var(--app-window-bg);
+}
+
+.djvu-initial-loading-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius-full);
+    background: color-mix(in oklab, var(--ui-bg-elevated) 92%, transparent);
+    padding: 0.5rem 0.85rem;
+    box-shadow: var(--shadow-popup);
+}
+
+.djvu-initial-loading-spinner {
+    width: 1rem;
+    height: 1rem;
+    color: var(--ui-text-muted);
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 </style>

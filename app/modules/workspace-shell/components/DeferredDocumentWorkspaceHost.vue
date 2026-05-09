@@ -193,7 +193,8 @@ const workspaceVisibleDocument = computed(() => {
     return snapshot.hasPdf || snapshot.isDjvuMode || snapshot.isOpeningDocument;
 });
 const isPlaceholderVisible = computed(() => (
-    !hasQueuedSplitRestore.value
+    !isDocumentOpenInFlight.value
+    && !hasQueuedSplitRestore.value
     && !workspaceVisibleDocument.value
 ));
 const workspaceLoadErrorDescription = computed(() => {

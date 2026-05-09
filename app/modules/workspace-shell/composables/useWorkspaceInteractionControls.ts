@@ -164,7 +164,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
     const isCapturingRegion = computed(() => pdfViewerRef.value?.isCapturingRegion ?? false);
 
     function handleCaptureRegion() {
-        if (!pdfViewerRef.value) {
+        if (!pdfViewerRef.value || isDjvuMode.value) {
             return;
         }
         void pdfViewerRef.value.captureRegionToClipboard();

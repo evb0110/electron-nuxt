@@ -176,6 +176,18 @@ describe('createWorkspaceExpose', () => {
         expect(deps.handleOpenFileFromUi).toHaveBeenCalledOnce();
     });
 
+    it('suppresses region capture in DjVu mode', () => {
+        const deps = createDeps({ isDjvuMode: ref(true) });
+        const exposed = createWorkspaceExpose(deps);
+
+        exposed.handleCaptureRegion();
+        expect(deps.handleCaptureRegion).not.toHaveBeenCalled();
+
+        deps.isDjvuMode.value = false;
+        exposed.handleCaptureRegion();
+        expect(deps.handleCaptureRegion).toHaveBeenCalledOnce();
+    });
+
     it('delegates print through the exposed workspace command surface', async () => {
         const deps = createDeps();
         const exposed = createWorkspaceExpose(deps);

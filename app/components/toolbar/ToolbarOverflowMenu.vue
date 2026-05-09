@@ -62,7 +62,7 @@
                         <button
                             v-if="shouldShowMenuCommand('capture-region', 3) && canCaptureRegion"
                             :class="['overflow-menu-item', { 'is-active': isCapturingRegion }]"
-                            :disabled="!hasInteractiveDocument"
+                            :disabled="!hasInteractiveDocument || isDjvuMode"
                             @click="emit('capture-region'); close()"
                         >
                             <UIcon name="i-lucide-scan" class="overflow-menu-icon" />
