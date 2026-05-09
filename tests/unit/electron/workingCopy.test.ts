@@ -128,4 +128,21 @@ describe('workingCopy', () => {
 
         await clearAllWorkingCopies();
     });
+
+    it('matches Windows original paths by normalized identity', async () => {
+        const {
+            findWorkingCopyPathByOriginalPath,
+            isKnownWorkingCopyOriginalPath,
+            workingCopyMap,
+            clearAllWorkingCopies,
+        } = await import('@electron/ipc/workingCopy');
+        const workingPath = 'C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\Book.pdf';
+        const originalPath = 'C:\\Users\\Alice\\Documents\\Book.pdf';
+        workingCopyMap.set(workingPath, originalPath);
+
+        expect(findWorkingCopyPathByOriginalPath('c:/users/alice/documents/book.pdf')).toBe(workingPath);
+        expect(isKnownWorkingCopyOriginalPath('\\\\?\\C:\\Users\\Alice\\Documents\\Book.pdf')).toBe(true);
+
+        await clearAllWorkingCopies();
+    });
 });

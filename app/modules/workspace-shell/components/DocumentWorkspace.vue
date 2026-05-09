@@ -496,6 +496,19 @@
             @update:open="handleExportScopeDialogOpenChange"
         />
 
+        <PdfPrintDialog
+            v-model:open="printDialogOpen"
+            :total-pages="totalPages"
+            :current-page="currentPage"
+            :selected-pages="printDialogSelectedPages"
+            :default-view-mode="viewMode"
+            :is-preparing="isPreparingPrint"
+            :status="printStatus"
+            :error="printError"
+            @submit="handlePrintDialogSubmit"
+            @update:open="handlePrintDialogOpenChange"
+        />
+
         <PdfCropDialog
             v-model:open="cropDialogOpen"
             :loading="cropDialogLoading"
@@ -530,6 +543,7 @@ import PdfEmptyState from '@app/components/pdf/PdfEmptyState.vue';
 import PdfCropDialog from '@app/components/pdf/PdfCropDialog.vue';
 import PdfExportScopeDialog from '@app/components/pdf/PdfExportScopeDialog.vue';
 import PdfPageDropdown from '@app/components/pdf/PdfPageDropdown.vue';
+import PdfPrintDialog from '@app/components/pdf/PdfPrintDialog.vue';
 import PdfSidebar from '@app/components/pdf/PdfSidebar.vue';
 import PdfStatusBar from '@app/components/pdf/PdfStatusBar.vue';
 import PdfToolbar from '@app/components/pdf/PdfToolbar.vue';
@@ -730,6 +744,8 @@ const {
     handleSaveAs,
     handlePrint,
     handlePrintCurrentPage,
+    handlePrintDialogOpenChange,
+    handlePrintDialogSubmit,
     handleExportDocx,
     handleExportImages,
     handleExportMultiPageTiff,
@@ -741,6 +757,10 @@ const {
     isExportingDocx,
     isPreparingPrint,
     isPreparingCurrentPagePrint,
+    printDialogOpen,
+    printDialogSelectedPages,
+    printError,
+    printStatus,
     canSave,
     isFitWidthActive,
     isFitHeightActive,
