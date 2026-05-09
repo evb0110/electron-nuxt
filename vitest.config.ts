@@ -2,12 +2,22 @@ import { defineConfig } from 'vitest/config';
 import { resolve } from 'path';
 import AutoImport from 'unplugin-auto-import/vite';
 
+const explicitImportOnlyFiles = [
+    'app/composables/pdf/annotationNoteWindowHelpers.ts',
+    'app/composables/pdf/annotations/useAnnotationIdentity.ts',
+    'app/composables/pdf/pdfSerializationOperations.ts',
+] as const;
+
 export default defineConfig({
     plugins: [AutoImport({
         imports: [
             'vue',
             { 'vue-i18n': ['useI18n'] },
         ],
+        dirsScanOptions: {fileFilter: (file) => {
+            const normalizedFile = file.replaceAll('\\', '/');
+            return !explicitImportOnlyFiles.some((explicitImportOnlyFile) => normalizedFile.endsWith(explicitImportOnlyFile));
+        }},
         dirs: ['app/composables/**'],
     })],
     resolve: {alias: {
