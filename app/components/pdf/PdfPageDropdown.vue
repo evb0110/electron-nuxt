@@ -278,11 +278,12 @@ onClickOutside(pageControlsRef, () => {
 .page-controls {
     display: flex;
     align-items: center;
-    gap: 0.1rem;
-    padding: 0.125rem;
+    gap: 0;
+    padding: 0;
     border: 1px solid var(--app-toolbar-group-border);
     border-radius: 0.5625rem;
     background: var(--app-toolbar-group-bg);
+    overflow: hidden;
 }
 
 .page-controls-item {
@@ -290,8 +291,9 @@ onClickOutside(pageControlsRef, () => {
 }
 
 .page-controls-item :deep(.toolbar-btn) {
-    width: calc(var(--toolbar-control-height, 2.25rem) - 0.25rem);
-    height: calc(var(--toolbar-control-height, 2.25rem) - 0.25rem);
+    width: var(--toolbar-control-height, 2.25rem);
+    height: var(--toolbar-control-height, 2.25rem);
+    border-radius: 0;
 }
 
 .page-controls-display {
@@ -304,11 +306,11 @@ onClickOutside(pageControlsRef, () => {
     padding: 0 0.5rem;
     width: var(--page-display-width-ch);
     min-width: var(--page-display-width-ch);
-    height: calc(var(--toolbar-control-height, 2.25rem) - 0.25rem);
+    height: var(--toolbar-control-height, 2.25rem);
     font-family: var(--app-font-mono);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 0.4375rem;
+    border-radius: 0;
     cursor: pointer;
     box-sizing: border-box;
     transition: background-color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease;
