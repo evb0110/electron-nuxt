@@ -299,6 +299,11 @@ function getFileMenu(documentActionsEnabled: boolean): MenuItemConstructorOption
                 enabled: documentActionsEnabled,
                 channel: 'menu:print',
             }),
+            createWindowMenuAction({
+                label: te('menu.printCurrentPage'),
+                enabled: documentActionsEnabled,
+                channel: 'menu:printCurrentPage',
+            }),
             {
                 label: te('menu.export'),
                 enabled: documentActionsEnabled,

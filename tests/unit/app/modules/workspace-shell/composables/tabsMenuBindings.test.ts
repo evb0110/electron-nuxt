@@ -57,6 +57,7 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
 function createElectronApi() {
     let onMenuOpenPdf: (() => void) | null = null;
     let onMenuPrint: (() => void) | null = null;
+    let onMenuPrintCurrentPage: (() => void) | null = null;
     let onMenuOpenExternalPaths: ((paths: string[]) => void) | null = null;
     let onMenuOpenRecentFile: ((path: string) => void) | null = null;
 
@@ -71,6 +72,12 @@ function createElectronApi() {
             onMenuPrint = callback;
             return () => {
                 onMenuPrint = null;
+            };
+        }),
+        onMenuPrintCurrentPage: vi.fn((callback: () => void) => {
+            onMenuPrintCurrentPage = callback;
+            return () => {
+                onMenuPrintCurrentPage = null;
             };
         }),
         onMenuOpenExternalPaths: vi.fn((callback: (paths: string[]) => void) => {
@@ -94,6 +101,9 @@ function createElectronApi() {
         },
         emitPrint() {
             onMenuPrint?.();
+        },
+        emitPrintCurrentPage() {
+            onMenuPrintCurrentPage?.();
         },
         emitExternalPaths(paths: string[]) {
             onMenuOpenExternalPaths?.(paths);
@@ -127,6 +137,18 @@ describe('registerTabsMenuBindings', () => {
         await flushMicrotasks();
 
         expect(handlePrint).toHaveBeenCalledTimes(1);
+    });
+
+    it('routes the menu print current page command to the active workspace', async () => {
+        const handlePrintCurrentPage = vi.fn(async () => {});
+        const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>({handlePrintCurrentPage}))});
+        const electronApi = createElectronApi();
+
+        registerTabsMenuBindings(electronApi.api, deps);
+        electronApi.emitPrintCurrentPage();
+        await flushMicrotasks();
+
+        expect(handlePrintCurrentPage).toHaveBeenCalledTimes(1);
     });
 
     it('serializes external open requests so later launches wait for the first one', async () => {

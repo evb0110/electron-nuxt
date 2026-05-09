@@ -130,7 +130,7 @@
                                 <span role="columnheader" class="recent-col recent-col--name">{{ t('emptyState.columnName') }}</span>
                                 <span role="columnheader" class="recent-col recent-col--location">{{ t('emptyState.columnLocation') }}</span>
                                 <span role="columnheader" class="recent-col recent-col--time">{{ t('emptyState.columnOpened') }}</span>
-                                <span class="recent-col recent-col--remove" aria-hidden="true" />
+                                <span class="recent-col recent-col--actions" aria-hidden="true" />
                             </div>
                             <button
                                 v-for="file in filteredRecentFiles"
@@ -157,10 +157,27 @@
                                 <span class="recent-col recent-col--time" role="cell">
                                     {{ formatRelativeTimeLocalized(file.timestamp) }}
                                 </span>
-                                <span class="recent-col recent-col--remove" role="cell">
+                                <span class="recent-col recent-col--actions" role="cell">
+                                    <UTooltip
+                                        v-if="canRevealInFolder(file)"
+                                        :text="t('status.showInFolder')"
+                                        :delay-duration="1200"
+                                    >
+                                        <span
+                                            class="recent-action recent-action--reveal"
+                                            role="button"
+                                            tabindex="0"
+                                            :aria-label="t('status.showInFolder')"
+                                            @click.stop="emit('reveal-recent', file)"
+                                            @keydown.enter.stop="emit('reveal-recent', file)"
+                                            @keydown.space.stop.prevent="emit('reveal-recent', file)"
+                                        >
+                                            <UIcon name="i-lucide-folder-open" />
+                                        </span>
+                                    </UTooltip>
                                     <UTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
                                         <span
-                                            class="recent-remove"
+                                            class="recent-action recent-action--remove"
                                             role="button"
                                             tabindex="0"
                                             :aria-label="t('emptyState.removeFromRecent')"
@@ -297,6 +314,7 @@ const emit = defineEmits<{
     'open-file': [];
     'open-recent': [file: IRecentFile];
     'remove-recent': [file: IRecentFile];
+    'reveal-recent': [file: IRecentFile];
     'clear-recent': [];
     'open-settings': [];
     'combine-files': [];
@@ -346,6 +364,10 @@ function getParentFolder(filePath: string) {
 function getFileExtension(file: IRecentFile) {
     const normalizedName = file.fileName.toLocaleLowerCase();
     return normalizedName.match(/\.([a-z0-9]+)$/u)?.[1] ?? '';
+}
+
+function canRevealInFolder(file: IRecentFile) {
+    return !isBrowserDocumentRef(file.originalPath);
 }
 
 function getFileKind(file: IRecentFile) {
@@ -728,7 +750,7 @@ watch(() => startSection, (section) => {
 
 .recent-table {
     display: grid;
-    grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) auto 3.25rem;
+    grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) auto 4.75rem;
     grid-auto-rows: min-content;
     align-content: start;
     border-top: 1px solid var(--app-start-row-divider);
@@ -745,7 +767,7 @@ watch(() => startSection, (section) => {
     column-gap: 1rem;
     align-items: center;
     width: 100%;
-    padding: 0.55rem 0 0.55rem 1.05rem;
+    padding: 0.7rem 0 0.7rem 1.05rem;
     border-bottom: 1px solid var(--app-start-row-divider);
     text-align: left;
     background: transparent;
@@ -762,12 +784,15 @@ watch(() => startSection, (section) => {
     z-index: 1;
     padding-block: 0.45rem;
     background: color-mix(in oklab, var(--ui-bg) 92%, var(--ui-bg-muted) 8%);
+    box-shadow: inset 0 -1px 0 var(--app-start-row-divider);
+}
+
+.recent-row--head .recent-col {
     color: var(--ui-text-dimmed);
     font-size: 0.72rem;
     font-weight: 600;
-    text-transform: none;
     letter-spacing: 0;
-    box-shadow: inset 0 -1px 0 var(--app-start-row-divider);
+    text-transform: none;
 }
 
 .recent-row--data {
@@ -793,37 +818,45 @@ watch(() => startSection, (section) => {
 .recent-col--name {
     display: flex;
     align-items: center;
-    gap: 0.7rem;
+    gap: 0.85rem;
     min-width: 0;
 }
 
 .recent-col--location {
-    color: var(--ui-text-muted);
-    font-size: 0.8rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
+.recent-row--data .recent-col--location {
+    color: var(--ui-text-muted);
+    font-size: 0.8rem;
+}
+
 .recent-col--time {
-    color: var(--ui-text-dimmed);
-    font-size: 0.78rem;
     white-space: nowrap;
     text-align: right;
 }
 
-.recent-col--remove {
+.recent-row--data .recent-col--time {
+    color: var(--ui-text-dimmed);
+    font-size: 0.78rem;
+}
+
+.recent-col--actions {
     display: flex;
-    justify-content: center;
-    padding-right: 0.55rem;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.2rem;
+    padding-right: 0.7rem;
 }
 
 .recent-file-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.7rem;
-    height: 1.9rem;
+    width: 2rem;
+    height: 2.25rem;
     flex: 0 0 auto;
 }
 
@@ -835,39 +868,49 @@ watch(() => startSection, (section) => {
     white-space: nowrap;
 }
 
-.recent-remove {
+.recent-action {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 1.75rem;
     height: 1.75rem;
+    border: 0;
     border-radius: 0.375rem;
-    color: var(--app-start-row-remove-fg);
     background: transparent;
+    color: var(--ui-text-dimmed);
     opacity: 0;
     cursor: pointer;
     transition: opacity 0.12s ease, background-color 0.12s ease, color 0.12s ease;
 }
 
-.recent-remove :deep(.iconify) {
+.recent-action :deep(.iconify) {
     width: 1rem;
     height: 1rem;
 }
 
-.recent-row--data:hover .recent-remove,
-.recent-row--data:focus-within .recent-remove {
+.recent-row--data:hover .recent-action,
+.recent-row--data:focus-within .recent-action {
     opacity: 1;
 }
 
-.recent-remove:hover {
-    background: var(--app-start-row-remove-hover-bg);
-    color: var(--app-start-row-remove-hover-fg);
+.recent-action:hover {
+    background: var(--app-start-row-hover-bg);
+    color: var(--ui-text);
 }
 
-.recent-remove:focus-visible {
+.recent-action:focus-visible {
     outline: 2px solid var(--app-toolbar-focus-ring);
     outline-offset: 1px;
     opacity: 1;
+}
+
+.recent-action--remove {
+    color: var(--app-start-row-remove-fg);
+}
+
+.recent-action--remove:hover {
+    background: var(--app-start-row-remove-hover-bg);
+    color: var(--app-start-row-remove-hover-fg);
 }
 
 .recent-empty {
@@ -949,7 +992,7 @@ watch(() => startSection, (section) => {
     }
 
     .recent-table {
-        grid-template-columns: minmax(0, 1fr) auto 2.5rem;
+        grid-template-columns: minmax(0, 1fr) auto 4.5rem;
     }
 
     .recent-row {

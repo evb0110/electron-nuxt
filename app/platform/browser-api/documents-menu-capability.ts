@@ -30,6 +30,7 @@ export const browserDocumentsMenuCapability: IDocumentsMenuCapability = {
     onMenuSave: noopUnsubscribe,
     onMenuSaveAs: noopUnsubscribe,
     onMenuPrint: noopUnsubscribe,
+    onMenuPrintCurrentPage: noopUnsubscribe,
     onMenuExportDocx: noopUnsubscribe,
     onMenuExportImages: noopUnsubscribe,
     onMenuExportMultiPageTiff: noopUnsubscribe,

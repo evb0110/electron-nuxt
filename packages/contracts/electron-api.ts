@@ -346,6 +346,7 @@ export interface IDocumentsMenuCapability {
     onMenuSave: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuSaveAs: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuPrint: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
+    onMenuPrintCurrentPage: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuExportDocx: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuExportImages: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;
     onMenuExportMultiPageTiff: (callback: IMenuEventCallback) => IMenuEventUnsubscribe;

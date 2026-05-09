@@ -157,6 +157,11 @@ function isSaveEnabled(template: IMenuItemLike[]) {
     return Boolean(saveItem?.enabled);
 }
 
+function getFileMenuSubmenu(template: IMenuItemLike[]) {
+    const fileMenu = template.find(item => item.label === 'menu.file');
+    return Array.isArray(fileMenu?.submenu) ? fileMenu.submenu : [];
+}
+
 function isMoveToNewWindowEnabled(template: IMenuItemLike[]) {
     const windowMenu = template.find(item => item.label === 'menu.window');
     const submenu = Array.isArray(windowMenu?.submenu) ? windowMenu.submenu : [];
@@ -250,6 +255,22 @@ describe('menu per-window document state', () => {
             'paste',
             'selectAll',
         ]));
+    });
+
+    it('adds print current page to the native file menu', () => {
+        const window = mocks.createWindow(1, 'Window');
+
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+        setMenuDocumentState(1, true);
+
+        const printCurrentPageItem = getFileMenuSubmenu(getLastMenuTemplate())
+            .find(item => item.label === 'menu.printCurrentPage');
+
+        expect(printCurrentPageItem?.enabled).toBe(true);
+        printCurrentPageItem?.click?.({}, window);
+        expect(window.webContents.send).toHaveBeenCalledWith('menu:printCurrentPage');
     });
 
     it('routes undo to the focused text input instead of the document action', async () => {

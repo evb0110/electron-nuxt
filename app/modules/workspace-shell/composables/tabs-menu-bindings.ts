@@ -69,6 +69,11 @@ const documentMenuActions: IDocumentMenuAction[] = [
         run: deps => deps.activeWorkspace.value?.handlePrint(),
     },
     {
+        name: 'print-current-page',
+        register: 'onMenuPrintCurrentPage',
+        run: deps => deps.activeWorkspace.value?.handlePrintCurrentPage(),
+    },
+    {
         name: 'export-docx',
         register: 'onMenuExportDocx',
         run: deps => deps.activeWorkspace.value?.handleExportDocx(),
