@@ -82,6 +82,19 @@ describe('isAllowedReadPath', () => {
         expect(isAllowedReadPath('/private/tmp/electron-test/document.pdf')).toBe(true);
     });
 
+    it('accepts Windows native paths inside the temp directory', () => {
+        mocks.tempDir = 'C:\\Users\\Alice\\AppData\\Local\\Temp';
+        mocks.realpathSync.mockImplementation((path: string) => {
+            if (path === 'C:\\Users\\Alice\\AppData\\Local\\Temp') {
+                return '\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp';
+            }
+            return path;
+        });
+
+        expect(isAllowedReadPath('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\work.pdf'))
+            .toBe(true);
+    });
+
     it('rejects symlink targets', () => {
         mocks.lstatSync.mockReturnValue(createStat(true));
 
@@ -118,6 +131,22 @@ describe('resolveAllowedReadPath', () => {
 
         await expect(resolveAllowedReadPath('/var/folders/abc/T/file.pdf')).resolves.toBe('/private/var/folders/abc/T/file.pdf');
     });
+
+    it('allows Windows paths when realpath returns native namespaced paths', async () => {
+        mocks.tempDir = 'C:\\Users\\Alice\\AppData\\Local\\Temp';
+        mocks.realpathSync.mockImplementation((path: string) => {
+            if (path === 'C:\\Users\\Alice\\AppData\\Local\\Temp') {
+                return '\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp';
+            }
+            if (path === 'C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\work.pdf') {
+                return '\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\work.pdf';
+            }
+            return path;
+        });
+
+        await expect(resolveAllowedReadPath('C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\work.pdf'))
+            .resolves.toBe('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\work.pdf');
+    });
 });
 
 describe('resolveAllowedWritePath', () => {
@@ -127,5 +156,27 @@ describe('resolveAllowedWritePath', () => {
         await expect(resolveAllowedWritePath('/tmp/electron-test/symlink-write.pdf')).resolves.toBeNull();
         expect(mocks.realpathSync).toHaveBeenCalledWith('/tmp/electron-test');
         expect(mocks.realpathSync).not.toHaveBeenCalledWith('/tmp/electron-test/symlink-write.pdf');
+    });
+
+    it('allows missing Windows targets whose real parent is the temp directory', async () => {
+        mocks.tempDir = 'C:\\Users\\Alice\\AppData\\Local\\Temp';
+        mocks.lstatSync.mockImplementation((path: string) => {
+            if (path.endsWith('\\new-output.pdf')) {
+                throw new Error('missing');
+            }
+            return createStat(false);
+        });
+        mocks.realpathSync.mockImplementation((path: string) => {
+            if (path === 'C:\\Users\\Alice\\AppData\\Local\\Temp') {
+                return '\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp';
+            }
+            if (path === 'C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1') {
+                return '\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1';
+            }
+            return path;
+        });
+
+        await expect(resolveAllowedWritePath('C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\new-output.pdf'))
+            .resolves.toBe('C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\new-output.pdf');
     });
 });

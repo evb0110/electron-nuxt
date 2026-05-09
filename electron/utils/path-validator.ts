@@ -5,6 +5,7 @@ import {
     relative,
     resolve,
     sep,
+    win32,
 } from 'path';
 import {
     existsSync,
@@ -12,20 +13,73 @@ import {
     realpathSync,
 } from 'fs';
 
+interface IPathOps {
+    dirname(path: string): string;
+    isAbsolute(path: string): boolean;
+    relative(from: string, to: string): string;
+    resolve(path: string): string;
+    sep: string;
+}
+
+const defaultPathOps: IPathOps = {
+    dirname,
+    isAbsolute,
+    relative,
+    resolve,
+    sep,
+};
+
+const windowsPathOps: IPathOps = {
+    dirname: win32.dirname,
+    isAbsolute: win32.isAbsolute,
+    relative: win32.relative,
+    resolve: win32.resolve,
+    sep: win32.sep,
+};
+
+function stripWindowsExtendedLengthPrefix(filePath: string) {
+    if (filePath.startsWith('\\\\?\\UNC\\')) {
+        return `\\\\${filePath.slice(8)}`;
+    }
+    if (filePath.startsWith('\\\\?\\')) {
+        return filePath.slice(4);
+    }
+    return filePath;
+}
+
+function isWindowsPathLike(filePath: string) {
+    const normalizedPath = stripWindowsExtendedLengthPrefix(filePath);
+    return /^[a-zA-Z]:[\\/]/.test(normalizedPath) || normalizedPath.startsWith('\\\\');
+}
+
+function getPathOps(...paths: string[]): IPathOps {
+    return paths.some(isWindowsPathLike) ? windowsPathOps : defaultPathOps;
+}
+
+function normalizePathForComparison(filePath: string, ops: IPathOps) {
+    const normalizedPath = ops.resolve(stripWindowsExtendedLengthPrefix(filePath));
+    return ops === windowsPathOps ? normalizedPath.toLowerCase() : normalizedPath;
+}
+
 function normalizeCandidatePath(filePath: string) {
     if (!filePath || filePath.trim() === '') {
         return null;
     }
 
     try {
-        return resolve(filePath.trim());
+        const trimmedPath = filePath.trim();
+        return getPathOps(trimmedPath).resolve(trimmedPath);
     } catch {
         return null;
     }
 }
 
 function isPathInsideBaseDir(baseDir: string, candidatePath: string) {
-    const relativePath = relative(baseDir, candidatePath);
+    const ops = getPathOps(baseDir, candidatePath);
+    const relativePath = ops.relative(
+        normalizePathForComparison(baseDir, ops),
+        normalizePathForComparison(candidatePath, ops),
+    );
 
     if (relativePath === '' || relativePath === '.') {
         return false;
@@ -33,8 +87,8 @@ function isPathInsideBaseDir(baseDir: string, candidatePath: string) {
 
     return (
         relativePath !== '..'
-        && !relativePath.startsWith(`..${sep}`)
-        && !isAbsolute(relativePath)
+        && !relativePath.startsWith(`..${ops.sep}`)
+        && !ops.isAbsolute(relativePath)
     );
 }
 
@@ -45,6 +99,15 @@ function isPathInsideAnyBaseDir(baseDirs: string[], candidatePath: string) {
         }
     }
     return false;
+}
+
+function isSamePath(left: string, right: string) {
+    const ops = getPathOps(left, right);
+    return normalizePathForComparison(left, ops) === normalizePathForComparison(right, ops);
+}
+
+function isPathSameAsAnyBaseDir(baseDirs: string[], candidatePath: string) {
+    return baseDirs.some(baseDir => isSamePath(baseDir, candidatePath));
 }
 
 function safeRealpathSync(path: string): string {
@@ -60,9 +123,10 @@ function getTempBaseDirs() {
 }
 
 function getTempBaseDirsSync() {
-    const tempDir = resolve(app.getPath('temp'));
+    const configuredTempDir = app.getPath('temp');
+    const tempDir = normalizeCandidatePath(configuredTempDir) ?? resolve(configuredTempDir);
     const canonicalTempDir = safeRealpathSync(tempDir);
-    return canonicalTempDir === tempDir
+    return isSamePath(canonicalTempDir, tempDir)
         ? [tempDir]
         : [
             tempDir,
@@ -172,9 +236,10 @@ function resolveAllowedWritePathSync(filePath: string): string | null {
     }
 
     try {
-        const parentDir = dirname(absolutePath);
+        const ops = getPathOps(absolutePath);
+        const parentDir = ops.dirname(absolutePath);
         const resolvedParentDir = safeRealpathSync(parentDir);
-        const isTempDirRoot = tempBaseDirs.includes(resolvedParentDir);
+        const isTempDirRoot = isPathSameAsAnyBaseDir(tempBaseDirs, resolvedParentDir);
         if (!isPathInsideAnyBaseDir(tempBaseDirs, resolvedParentDir) && !isTempDirRoot) {
             return null;
         }

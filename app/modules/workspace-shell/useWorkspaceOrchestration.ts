@@ -511,12 +511,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         getPrintableSourceData,
     });
 
-    const { handleQuickPrint } = workspacePrint;
-
-    function handlePrint() {
-        void handleQuickPrint();
-    }
-
     const interactionControls = useWorkspaceInteractionControls({
         isActive,
         appSettings,
@@ -542,7 +536,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         openAnnotations,
         handleAnnotationToolChange,
         handleSave,
-        handlePrint,
+        handlePrint: workspacePrint.handlePrint,
         handleToggleSidebar: () => {
             showSidebar.value = !showSidebar.value;
         },
@@ -648,6 +642,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         docxExportError,
         handleInsertImageFromFile: () => insertImageFromFileAt(currentPage.value, 0.5, 0.5),
         handlePasteImageFromClipboard: () => pasteImageFromClipboardAt(currentPage.value, 0.5, 0.5),
-        handlePrint,
+        handlePrint: workspacePrint.handlePrint,
     };
 };

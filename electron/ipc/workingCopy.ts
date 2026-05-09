@@ -21,6 +21,7 @@ import {
     sep,
     isAbsolute,
     extname,
+    win32,
 } from 'path';
 import { createLogger } from '@electron/utils/logger';
 import { decryptPdfFileIfNeeded } from '@electron/utils/pdf-decrypt';
@@ -59,6 +60,34 @@ const RETIRED_WORKING_COPY_TTL_MS = (() => {
     }
     return Math.min(parsed, 60 * 60 * 1000);
 })();
+
+function stripWindowsExtendedLengthPrefix(filePath: string) {
+    if (filePath.startsWith('\\\\?\\UNC\\')) {
+        return `\\\\${filePath.slice(8)}`;
+    }
+    if (filePath.startsWith('\\\\?\\')) {
+        return filePath.slice(4);
+    }
+    return filePath;
+}
+
+function isWindowsPathLike(filePath: string) {
+    const normalizedPath = stripWindowsExtendedLengthPrefix(filePath);
+    return /^[a-zA-Z]:[\\/]/.test(normalizedPath) || normalizedPath.startsWith('\\\\');
+}
+
+function normalizePathForLookup(filePath: string) {
+    const trimmedPath = filePath.trim();
+    if (!trimmedPath) {
+        return '';
+    }
+
+    if (isWindowsPathLike(trimmedPath)) {
+        return win32.resolve(stripWindowsExtendedLengthPrefix(trimmedPath)).toLowerCase();
+    }
+
+    return resolve(trimmedPath);
+}
 
 export class WorkingCopyMissingError extends Error {
     code = 'WORKING_COPY_MISSING';
@@ -125,12 +154,13 @@ export function findWorkingCopyPathByOriginalPath(originalPath: string): string 
         return null;
     }
 
+    const lookupOriginalPath = normalizePathForLookup(normalizedOriginalPath);
     let latestMatch: string | null = null;
     for (const [
         workingPath,
         mappedOriginalPath,
     ] of workingCopyMap.entries()) {
-        if (mappedOriginalPath === normalizedOriginalPath) {
+        if (normalizePathForLookup(mappedOriginalPath) === lookupOriginalPath) {
             latestMatch = workingPath;
         }
     }
@@ -143,8 +173,9 @@ export function isKnownWorkingCopyOriginalPath(originalPath: string) {
     if (!normalizedOriginalPath) {
         return false;
     }
+    const lookupOriginalPath = normalizePathForLookup(normalizedOriginalPath);
     return Array.from(workingCopyMap.values())
-        .some(mappedOriginalPath => mappedOriginalPath === normalizedOriginalPath);
+        .some(mappedOriginalPath => normalizePathForLookup(mappedOriginalPath) === lookupOriginalPath);
 }
 
 function createWorkingDirectory() {

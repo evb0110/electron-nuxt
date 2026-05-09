@@ -385,6 +385,58 @@ describe('useWorkspacePrint', () => {
         }
     });
 
+    it('falls back to a one-page printable PDF when native current-page extraction rejects', async () => {
+        documentsCapabilityMock.printPdfPath.mockRejectedValue(new Error('Path is outside the allowed working directory'));
+        buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(4, 5, 6));
+        const appFrame = createFakeFrame();
+        vi.stubGlobal('document', {
+            body: { append: vi.fn() },
+            createElement: vi.fn((tag: string) => {
+                if (tag !== 'iframe') {
+                    throw new Error(`Unexpected element: ${tag}`);
+                }
+                return appFrame.frame;
+            }),
+        });
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: null,
+            workingCopyPath: '/tmp/current-page.pdf',
+            fileName: 'current-page.pdf',
+        });
+
+        try {
+            const printPromise = state.handlePrintCurrentPage();
+            await flushMicrotasks(12);
+
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/tmp/current-page.pdf',
+                'current-page.pdf',
+                [4],
+            );
+            expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
+            expect(buildPrintablePdfDataMock).toHaveBeenCalledWith(
+                Uint8Array.of(9, 8, 7),
+                {
+                    pageNumbers: [4],
+                    viewMode: 'single',
+                    orientation: 'auto',
+                },
+            );
+
+            appFrame.frame.trigger('load');
+            await printPromise;
+
+            expect(appFrame.frameWindow.print).toHaveBeenCalledTimes(1);
+            expect(toastAddMock).not.toHaveBeenCalled();
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('quick-prints the current browser PDF source without rebuilding it', async () => {
         const appFrame = createFakeFrame();
         vi.stubGlobal('document', {

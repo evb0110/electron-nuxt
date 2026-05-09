@@ -432,9 +432,17 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps): IWorkspacePrintSta
         }
 
         const fileName = deps.fileName.value ?? undefined;
-        const result = options.pageNumbers
-            ? await getDocumentsCapability().printPdfPath(path, fileName, options.pageNumbers)
-            : await getDocumentsCapability().printPdfPath(path, fileName);
+        let result: Awaited<ReturnType<ReturnType<typeof getDocumentsCapability>['printPdfPath']>>;
+        try {
+            result = options.pageNumbers
+                ? await getDocumentsCapability().printPdfPath(path, fileName, options.pageNumbers)
+                : await getDocumentsCapability().printPdfPath(path, fileName);
+        } catch (error) {
+            if (options.force === true) {
+                throw error;
+            }
+            return false;
+        }
         if (isNativePrintCapabilityUnavailable(result)) {
             return false;
         }
