@@ -134,15 +134,28 @@ run_macos_packaged_tool_smoke() {
 
   echo "Smoke testing packaged tool: $tool_path $*"
   local exit_code=0
-  if env \
-    DYLD_LIBRARY_PATH="$joined_dyld_path" \
-    LD_LIBRARY_PATH="$joined_dyld_path" \
-    "$tool_path" "$@" >"$output_file" 2>&1
-  then
-    exit_code=0
-  else
-    exit_code=$?
-  fi
+  local attempt=1
+  while true; do
+    : >"$output_file"
+    if env \
+      DYLD_LIBRARY_PATH="$joined_dyld_path" \
+      LD_LIBRARY_PATH="$joined_dyld_path" \
+      "$tool_path" "$@" >"$output_file" 2>&1
+    then
+      exit_code=0
+    else
+      exit_code=$?
+    fi
+
+    if [ "$exit_code" -ne 137 ] || [ "$attempt" -ge 2 ]; then
+      break
+    fi
+
+    echo "Packaged tool was killed by macOS immediately after signing; verifying signature and retrying once: $tool_path"
+    codesign --verify --strict --verbose=2 "$tool_path"
+    sleep 1
+    attempt=$((attempt + 1))
+  done
 
   if ! node scripts/release/assert-packaged-tool-smoke.mjs "$tool_name" "$exit_code" "$output_file"; then
     cat "$output_file"

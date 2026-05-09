@@ -34,4 +34,12 @@ describe('macOS native tool workflow', () => {
         expect(bundleUnpaper).toContain('sphinx-build is required');
         expect(bundleUnpaper).toContain('brew --prefix sphinx-doc');
     });
+
+    it('retries transient macOS packaged tool kills after checking the signature', async () => {
+        const verifier = await readProjectFile('scripts/verify-packaged-native-tools.sh');
+
+        expect(verifier).toContain('exit_code" -ne 137');
+        expect(verifier).toContain('codesign --verify --strict --verbose=2 "$tool_path"');
+        expect(verifier).toContain('retrying once');
+    });
 });
