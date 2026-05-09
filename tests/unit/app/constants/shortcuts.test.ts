@@ -17,7 +17,12 @@ describe('shortcuts', () => {
     });
 
     it('formats modifier labels for explicit platforms', () => {
-        expect(getShortcutLabels(true).openFile).toBe('Cmd+O');
+        expect(getShortcutLabels(true).openFile).toBe('\u2318O');
         expect(getShortcutLabels(false).openFile).toBe('Ctrl+O');
+    });
+
+    it('orders macOS shortcut modifiers like native menus', () => {
+        expect(getShortcutLabels(true).saveAs).toBe('\u21E7\u2318S');
+        expect(getShortcutLabels(false).saveAs).toBe('Ctrl+Shift+S');
     });
 });

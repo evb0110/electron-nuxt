@@ -1,5 +1,5 @@
 <template>
-    <UTooltip :text="tooltipText" :delay-duration="1200">
+    <UTooltip :delay-duration="1200">
         <button
             class="toolbar-btn"
             :class="{
@@ -9,7 +9,7 @@
                 'is-loading': loading,
             }"
             :disabled="disabled || loading"
-            :aria-label="tooltipText"
+            :aria-label="tooltip"
             :aria-pressed="active"
             @click="emit('click')"
         >
@@ -20,6 +20,17 @@
             </span>
             <Icon v-else name="lucide:loader-2" :class="[iconClass, 'animate-spin']" />
         </button>
+
+        <template #content>
+            <span class="toolbar-tooltip-label">{{ tooltip }}</span>
+            <span
+                v-if="shortcutLabel"
+                class="toolbar-tooltip-shortcut"
+                aria-hidden="true"
+            >
+                {{ shortcutLabel }}
+            </span>
+        </template>
     </UTooltip>
 </template>
 
@@ -46,9 +57,7 @@ const {
 
 const emit = defineEmits<{ click: [] }>();
 
-const tooltipText = computed(() => shortcut.trim()
-    ? `${tooltip} (${shortcut.trim()})`
-    : tooltip);
+const shortcutLabel = computed(() => shortcut.trim());
 </script>
 
 <style scoped>
@@ -119,5 +128,18 @@ const tooltipText = computed(() => shortcut.trim()
     opacity: 1;
     color: var(--ui-text-muted);
     cursor: wait;
+}
+
+.toolbar-tooltip-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.toolbar-tooltip-shortcut {
+    color: var(--ui-text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 </style>

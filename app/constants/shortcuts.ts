@@ -107,16 +107,35 @@ export function isMacPlatformHint(value: string) {
 
 function resolveModifierLabel(m: TModifier, isMac: boolean): string {
     if (m === 'mod') {
-        return isMac ? 'Cmd' : 'Ctrl';
+        return isMac ? '\u2318' : 'Ctrl';
     }
-    return 'Shift';
+    return isMac ? '\u21E7' : 'Shift';
+}
+
+function getOrderedModifiers(modifiers: TModifier[], isMac: boolean) {
+    if (!isMac) {
+        return modifiers;
+    }
+
+    const macModifierOrder: TModifier[] = [
+        'shift',
+        'mod',
+    ];
+
+    return [...modifiers].sort((a, b) => macModifierOrder.indexOf(a) - macModifierOrder.indexOf(b));
 }
 
 function formatShortcutLabel(def: IShortcutDef, isMac: boolean) {
     const activeDef = (!isMac && def.nonMacOverride) ? def.nonMacOverride : def;
-    const parts = activeDef.modifiers.map(m => resolveModifierLabel(m, isMac));
+    const parts = getOrderedModifiers(activeDef.modifiers, isMac)
+        .map(m => resolveModifierLabel(m, isMac));
     parts.push(activeDef.key);
-    return parts.join('+');
+
+    if (!isMac) {
+        return parts.join('+');
+    }
+
+    return parts.join('');
 }
 
 export function getShortcutLabels(isMac = isMacPlatform()) {
