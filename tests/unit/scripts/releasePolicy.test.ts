@@ -84,11 +84,21 @@ describe('release policy', () => {
 
         expect(getRequiredArtifactPatterns({
             arch: 'arm64',
+            expectsUpdaterMetadata: true,
             platform: 'mac',
+        }, {
+            CSC_KEY_PASSWORD: 'password',
+            CSC_LINK: 'certificate',
         }).map((pattern: RegExp) => pattern.source)).toEqual([
             '\\.dmg$',
             '\\.zip$',
         ]);
+
+        expect(getRequiredArtifactPatterns({
+            arch: 'arm64',
+            expectsUpdaterMetadata: true,
+            platform: 'mac',
+        }, {}).map((pattern: RegExp) => pattern.source)).toEqual([ '\\.dmg$' ]);
     });
 
     it('keeps release checks focused on static checks and release-critical tests', () => {
@@ -157,6 +167,40 @@ describe('release policy', () => {
             '--mac',
             'zip',
             '--x64',
+        ]);
+    });
+
+    it('uses a DMG-only local package check for unsigned macOS arm64 builds', () => {
+        expect(getPackagingArgs({
+            arch: 'arm64',
+            expectsUpdaterMetadata: true,
+            platform: 'mac',
+        }, {})).toEqual([
+            'exec',
+            'electron-builder',
+            '--publish',
+            'never',
+            '--mac',
+            'dmg',
+            '--arm64',
+        ]);
+    });
+
+    it('keeps ZIP generation for signed macOS arm64 builds with updater metadata', () => {
+        expect(getPackagingArgs({
+            arch: 'arm64',
+            expectsUpdaterMetadata: true,
+            platform: 'mac',
+        }, {
+            CSC_KEY_PASSWORD: 'password',
+            CSC_LINK: 'certificate',
+        })).toEqual([
+            'exec',
+            'electron-builder',
+            '--publish',
+            'never',
+            '--mac',
+            '--arm64',
         ]);
     });
 });
