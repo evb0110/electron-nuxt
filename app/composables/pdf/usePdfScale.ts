@@ -209,6 +209,40 @@ export const usePdfScale = (
         return true;
     }
 
+    function isFitWidthScaleCurrent(container: HTMLElement | null) {
+        const totalPages = toValue(numPages);
+        const normalizedPageMetrics = getNormalizedPageMetrics();
+        const height = resolveDocumentBaseMetric(normalizedPageMetrics, 'height');
+        const width = resolveCurrentSpreadBaseWidth(
+            normalizedPageMetrics,
+            toValue(viewMode),
+            totalPages,
+            toValue(currentPage),
+        );
+
+        if (!container || !width || !height) {
+            return true;
+        }
+
+        const mode = toValue(fitMode);
+        const rawSize = getFitRawSize(container, mode);
+        if (rawSize <= 0) {
+            return true;
+        }
+
+        const availableSize = getFitAvailableSize(rawSize, mode);
+        if (availableSize <= 0) {
+            return true;
+        }
+
+        const baseDimension = mode === 'height'
+            ? resolveFitHeightBaseDimension(normalizedPageMetrics, height)
+            : width;
+        const expectedScale = availableSize / baseDimension;
+
+        return Math.abs(expectedScale - fitWidthScale.value) < 0.001;
+    }
+
     function invalidateScaleCache() {
         lastContainerSize.value = null;
         lastBaseDimension.value = null;
@@ -225,6 +259,7 @@ export const usePdfScale = (
         containerStyle,
         scaledMargin,
         computeFitWidthScale,
+        isFitWidthScaleCurrent,
         invalidateScaleCache,
         resetScale,
     };
