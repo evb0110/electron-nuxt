@@ -111,11 +111,12 @@ fileAssociations:
     role: Viewer
 
 dmg:
-  background: resources/dmg-background.png
+  backgroundColor: "#D9DDE5"
+  icon: null
   iconSize: 128
   window:
     width: 600
-    height: 360
+    height: 450
   contents:
     - x: 160
       y: 240
