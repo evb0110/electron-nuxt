@@ -21,6 +21,7 @@
         :is-capturing-region="snapshot.isCapturingRegion"
         :is-crop-selecting="snapshot.isCropSelecting"
         :is-placing-page-note="snapshot.isPlacingPageNote"
+        :has-ocr-action="canUseOcr"
         :surface="toolbarSurface"
         @open-file="emit('open-file')"
         @open-settings="emit('open-settings')"

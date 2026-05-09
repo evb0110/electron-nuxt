@@ -89,7 +89,6 @@
                             class="open-panel-cta"
                             color="primary"
                             icon="i-lucide-folder-open"
-                            size="lg"
                             :label="t('emptyState.openFileEllipsis')"
                             :aria-label="t('toolbar.openPdf')"
                             :disabled="openInProgress"
@@ -511,15 +510,16 @@ watch(() => startSection, (section) => {
 .rail-item {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.7rem;
     width: 100%;
-    height: 2rem;
-    padding: 0 0.55rem;
+    height: 2.4rem;
+    padding: 0 0.6rem;
     border: 0;
     border-radius: 0.45rem;
     background: transparent;
     color: var(--app-start-rail-item-fg);
-    font-size: 0.83rem;
+    font-size: 0.9rem;
+    font-weight: 500;
     text-align: left;
     cursor: pointer;
     transition: background-color 0.12s ease, color 0.12s ease;
@@ -540,7 +540,7 @@ watch(() => startSection, (section) => {
 .rail-item.is-active {
     background: var(--app-start-rail-item-active-bg);
     color: var(--app-start-rail-item-active-fg);
-    font-weight: 500;
+    font-weight: 600;
 }
 
 .rail-item:disabled {
@@ -549,11 +549,11 @@ watch(() => startSection, (section) => {
 }
 
 .rail-item-icon {
-    width: 1.05rem;
-    height: 1.05rem;
+    width: 1.2rem;
+    height: 1.2rem;
     flex: 0 0 auto;
     color: currentcolor;
-    opacity: 0.85;
+    opacity: 1;
 }
 
 .rail-shortcut {
@@ -638,7 +638,6 @@ watch(() => startSection, (section) => {
 }
 
 .open-panel-cta {
-    min-width: 13rem;
     flex: 0 0 auto;
     justify-content: center;
 }
