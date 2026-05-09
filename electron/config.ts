@@ -7,8 +7,10 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
+const DEFAULT_SERVER_HOST = normalizeServerHost(process.env.EVB_SERVER_HOST, '127.0.0.1');
 const DEFAULT_SERVER_PORT = parsePositiveInt(process.env.EVB_SERVER_PORT, 3235);
 const DEFAULT_SERVER_PATH = normalizeServerPath(process.env.EVB_SERVER_PATH, '/electron');
+let runtimeServerHost = DEFAULT_SERVER_HOST;
 let runtimeServerPort = DEFAULT_SERVER_PORT;
 let runtimeServerPath = DEFAULT_SERVER_PATH;
 
@@ -40,11 +42,26 @@ function normalizeServerPath(raw: string | undefined, fallback: string) {
         : `/${trimmed}`;
 }
 
+function normalizeServerHost(raw: string | undefined, fallback: string) {
+    const trimmed = raw?.trim();
+    if (!trimmed) {
+        return fallback;
+    }
+
+    return trimmed;
+}
+
 export const config = {
     isDev: !isPackaged,
     isMac: process.platform === 'darwin',
 
     server: {
+        get host() {
+            return runtimeServerHost;
+        },
+        setHost(host: string) {
+            runtimeServerHost = normalizeServerHost(host, DEFAULT_SERVER_HOST);
+        },
         get port() {
             return runtimeServerPort;
         },
@@ -60,7 +77,7 @@ export const config = {
             runtimeServerPath = normalizeServerPath(path, DEFAULT_SERVER_PATH);
         },
         get url() {
-            return `http://127.0.0.1:${this.port}${this.path}`;
+            return `http://${this.host}:${this.port}${this.path}`;
         },
         get entryPath() {
             if (isPackaged) {
