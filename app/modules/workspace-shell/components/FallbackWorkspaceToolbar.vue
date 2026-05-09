@@ -59,6 +59,7 @@
                 @save="emit('save')"
                 @save-as="emit('save-as')"
                 @print="emit('print')"
+                @print-current-page="emit('print-current-page')"
                 @combine-images="emit('combine-images')"
                 @export-docx="emit('export-docx')"
                 @export-images="emit('export-images')"
@@ -139,6 +140,11 @@
                 :is-crop-selecting="snapshot.isCropSelecting"
                 :is-placing-page-note="snapshot.isPlacingPageNote"
                 :surface="toolbarSurface"
+                :show-document-section="isDesktopRuntime"
+                can-combine-files
+                can-print-current-page
+                :can-convert-to-pdf="canUseDjvu && snapshot.isDjvuMode"
+                :is-preparing-print="snapshot.isPreparingPrint"
                 trigger-icon="i-lucide-ellipsis"
                 @update:open="emit('update:overflowMenuOpen', $event)"
                 @capture-region="emit('capture-region')"
@@ -152,6 +158,9 @@
                 @toggle-continuous-scroll="emit('toggle-continuous-scroll')"
                 @quick-note="emit('quick-note')"
                 @open-settings="emit('open-settings')"
+                @combine-images="emit('combine-images')"
+                @print-current-page="emit('print-current-page')"
+                @convert-to-pdf="emit('convert-to-pdf')"
             />
         </template>
     </PdfToolbar>
@@ -202,6 +211,7 @@ const emit = defineEmits<{
     'save': [];
     'save-as': [];
     'print': [];
+    'print-current-page': [];
     'combine-images': [];
     'export-docx': [];
     'export-images': [];

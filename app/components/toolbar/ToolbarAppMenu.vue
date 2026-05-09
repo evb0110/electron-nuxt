@@ -1,5 +1,5 @@
 <template>
-    <nav class="app-menu-bar" :aria-label="t('toolbar.appMenu')">
+    <nav v-if="isBrowserRuntime" class="app-menu-bar" :aria-label="t('toolbar.appMenu')">
         <UPopover
             v-model:open="fileMenuOpen"
             mode="click"
@@ -182,8 +182,10 @@
 <script setup lang="ts">
 import { getShortcutLabels } from '@app/constants/shortcuts';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
+import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 
 const { t } = useTypedI18n();
+const { isBrowserRuntime } = useRuntimeEnvironment();
 
 interface IProps {
     open: boolean

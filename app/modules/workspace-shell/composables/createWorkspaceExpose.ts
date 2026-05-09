@@ -160,6 +160,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleSave: deps.handleSave,
         handleSaveAs: deps.handleSaveAs,
         handlePrint: deps.handlePrint,
+        handlePrintCurrentPage: deps.handlePrintCurrentPage,
         handleUndo: deps.handleUndo,
         handleRedo: deps.handleRedo,
         handleOpenFileFromUi: deps.handleOpenFileFromUi,

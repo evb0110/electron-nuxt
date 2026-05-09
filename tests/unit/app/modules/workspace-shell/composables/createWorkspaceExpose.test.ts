@@ -16,6 +16,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         handleSave: vi.fn(async () => {}),
         handleSaveAs: vi.fn(async () => {}),
         handlePrint: vi.fn(async () => {}),
+        handlePrintCurrentPage: vi.fn(async () => {}),
         handleUndo: vi.fn(),
         handleRedo: vi.fn(),
         handleCombineImages: vi.fn(async () => {}),
