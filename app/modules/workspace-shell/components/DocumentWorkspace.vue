@@ -352,6 +352,7 @@
                         @open-folder="handleOpenFolderFromUi"
                         @open-recent="openRecentFile"
                         @remove-recent="removeRecentFile"
+                        @reveal-recent="revealRecentFile"
                         @clear-recent="clearRecentFiles"
                         @open-settings="emit('open-settings')"
                         @combine-files="emit('open-combine')"
@@ -573,11 +574,13 @@ import type { TStartSection } from '@app/types/start-page';
 import type { IPdfPageMatches } from '@app/types/pdf';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 import { BrowserLogger } from '@app/utils/browser-logger';
+import { getDocumentsCapability } from '@app/utils/platform-documents';
 import {
     displayProcessedCount,
     formatEtaDuration,
 } from '@app/utils/progress-formatting';
 import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/reader-command-surface';
+import type { IRecentFile } from '@contracts/shared';
 
 const OcrPopup = defineAsyncComponent(() => import('@app/components/ocr/OcrPopup.vue'));
 const DjvuBanner = defineAsyncComponent(() => import('@app/components/djvu/DjvuBanner.vue'));
@@ -903,6 +906,14 @@ const canToggleSidebar = computed(() => (
 ));
 const isConversionBusy = computed(() => conversionState.value.isConverting);
 const isDocumentBusy = computed(() => isConversionBusy.value || isOcrRunning.value);
+async function revealRecentFile(file: IRecentFile) {
+    try {
+        await getDocumentsCapability().showItemInFolder(file.originalPath);
+    } catch {
+        // Best-effort; ignore failures (path may have moved or permissions changed).
+    }
+}
+
 function handleViewerTotalPagesUpdate(value: number) {
     // During split restore the PdfViewer emits totalPages=0 while it starts
     // loading the "new" source, overwriting the pre-seeded cache value.

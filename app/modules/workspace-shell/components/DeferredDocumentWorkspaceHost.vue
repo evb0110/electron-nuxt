@@ -35,6 +35,7 @@
                 @open-file="handleOpenFileFromUi"
                 @open-recent="handleOpenRecentFromPlaceholder"
                 @remove-recent="handleRemoveRecentFromPlaceholder"
+                @reveal-recent="handleRevealRecentFromPlaceholder"
                 @clear-recent="handleClearRecentFromPlaceholder"
                 @open-settings="emit('open-settings')"
                 @combine-files="emit('open-combine')"
@@ -554,6 +555,14 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
 
 async function handleRemoveRecentFromPlaceholder(file: IRecentFile) {
     await removeRecentFile(file);
+}
+
+async function handleRevealRecentFromPlaceholder(file: IRecentFile) {
+    try {
+        await getPlatformAPI().documents.showItemInFolder(file.originalPath);
+    } catch {
+        // Best-effort; ignore failures (path may have moved or permissions changed).
+    }
 }
 
 async function handleClearRecentFromPlaceholder() {

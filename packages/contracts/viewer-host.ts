@@ -93,6 +93,7 @@ export interface IDesktopMenuCapability {
     onMenuSave(callback: IMenuEventCallback): IMenuEventUnsubscribe;
     onMenuSaveAs(callback: IMenuEventCallback): IMenuEventUnsubscribe;
     onMenuPrint(callback: IMenuEventCallback): IMenuEventUnsubscribe;
+    onMenuPrintCurrentPage(callback: IMenuEventCallback): IMenuEventUnsubscribe;
 }
 
 export interface IDesktopWindowCapability {

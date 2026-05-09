@@ -44,6 +44,7 @@ export const DOCUMENTS_EVENT_CHANNELS = {
     menuSave: 'menu:save',
     menuSaveAs: 'menu:saveAs',
     menuPrint: 'menu:print',
+    menuPrintCurrentPage: 'menu:printCurrentPage',
     menuExportDocx: 'menu:exportDocx',
     menuExportImages: 'menu:exportImages',
     menuExportMultiPageTiff: 'menu:exportMultiPageTiff',

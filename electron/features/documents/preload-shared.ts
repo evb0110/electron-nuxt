@@ -25,6 +25,8 @@ type IDocumentsEventMap = {
 } & {
     [K in TDocumentsEventChannels['menuPrint']]: undefined;
 } & {
+    [K in TDocumentsEventChannels['menuPrintCurrentPage']]: undefined;
+} & {
     [K in TDocumentsEventChannels['menuExportDocx']]: undefined;
 } & {
     [K in TDocumentsEventChannels['menuExportImages']]: undefined;
