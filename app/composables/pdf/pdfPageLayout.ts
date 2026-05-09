@@ -344,6 +344,25 @@ export function resolveSpreadBaseWidth(
     return maxWidth > 0 ? maxWidth : null;
 }
 
+export function resolveCurrentSpreadBaseWidth(
+    pageMetrics: IPdfPageMetric[],
+    viewMode: TPdfViewMode,
+    totalPages: number,
+    currentPage: number,
+): number | null {
+    if (totalPages <= 0) {
+        return null;
+    }
+
+    const rowPages = getSpreadRowPages(currentPage, viewMode, totalPages);
+    const width = rowPages.reduce((sum, rowPage) => {
+        const pageWidth = pageMetrics[rowPage - 1]?.width;
+        return sum + (isFinitePositive(pageWidth) ? pageWidth : 0);
+    }, 0);
+
+    return width > 0 ? width : null;
+}
+
 export function buildPageLayoutMetrics(options: {
     pageMetrics: IPdfPageMetric[];
     totalPages: number;

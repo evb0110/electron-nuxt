@@ -169,7 +169,7 @@ describe('usePdfScale', () => {
         expect(continuous.scale.effectiveScale.value * pageMetrics[0]!.height).toBeCloseTo(860, 6);
     });
 
-    it('fits the widest page span instead of assuming page 1 geometry for every page', () => {
+    it('fits the current page width instead of the widest page in single-page mode', () => {
         const { scale } = createScaleComposable({
             width: 400,
             height: 500,
@@ -188,11 +188,48 @@ describe('usePdfScale', () => {
                 },
             ],
             mode: 'width',
+            currentPage: 2,
         });
         const container = createContainer(1000, 900);
 
         scale.computeFitWidthScale(container);
 
-        expect(scale.effectiveScale.value * 700).toBeCloseTo(960, 6);
+        expect(scale.effectiveScale.value * 180).toBeCloseTo(960, 6);
+    });
+
+    it('fits the current spread width in facing-page mode', () => {
+        const pageMetrics = [
+            {
+                width: 300,
+                height: 500,
+            },
+            {
+                width: 220,
+                height: 500,
+            },
+            {
+                width: 280,
+                height: 500,
+            },
+            {
+                width: 600,
+                height: 500,
+            },
+        ] satisfies IPdfPageMetric[];
+        const { scale } = createScaleComposable({
+            width: 300,
+            height: 500,
+            pageMetrics,
+            mode: 'width',
+            viewMode: 'facing',
+            currentPage: 2,
+        });
+        const container = createContainer(1000, 900);
+
+        scale.computeFitWidthScale(container);
+
+        expect(
+            scale.effectiveScale.value * (pageMetrics[0]!.width + pageMetrics[1]!.width),
+        ).toBeCloseTo(940, 6);
     });
 });
