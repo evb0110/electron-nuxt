@@ -308,11 +308,12 @@ function applyCustomZoom() {
 
     display: flex;
     align-items: center;
-    gap: 0.1rem;
-    padding: 0.125rem;
+    gap: 0;
+    padding: 0;
     border: 1px solid var(--app-toolbar-group-border);
     border-radius: 0.5625rem;
     background: var(--app-toolbar-group-bg);
+    overflow: hidden;
 }
 
 .zoom-controls-item {
@@ -321,10 +322,11 @@ function applyCustomZoom() {
 }
 
 .zoom-controls-item :deep(.toolbar-btn) {
-    width: calc(var(--zoom-control-side-width) - 0.25rem);
-    min-width: calc(var(--zoom-control-side-width) - 0.25rem);
-    max-width: calc(var(--zoom-control-side-width) - 0.25rem);
-    height: calc(var(--toolbar-control-height, 2.25rem) - 0.25rem);
+    width: var(--zoom-control-side-width);
+    min-width: var(--zoom-control-side-width);
+    max-width: var(--zoom-control-side-width);
+    height: var(--toolbar-control-height, 2.25rem);
+    border-radius: 0;
 }
 
 .zoom-controls-item--display {
@@ -339,10 +341,10 @@ function applyCustomZoom() {
     width: 100%;
     min-width: 100%;
     max-width: 100%;
-    height: calc(var(--toolbar-control-height, 2.25rem) - 0.25rem);
+    height: var(--toolbar-control-height, 2.25rem);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 0.4375rem;
+    border-radius: 0;
     cursor: pointer;
     color: var(--ui-text);
     transition: background-color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease;
