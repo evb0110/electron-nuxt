@@ -33,6 +33,7 @@ const MIN_POLL_INTERVAL_MS = 60_000;
 const MAX_JITTER_RATIO = 0.12;
 const CODESIGN_CHECK_TIMEOUT_MS = 5_000;
 const UPDATE_PROGRESS_BROADCAST_THROTTLE_MS = 250;
+const GITHUB_RELEASE_DOWNLOAD_BASE_URL = 'https://github.com/evb0110/evb-viewer/releases/download';
 
 const defaultStatus: IAppUpdateStatus = {
     phase: 'idle',
@@ -298,6 +299,37 @@ async function fetchLatestMetadataVersion() {
     return latestTag;
 }
 
+function getUpdaterMetadataAssetName() {
+    if (process.platform === 'win32') {
+        return 'latest.yml';
+    }
+    if (process.platform === 'darwin') {
+        return 'latest-mac.yml';
+    }
+    return null;
+}
+
+async function hasUpdaterMetadataForVersion(version: string) {
+    const assetName = getUpdaterMetadataAssetName();
+    if (!assetName) {
+        return false;
+    }
+
+    const tag = version.startsWith('v') ? version : `v${version}`;
+    const url = `${GITHUB_RELEASE_DOWNLOAD_BASE_URL}/${encodeURIComponent(tag)}/${assetName}`;
+    const response = await fetch(url, {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(METADATA_REQUEST_TIMEOUT_MS),
+    });
+    if (response.status === 404) {
+        return false;
+    }
+    if (!response.ok) {
+        throw new Error(`Updater metadata probe responded with ${response.status}`);
+    }
+    return true;
+}
+
 async function maybeClearSupersededDownloadedVersion() {
     if (!downloadedVersion) {
         return false;
@@ -495,13 +527,7 @@ function setAutoUpdaterListeners() {
     });
 }
 
-async function shouldRunUpdaterCheck(origin: TAppUpdateCheckOrigin) {
-    if (origin === 'manual') {
-        // Manual checks should always hit the updater feed directly.
-        // Metadata can be stale because it is CDN-cached.
-        return true;
-    }
-
+async function shouldRunUpdaterCheck() {
     const currentVersion = normalizeVersion(app.getVersion());
     let latestVersion: string;
 
@@ -518,6 +544,20 @@ async function shouldRunUpdaterCheck(origin: TAppUpdateCheckOrigin) {
     if (compareVersions(latestVersion, currentVersion) <= 0) {
         pendingVersion = null;
         return false;
+    }
+
+    try {
+        if (!await hasUpdaterMetadataForVersion(latestVersion)) {
+            logger.info(`Release ${latestVersion} has no ${getUpdaterMetadataAssetName()} updater feed; skipping in-app updater check`);
+            pendingVersion = null;
+            return false;
+        }
+    } catch (error) {
+        const message = isAbortError(error)
+            ? 'Timed out while checking updater metadata.'
+            : getErrorMessage(error);
+        logger.warn(`Unable to verify updater metadata for ${latestVersion}: ${message}`);
+        return true;
     }
 
     const skippedVersion = await readSkippedVersion();
@@ -608,7 +648,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
 
         currentCheckOrigin = origin;
         currentCheckPromise = (async () => {
-            const shouldCheckBinary = await shouldRunUpdaterCheck(origin);
+            const shouldCheckBinary = await shouldRunUpdaterCheck();
             if (!shouldCheckBinary) {
                 if (origin === 'manual') {
                     updateStatus({
