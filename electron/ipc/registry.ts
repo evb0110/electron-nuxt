@@ -41,6 +41,7 @@ import {
 import { config } from '@electron/config';
 import { createLogger } from '@electron/utils/logger';
 import { registerRendererLogBridge } from '@electron/ipc/renderer-log-bridge';
+import { snapshotHostEnvironmentForWindow } from '@electron/host-environment';
 
 export { normalizeRendererLogEntry } from '@electron/ipc/renderer-log-bridge';
 
@@ -305,6 +306,11 @@ function registerCoreIpcHandlers(options: ICoreIpcHandlerOptions = {}) {
     registrar.handle('shell:openExternal', async (_event, url: unknown) => {
         const sanitizedUrl = sanitizeExternalUrl(url);
         await shell.openExternal(sanitizedUrl);
+    });
+
+    registrar.handle('host:getEnvironment', (event) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        return snapshotHostEnvironmentForWindow(window);
     });
 }
 

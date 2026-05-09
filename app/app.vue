@@ -159,6 +159,15 @@ const {
     settings,
 } = useSettings();
 const {
+    effectiveScale: uiEffectiveScale,
+    hostSnapshot: uiHostSnapshot,
+    applyUiScaleToDocument,
+    attachHostEnvironmentListener,
+    refreshHostSnapshot,
+    setPreferenceFromSettings,
+} = useUiScale();
+const hostEnvironmentUnsubscribers: Array<() => void> = [];
+const {
     loadRecentFiles,
     syncCookieFromRuntime: syncRecentFilesCookieFromRuntime,
 } = useRecentFiles();
@@ -257,6 +266,14 @@ onBeforeUnmount(() => {
         clearTimeout(recentlyCopiedTimeout);
         recentlyCopiedTimeout = null;
     }
+    while (hostEnvironmentUnsubscribers.length > 0) {
+        const unsubscribe = hostEnvironmentUnsubscribers.pop();
+        try {
+            unsubscribe?.();
+        } catch (error) {
+            BrowserLogger.warn('host-env', 'Failed to unsubscribe host environment listener', error);
+        }
+    }
 });
 
 if (localeCookie.value !== settings.value.locale) {
@@ -269,10 +286,21 @@ if (themeCookie.value !== settings.value.theme) {
 
 colorMode.preference = settings.value.theme;
 
+setPreferenceFromSettings(settings.value);
+
+watch(
+    () => settings.value.uiScale,
+    () => {
+        setPreferenceFromSettings(settings.value);
+    },
+);
+
 useHead(() => ({
     htmlAttrs: {
         ...localeHead.value.htmlAttrs,
         dir: 'ltr',
+        'data-platform': uiHostSnapshot.value.platform,
+        style: `--app-ui-scale: ${uiEffectiveScale.value};`,
         class: [
             localeHead.value.htmlAttrs?.class,
             settings.value.theme,
@@ -350,7 +378,12 @@ onMounted(async () => {
     const mountTime = Date.now();
     try {
         clearFatalRuntimeError();
+        applyUiScaleToDocument(uiEffectiveScale.value, uiHostSnapshot.value);
+        const unsubscribeHostEnvironment = attachHostEnvironmentListener();
+        hostEnvironmentUnsubscribers.push(unsubscribeHostEnvironment);
+        void refreshHostSnapshot();
         await loadSettings();
+        setPreferenceFromSettings(settings.value);
         localeCookie.value = settings.value.locale;
         themeCookie.value = settings.value.theme;
         if (locale.value !== settings.value.locale) {

@@ -51,6 +51,23 @@
                 @update:model-value="emit('update:locale', $event as string | { value: string })"
             />
         </div>
+
+        <div class="settings-field flex flex-col gap-1">
+            <label class="settings-label">{{ t('settings.uiScale') }}</label>
+            <div class="settings-segmented settings-segmented--five">
+                <button
+                    v-for="option in uiScaleOptions"
+                    :key="option.value"
+                    type="button"
+                    class="settings-seg-btn"
+                    :class="{ 'is-active': settings.uiScale === option.value }"
+                    @click="emit('update:ui-scale', option.value)"
+                >
+                    {{ option.label }}
+                </button>
+            </div>
+            <p class="settings-hint">{{ t('settings.uiScaleDescription') }}</p>
+        </div>
     </fieldset>
 </template>
 
@@ -58,6 +75,7 @@
 import type {
     ISettingsData,
     TAppTheme,
+    TUiScalePreference,
 } from '@contracts/shared';
 
 interface ILocaleItem {
@@ -76,9 +94,36 @@ const emit = defineEmits<{
     'update:author-name': [value: string];
     'update:theme': [value: TAppTheme];
     'update:locale': [value: string | { value: string }];
+    'update:ui-scale': [value: TUiScalePreference];
 }>();
 
 const { t } = useTypedI18n();
+
+const uiScaleOptions = computed<Array<{
+    value: TUiScalePreference;
+    label: string;
+}>>(() => [
+    {
+        value: 'auto',
+        label: t('settings.uiScaleAuto'),
+    },
+    {
+        value: 'compact',
+        label: t('settings.uiScaleCompact'),
+    },
+    {
+        value: 'default',
+        label: t('settings.uiScaleDefault'),
+    },
+    {
+        value: 'comfortable',
+        label: t('settings.uiScaleComfortable'),
+    },
+    {
+        value: 'large',
+        label: t('settings.uiScaleLarge'),
+    },
+]);
 </script>
 
 <style lang="scss" scoped>
@@ -134,6 +179,11 @@ const { t } = useTypedI18n();
     font-weight: 500;
     cursor: pointer;
     transition: background-color $ease-standard, color $ease-standard, box-shadow $ease-standard;
+}
+
+.settings-segmented--five .settings-seg-btn {
+    padding: 0 0.4rem;
+    font-size: 0.78rem;
 }
 
 .settings-seg-btn + .settings-seg-btn {

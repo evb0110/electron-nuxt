@@ -23,6 +23,13 @@ const DEFAULT_VIEW_MODES: ReadonlySet<string> = new Set<ISettingsData['defaultVi
     'facing',
     'facing-first-single',
 ]);
+const UI_SCALE_PREFERENCES: ReadonlySet<string> = new Set<ISettingsData['uiScale']>([
+    'auto',
+    'compact',
+    'default',
+    'comfortable',
+    'large',
+]);
 
 export const DEFAULT_SETTINGS: ISettingsData = {
     version: 2,
@@ -33,6 +40,7 @@ export const DEFAULT_SETTINGS: ISettingsData = {
     defaultViewMode: 'single',
     defaultContinuousScroll: true,
     defaultAnnotationColor: DEFAULT_ANNOTATION_COLOR,
+    uiScale: 'auto',
 };
 
 const SUPPORTED_LOCALES = new Set<string>(LOCALE_CODES);
@@ -47,6 +55,10 @@ function isDefaultZoomPreset(value: string): value is ISettingsData['defaultZoom
 
 function isDefaultViewMode(value: string): value is ISettingsData['defaultViewMode'] {
     return DEFAULT_VIEW_MODES.has(value);
+}
+
+function isUiScalePreference(value: string): value is ISettingsData['uiScale'] {
+    return UI_SCALE_PREFERENCES.has(value);
 }
 
 export function normalizeTheme(theme: unknown): ISettingsData['theme'] {
@@ -94,6 +106,14 @@ function normalizeDefaultAnnotationColor(value: unknown): string {
     return isHexColor(normalized) ? normalized : DEFAULT_SETTINGS.defaultAnnotationColor;
 }
 
+function normalizeUiScale(value: unknown): ISettingsData['uiScale'] {
+    if (!isString(value)) {
+        return DEFAULT_SETTINGS.uiScale;
+    }
+
+    return isUiScalePreference(value) ? value : DEFAULT_SETTINGS.uiScale;
+}
+
 export function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined): ISettingsData {
     return {
         version: typeof raw?.version === 'number' ? raw.version : DEFAULT_SETTINGS.version,
@@ -106,6 +126,7 @@ export function sanitizeSettings(raw: Partial<ISettingsData> | null | undefined)
             ? raw.defaultContinuousScroll
             : DEFAULT_SETTINGS.defaultContinuousScroll,
         defaultAnnotationColor: normalizeDefaultAnnotationColor(raw?.defaultAnnotationColor),
+        uiScale: normalizeUiScale(raw?.uiScale),
         suppressDefaultViewerPrompt: isBoolean(raw?.suppressDefaultViewerPrompt)
             ? raw.suppressDefaultViewerPrompt
             : undefined,

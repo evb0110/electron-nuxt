@@ -500,6 +500,18 @@ export interface IDjvuCapability extends IDjvuAPI {onMenuConvertToPdf: (callback
 
 export interface IShellCapability {openExternal: (url: string) => Promise<void>;}
 
+export type THostPlatform = 'darwin' | 'win32' | 'linux';
+
+export interface IHostEnvironmentSnapshot {
+    platform: THostPlatform;
+    osScaleFactor: number;
+}
+
+export interface IHostCapability {
+    getEnvironment: () => Promise<IHostEnvironmentSnapshot>;
+    onEnvironmentChange: (callback: (snapshot: IHostEnvironmentSnapshot) => void) => IMenuEventUnsubscribe;
+}
+
 export interface IElectronAPI {
     documents: IDocumentsCapability;
     ocr: IOcrCapability;
@@ -509,4 +521,5 @@ export interface IElectronAPI {
     updates: IUpdatesCapability;
     windowTabs: IWindowTabsCapability;
     shell: IShellCapability;
+    host: IHostCapability;
 }
