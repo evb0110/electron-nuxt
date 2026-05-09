@@ -290,6 +290,34 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         scrollToPage(pageToSnapTo);
     });
 
+    watch(currentPage, async (next, previous) => {
+        if (
+            next === previous
+            || fitMode.value !== 'width'
+            || !pdfDocument.value
+            || isLoading.value
+            || isResizing.value
+        ) {
+            return;
+        }
+
+        const updated = computeFitWidthScale(viewerContainer.value);
+        if (!updated) {
+            return;
+        }
+
+        const resizeAnchor = buildResizeAnchorContext({
+            preferredAnchorPage: next,
+            trustPreferredAnchorPage: true,
+        });
+        cancelInFlightPageRenders?.();
+        await reRenderVisiblePagesAndSyncCurrentPage({
+            source: 'fit-width-current-page',
+            stabilize: true,
+            resizeAnchor,
+        });
+    });
+
     watch(
         () => continuousScroll.value,
         async (next, previous) => {

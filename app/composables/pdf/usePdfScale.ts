@@ -8,8 +8,8 @@ import { getViewColumnCount } from '@app/utils/pdf-view-mode';
 import { BrowserLogger } from '@app/utils/browser-logger';
 import {
     normalizePageMetrics,
+    resolveCurrentSpreadBaseWidth,
     resolveDocumentBaseMetric,
-    resolveSpreadBaseWidth,
 } from '@app/composables/pdf/pdfPageLayout';
 
 const BASE_MARGIN = 20;
@@ -111,7 +111,7 @@ export const usePdfScale = (
     function logMissingFitDimensions(
         container: HTMLElement | null,
         normalizedPageMetrics: IPdfPageMetric[],
-        spreadBaseWidth: number | null,
+        currentSpreadBaseWidth: number | null,
         documentBaseHeight: number | null,
     ) {
         BrowserLogger.warn('pdf-nav', '[scale] skipped computeFitWidthScale: missing container/base dimensions', {
@@ -119,7 +119,7 @@ export const usePdfScale = (
             basePageWidth: toValue(basePageWidth),
             basePageHeight: toValue(basePageHeight),
             normalizedPageMetricsCount: normalizedPageMetrics.length,
-            spreadBaseWidth,
+            currentSpreadBaseWidth,
             documentBaseHeight,
         });
     }
@@ -128,10 +128,11 @@ export const usePdfScale = (
         const totalPages = toValue(numPages);
         const normalizedPageMetrics = getNormalizedPageMetrics();
         const height = resolveDocumentBaseMetric(normalizedPageMetrics, 'height');
-        const width = resolveSpreadBaseWidth(
+        const width = resolveCurrentSpreadBaseWidth(
             normalizedPageMetrics,
             toValue(viewMode),
             totalPages,
+            toValue(currentPage),
         );
 
         if (!container || !width || !height) {
@@ -195,11 +196,12 @@ export const usePdfScale = (
             baseDimension,
             basePageWidth: toValue(basePageWidth),
             basePageHeight: toValue(basePageHeight),
-            spreadBaseWidth: width,
+            currentSpreadBaseWidth: width,
             documentBaseHeight: height,
             zoom: toValue(zoom),
             viewMode: toValue(viewMode),
             numPages: totalPages,
+            currentPage: toValue(currentPage),
             previousScale: fitWidthScale.value,
             nextScale: newScale,
         });

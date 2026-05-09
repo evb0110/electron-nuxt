@@ -153,6 +153,74 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }));
     });
 
+    it('rerenders fit-width when the current page changes to a different width', async () => {
+        const currentPage = ref(1);
+        const computeFitWidthScale = vi.fn(() => true);
+        const cancelInFlightPageRenders = vi.fn();
+        const reRenderAllVisiblePages = vi.fn(async () => {});
+        const syncCurrentPageFromViewport = vi.fn(async () => {});
+        const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(2));
+
+        usePdfViewerRerenderCoordinator({
+            viewerContainer: ref(null),
+            pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+            isLoading: ref(false),
+            numPages: ref(10),
+            currentPage,
+            visibleRange: ref({
+                start: 1,
+                end: 2,
+            }),
+            zoom: computed(() => 1),
+            fitMode: computed(() => 'width' as const),
+            viewMode: computed(() => 'single' as const),
+            isResizing: computed(() => false),
+            continuousScroll: computed(() => true),
+            getVisibleRange: () => ({
+                start: 1,
+                end: 2,
+            }),
+            reRenderAllVisiblePages,
+            isPageRendered: vi.fn(() => true),
+            summarizeViewerMetricsForLog: vi.fn(() => null),
+            summarizeVisiblePageSnapshotForLog: vi.fn(() => null),
+            syncCurrentPageFromViewport,
+            markLowResZoomRerenderUsed: vi.fn(),
+            buildResizeAnchorContext,
+            scheduleEndResizeTransition: vi.fn(),
+            enqueueZoomSync: vi.fn(),
+            scheduleResizeAwareRerender: vi.fn(),
+            cancelInFlightPageRenders,
+            computeFitWidthScale,
+            setupPagePlaceholders: vi.fn(),
+            scrollToPage: vi.fn(),
+            getMostVisiblePage: vi.fn(() => 2),
+            resetContinuousScrollState: vi.fn(),
+            resetZoomRerenderQueueState: vi.fn(),
+            consumeZoomViewportAnchor: vi.fn(() => null),
+            beginResizeTransition: vi.fn(() => 1),
+            consumeSuppressedZoomRerender: vi.fn(() => false),
+        });
+
+        currentPage.value = 2;
+        await nextTick();
+        await nextTick();
+
+        expect(computeFitWidthScale).toHaveBeenCalled();
+        expect(buildResizeAnchorContext).toHaveBeenCalledWith({
+            preferredAnchorPage: 2,
+            trustPreferredAnchorPage: true,
+        });
+        expect(cancelInFlightPageRenders).toHaveBeenCalled();
+        expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
+            expect.any(Function),
+            expect.objectContaining({ rerenderSource: 'fit-width-current-page' }),
+        );
+        expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(
+            expect.objectContaining({ source: 'fit-width-current-page' }),
+        );
+    });
+
     it('renders zoom-change frames through the low-resolution settle path', async () => {
         const reRenderAllVisiblePages = vi.fn(async () => {});
         const markLowResZoomRerenderUsed = vi.fn();
