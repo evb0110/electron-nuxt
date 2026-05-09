@@ -532,7 +532,7 @@ watch(() => startSection, (section) => {
     white-space: nowrap;
 }
 
-.rail-item:hover:not(:disabled) {
+.rail-item:hover:not(.is-active, :disabled) {
     background: var(--app-start-rail-item-hover-bg);
     color: var(--app-start-rail-item-active-fg);
 }
@@ -540,7 +540,6 @@ watch(() => startSection, (section) => {
 .rail-item.is-active {
     background: var(--app-start-rail-item-active-bg);
     color: var(--app-start-rail-item-active-fg);
-    font-weight: 600;
 }
 
 .rail-item:disabled {
