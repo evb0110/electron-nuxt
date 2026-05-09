@@ -88,7 +88,16 @@ const originalPlatform = process.platform;
 function createMetadataResponse(version: string) {
     return {
         ok: true,
+        status: 200,
         json: async () => ({release: {tag: version}}),
+    };
+}
+
+function createEmptyResponse(status = 200) {
+    return {
+        ok: status >= 200 && status < 300,
+        status,
+        json: async () => ({}),
     };
 }
 
@@ -257,12 +266,42 @@ describe('updates robustness', () => {
         await updates.triggerManualUpdateCheck();
         await flushPromises();
 
-        expect(mocks.fetch).toHaveBeenCalledTimes(1);
+        expect(mocks.fetch).toHaveBeenCalledTimes(5);
         expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(2);
         expect(statuses.at(-1)).toMatchObject({
             origin: 'manual',
             phase: 'downloaded',
             version: '1.2.0',
+        });
+    });
+
+    it('skips the updater feed when the latest Windows release has no latest.yml', async () => {
+        mocks.app.getVersion.mockReturnValue('1.0.0');
+        mocks.fetch.mockImplementation(async (_url: string, init?: { method?: string }) => {
+            if (init?.method === 'HEAD') {
+                return createEmptyResponse(404);
+            }
+            return createMetadataResponse('1.1.0');
+        });
+
+        const updates = await loadUpdatesModule();
+        const statuses: Array<Record<string, unknown>> = [];
+
+        updates.initializeUpdates((status) => {
+            statuses.push({ ...status });
+        });
+
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(mocks.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+        expect(mocks.logger.info).toHaveBeenCalledWith(
+            'Release 1.1.0 has no latest.yml updater feed; skipping in-app updater check',
+        );
+        expect(statuses.at(-1)).toMatchObject({
+            origin: 'manual',
+            phase: 'no-update',
+            version: '1.0.0',
         });
     });
 

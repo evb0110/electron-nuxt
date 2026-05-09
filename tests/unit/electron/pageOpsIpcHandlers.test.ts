@@ -53,6 +53,7 @@ const mocks = vi.hoisted(() => ({
     runCommand: vi.fn(),
     getNativeToolPaths: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
+    findWorkingCopyPathByOriginalPath: vi.fn(),
     allowOpenPath: vi.fn(),
     writeFile: vi.fn(),
     rename: vi.fn(),
@@ -83,7 +84,10 @@ vi.mock('fs/promises', () => ({
     unlink: (...args: unknown[]) => mocks.unlink(...args),
 }));
 vi.mock('@electron/utils/path-validator', () => ({isAllowedWritePath: (path: string) => mocks.isAllowedWritePath(path)}));
-vi.mock('@electron/ipc/workingCopy', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
+vi.mock('@electron/ipc/workingCopy', () => ({
+    ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args),
+    findWorkingCopyPathByOriginalPath: (...args: unknown[]) => mocks.findWorkingCopyPathByOriginalPath(...args),
+}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     deletePages: (...args: unknown[]) => mocks.deletePages(...args),
     extractPages: (...args: unknown[]) => mocks.extractPages(...args),
@@ -144,6 +148,7 @@ describe('registerPageOpsHandlers', () => {
         mocks.isPdfOrImagePath.mockReturnValue(true);
         mocks.getNativeToolPaths.mockReturnValue({qpdf: '/mock/qpdf'});
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(false);
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
         mocks.writeFile.mockResolvedValue(undefined);
         mocks.rename.mockResolvedValue(undefined);
         mocks.rm.mockResolvedValue(undefined);
@@ -329,6 +334,29 @@ describe('registerPageOpsHandlers', () => {
         expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf');
         expect(mocks.ensureWorkingCopyDirectory.mock.invocationCallOrder[0]).toBeLessThan(
             mocks.isAllowedWritePath.mock.invocationCallOrder[0]!,
+        );
+    });
+
+    it('maps a known original document path back to the managed working copy for extraction', async () => {
+        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/pdf-work-1/work.pdf');
+        mocks.showSaveDialog.mockResolvedValueOnce({
+            canceled: false,
+            filePath: '/tmp/extracted-pages.pdf',
+        });
+
+        const handler = getHandler('page-ops:extract');
+
+        await expect(handler({sender: {id: 1}}, 'C:\\Users\\Rustaveli15\\Documents\\book.pdf', [1]))
+            .resolves.toEqual({
+                success: true,
+                destPath: '/tmp/extracted-pages.pdf',
+            });
+
+        expect(mocks.ensureWorkingCopyDirectory).toHaveBeenCalledWith('/tmp/pdf-work-1/work.pdf');
+        expect(mocks.extractPages).toHaveBeenCalledWith(
+            '/tmp/pdf-work-1/work.pdf',
+            '/tmp/extracted-pages.pdf',
+            [1],
         );
     });
 
