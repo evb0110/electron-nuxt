@@ -34,7 +34,7 @@
         @click="handleThumbnailClick($event, page)"
         @contextmenu.prevent="handleThumbnailContextMenu($event, page)"
       >
-        <canvas class="pdf-thumbnail-canvas" />
+        <canvas class="pdf-thumbnail-canvas" :style="thumbnailCanvasStyle" />
         <span class="pdf-thumbnail-number">{{ getPageIndicator(page) }}</span>
       </div>
     </div>
@@ -80,6 +80,7 @@ interface IProps {
 
 const THUMBNAIL_GAP = 8;
 const DEFAULT_THUMBNAIL_ITEM_HEIGHT = 220;
+const THUMBNAIL_WIDTH_CHANGE_THRESHOLD = 1;
 const THUMBNAIL_ITEM_VERTICAL_PADDING = 8;
 const THUMBNAIL_ITEM_CONTENT_GAP = 4;
 const THUMBNAIL_NUMBER_LINE_HEIGHT = 16;
@@ -138,6 +139,8 @@ let currentPageSyncRunId = 0;
 const scrollTop = ref(0);
 const viewportHeight = ref(0);
 const thumbnailItemHeight = ref(DEFAULT_THUMBNAIL_ITEM_HEIGHT);
+const thumbnailRenderWidth = ref(THUMBNAIL_WIDTH);
+const thumbnailAspectRatio = ref<number | null>(null);
 const selectionFocusPage = ref<number | null>(null);
 
 const multiSelection = useMultiSelection<number>();
@@ -186,6 +189,13 @@ const virtualWrapperStyle = computed(() => {
     }
     const totalHeight = props.totalPages * itemPitch.value - THUMBNAIL_GAP;
     return {height: `${Math.max(0, totalHeight)}px`};
+});
+
+const thumbnailCanvasStyle = computed(() => {
+    const aspectRatio = thumbnailAspectRatio.value;
+    return aspectRatio && aspectRatio > 0
+        ? {aspectRatio: `1 / ${aspectRatio}`}
+        : {};
 });
 
 function getThumbnailStyle(page: number) {
@@ -314,6 +324,42 @@ function roundMetric(value: number) {
     return Number(value.toFixed(2));
 }
 
+function parseCssPixelValue(value: string) {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function resolveHorizontalInset(style: CSSStyleDeclaration, ...properties: string[]) {
+    return properties.reduce((total, property) => {
+        const value = style.getPropertyValue(property);
+        return total + parseCssPixelValue(value);
+    }, 0);
+}
+
+function resolveThumbnailRenderWidth(container: HTMLElement) {
+    const containerStyle = window.getComputedStyle(container);
+    const containerContentWidth = container.clientWidth - resolveHorizontalInset(
+        containerStyle,
+        'padding-left',
+        'padding-right',
+    );
+    const thumbnail = container.querySelector<HTMLElement>('.pdf-thumbnail');
+    const thumbnailStyle = thumbnail
+        ? window.getComputedStyle(thumbnail)
+        : null;
+    const thumbnailInset = thumbnailStyle
+        ? resolveHorizontalInset(
+            thumbnailStyle,
+            'padding-left',
+            'padding-right',
+            'border-left-width',
+            'border-right-width',
+        )
+        : 0;
+
+    return Math.max(THUMBNAIL_WIDTH, Math.floor(containerContentWidth - thumbnailInset));
+}
+
 function resolveThumbnailOutputScale() {
     if (typeof window === 'undefined' || window.devicePixelRatio <= 0) {
         return 1;
@@ -330,6 +376,15 @@ function resolveThumbnailItemHeightFromCanvasHeight(canvasHeight: number) {
         + THUMBNAIL_CANVAS_BORDER_WIDTH;
 }
 
+function resolveThumbnailItemHeightFromRenderWidth(renderWidth: number) {
+    const aspectRatio = thumbnailAspectRatio.value;
+    if (!aspectRatio || aspectRatio <= 0) {
+        return thumbnailItemHeight.value;
+    }
+
+    return resolveThumbnailItemHeightFromCanvasHeight(renderWidth * aspectRatio);
+}
+
 function updateThumbnailItemHeight(
     nextHeight: number,
     reason: string,
@@ -340,10 +395,7 @@ function updateThumbnailItemHeight(
     }
 
     const normalizedHeight = Math.max(1, Math.ceil(nextHeight));
-    if (
-        hasResolvedThumbnailItemHeight
-        && normalizedHeight <= thumbnailItemHeight.value
-    ) {
+    if (hasResolvedThumbnailItemHeight && normalizedHeight === thumbnailItemHeight.value) {
         return false;
     }
 
@@ -361,6 +413,44 @@ function updateThumbnailItemHeight(
         ...data,
     });
 
+    return true;
+}
+
+function updateThumbnailAspectRatio(
+    viewportWidth: number,
+    viewportHeightValue: number,
+    reason: string,
+    data: Record<string, unknown> = {},
+) {
+    if (viewportWidth <= 0 || viewportHeightValue <= 0) {
+        return false;
+    }
+
+    const nextAspectRatio = viewportHeightValue / viewportWidth;
+    if (!Number.isFinite(nextAspectRatio) || nextAspectRatio <= 0) {
+        return false;
+    }
+
+    const previousAspectRatio = thumbnailAspectRatio.value;
+    if (previousAspectRatio !== null && Math.abs(previousAspectRatio - nextAspectRatio) < 0.001) {
+        return false;
+    }
+
+    thumbnailAspectRatio.value = nextAspectRatio;
+    BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail aspect ratio changed', {
+        reason,
+        previousAspectRatio: previousAspectRatio === null ? null : roundMetric(previousAspectRatio),
+        nextAspectRatio: roundMetric(nextAspectRatio),
+        currentPage: props.currentPage,
+        totalPages: props.totalPages,
+        ...data,
+    });
+
+    updateThumbnailItemHeight(
+        resolveThumbnailItemHeightFromRenderWidth(thumbnailRenderWidth.value),
+        `${reason}-layout`,
+        data,
+    );
     return true;
 }
 
@@ -682,6 +772,27 @@ function updateViewportMetrics() {
     const previousViewportHeight = viewportHeight.value;
     scrollTop.value = container.scrollTop;
     viewportHeight.value = container.clientHeight;
+    const nextThumbnailRenderWidth = resolveThumbnailRenderWidth(container);
+    if (Math.abs(nextThumbnailRenderWidth - thumbnailRenderWidth.value) >= THUMBNAIL_WIDTH_CHANGE_THRESHOLD) {
+        const previousThumbnailRenderWidth = thumbnailRenderWidth.value;
+        thumbnailRenderWidth.value = nextThumbnailRenderWidth;
+        updateThumbnailItemHeight(
+            resolveThumbnailItemHeightFromRenderWidth(nextThumbnailRenderWidth),
+            'render-width',
+            {
+                previousThumbnailRenderWidth: roundMetric(previousThumbnailRenderWidth),
+                nextThumbnailRenderWidth: roundMetric(thumbnailRenderWidth.value),
+                geometry: describeContainerGeometry(container),
+            },
+        );
+        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail render width changed', {
+            previousThumbnailRenderWidth: roundMetric(previousThumbnailRenderWidth),
+            nextThumbnailRenderWidth: roundMetric(thumbnailRenderWidth.value),
+            currentPage: props.currentPage,
+            totalPages: props.totalPages,
+            geometry: describeContainerGeometry(container),
+        });
+    }
     if (Math.abs(previousViewportHeight - viewportHeight.value) >= 1) {
         BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Thumbnail viewport height changed', {
             previousViewportHeight: roundMetric(previousViewportHeight),
@@ -788,8 +899,7 @@ function measureRenderedThumbnailHeight(container: HTMLElement) {
     }
 
     logMeasurementReady(measurementItem, canvas);
-    const measuredHeight = Math.max(1, Math.ceil(measurementItem.getBoundingClientRect().height));
-    updateThumbnailItemHeight(measuredHeight, 'dom-measure', {
+    updateThumbnailItemHeight(resolveThumbnailItemHeightFromRenderWidth(thumbnailRenderWidth.value), 'layout-measure', {
         geometry: describeContainerGeometry(container),
         itemPage: measurementItem.dataset.page ?? null,
     });
@@ -942,22 +1052,19 @@ function prepareThumbnailCanvas(pageNum: number) {
 
 function resolveThumbnailRenderMetrics(page: PDFPageProxy, pageNum: number) {
     const viewport = page.getViewport({ scale: 1 });
-    const scale = THUMBNAIL_WIDTH / viewport.width;
+    if (thumbnailAspectRatio.value === null) {
+        updateThumbnailAspectRatio(
+            viewport.width,
+            viewport.height,
+            'render-viewport',
+            {page: pageNum},
+        );
+    }
+    const scale = thumbnailRenderWidth.value / viewport.width;
     const scaledViewport = page.getViewport({ scale });
     const outputScale = resolveThumbnailOutputScale();
     const pixelWidth = Math.max(1, Math.round(scaledViewport.width * outputScale));
     const pixelHeight = Math.max(1, Math.round(scaledViewport.height * outputScale));
-
-    updateThumbnailItemHeight(
-        resolveThumbnailItemHeightFromCanvasHeight(scaledViewport.height),
-        'render-viewport',
-        {
-            page: pageNum,
-            outputScale: roundMetric(outputScale),
-            viewportWidth: roundMetric(scaledViewport.width),
-            viewportHeight: roundMetric(scaledViewport.height),
-        },
-    );
 
     return {
         scaledViewport,
@@ -974,8 +1081,8 @@ function applyThumbnailCanvasSize(
 ) {
     canvas.width = metrics.pixelWidth;
     canvas.height = metrics.pixelHeight;
-    canvas.style.width = `${metrics.scaledViewport.width}px`;
-    canvas.style.height = `${metrics.scaledViewport.height}px`;
+    canvas.style.removeProperty('width');
+    canvas.style.removeProperty('height');
 }
 
 function buildThumbnailRenderTransform(scaleX: number, scaleY: number) {
@@ -1164,12 +1271,52 @@ const scheduleVisibleThumbnailRender = useDebounceFn(() => {
     });
 }, 20);
 
-function clearRenderedState() {
+async function preloadThumbnailAspectRatio(pdfDocument: PDFDocumentProxy, runId: number) {
+    const pageNum = Math.max(1, Math.min(props.totalPages, props.currentPage || 1));
+    try {
+        const page = await pdfDocument.getPage(pageNum);
+        if (runId !== renderRunId || !isPdfDocumentUsable(pdfDocument)) {
+            return;
+        }
+
+        const viewport = page.getViewport({scale: 1});
+        updateThumbnailAspectRatio(
+            viewport.width,
+            viewport.height,
+            'preload-viewport',
+            {page: pageNum},
+        );
+        void scheduleVisibleThumbnailRender();
+        void measureThumbnailHeight();
+        void syncCurrentPageIntoView('preload-viewport');
+    } catch (error) {
+        if (shouldIgnoreThumbnailRenderError(error, pdfDocument, runId)) {
+            return;
+        }
+        BrowserLogger.warn(THUMBNAIL_LOG_SECTION, 'Failed to preload thumbnail aspect ratio', {
+            page: pageNum,
+            currentPage: props.currentPage,
+            totalPages: props.totalPages,
+            error,
+        });
+    }
+}
+
+function clearRenderedState(options: {
+    preserveRenderWidth?: boolean;
+    preserveAspectRatio?: boolean;
+} = {}) {
     renderedCanvases.clear();
     renderingPages.clear();
     renderingCanvases.clear();
     renderTasks.clear();
     thumbnailItemHeight.value = DEFAULT_THUMBNAIL_ITEM_HEIGHT;
+    if (!options.preserveRenderWidth) {
+        thumbnailRenderWidth.value = THUMBNAIL_WIDTH;
+    }
+    if (!options.preserveAspectRatio) {
+        thumbnailAspectRatio.value = null;
+    }
     hasResolvedThumbnailItemHeight = false;
     measurementState = 'ready';
 }
@@ -1223,6 +1370,11 @@ watch(
 
         void nextTick(() => {
             updateViewportMetrics();
+            if (thumbnailAspectRatio.value === null) {
+                void preloadThumbnailAspectRatio(doc, renderRunId);
+                return;
+            }
+
             void scheduleVisibleThumbnailRender();
             void measureThumbnailHeight();
             void syncCurrentPageIntoView('document-ready');
@@ -1384,6 +1536,7 @@ onBeforeUnmount(() => {
 
 .pdf-thumbnail-canvas {
   display: block;
+  width: 100%;
   height: auto;
   max-width: 100%;
   border: 1px solid var(--ui-border);
