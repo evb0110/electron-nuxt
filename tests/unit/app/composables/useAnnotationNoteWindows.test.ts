@@ -36,6 +36,7 @@ function createHarness(comment = createComment()) {
         updateAnnotationCommentInViewer: vi.fn<
             (comment: IAnnotationCommentSummary, text: string) => boolean
         >(() => true),
+        isAnnotationCommentSyncReady: vi.fn(() => true),
     };
 
     return {
@@ -253,5 +254,36 @@ describe('useAnnotationNoteWindows', () => {
         expect(saved).toBe(true);
         expect(note.saveMode).toBe('embedded');
         expect(windows.consumePendingEmbeddedTextUpdates()).toBeNull();
+    });
+
+    it('closes an open note window when its backing annotation disappears from a ready sync', async () => {
+        const comment = createComment();
+        const {
+            deps,
+            windows,
+        } = createHarness(comment);
+
+        windows.handleOpenAnnotationNote(comment);
+
+        deps.annotationComments.value = [];
+        await nextTick();
+
+        expect(windows.findAnnotationNoteWindow('note-1:0')).toBeNull();
+    });
+
+    it('keeps an open note window during transient document reload sync gaps', async () => {
+        const comment = createComment();
+        const {
+            deps,
+            windows,
+        } = createHarness(comment);
+        deps.isAnnotationCommentSyncReady.mockReturnValue(false);
+
+        windows.handleOpenAnnotationNote(comment);
+
+        deps.annotationComments.value = [];
+        await nextTick();
+
+        expect(windows.findAnnotationNoteWindow('note-1:0')).not.toBeNull();
     });
 });

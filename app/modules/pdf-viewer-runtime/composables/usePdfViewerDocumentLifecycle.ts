@@ -292,7 +292,7 @@ export const usePdfViewerDocumentLifecycle = (options: IUsePdfViewerDocumentLife
             options.invalidateRenderedPages(plan.pagesToInvalidate);
         } else {
             options.cleanupRenderedPages();
-            if (plan.shouldPreserveReloadDisplayZoom) {
+            if (isReload || plan.shouldPreserveReloadDisplayZoom) {
                 options.invalidateScaleCache();
             } else {
                 options.resetScale();

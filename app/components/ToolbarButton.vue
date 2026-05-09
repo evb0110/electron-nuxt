@@ -60,11 +60,11 @@ const tooltipText = computed(() => shortcut.trim()
     height: var(--toolbar-control-height);
     padding: 0.32rem;
     border: 1px solid transparent;
-    border-radius: 0.375rem;
+    border-radius: 0.4375rem;
     background: transparent;
     color: var(--app-toolbar-control-inactive-fg);
     cursor: pointer;
-    transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
+    transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, opacity 0.1s ease;
 }
 
 .toolbar-btn.is-toggle {
@@ -73,6 +73,7 @@ const tooltipText = computed(() => shortcut.trim()
 
 .toolbar-btn:hover {
     background: var(--app-toolbar-control-hover-bg);
+    border-color: var(--app-toolbar-control-hover-border);
     color: var(--app-toolbar-control-hover-fg);
 }
 
@@ -82,11 +83,14 @@ const tooltipText = computed(() => shortcut.trim()
 
 .toolbar-btn.is-active {
     background: var(--app-toolbar-control-active-bg);
+    border-color: var(--app-toolbar-control-active-border);
+    box-shadow: var(--app-toolbar-control-active-shadow);
     color: var(--app-toolbar-control-hover-fg);
 }
 
 .toolbar-btn.is-active:hover {
     background: var(--app-toolbar-control-active-hover-bg);
+    border-color: var(--app-toolbar-control-active-border);
 }
 
 .toolbar-btn:focus {
@@ -107,6 +111,7 @@ const tooltipText = computed(() => shortcut.trim()
 
 .toolbar-btn:disabled:hover {
     background: transparent;
+    border-color: transparent;
     color: var(--app-toolbar-control-disabled-fg);
 }
 

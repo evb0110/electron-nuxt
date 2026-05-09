@@ -193,6 +193,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         if (documentAction) {
             event.preventDefault();
             event.stopPropagation();
+            event.stopImmediatePropagation();
             runRendererDocumentShortcutAction(documentAction);
             return;
         }

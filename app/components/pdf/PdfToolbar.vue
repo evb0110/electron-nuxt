@@ -390,13 +390,8 @@ function isCollapsed(_tier: number) {
     align-items: center;
     gap: 0.35rem;
     padding: 0.5rem 0.65rem;
-    border-bottom: 1px solid var(--ui-border);
-    background:
-        linear-gradient(
-            180deg,
-            color-mix(in oklab, var(--app-chrome) 90%, var(--ui-bg) 10%) 0%,
-            var(--app-chrome) 100%
-        );
+    border-bottom: 1px solid var(--app-toolbar-border);
+    background: var(--app-toolbar-bg);
     box-shadow: var(--app-chrome-depth);
     white-space: nowrap;
     overflow: hidden;
@@ -441,9 +436,9 @@ function isCollapsed(_tier: number) {
 .toolbar-separator {
     width: 1px;
     height: 1.25rem;
-    background: color-mix(in oklab, var(--ui-border) 60%, transparent 40%);
+    background: var(--app-toolbar-separator);
     flex-shrink: 0;
-    margin: 0 0.25rem;
+    margin: 0 0.35rem;
 }
 
 .toolbar-separator:first-child,
@@ -455,9 +450,18 @@ function isCollapsed(_tier: number) {
 .toolbar-button-group {
     display: flex;
     align-items: center;
-    gap: 0.1rem;
+    gap: 0;
     flex-shrink: 0;
     min-width: max-content;
+    padding: 0;
+    border: 1px solid var(--app-toolbar-group-border);
+    border-radius: 0.5625rem;
+    background: var(--app-toolbar-group-bg);
+    overflow: hidden;
+}
+
+.toolbar-button-group :deep(.toolbar-btn) {
+    border-radius: 0;
 }
 
 .toolbar-group-item {

@@ -25,6 +25,7 @@ export interface IAnnotationNoteWindowDeps {
         comment: IAnnotationCommentSummary,
         text: string,
     ) => boolean;
+    isAnnotationCommentSyncReady?: () => boolean;
 }
 
 export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
@@ -34,6 +35,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         annotationComments,
         markAnnotationDirty,
         updateAnnotationCommentInViewer,
+        isAnnotationCommentSyncReady = () => true,
     } = deps;
 
     const annotationNoteWindows = ref<IAnnotationNoteWindowState[]>([]);
@@ -289,13 +291,19 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         bringAnnotationNoteToFront(stableKey);
     }
 
-    function removeAnnotationNoteWindow(stableKey: string) {
+    function removeAnnotationNoteWindow(
+        stableKey: string,
+        options: { clearPendingEmbeddedTextUpdate?: boolean } = {},
+    ) {
         const before = annotationNoteWindows.value.length;
         annotationNoteWindows.value = annotationNoteWindows.value.filter(
             (note) => note.comment.stableKey !== stableKey,
         );
         if (annotationNoteWindows.value.length !== before) {
             clearAnnotationNoteDebouncedSaver(stableKey);
+            if (options.clearPendingEmbeddedTextUpdate) {
+                pendingEmbeddedTextUpdates.delete(stableKey);
+            }
         }
     }
 
@@ -829,18 +837,27 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         if (annotationNoteWindows.value.length === 0) {
             return;
         }
+        if (!isAnnotationCommentSyncReady()) {
+            return;
+        }
 
         const noteComments = comments.filter(comment =>
             isCommentEligibleForNoteWindow(comment),
         );
         const indexes = buildAnnotationNoteCommentIndexes(noteComments);
+        const staleStableKeys: string[] = [];
 
         annotationNoteWindows.value.forEach((note) => {
             const updated = findCurrentAnnotationNoteComment(note.comment, indexes);
             if (!updated) {
+                staleStableKeys.push(note.comment.stableKey);
                 return;
             }
             syncAnnotationNoteWindowComment(note, updated);
+        });
+
+        staleStableKeys.forEach((stableKey) => {
+            removeAnnotationNoteWindow(stableKey, { clearPendingEmbeddedTextUpdate: true });
         });
     });
 

@@ -50,8 +50,10 @@ export const usePageLabelState = (deps: {
 
     async function syncPageLabelsFromDocument(doc: PDFDocumentProxy | null) {
         if (!doc) {
-            pageLabels.value = null;
-            pageLabelRanges.value = [];
+            if (totalPages.value <= 0) {
+                pageLabels.value = null;
+                pageLabelRanges.value = [];
+            }
             pageLabelsDirty.value = false;
             onPageLabelsSynchronized?.();
             return;

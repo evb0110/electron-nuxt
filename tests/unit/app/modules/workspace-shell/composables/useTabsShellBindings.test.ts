@@ -6,10 +6,11 @@ import {
     vi,
 } from 'vitest';
 import {
-    createApp,
+    createSSRApp,
     defineComponent,
     ref,
 } from 'vue';
+import { renderToString } from '@vue/server-renderer';
 import type { IWorkspaceExpose } from '@app/types/workspace-expose';
 
 const mocks = vi.hoisted(() => ({
@@ -63,19 +64,14 @@ let capturedKeydown: ((event: KeyboardEvent) => void) | undefined;
 
 async function mountBindings(options: ReturnType<typeof createOptions>) {
     const { useTabsShellBindings } = await import('@app/modules/workspace-shell/composables/useTabsShellBindings');
-    const host = document.createElement('div');
-    document.body.append(host);
-    const app = createApp(defineComponent({setup() {
+    const app = createSSRApp(defineComponent({setup() {
         useTabsShellBindings(options);
         return () => null;
     }}));
 
-    app.mount(host);
+    await renderToString(app);
 
-    return () => {
-        app.unmount();
-        host.remove();
-    };
+    return () => {};
 }
 
 describe('useTabsShellBindings', () => {
@@ -132,6 +128,7 @@ describe('useTabsShellBindings', () => {
         for (const shortcut of cases) {
             const preventDefault = vi.fn();
             const stopPropagation = vi.fn();
+            const stopImmediatePropagation = vi.fn();
             capturedKeydown?.(cast<KeyboardEvent>({
                 key: shortcut.key,
                 metaKey: true,
@@ -141,10 +138,12 @@ describe('useTabsShellBindings', () => {
                 target: null,
                 preventDefault,
                 stopPropagation,
+                stopImmediatePropagation,
             }));
 
             expect(preventDefault).toHaveBeenCalledOnce();
             expect(stopPropagation).toHaveBeenCalledOnce();
+            expect(stopImmediatePropagation).toHaveBeenCalledOnce();
             expect(shortcut.run).toHaveBeenCalled();
         }
 
@@ -173,6 +172,7 @@ describe('useTabsShellBindings', () => {
             target: fakeInput,
             preventDefault,
             stopPropagation: vi.fn(),
+            stopImmediatePropagation: vi.fn(),
         }));
 
         expect(preventDefault).not.toHaveBeenCalled();
