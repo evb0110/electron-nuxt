@@ -30,6 +30,10 @@ import {
 } from '@electron/ipc';
 import { allowOpenPaths } from '@electron/ipc/openPathCapabilities';
 import {
+    attachHostEnvironmentToWindow,
+    installHostEnvironmentDisplayWatcher,
+} from '@electron/host-environment';
+import {
     sendToWindow,
     setupMenu,
 } from '@electron/menu';
@@ -472,6 +476,8 @@ async function init() {
     });
     logStartupPhase('IPC handlers registered');
 
+    installHostEnvironmentDisplayWatcher();
+
     void sweepStaleDefaultAppTempPdfs().catch((error: unknown) => {
         logger.warn(`Failed to sweep stale default-app temp PDFs: ${String(error)}`);
     });
@@ -489,6 +495,8 @@ async function init() {
         });
 
     app.on('browser-window-created', (_event, window) => {
+        attachHostEnvironmentToWindow(window);
+
         const markNotReady = () => {
             readyWindowIds.delete(window.id);
         };

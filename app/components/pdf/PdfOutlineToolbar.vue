@@ -114,7 +114,7 @@ const displayModeOptions = computed<Array<{
     display: grid;
     grid-template-columns: 1fr auto;
     align-items: center;
-    gap: 6px;
+    gap: 0.375rem;
     padding: 0.375rem 0.5rem;
     border-bottom: 1px solid var(--ui-border);
 }
@@ -122,7 +122,7 @@ const displayModeOptions = computed<Array<{
 .pdf-bookmarks-view-modes {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 0.25rem;
     min-width: 0;
 }
 
@@ -135,8 +135,8 @@ const displayModeOptions = computed<Array<{
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: var(--app-outline-toolbar-button-size, 1.75rem);
+    height: var(--app-outline-toolbar-button-size, 1.75rem);
     cursor: pointer;
 }
 
@@ -154,7 +154,7 @@ const displayModeOptions = computed<Array<{
 
 .pdf-bookmarks-toolbar-actions {
     display: inline-flex;
-    gap: 4px;
+    gap: 0.25rem;
 }
 
 @media (width <= 780px) {

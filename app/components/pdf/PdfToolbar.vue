@@ -401,8 +401,8 @@ function isCollapsed(_tier: number) {
     transition: background-color 0.15s ease, border-color 0.15s ease;
     container-type: inline-size;
 
-    --toolbar-control-height: 2.25rem;
-    --toolbar-icon-size: 18px;
+    --toolbar-control-height: var(--app-toolbar-control-size, 2.25rem);
+    --toolbar-icon-size: var(--app-toolbar-icon-size, 1.125rem);
 }
 
 .toolbar-section {
@@ -482,7 +482,10 @@ function isCollapsed(_tier: number) {
     min-width: max-content;
 }
 
-@container (max-width: 1500px) {
+/* Container-query thresholds scale with --app-ui-scale: when the UI is denser
+   (smaller buttons), more controls fit in a given toolbar width, so the
+   threshold drops proportionally. Falls back to 1 when the variable is unset. */
+@container (max-width: calc(1500px * var(--app-ui-scale, 1))) {
     .toolbar--editor.toolbar--has-ocr-action .toolbar-action--print-current-page,
     .toolbar--editor.toolbar--has-ocr-action .toolbar-action--save-as,
     .toolbar--editor.toolbar--has-ocr-action .toolbar-action--export-docx {
@@ -490,7 +493,7 @@ function isCollapsed(_tier: number) {
     }
 }
 
-@container (max-width: 1470px) {
+@container (max-width: calc(1470px * var(--app-ui-scale, 1))) {
     .toolbar--editor .toolbar-action--print-current-page,
     .toolbar--editor .toolbar-action--save-as,
     .toolbar--editor .toolbar-action--export-docx {
@@ -498,27 +501,27 @@ function isCollapsed(_tier: number) {
     }
 }
 
-@container (max-width: 1380px) {
+@container (max-width: calc(1380px * var(--app-ui-scale, 1))) {
     .toolbar--editor .toolbar-action--print,
     .toolbar--editor .toolbar-group-item--continuous-scroll {
         display: none;
     }
 }
 
-@container (max-width: 1260px) {
+@container (max-width: calc(1260px * var(--app-ui-scale, 1))) {
     .toolbar--editor .toolbar-button-group--fit {
         display: none;
     }
 }
 
-@container (max-width: 1190px) {
+@container (max-width: calc(1190px * var(--app-ui-scale, 1))) {
     .toolbar--editor .toolbar-group-item--drag-mode,
     .toolbar--editor .toolbar-group-item--text-select {
         display: none;
     }
 }
 
-@container (max-width: 1120px) {
+@container (max-width: calc(1120px * var(--app-ui-scale, 1))) {
     .toolbar--editor .toolbar-action--capture-region,
     .toolbar--editor .toolbar-action--crop,
     .toolbar--editor .toolbar-action--ocr {
@@ -526,7 +529,7 @@ function isCollapsed(_tier: number) {
     }
 }
 
-@container (max-width: 980px) {
+@container (max-width: calc(980px * var(--app-ui-scale, 1))) {
     .toolbar--editor .toolbar-action--undo,
     .toolbar--editor .toolbar-action--redo {
         display: none;

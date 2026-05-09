@@ -3,6 +3,7 @@ import { inspectAllowedExternalUrl } from '@contracts/external-url';
 import { browserWindowTabsCapability } from '@app/platform/browser-window-tabs';
 import { browserDjvuCapability } from '@app/platform/browser-api/djvu-capability';
 import { createBrowserDocumentsCapability } from '@app/platform/browser-api/documents-capability';
+import { browserHostCapability } from '@app/platform/browser-api/host-capability';
 import { browserOcrCapability } from '@app/platform/browser-api/ocr-capability';
 import { createBrowserSearchCapability } from '@app/platform/browser-api/search-capability';
 import { browserSettingsCapability } from '@app/platform/browser-api/settings-capability';
@@ -47,4 +48,5 @@ export const browserPlatformApi = {
     updates: browserUpdatesCapability,
     windowTabs: browserWindowTabsCapability,
     shell: browserShellApi,
+    host: browserHostCapability,
 } satisfies IPlatformApi;

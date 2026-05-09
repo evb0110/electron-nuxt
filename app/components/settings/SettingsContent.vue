@@ -7,6 +7,7 @@
             @update:author-name="updateSetting('authorName', $event)"
             @update:theme="applyTheme"
             @update:locale="applyLocale"
+            @update:ui-scale="updateSetting('uiScale', $event)"
         />
 
         <SettingsViewerDefaultsPanel

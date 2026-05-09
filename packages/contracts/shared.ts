@@ -35,6 +35,7 @@ export type TDefaultZoomPreset = 'fit-width' | 'fit-height' | '100' | '125' | '1
 
 export type TAppTheme = 'light' | 'dark';
 export type TAppLocale = TLocale;
+export type TUiScalePreference = 'auto' | 'compact' | 'default' | 'comfortable' | 'large';
 
 export interface ISettingsData {
     version: number;
@@ -45,6 +46,7 @@ export interface ISettingsData {
     defaultViewMode: TPdfViewMode;
     defaultContinuousScroll: boolean;
     defaultAnnotationColor: string;
+    uiScale: TUiScalePreference;
     suppressDefaultViewerPrompt?: boolean;
     skippedUpdateVersion?: string;
 }

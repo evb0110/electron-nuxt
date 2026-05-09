@@ -7,6 +7,7 @@ import type {
     IAppUpdateStatus,
     IDebugLogEntry,
     IElectronAPI,
+    IHostEnvironmentSnapshot,
     IMenuEventUnsubscribe,
     IRendererLogEntry,
 } from '@contracts/electron-api';
@@ -88,6 +89,10 @@ interface ICoreInvokeMap {
         args: [tabId: string];
         result: undefined;
     };
+    'host:getEnvironment': {
+        args: [];
+        result: IHostEnvironmentSnapshot;
+    };
 }
 
 interface ICoreEventMap {
@@ -103,6 +108,7 @@ interface ICoreEventMap {
     'menu:moveTabToGroup': 'left' | 'right' | 'up' | 'down';
     'menu:copyTabToGroup': 'left' | 'right' | 'up' | 'down';
     'debug:log': IDebugLogEntry;
+    'host:environmentChanged': IHostEnvironmentSnapshot;
 }
 
 function stringifyDetails(details?: Record<string, unknown>) {
@@ -212,6 +218,12 @@ export function createElectronApi(ipcRenderer: IpcRenderer, electronWebUtils: ty
         },
 
         shell: {openExternal: (url: string) => invokeCore('shell:openExternal', url)},
+
+        host: {
+            getEnvironment: () => invokeCore('host:getEnvironment'),
+            onEnvironmentChange: (callback): IMenuEventUnsubscribe =>
+                eventSubscriber.onPayload('host:environmentChanged', callback),
+        },
 
         windowTabs: {
             closeCurrentWindow: () => invokeCore('window:closeCurrent'),

@@ -18,6 +18,24 @@
 }
 
 :root {
+    /* Universal UI scale lever — driven by useUiScale composable.
+       Set on <html> via an inline style; this default keeps SSR/initial paint stable. */
+    --app-ui-scale: 1;
+
+    /* Chrome-density tokens — kept in rem so they scale with --app-ui-scale via root font-size. */
+    --app-toolbar-control-size: 2.25rem;
+    --app-toolbar-icon-size: 1.125rem;
+    --app-toolbar-control-radius: 0.5rem;
+    --app-toolbar-control-padding-x: 0.625rem;
+    --app-toolbar-group-gap: 0.125rem;
+    --app-toolbar-section-gap: 0.5rem;
+    --app-tabbar-height: 2.375rem;
+    --app-tab-close-size: 1.25rem;
+    --app-tab-min-padding-x: 1.875rem;
+    --app-statusbar-button-size: 1.75rem;
+    --app-statusbar-icon-size: 0.95rem;
+    --app-outline-toolbar-button-size: 1.75rem;
+
     --ui-primary: var(--color-brand-700);
     --ui-success: oklch(45% 0.13 147);
     --app-window-bg: var(--ui-bg, #ffffff);
@@ -455,6 +473,10 @@
 
 .app-scrollbar::-webkit-scrollbar-corner {
     background: transparent;
+}
+
+html {
+    font-size: calc(16px * var(--app-ui-scale, 1));
 }
 
 html,

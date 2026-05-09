@@ -488,8 +488,8 @@ onClickOutside(contextMenuRef, () => {
     align-items: stretch;
     width: 100%;
     min-width: 0;
-    height: 38px;
-    min-height: 38px;
+    height: var(--app-tabbar-height, 2.375rem);
+    min-height: var(--app-tabbar-height, 2.375rem);
     background: var(--app-tabbar-bg);
     border-bottom: 1px solid var(--ui-border);
     user-select: none;
@@ -515,16 +515,16 @@ onClickOutside(contextMenuRef, () => {
 .tab {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 0 8px 0 12px;
+    gap: 0.25rem;
+    padding: 0 0.5rem 0 0.75rem;
     min-width: 0;
-    max-width: 200px;
+    max-width: 12.5rem;
     height: calc(100% - 0.25rem);
     border: none;
     border-radius: 0.45rem 0.45rem 0 0;
     background: transparent;
     color: var(--ui-text-dimmed);
-    font-size: 12px;
+    font-size: 0.75rem;
     cursor: pointer;
     position: relative;
     touch-action: none;
@@ -573,23 +573,23 @@ onClickOutside(contextMenuRef, () => {
 }
 
 .tab-dirty-dot {
-    width: 8px;
-    height: 8px;
-    min-width: 8px;
+    width: 0.5rem;
+    height: 0.5rem;
+    min-width: 0.5rem;
     border-radius: 50%;
     background: var(--ui-text-dimmed);
-    margin: 0 3px;
+    margin: 0 0.1875rem;
 }
 
 .tab-close {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
-    min-width: 20px;
+    width: var(--app-tab-close-size, 1.25rem);
+    height: var(--app-tab-close-size, 1.25rem);
+    min-width: var(--app-tab-close-size, 1.25rem);
     border: none;
-    border-radius: 4px;
+    border-radius: 0.25rem;
     background: transparent;
     color: var(--ui-text-dimmed);
     cursor: pointer;
@@ -618,8 +618,8 @@ onClickOutside(contextMenuRef, () => {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 30px;
-    min-width: 30px;
+    width: var(--app-tab-min-padding-x, 1.875rem);
+    min-width: var(--app-tab-min-padding-x, 1.875rem);
     height: calc(100% - 0.25rem);
     margin-top: 0;
     border: none;

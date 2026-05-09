@@ -70,6 +70,7 @@ describe('useSettings', () => {
             defaultViewMode: 'single',
             defaultContinuousScroll: true,
             defaultAnnotationColor: '#ffd400',
+            uiScale: 'auto',
         });
 
         const { useSettings } = await import('@app/composables/useSettings');
@@ -93,6 +94,7 @@ describe('useSettings', () => {
             defaultViewMode: 'single',
             defaultContinuousScroll: true,
             defaultAnnotationColor: '#ffd400',
+            uiScale: 'auto',
             suppressDefaultViewerPrompt: false,
             skippedUpdateVersion: undefined,
         });
