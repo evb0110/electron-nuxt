@@ -115,7 +115,7 @@ dmg:
   iconSize: 128
   window:
     width: 600
-    height: 540
+    height: 360
   contents:
     - x: 160
       y: 240
