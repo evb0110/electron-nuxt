@@ -750,7 +750,7 @@ watch(() => startSection, (section) => {
 
 .recent-table {
     display: grid;
-    grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) auto 4.75rem;
+    grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr) auto 5.5rem;
     grid-auto-rows: min-content;
     align-content: start;
     border-top: 1px solid var(--app-start-row-divider);
@@ -847,7 +847,7 @@ watch(() => startSection, (section) => {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 0.2rem;
+    gap: 0.45rem;
     padding-right: 0.7rem;
 }
 
@@ -894,8 +894,8 @@ watch(() => startSection, (section) => {
 }
 
 .recent-action:hover {
-    background: var(--app-start-row-hover-bg);
-    color: var(--ui-text);
+    background: var(--app-start-row-remove-hover-bg);
+    color: var(--app-start-row-remove-hover-fg);
 }
 
 .recent-action:focus-visible {
@@ -992,7 +992,7 @@ watch(() => startSection, (section) => {
     }
 
     .recent-table {
-        grid-template-columns: minmax(0, 1fr) auto 4.5rem;
+        grid-template-columns: minmax(0, 1fr) auto 5.25rem;
     }
 
     .recent-row {
